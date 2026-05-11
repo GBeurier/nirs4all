@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>nirs4all — Benchmark Dataviz</title>
+  <title>nirs4all — Benchmark Dataviz (Master + Presets)</title>
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
     :root {
@@ -30,74 +30,77 @@
       color: white;
       padding: 24px 32px;
       box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+      position: sticky;
+      top: 0;
+      z-index: 10;
     }
     header h1 {
       margin: 0;
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 600;
     }
     header .meta {
-      font-size: 13px;
+      font-size: 12px;
       color: #bbb;
       margin-top: 4px;
     }
     .container {
-      max-width: 1600px;
+      max-width: 1800px;
       margin: 0 auto;
       padding: 24px 32px 64px;
     }
     .kpi-row {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-      gap: 12px;
-      margin-bottom: 32px;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 10px;
+      margin-bottom: 24px;
     }
     .kpi {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 16px 18px;
+      padding: 14px 16px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     .kpi .label {
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.06em;
       color: var(--muted);
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     .kpi .value {
-      font-size: 24px;
+      font-size: 22px;
       font-weight: 600;
     }
     .kpi .sub {
-      font-size: 12px;
+      font-size: 11px;
       color: var(--muted);
-      margin-top: 4px;
+      margin-top: 2px;
     }
     .section {
       background: var(--card);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 24px;
-      margin-bottom: 24px;
+      padding: 20px;
+      margin-bottom: 20px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.04);
     }
     .section h2 {
-      margin: 0 0 6px;
+      margin: 0 0 4px;
       font-size: 18px;
       font-weight: 600;
     }
     .section .subtitle {
       color: var(--muted);
-      font-size: 13px;
-      margin-bottom: 18px;
+      font-size: 12px;
+      margin-bottom: 14px;
     }
     .plot {
       min-height: 360px;
     }
     .plot-tall {
-      min-height: 560px;
+      min-height: 540px;
     }
     .plot-xtall {
       min-height: 800px;
@@ -105,13 +108,14 @@
     .tabs {
       display: flex;
       gap: 4px;
-      margin-bottom: 16px;
+      margin-bottom: 14px;
       border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
     }
     .tab {
-      padding: 8px 16px;
+      padding: 7px 14px;
       cursor: pointer;
-      font-size: 13px;
+      font-size: 12px;
       color: var(--muted);
       border-bottom: 2px solid transparent;
       transition: all 0.15s;
@@ -127,28 +131,38 @@
     table.lb {
       width: 100%;
       border-collapse: collapse;
-      font-size: 13px;
+      font-size: 12px;
     }
     table.lb th, table.lb td {
-      padding: 8px 10px;
+      padding: 6px 9px;
       text-align: left;
       border-bottom: 1px solid var(--border);
     }
     table.lb th {
       font-weight: 600;
       color: var(--muted);
-      font-size: 11px;
+      font-size: 10px;
       text-transform: uppercase;
       letter-spacing: 0.04em;
+      position: sticky;
+      top: 0;
+      background: var(--card);
     }
     table.lb td.num { text-align: right; font-variant-numeric: tabular-nums; }
     table.lb tr.winner { background: rgba(44, 160, 44, 0.06); }
     table.lb tr.winner td:first-child { font-weight: 600; }
-    .family-pill {
+    table.lb tr:hover { background: rgba(31, 119, 180, 0.04); }
+    .scroll-table {
+      max-height: 460px;
+      overflow-y: auto;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+    }
+    .family-pill, .class-pill {
       display: inline-block;
-      padding: 2px 8px;
+      padding: 1px 7px;
       border-radius: 10px;
-      font-size: 11px;
+      font-size: 10px;
       color: white;
       font-weight: 500;
     }
@@ -173,44 +187,174 @@
       background: #f0f0f0;
       padding: 1px 5px;
       border-radius: 3px;
+      font-size: 11px;
+    }
+    .section-divider {
+      border-top: 3px solid var(--accent);
+      margin: 32px -32px 24px;
+      padding: 8px 32px;
+      background: linear-gradient(180deg, rgba(214,39,40,0.05) 0%, transparent 100%);
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+    .filter-bar label {
       font-size: 12px;
+      color: var(--muted);
+    }
+    .filter-bar select, .filter-bar input {
+      padding: 4px 8px;
+      font-size: 12px;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      background: white;
     }
   </style>
 </head>
 <body>
   <header>
-    <h1>nirs4all — Benchmark Production Run Dataviz</h1>
+    <h1>nirs4all — Benchmark Dataviz</h1>
     <div class="meta" id="header-meta">Loading…</div>
   </header>
   <div class="container">
-    <!-- KPI row -->
-    <div class="kpi-row" id="kpi-row"></div>
 
-    <!-- Per-preset leaderboards -->
+    <!-- ========================================================== -->
+    <!-- MASTER AGGREGATE — covers ALL observed + paper rows         -->
+    <!-- ========================================================== -->
+    <div class="section-divider">Master Aggregate — all observed rows + paper references</div>
+
+    <div class="kpi-row" id="master-kpis"></div>
+
     <div class="section">
-      <h2>1. Per-Preset Leaderboards</h2>
-      <div class="subtitle">Median rmsep across the full-57 cohort (status=ok rows only). Lower is better.</div>
+      <h2>M1. Top Models — all sources combined</h2>
+      <div class="subtitle">
+        All 347+ distinct <code>model_name</code> from the master CSV, aggregated across
+        every source_run + dataset. Median rmsep is the best-per-dataset across that
+        model_name (collapses duplicate fits). Filter to drill in.
+      </div>
+      <div class="filter-bar">
+        <label>Min datasets: <input id="filter-min-ds" type="number" value="10" min="1" max="80" style="width:60px"></label>
+        <label>Model class:
+          <select id="filter-model-class"><option value="">all</option></select>
+        </label>
+        <label>Sort by:
+          <select id="filter-sort">
+            <option value="median_rmsep">Median rmsep ↑</option>
+            <option value="best_rmsep">Best rmsep ↑</option>
+            <option value="n_datasets">Coverage ↓</option>
+            <option value="model_class">Model class</option>
+          </select>
+        </label>
+        <label>Top N: <input id="filter-top-n" type="number" value="50" min="5" max="500" style="width:60px"></label>
+      </div>
+      <div class="scroll-table" id="top-models-table"></div>
+    </div>
+
+    <div class="section">
+      <h2>M2. Model Class Performance</h2>
+      <div class="subtitle">
+        Each of the 13 model_class buckets: median best-rmsep across covered
+        datasets (best-rmsep = lowest within the class on each dataset).
+      </div>
+      <div class="grid-2">
+        <div id="master-class-bars" class="plot"></div>
+        <div id="master-class-coverage" class="plot"></div>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>M3. Source Run Activity</h2>
+      <div class="subtitle">
+        Each of the 74 source_runs that contributed observations. Size = number
+        of rows, color = median rmsep (lower / greener = better).
+      </div>
+      <div id="master-source-treemap" class="plot-tall"></div>
+    </div>
+
+    <div class="section">
+      <h2>M4. Master rmsep distribution by model class</h2>
+      <div class="subtitle">
+        Box plots showing the full rmsep distribution per model_class across all
+        observations. Useful to see spread + outliers, not just medians.
+      </div>
+      <div id="master-class-box" class="plot-tall"></div>
+    </div>
+
+    <div class="section">
+      <h2>M5. Per-Dataset Best-Overall</h2>
+      <div class="subtitle">
+        For each of the 72 datasets, the model_name with the lowest rmsep across
+        the entire master (any source_run, any maturity).
+      </div>
+      <div class="filter-bar">
+        <label>Sort by:
+          <select id="filter-pdb-sort">
+            <option value="dataset">Dataset name</option>
+            <option value="n_train">n_train ↑</option>
+            <option value="best_rmsep">Best rmsep ↑</option>
+            <option value="best_model_class">Model class</option>
+          </select>
+        </label>
+      </div>
+      <div class="scroll-table" id="per-dataset-best-table"></div>
+    </div>
+
+    <div class="section">
+      <h2>M6. Maturity: locked vs exploratory</h2>
+      <div class="subtitle">
+        Distribution of rmsep across the 2 maturity buckets. <code>locked</code>
+        = production-grade evidence (P0 freeze); <code>exploratory</code> = recent
+        diagnostic runs (Phase 2-5 + D-A-* + D-B-*).
+      </div>
+      <div id="master-maturity" class="plot"></div>
+    </div>
+
+    <div class="section">
+      <h2>M7. All observations — rmsep vs n_train</h2>
+      <div class="subtitle">
+        Scatter of every (model × dataset) observation in the master.
+        Color by model_class. Click legend entries to filter classes.
+      </div>
+      <div id="master-all-scatter" class="plot-tall"></div>
+    </div>
+
+    <div class="section">
+      <h2>M8. Source family breakdown</h2>
+      <div class="subtitle">
+        9 distinct source_family buckets: bench/AOM_v0/, bench/nicon_v2/,
+        bench/fck_pls/, etc. Useful to see which legacy repo contributed most.
+      </div>
+      <div id="master-source-family" class="plot"></div>
+    </div>
+
+    <!-- ========================================================== -->
+    <!-- PRODUCTION PRESETS section                                  -->
+    <!-- ========================================================== -->
+    <div class="section-divider">Production Preset Runs (Phase 2-5, full-57 cohort)</div>
+
+    <div class="kpi-row" id="preset-kpis"></div>
+
+    <div class="section">
+      <h2>P1. Per-Preset Leaderboards</h2>
+      <div class="subtitle">Median rmsep across the full-57 cohort. Production runs only.</div>
       <div class="tabs" id="preset-tabs"></div>
       <div id="preset-panels"></div>
     </div>
 
-    <!-- Family aggregation -->
     <div class="section">
-      <h2>2. Model Family Performance</h2>
-      <div class="subtitle">Per-family: best (min) rmsep across the family's candidates per dataset, aggregated as median.</div>
-      <div class="grid-2">
-        <div id="family-bars" class="plot"></div>
-        <div id="family-distribution" class="plot"></div>
-      </div>
-    </div>
-
-    <!-- Per-dataset heatmap -->
-    <div class="section">
-      <h2>3. Per-Dataset Performance Heatmap</h2>
+      <h2>P2. Per-Preset-Dataset Heatmap</h2>
       <div class="subtitle">
-        Each row is a dataset (sorted by <span id="ds-sort-mode">n_train</span>).
-        Each column is a candidate. Cell color: rmsep relative to the row's best
-        (green = best ; red = much worse).
+        Each row is a dataset (preset workspace), columns are candidates. Cell color:
+        rmsep / row-best (green = best, red = much worse).
       </div>
       <div class="tabs">
         <div class="tab active" data-ds-sort="n_train">Sort by n_train ↑</div>
@@ -220,23 +364,18 @@
       <div id="dataset-heatmap" class="plot-xtall"></div>
     </div>
 
-    <!-- Dataset size analysis -->
     <div class="section">
-      <h2>4. Performance vs Dataset Size</h2>
+      <h2>P3. Performance vs n_train (preset candidates)</h2>
       <div class="subtitle">
-        Each point: one candidate × dataset. X = n_train (log scale), Y = rmsep.
-        Lines connect a candidate's points across datasets to reveal scaling
-        behaviour. Click legend entries to toggle candidates.
+        Scatter of preset-candidate × dataset rmsep vs n_train. Log-log scale.
       </div>
       <div id="size-scatter" class="plot-tall"></div>
     </div>
 
-    <!-- Preprocessing influence -->
     <div class="section">
-      <h2>5. Preprocessing Influence</h2>
+      <h2>P4. Preprocessing Influence (none vs SNV on AOMRidge-global)</h2>
       <div class="subtitle">
-        Pair-wise comparison of candidates that differ only in a preprocessing
-        knob. Δ rmsep = SNV − none ; positive means SNV is worse on that dataset.
+        Δ rmsep per dataset. <code>0</code> = no impact ; positive = SNV worse.
       </div>
       <div class="grid-2">
         <div id="preproc-hist" class="plot"></div>
@@ -244,76 +383,45 @@
       </div>
     </div>
 
-    <!-- Speed-accuracy Pareto -->
     <div class="section">
-      <h2>6. Speed vs Accuracy (Pareto)</h2>
-      <div class="subtitle">
-        Median fit time (log) vs median rmsep. Bottom-left is best (fast + accurate).
-        Bubble size scales with success rate. Coloured by family.
-      </div>
+      <h2>P5. Speed vs Accuracy Pareto (best_current)</h2>
+      <div class="subtitle">Median fit time (log) vs median rmsep. Bottom-left is best.</div>
       <div id="pareto-scatter" class="plot-tall"></div>
     </div>
 
-    <!-- Head-to-head -->
     <div class="section">
-      <h2>7. Head-to-Head Win Matrix (best_current)</h2>
-      <div class="subtitle">
-        Cell <code>(row, col)</code>: number of datasets where the row candidate's
-        rmsep is strictly less than the column candidate's. Bright = row dominates col.
-      </div>
+      <h2>P6. Head-to-Head Win Matrix (best_current 8×8)</h2>
+      <div class="subtitle">Cell (row, col): datasets where row's rmsep is strictly less than col's.</div>
       <div id="h2h-heatmap" class="plot-tall"></div>
     </div>
 
-    <!-- MoE / Stack -->
     <div class="section">
-      <h2>8. Ensembles &amp; MoE / Stack Performance</h2>
-      <div class="subtitle">
-        Filter to ensemble / stacked candidates. Note: many ensemble slots are
-        IMPORT_ERROR (multiview/Multi-kernel modules not surfaced) — they show
-        with 0 datasets here.
-      </div>
-      <div id="moe-bars" class="plot"></div>
-    </div>
-
-    <!-- Robustness / consistency -->
-    <div class="section">
-      <h2>9. Cross-Preset Robustness</h2>
-      <div class="subtitle">
-        Per-candidate median rmsep across the 4 presets. Identical bars =
-        candidate's performance is preset-independent (dataset coverage drives
-        the result, not preset selection).
-      </div>
+      <h2>P7. Cross-Preset Robustness</h2>
+      <div class="subtitle">Same candidate × different preset: bars identical = robust.</div>
       <div id="robustness-grouped" class="plot-tall"></div>
     </div>
 
-    <!-- Failure pattern -->
     <div class="section">
-      <h2>10. Failure &amp; Timeout Patterns</h2>
-      <div class="subtitle">
-        Datasets where one or more candidates failed (data issue) or timed out
-        (D-C-019 dispatcher kill at <code>dispatch.timeout_s</code>). Persistent
-        failure datasets should be candidate-flagged or excluded from the cohort.
-      </div>
+      <h2>P8. Failure &amp; Timeout Patterns</h2>
+      <div class="subtitle">Per dataset: data-issue failures (left) and dispatcher timeouts (right).</div>
       <div class="grid-2">
         <div id="failure-bars" class="plot"></div>
         <div id="timeout-bars" class="plot"></div>
       </div>
     </div>
 
-    <!-- TabPFN paper -->
     <div class="section">
-      <h2>11. TabPFN Reference (paper data)</h2>
+      <h2>P9. TabPFN paper reference (legacy master_pivot.csv)</h2>
       <div class="subtitle">
-        Legacy TabPFN paper rows from <code>bench/AOM_v0/publication/tables/master_pivot.csv</code>.
-        Not from the current harness — to be replaced with the user's
-        forthcoming tabpfn_paper detailed results.
+        Box plots of legacy TabPFN paper rows by model_name (TabPFN-Raw,
+        TabPFN-opt, TabPFN-HPO-preprocessing). Will be replaced when user
+        imports their detailed tabpfn_paper runs.
       </div>
       <div id="tabpfn-summary" class="plot"></div>
     </div>
 
-    <!-- Synthesis text -->
     <div class="section recommendations">
-      <h2>12. Synthesis &amp; Recommendations</h2>
+      <h2>S. Synthesis &amp; Recommendations</h2>
       <ul id="synthesis-list">
         <li>Loading…</li>
       </ul>
@@ -322,21 +430,50 @@
 
   <script>
   // --------------------------------------------------------------------
-  // Load data + main rendering pipeline
+  // Helpers
+  // --------------------------------------------------------------------
+  const FAM_COLOR = {
+    'AOM-Ridge': '#d62728', 'AOM-PLS': '#1f77b4', 'ASLS': '#9467bd',
+    'Ridge': '#2ca02c', 'PLS': '#8c564b', 'MoE/Stack': '#ff7f0e',
+    'FCK': '#17becf', 'Residual NN': '#bcbd22', 'Multi-Kernel': '#7f7f7f',
+    'TabPFN': '#e377c2', 'Paper-ref': '#aaaaaa', 'Other': '#cccccc',
+  };
+  const MC_COLOR = {
+    'AOM-PLS': '#1f77b4', 'AOM-Ridge': '#d62728', 'PLS': '#8c564b',
+    'NICON/CNN': '#bcbd22', 'Ridge': '#2ca02c', 'Meta-selector/MoE': '#ff7f0e',
+    'Hybrid CNN+AOM': '#17becf', 'POP-PLS': '#5fa8e3', 'Hybrid CNN+linear': '#c4c443',
+    'Multi-kernel ridge': '#7f7f7f', 'TabPFN': '#e377c2', 'CatBoost': '#9467bd',
+    'FCK-PLS': '#0e8898', 'Stacked NN+Linear': '#ffaa00',
+  };
+  const fmtNum = (x, d=4) => x === null || x === undefined ? '—' : Number(x).toFixed(d);
+  const fmtTime = (s) => s === null || s === undefined ? '—' : (s < 1 ? s.toFixed(2) + 's' : s < 60 ? s.toFixed(1) + 's' : (s/60).toFixed(1) + 'min');
+  const fmtInt = x => x === null || x === undefined ? '—' : Number(x).toLocaleString();
+
+  // --------------------------------------------------------------------
+  // Load + render
   // --------------------------------------------------------------------
   fetch('./dashboard_data.json').then(r => r.json()).then(data => {
     window.dashData = data;
     renderHeader(data);
-    renderKPIs(data);
+    renderMasterKPIs(data);
+    renderPresetKPIs(data);
+    renderTopModels(data);
+    bindTopModelsFilter(data);
+    renderClassBars(data);
+    renderClassBox(data);
+    renderSourceTreemap(data);
+    renderPerDatasetBest(data);
+    bindPerDatasetBestFilter(data);
+    renderMaturity(data);
+    renderAllScatter(data);
+    renderSourceFamily(data);
     renderPresets(data);
-    renderFamilies(data);
     renderDatasetHeatmap(data, 'n_train');
     bindDatasetSortTabs(data);
     renderSizeScatter(data);
     renderPreprocPair(data);
     renderParetoScatter(data);
     renderH2H(data);
-    renderMoEBars(data);
     renderRobustness(data);
     renderFailures(data);
     renderTabPFN(data);
@@ -345,34 +482,35 @@
     document.body.innerHTML = '<pre style="color:red;padding:32px">Error loading dashboard_data.json: ' + err.message + '</pre>';
   });
 
-  // --------------------------------------------------------------------
-  // Helpers
-  // --------------------------------------------------------------------
-  const FAM_COLOR = {
-    'AOM-Ridge': '#d62728',
-    'AOM-PLS': '#1f77b4',
-    'ASLS': '#9467bd',
-    'Ridge': '#2ca02c',
-    'PLS': '#8c564b',
-    'MoE/Stack': '#ff7f0e',
-    'FCK': '#17becf',
-    'Residual NN': '#bcbd22',
-    'Multi-Kernel': '#7f7f7f',
-    'TabPFN': '#e377c2',
-    'Paper-ref': '#aaaaaa',
-    'Other': '#cccccc',
-  };
-  const fmtNum = (x, d=4) => x === null || x === undefined ? '—' : Number(x).toFixed(d);
-  const fmtTime = (s) => s === null || s === undefined ? '—' : (s < 1 ? s.toFixed(2) + 's' : s < 60 ? s.toFixed(1) + 's' : (s/60).toFixed(1) + 'min');
-
   function renderHeader(data) {
     const ts = new Date(data.metadata.generated_at).toLocaleString();
-    const completed = data.metadata.phases_complete;
+    const m = data.metadata;
     document.getElementById('header-meta').textContent =
-      `Generated ${ts} · ${completed}/4 presets · ${data.metadata.n_candidates_total} candidates · ${data.metadata.n_datasets_total} datasets`;
+      `Generated ${ts} · master: ${fmtInt(m.master_observed_total)} observed rows, ${m.master_distinct_models} models, ${m.master_source_runs} source runs · presets: ${m.phases_complete}/4 done, ${m.n_candidates_preset} candidates`;
   }
 
-  function renderKPIs(data) {
+  function renderMasterKPIs(data) {
+    const m = data.metadata;
+    const ma = data.master;
+    const bestClass = ma.by_model_class[0];
+    const bestModel = ma.top_models.find(t => t.n_datasets >= 10);
+    const kpis = [
+      {label: 'Master observed rows', value: fmtInt(m.master_observed_total), sub: `incl. ${data.tabpfn_paper.length} TabPFN paper rows`},
+      {label: 'Distinct models', value: m.master_distinct_models, sub: `across ${m.master_source_runs} source runs`},
+      {label: 'Model classes', value: m.master_model_classes, sub: 'AOM-PLS · AOM-Ridge · PLS · Ridge · …'},
+      {label: 'Datasets covered', value: ma.per_dataset_best.length, sub: 'master scope'},
+      {label: 'Best class (median)', value: bestClass ? bestClass.model_class : '—', sub: bestClass ? fmtNum(bestClass.median_best_rmsep) + ' rmsep' : ''},
+      {label: 'Best model (≥10 ds)', value: bestModel ? bestModel.model_name.slice(0,18) : '—', sub: bestModel ? fmtNum(bestModel.median_rmsep) + ' median' : ''},
+    ];
+    document.getElementById('master-kpis').innerHTML = kpis.map(k => `
+      <div class="kpi">
+        <div class="label">${k.label}</div>
+        <div class="value">${k.value}</div>
+        <div class="sub">${k.sub}</div>
+      </div>`).join('');
+  }
+
+  function renderPresetKPIs(data) {
     let totalFits = 0, totalOK = 0, totalFail = 0, totalTimeout = 0;
     Object.values(data.presets).forEach(p => {
       if (!p.available) return;
@@ -381,9 +519,7 @@
       totalFail += p.n_failed;
       totalTimeout += p.n_failed_terminal;
     });
-    // Overall winner (best median rmsep in any preset)
-    let winner = null;
-    let bestMedian = Infinity;
+    let winner = null, bestMedian = Infinity;
     Object.values(data.presets).forEach(p => {
       if (!p.available) return;
       p.candidates.forEach(c => {
@@ -393,40 +529,309 @@
         }
       });
     });
-
     const kpis = [
-      {label: 'Production fits', value: totalFits.toLocaleString(), sub: `${totalOK} OK · ${totalFail} failed · ${totalTimeout} timeout`},
-      {label: 'Success rate', value: ((totalOK/totalFits)*100).toFixed(1) + '%', sub: `across ${data.metadata.phases_complete}/4 presets`},
-      {label: 'Best candidate', value: winner ? winner.short_name : '—', sub: winner ? `median rmsep ${fmtNum(winner.median_rmsep)}` : ''},
-      {label: 'Datasets covered', value: data.metadata.n_datasets_total, sub: 'full-57 cohort'},
-      {label: 'Candidates measured', value: data.metadata.n_candidates_total, sub: 'production-grade'},
-      {label: 'Model families', value: data.families.length, sub: data.families.map(f => f.family).slice(0,3).join(' · ')},
+      {label: 'Preset fits', value: fmtInt(totalFits), sub: `${totalOK} OK · ${totalFail} fail · ${totalTimeout} timeout`},
+      {label: 'Success rate', value: ((totalOK/totalFits)*100).toFixed(1) + '%', sub: `${data.metadata.phases_complete}/4 presets done`},
+      {label: 'Preset winner', value: winner ? winner.short_name : '—', sub: winner ? fmtNum(winner.median_rmsep) + ' median rmsep' : ''},
+      {label: 'Preset datasets', value: data.metadata.n_datasets_total, sub: 'full-57 cohort'},
     ];
-    const row = document.getElementById('kpi-row');
-    row.innerHTML = kpis.map(k => `
+    document.getElementById('preset-kpis').innerHTML = kpis.map(k => `
       <div class="kpi">
         <div class="label">${k.label}</div>
         <div class="value">${k.value}</div>
         <div class="sub">${k.sub}</div>
-      </div>
-    `).join('');
+      </div>`).join('');
   }
 
   // --------------------------------------------------------------------
-  // 1. Per-preset leaderboards (tabbed)
+  // M1. Top models table
+  // --------------------------------------------------------------------
+  function renderTopModels(data) {
+    // Populate model-class filter
+    const sel = document.getElementById('filter-model-class');
+    const classes = Array.from(new Set(data.master.top_models.map(t => t.model_class).filter(Boolean))).sort();
+    classes.forEach(c => {
+      const opt = document.createElement('option');
+      opt.value = c;
+      opt.textContent = c;
+      sel.appendChild(opt);
+    });
+    refreshTopModelsTable(data);
+  }
+
+  function bindTopModelsFilter(data) {
+    ['filter-min-ds', 'filter-model-class', 'filter-sort', 'filter-top-n'].forEach(id => {
+      document.getElementById(id).addEventListener('change', () => refreshTopModelsTable(data));
+    });
+  }
+
+  function refreshTopModelsTable(data) {
+    const minDs = parseInt(document.getElementById('filter-min-ds').value || '0');
+    const classFilter = document.getElementById('filter-model-class').value;
+    const sortBy = document.getElementById('filter-sort').value;
+    const topN = parseInt(document.getElementById('filter-top-n').value || '50');
+
+    let models = data.master.top_models
+      .filter(m => m.n_datasets >= minDs)
+      .filter(m => !classFilter || m.model_class === classFilter);
+
+    if (sortBy === 'median_rmsep' || sortBy === 'best_rmsep') {
+      models.sort((a,b) => (a[sortBy] ?? Infinity) - (b[sortBy] ?? Infinity));
+    } else if (sortBy === 'n_datasets') {
+      models.sort((a,b) => (b.n_datasets ?? 0) - (a.n_datasets ?? 0));
+    } else if (sortBy === 'model_class') {
+      models.sort((a,b) => (a.model_class || '').localeCompare(b.model_class || '')
+                          || (a.median_rmsep ?? Infinity) - (b.median_rmsep ?? Infinity));
+    }
+    models = models.slice(0, topN);
+
+    const rows = models.map((m, idx) => {
+      const color = MC_COLOR[m.model_class] || '#888';
+      const winner = idx < 3 ? 'winner' : '';
+      return `<tr class="${winner}">
+        <td title="${m.model_name}">${m.model_name.length > 50 ? m.model_name.slice(0,50)+'…' : m.model_name}</td>
+        <td><span class="class-pill" style="background:${color}">${m.model_class || '?'}</span></td>
+        <td class="num">${m.n_datasets}</td>
+        <td class="num">${m.n_observations}</td>
+        <td class="num">${fmtNum(m.best_rmsep)}</td>
+        <td class="num">${fmtNum(m.median_rmsep)}</td>
+        <td class="num">${fmtNum(m.q25_rmsep)}</td>
+        <td class="num">${fmtNum(m.q75_rmsep)}</td>
+        <td class="num">${fmtNum(m.q90_rmsep)}</td>
+        <td class="num">${m.n_source_runs}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('top-models-table').innerHTML = `
+      <table class="lb">
+        <thead><tr>
+          <th>Model name</th><th>Class</th>
+          <th class="num">Datasets</th><th class="num">Obs.</th>
+          <th class="num">Best</th><th class="num">Median</th>
+          <th class="num">Q25</th><th class="num">Q75</th><th class="num">Q90</th>
+          <th class="num">Source runs</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  // --------------------------------------------------------------------
+  // M2. Class bars
+  // --------------------------------------------------------------------
+  function renderClassBars(data) {
+    const cls = data.master.by_model_class;
+    Plotly.newPlot('master-class-bars', [{
+      type: 'bar',
+      x: cls.map(c => c.median_best_rmsep),
+      y: cls.map(c => c.model_class),
+      orientation: 'h',
+      marker: { color: cls.map(c => c.color) },
+      text: cls.map(c => `${fmtNum(c.median_best_rmsep)} (${c.n_models} models)`),
+      textposition: 'outside',
+      hovertemplate: '<b>%{y}</b><br>median best-rmsep: %{x:.4f}<br>%{text}<extra></extra>',
+    }], {
+      title: { text: 'Median best-rmsep per model_class (lower = better)', font: { size: 13 } },
+      xaxis: { title: 'Median best-rmsep across covered datasets' },
+      yaxis: { autorange: 'reversed' },
+      margin: { l: 150, r: 60, t: 40, b: 40 },
+      height: 420,
+    }, { responsive: true });
+
+    Plotly.newPlot('master-class-coverage', [{
+      type: 'bar',
+      x: cls.map(c => c.model_class),
+      y: cls.map(c => c.n_datasets_covered),
+      marker: { color: cls.map(c => c.color) },
+      text: cls.map(c => `${c.n_datasets_covered} ds · ${c.n_observations} obs`),
+      textposition: 'outside',
+      hovertemplate: '<b>%{x}</b><br>%{text}<br><extra></extra>',
+    }], {
+      title: { text: 'Coverage per class (datasets + observations)', font: { size: 13 } },
+      xaxis: { tickangle: -30 },
+      yaxis: { title: 'Datasets covered' },
+      margin: { l: 50, r: 30, t: 40, b: 100 },
+      height: 420,
+    }, { responsive: true });
+  }
+
+  // --------------------------------------------------------------------
+  // M3. Source treemap
+  // --------------------------------------------------------------------
+  function renderSourceTreemap(data) {
+    const sr = data.master.by_source_run;
+    Plotly.newPlot('master-source-treemap', [{
+      type: 'treemap',
+      labels: sr.map(s => `${s.source_run}<br>${s.n_observations} obs<br>med ${fmtNum(s.median_rmsep)}`),
+      parents: sr.map(_ => ''),
+      values: sr.map(s => s.n_observations),
+      marker: {
+        colors: sr.map(s => s.median_rmsep ?? 0),
+        colorscale: [[0, '#2ca02c'], [0.5, '#ffeb3b'], [1.0, '#d62728']],
+        cmin: 0, cmax: 3,
+        showscale: true,
+        colorbar: { title: 'median rmsep' },
+      },
+      textposition: 'middle center',
+      textinfo: 'label+value',
+      hovertemplate: '%{label}<extra></extra>',
+    }], {
+      margin: { l: 0, r: 0, t: 20, b: 0 },
+      height: 540,
+    }, { responsive: true });
+  }
+
+  // --------------------------------------------------------------------
+  // M4. Class box plot
+  // --------------------------------------------------------------------
+  function renderClassBox(data) {
+    // Build per-class rmsep list from observations_lean
+    const byCls = {};
+    data.master.observations_lean.forEach(o => {
+      if (!o.model_class) return;
+      byCls[o.model_class] = byCls[o.model_class] || [];
+      byCls[o.model_class].push(o.rmsep);
+    });
+    const classes = Object.keys(byCls).sort((a,b) => byCls[b].length - byCls[a].length);
+    const traces = classes.map(c => ({
+      type: 'box',
+      name: c,
+      y: byCls[c],
+      marker: { color: MC_COLOR[c] || '#888' },
+      boxpoints: 'outliers',
+      hovertemplate: '<b>' + c + '</b><br>rmsep: %{y:.4f}<extra></extra>',
+    }));
+    Plotly.newPlot('master-class-box', traces, {
+      yaxis: { title: 'rmsep', range: [0, 5] },
+      xaxis: { tickangle: -30 },
+      margin: { l: 50, r: 30, t: 30, b: 90 },
+      height: 540,
+      showlegend: false,
+    }, { responsive: true });
+  }
+
+  // --------------------------------------------------------------------
+  // M5. Per-dataset best
+  // --------------------------------------------------------------------
+  function renderPerDatasetBest(data, sortBy='dataset') {
+    let list = [...data.master.per_dataset_best];
+    if (sortBy === 'n_train') list.sort((a,b) => (a.n_train||0) - (b.n_train||0));
+    else if (sortBy === 'best_rmsep') list.sort((a,b) => (a.best_rmsep||0) - (b.best_rmsep||0));
+    else if (sortBy === 'best_model_class') list.sort((a,b) =>
+      (a.best_model_class||'').localeCompare(b.best_model_class||'')
+      || (a.best_rmsep||0) - (b.best_rmsep||0));
+    else list.sort((a,b) => (a.dataset||'').localeCompare(b.dataset||''));
+
+    const rows = list.map(d => {
+      const color = MC_COLOR[d.best_model_class] || '#888';
+      return `<tr>
+        <td>${d.dataset}</td>
+        <td class="num">${fmtInt(d.n_train)}</td>
+        <td class="num">${fmtInt(d.n_features)}</td>
+        <td title="${d.best_model_name}">${(d.best_model_name||'').slice(0,40)}</td>
+        <td><span class="class-pill" style="background:${color}">${d.best_model_class||'?'}</span></td>
+        <td class="num">${fmtNum(d.best_rmsep)}</td>
+        <td>${(d.best_source_run||'').slice(0,30)}</td>
+      </tr>`;
+    }).join('');
+    document.getElementById('per-dataset-best-table').innerHTML = `
+      <table class="lb">
+        <thead><tr>
+          <th>Dataset</th><th class="num">n_train</th><th class="num">p</th>
+          <th>Best model</th><th>Class</th>
+          <th class="num">rmsep</th><th>Source run</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  function bindPerDatasetBestFilter(data) {
+    document.getElementById('filter-pdb-sort').addEventListener('change', (e) => {
+      renderPerDatasetBest(data, e.target.value);
+    });
+  }
+
+  // --------------------------------------------------------------------
+  // M6. Maturity comparison
+  // --------------------------------------------------------------------
+  function renderMaturity(data) {
+    const m = data.master.by_maturity;
+    Plotly.newPlot('master-maturity', [{
+      type: 'bar',
+      x: m.map(x => x.maturity),
+      y: m.map(x => x.median_rmsep),
+      marker: { color: m.map(x => x.maturity === 'locked' ? '#2ca02c' : '#ff7f0e') },
+      text: m.map(x => `median ${fmtNum(x.median_rmsep)}<br>${x.n_observations} obs`),
+      textposition: 'outside',
+      hovertemplate: '<b>%{x}</b><br>%{text}<extra></extra>',
+    }], {
+      yaxis: { title: 'Median rmsep' },
+      margin: { l: 50, r: 30, t: 30, b: 50 },
+      height: 360,
+    }, { responsive: true });
+  }
+
+  // --------------------------------------------------------------------
+  // M7. All observations scatter
+  // --------------------------------------------------------------------
+  function renderAllScatter(data) {
+    // group by model_class
+    const byClass = {};
+    data.master.observations_lean.forEach(o => {
+      if (!o.n_train || !o.model_class) return;
+      byClass[o.model_class] = byClass[o.model_class] || [];
+      byClass[o.model_class].push(o);
+    });
+    const traces = Object.entries(byClass).map(([cls, points]) => ({
+      x: points.map(p => p.n_train),
+      y: points.map(p => p.rmsep),
+      mode: 'markers',
+      type: 'scattergl',  // use WebGL for performance
+      name: cls,
+      marker: { color: MC_COLOR[cls] || '#888', size: 4, opacity: 0.5 },
+      text: points.map(p => `${p.model_name}<br>${p.dataset}`),
+      hovertemplate: '%{text}<br>n_train: %{x}<br>rmsep: %{y:.4f}<extra>' + cls + '</extra>',
+    }));
+    Plotly.newPlot('master-all-scatter', traces, {
+      xaxis: { title: 'n_train (log)', type: 'log' },
+      yaxis: { title: 'rmsep (log)', type: 'log' },
+      margin: { l: 60, r: 30, t: 30, b: 50 },
+      height: 540,
+      legend: { font: { size: 11 } },
+    }, { responsive: true });
+  }
+
+  // --------------------------------------------------------------------
+  // M8. Source family
+  // --------------------------------------------------------------------
+  function renderSourceFamily(data) {
+    const sf = data.master.by_source_family;
+    Plotly.newPlot('master-source-family', [{
+      type: 'bar',
+      x: sf.map(s => s.source_family),
+      y: sf.map(s => s.n_observations),
+      marker: { color: '#1f77b4' },
+      text: sf.map(s => `${s.n_observations} obs<br>med ${fmtNum(s.median_rmsep)}`),
+      textposition: 'outside',
+    }], {
+      yaxis: { title: 'Observations' },
+      xaxis: { tickangle: -25 },
+      margin: { l: 60, r: 30, t: 30, b: 100 },
+      height: 380,
+    }, { responsive: true });
+  }
+
+  // --------------------------------------------------------------------
+  // P1. Per-preset leaderboards (tabbed)
   // --------------------------------------------------------------------
   function renderPresets(data) {
     const tabs = document.getElementById('preset-tabs');
     const panels = document.getElementById('preset-panels');
-    let firstAvailable = null;
-    const presetNames = Object.keys(data.presets);
-    presetNames.forEach((name, i) => {
+    let first = null;
+    Object.keys(data.presets).forEach((name, i) => {
       const p = data.presets[name];
       const status = p.available ? `${p.n_ok}/${p.n_planned}` : 'pending';
       const t = document.createElement('div');
-      t.className = 'tab' + (firstAvailable === null && p.available ? ' active' : '');
+      t.className = 'tab' + (first === null && p.available ? ' active' : '');
       t.textContent = `${name} (${status})`;
-      t.dataset.preset = name;
       t.onclick = () => {
         document.querySelectorAll('#preset-tabs .tab').forEach(x => x.classList.remove('active'));
         document.querySelectorAll('#preset-panels .tab-panel').forEach(x => x.classList.remove('active'));
@@ -436,12 +841,12 @@
       tabs.appendChild(t);
 
       const panel = document.createElement('div');
-      panel.className = 'tab-panel' + (firstAvailable === null && p.available ? ' active' : '');
+      panel.className = 'tab-panel' + (first === null && p.available ? ' active' : '');
       panel.id = 'preset-panel-' + name;
-      if (p.available && firstAvailable === null) firstAvailable = name;
+      if (p.available && first === null) first = name;
 
       if (!p.available) {
-        panel.innerHTML = '<div class="status-line">Preset not yet run (Phase 5 in flight or pending).</div>';
+        panel.innerHTML = '<div class="status-line">Preset not yet run (Phase 5 may be in flight).</div>';
       } else {
         const status_line = `<div class="status-line">${p.n_planned} fits · ${p.n_ok} OK · ${p.n_failed} failed · ${p.n_failed_terminal} timeout</div>`;
         const rows = p.candidates.map((c, idx) => {
@@ -458,82 +863,23 @@
           </tr>`;
         }).join('');
         panel.innerHTML = status_line + `<table class="lb">
-          <thead>
-            <tr>
-              <th>Candidate</th>
-              <th class="num">Median rmsep</th>
-              <th class="num">Q25</th>
-              <th class="num">Q75</th>
-              <th class="num">Q90</th>
-              <th class="num">Median fit</th>
-              <th class="num">P90 fit</th>
-              <th class="num">OK / total</th>
-            </tr>
-          </thead><tbody>${rows}</tbody></table>`;
+          <thead><tr><th>Candidate</th><th class="num">Median</th><th class="num">Q25</th><th class="num">Q75</th><th class="num">Q90</th><th class="num">Median fit</th><th class="num">P90 fit</th><th class="num">OK / total</th></tr></thead>
+          <tbody>${rows}</tbody></table>`;
       }
       panels.appendChild(panel);
     });
   }
 
   // --------------------------------------------------------------------
-  // 2. Family aggregation
-  // --------------------------------------------------------------------
-  function renderFamilies(data) {
-    const fams = data.families.filter(f => f.median_best_rmsep !== null);
-    fams.sort((a,b) => a.median_best_rmsep - b.median_best_rmsep);
-
-    Plotly.newPlot('family-bars', [
-      {
-        type: 'bar',
-        x: fams.map(f => f.median_best_rmsep),
-        y: fams.map(f => f.family),
-        orientation: 'h',
-        marker: { color: fams.map(f => FAM_COLOR[f.family] || '#888') },
-        text: fams.map(f => fmtNum(f.median_best_rmsep)),
-        textposition: 'outside',
-        hovertemplate: '<b>%{y}</b><br>median best rmsep: %{x:.4f}<br><extra></extra>',
-      }
-    ], {
-      title: { text: 'Family median best-rmsep (lower = better)', font: { size: 14 } },
-      xaxis: { title: 'Median rmsep' },
-      yaxis: { autorange: 'reversed' },
-      margin: { l: 110, r: 50, t: 40, b: 40 },
-      height: 400,
-    }, { responsive: true });
-
-    Plotly.newPlot('family-distribution', [
-      {
-        type: 'bar',
-        x: fams.map(f => f.family),
-        y: fams.map(f => f.n_datasets_covered),
-        marker: { color: fams.map(f => FAM_COLOR[f.family] || '#888') },
-        text: fams.map(f => `${f.n_candidates} cand · ${f.n_datasets_covered} ds`),
-        textposition: 'outside',
-        hovertemplate: '<b>%{x}</b><br>%{text}<br><extra></extra>',
-      }
-    ], {
-      title: { text: 'Family coverage (datasets evaluated)', font: { size: 14 } },
-      xaxis: { tickangle: -25 },
-      yaxis: { title: 'Datasets covered' },
-      margin: { l: 50, r: 30, t: 40, b: 80 },
-      height: 400,
-    }, { responsive: true });
-  }
-
-  // --------------------------------------------------------------------
-  // 3. Per-dataset heatmap
+  // P2. Per-dataset heatmap (preset workspaces)
   // --------------------------------------------------------------------
   function renderDatasetHeatmap(data, sortMode) {
-    document.getElementById('ds-sort-mode').textContent = sortMode;
     let datasets = [...data.datasets].filter(d => d.candidates && Object.keys(d.candidates).length > 0);
     if (sortMode === 'n_train') datasets.sort((a,b) => (a.n_train || 0) - (b.n_train || 0));
     else if (sortMode === 'n_features') datasets.sort((a,b) => (a.n_features || 0) - (b.n_features || 0));
     else if (sortMode === 'best_rmsep') datasets.sort((a,b) => (a.best_rmsep || 0) - (b.best_rmsep || 0));
 
-    // Union of all candidates encountered
     const cands = Array.from(new Set(datasets.flatMap(d => Object.keys(d.candidates)))).sort();
-
-    // Z matrix: rows = datasets, cols = candidates ; value = rmsep / best_rmsep (1.0 = best, >>1 = worse)
     const z = datasets.map(d => cands.map(c => {
       const v = d.candidates[c];
       if (v === undefined) return null;
@@ -542,13 +888,10 @@
     const labels = datasets.map(d => `${d.name} (n=${d.n_train ?? '?'}, p=${d.n_features ?? '?'})`);
 
     Plotly.newPlot('dataset-heatmap', [{
-      z: z,
-      x: cands,
-      y: labels,
+      z, x: cands, y: labels,
       type: 'heatmap',
       colorscale: [[0, '#2ca02c'], [0.5, '#ffeb3b'], [1.0, '#d62728']],
-      zmin: 1.0,
-      zmax: 3.0,
+      zmin: 1.0, zmax: 3.0,
       hovertemplate: 'dataset: %{y}<br>candidate: %{x}<br>rmsep_ratio_to_best: %{z:.3f}<extra></extra>',
       colorbar: { title: 'rmsep / best', tickformat: '.1f' },
     }], {
@@ -570,10 +913,9 @@
   }
 
   // --------------------------------------------------------------------
-  // 4. Performance vs n_train
+  // P3. Size scatter (preset)
   // --------------------------------------------------------------------
   function renderSizeScatter(data) {
-    // group points by candidate
     const byCand = {};
     data.datasets.forEach(d => {
       if (!d.n_train) return;
@@ -584,17 +926,13 @@
     });
     const traces = Object.entries(byCand).map(([cand, points]) => {
       points.sort((a,b) => a.n_train - b.n_train);
-      const fam = data.presets.best_current.candidates.find(c => c.canonical_name === cand)
-                  || data.presets.strong_practical.candidates.find(c => c.canonical_name === cand)
-                  || data.presets.fast_reliable.candidates.find(c => c.canonical_name === cand);
+      const fam = Object.values(data.presets).flatMap(p => p.candidates).find(c => c.canonical_name === cand);
       const color = fam ? fam.color : '#999';
       const short = fam ? fam.short_name : cand.slice(0,15);
       return {
         x: points.map(p => p.n_train),
         y: points.map(p => p.rmsep),
-        mode: 'markers',
-        type: 'scatter',
-        name: short,
+        mode: 'markers', type: 'scatter', name: short,
         marker: { color, size: 7, opacity: 0.7 },
         text: points.map(p => p.dataset),
         hovertemplate: '<b>%{text}</b><br>n_train: %{x}<br>rmsep: %{y:.4f}<extra>' + short + '</extra>',
@@ -605,38 +943,32 @@
       yaxis: { title: 'rmsep', type: 'log' },
       margin: { l: 60, r: 30, t: 30, b: 50 },
       height: 540,
-      legend: { font: { size: 11 } },
     }, { responsive: true });
   }
 
   // --------------------------------------------------------------------
-  // 5. Preprocessing pair
+  // P4. Preprocessing pair
   // --------------------------------------------------------------------
   function renderPreprocPair(data) {
     const pair = data.preprocessing_pairs[0];
     if (!pair) {
-      document.getElementById('preproc-hist').innerHTML = '<div class="status-line">No preprocessing pairs configured.</div>';
-      document.getElementById('preproc-scatter').innerHTML = '';
+      document.getElementById('preproc-hist').innerHTML = '<div class="status-line">No preprocessing pairs.</div>';
       return;
     }
     const deltas = pair.deltas.map(d => d.delta);
     Plotly.newPlot('preproc-hist', [{
-      x: deltas,
-      type: 'histogram',
+      x: deltas, type: 'histogram',
       marker: { color: '#1f77b4', line: { color: '#0a4d8f', width: 1 } },
       nbinsx: 30,
-      hovertemplate: 'Δ range: %{x}<br>count: %{y}<extra></extra>',
     }], {
-      title: { text: `Δ rmsep (${pair.candidate_b.split('-').pop()} − ${pair.candidate_a.split('-').pop()})`, font: { size: 13 } },
-      xaxis: { title: 'Δ rmsep' },
-      yaxis: { title: 'Datasets' },
+      title: { text: `Δ rmsep (snv − none) across ${pair.n_datasets} datasets`, font: { size: 13 } },
+      xaxis: { title: 'Δ rmsep' }, yaxis: { title: 'Datasets' },
       shapes: [{ type: 'line', x0: 0, x1: 0, yref: 'paper', y0: 0, y1: 1, line: { color: 'red', width: 2, dash: 'dash' } }],
       annotations: [{ x: pair.median_delta, y: 0.95, xref: 'x', yref: 'paper', text: `median Δ ${fmtNum(pair.median_delta)}`, showarrow: false }],
       margin: { l: 50, r: 30, t: 40, b: 40 },
       height: 400,
     }, { responsive: true });
 
-    // Scatter: per-dataset rmsep_a vs rmsep_b
     const a = pair.candidate_a, b = pair.candidate_b;
     const ds_lookup = Object.fromEntries(data.datasets.map(d => [d.name, d.candidates]));
     const points = pair.deltas.map(d => {
@@ -645,81 +977,64 @@
       return { dataset: d.dataset, rmsep_a, rmsep_b };
     });
     Plotly.newPlot('preproc-scatter', [{
-      x: points.map(p => p.rmsep_a),
-      y: points.map(p => p.rmsep_b),
-      mode: 'markers',
-      type: 'scatter',
-      text: points.map(p => p.dataset),
+      x: points.map(p => p.rmsep_a), y: points.map(p => p.rmsep_b),
+      mode: 'markers', type: 'scatter', text: points.map(p => p.dataset),
       marker: { color: '#d62728', size: 7, opacity: 0.7 },
       hovertemplate: '<b>%{text}</b><br>none: %{x:.4f}<br>snv: %{y:.4f}<extra></extra>',
     }, {
-      x: [0, 5], y: [0, 5], mode: 'lines', name: 'y = x',
+      x: [0, 5], y: [0, 5], mode: 'lines',
       line: { color: '#888', width: 1, dash: 'dash' },
       showlegend: false,
     }], {
-      title: { text: `${a.split('-').pop()} (x) vs ${b.split('-').pop()} (y) per dataset`, font: { size: 13 } },
-      xaxis: { title: 'rmsep ' + a.split('-').pop(), range: [0, 5] },
-      yaxis: { title: 'rmsep ' + b.split('-').pop(), range: [0, 5] },
-      margin: { l: 50, r: 30, t: 40, b: 50 },
+      xaxis: { title: 'rmsep none', range: [0, 5] },
+      yaxis: { title: 'rmsep snv', range: [0, 5] },
+      margin: { l: 50, r: 30, t: 30, b: 50 },
       height: 400,
     }, { responsive: true });
   }
 
   // --------------------------------------------------------------------
-  // 6. Pareto scatter
+  // P5. Pareto
   // --------------------------------------------------------------------
   function renderParetoScatter(data) {
-    // Use best_current data (most candidates)
     const cands = data.presets.best_current.candidates.filter(c => c.median_rmsep !== null && c.median_fit_s !== null);
-    const totalFits = cands.length ? cands[0].n_ok + cands[0].n_failed + cands[0].n_failed_terminal : 57;
+    const totalFits = 57;
     const traces = cands.map(c => ({
-      x: [c.median_fit_s],
-      y: [c.median_rmsep],
-      mode: 'markers+text',
-      type: 'scatter',
-      name: c.short_name,
-      text: [c.short_name],
-      textposition: 'top center',
-      textfont: { size: 10 },
+      x: [c.median_fit_s], y: [c.median_rmsep],
+      mode: 'markers+text', type: 'scatter',
+      name: c.short_name, text: [c.short_name],
+      textposition: 'top center', textfont: { size: 10 },
       marker: {
         color: c.color,
         size: Math.max(8, Math.min(40, (c.n_ok / totalFits) * 30 + 8)),
-        opacity: 0.7,
-        line: { color: '#333', width: 1 },
+        opacity: 0.7, line: { color: '#333', width: 1 },
       },
-      hovertemplate: `<b>${c.short_name}</b><br>fit time: %{x:.2f}s<br>rmsep: %{y:.4f}<br>ok ratio: ${((c.n_ok/totalFits)*100).toFixed(0)}%<extra></extra>`,
+      hovertemplate: `<b>${c.short_name}</b><br>fit: %{x:.2f}s<br>rmsep: %{y:.4f}<extra></extra>`,
       showlegend: false,
     }));
     Plotly.newPlot('pareto-scatter', traces, {
-      xaxis: { title: 'Median fit time (s, log)', type: 'log' },
-      yaxis: { title: 'Median rmsep', range: [0.9, 2.1] },
+      xaxis: { title: 'Median fit time (log s)', type: 'log' },
+      yaxis: { title: 'Median rmsep' },
       margin: { l: 60, r: 30, t: 30, b: 50 },
       height: 540,
     }, { responsive: true });
   }
 
   // --------------------------------------------------------------------
-  // 7. Head-to-head matrix
+  // P6. Head-to-head
   // --------------------------------------------------------------------
   function renderH2H(data) {
     const h = data.head_to_head;
     const cands = h.candidates;
-    // Short names lookup
     const shortMap = {};
-    data.presets.best_current.candidates.forEach(c => {
-      shortMap[c.canonical_name] = c.short_name;
-    });
+    data.presets.best_current.candidates.forEach(c => { shortMap[c.canonical_name] = c.short_name; });
     const shorts = cands.map(c => shortMap[c] || c.slice(0,15));
     const z = cands.map(a => cands.map(b => a === b ? null : (h.wins[a] || {})[b] || 0));
     Plotly.newPlot('h2h-heatmap', [{
-      z, x: shorts, y: shorts,
-      type: 'heatmap',
+      z, x: shorts, y: shorts, type: 'heatmap',
       colorscale: [[0, '#fafafa'], [0.5, '#fcc59e'], [1.0, '#d62728']],
-      hovertemplate: 'row: %{y}<br>col: %{x}<br>row beats col on: %{z} datasets<extra></extra>',
-      colorbar: { title: 'Wins (row over col)' },
-      text: z,
-      texttemplate: '%{text}',
-      textfont: { size: 12 },
+      hovertemplate: 'row: %{y}<br>col: %{x}<br>wins: %{z}<extra></extra>',
+      text: z, texttemplate: '%{text}', textfont: { size: 12 },
     }], {
       xaxis: { tickangle: -45, side: 'top', tickfont: { size: 11 } },
       yaxis: { autorange: 'reversed', tickfont: { size: 11 } },
@@ -729,42 +1044,9 @@
   }
 
   // --------------------------------------------------------------------
-  // 8. MoE / Stack bars
-  // --------------------------------------------------------------------
-  function renderMoEBars(data) {
-    // Collect all MoE/Stack candidates from any preset
-    const moeCands = [];
-    Object.values(data.presets).forEach(p => {
-      if (!p.available) return;
-      p.candidates.filter(c => c.family === 'MoE/Stack').forEach(c => {
-        moeCands.push({...c, preset: p.name});
-      });
-    });
-    if (moeCands.length === 0) {
-      document.getElementById('moe-bars').innerHTML = '<div class="status-line">No MoE/Stack candidates with OK rows yet (most are IMPORT_ERROR or only present in Phase 5 in-flight).</div>';
-      return;
-    }
-    Plotly.newPlot('moe-bars', [{
-      type: 'bar',
-      x: moeCands.map(c => c.median_rmsep),
-      y: moeCands.map(c => `${c.short_name} (${c.preset})`),
-      orientation: 'h',
-      marker: { color: moeCands.map(c => c.color) },
-      text: moeCands.map(c => fmtNum(c.median_rmsep)),
-      textposition: 'outside',
-    }], {
-      xaxis: { title: 'Median rmsep' },
-      yaxis: { autorange: 'reversed' },
-      margin: { l: 220, r: 60, t: 30, b: 40 },
-      height: Math.max(300, moeCands.length * 35 + 80),
-    }, { responsive: true });
-  }
-
-  // --------------------------------------------------------------------
-  // 9. Robustness (cross-preset variance)
+  // P7. Robustness
   // --------------------------------------------------------------------
   function renderRobustness(data) {
-    // Get candidates that appear in 2+ presets
     const candAcross = {};
     Object.entries(data.presets).forEach(([pname, p]) => {
       if (!p.available) return;
@@ -774,31 +1056,27 @@
       });
     });
     const eligible = Object.values(candAcross).filter(c => Object.keys(c.presets).length >= 2);
-    eligible.sort((a, b) => {
+    eligible.sort((a,b) => {
       const ma = Math.min(...Object.values(a.presets).filter(x => x !== null));
       const mb = Math.min(...Object.values(b.presets).filter(x => x !== null));
       return ma - mb;
     });
     const presetNames = Object.keys(data.presets);
     const traces = presetNames.map(pname => ({
-      type: 'bar',
-      name: pname,
+      type: 'bar', name: pname,
       x: eligible.map(c => c.short),
       y: eligible.map(c => c.presets[pname] ?? null),
-      hovertemplate: '<b>%{x}</b><br>' + pname + ': %{y:.4f}<extra></extra>',
     }));
     Plotly.newPlot('robustness-grouped', traces, {
-      barmode: 'group',
-      yaxis: { title: 'Median rmsep' },
+      barmode: 'group', yaxis: { title: 'Median rmsep' },
       xaxis: { tickangle: -25 },
       margin: { l: 50, r: 30, t: 30, b: 80 },
-      height: 540,
-      legend: { orientation: 'h', y: 1.05 },
+      height: 540, legend: { orientation: 'h', y: 1.05 },
     }, { responsive: true });
   }
 
   // --------------------------------------------------------------------
-  // 10. Failure / timeout patterns
+  // P8. Failures
   // --------------------------------------------------------------------
   function renderFailures(data) {
     const failed = Object.entries(data.failures.failed_by_dataset)
@@ -809,50 +1087,41 @@
       .sort((a,b) => b.n - a.n);
 
     Plotly.newPlot('failure-bars', [{
-      type: 'bar',
-      x: failed.map(f => f.n),
-      y: failed.map(f => f.ds),
-      orientation: 'h',
-      marker: { color: '#ff7f0e' },
-      text: failed.map(f => f.n),
-      textposition: 'outside',
-      hovertemplate: '<b>%{y}</b><br>failed candidates: %{customdata}<extra></extra>',
+      type: 'bar', x: failed.map(f => f.n), y: failed.map(f => f.ds),
+      orientation: 'h', marker: { color: '#ff7f0e' },
+      text: failed.map(f => f.n), textposition: 'outside',
       customdata: failed.map(f => f.cands.join(', ')),
+      hovertemplate: '<b>%{y}</b><br>candidates: %{customdata}<extra></extra>',
     }], {
-      title: { text: 'Pre-existing data failures (per dataset)', font: { size: 13 } },
-      xaxis: { title: 'Candidates failed', dtick: 1 },
+      title: { text: 'Data failures per dataset', font: { size: 12 } },
+      xaxis: { dtick: 1 },
       margin: { l: 250, r: 50, t: 40, b: 40 },
       height: Math.max(220, failed.length * 32 + 80),
     }, { responsive: true });
 
     Plotly.newPlot('timeout-bars', [{
-      type: 'bar',
-      x: timeout.map(t => t.n),
-      y: timeout.map(t => t.ds),
-      orientation: 'h',
-      marker: { color: '#d62728' },
-      text: timeout.map(t => t.n),
-      textposition: 'outside',
-      hovertemplate: '<b>%{y}</b><br>timeout candidates: %{customdata}<extra></extra>',
+      type: 'bar', x: timeout.map(t => t.n), y: timeout.map(t => t.ds),
+      orientation: 'h', marker: { color: '#d62728' },
+      text: timeout.map(t => t.n), textposition: 'outside',
       customdata: timeout.map(t => t.cands.join(', ')),
+      hovertemplate: '<b>%{y}</b><br>candidates: %{customdata}<extra></extra>',
     }], {
-      title: { text: 'D-C-019 dispatcher timeouts (per dataset)', font: { size: 13 } },
-      xaxis: { title: 'Candidates timed out', dtick: 1 },
+      title: { text: 'D-C-019 timeouts per dataset', font: { size: 12 } },
+      xaxis: { dtick: 1 },
       margin: { l: 250, r: 50, t: 40, b: 40 },
       height: Math.max(220, timeout.length * 32 + 80),
     }, { responsive: true });
   }
 
   // --------------------------------------------------------------------
-  // 11. TabPFN paper summary
+  // P9. TabPFN paper
   // --------------------------------------------------------------------
   function renderTabPFN(data) {
     const rows = data.tabpfn_paper;
     if (!rows || rows.length === 0) {
-      document.getElementById('tabpfn-summary').innerHTML = '<div class="status-line">No TabPFN paper rows in master.</div>';
+      document.getElementById('tabpfn-summary').innerHTML = '<div class="status-line">No TabPFN paper rows.</div>';
       return;
     }
-    // Aggregate per model_name: median + count
     const byModel = {};
     rows.forEach(r => {
       byModel[r.model_name] = byModel[r.model_name] || [];
@@ -860,14 +1129,11 @@
     });
     const labels = Object.keys(byModel);
     const traces = labels.map(name => ({
-      type: 'box',
-      name,
-      y: byModel[name],
-      boxpoints: 'all',
-      jitter: 0.4,
-      pointpos: 0,
+      type: 'box', name, y: byModel[name],
+      boxpoints: 'all', jitter: 0.4, pointpos: 0,
       marker: { size: 4, opacity: 0.6 },
-      hovertemplate: '<b>%{x}</b><br>rmsep: %{y:.4f}<extra></extra>',
+      text: rows.filter(r => r.model_name === name).map(r => r.dataset),
+      hovertemplate: '<b>%{x}</b><br>dataset: %{text}<br>rmsep: %{y:.4f}<extra></extra>',
     }));
     Plotly.newPlot('tabpfn-summary', traces, {
       yaxis: { title: 'rmsep' },
@@ -878,30 +1144,26 @@
   }
 
   // --------------------------------------------------------------------
-  // 12. Synthesis text
+  // Synthesis
   // --------------------------------------------------------------------
   function renderSynthesis(data) {
-    // Find best per preset
-    const findBest = (preset) => {
-      const p = data.presets[preset];
-      if (!p || !p.available || p.candidates.length === 0) return null;
-      return p.candidates[0]; // already sorted
-    };
-    const fr = findBest('fast_reliable');
-    const sp = findBest('strong_practical');
-    const bc = findBest('best_current');
-    const er = findBest('exhaustive_research');
+    const ma = data.master;
     const items = [];
-    if (bc) items.push(`<strong>Production-grade winner</strong>: <code>${bc.short_name}</code> (${bc.family}) wins best_current with median rmsep ${fmtNum(bc.median_rmsep)} — ${fmtTime(bc.median_fit_s)} median fit.`);
+    const bestCls = ma.by_model_class[0];
+    items.push(`<strong>Best model class</strong> (master-wide, median best-rmsep): <code>${bestCls.model_class}</code> with median ${fmtNum(bestCls.median_best_rmsep)} across ${bestCls.n_datasets_covered} datasets / ${bestCls.n_models} models.`);
+    const topModel = ma.top_models.find(t => t.n_datasets >= 30);
+    if (topModel) items.push(`<strong>Best single model</strong> (≥30 datasets covered): <code>${topModel.model_name}</code> (${topModel.model_class}) median ${fmtNum(topModel.median_rmsep)}, best ${fmtNum(topModel.best_rmsep)}.`);
+    const bcWinner = data.presets.best_current.candidates[0];
+    if (bcWinner) items.push(`<strong>Production preset winner</strong>: <code>${bcWinner.short_name}</code> wins best_current with median ${fmtNum(bcWinner.median_rmsep)} and ${fmtTime(bcWinner.median_fit_s)} median fit.`);
     if (data.preprocessing_pairs[0]) {
       const pair = data.preprocessing_pairs[0];
-      items.push(`<strong>Preprocessing influence</strong>: ${pair.label} — median Δ = ${fmtNum(pair.median_delta, 5)} across ${pair.n_datasets} datasets. ${Math.abs(pair.median_delta) < 0.0001 ? 'Effectively zero impact — registry collapse candidate.' : 'Non-negligible — keep both slots.'}`);
+      items.push(`<strong>Preprocessing influence</strong> (none vs SNV on AOMRidge-global): median Δ = ${fmtNum(pair.median_delta, 5)} across ${pair.n_datasets} datasets. ${Math.abs(pair.median_delta) < 0.0001 ? 'Zero impact — registry collapse candidate.' : 'Non-negligible.'}`);
     }
     const persistFail = Object.values(data.failures.failed_by_dataset).filter(c => c.length >= 5);
-    items.push(`<strong>Persistent failure datasets</strong>: ${persistFail.length} dataset(s) where ≥5 candidates fail (pre-existing data issues, not method failures). Flag with <code>extras.bench_unfit_data=true</code> or exclude from canonical cohort.`);
+    items.push(`<strong>Persistent failure datasets</strong>: ${persistFail.length} dataset(s) where ≥5 candidates fail (data issues, not method failures).`);
     const persistTimeout = Object.values(data.failures.timeout_by_dataset).filter(c => c.length >= 2);
-    items.push(`<strong>Big-n timeout pattern</strong>: ${persistTimeout.length} dataset(s) where ≥2 candidates timeout (D-C-019 dispatcher kill at <code>dispatch.timeout_s</code>). These need larger budget OR a memory-safer harness path.`);
-    items.push(`<strong>Family ordering</strong>: ${data.families.slice(0,3).map(f => f.family).join(' ≺ ')} (sorted by median best-rmsep across coverage).`);
+    items.push(`<strong>Big-n timeout pattern</strong>: ${persistTimeout.length} dataset(s) where ≥2 candidates timeout at <code>dispatch.timeout_s</code>.`);
+    items.push(`<strong>Master scale</strong>: ${fmtInt(ma.n_observations_total)} observations across ${ma.by_source_run.length} source runs and ${ma.by_model_class.length} model classes — true full programme view.`);
 
     document.getElementById('synthesis-list').innerHTML = items.map(i => `<li>${i}</li>`).join('');
   }
