@@ -846,9 +846,12 @@ presets:
       - AOMMultiView-MeanEnsemble4-fixed
       - AdaptiveSuperLearner-recipe-nnls
       - AdaptiveSuperLearner-bigN-guarded
-      - TabPFN-Raw
-      - TabPFN-opt
-      - TabPFN-HPO-preprocessing
+      # TabPFN family deferred from production runs per user 2026-05-09 + 2026-05-11
+      # ("use the one you have for now" — TabPFN evidence comes from tabpfn_paper
+      # legacy data already in master CSV, NOT new runs). Re-add when user requests.
+      # - TabPFN-Raw
+      # - TabPFN-opt
+      # - TabPFN-HPO-preprocessing
       - Stack-Ridge-PLS-V1c
       - V2L-Residual-AOMPLS
       - V2L-Boost-AOMPLS

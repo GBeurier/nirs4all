@@ -1,0 +1,2595 @@
+{
+  "metadata": {
+    "generated_at": "2026-05-11T21:50:53.558230+00:00",
+    "n_datasets_total": 56,
+    "n_candidates_total": 8,
+    "phases_complete": 4
+  },
+  "presets": {
+    "fast_reliable": {
+      "name": "fast_reliable",
+      "workspace": "fast_reliable_full57_seed0",
+      "n_planned": 342,
+      "n_ok": 322,
+      "n_failed": 16,
+      "n_failed_terminal": 4,
+      "candidates": [
+        {
+          "canonical_name": "AOMRidge-global-compact-none",
+          "short_name": "AR-glb-none",
+          "family": "AOM-Ridge",
+          "color": "#d62728",
+          "n_ok": 52,
+          "n_failed": 3,
+          "n_failed_terminal": 2,
+          "median_rmsep": 1.095593523415352,
+          "q25_rmsep": 0.2699915429339117,
+          "q75_rmsep": 3.6525825706359347,
+          "q90_rmsep": 61.476483389784974,
+          "max_rmsep": 33849.27758311631,
+          "median_fit_s": 13.321131661476102,
+          "p90_fit_s": 50.22705116996076,
+          "max_fit_s": 1134.1813476439565
+        },
+        {
+          "canonical_name": "AOMRidge-global-compact-snv",
+          "short_name": "AR-glb-snv",
+          "family": "AOM-Ridge",
+          "color": "#e3493b",
+          "n_ok": 52,
+          "n_failed": 3,
+          "n_failed_terminal": 2,
+          "median_rmsep": 1.095593523415352,
+          "q25_rmsep": 0.2699915429339117,
+          "q75_rmsep": 3.6525825706359347,
+          "q90_rmsep": 61.476483389784974,
+          "max_rmsep": 33849.27758311631,
+          "median_fit_s": 13.28909477754496,
+          "p90_fit_s": 50.257599030970596,
+          "max_fit_s": 1141.3816833950114
+        },
+        {
+          "canonical_name": "ASLS-AOM-compact-cv5-numpy",
+          "short_name": "ASLS-AOM",
+          "family": "ASLS",
+          "color": "#9467bd",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.4360343878210795,
+          "q25_rmsep": 0.25378318787095483,
+          "q75_rmsep": 3.826029108336557,
+          "q90_rmsep": 55.29206830858165,
+          "max_rmsep": 34084.862111630864,
+          "median_fit_s": 3.1059150245273486,
+          "p90_fit_s": 8.98726180405356,
+          "max_fit_s": 133.50498229905497
+        },
+        {
+          "canonical_name": "Ridge-tuned-cv5",
+          "short_name": "Ridge-cv5",
+          "family": "Ridge",
+          "color": "#2ca02c",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.578113374008067,
+          "q25_rmsep": 0.27591582939447173,
+          "q75_rmsep": 4.055071286774493,
+          "q90_rmsep": 62.16793639021786,
+          "max_rmsep": 33837.67977223088,
+          "median_fit_s": 1.002521179500036,
+          "p90_fit_s": 6.9471069240244105,
+          "max_fit_s": 74.87562775600236
+        },
+        {
+          "canonical_name": "AOM-PLS-compact-numpy",
+          "short_name": "AOM-PLS",
+          "family": "AOM-PLS",
+          "color": "#1f77b4",
+          "n_ok": 56,
+          "n_failed": 1,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.644148572897734,
+          "q25_rmsep": 0.27467892492611584,
+          "q75_rmsep": 3.874830715772866,
+          "q90_rmsep": 71.54174244322476,
+          "max_rmsep": 33811.329675840665,
+          "median_fit_s": 2.273796229506843,
+          "p90_fit_s": 7.039099162095226,
+          "max_fit_s": 69.33675127301831
+        },
+        {
+          "canonical_name": "PLS-tuned-cv5",
+          "short_name": "PLS-cv5",
+          "family": "PLS",
+          "color": "#8c564b",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.6541270577409803,
+          "q25_rmsep": 0.288279539571673,
+          "q75_rmsep": 4.437217638023488,
+          "q90_rmsep": 44.70291057567961,
+          "max_rmsep": 33653.69417443339,
+          "median_fit_s": 1.0527969709946774,
+          "p90_fit_s": 5.21804800897371,
+          "max_fit_s": 119.8533343950985
+        }
+      ],
+      "available": true
+    },
+    "strong_practical": {
+      "name": "strong_practical",
+      "workspace": "strong_practical_full57_seed0",
+      "n_planned": 399,
+      "n_ok": 377,
+      "n_failed": 17,
+      "n_failed_terminal": 5,
+      "candidates": [
+        {
+          "canonical_name": "AOMRidge-global-compact-none",
+          "short_name": "AR-glb-none",
+          "family": "AOM-Ridge",
+          "color": "#d62728",
+          "n_ok": 52,
+          "n_failed": 3,
+          "n_failed_terminal": 2,
+          "median_rmsep": 1.095593523415352,
+          "q25_rmsep": 0.2699915429339117,
+          "q75_rmsep": 3.6525825706359347,
+          "q90_rmsep": 61.476483389784974,
+          "max_rmsep": 33849.27758311631,
+          "median_fit_s": 12.818364528007805,
+          "p90_fit_s": 47.81761512905359,
+          "max_fit_s": 1132.07894574909
+        },
+        {
+          "canonical_name": "AOMRidge-global-compact-snv",
+          "short_name": "AR-glb-snv",
+          "family": "AOM-Ridge",
+          "color": "#e3493b",
+          "n_ok": 52,
+          "n_failed": 3,
+          "n_failed_terminal": 2,
+          "median_rmsep": 1.095593523415352,
+          "q25_rmsep": 0.2699915429339117,
+          "q75_rmsep": 3.6525825706359347,
+          "q90_rmsep": 61.476483389784974,
+          "max_rmsep": 33849.27758311631,
+          "median_fit_s": 12.703291825484484,
+          "p90_fit_s": 49.268202458973974,
+          "max_fit_s": 1111.3889035090106
+        },
+        {
+          "canonical_name": "ASLS-AOM-compact-cv5-numpy",
+          "short_name": "ASLS-AOM",
+          "family": "ASLS",
+          "color": "#9467bd",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.4360343878210795,
+          "q25_rmsep": 0.25378318787095483,
+          "q75_rmsep": 3.826029108336557,
+          "q90_rmsep": 55.29206830858165,
+          "max_rmsep": 34084.862111630864,
+          "median_fit_s": 3.1637749429792166,
+          "p90_fit_s": 8.110104495077394,
+          "max_fit_s": 130.43699525296688
+        },
+        {
+          "canonical_name": "AOMRidge-Local-compact-knn50",
+          "short_name": "AR-loc-50",
+          "family": "AOM-Ridge",
+          "color": "#e87e6f",
+          "n_ok": 55,
+          "n_failed": 1,
+          "n_failed_terminal": 1,
+          "median_rmsep": 1.5187692472572938,
+          "q25_rmsep": 0.23144285516218843,
+          "q75_rmsep": 4.139182983142661,
+          "q90_rmsep": 58.8525683011211,
+          "max_rmsep": 34170.01104584186,
+          "median_fit_s": 3.7306019528768957,
+          "p90_fit_s": 9.660979236941785,
+          "max_fit_s": 697.5179867660627
+        },
+        {
+          "canonical_name": "Ridge-tuned-cv5",
+          "short_name": "Ridge-cv5",
+          "family": "Ridge",
+          "color": "#2ca02c",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.578113374008067,
+          "q25_rmsep": 0.27591582939447173,
+          "q75_rmsep": 4.055071286774493,
+          "q90_rmsep": 62.16793639021786,
+          "max_rmsep": 33837.67977223088,
+          "median_fit_s": 0.9819942394969985,
+          "p90_fit_s": 7.213275742018595,
+          "max_fit_s": 70.4601283420343
+        },
+        {
+          "canonical_name": "AOM-PLS-compact-numpy",
+          "short_name": "AOM-PLS",
+          "family": "AOM-PLS",
+          "color": "#1f77b4",
+          "n_ok": 56,
+          "n_failed": 1,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.644148572897734,
+          "q25_rmsep": 0.27467892492611584,
+          "q75_rmsep": 3.874830715772866,
+          "q90_rmsep": 71.54174244322476,
+          "max_rmsep": 33811.329675840665,
+          "median_fit_s": 1.942834575951565,
+          "p90_fit_s": 5.893093736027367,
+          "max_fit_s": 68.0779864389915
+        },
+        {
+          "canonical_name": "PLS-tuned-cv5",
+          "short_name": "PLS-cv5",
+          "family": "PLS",
+          "color": "#8c564b",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.6541270577409803,
+          "q25_rmsep": 0.288279539571673,
+          "q75_rmsep": 4.437217638023488,
+          "q90_rmsep": 44.70291057567961,
+          "max_rmsep": 33653.69417443339,
+          "median_fit_s": 1.0971353070344776,
+          "p90_fit_s": 4.705113431904465,
+          "max_fit_s": 116.80075597891118
+        }
+      ],
+      "available": true
+    },
+    "best_current": {
+      "name": "best_current",
+      "workspace": "best_current_full57_seed0",
+      "n_planned": 456,
+      "n_ok": 428,
+      "n_failed": 20,
+      "n_failed_terminal": 8,
+      "candidates": [
+        {
+          "canonical_name": "AOMRidge-global-compact-none",
+          "short_name": "AR-glb-none",
+          "family": "AOM-Ridge",
+          "color": "#d62728",
+          "n_ok": 52,
+          "n_failed": 3,
+          "n_failed_terminal": 2,
+          "median_rmsep": 1.095593523415352,
+          "q25_rmsep": 0.2699915429339117,
+          "q75_rmsep": 3.6525825706359347,
+          "q90_rmsep": 61.476483389784974,
+          "max_rmsep": 33849.27758311631,
+          "median_fit_s": 12.865204736124724,
+          "p90_fit_s": 51.15849108691327,
+          "max_fit_s": 1117.6873817679007
+        },
+        {
+          "canonical_name": "AOMRidge-global-compact-snv",
+          "short_name": "AR-glb-snv",
+          "family": "AOM-Ridge",
+          "color": "#e3493b",
+          "n_ok": 52,
+          "n_failed": 3,
+          "n_failed_terminal": 2,
+          "median_rmsep": 1.095593523415352,
+          "q25_rmsep": 0.2699915429339117,
+          "q75_rmsep": 3.6525825706359347,
+          "q90_rmsep": 61.476483389784974,
+          "max_rmsep": 33849.27758311631,
+          "median_fit_s": 13.548376381630078,
+          "p90_fit_s": 51.31352642807178,
+          "max_fit_s": 1113.0148704019375
+        },
+        {
+          "canonical_name": "ASLS-AOM-compact-cv5-numpy",
+          "short_name": "ASLS-AOM",
+          "family": "ASLS",
+          "color": "#9467bd",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.4360343878210795,
+          "q25_rmsep": 0.25378318787095483,
+          "q75_rmsep": 3.826029108336557,
+          "q90_rmsep": 55.29206830858165,
+          "max_rmsep": 34084.862111630864,
+          "median_fit_s": 3.252013451536186,
+          "p90_fit_s": 12.559650029987097,
+          "max_fit_s": 130.29156647599302
+        },
+        {
+          "canonical_name": "AOMRidge-Local-compact-knn50",
+          "short_name": "AR-loc-50",
+          "family": "AOM-Ridge",
+          "color": "#e87e6f",
+          "n_ok": 55,
+          "n_failed": 1,
+          "n_failed_terminal": 1,
+          "median_rmsep": 1.5187692472572938,
+          "q25_rmsep": 0.23144285516218843,
+          "q75_rmsep": 4.139182983142661,
+          "q90_rmsep": 58.8525683011211,
+          "max_rmsep": 34170.01104584186,
+          "median_fit_s": 3.4391890349797904,
+          "p90_fit_s": 8.63257201993838,
+          "max_fit_s": 696.5810709979851
+        },
+        {
+          "canonical_name": "Ridge-tuned-cv5",
+          "short_name": "Ridge-cv5",
+          "family": "Ridge",
+          "color": "#2ca02c",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.578113374008067,
+          "q25_rmsep": 0.27591582939447173,
+          "q75_rmsep": 4.055071286774493,
+          "q90_rmsep": 62.16793639021786,
+          "max_rmsep": 33837.67977223088,
+          "median_fit_s": 1.0224156094482169,
+          "p90_fit_s": 7.13345004292205,
+          "max_fit_s": 71.65394128905609
+        },
+        {
+          "canonical_name": "AOM-PLS-compact-numpy",
+          "short_name": "AOM-PLS",
+          "family": "AOM-PLS",
+          "color": "#1f77b4",
+          "n_ok": 56,
+          "n_failed": 1,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.644148572897734,
+          "q25_rmsep": 0.27467892492611584,
+          "q75_rmsep": 3.874830715772866,
+          "q90_rmsep": 71.54174244322476,
+          "max_rmsep": 33811.329675840665,
+          "median_fit_s": 1.806149504496716,
+          "p90_fit_s": 5.344527856912464,
+          "max_fit_s": 67.6212400989607
+        },
+        {
+          "canonical_name": "PLS-tuned-cv5",
+          "short_name": "PLS-cv5",
+          "family": "PLS",
+          "color": "#8c564b",
+          "n_ok": 54,
+          "n_failed": 3,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.6541270577409803,
+          "q25_rmsep": 0.288279539571673,
+          "q75_rmsep": 4.437217638023488,
+          "q90_rmsep": 44.70291057567961,
+          "max_rmsep": 33653.69417443339,
+          "median_fit_s": 1.0512061160989106,
+          "p90_fit_s": 4.2947816781234,
+          "max_fit_s": 114.47005695593543
+        },
+        {
+          "canonical_name": "AOMRidge-MultiBranchMKL-compact-shrink03",
+          "short_name": "AR-MBMKL",
+          "family": "AOM-Ridge",
+          "color": "#fcc8b9",
+          "n_ok": 51,
+          "n_failed": 3,
+          "n_failed_terminal": 3,
+          "median_rmsep": 1.970330015232423,
+          "q25_rmsep": 0.35269345583272743,
+          "q75_rmsep": 5.261977006850444,
+          "q90_rmsep": 43.2376779304988,
+          "max_rmsep": 33871.42860210518,
+          "median_fit_s": 60.48393766512163,
+          "p90_fit_s": 202.93592777405865,
+          "max_fit_s": 834.5252622650005
+        }
+      ],
+      "available": true
+    },
+    "exhaustive_research": {
+      "name": "exhaustive_research",
+      "workspace": "exhaustive_research_full57_seed0",
+      "n_planned": 38,
+      "n_ok": 38,
+      "n_failed": 0,
+      "n_failed_terminal": 0,
+      "candidates": [
+        {
+          "canonical_name": "AOM-PLS-compact-numpy",
+          "short_name": "AOM-PLS",
+          "family": "AOM-PLS",
+          "color": "#1f77b4",
+          "n_ok": 38,
+          "n_failed": 0,
+          "n_failed_terminal": 0,
+          "median_rmsep": 1.993460011743676,
+          "q25_rmsep": 0.2804748394320138,
+          "q75_rmsep": 3.874830715772866,
+          "q90_rmsep": 71.54174244322476,
+          "max_rmsep": 978.0940363388555,
+          "median_fit_s": 1.826258884044364,
+          "p90_fit_s": 5.601078306091949,
+          "max_fit_s": 53.480835393071175
+        }
+      ],
+      "available": true
+    }
+  },
+  "datasets": [
+    {
+      "name": "ALPINE_P_291_KS",
+      "n_train": 247,
+      "n_test": 44,
+      "n_features": 2151,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.06443490344907671,
+        "Ridge-tuned-cv5": 0.05863432145501172,
+        "ASLS-AOM-compact-cv5-numpy": 0.06183874037098386,
+        "PLS-tuned-cv5": 0.06179312843855135,
+        "AOMRidge-global-compact-none": 0.06848993197044527,
+        "AOMRidge-global-compact-snv": 0.06848993197044527,
+        "AOMRidge-Local-compact-knn50": 0.058144427099032524,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.09544580452698916
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 0.058144427099032524,
+      "worst_rmsep": 0.09544580452698916,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Rice_Amylose_313_YbasedSplit",
+      "n_train": 203,
+      "n_test": 110,
+      "n_features": 1154,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 2.057289049401163,
+        "Ridge-tuned-cv5": 3.7046263589545654,
+        "ASLS-AOM-compact-cv5-numpy": 2.060636717822961,
+        "PLS-tuned-cv5": 3.7772648660221195,
+        "AOMRidge-global-compact-none": 2.9823563433194877,
+        "AOMRidge-global-compact-snv": 2.9823563433194877,
+        "AOMRidge-Local-compact-knn50": 2.7437106675317593,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 5.261977006850444
+      },
+      "best_candidate": "AOM-PLS-compact-numpy",
+      "best_rmsep": 2.057289049401163,
+      "worst_rmsep": 5.261977006850444,
+      "best_family": "AOM-PLS"
+    },
+    {
+      "name": "Beef_Marbling_RandomSplit",
+      "n_train": 554,
+      "n_test": 278,
+      "n_features": 331,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 73.18812571086373,
+        "Ridge-tuned-cv5": 72.61462955457358,
+        "ASLS-AOM-compact-cv5-numpy": 72.88424944675242,
+        "PLS-tuned-cv5": 73.49707884265086,
+        "AOMRidge-global-compact-none": 72.36303684807957,
+        "AOMRidge-global-compact-snv": 72.36303684807957,
+        "AOMRidge-Local-compact-knn50": 73.12416189452034,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 72.72203375092327
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 72.36303684807957,
+      "worst_rmsep": 73.49707884265086,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Beer_OriginalExtract_60_KS",
+      "n_train": 40,
+      "n_test": 20,
+      "n_features": 576,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.3288731834575111,
+        "Ridge-tuned-cv5": 0.5043346218877496,
+        "ASLS-AOM-compact-cv5-numpy": 0.2368898225553062,
+        "PLS-tuned-cv5": 0.5043380353348201,
+        "AOMRidge-global-compact-none": 0.5128446653439307,
+        "AOMRidge-global-compact-snv": 0.5128446653439307,
+        "AOMRidge-Local-compact-knn50": 0.4840239865144717,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 10.131862572711752
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 0.2368898225553062,
+      "worst_rmsep": 10.131862572711752,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "Beer_OriginalExtract_60_YbaseSplit",
+      "n_train": 40,
+      "n_test": 20,
+      "n_features": 576,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.29854228751598805,
+        "Ridge-tuned-cv5": 0.3945842071476687,
+        "ASLS-AOM-compact-cv5-numpy": 0.25378318787095483,
+        "PLS-tuned-cv5": 0.39460410972535426,
+        "AOMRidge-global-compact-none": 0.4314911351590606,
+        "AOMRidge-global-compact-snv": 0.4314911351590606,
+        "AOMRidge-Local-compact-knn50": 0.6384379874198388,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.5738626855115734
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 0.25378318787095483,
+      "worst_rmsep": 0.6384379874198388,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "brix_groupSampleID_stratDateVar_balRows",
+      "n_train": 1434,
+      "n_test": 699,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 3.874830715772866,
+        "Ridge-tuned-cv5": 3.581127476974162,
+        "ASLS-AOM-compact-cv5-numpy": 3.895212884477019,
+        "PLS-tuned-cv5": 4.437217638023488,
+        "AOMRidge-global-compact-none": 3.600276436660117,
+        "AOMRidge-global-compact-snv": 3.600276436660117,
+        "AOMRidge-Local-compact-knn50": 3.9372912139881557,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 8.95167563237705
+      },
+      "best_candidate": "Ridge-tuned-cv5",
+      "best_rmsep": 3.581127476974162,
+      "worst_rmsep": 8.95167563237705,
+      "best_family": "Ridge"
+    },
+    {
+      "name": "ph_groupSampleID_stratDateVar_balRows",
+      "n_train": 912,
+      "n_test": 489,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.37070813411503994,
+        "Ridge-tuned-cv5": 0.3345797209421238,
+        "ASLS-AOM-compact-cv5-numpy": 0.3416469816565405,
+        "PLS-tuned-cv5": 0.37511973058593573,
+        "AOMRidge-global-compact-none": 0.33332446218386574,
+        "AOMRidge-global-compact-snv": 0.33332446218386574,
+        "AOMRidge-Local-compact-knn50": 0.3864577929944631,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 3.6027676256958174
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.33332446218386574,
+      "worst_rmsep": 3.6027676256958174,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "ta_groupSampleID_stratDateVar_balRows",
+      "n_train": 912,
+      "n_test": 489,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 1.9296309740861892,
+        "Ridge-tuned-cv5": 1.8917527186075511,
+        "ASLS-AOM-compact-cv5-numpy": 1.9377231141503442,
+        "PLS-tuned-cv5": 2.188379149665072,
+        "AOMRidge-global-compact-none": 1.9258932939421234,
+        "AOMRidge-global-compact-snv": 1.9258932939421234,
+        "AOMRidge-Local-compact-knn50": 2.12580687700418,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 18.766574819972618
+      },
+      "best_candidate": "Ridge-tuned-cv5",
+      "best_rmsep": 1.8917527186075511,
+      "worst_rmsep": 18.766574819972618,
+      "best_family": "Ridge"
+    },
+    {
+      "name": "Biscuit_Fat_40_RandomSplit",
+      "n_train": 40,
+      "n_test": 32,
+      "n_features": 700,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.5433769613370407,
+        "Ridge-tuned-cv5": 0.6283778800432622,
+        "ASLS-AOM-compact-cv5-numpy": 0.4371357596760838,
+        "PLS-tuned-cv5": 0.8146630279512237,
+        "AOMRidge-global-compact-none": 0.2765968265019715,
+        "AOMRidge-global-compact-snv": 0.2765968265019715,
+        "AOMRidge-Local-compact-knn50": 0.5198123423473499,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 1.970330015232423
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.2765968265019715,
+      "worst_rmsep": 1.970330015232423,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Biscuit_Sucrose_40_RandomSplit",
+      "n_train": 40,
+      "n_test": 32,
+      "n_features": 700,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 1.1517710361495501,
+        "Ridge-tuned-cv5": 1.0901549714386156,
+        "ASLS-AOM-compact-cv5-numpy": 0.8816983400513638,
+        "PLS-tuned-cv5": 0.953331700608748,
+        "AOMRidge-global-compact-none": 0.8638923025679375,
+        "AOMRidge-global-compact-snv": 0.8638923025679375,
+        "AOMRidge-Local-compact-knn50": 1.1646084712977358,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 2.6836511066254736
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.8638923025679375,
+      "worst_rmsep": 2.6836511066254736,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "C_woOutlier",
+      "n_train": 1210,
+      "n_test": 1209,
+      "n_features": 1154,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 2.1608075289851785,
+        "Ridge-tuned-cv5": 2.018602377458611,
+        "ASLS-AOM-compact-cv5-numpy": 3.826029108336557,
+        "PLS-tuned-cv5": 2.070495180267541,
+        "AOMRidge-global-compact-none": 2.2098010790069464,
+        "AOMRidge-global-compact-snv": 2.2098010790069464,
+        "AOMRidge-Local-compact-knn50": 2.41663239019104,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 1.4534797473827985
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 1.4534797473827985,
+      "worst_rmsep": 3.826029108336557,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "N_wOutlier",
+      "n_train": 1220,
+      "n_test": 1207,
+      "n_features": 1154,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.3540996131578848,
+        "Ridge-tuned-cv5": 0.3497847657348185,
+        "ASLS-AOM-compact-cv5-numpy": 0.3494512531568528,
+        "PLS-tuned-cv5": 0.35309477276741236,
+        "AOMRidge-global-compact-none": 0.3541794620370173,
+        "AOMRidge-global-compact-snv": 0.3541794620370173,
+        "AOMRidge-Local-compact-knn50": 0.27588387674413156,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.33081762907199097
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 0.27588387674413156,
+      "worst_rmsep": 0.3541794620370173,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "N_woOutlier",
+      "n_train": 1205,
+      "n_test": 1207,
+      "n_features": 1154,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.27467892492611584,
+        "Ridge-tuned-cv5": 0.27591582939447173,
+        "ASLS-AOM-compact-cv5-numpy": 0.2814216379176544,
+        "PLS-tuned-cv5": 0.31057610362690635,
+        "AOMRidge-global-compact-none": 0.27934965316672394,
+        "AOMRidge-global-compact-snv": 0.27934965316672394,
+        "AOMRidge-Local-compact-knn50": 0.23007915059019127,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.2501956219124591
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 0.23007915059019127,
+      "worst_rmsep": 0.31057610362690635,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Corn_Oil_80_ZhengChenPelegYbaseSplit",
+      "n_train": 64,
+      "n_test": 16,
+      "n_features": 700,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.023820074997146945,
+        "Ridge-tuned-cv5": 0.04411800719541632,
+        "ASLS-AOM-compact-cv5-numpy": 0.01894493902493735,
+        "PLS-tuned-cv5": 0.03829470217599776,
+        "AOMRidge-global-compact-none": 0.03433192240857115,
+        "AOMRidge-global-compact-snv": 0.03433192240857115,
+        "AOMRidge-Local-compact-knn50": 0.0645327364839349,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.17385833613707485
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 0.01894493902493735,
+      "worst_rmsep": 0.17385833613707485,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "Corn_Starch_80_ZhengChenPelegYbaseSplit",
+      "n_train": 64,
+      "n_test": 16,
+      "n_features": 700,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.13646731190389869,
+        "Ridge-tuned-cv5": 0.1465214487957779,
+        "ASLS-AOM-compact-cv5-numpy": 0.1585342034390403,
+        "PLS-tuned-cv5": 0.14462993554457768,
+        "AOMRidge-global-compact-none": 0.13232431706090889,
+        "AOMRidge-global-compact-snv": 0.13232431706090889,
+        "AOMRidge-Local-compact-knn50": 0.14628847281491403,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.7585654726897547
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.13232431706090889,
+      "worst_rmsep": 0.7585654726897547,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "DIESEL_bp50_246_b-a",
+      "n_train": 113,
+      "n_test": 113,
+      "n_features": 401,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 2.8150722330384075,
+        "Ridge-tuned-cv5": 3.4877121679981253,
+        "ASLS-AOM-compact-cv5-numpy": 3.2246195178383905,
+        "PLS-tuned-cv5": 3.5140094215819624,
+        "AOMRidge-global-compact-none": 2.9008697083224084,
+        "AOMRidge-global-compact-snv": 2.9008697083224084,
+        "AOMRidge-Local-compact-knn50": 2.737930581950674,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 14.810411766557603
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 2.737930581950674,
+      "worst_rmsep": 14.810411766557603,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "DIESEL_bp50_246_hla-b",
+      "n_train": 133,
+      "n_test": 113,
+      "n_features": 401,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 3.162852356606701,
+        "Ridge-tuned-cv5": 2.707214742245243,
+        "ASLS-AOM-compact-cv5-numpy": 3.1138070341002475,
+        "PLS-tuned-cv5": 3.0363078458492363,
+        "AOMRidge-global-compact-none": 2.602945863934151,
+        "AOMRidge-global-compact-snv": 2.602945863934151,
+        "AOMRidge-Local-compact-knn50": 2.6742707439036404,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 3.7183928282564715
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 2.602945863934151,
+      "worst_rmsep": 3.7183928282564715,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "DIESEL_bp50_246_hlb-a",
+      "n_train": 133,
+      "n_test": 113,
+      "n_features": 401,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 2.9301822801768234,
+        "Ridge-tuned-cv5": 3.509802770193015,
+        "ASLS-AOM-compact-cv5-numpy": 3.164037934804842,
+        "PLS-tuned-cv5": 3.5467016188834295,
+        "AOMRidge-global-compact-none": 2.9076605489905454,
+        "AOMRidge-global-compact-snv": 2.9076605489905454,
+        "AOMRidge-Local-compact-knn50": 2.7681651044165045,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 6.751886473278783
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 2.7681651044165045,
+      "worst_rmsep": 6.751886473278783,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Rd25_CBtestSite",
+      "n_train": 324,
+      "n_test": 146,
+      "n_features": 2151,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.22877469936313785,
+        "Ridge-tuned-cv5": 0.245357158069449,
+        "ASLS-AOM-compact-cv5-numpy": 0.24171585040052626,
+        "PLS-tuned-cv5": 0.23946100339409587,
+        "AOMRidge-global-compact-none": 0.2699915429339117,
+        "AOMRidge-global-compact-snv": 0.2699915429339117,
+        "AOMRidge-Local-compact-knn50": 0.23144285516218843,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.35207822958010815
+      },
+      "best_candidate": "AOM-PLS-compact-numpy",
+      "best_rmsep": 0.22877469936313785,
+      "worst_rmsep": 0.35207822958010815,
+      "best_family": "AOM-PLS"
+    },
+    {
+      "name": "Rd25_GTtestSite",
+      "n_train": 297,
+      "n_test": 173,
+      "n_features": 2151,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.20857471134203742,
+        "Ridge-tuned-cv5": 0.24296746730233792,
+        "ASLS-AOM-compact-cv5-numpy": 0.31945492658920016,
+        "PLS-tuned-cv5": 0.2657653500062595,
+        "AOMRidge-global-compact-none": 0.25574863007774173,
+        "AOMRidge-global-compact-snv": 0.25574863007774173,
+        "AOMRidge-Local-compact-knn50": 0.19071867398201814,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.28531566133143943
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 0.19071867398201814,
+      "worst_rmsep": 0.31945492658920016,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Rd25_XSBNtestSite",
+      "n_train": 319,
+      "n_test": 151,
+      "n_features": 2151,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.2804748394320138,
+        "Ridge-tuned-cv5": 0.27706490446936743,
+        "ASLS-AOM-compact-cv5-numpy": 0.26566782157922125,
+        "PLS-tuned-cv5": 0.288279539571673,
+        "AOMRidge-global-compact-none": 0.27160820442616973,
+        "AOMRidge-global-compact-snv": 0.27160820442616973,
+        "AOMRidge-Local-compact-knn50": 0.26609619156744047,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 1.4426407266902737
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 0.26566782157922125,
+      "worst_rmsep": 1.4426407266902737,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "Rd25_spxy70",
+      "n_train": 329,
+      "n_test": 141,
+      "n_features": 2151,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.18155120067468847,
+        "Ridge-tuned-cv5": 0.16952481520215143,
+        "ASLS-AOM-compact-cv5-numpy": 0.18633119300969317,
+        "PLS-tuned-cv5": 0.17412145056277006,
+        "AOMRidge-global-compact-none": 0.16877474812473414,
+        "AOMRidge-global-compact-snv": 0.16877474812473414,
+        "AOMRidge-Local-compact-knn50": 0.17390216286461238,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.5051525544470299
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.16877474812473414,
+      "worst_rmsep": 0.5051525544470299,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Ccar_spxyG_block2deg",
+      "n_train": 1016,
+      "n_test": 3229,
+      "n_features": 196,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 71.54174244322476,
+        "Ridge-tuned-cv5": 62.16793639021786,
+        "ASLS-AOM-compact-cv5-numpy": 55.29206830858165,
+        "PLS-tuned-cv5": 64.38795616410968,
+        "AOMRidge-global-compact-none": 61.476483389784974,
+        "AOMRidge-global-compact-snv": 61.476483389784974,
+        "AOMRidge-Local-compact-knn50": 71.9813174977257,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 46.41336783930346
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 46.41336783930346,
+      "worst_rmsep": 71.9813174977257,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Chla+b_spxyG_block2deg",
+      "n_train": 2925,
+      "n_test": 3925,
+      "n_features": 196,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 85.444865523486,
+        "Ridge-tuned-cv5": 92.47974370540764,
+        "ASLS-AOM-compact-cv5-numpy": 89.05868787095295,
+        "PLS-tuned-cv5": 44.70291057567961,
+        "AOMRidge-global-compact-none": 90.58330874402404,
+        "AOMRidge-global-compact-snv": 90.58330874402404,
+        "AOMRidge-Local-compact-knn50": 71.04194638365612,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 43.2376779304988
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 43.2376779304988,
+      "worst_rmsep": 92.47974370540764,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Chla+b_spxyG_species",
+      "n_train": 3734,
+      "n_test": 3116,
+      "n_features": 196,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 73.5997860640477,
+        "Ridge-tuned-cv5": 65.85474763610245,
+        "ASLS-AOM-compact-cv5-numpy": 75.83482438734458,
+        "PLS-tuned-cv5": 52.64846340007086,
+        "AOMRidge-global-compact-none": 72.01787509980218,
+        "AOMRidge-global-compact-snv": 72.01787509980218,
+        "AOMRidge-Local-compact-knn50": 58.8525683011211,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 41.48634786112588
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 41.48634786112588,
+      "worst_rmsep": 75.83482438734458,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "LMA_spxyG_block2deg",
+      "n_train": 39225,
+      "n_test": 6192,
+      "n_features": 196,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 23.10649543989815,
+        "Ridge-tuned-cv5": 23.15422823897252,
+        "ASLS-AOM-compact-cv5-numpy": 23.15950486565532,
+        "PLS-tuned-cv5": 22.957924603001114
+      },
+      "best_candidate": "PLS-tuned-cv5",
+      "best_rmsep": 22.957924603001114,
+      "worst_rmsep": 23.15950486565532,
+      "best_family": "PLS"
+    },
+    {
+      "name": "FinalScore_grp70_30_scoreQ",
+      "n_train": 646,
+      "n_test": 289,
+      "n_features": 2177,
+      "candidates": {}
+    },
+    {
+      "name": "Fv_Fm_grp70_30",
+      "n_train": 351,
+      "n_test": 167,
+      "n_features": 2177,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.03130043382839942,
+        "Ridge-tuned-cv5": 0.031198879131957492,
+        "ASLS-AOM-compact-cv5-numpy": 0.030722997175157342,
+        "PLS-tuned-cv5": 0.031319818588206434,
+        "AOMRidge-global-compact-none": 0.032053787617523116,
+        "AOMRidge-global-compact-snv": 0.032053787617523116,
+        "AOMRidge-Local-compact-knn50": 0.030798021607359796,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.03727325939702197
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 0.030722997175157342,
+      "worst_rmsep": 0.03727325939702197,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "Tleaf_grp70_30",
+      "n_train": 458,
+      "n_test": 207,
+      "n_features": 2177,
+      "candidates": {}
+    },
+    {
+      "name": "grapevine_chloride_556_KS",
+      "n_train": 388,
+      "n_test": 167,
+      "n_features": 1023,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 978.0940363388555,
+        "Ridge-tuned-cv5": 1073.6813403188123,
+        "ASLS-AOM-compact-cv5-numpy": 946.4330297800437,
+        "PLS-tuned-cv5": 1144.852762370906,
+        "AOMRidge-global-compact-none": 1028.8405873558593,
+        "AOMRidge-global-compact-snv": 1028.8405873558593,
+        "AOMRidge-Local-compact-knn50": 954.7137047612927,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 1497.531843724149
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 946.4330297800437,
+      "worst_rmsep": 1497.531843724149,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "An_spxyG70_30_byCultivar_ASD",
+      "n_train": 78,
+      "n_test": 34,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 3.9246641270925355,
+        "Ridge-tuned-cv5": 4.055071286774493,
+        "ASLS-AOM-compact-cv5-numpy": 3.7911966874422904,
+        "PLS-tuned-cv5": 4.585963522289958,
+        "AOMRidge-global-compact-none": 3.6525825706359347,
+        "AOMRidge-global-compact-snv": 3.6525825706359347,
+        "AOMRidge-Local-compact-knn50": 3.751701964384023,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 3.601727431274151
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 3.601727431274151,
+      "worst_rmsep": 4.585963522289958,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "An_spxyG70_30_byCultivar_MicroNIR",
+      "n_train": 81,
+      "n_test": 35,
+      "n_features": 125,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 3.6193986737131607,
+        "Ridge-tuned-cv5": 3.520010309727299,
+        "ASLS-AOM-compact-cv5-numpy": 3.6222343511579638,
+        "PLS-tuned-cv5": 3.6709564274590645,
+        "AOMRidge-global-compact-none": 3.5055507996418447,
+        "AOMRidge-global-compact-snv": 3.5055507996418447,
+        "AOMRidge-Local-compact-knn50": 3.623322806619263,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 4.194839029917808
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 3.5055507996418447,
+      "worst_rmsep": 4.194839029917808,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+      "n_train": 80,
+      "n_test": 35,
+      "n_features": 276,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 3.8018856192510464,
+        "Ridge-tuned-cv5": 3.7591806858952923,
+        "ASLS-AOM-compact-cv5-numpy": 3.6176132558201846,
+        "PLS-tuned-cv5": 3.468681335957826,
+        "AOMRidge-global-compact-none": 3.7676602055426414,
+        "AOMRidge-global-compact-snv": 3.7676602055426414,
+        "AOMRidge-Local-compact-knn50": 4.199252014155124,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 4.204389994060084
+      },
+      "best_candidate": "PLS-tuned-cv5",
+      "best_rmsep": 3.468681335957826,
+      "worst_rmsep": 4.204389994060084,
+      "best_family": "PLS"
+    },
+    {
+      "name": "An_spxyG70_30_byCultivar_NeoSpectra",
+      "n_train": 82,
+      "n_test": 37,
+      "n_features": 257,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 5.197543888046769,
+        "Ridge-tuned-cv5": 4.651218356115166,
+        "ASLS-AOM-compact-cv5-numpy": 4.977813573445096,
+        "PLS-tuned-cv5": 4.706793700102427,
+        "AOMRidge-global-compact-none": 4.744150141641229,
+        "AOMRidge-global-compact-snv": 4.744150141641229,
+        "AOMRidge-Local-compact-knn50": 4.883293713194593,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 4.406696217183623
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 4.406696217183623,
+      "worst_rmsep": 5.197543888046769,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "LMA_spxyG70_30_byCultivar_ASD",
+      "n_train": 1092,
+      "n_test": 472,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.30922328063348686,
+        "Ridge-tuned-cv5": 0.3021222311359195,
+        "ASLS-AOM-compact-cv5-numpy": 0.3094903304999114,
+        "PLS-tuned-cv5": 0.31280634551442305,
+        "AOMRidge-global-compact-none": 0.30055572209975373,
+        "AOMRidge-global-compact-snv": 0.30055572209975373,
+        "AOMRidge-Local-compact-knn50": 0.3028442154419468,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.31171618126564066
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.30055572209975373,
+      "worst_rmsep": 0.31280634551442305,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+      "n_train": 77,
+      "n_test": 35,
+      "n_features": 276,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 1.5594523164359206,
+        "Ridge-tuned-cv5": 1.4426645539066452,
+        "ASLS-AOM-compact-cv5-numpy": 1.311399393762143,
+        "PLS-tuned-cv5": 1.5092585290336828,
+        "AOMRidge-global-compact-none": 1.314575388962129,
+        "AOMRidge-global-compact-snv": 1.314575388962129,
+        "AOMRidge-Local-compact-knn50": 1.5187692472572938,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 1.7697518748775731
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 1.311399393762143,
+      "worst_rmsep": 1.7697518748775731,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "TIC_spxy70",
+      "n_train": 43,
+      "n_test": 19,
+      "n_features": 254,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 3.7880558431472915,
+        "Ridge-tuned-cv5": 4.0784321336732585,
+        "ASLS-AOM-compact-cv5-numpy": 3.697718775126766,
+        "PLS-tuned-cv5": 3.948180878790096,
+        "AOMRidge-global-compact-none": 4.362888539612424,
+        "AOMRidge-global-compact-snv": 4.362888539612424,
+        "AOMRidge-Local-compact-knn50": 4.684778551202731,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 4.5153684936184995
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 3.697718775126766,
+      "worst_rmsep": 4.684778551202731,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "LUCAS_SOC_Cropland_8731_NocitaKS",
+      "n_train": 6111,
+      "n_test": 2620,
+      "n_features": 4200,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 4.929312571028363,
+        "Ridge-tuned-cv5": 4.502686694302442,
+        "ASLS-AOM-compact-cv5-numpy": 4.85476339372522,
+        "PLS-tuned-cv5": 5.0760697123057845,
+        "AOMRidge-global-compact-none": 4.5435437516310495,
+        "AOMRidge-global-compact-snv": 4.5435437516310495,
+        "AOMRidge-Local-compact-knn50": 4.830432574404672
+      },
+      "best_candidate": "Ridge-tuned-cv5",
+      "best_rmsep": 4.502686694302442,
+      "worst_rmsep": 5.0760697123057845,
+      "best_family": "Ridge"
+    },
+    {
+      "name": "LUCAS_SOC_all_26650_NocitaKS",
+      "n_train": 13325,
+      "n_test": 5711,
+      "n_features": 4200,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 16.85204102182171,
+        "Ridge-tuned-cv5": 14.740616571291973,
+        "ASLS-AOM-compact-cv5-numpy": 12.877346459973879,
+        "PLS-tuned-cv5": 18.316325226901288,
+        "AOMRidge-Local-compact-knn50": 15.276283141910202
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 12.877346459973879,
+      "worst_rmsep": 18.316325226901288,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "LUCAS_pH_Organic_1763_LiuRandomOrganic",
+      "n_train": 1175,
+      "n_test": 588,
+      "n_features": 4200,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.4125470542879128,
+        "Ridge-tuned-cv5": 0.35669888203637357,
+        "ASLS-AOM-compact-cv5-numpy": 0.40939684609422716,
+        "PLS-tuned-cv5": 0.45165352129025016,
+        "AOMRidge-global-compact-none": 0.36810258603166596,
+        "AOMRidge-global-compact-snv": 0.36810258603166596,
+        "AOMRidge-Local-compact-knn50": 0.3381965289524043,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.36606251255099703
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 0.3381965289524043,
+      "worst_rmsep": 0.45165352129025016,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Malaria_Oocist_333_Maia",
+      "n_train": 227,
+      "n_test": 106,
+      "n_features": 2151,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 7930.904001931568,
+        "Ridge-tuned-cv5": 7797.36541671812,
+        "ASLS-AOM-compact-cv5-numpy": 7892.168943164892,
+        "PLS-tuned-cv5": 7988.804491694608,
+        "AOMRidge-global-compact-none": 7761.887365055965,
+        "AOMRidge-global-compact-snv": 7761.887365055965,
+        "AOMRidge-Local-compact-knn50": 7786.084542793054,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 7761.885850971926
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 7761.885850971926,
+      "worst_rmsep": 7988.804491694608,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Malaria_Sporozoite_229_Maia",
+      "n_train": 138,
+      "n_test": 91,
+      "n_features": 2151,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 33811.329675840665,
+        "Ridge-tuned-cv5": 33837.67977223088,
+        "ASLS-AOM-compact-cv5-numpy": 34084.862111630864,
+        "PLS-tuned-cv5": 33653.69417443339,
+        "AOMRidge-global-compact-none": 33849.27758311631,
+        "AOMRidge-global-compact-snv": 33849.27758311631,
+        "AOMRidge-Local-compact-knn50": 34170.01104584186,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 33871.42860210518
+      },
+      "best_candidate": "PLS-tuned-cv5",
+      "best_rmsep": 33653.69417443339,
+      "worst_rmsep": 34170.01104584186,
+      "best_family": "PLS"
+    },
+    {
+      "name": "All_manure_CaO_SPXY_strat_Manure_type",
+      "n_train": 343,
+      "n_test": 147,
+      "n_features": 1003,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 7.95670848330532,
+        "Ridge-tuned-cv5": 7.758061886611529,
+        "ASLS-AOM-compact-cv5-numpy": 7.235524415543667,
+        "PLS-tuned-cv5": 8.94723945786952,
+        "AOMRidge-global-compact-none": 7.916910547896318,
+        "AOMRidge-global-compact-snv": 7.916910547896318,
+        "AOMRidge-Local-compact-knn50": 7.2908837453095785,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 6.936670915603472
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 6.936670915603472,
+      "worst_rmsep": 8.94723945786952,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "All_manure_K2O_SPXY_strat_Manure_type",
+      "n_train": 343,
+      "n_test": 147,
+      "n_features": 1003,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 2.32917982717909,
+        "Ridge-tuned-cv5": 2.6178361136942723,
+        "ASLS-AOM-compact-cv5-numpy": 2.1539125416628306,
+        "PLS-tuned-cv5": 2.730354318169022,
+        "AOMRidge-global-compact-none": 2.7697645735036738,
+        "AOMRidge-global-compact-snv": 2.7697645735036738,
+        "AOMRidge-Local-compact-knn50": 2.4259372159464028,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 2.609688254810468
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 2.1539125416628306,
+      "worst_rmsep": 2.7697645735036738,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "All_manure_MgO_SPXY_strat_Manure_type",
+      "n_train": 343,
+      "n_test": 147,
+      "n_features": 1003,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.8038818165706837,
+        "Ridge-tuned-cv5": 0.7938370665782785,
+        "ASLS-AOM-compact-cv5-numpy": 0.7804626452849234,
+        "PLS-tuned-cv5": 0.8265656267643939,
+        "AOMRidge-global-compact-none": 0.8766116578685749,
+        "AOMRidge-global-compact-snv": 0.8766116578685749,
+        "AOMRidge-Local-compact-knn50": 0.7750098547840325,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.7471897134673904
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 0.7471897134673904,
+      "worst_rmsep": 0.8766116578685749,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "All_manure_P2O5_SPXY_strat_Manure_type",
+      "n_train": 343,
+      "n_test": 147,
+      "n_features": 1003,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 2.573959242347742,
+        "Ridge-tuned-cv5": 2.5416505080327716,
+        "ASLS-AOM-compact-cv5-numpy": 2.668656286973689,
+        "PLS-tuned-cv5": 2.617429376917057,
+        "AOMRidge-global-compact-none": 2.5725812998437303,
+        "AOMRidge-global-compact-snv": 2.5725812998437303,
+        "AOMRidge-Local-compact-knn50": 2.5421023589763987,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 3.576848357224743
+      },
+      "best_candidate": "Ridge-tuned-cv5",
+      "best_rmsep": 2.5416505080327716,
+      "worst_rmsep": 3.576848357224743,
+      "best_family": "Ridge"
+    },
+    {
+      "name": "All_manure_Total_N_SPXY_strat_Manure_type",
+      "n_train": 343,
+      "n_test": 147,
+      "n_features": 1003,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 1.7288448293595478,
+        "Ridge-tuned-cv5": 1.713562194109489,
+        "ASLS-AOM-compact-cv5-numpy": 1.5606693818800157,
+        "PLS-tuned-cv5": 1.7989955864482778,
+        "AOMRidge-global-compact-none": 1.7359744190226625,
+        "AOMRidge-global-compact-snv": 1.7359744190226625,
+        "AOMRidge-Local-compact-knn50": 1.6835828476455268,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 1.7467004041259668
+      },
+      "best_candidate": "ASLS-AOM-compact-cv5-numpy",
+      "best_rmsep": 1.5606693818800157,
+      "worst_rmsep": 1.7989955864482778,
+      "best_family": "ASLS"
+    },
+    {
+      "name": "Milk_Fat_1224_KS",
+      "n_train": 181,
+      "n_test": 221,
+      "n_features": 255,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.09482517852338368,
+        "Ridge-tuned-cv5": 0.11736822728714025,
+        "ASLS-AOM-compact-cv5-numpy": 0.09268685878593143,
+        "PLS-tuned-cv5": 0.12943462840701936,
+        "AOMRidge-global-compact-none": 0.09816579668097605,
+        "AOMRidge-global-compact-snv": 0.09816579668097605,
+        "AOMRidge-Local-compact-knn50": 0.08164370531219373,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.10983633865660167
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 0.08164370531219373,
+      "worst_rmsep": 0.12943462840701936,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Milk_Lactose_1224_KS",
+      "n_train": 856,
+      "n_test": 368,
+      "n_features": 255,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.054430213137675175,
+        "Ridge-tuned-cv5": 0.07071966931965265,
+        "ASLS-AOM-compact-cv5-numpy": 0.056078974635860424,
+        "PLS-tuned-cv5": 0.10898799650265295,
+        "AOMRidge-global-compact-none": 0.05425195519811472,
+        "AOMRidge-global-compact-snv": 0.05425195519811472,
+        "AOMRidge-Local-compact-knn50": 0.05858960064366971,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.15056068818146637
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.05425195519811472,
+      "worst_rmsep": 0.15056068818146637,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Milk_Urea_1224_KS",
+      "n_train": 856,
+      "n_test": 368,
+      "n_features": 255,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 4.1135782989605465,
+        "Ridge-tuned-cv5": 4.3818582484124615,
+        "ASLS-AOM-compact-cv5-numpy": 4.163727895185917,
+        "PLS-tuned-cv5": 4.9839565367153424,
+        "AOMRidge-global-compact-none": 4.207778074177371,
+        "AOMRidge-global-compact-snv": 4.207778074177371,
+        "AOMRidge-Local-compact-knn50": 4.139182983142661,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 5.15087180383863
+      },
+      "best_candidate": "AOM-PLS-compact-numpy",
+      "best_rmsep": 4.1135782989605465,
+      "worst_rmsep": 5.15087180383863,
+      "best_family": "AOM-PLS"
+    },
+    {
+      "name": "LP_spxyG",
+      "n_train": 169,
+      "n_test": 88,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.17402270485454316,
+        "Ridge-tuned-cv5": 0.16876243960194828,
+        "ASLS-AOM-compact-cv5-numpy": 0.16456080211929447,
+        "PLS-tuned-cv5": 0.20154360012475772,
+        "AOMRidge-global-compact-none": 0.16444890485657138,
+        "AOMRidge-global-compact-snv": 0.16444890485657138,
+        "AOMRidge-Local-compact-knn50": 0.17978692785693795,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.6898895990436824
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.16444890485657138,
+      "worst_rmsep": 0.6898895990436824,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "MP_spxyG",
+      "n_train": 169,
+      "n_test": 88,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.024333873847333994,
+        "Ridge-tuned-cv5": 0.021492594995404953,
+        "ASLS-AOM-compact-cv5-numpy": 0.021886286743237903,
+        "PLS-tuned-cv5": 0.02120338956941468,
+        "AOMRidge-global-compact-none": 0.022623525930066307,
+        "AOMRidge-global-compact-snv": 0.022623525930066307,
+        "AOMRidge-Local-compact-knn50": 0.020802315080923242,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.04094994976449775
+      },
+      "best_candidate": "AOMRidge-Local-compact-knn50",
+      "best_rmsep": 0.020802315080923242,
+      "worst_rmsep": 0.04094994976449775,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "NP_spxyG",
+      "n_train": 169,
+      "n_test": 88,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.10429150687085656,
+        "Ridge-tuned-cv5": 0.10837868739755033,
+        "ASLS-AOM-compact-cv5-numpy": 0.13903792747772092,
+        "PLS-tuned-cv5": 0.11137986829887914,
+        "AOMRidge-global-compact-none": 0.10617333666116147,
+        "AOMRidge-global-compact-snv": 0.10617333666116147,
+        "AOMRidge-Local-compact-knn50": 0.114295008585474,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.4848679522109997
+      },
+      "best_candidate": "AOM-PLS-compact-numpy",
+      "best_rmsep": 0.10429150687085656,
+      "worst_rmsep": 0.4848679522109997,
+      "best_family": "AOM-PLS"
+    },
+    {
+      "name": "Pi_spxyG",
+      "n_train": 169,
+      "n_test": 88,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.17873562838916934,
+        "Ridge-tuned-cv5": 0.17057016305389797,
+        "ASLS-AOM-compact-cv5-numpy": 0.21606651473765598,
+        "PLS-tuned-cv5": 0.17788845312757307,
+        "AOMRidge-global-compact-none": 0.17812865884346604,
+        "AOMRidge-global-compact-snv": 0.17812865884346604,
+        "AOMRidge-Local-compact-knn50": 0.17481157061363778,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.35269345583272743
+      },
+      "best_candidate": "Ridge-tuned-cv5",
+      "best_rmsep": 0.17057016305389797,
+      "worst_rmsep": 0.35269345583272743,
+      "best_family": "Ridge"
+    },
+    {
+      "name": "V25_spxyG",
+      "n_train": 168,
+      "n_test": 82,
+      "n_features": 2101,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.3230913532632834,
+        "Ridge-tuned-cv5": 0.2992984947449419,
+        "ASLS-AOM-compact-cv5-numpy": 0.3267842243993709,
+        "PLS-tuned-cv5": 0.3158432975679584,
+        "AOMRidge-global-compact-none": 0.27601361404305796,
+        "AOMRidge-global-compact-snv": 0.27601361404305796,
+        "AOMRidge-Local-compact-knn50": 0.33853497057822657,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 1.088026099129189
+      },
+      "best_candidate": "AOMRidge-global-compact-none",
+      "best_rmsep": 0.27601361404305796,
+      "worst_rmsep": 1.088026099129189,
+      "best_family": "AOM-Ridge"
+    },
+    {
+      "name": "Firmness_spxy70",
+      "n_train": 28,
+      "n_test": 12,
+      "n_features": 600,
+      "candidates": {
+        "AOM-PLS-compact-numpy": 0.32538252291130104,
+        "Ridge-tuned-cv5": 0.3478565633068961,
+        "ASLS-AOM-compact-cv5-numpy": 0.32092785331420703,
+        "PLS-tuned-cv5": 0.36338309538447194,
+        "AOMRidge-global-compact-none": 0.30511326887892,
+        "AOMRidge-global-compact-snv": 0.30511326887892,
+        "AOMRidge-Local-compact-knn50": 0.31486398465988463,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0.27650238714885017
+      },
+      "best_candidate": "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "best_rmsep": 0.27650238714885017,
+      "worst_rmsep": 0.36338309538447194,
+      "best_family": "AOM-Ridge"
+    }
+  ],
+  "families": [
+    {
+      "family": "AOM-Ridge",
+      "candidates": [
+        "AOMRidge-Local-compact-knn50",
+        "AOMRidge-MultiBranchMKL-compact-shrink03",
+        "AOMRidge-global-compact-none",
+        "AOMRidge-global-compact-snv"
+      ],
+      "n_candidates": 4,
+      "n_datasets_covered": 53,
+      "median_best_rmsep": 1.314575388962129,
+      "q90_best_rmsep": 41.48634786112588
+    },
+    {
+      "family": "ASLS",
+      "candidates": [
+        "ASLS-AOM-compact-cv5-numpy"
+      ],
+      "n_candidates": 1,
+      "n_datasets_covered": 54,
+      "median_best_rmsep": 1.4360343878210795,
+      "q90_best_rmsep": 55.29206830858165
+    },
+    {
+      "family": "Ridge",
+      "candidates": [
+        "Ridge-tuned-cv5"
+      ],
+      "n_candidates": 1,
+      "n_datasets_covered": 54,
+      "median_best_rmsep": 1.578113374008067,
+      "q90_best_rmsep": 62.16793639021786
+    },
+    {
+      "family": "AOM-PLS",
+      "candidates": [
+        "AOM-PLS-compact-numpy"
+      ],
+      "n_candidates": 1,
+      "n_datasets_covered": 54,
+      "median_best_rmsep": 1.644148572897734,
+      "q90_best_rmsep": 71.54174244322476
+    },
+    {
+      "family": "PLS",
+      "candidates": [
+        "PLS-tuned-cv5"
+      ],
+      "n_candidates": 1,
+      "n_datasets_covered": 54,
+      "median_best_rmsep": 1.6541270577409803,
+      "q90_best_rmsep": 44.70291057567961
+    }
+  ],
+  "head_to_head": {
+    "workspace": "best_current_full57_seed0",
+    "candidates": [
+      "AOM-PLS-compact-numpy",
+      "AOMRidge-Local-compact-knn50",
+      "AOMRidge-MultiBranchMKL-compact-shrink03",
+      "AOMRidge-global-compact-none",
+      "AOMRidge-global-compact-snv",
+      "ASLS-AOM-compact-cv5-numpy",
+      "PLS-tuned-cv5",
+      "Ridge-tuned-cv5"
+    ],
+    "wins": {
+      "AOM-PLS-compact-numpy": {
+        "AOM-PLS-compact-numpy": 0,
+        "AOMRidge-Local-compact-knn50": 22,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 37,
+        "AOMRidge-global-compact-none": 22,
+        "AOMRidge-global-compact-snv": 22,
+        "ASLS-AOM-compact-cv5-numpy": 23,
+        "PLS-tuned-cv5": 37,
+        "Ridge-tuned-cv5": 23
+      },
+      "AOMRidge-Local-compact-knn50": {
+        "AOM-PLS-compact-numpy": 31,
+        "AOMRidge-Local-compact-knn50": 0,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 37,
+        "AOMRidge-global-compact-none": 24,
+        "AOMRidge-global-compact-snv": 24,
+        "ASLS-AOM-compact-cv5-numpy": 27,
+        "PLS-tuned-cv5": 37,
+        "Ridge-tuned-cv5": 29
+      },
+      "AOMRidge-MultiBranchMKL-compact-shrink03": {
+        "AOM-PLS-compact-numpy": 14,
+        "AOMRidge-Local-compact-knn50": 14,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 0,
+        "AOMRidge-global-compact-none": 14,
+        "AOMRidge-global-compact-snv": 14,
+        "ASLS-AOM-compact-cv5-numpy": 16,
+        "PLS-tuned-cv5": 18,
+        "Ridge-tuned-cv5": 14
+      },
+      "AOMRidge-global-compact-none": {
+        "AOM-PLS-compact-numpy": 30,
+        "AOMRidge-Local-compact-knn50": 28,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 37,
+        "AOMRidge-global-compact-none": 0,
+        "AOMRidge-global-compact-snv": 0,
+        "ASLS-AOM-compact-cv5-numpy": 30,
+        "PLS-tuned-cv5": 35,
+        "Ridge-tuned-cv5": 27
+      },
+      "AOMRidge-global-compact-snv": {
+        "AOM-PLS-compact-numpy": 30,
+        "AOMRidge-Local-compact-knn50": 28,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 37,
+        "AOMRidge-global-compact-none": 0,
+        "AOMRidge-global-compact-snv": 0,
+        "ASLS-AOM-compact-cv5-numpy": 30,
+        "PLS-tuned-cv5": 35,
+        "Ridge-tuned-cv5": 27
+      },
+      "ASLS-AOM-compact-cv5-numpy": {
+        "AOM-PLS-compact-numpy": 31,
+        "AOMRidge-Local-compact-knn50": 26,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 35,
+        "AOMRidge-global-compact-none": 22,
+        "AOMRidge-global-compact-snv": 22,
+        "ASLS-AOM-compact-cv5-numpy": 0,
+        "PLS-tuned-cv5": 36,
+        "Ridge-tuned-cv5": 29
+      },
+      "PLS-tuned-cv5": {
+        "AOM-PLS-compact-numpy": 17,
+        "AOMRidge-Local-compact-knn50": 16,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 33,
+        "AOMRidge-global-compact-none": 17,
+        "AOMRidge-global-compact-snv": 17,
+        "ASLS-AOM-compact-cv5-numpy": 18,
+        "PLS-tuned-cv5": 0,
+        "Ridge-tuned-cv5": 11
+      },
+      "Ridge-tuned-cv5": {
+        "AOM-PLS-compact-numpy": 31,
+        "AOMRidge-Local-compact-knn50": 24,
+        "AOMRidge-MultiBranchMKL-compact-shrink03": 37,
+        "AOMRidge-global-compact-none": 25,
+        "AOMRidge-global-compact-snv": 25,
+        "ASLS-AOM-compact-cv5-numpy": 25,
+        "PLS-tuned-cv5": 43,
+        "Ridge-tuned-cv5": 0
+      }
+    }
+  },
+  "preprocessing_pairs": [
+    {
+      "candidate_a": "AOMRidge-global-compact-none",
+      "candidate_b": "AOMRidge-global-compact-snv",
+      "label": "preprocessing: none vs SNV",
+      "n_datasets": 52,
+      "median_delta": 0.0,
+      "mean_delta": 0.0,
+      "max_abs_delta": 0.0,
+      "deltas": [
+        {
+          "dataset": "Corn_Oil_80_ZhengChenPelegYbaseSplit",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "ALPINE_P_291_KS",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Rd25_spxy70",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Chla+b_spxyG_species",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "LUCAS_SOC_Cropland_8731_NocitaKS",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "grapevine_chloride_556_KS",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "LP_spxyG",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Chla+b_spxyG_block2deg",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "LMA_spxyG70_30_byCultivar_ASD",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Biscuit_Sucrose_40_RandomSplit",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Malaria_Sporozoite_229_Maia",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Fv_Fm_grp70_30",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "NP_spxyG",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "ph_groupSampleID_stratDateVar_balRows",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "LUCAS_pH_Organic_1763_LiuRandomOrganic",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "V25_spxyG",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "An_spxyG70_30_byCultivar_NeoSpectra",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "TIC_spxy70",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Milk_Fat_1224_KS",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Pi_spxyG",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "An_spxyG70_30_byCultivar_MicroNIR",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "An_spxyG70_30_byCultivar_ASD",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Milk_Lactose_1224_KS",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Rd25_GTtestSite",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Rd25_XSBNtestSite",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "All_manure_MgO_SPXY_strat_Manure_type",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Milk_Urea_1224_KS",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Beer_OriginalExtract_60_KS",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "N_woOutlier",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Rd25_CBtestSite",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Biscuit_Fat_40_RandomSplit",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "C_woOutlier",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Firmness_spxy70",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "All_manure_P2O5_SPXY_strat_Manure_type",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "MP_spxyG",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Beef_Marbling_RandomSplit",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "All_manure_Total_N_SPXY_strat_Manure_type",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "All_manure_K2O_SPXY_strat_Manure_type",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Corn_Starch_80_ZhengChenPelegYbaseSplit",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "All_manure_CaO_SPXY_strat_Manure_type",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "DIESEL_bp50_246_hlb-a",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "brix_groupSampleID_stratDateVar_balRows",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Malaria_Oocist_333_Maia",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Beer_OriginalExtract_60_YbaseSplit",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "N_wOutlier",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "DIESEL_bp50_246_b-a",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Ccar_spxyG_block2deg",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "ta_groupSampleID_stratDateVar_balRows",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "DIESEL_bp50_246_hla-b",
+          "delta": 0.0,
+          "ratio": 1.0
+        },
+        {
+          "dataset": "Rice_Amylose_313_YbasedSplit",
+          "delta": 0.0,
+          "ratio": 1.0
+        }
+      ]
+    }
+  ],
+  "failures": {
+    "failed_by_dataset": {
+      "Brix_spxy70": [
+        "AOM-PLS-compact-numpy",
+        "AOMRidge-Local-compact-knn50",
+        "AOMRidge-MultiBranchMKL-compact-shrink03",
+        "AOMRidge-global-compact-none",
+        "AOMRidge-global-compact-snv",
+        "ASLS-AOM-compact-cv5-numpy",
+        "PLS-tuned-cv5",
+        "Ridge-tuned-cv5"
+      ],
+      "FinalScore_grp70_30_scoreQ": [
+        "AOMRidge-MultiBranchMKL-compact-shrink03",
+        "AOMRidge-global-compact-none",
+        "AOMRidge-global-compact-snv",
+        "ASLS-AOM-compact-cv5-numpy",
+        "PLS-tuned-cv5",
+        "Ridge-tuned-cv5"
+      ],
+      "Tleaf_grp70_30": [
+        "AOMRidge-MultiBranchMKL-compact-shrink03",
+        "AOMRidge-global-compact-none",
+        "AOMRidge-global-compact-snv",
+        "ASLS-AOM-compact-cv5-numpy",
+        "PLS-tuned-cv5",
+        "Ridge-tuned-cv5"
+      ]
+    },
+    "timeout_by_dataset": {
+      "LMA_spxyG_block2deg": [
+        "AOMRidge-Local-compact-knn50",
+        "AOMRidge-MultiBranchMKL-compact-shrink03",
+        "AOMRidge-global-compact-none",
+        "AOMRidge-global-compact-snv"
+      ],
+      "LUCAS_SOC_all_26650_NocitaKS": [
+        "AOMRidge-MultiBranchMKL-compact-shrink03",
+        "AOMRidge-global-compact-none",
+        "AOMRidge-global-compact-snv"
+      ],
+      "LUCAS_SOC_Cropland_8731_NocitaKS": [
+        "AOMRidge-MultiBranchMKL-compact-shrink03"
+      ]
+    }
+  },
+  "tabpfn_paper": [
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "ALPINE_P_291_KS",
+      "rmsep": 0.0595929243597
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "ALPINE_P_291_KS",
+      "rmsep": 0.0434172262266
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Rice_Amylose_313_YbasedSplit",
+      "rmsep": 4.51115835427
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Rice_Amylose_313_YbasedSplit",
+      "rmsep": 1.63247486806
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Beef_Marbling_RandomSplit",
+      "rmsep": 66.2601532596
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Beef_Marbling_RandomSplit",
+      "rmsep": 61.6614758624
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Beer_OriginalExtract_60_KS",
+      "rmsep": 0.250990616476
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Beer_OriginalExtract_60_KS",
+      "rmsep": 0.129905712043
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Beer_OriginalExtract_60_YbaseSplit",
+      "rmsep": 0.224861283914
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Beer_OriginalExtract_60_YbaseSplit",
+      "rmsep": 0.151805788228
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "brix_groupSampleID_stratDateVar_balRows",
+      "rmsep": 3.17115561095
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "brix_groupSampleID_stratDateVar_balRows",
+      "rmsep": 2.85317464814
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "ph_groupSampleID_stratDateVar_balRows",
+      "rmsep": 0.251978582504
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "ph_groupSampleID_stratDateVar_balRows",
+      "rmsep": 0.231139791605
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "ta_groupSampleID_stratDateVar_balRows",
+      "rmsep": 1.65071690138
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "ta_groupSampleID_stratDateVar_balRows",
+      "rmsep": 1.52324894642
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Biscuit_Fat_40_RandomSplit",
+      "rmsep": 0.402531026676
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Biscuit_Fat_40_RandomSplit",
+      "rmsep": 0.449636767242
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Biscuit_Sucrose_40_RandomSplit",
+      "rmsep": 1.50663203143
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Biscuit_Sucrose_40_RandomSplit",
+      "rmsep": 0.956360252231
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "C_woOutlier",
+      "rmsep": 0.838604593642
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "C_woOutlier",
+      "rmsep": 0.793405753931
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "N_wOutlier",
+      "rmsep": 0.216714753163
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "N_wOutlier",
+      "rmsep": 0.175339140662
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "N_woOutlier",
+      "rmsep": 0.209232780207
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "N_woOutlier",
+      "rmsep": 0.177459395277
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Corn_Oil_80_ZhengChenPelegYbaseSplit",
+      "rmsep": 0.110229332272
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Corn_Oil_80_ZhengChenPelegYbaseSplit",
+      "rmsep": 0.024732365271
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Corn_Starch_80_ZhengChenPelegYbaseSplit",
+      "rmsep": 0.497451358999
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Corn_Starch_80_ZhengChenPelegYbaseSplit",
+      "rmsep": 0.0640284145473
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "DIESEL_bp50_246_b-a",
+      "rmsep": 4.14435463439
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "DIESEL_bp50_246_b-a",
+      "rmsep": 4.32793289223
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "DIESEL_bp50_246_hla-b",
+      "rmsep": 4.5681225765
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "DIESEL_bp50_246_hla-b",
+      "rmsep": 4.20467150529
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "DIESEL_bp50_246_hlb-a",
+      "rmsep": 3.49552640468
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "DIESEL_bp50_246_hlb-a",
+      "rmsep": 2.94169196374
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Rd25_CBtestSite",
+      "rmsep": 0.340033682574
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Rd25_CBtestSite",
+      "rmsep": 0.276801460493
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Rd25_GTtestSite",
+      "rmsep": 0.376279021235
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Rd25_GTtestSite",
+      "rmsep": 0.283656162596
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Rd25_XSBNtestSite",
+      "rmsep": 0.299196102739
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Rd25_XSBNtestSite",
+      "rmsep": 0.255538670607
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Rd25_spxy70",
+      "rmsep": 0.166455368046
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Rd25_spxy70",
+      "rmsep": 0.166233883184
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Ccar_spxyG_block2deg",
+      "rmsep": 32.4236964111
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Ccar_spxyG_block2deg",
+      "rmsep": 30.4004914314
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Chla+b_spxyG_block2deg",
+      "rmsep": 59.8980107805
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Chla+b_spxyG_block2deg",
+      "rmsep": 70.2517756389
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Chla+b_spxyG_species",
+      "rmsep": 60.698836955
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Chla+b_spxyG_species",
+      "rmsep": 49.0025686351
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "LMA_spxyG_block2deg",
+      "rmsep": 22.1925365912
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "FinalScore_grp70_30_scoreQ",
+      "rmsep": 1.34870849806
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Fv_Fm_grp70_30",
+      "rmsep": 0.0309108634548
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Fv_Fm_grp70_30",
+      "rmsep": 0.025544142312
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Tleaf_grp70_30",
+      "rmsep": 2.88696597704
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "grapevine_chloride_556_KS",
+      "rmsep": 1004.77110858
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "grapevine_chloride_556_KS",
+      "rmsep": 771.275061848
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "An_spxyG70_30_byCultivar_ASD",
+      "rmsep": 3.41958679413
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "An_spxyG70_30_byCultivar_ASD",
+      "rmsep": 3.41958679413
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "An_spxyG70_30_byCultivar_MicroNIR",
+      "rmsep": 4.01025550373
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "An_spxyG70_30_byCultivar_MicroNIR",
+      "rmsep": 3.73476994454
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+      "rmsep": 4.00531683385
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "An_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+      "rmsep": 3.62373286546
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "An_spxyG70_30_byCultivar_NeoSpectra",
+      "rmsep": 4.37457439879
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "An_spxyG70_30_byCultivar_NeoSpectra",
+      "rmsep": 4.48454476996
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "LMA_spxyG70_30_byCultivar_ASD",
+      "rmsep": 0.314202954666
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "LMA_spxyG70_30_byCultivar_ASD",
+      "rmsep": 0.302785366425
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+      "rmsep": 1.50719970032
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "WUEinst_spxyG70_30_byCultivar_MicroNIR_NeoSpectra",
+      "rmsep": 1.4832810032
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "TIC_spxy70",
+      "rmsep": 3.46406801287
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "TIC_spxy70",
+      "rmsep": 2.9618158541
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "LUCAS_SOC_Cropland_8731_NocitaKS",
+      "rmsep": 3.75218864083
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "LUCAS_SOC_Cropland_8731_NocitaKS",
+      "rmsep": 3.33051912908
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "LUCAS_SOC_all_26650_NocitaKS",
+      "rmsep": 6.31009370814
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "LUCAS_SOC_all_26650_NocitaKS",
+      "rmsep": 5.54961441748
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "LUCAS_pH_Organic_1763_LiuRandomOrganic",
+      "rmsep": 0.343716176285
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "LUCAS_pH_Organic_1763_LiuRandomOrganic",
+      "rmsep": 0.250316915206
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Malaria_Oocist_333_Maia",
+      "rmsep": 7872.58656281
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Malaria_Oocist_333_Maia",
+      "rmsep": 8084.58773674
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Malaria_Sporozoite_229_Maia",
+      "rmsep": 35027.5553336
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Malaria_Sporozoite_229_Maia",
+      "rmsep": 34162.9932994
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "All_manure_CaO_SPXY_strat_Manure_type",
+      "rmsep": 5.56167756855
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "All_manure_CaO_SPXY_strat_Manure_type",
+      "rmsep": 5.62174284899
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "All_manure_K2O_SPXY_strat_Manure_type",
+      "rmsep": 2.67949244083
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "All_manure_K2O_SPXY_strat_Manure_type",
+      "rmsep": 2.65834558999
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "All_manure_MgO_SPXY_strat_Manure_type",
+      "rmsep": 0.783442691459
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "All_manure_MgO_SPXY_strat_Manure_type",
+      "rmsep": 0.750898623669
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "All_manure_P2O5_SPXY_strat_Manure_type",
+      "rmsep": 2.39503131261
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "All_manure_P2O5_SPXY_strat_Manure_type",
+      "rmsep": 2.29510368622
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "All_manure_Total_N_SPXY_strat_Manure_type",
+      "rmsep": 1.79497959737
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "All_manure_Total_N_SPXY_strat_Manure_type",
+      "rmsep": 1.59418846957
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Milk_Fat_1224_KS",
+      "rmsep": 0.150675513378
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Milk_Fat_1224_KS",
+      "rmsep": 0.0804810781126
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Milk_Lactose_1224_KS",
+      "rmsep": 0.12360796991
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Milk_Lactose_1224_KS",
+      "rmsep": 0.0476799677937
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Milk_Urea_1224_KS",
+      "rmsep": 4.33217884497
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Milk_Urea_1224_KS",
+      "rmsep": 3.92768466093
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Brix_spxy70",
+      "rmsep": 0.769863443484
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Brix_spxy70",
+      "rmsep": 0.396709414877
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "LP_spxyG",
+      "rmsep": 0.165718497252
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "LP_spxyG",
+      "rmsep": 0.18312656192
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "MP_spxyG",
+      "rmsep": 0.0199865693618
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "MP_spxyG",
+      "rmsep": 0.0213239925416
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "NP_spxyG",
+      "rmsep": 0.123153691378
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "NP_spxyG",
+      "rmsep": 0.11573793416
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Pi_spxyG",
+      "rmsep": 0.157162626181
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Pi_spxyG",
+      "rmsep": 0.18030162623
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "V25_spxyG",
+      "rmsep": 0.263200895165
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "V25_spxyG",
+      "rmsep": 0.292642580003
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Firmness_spxy70",
+      "rmsep": 0.260996571825
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Firmness_spxy70",
+      "rmsep": 0.257265856958
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Quartz_spxy70",
+      "rmsep": 0.000549431614773
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Quartz_spxy70",
+      "rmsep": 0.000470910889943
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "Escitalopramt_310_Zhao",
+      "rmsep": 0.84334325869
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "Escitalopramt_310_Zhao",
+      "rmsep": 0.328421350088
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "WOOD_Density_402_Olale",
+      "rmsep": 0.127342569768
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "WOOD_Density_402_Olale",
+      "rmsep": 0.121666990944
+    },
+    {
+      "model_name": "TabPFN-Raw",
+      "dataset": "WOOD_N_402_Olale",
+      "rmsep": 0.0484417436754
+    },
+    {
+      "model_name": "TabPFN-opt",
+      "dataset": "WOOD_N_402_Olale",
+      "rmsep": 0.0472945910951
+    }
+  ],
+  "family_colors": {
+    "AOM-PLS": "#1f77b4",
+    "PLS": "#1f77b4",
+    "FCK": "#1f77b4",
+    "AOM-Ridge": "#1f77b4",
+    "MoE/Stack": "#1f77b4",
+    "Residual NN": "#1f77b4",
+    "Ridge": "#1f77b4",
+    "Multi-Kernel": "#1f77b4",
+    "TabPFN": "#1f77b4",
+    "Paper-ref": "#1f77b4",
+    "ASLS": "#1f77b4"
+  }
+}
