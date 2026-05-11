@@ -349,12 +349,15 @@ def build_master_aggregations(master: list[dict]) -> dict:
       - all_observations: lightweight list for plotting (down-sampled if huge)
       - per_dataset_best: best (model_name, rmsep) per dataset across all sources
     """
-    # Filter
+    # Filter: keep observed/paper rows with rmsep AND a real dataset name
+    # (some legacy ingests have dataset='dataset' or empty due to parse bugs)
+    _DS_BLACKLIST = {"dataset", "runs", "results", ""}
     obs = [
         r for r in master
         if r.get("record_type") in ("observed", "reference_paper")
         and r.get("status", "") in ("ok", "")
         and safe_float(r.get("rmsep")) is not None
+        and (r.get("dataset") or "").strip() not in _DS_BLACKLIST
     ]
 
     # Group by model_name
@@ -591,6 +594,65 @@ def build_master_aggregations(master: list[dict]) -> dict:
         random.seed(0)
         obs_lean = sorted(obs_lean, key=lambda x: x["rmsep"])[:1000] + random.sample(obs_lean, N_max - 1000)
 
+    # Observations per dataset (FULL detail, every row, for drill-down)
+    # Each entry: {model_name, model_class, source_run, seed, rmsep, mae, r2,
+    #              fit_time_s, maturity, n_train, n_features, dataset_group}
+    per_dataset_obs: dict[str, list[dict]] = defaultdict(list)
+    for r in obs:
+        ds = r.get("dataset", "")
+        if not ds:
+            continue
+        rmsep = safe_float(r.get("rmsep"))
+        if rmsep is None:
+            continue
+        per_dataset_obs[ds].append({
+            "model_name": (r.get("model_name") or "")[:80],
+            "model_class": r.get("model_class", ""),
+            "variant": (r.get("variant") or "")[:60],
+            "source_run": r.get("source_run", ""),
+            "source_family": r.get("source_family", ""),
+            "seed": r.get("seed", ""),
+            "rmsep": rmsep,
+            "mae": safe_float(r.get("mae")),
+            "r2": safe_float(r.get("r2")),
+            "fit_time_s": safe_float(r.get("fit_time_s")),
+            "maturity": r.get("protocol_maturity", ""),
+            "record_type": r.get("record_type", ""),
+            "preprocessing": (r.get("preprocessing_pipeline") or "")[:60],
+            "n_components": r.get("n_components", ""),
+        })
+    # Sort each dataset's observations by rmsep ascending
+    for ds_name in per_dataset_obs:
+        per_dataset_obs[ds_name].sort(key=lambda x: x["rmsep"])
+
+    # Per-dataset metadata: pick first non-null n_train/n_features per dataset
+    per_dataset_meta = {}
+    for r in obs:
+        ds = r.get("dataset", "")
+        if not ds:
+            continue
+        if ds not in per_dataset_meta:
+            per_dataset_meta[ds] = {
+                "dataset": ds,
+                "n_train": safe_int(r.get("n_train")),
+                "n_test": safe_int(r.get("n_test")),
+                "n_features": safe_int(r.get("n_features")),
+                "dataset_group": r.get("dataset_group", ""),
+            }
+        else:
+            if per_dataset_meta[ds]["n_train"] is None:
+                v = safe_int(r.get("n_train"))
+                if v is not None:
+                    per_dataset_meta[ds]["n_train"] = v
+            if per_dataset_meta[ds]["n_features"] is None:
+                v = safe_int(r.get("n_features"))
+                if v is not None:
+                    per_dataset_meta[ds]["n_features"] = v
+            if per_dataset_meta[ds]["n_test"] is None:
+                v = safe_int(r.get("n_test"))
+                if v is not None:
+                    per_dataset_meta[ds]["n_test"] = v
+
     return {
         "top_models": top_models,
         "by_model_class": by_model_class,
@@ -599,6 +661,8 @@ def build_master_aggregations(master: list[dict]) -> dict:
         "by_maturity": maturity_summary,
         "per_dataset_best": per_dataset_best,
         "observations_lean": obs_lean,
+        "observations_per_dataset": dict(per_dataset_obs),
+        "per_dataset_meta": per_dataset_meta,
         "n_observations_total": len(obs),
     }
 
