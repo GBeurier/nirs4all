@@ -654,6 +654,7 @@ def build_master_aggregations(master: list[dict]) -> dict:
                     per_dataset_meta[ds]["n_test"] = v
 
     preprocessing = build_preprocessing_master(obs)
+    ranks = build_rank_analysis(obs)
 
     return {
         "top_models": top_models,
@@ -666,7 +667,176 @@ def build_master_aggregations(master: list[dict]) -> dict:
         "observations_per_dataset": dict(per_dataset_obs),
         "per_dataset_meta": per_dataset_meta,
         "preprocessing": preprocessing,
+        "ranks": ranks,
         "n_observations_total": len(obs),
+    }
+
+
+def build_rank_analysis(obs: list[dict]) -> dict:
+    """For each model_class, compute its rank on each dataset (1 = best).
+
+    Produces:
+      - rank_per_dataset: dict[class] -> [{dataset, rank, rmsep, n_competitors}]
+      - mean_ranks: list of {class, mean_rank, median_rank, n_datasets, std_rank}
+      - friedman: { chi_squared, df, p_value_approx } across all classes
+      - critical_difference: per Nemenyi α=0.05 (q_alpha * sqrt(k(k+1)/6N))
+
+    Each class is collapsed to its best (min rmsep) on each dataset to avoid
+    inflating rank distributions with intra-class variance.
+    """
+    by_ds_cls: dict[str, dict[str, float]] = defaultdict(dict)
+    for r in obs:
+        rmsep = safe_float(r.get("rmsep"))
+        if rmsep is None or not math.isfinite(rmsep):
+            continue
+        ds = (r.get("dataset") or "").strip()
+        cls = (r.get("model_class") or "").strip()
+        if not ds or not cls:
+            continue
+        cur = by_ds_cls[ds].get(cls)
+        if cur is None or rmsep < cur:
+            by_ds_cls[ds][cls] = rmsep
+
+    # Per-class rank list (only datasets where the class has a score)
+    rank_per_class: dict[str, list[dict]] = defaultdict(list)
+    valid_datasets_per_class: dict[str, set] = defaultdict(set)
+    full_classes_per_dataset: dict[str, list[str]] = {}
+
+    for ds, cls_scores in by_ds_cls.items():
+        sorted_cls = sorted(cls_scores.items(), key=lambda x: x[1])
+        n = len(sorted_cls)
+        # Average ranks for ties
+        for rank_idx, (cls, val) in enumerate(sorted_cls, start=1):
+            rank_per_class[cls].append({
+                "dataset": ds,
+                "rank": rank_idx,
+                "rmsep": val,
+                "n_competitors": n,
+            })
+            valid_datasets_per_class[cls].add(ds)
+        full_classes_per_dataset[ds] = [c for c, _ in sorted_cls]
+
+    # Datasets where ALL N classes have a score (for fair Friedman test)
+    all_classes = sorted(rank_per_class.keys())
+    complete_datasets = [
+        ds for ds, sc in by_ds_cls.items() if len(sc) == len(all_classes)
+    ]
+
+    # Mean rank, std, only over datasets where the class participated
+    mean_ranks = []
+    for cls in all_classes:
+        ranks_list = [r["rank"] for r in rank_per_class[cls]]
+        if not ranks_list:
+            continue
+        mean_ranks.append({
+            "class": cls,
+            "mean_rank": statistics.mean(ranks_list),
+            "median_rank": statistics.median(ranks_list),
+            "std_rank": statistics.stdev(ranks_list) if len(ranks_list) >= 2 else 0.0,
+            "n_datasets": len(ranks_list),
+            "wins": sum(1 for r in ranks_list if r == 1),
+        })
+    mean_ranks.sort(key=lambda x: x["mean_rank"])
+
+    # Friedman χ² stat (rough; exact requires balanced design)
+    friedman = None
+    if complete_datasets:
+        N = len(complete_datasets)
+        k = len(all_classes)
+        # Sum-of-rank-squared per class on complete-design datasets
+        rank_sums: dict[str, list[float]] = defaultdict(list)
+        for ds in complete_datasets:
+            for cls, rec in zip(all_classes, sorted_cls):
+                pass
+        # Re-do cleanly: rebuild ranks on complete datasets only
+        complete_rank_sums = defaultdict(float)
+        for ds in complete_datasets:
+            sorted_cls = sorted(by_ds_cls[ds].items(), key=lambda x: x[1])
+            for rk, (cls, _) in enumerate(sorted_cls, start=1):
+                complete_rank_sums[cls] += rk
+        # chi² = 12 / (N*k*(k+1)) * sum(Ri²) - 3*N*(k+1)
+        sum_r_sq = sum((rs ** 2) for rs in complete_rank_sums.values())
+        chi2 = (12 / (N * k * (k + 1))) * sum_r_sq - 3 * N * (k + 1)
+        friedman = {
+            "chi_squared": chi2,
+            "df": k - 1,
+            "n_datasets_balanced": N,
+            "n_classes": k,
+        }
+
+    # Nemenyi critical difference at α=0.05 (k≤20 tabulated)
+    # q_alpha values for α=0.05 (two-tailed Studentized range / sqrt(2))
+    _Q_05 = {
+        2: 1.960, 3: 2.343, 4: 2.569, 5: 2.728, 6: 2.850, 7: 2.949,
+        8: 3.031, 9: 3.102, 10: 3.164, 11: 3.219, 12: 3.268, 13: 3.313,
+        14: 3.354, 15: 3.391, 16: 3.426, 17: 3.458, 18: 3.489, 19: 3.517,
+        20: 3.544,
+    }
+    cd_value = None
+    if complete_datasets and len(all_classes) >= 2:
+        k = len(all_classes)
+        N = len(complete_datasets)
+        q = _Q_05.get(k, 3.544)  # fallback for k>20
+        cd_value = q * math.sqrt(k * (k + 1) / (6 * N))
+
+    # Subset analysis: pick top-K classes with highest dataset overlap
+    # so we can actually compute Friedman + CD on a balanced design.
+    subset_results = []
+    for K in (6, 8, 10):
+        # Greedy pick of K classes that maximise common dataset count
+        cls_dsets = {c: valid_datasets_per_class[c] for c in all_classes}
+        # Start from class with most datasets
+        sorted_by_size = sorted(cls_dsets.items(), key=lambda x: -len(x[1]))
+        picked = [sorted_by_size[0][0]]
+        running_intersection = set(cls_dsets[picked[0]])
+        for cls, dsets in sorted_by_size[1:]:
+            cand_inter = running_intersection & dsets
+            if len(cand_inter) >= 20:  # require ≥20 common datasets
+                picked.append(cls)
+                running_intersection = cand_inter
+            if len(picked) >= K:
+                break
+        if len(picked) < K or len(running_intersection) < 10:
+            continue
+        # Compute Friedman + CD on this subset
+        subset_ds = sorted(running_intersection)
+        N = len(subset_ds)
+        sub_k = len(picked)
+        rank_sums_sub = defaultdict(float)
+        rank_lists_sub: dict[str, list[float]] = defaultdict(list)
+        for ds in subset_ds:
+            sub_scores = sorted(((c, by_ds_cls[ds][c]) for c in picked), key=lambda x: x[1])
+            for rk, (cls, _) in enumerate(sub_scores, start=1):
+                rank_sums_sub[cls] += rk
+                rank_lists_sub[cls].append(rk)
+        sum_r_sq = sum((rs ** 2) for rs in rank_sums_sub.values())
+        chi2 = (12 / (N * sub_k * (sub_k + 1))) * sum_r_sq - 3 * N * (sub_k + 1)
+        q = _Q_05.get(sub_k, 3.544)
+        cd = q * math.sqrt(sub_k * (sub_k + 1) / (6 * N))
+        subset_results.append({
+            "k": sub_k,
+            "n_datasets": N,
+            "classes": picked,
+            "mean_ranks": sorted(
+                [{"class": c, "mean_rank": statistics.mean(rank_lists_sub[c]),
+                  "std_rank": statistics.stdev(rank_lists_sub[c]) if N >= 2 else 0.0}
+                 for c in picked],
+                key=lambda x: x["mean_rank"],
+            ),
+            "friedman_chi2": chi2,
+            "friedman_df": sub_k - 1,
+            "critical_difference": cd,
+            "alpha": 0.05,
+        })
+
+    return {
+        "rank_per_class": dict(rank_per_class),
+        "mean_ranks": mean_ranks,
+        "complete_datasets_count": len(complete_datasets),
+        "friedman": friedman,
+        "critical_difference": cd_value,
+        "alpha": 0.05,
+        "subset_analyses": subset_results,
     }
 
 
@@ -689,14 +859,186 @@ def _truncate_pp(pp: str, max_len: int = 60) -> str:
     return pp[: max_len - 1] + "…"
 
 
+# Canonical taxonomy: heterogeneous pp strings → structured fields
+_BANK_KEYWORDS = {"compact", "default", "extended", "deep3", "deep4",
+                  "production_default", "production_compact", "custom"}
+_BANK_FILTER_KEYWORDS = {"family_pruned", "response_dedup"}
+_SCALING_TOKENS = {"center", "feature_std", "identity",
+                   "minmaxscaler", "standardscaler", "normalize"}
+_SCATTER_TOKENS = {"snv", "msc", "standardnormalvariate",
+                   "multiplicativescattercorrection"}
+_BASELINE_TOKENS = {"asls", "aslsbaseline", "baseline", "detrend"}
+_DERIVATIVE_TOKENS = {"savitzkygolay", "sg", "firstderivative", "secondderivative"}
+
+
+def _norm_token(name: str) -> str:
+    """Map verbose class name → short canonical token."""
+    n = name.lower().strip()
+    if "minmax" in n: return "MinMax"
+    if "standardscaler" in n: return "StdScaler"
+    if "normalize" in n: return "Normalize"
+    if "asls" in n or "aslsbaseline" == n: return "ASLS"
+    if "standardnormalvariate" in n or n == "snv": return "SNV"
+    if "multiplicativescatter" in n or n == "msc": return "MSC"
+    if "savitzkygolay" in n: return "SG"
+    if "firstderivative" in n: return "Deriv1"
+    if "secondderivative" in n: return "Deriv2"
+    if "detrend" in n: return "Detrend"
+    if "feature_std" == n: return "FeatureStd"
+    if n == "center": return "Center"
+    if n == "identity": return "Identity"
+    if n == "none": return None  # type: ignore[return-value]
+    return name.strip()[:30]
+
+
+def parse_preprocessing(raw: str) -> dict:
+    """Parse a heterogeneous preprocessing_pipeline string into canonical fields.
+
+    Returns a dict with keys:
+      - raw: original string
+      - category: 'none' | 'atom_bank' | 'hpo_compound' | 'pipeline_path' | 'ensemble' | 'unknown'
+      - atom_bank: short bank name (compact/default/…) or None
+      - bank_filtering: family_pruned / response_dedup or None
+      - baseline: ASLS / None / etc.
+      - scaling: MinMax / StdScaler / Center / FeatureStd / Identity / None
+      - scatter: SNV / MSC / Normalize / None
+      - derivative: SG / Deriv1 / Deriv2 / None
+      - pca: 'PCA_features_0.25' / None
+      - components: list of detected canonical tokens (lossy summary)
+    """
+    p = (raw or "").strip()
+    out = {
+        "raw": p,
+        "category": "none" if not p else "unknown",
+        "atom_bank": None,
+        "bank_filtering": None,
+        "baseline": None,
+        "scaling": None,
+        "scatter": None,
+        "derivative": None,
+        "pca": None,
+        "components": [],
+    }
+    if not p:
+        return out
+
+    # 1. HPO compound (key=value | …)
+    if " | " in p and "=" in p:
+        out["category"] = "hpo_compound"
+        for chunk in p.split(" | "):
+            if "=" not in chunk:
+                continue
+            k, v = (s.strip() for s in chunk.split("=", 1))
+            kl, vl = k.lower(), v.lower()
+            if vl == "none":
+                continue
+            if kl == "scaler":
+                out["scaling"] = _norm_token(v)
+            elif kl == "baseline":
+                out["baseline"] = _norm_token(v)
+            elif kl == "simple":
+                if "savitzky" in vl:
+                    out["derivative"] = "SG"
+                elif "standardnormalvariate" in vl or vl == "snv":
+                    out["scatter"] = "SNV"
+                elif "msc" in vl:
+                    out["scatter"] = "MSC"
+                elif "normalize" in vl:
+                    out["scaling"] = "Normalize"
+                elif "baseline" in vl:
+                    out["baseline"] = _norm_token(v)
+            elif kl == "pca":
+                out["pca"] = v
+            elif kl == "paper_best":
+                # reference annotation, ignore
+                continue
+            out["components"].append(f"{k}={v}")
+        return out
+
+    # 2. Pipeline class path (Python paths chained with ' > ')
+    if " > " in p or (">" in p and not p.startswith("baseline")):
+        out["category"] = "pipeline_path"
+        parts = [x.strip() for x in p.split(">") if x.strip()]
+        for part in parts:
+            cls = part.rsplit(".", 1)[-1]
+            cl = cls.lower()
+            if not cls:
+                continue
+            if "minmax" in cl:
+                out["scaling"] = "MinMax"
+            elif "standardscaler" in cl:
+                out["scaling"] = "StdScaler"
+            elif "asls" in cl:
+                out["baseline"] = "ASLS"
+            elif "standardnormalvariate" in cl or cl == "snv":
+                out["scatter"] = "SNV"
+            elif "multiplicativescatter" in cl or cl == "msc":
+                out["scatter"] = "MSC"
+            elif "savitzkygolay" in cl:
+                out["derivative"] = "SG"
+            elif "firstderivative" in cl:
+                out["derivative"] = "Deriv1"
+            elif "secondderivative" in cl:
+                out["derivative"] = "Deriv2"
+            elif "detrend" in cl:
+                out["baseline"] = "Detrend"
+            elif "spxy" in cl or "splitter" in cl:
+                continue  # splitters aren't preprocessing
+            out["components"].append(_norm_token(cls) or cls[:20])
+        return out
+
+    # 3. List notation (ensemble of pp atoms)
+    if p.startswith("[") and p.endswith("]"):
+        try:
+            import ast
+            items = ast.literal_eval(p)
+            if isinstance(items, (list, tuple)) and items:
+                out["category"] = "ensemble"
+                tokens = []
+                for x in items:
+                    s = str(x).lower()
+                    if "snv" in s: tokens.append("SNV")
+                    elif "msc" in s: tokens.append("MSC")
+                    elif "asls" in s: tokens.append("ASLS")
+                    else: tokens.append(str(x)[:20])
+                out["components"] = tokens
+                return out
+        except Exception:
+            pass
+
+    # 4. Single atom-bank / classical token
+    pl = p.lower().strip()
+    out["category"] = "atom_bank"
+    out["components"] = [p]
+    if pl in _BANK_KEYWORDS:
+        out["atom_bank"] = pl
+    elif pl in _BANK_FILTER_KEYWORDS:
+        out["bank_filtering"] = pl
+    elif pl == "center":
+        out["scaling"] = "Center"
+    elif pl == "feature_std":
+        out["scaling"] = "FeatureStd"
+    elif pl == "identity":
+        out["scaling"] = "Identity"
+    elif pl in {"snv", "msc"}:
+        out["scatter"] = pl.upper()
+    elif pl == "asls":
+        out["baseline"] = "ASLS"
+    elif pl == "none":
+        out["category"] = "none"
+    return out
+
+
 def build_preprocessing_master(obs: list[dict]) -> dict:
     """Aggregate preprocessing influence across all observed/paper rows.
 
     Produces:
-      - leaderboard: per-pp stats (rmsep distribution, coverage)
-      - class_pp_heatmap: median rmsep per (class, pp) cell
+      - leaderboard: per raw pp stats
+      - class_pp_heatmap: median rmsep per (class, raw pp) cell
       - best_pp_per_dataset: per-dataset best/worst pp + spread
-      - top_pps_for_picker: short list of usable pp names for drill-down
+      - components: per-canonical-component aggregations
+        (baseline, scaling, scatter, derivative, atom_bank) → list of {value, n_obs, median, …}
+      - component_pairs: { (baseline, scatter): {n, median} } for cross-component matrix
     """
     pp_obs: dict[str, list[float]] = defaultdict(list)
     pp_dataset: dict[str, set] = defaultdict(set)
@@ -704,6 +1046,25 @@ def build_preprocessing_master(obs: list[dict]) -> dict:
     pp_model: dict[str, set] = defaultdict(set)
     class_pp_obs: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
     ds_pp_obs: dict[str, dict[str, list[float]]] = defaultdict(lambda: defaultdict(list))
+
+    # Component-level aggregations (the actual useful per-component stats)
+    component_obs: dict[str, dict[str, list[float]]] = {
+        "baseline": defaultdict(list),
+        "scaling": defaultdict(list),
+        "scatter": defaultdict(list),
+        "derivative": defaultdict(list),
+        "atom_bank": defaultdict(list),
+        "bank_filtering": defaultdict(list),
+        "category": defaultdict(list),
+    }
+    component_classes: dict[str, dict[str, set]] = {
+        k: defaultdict(set) for k in component_obs
+    }
+    component_datasets: dict[str, dict[str, set]] = {
+        k: defaultdict(set) for k in component_obs
+    }
+    # Cross matrix: baseline × scatter (most informative pp pair)
+    pair_obs: dict[tuple, list[float]] = defaultdict(list)
 
     for r in obs:
         rmsep = safe_float(r.get("rmsep"))
@@ -725,6 +1086,21 @@ def build_preprocessing_master(obs: list[dict]) -> dict:
             pp_model[pp].add(model)
         if ds:
             ds_pp_obs[ds][pp].append(rmsep)
+
+        # Component breakdown
+        parsed = parse_preprocessing(pp)
+        for comp_key in ("baseline", "scaling", "scatter", "derivative",
+                         "atom_bank", "bank_filtering", "category"):
+            val = parsed.get(comp_key)
+            if val is None:
+                val = "none"
+            component_obs[comp_key][val].append(rmsep)
+            if cls:
+                component_classes[comp_key][val].add(cls)
+            if ds:
+                component_datasets[comp_key][val].add(ds)
+        pair_obs[(parsed.get("baseline") or "none",
+                  parsed.get("scatter") or "none")].append(rmsep)
 
     # Leaderboard (filter: ≥5 obs to cut noise)
     leaderboard = []
@@ -787,10 +1163,45 @@ def build_preprocessing_master(obs: list[dict]) -> dict:
         })
     best_pp_per_dataset.sort(key=lambda x: -x["spread"])
 
+    # Component leaderboards
+    components_out: dict[str, list[dict]] = {}
+    for comp_key, obs_map in component_obs.items():
+        entries = []
+        for val, vals in obs_map.items():
+            if len(vals) < 5:
+                continue
+            entries.append({
+                "value": val,
+                "n_obs": len(vals),
+                "n_classes": len(component_classes[comp_key][val]),
+                "n_datasets": len(component_datasets[comp_key][val]),
+                "median": statistics.median(vals),
+                "q25": _quantile(vals, 0.25),
+                "q75": _quantile(vals, 0.75),
+                "best": min(vals),
+            })
+        entries.sort(key=lambda x: x["median"])
+        components_out[comp_key] = entries
+
+    # baseline × scatter pair matrix
+    baselines = sorted({k[0] for k in pair_obs})
+    scatters = sorted({k[1] for k in pair_obs})
+    pair_matrix = {
+        "rows": baselines,
+        "cols": scatters,
+        "values": [[
+            statistics.median(pair_obs[(b, s)]) if pair_obs.get((b, s)) and len(pair_obs[(b, s)]) >= 5 else None
+            for s in scatters
+        ] for b in baselines],
+        "counts": [[len(pair_obs.get((b, s), [])) for s in scatters] for b in baselines],
+    }
+
     return {
         "leaderboard": leaderboard,
         "class_pp_heatmap": heatmap,
         "best_pp_per_dataset": best_pp_per_dataset,
+        "components": components_out,
+        "baseline_scatter_matrix": pair_matrix,
     }
 
 

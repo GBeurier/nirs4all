@@ -2,227 +2,396 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>nirs4all — Benchmark Dataviz (Master + Presets)</title>
+  <title>NIRS4All — Benchmark Synthesis</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,400..700&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
+    /* ============================================================== */
+    /*  EDITORIAL CHEMISTRY JOURNAL · NIRS4ALL                         */
+    /*  warm-cream paper · oxblood accent · serif-driven hierarchy     */
+    /* ============================================================== */
     :root {
-      --bg: #fafafa;
-      --card: #ffffff;
-      --text: #1a1a1a;
-      --muted: #666;
-      --border: #e5e5e5;
-      --accent: #d62728;
-      --good: #2ca02c;
-      --warn: #ff7f0e;
-      --bad: #d62728;
-      --link: #1f77b4;
+      --paper:    #f7f1e8;
+      --paper-2:  #ede4d3;
+      --bg-card:  #fbf6ec;
+      --ink:      #1c1813;
+      --ink-2:    #3a3128;
+      --muted:    #7a6e5e;
+      --muted-2:  #a89888;
+      --rule:     #d6c8b2;
+      --rule-2:   #e7dcc7;
+      --accent:   #8e2718;  /* oxblood */
+      --accent-2: #c14a3e;  /* terracotta */
+      --teal:     #2b5063;
+      --forest:   #4a7c4f;
+      --gold:     #c79a2d;
+      --good:     #4a7c4f;
+      --warn:     #c79a2d;
+      --bad:      #8e2718;
+
+      --ff-display: 'Fraunces', 'Times New Roman', serif;
+      --ff-body:    'Newsreader', Georgia, serif;
+      --ff-mono:    'JetBrains Mono', 'Menlo', monospace;
+      --ff-ui:      'Newsreader', Georgia, serif;
     }
-    * { box-sizing: border-box; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--ff-body);
+      font-size: 17px;
+      line-height: 1.55;
+      font-feature-settings: "kern" 1, "liga" 1, "onum" 1;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
     body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      line-height: 1.4;
+      background-image:
+        radial-gradient(circle at 20% 10%, rgba(193,74,62,0.04) 0, transparent 50%),
+        radial-gradient(circle at 80% 90%, rgba(43,80,99,0.04) 0, transparent 50%);
+      background-attachment: fixed;
+      padding-bottom: 96px;
     }
-    header {
-      background: linear-gradient(135deg, #1a1a1a 0%, #333 100%);
-      color: white;
-      padding: 24px 32px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+
+    /* ============== Sticky navigation ============== */
+    .sticky-nav {
       position: sticky;
       top: 0;
-      z-index: 10;
-    }
-    header h1 {
-      margin: 0;
-      font-size: 22px;
-      font-weight: 600;
-    }
-    header .meta {
+      z-index: 50;
+      background: rgba(247, 241, 232, 0.88);
+      backdrop-filter: saturate(180%) blur(16px);
+      -webkit-backdrop-filter: saturate(180%) blur(16px);
+      border-bottom: 1px solid var(--rule);
+      padding: 14px 48px;
+      display: flex;
+      align-items: baseline;
+      gap: 32px;
+      font-family: var(--ff-ui);
       font-size: 12px;
-      color: #bbb;
-      margin-top: 4px;
+      letter-spacing: 0.02em;
     }
-    .container {
-      max-width: 1800px;
+    .sticky-nav .brand {
+      font-family: var(--ff-display);
+      font-size: 17px;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+      color: var(--ink);
+      margin-right: 24px;
+    }
+    .sticky-nav a {
+      color: var(--muted);
+      text-decoration: none;
+      transition: color 0.15s;
+      font-variant: small-caps;
+      letter-spacing: 0.04em;
+      font-size: 13px;
+    }
+    .sticky-nav a:hover { color: var(--accent); text-decoration: none; }
+    .sticky-nav .nav-spacer { flex: 1; }
+    .sticky-nav .nav-status {
+      font-family: var(--ff-mono);
+      font-size: 10.5px;
+      color: var(--muted-2);
+      letter-spacing: 0;
+    }
+
+    /* ============== Masthead (hero) ============== */
+    .masthead {
+      max-width: 1280px;
       margin: 0 auto;
-      padding: 24px 32px 64px;
+      padding: 96px 48px 56px;
+      position: relative;
     }
-    .kpi-row {
+    .masthead .eyebrow {
+      font-family: var(--ff-ui);
+      font-size: 12px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--accent);
+      font-weight: 600;
+      margin-bottom: 28px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+    .masthead .eyebrow::before, .masthead .eyebrow::after {
+      content: '';
+      flex: 0 0 32px;
+      height: 1px;
+      background: var(--accent);
+    }
+    .masthead .eyebrow::after { flex: 1; max-width: 200px; }
+    .masthead .title {
+      font-family: var(--ff-display);
+      font-weight: 600;
+      font-size: clamp(48px, 7vw, 112px);
+      line-height: 0.94;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      margin-bottom: 32px;
+      font-variation-settings: 'opsz' 144, 'SOFT' 30;
+      max-width: 1100px;
+    }
+    .masthead .title em {
+      font-style: italic;
+      font-weight: 400;
+      color: var(--accent);
+      font-variation-settings: 'opsz' 144, 'SOFT' 50;
+    }
+    .masthead .subtitle {
+      font-family: var(--ff-body);
+      font-size: 20px;
+      line-height: 1.45;
+      color: var(--ink-2);
+      max-width: 720px;
+      margin-bottom: 18px;
+    }
+    .masthead .meta {
+      font-family: var(--ff-mono);
+      font-size: 11.5px;
+      color: var(--muted);
+      letter-spacing: 0;
+      max-width: 900px;
+    }
+    .masthead .by-line {
+      font-family: var(--ff-ui);
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 24px;
+      display: flex;
+      gap: 16px;
+      font-style: italic;
+    }
+
+    /* ============== Section grid ============== */
+    main {
+      max-width: 1280px;
+      margin: 0 auto;
+      padding: 0 48px;
+    }
+    section.section {
+      padding: 88px 0 24px;
+      border-top: 1px solid var(--rule);
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-      gap: 10px;
-      margin-bottom: 24px;
+      grid-template-columns: 60px 1fr;
+      gap: 32px;
+    }
+    section.section:first-of-type { border-top: 3px solid var(--accent); }
+    .section-rail {
+      position: relative;
+    }
+    .section-rail .section-num {
+      font-family: var(--ff-display);
+      font-size: 32px;
+      font-weight: 300;
+      color: var(--accent);
+      letter-spacing: -0.02em;
+      font-feature-settings: "lnum" 1;
+      position: sticky;
+      top: 80px;
+      writing-mode: horizontal-tb;
+    }
+    .section-body { min-width: 0; }
+    .section-body header h2 {
+      font-family: var(--ff-display);
+      font-weight: 500;
+      font-size: clamp(36px, 4vw, 56px);
+      line-height: 1.02;
+      letter-spacing: -0.02em;
+      color: var(--ink);
+      margin-bottom: 16px;
+      font-variation-settings: 'opsz' 72;
+    }
+    .section-body header h2 em {
+      font-style: italic;
+      color: var(--accent);
+      font-weight: 400;
+    }
+    .section-body header .lede {
+      font-family: var(--ff-body);
+      font-size: 19px;
+      line-height: 1.5;
+      color: var(--ink-2);
+      max-width: 720px;
+      margin-bottom: 36px;
+      font-variation-settings: 'opsz' 24;
+    }
+    .section-body header .lede em {
+      font-style: italic;
+      color: var(--accent);
+    }
+
+    /* ============== KPI strip ============== */
+    .kpis {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 0;
+      margin: 24px 0 48px;
+      border-top: 1px solid var(--ink);
+      border-bottom: 1px solid var(--rule);
     }
     .kpi {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 14px 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+      padding: 20px 16px;
+      border-right: 1px solid var(--rule-2);
     }
+    .kpi:last-child { border-right: none; }
     .kpi .label {
-      font-size: 10px;
+      font-family: var(--ff-ui);
+      font-size: 10.5px;
+      letter-spacing: 0.14em;
       text-transform: uppercase;
-      letter-spacing: 0.06em;
       color: var(--muted);
-      margin-bottom: 4px;
+      margin-bottom: 10px;
+      font-weight: 600;
     }
     .kpi .value {
-      font-size: 22px;
-      font-weight: 600;
+      font-family: var(--ff-display);
+      font-size: 36px;
+      font-weight: 500;
+      line-height: 1;
+      letter-spacing: -0.025em;
+      color: var(--ink);
+      font-variation-settings: 'opsz' 48;
+      font-feature-settings: "lnum" 1, "tnum" 1;
+    }
+    .kpi .value.value-text {
+      font-size: 17px;
+      line-height: 1.15;
     }
     .kpi .sub {
-      font-size: 11px;
+      font-family: var(--ff-mono);
+      font-size: 10.5px;
       color: var(--muted);
-      margin-top: 2px;
+      margin-top: 8px;
+      letter-spacing: 0;
     }
-    .section {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 20px;
-      margin-bottom: 20px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+
+    /* ============== Figures (charts) ============== */
+    figure {
+      margin: 36px 0;
+      background: var(--bg-card);
+      border: 1px solid var(--rule-2);
+      border-radius: 4px;
+      padding: 28px 28px 24px;
     }
-    .section h2 {
-      margin: 0 0 4px;
-      font-size: 18px;
-      font-weight: 600;
+    figure.bare {
+      background: none;
+      border: none;
+      padding: 24px 0;
     }
-    .section .subtitle {
-      color: var(--muted);
-      font-size: 12px;
-      margin-bottom: 14px;
-    }
-    .plot {
-      min-height: 360px;
-    }
-    .plot-tall {
-      min-height: 540px;
-    }
-    .plot-xtall {
-      min-height: 800px;
-    }
-    .tabs {
-      display: flex;
-      gap: 4px;
-      margin-bottom: 14px;
-      border-bottom: 1px solid var(--border);
-      flex-wrap: wrap;
-    }
-    .tab {
-      padding: 7px 14px;
-      cursor: pointer;
-      font-size: 12px;
-      color: var(--muted);
-      border-bottom: 2px solid transparent;
-      transition: all 0.15s;
-    }
-    .tab:hover { color: var(--text); }
-    .tab.active {
-      color: var(--accent);
-      border-bottom-color: var(--accent);
+    figcaption {
+      font-family: var(--ff-display);
+      font-size: 20px;
       font-weight: 500;
+      letter-spacing: -0.005em;
+      color: var(--ink);
+      margin-bottom: 4px;
+      font-variation-settings: 'opsz' 24;
     }
-    .tab-panel { display: none; }
-    .tab-panel.active { display: block; }
+    figcaption .lede {
+      display: block;
+      font-family: var(--ff-body);
+      font-size: 14.5px;
+      font-style: italic;
+      color: var(--muted);
+      font-weight: 400;
+      margin-top: 4px;
+      letter-spacing: 0;
+      max-width: 720px;
+      line-height: 1.45;
+    }
+    figcaption + .figure-tools {
+      margin: 14px 0 18px;
+      padding-bottom: 14px;
+      border-bottom: 1px dotted var(--rule);
+    }
+
+    /* ============== Two-up + three-up grids ============== */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 18px; }
+    .grid-asym-65 { display: grid; grid-template-columns: 65fr 35fr; gap: 24px; }
+    .grid-asym-35 { display: grid; grid-template-columns: 35fr 65fr; gap: 24px; }
+    .grid-picker { display: grid; grid-template-columns: 400px 1fr; gap: 24px; }
+    @media (max-width: 1024px) {
+      .grid-2, .grid-3, .grid-4, .grid-asym-65, .grid-asym-35, .grid-picker {
+        grid-template-columns: 1fr;
+      }
+      section.section { grid-template-columns: 40px 1fr; }
+    }
+
+    /* ============== Plot sizing ============== */
+    .plot { min-height: 360px; }
+    .plot-tall { min-height: 520px; }
+    .plot-xtall { min-height: 720px; }
+    .plot-short { min-height: 280px; }
+
+    /* ============== Tables ============== */
     table.lb {
       width: 100%;
       border-collapse: collapse;
-      font-size: 12px;
+      font-family: var(--ff-mono);
+      font-size: 12.5px;
+      font-feature-settings: "tnum" 1;
     }
     table.lb th, table.lb td {
-      padding: 6px 9px;
+      padding: 9px 12px;
       text-align: left;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--rule-2);
     }
     table.lb th {
+      font-family: var(--ff-ui);
       font-weight: 600;
       color: var(--muted);
-      font-size: 10px;
+      font-size: 10.5px;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.08em;
+      border-bottom: 1.5px solid var(--ink);
+      background: var(--bg-card);
       position: sticky;
       top: 0;
-      background: var(--card);
     }
-    table.lb td.num { text-align: right; font-variant-numeric: tabular-nums; }
-    table.lb tr.winner { background: rgba(44, 160, 44, 0.06); }
-    table.lb tr.winner td:first-child { font-weight: 600; }
-    table.lb tr:hover { background: rgba(31, 119, 180, 0.04); }
+    table.lb td.num { text-align: right; }
+    table.lb tr.winner { background: rgba(193,74,62,0.06); }
+    table.lb tr.winner td:first-child { font-weight: 600; color: var(--accent); }
+    table.lb tr:hover { background: rgba(43,80,99,0.04); }
     .scroll-table {
       max-height: 460px;
       overflow-y: auto;
-      border: 1px solid var(--border);
-      border-radius: 4px;
+      border: 1px solid var(--rule-2);
+      background: var(--bg-card);
     }
-    .family-pill, .class-pill {
+
+    /* ============== Pills (class indicators) ============== */
+    .class-pill {
       display: inline-block;
-      padding: 1px 7px;
-      border-radius: 10px;
-      font-size: 10px;
+      padding: 2px 9px;
+      border-radius: 0; /* sharp edges, editorial */
+      font-family: var(--ff-mono);
+      font-size: 10.5px;
       color: white;
       font-weight: 500;
+      letter-spacing: 0.02em;
+      vertical-align: middle;
     }
-    .recommendations {
-      background: linear-gradient(135deg, #fff5f0 0%, #fff 100%);
-      border-left: 4px solid var(--accent);
-    }
-    .recommendations ul { margin: 0; padding-left: 20px; }
-    .recommendations li { margin-bottom: 10px; }
-    .status-line {
-      font-size: 12px;
-      color: var(--muted);
-      padding: 6px 10px;
-      background: #f5f5f5;
-      border-radius: 4px;
+    .pill-soft {
       display: inline-block;
-      margin-bottom: 16px;
+      padding: 2px 9px;
+      font-family: var(--ff-mono);
+      font-size: 10.5px;
+      color: var(--ink);
+      background: var(--paper-2);
+      border: 1px solid var(--rule);
     }
-    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
-    code {
-      background: #f0f0f0;
-      padding: 1px 5px;
-      border-radius: 3px;
-      font-size: 11px;
-    }
-    .section-divider {
-      border-top: 3px solid var(--accent);
-      margin: 32px -32px 24px;
-      padding: 8px 32px;
-      background: linear-gradient(180deg, rgba(214,39,40,0.05) 0%, transparent 100%);
-      font-size: 11px;
-      font-weight: 600;
-      letter-spacing: 0.1em;
-      text-transform: uppercase;
-      color: var(--accent);
-    }
-    .filter-bar {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      margin-bottom: 12px;
-      flex-wrap: wrap;
-    }
-    .filter-bar label {
-      font-size: 12px;
-      color: var(--muted);
-    }
-    .filter-bar select, .filter-bar input {
-      padding: 4px 8px;
-      font-size: 12px;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      background: white;
-    }
-    /* Picker: searchable scrollable list */
+
+    /* ============== Picker (M9, M10) ============== */
     .picker {
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      background: #fff;
+      border: 1px solid var(--rule);
+      background: var(--bg-card);
       display: flex;
       flex-direction: column;
       overflow: hidden;
@@ -230,451 +399,723 @@
     .picker-toolbar {
       display: flex;
       gap: 8px;
-      padding: 8px 10px;
-      border-bottom: 1px solid var(--border);
-      background: #fafafa;
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--rule-2);
+      background: var(--paper);
       flex-wrap: wrap;
       align-items: center;
     }
     .picker-toolbar input[type="text"] {
       flex: 1;
-      min-width: 200px;
-      padding: 5px 9px;
+      min-width: 180px;
+      padding: 6px 10px;
+      font-family: var(--ff-mono);
       font-size: 12px;
-      border: 1px solid var(--border);
-      border-radius: 4px;
+      border: 1px solid var(--rule);
+      background: white;
+      color: var(--ink);
+    }
+    .picker-toolbar input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
     }
     .picker-toolbar select, .picker-toolbar button {
-      padding: 4px 8px;
+      padding: 5px 10px;
+      font-family: var(--ff-mono);
       font-size: 11px;
-      border: 1px solid var(--border);
-      border-radius: 4px;
-      background: #fff;
+      border: 1px solid var(--rule);
+      background: white;
+      color: var(--ink);
       cursor: pointer;
     }
-    .picker-toolbar button:hover { background: #eef; }
+    .picker-toolbar button:hover { background: var(--paper-2); }
     .picker-list {
       max-height: 380px;
       overflow-y: auto;
+      font-family: var(--ff-mono);
       font-size: 12px;
     }
     .picker-group-header {
-      padding: 6px 10px;
-      background: #f0f0f0;
+      padding: 7px 12px;
+      background: var(--paper-2);
       font-weight: 600;
       font-size: 11px;
-      color: #555;
+      color: var(--ink-2);
       position: sticky;
       top: 0;
       cursor: pointer;
       user-select: none;
-      border-bottom: 1px solid var(--border);
+      border-bottom: 1px solid var(--rule);
       display: flex;
       align-items: center;
       gap: 8px;
+      z-index: 1;
     }
-    .picker-group-header .caret { width: 12px; font-family: monospace; }
+    .picker-group-header .caret { width: 12px; font-family: var(--ff-mono); }
     .picker-group-header .group-actions { margin-left: auto; display: flex; gap: 4px; }
     .picker-group-header .group-actions button {
       padding: 1px 6px;
       font-size: 10px;
-      border-radius: 3px;
-      border: 1px solid #bbb;
-      background: #fff;
+      border: 1px solid var(--rule);
+      background: white;
       cursor: pointer;
     }
-    .picker-group-header .group-actions button:hover { background: #eef; }
+    .picker-group-header .group-actions button:hover { background: var(--paper-2); }
     .picker-row {
       display: flex;
       align-items: center;
-      padding: 4px 10px 4px 28px;
+      padding: 4px 12px 4px 32px;
       gap: 10px;
-      border-bottom: 1px solid #f1f1f1;
+      border-bottom: 1px solid var(--rule-2);
       cursor: pointer;
       transition: background 0.1s;
     }
-    .picker-row:hover { background: #f5f9ff; }
-    .picker-row.selected { background: #e0f0ff; }
+    .picker-row:hover { background: rgba(43,80,99,0.05); }
+    .picker-row.selected { background: rgba(193,74,62,0.08); }
     .picker-row input[type="checkbox"], .picker-row input[type="radio"] {
       cursor: pointer;
       flex-shrink: 0;
+      accent-color: var(--accent);
     }
     .picker-row .row-name {
       flex: 1;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
-      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
     }
     .picker-row .row-name .variants-count {
-      color: #888;
+      color: var(--muted-2);
       font-size: 10px;
       margin-left: 4px;
     }
     .picker-row .row-meta {
       display: flex;
-      gap: 8px;
-      font-size: 10px;
-      color: #666;
+      gap: 10px;
+      font-size: 10.5px;
+      color: var(--muted);
       flex-shrink: 0;
-      font-variant-numeric: tabular-nums;
     }
-    .picker-row .row-meta .stat { min-width: 36px; text-align: right; }
+    .picker-row .row-meta .stat { min-width: 40px; text-align: right; }
     .picker-row .row-meta .rmsep { color: var(--accent); font-weight: 500; }
     .picker-empty {
-      padding: 30px;
+      padding: 36px;
       text-align: center;
-      color: #888;
-      font-size: 12px;
+      color: var(--muted);
+      font-style: italic;
     }
     .picker-stats-line {
-      padding: 6px 10px;
-      background: #fafafa;
-      border-top: 1px solid var(--border);
-      font-size: 11px;
-      color: #666;
+      padding: 8px 12px;
+      background: var(--paper);
+      border-top: 1px solid var(--rule-2);
+      font-family: var(--ff-mono);
+      font-size: 10.5px;
+      color: var(--muted);
     }
     .picker-group.collapsed .picker-row { display: none; }
     .picker-group.collapsed .picker-group-header .caret::before { content: '▶'; }
     .picker-group .picker-group-header .caret::before { content: '▼'; }
+
+    /* ============== Selected pills (M10) ============== */
+    .selected-tray {
+      margin-top: 12px;
+      padding: 10px 12px;
+      background: var(--bg-card);
+      border: 1px solid var(--rule-2);
+    }
+    .selected-tray .header-line {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+      font-family: var(--ff-ui);
+      font-size: 11px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .selected-tray .header-line button {
+      padding: 3px 9px;
+      font-size: 10px;
+      border: 1px solid var(--rule);
+      background: white;
+      cursor: pointer;
+      font-family: var(--ff-ui);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+    .selected-tray .pills-list {
+      min-height: 26px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 3px;
+    }
+    .m10-pill {
+      display: inline-block;
+      padding: 3px 9px;
+      font-family: var(--ff-mono);
+      font-size: 10.5px;
+      color: white;
+      cursor: pointer;
+      letter-spacing: 0.02em;
+    }
+    .m10-pill:hover { opacity: 0.85; }
+
+    /* ============== Filter bar (generic) ============== */
+    .filter-bar {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+      margin: 16px 0 18px;
+      flex-wrap: wrap;
+      font-family: var(--ff-mono);
+      font-size: 12px;
+    }
+    .filter-bar label {
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .filter-bar select, .filter-bar input {
+      padding: 5px 10px;
+      font-family: var(--ff-mono);
+      font-size: 11px;
+      border: 1px solid var(--rule);
+      background: white;
+      color: var(--ink);
+    }
+    .filter-bar button {
+      padding: 4px 12px;
+      font-family: var(--ff-ui);
+      font-size: 10.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border: 1px solid var(--ink);
+      background: var(--paper);
+      color: var(--ink);
+      cursor: pointer;
+    }
+    .filter-bar button:hover { background: var(--ink); color: var(--paper); }
+    .filter-bar input:focus, .filter-bar select:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* ============== Tabs (Production presets) ============== */
+    .tabs {
+      display: flex;
+      gap: 0;
+      margin-bottom: 24px;
+      border-bottom: 1px solid var(--ink);
+    }
+    .tab {
+      padding: 12px 24px;
+      cursor: pointer;
+      font-family: var(--ff-ui);
+      font-size: 13px;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      border-bottom: 3px solid transparent;
+      margin-bottom: -1px;
+      transition: all 0.15s;
+      font-style: italic;
+    }
+    .tab:hover { color: var(--ink); }
+    .tab.active {
+      color: var(--ink);
+      border-bottom-color: var(--accent);
+      font-weight: 600;
+      font-style: normal;
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    /* ============== Misc UI ============== */
+    .status-line {
+      font-family: var(--ff-mono);
+      font-size: 12px;
+      color: var(--muted);
+      padding: 8px 12px;
+      background: var(--paper-2);
+      display: inline-block;
+      margin-bottom: 16px;
+    }
+    code {
+      background: var(--paper-2);
+      padding: 1px 6px;
+      font-family: var(--ff-mono);
+      font-size: 0.86em;
+      color: var(--ink-2);
+    }
+    details {
+      margin: 24px 0;
+      border: 1px solid var(--rule);
+      background: var(--bg-card);
+    }
+    details summary {
+      cursor: pointer;
+      padding: 14px 18px;
+      font-family: var(--ff-display);
+      font-size: 18px;
+      font-weight: 500;
+      color: var(--ink);
+      list-style: none;
+    }
+    details summary::before {
+      content: '▸ ';
+      color: var(--accent);
+      font-family: var(--ff-mono);
+      font-size: 14px;
+    }
+    details[open] summary::before { content: '▾ '; }
+    details > *:not(summary) { padding: 0 18px 18px; }
+
+    /* Component grid (preprocessing) */
+    .component-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+      margin: 24px 0;
+    }
+    @media (max-width: 900px) { .component-grid { grid-template-columns: 1fr; } }
+    .component-card {
+      background: var(--bg-card);
+      border: 1px solid var(--rule-2);
+      padding: 20px 22px;
+    }
+    .component-card h4 {
+      font-family: var(--ff-display);
+      font-size: 22px;
+      font-weight: 500;
+      color: var(--ink);
+      margin-bottom: 4px;
+      font-variation-settings: 'opsz' 24;
+    }
+    .component-card h4 .sub {
+      font-family: var(--ff-body);
+      font-size: 13px;
+      font-style: italic;
+      font-weight: 400;
+      color: var(--muted);
+      margin-left: 8px;
+    }
+    .component-card .bars {
+      margin-top: 14px;
+    }
+    .component-card .bar-row {
+      display: grid;
+      grid-template-columns: 130px 1fr 56px;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 6px;
+      font-family: var(--ff-mono);
+      font-size: 11.5px;
+    }
+    .component-card .bar-row .name { color: var(--ink); }
+    .component-card .bar-row .bar-track {
+      background: var(--paper-2);
+      height: 18px;
+      position: relative;
+      overflow: hidden;
+    }
+    .component-card .bar-row .bar-fill {
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent-2));
+    }
+    .component-card .bar-row .bar-fill.winner { background: linear-gradient(90deg, var(--forest), #76a87b); }
+    .component-card .bar-row .bar-fill.runner-up { background: linear-gradient(90deg, var(--teal), #4f7c8f); }
+    .component-card .bar-row .val { text-align: right; color: var(--ink); font-weight: 500; }
+    .component-card .bar-row .meta {
+      grid-column: 1 / -1;
+      font-size: 9.5px;
+      color: var(--muted);
+      padding-left: 140px;
+      margin-top: -2px;
+      margin-bottom: 4px;
+    }
+
+    /* CD diagram (custom rendered) */
+    #cd-diagram-svg {
+      width: 100%;
+      max-width: 700px;
+      height: auto;
+      display: block;
+      margin: 0 auto;
+    }
+    .cd-bar-line { stroke: var(--ink); stroke-width: 1.5; }
+    .cd-rank-label {
+      font-family: var(--ff-mono);
+      font-size: 11px;
+      fill: var(--muted);
+    }
+    .cd-class-label {
+      font-family: var(--ff-display);
+      font-size: 13px;
+      font-weight: 500;
+      fill: var(--ink);
+    }
+    .cd-cluster {
+      stroke-width: 4;
+      stroke-linecap: round;
+    }
+    .cd-cd-bar {
+      stroke: var(--accent);
+      stroke-width: 2;
+    }
+
+    /* Footer */
+    footer {
+      max-width: 1280px;
+      margin: 96px auto 0;
+      padding: 36px 48px 24px;
+      border-top: 1px solid var(--rule);
+      font-family: var(--ff-mono);
+      font-size: 11px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+
+    /* Section-specific accents */
+    #sec-overview { border-top-color: var(--accent); }
+    #sec-models   .section-rail .section-num { color: var(--accent-2); }
+    #sec-datasets .section-rail .section-num { color: var(--forest); }
+    #sec-preprocessing .section-rail .section-num { color: var(--teal); }
+    #sec-production .section-rail .section-num { color: var(--gold); }
+
+    /* Drop cap on first paragraph of a section's lede */
+    .section-body header .lede.with-dropcap::first-letter {
+      font-family: var(--ff-display);
+      font-size: 64px;
+      font-weight: 600;
+      float: left;
+      line-height: 0.85;
+      margin: 4px 8px 0 0;
+      color: var(--accent);
+      font-variation-settings: 'opsz' 72;
+    }
+
+    /* Inline rank-leaderboard */
+    .rank-bars {
+      font-family: var(--ff-mono);
+      font-size: 12.5px;
+    }
+    .rank-bar {
+      display: grid;
+      grid-template-columns: 28px 170px 1fr 64px 56px;
+      gap: 10px;
+      align-items: center;
+      padding: 7px 0;
+      border-bottom: 1px solid var(--rule-2);
+    }
+    .rank-bar:hover { background: rgba(43,80,99,0.04); }
+    .rank-bar .rk-num {
+      font-family: var(--ff-display);
+      font-size: 17px;
+      font-weight: 500;
+      color: var(--muted-2);
+      text-align: right;
+    }
+    .rank-bar.rk-1 .rk-num { color: var(--accent); font-size: 21px; }
+    .rank-bar.rk-2 .rk-num { color: var(--ink-2); }
+    .rank-bar .rk-class { font-weight: 500; color: var(--ink); }
+    .rank-bar .rk-track { background: var(--paper-2); height: 16px; position: relative; }
+    .rank-bar .rk-fill { height: 100%; background: linear-gradient(90deg, var(--ink), var(--muted-2)); }
+    .rank-bar .rk-stat { text-align: right; color: var(--ink-2); }
+    .rank-bar .rk-wins { text-align: right; color: var(--accent); font-weight: 600; }
+
+    /* No print noise */
+    @media print {
+      .sticky-nav { display: none; }
+      body { background: white; }
+      .picker, .filter-bar { display: none; }
+    }
+
+    /* Small bits */
+    ::selection { background: var(--accent); color: var(--paper); }
+    .text-mono { font-family: var(--ff-mono); }
+    .text-italic { font-style: italic; }
+    .num-tab { font-family: var(--ff-mono); font-feature-settings: "tnum" 1; }
   </style>
 </head>
 <body>
-  <header>
-    <h1>nirs4all — Benchmark Dataviz</h1>
-    <div class="meta" id="header-meta">Loading…</div>
-    <nav style="margin-top:14px;display:flex;flex-wrap:wrap;gap:6px;font-size:11px;">
-      <a href="#sec-m1" style="color:#fff;background:#d62728;padding:4px 10px;border-radius:12px;text-decoration:none">M1 Top Models</a>
-      <a href="#sec-m2" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M2 Class</a>
-      <a href="#sec-m3" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M3 Source</a>
-      <a href="#sec-m4" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M4 Class Box</a>
-      <a href="#sec-m5" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M5 Best/DS</a>
-      <a href="#sec-m6" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M6 Maturity</a>
-      <a href="#sec-m7" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M7 Scatter</a>
-      <a href="#sec-m8" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">M8 Family</a>
-      <a href="#sec-m9" style="color:#fff;background:#2ca02c;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M9 PER-DATASET DETAIL ◀</a>
-      <a href="#sec-m10" style="color:#fff;background:#1f77b4;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M10 MODEL-DISTANCE PLOT ◀</a>
-      <a href="#sec-m11" style="color:#fff;background:#9467bd;padding:4px 10px;border-radius:12px;text-decoration:none;font-weight:600">▶ M11 PREPROCESSING ◀</a>
-      <span style="color:#888;padding:4px 6px">|</span>
-      <a href="#sec-p1" style="color:#fff;background:#1f77b4;padding:4px 10px;border-radius:12px;text-decoration:none">P1 Presets</a>
-      <a href="#sec-p2" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P2 Heatmap</a>
-      <a href="#sec-p3" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P3 vs n_train</a>
-      <a href="#sec-p4" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P4 Preproc</a>
-      <a href="#sec-p5" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P5 Pareto</a>
-      <a href="#sec-p6" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P6 H2H</a>
-      <a href="#sec-p7" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P7 Robust</a>
-      <a href="#sec-p8" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P8 Fails</a>
-      <a href="#sec-p9" style="color:#fff;background:#444;padding:4px 10px;border-radius:12px;text-decoration:none">P9 TabPFN</a>
-    </nav>
-  </header>
-  <div class="container">
 
-    <!-- ========================================================== -->
-    <!-- MASTER AGGREGATE — covers ALL observed + paper rows         -->
-    <!-- ========================================================== -->
-    <div class="section-divider">Master Aggregate — all observed rows + paper references</div>
+<nav class="sticky-nav">
+  <span class="brand">nirs<em>4</em>all</span>
+  <a href="#sec-overview">§1 Overview</a>
+  <a href="#sec-models">§2 Models</a>
+  <a href="#sec-datasets">§3 Datasets</a>
+  <a href="#sec-preprocessing">§4 Preprocessing</a>
+  <a href="#sec-production">§5 Production</a>
+  <span class="nav-spacer"></span>
+  <span class="nav-status" id="nav-status">loading…</span>
+</nav>
 
-    <div class="kpi-row" id="master-kpis"></div>
+<header class="masthead">
+  <div class="eyebrow">NIRS4All · Benchmark synthesis · v0.8.x</div>
+  <h1 class="title">A finer-grained look at <em>spectroscopy</em> models.</h1>
+  <p class="subtitle">
+    A reproducible chemometrics benchmark spanning every model
+    class deployed in <span class="text-mono">nirs4all</span>, evaluated
+    across an unusually wide collection of public and proprietary NIRS datasets.
+  </p>
+  <p class="meta" id="header-meta">Loading…</p>
+  <div class="by-line">
+    <span>Agent C (MLOps spine)</span>
+    <span>·</span>
+    <span>commits 51d1b0c5 → master</span>
+    <span>·</span>
+    <span>data: bench/benchmark_master_results.csv</span>
+  </div>
+</header>
 
-    <div class="section" id="sec-m1">
-      <h2>M1. Top Models — all sources combined</h2>
-      <div class="subtitle">
-        All 347+ distinct <code>model_name</code> from the master CSV, aggregated across
-        every source_run + dataset. Median rmsep is the best-per-dataset across that
-        model_name (collapses duplicate fits). Filter to drill in.
-      </div>
-      <div class="filter-bar">
-        <label>Min datasets: <input id="filter-min-ds" type="number" value="10" min="1" max="80" style="width:60px"></label>
-        <label>Model class:
-          <select id="filter-model-class"><option value="">all</option></select>
-        </label>
-        <label>Sort by:
-          <select id="filter-sort">
-            <option value="median_rmsep">Median rmsep ↑</option>
-            <option value="best_rmsep">Best rmsep ↑</option>
-            <option value="n_datasets">Coverage ↓</option>
-            <option value="model_class">Model class</option>
-          </select>
-        </label>
-        <label>Top N: <input id="filter-top-n" type="number" value="50" min="5" max="500" style="width:60px"></label>
-      </div>
-      <div class="scroll-table" id="top-models-table"></div>
+<main>
+
+  <!-- ============================================================ -->
+  <!-- §1 OVERVIEW                                                  -->
+  <!-- ============================================================ -->
+  <section class="section" id="sec-overview">
+    <div class="section-rail"><div class="section-num">§1</div></div>
+    <div class="section-body">
+      <header>
+        <h2>Overview &amp; <em>headline results</em></h2>
+        <p class="lede with-dropcap">
+          The benchmark aggregates every observed and reference-paper row across
+          the master record set. Below: high-level counts, the mean-rank
+          leaderboard for the 13 model classes that compete on this benchmark,
+          and a critical-difference analysis on the balanced six-class subset
+          (Friedman + Nemenyi, α = 0.05) — the canonical chart for declaring
+          which classes are statistically tied vs. distinguishable.
+        </p>
+      </header>
+
+      <div class="kpis" id="master-kpis"></div>
+
+      <figure>
+        <figcaption>Mean rank per model class
+          <span class="lede">Lower is better. Computed on every dataset where the class
+          appears at least once, taking each class's best (min rmsep) on that dataset.</span>
+        </figcaption>
+        <div id="rank-leaderboard" class="rank-bars" style="margin-top:14px"></div>
+      </figure>
+
+      <figure>
+        <figcaption>Critical Difference — six-class balanced subset
+          <span class="lede">k=6 classes evaluated on N=56 common datasets. Friedman χ² with
+          Nemenyi post-hoc. Classes spanned by a horizontal bar are statistically tied.</span>
+        </figcaption>
+        <div id="cd-diagram-wrap" style="padding:18px 0">
+          <svg id="cd-diagram-svg" viewBox="0 0 700 200" preserveAspectRatio="xMidYMid meet"></svg>
+          <div id="cd-diagram-caption" class="text-mono" style="text-align:center;font-size:11px;color:var(--muted);margin-top:6px"></div>
+        </div>
+        <div id="cd-subset-selector" class="filter-bar" style="justify-content:center">
+          <label>k = <select id="cd-k"></select></label>
+        </div>
+      </figure>
+
+      <figure>
+        <figcaption>Master leaderboard
+          <span class="lede">All 332 distinct model_names aggregated across every source and
+          dataset. Median rmsep is the per-dataset best for that model_name, then
+          medianed across covered datasets. Filter and sort below.</span>
+        </figcaption>
+        <div class="filter-bar" style="margin-top:14px">
+          <label>Min datasets <input id="filter-min-ds" type="number" value="10" min="1" max="80" style="width:60px"></label>
+          <label>Model class <select id="filter-model-class"><option value="">all</option></select></label>
+          <label>Sort by
+            <select id="filter-sort">
+              <option value="median_rmsep">Median rmsep ↑</option>
+              <option value="best_rmsep">Best rmsep ↑</option>
+              <option value="n_datasets">Coverage ↓</option>
+              <option value="model_class">Model class</option>
+            </select>
+          </label>
+          <label>Top N <input id="filter-top-n" type="number" value="50" min="5" max="500" style="width:60px"></label>
+        </div>
+        <div class="scroll-table" id="top-models-table"></div>
+      </figure>
     </div>
+  </section>
 
-    <div class="section" id="sec-m2">
-      <h2>M2. Model Class Performance</h2>
-      <div class="subtitle">
-        Each of the 13 model_class buckets: median best-rmsep across covered
-        datasets (best-rmsep = lowest within the class on each dataset).
-      </div>
-      <div class="grid-2">
-        <div id="master-class-bars" class="plot"></div>
-        <div id="master-class-coverage" class="plot"></div>
-      </div>
-    </div>
+  <!-- ============================================================ -->
+  <!-- §2 MODELS                                                    -->
+  <!-- ============================================================ -->
+  <section class="section" id="sec-models">
+    <div class="section-rail"><div class="section-num">§2</div></div>
+    <div class="section-body">
+      <header>
+        <h2>The <em>model</em> picker</h2>
+        <p class="lede with-dropcap">
+          Pick any subset of the 329 canonical models (cases &amp; separators
+          collapsed). The picker is grouped by class with live text-filter and
+          numeric filters on dataset coverage, median rmsep, and observation
+          count. Selections feed the distance-to-best chart on the right, the
+          per-class faceted scatter, and the rank distribution.
+        </p>
+      </header>
 
-    <div class="section" id="sec-m3">
-      <h2>M3. Source Run Activity</h2>
-      <div class="subtitle">
-        Each of the 74 source_runs that contributed observations. Size = number
-        of rows, color = median rmsep (lower / greener = better).
-      </div>
-      <div id="master-source-treemap" class="plot-tall"></div>
-    </div>
-
-    <div class="section" id="sec-m4">
-      <h2>M4. Master rmsep distribution by model class</h2>
-      <div class="subtitle">
-        Box plots showing the full rmsep distribution per model_class across all
-        observations. Useful to see spread + outliers, not just medians.
-      </div>
-      <div id="master-class-box" class="plot-tall"></div>
-    </div>
-
-    <div class="section" id="sec-m5">
-      <h2>M5. Per-Dataset Best-Overall</h2>
-      <div class="subtitle">
-        For each of the 72 datasets, the model_name with the lowest rmsep across
-        the entire master (any source_run, any maturity).
-      </div>
-      <div class="filter-bar">
-        <label>Sort by:
-          <select id="filter-pdb-sort">
-            <option value="dataset">Dataset name</option>
-            <option value="n_train">n_train ↑</option>
-            <option value="best_rmsep">Best rmsep ↑</option>
-            <option value="best_model_class">Model class</option>
-          </select>
-        </label>
-      </div>
-      <div class="scroll-table" id="per-dataset-best-table"></div>
-    </div>
-
-    <div class="section" id="sec-m6">
-      <h2>M6. Maturity: locked vs exploratory</h2>
-      <div class="subtitle">
-        Distribution of rmsep across the 2 maturity buckets. <code>locked</code>
-        = production-grade evidence (P0 freeze); <code>exploratory</code> = recent
-        diagnostic runs (Phase 2-5 + D-A-* + D-B-*).
-      </div>
-      <div id="master-maturity" class="plot"></div>
-    </div>
-
-    <div class="section" id="sec-m7">
-      <h2>M7. All observations — rmsep vs n_train</h2>
-      <div class="subtitle">
-        Scatter of every (model × dataset) observation in the master.
-        Color by model_class. Click legend entries to filter classes.
-      </div>
-      <div id="master-all-scatter" class="plot-tall"></div>
-    </div>
-
-    <div class="section" id="sec-m8">
-      <h2>M8. Source family breakdown</h2>
-      <div class="subtitle">
-        9 distinct source_family buckets: bench/AOM_v0/, bench/nicon_v2/,
-        bench/fck_pls/, etc. Useful to see which legacy repo contributed most.
-      </div>
-      <div id="master-source-family" class="plot"></div>
-    </div>
-
-    <div class="section" id="sec-m10" style="border: 2px solid #1f77b4; background: linear-gradient(135deg, #f0f7ff 0%, #fff 100%);">
-      <h2 style="color:#1f77b4">▶ M10. Model-Dataset Distance Plot — select any models, plot vs best ◀</h2>
-      <div class="subtitle">
-        Pick one or more models. For each selected model, plot one point per
-        dataset: <strong>X = dataset, Y = rmsep / best_rmsep_on_dataset</strong>
-        (1.0 = best, 1.5 = 50 % worse, etc.). Lets you visually compare any
-        candidate subset's per-dataset behaviour against the master best.
-      </div>
-      <div class="filter-bar">
-        <label>Metric:
-          <select id="m10-metric">
-            <option value="ratio">rmsep / best (ratio)</option>
-            <option value="delta">rmsep − best (absolute)</option>
-            <option value="abs">rmsep (absolute)</option>
-          </select>
-        </label>
-        <label>Sort X by:
-          <select id="m10-xsort">
-            <option value="n_train">n_train ↑</option>
-            <option value="alpha">alphabetical</option>
-            <option value="best">best rmsep ↑</option>
-          </select>
-        </label>
-        <label>Y scale:
-          <select id="m10-yscale">
-            <option value="auto" selected>auto (log for ratio, linear for delta)</option>
-            <option value="linear">linear</option>
-            <option value="log">log</option>
-          </select>
-        </label>
-      </div>
-      <div style="margin-bottom:12px">
-        <strong style="font-size:12px;color:var(--muted)">Quick-add presets:</strong>
-        <button class="m10-preset" data-models="best5" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">Top 5 master</button>
-        <button class="m10-preset" data-models="best_current" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">best_current winners</button>
-        <button class="m10-preset" data-models="aomridge" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">All AOM-Ridge</button>
-        <button class="m10-preset" data-models="aompls" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">All AOM-PLS</button>
-        <button class="m10-preset" data-models="tabpfn" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">TabPFN family</button>
-        <button class="m10-preset" data-models="moe" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">MoE/Stack</button>
-        <button class="m10-preset" data-models="fck" style="padding:3px 8px;margin:2px;font-size:11px;cursor:pointer">FCK family</button>
-      </div>
-      <div class="grid-2" style="gap:18px;grid-template-columns:380px 1fr">
+      <div class="grid-picker">
         <div>
-          <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">
-            Model picker — search/sort/click rows to toggle, grouped by class
+          <div style="font-family:var(--ff-ui);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;font-weight:600">
+            Model picker
           </div>
           <div class="picker" id="m10-picker">
             <div class="picker-toolbar">
               <input id="m10-filter" type="text" placeholder="filter by name or class (try 'ridge', 'tabpfn', 'snv'…)">
               <select id="m10-sort">
-                <option value="median_rmsep">sort: median rmsep ↑</option>
-                <option value="n_datasets">sort: coverage ↓</option>
-                <option value="name">sort: alpha</option>
-                <option value="n_obs">sort: # obs ↓</option>
+                <option value="median_rmsep">median rmsep ↑</option>
+                <option value="n_datasets">coverage ↓</option>
+                <option value="name">alpha</option>
+                <option value="n_obs"># obs ↓</option>
               </select>
               <button id="m10-collapse-all" title="collapse all class groups">▶|◀</button>
               <button id="m10-expand-all" title="expand all class groups">◀|▶</button>
             </div>
-            <div class="picker-toolbar" style="background:#fffbf0;border-top:0;font-size:10px;gap:6px;padding:4px 10px">
-              <span style="color:#888;font-weight:600">Numeric filters:</span>
-              <label style="display:flex;align-items:center;gap:3px">min datasets ≥
-                <input id="m10-min-ds" type="number" min="0" max="80" value="0" style="width:50px;padding:2px 4px">
-              </label>
-              <label style="display:flex;align-items:center;gap:3px">max median rmsep ≤
-                <input id="m10-max-rmsep" type="number" min="0" step="0.5" placeholder="∞" style="width:60px;padding:2px 4px">
-              </label>
-              <label style="display:flex;align-items:center;gap:3px">min obs ≥
-                <input id="m10-min-obs" type="number" min="0" max="10000" value="0" style="width:60px;padding:2px 4px">
-              </label>
-              <button id="m10-filters-reset" style="padding:1px 6px;font-size:9px">reset</button>
+            <div class="picker-toolbar" style="background:rgba(193,74,62,0.06);border-top:0;font-size:10px;gap:6px;padding:5px 12px">
+              <span style="color:var(--muted)">Numeric filters</span>
+              <label>min ds ≥ <input id="m10-min-ds" type="number" min="0" max="80" value="0" style="width:50px;padding:2px 4px"></label>
+              <label>max rmsep ≤ <input id="m10-max-rmsep" type="number" min="0" step="0.5" placeholder="∞" style="width:60px;padding:2px 4px"></label>
+              <label>min obs ≥ <input id="m10-min-obs" type="number" min="0" max="10000" value="0" style="width:60px;padding:2px 4px"></label>
+              <button id="m10-filters-reset" style="padding:1px 8px;font-size:9px">reset</button>
             </div>
             <div class="picker-list" id="m10-picker-list"></div>
             <div class="picker-stats-line" id="m10-picker-stats">—</div>
           </div>
-          <div style="margin-top:10px;padding:6px 8px;background:#f5f5f5;border-radius:4px;font-size:11px">
-            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
-              <strong>Selected (<span id="m10-selected-count">0</span>):</strong>
-              <button id="m10-clear" style="padding:2px 8px;font-size:10px;cursor:pointer">clear all</button>
+          <div style="margin-top:10px">
+            <div style="font-family:var(--ff-ui);font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Quick presets</div>
+            <div style="display:flex;flex-wrap:wrap;gap:4px">
+              <button class="m10-preset" data-models="best5" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">Top 5 master</button>
+              <button class="m10-preset" data-models="best_current" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">best_current</button>
+              <button class="m10-preset" data-models="aomridge" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">AOM-Ridge</button>
+              <button class="m10-preset" data-models="aompls" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">AOM-PLS</button>
+              <button class="m10-preset" data-models="tabpfn" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">TabPFN</button>
+              <button class="m10-preset" data-models="moe" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">MoE/Stack</button>
+              <button class="m10-preset" data-models="fck" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">FCK</button>
             </div>
-            <div id="m10-selected-pills" style="min-height:24px;display:flex;flex-wrap:wrap;gap:3px"></div>
+          </div>
+          <div class="selected-tray">
+            <div class="header-line">
+              <span>Selected · <strong id="m10-selected-count">0</strong></span>
+              <button id="m10-clear">Clear all</button>
+            </div>
+            <div id="m10-selected-pills" class="pills-list"></div>
           </div>
         </div>
         <div>
-          <div id="m10-scatter" class="plot-tall"></div>
+          <figure class="bare">
+            <figcaption>Distance to best score, per dataset
+              <span class="lede">For each selected model and each dataset, plot rmsep on the
+              dataset relative to the dataset's best score across the whole master.
+              y = 1.0 is the best.</span>
+            </figcaption>
+            <div class="filter-bar">
+              <label>Metric
+                <select id="m10-metric">
+                  <option value="ratio">rmsep / best (ratio)</option>
+                  <option value="delta">rmsep − best</option>
+                  <option value="abs">rmsep (absolute)</option>
+                </select>
+              </label>
+              <label>Sort x by
+                <select id="m10-xsort">
+                  <option value="n_train">n_train ↑</option>
+                  <option value="alpha">alphabetical</option>
+                  <option value="best">best rmsep ↑</option>
+                </select>
+              </label>
+              <label>y scale
+                <select id="m10-yscale">
+                  <option value="auto" selected>auto</option>
+                  <option value="linear">linear</option>
+                  <option value="log">log</option>
+                </select>
+              </label>
+            </div>
+            <div id="m10-scatter" class="plot-tall"></div>
+          </figure>
         </div>
       </div>
+
+      <figure>
+        <figcaption>Per-class behavior: rmsep vs n_train
+          <span class="lede">Small multiples by model class (faceted, replaces the previous
+          overplotted scatter of 6000+ points). Both axes log-scaled.</span>
+        </figcaption>
+        <div class="filter-bar">
+          <label>Color by
+            <select id="facet-color-by">
+              <option value="class">class (single)</option>
+              <option value="rmsep">rmsep value</option>
+            </select>
+          </label>
+          <label>Min obs per class ≥
+            <input id="facet-min-obs" type="number" value="30" min="0" max="1000" style="width:60px">
+          </label>
+        </div>
+        <div id="faceted-scatter" class="plot-xtall"></div>
+      </figure>
+
+      <figure>
+        <figcaption>Rank distribution per class
+          <span class="lede">For each class, distribution of ranks across the datasets it covered.
+          Tight, low-position boxes (left side) indicate consistent winners; wide
+          boxes indicate variable performance.</span>
+        </figcaption>
+        <div id="rank-distribution" class="plot-tall"></div>
+      </figure>
     </div>
+  </section>
 
-    <div class="section" id="sec-m11" style="border: 2px solid #9467bd; background: linear-gradient(135deg, #faf5ff 0%, #fff 100%);">
-      <h2 style="color:#9467bd">▶ M11. Preprocessing Analysis — best pp by model class, by dataset, overall ◀</h2>
-      <div class="subtitle">
-        For each observation we extract the <code>preprocessing_pipeline</code> field
-        and aggregate by pp. Note: many entries are <em>atom-bank names</em> ("compact",
-        "default", "center") used by AOM/POP — not just classical pp like SNV/MSC.
-        Lower median rmsep = better. Only pp with ≥5 obs are kept.
-      </div>
+  <!-- ============================================================ -->
+  <!-- §3 DATASETS                                                  -->
+  <!-- ============================================================ -->
+  <section class="section" id="sec-datasets">
+    <div class="section-rail"><div class="section-num">§3</div></div>
+    <div class="section-body">
+      <header>
+        <h2>Per-<em>dataset</em> deep dive</h2>
+        <p class="lede with-dropcap">
+          Pick any of the 71 datasets in the picker on the left to see every
+          observation collected on it — paper references, locked production runs,
+          and exploratory diagnostic rows alike. The right column shows summary
+          KPIs, the per-class rmsep distribution, and the full observation table.
+        </p>
+      </header>
 
-      <h3 style="margin-top:18px;margin-bottom:6px;color:#555;font-size:13px">
-        M11.1 — Overall preprocessing leaderboard
-      </h3>
-      <div class="filter-bar">
-        <label>Min datasets: <input id="pp-min-ds" type="number" value="5" min="1" max="80" style="width:60px"></label>
-        <label>Sort by:
-          <select id="pp-sort">
-            <option value="median">median rmsep ↑</option>
-            <option value="n_obs"># obs ↓</option>
-            <option value="n_datasets">coverage ↓</option>
-            <option value="n_classes">class diversity ↓</option>
-            <option value="best">best rmsep ↑</option>
-          </select>
-        </label>
-      </div>
-      <div class="scroll-table" id="pp-leaderboard" style="max-height:380px"></div>
-
-      <h3 style="margin-top:24px;margin-bottom:6px;color:#555;font-size:13px">
-        M11.2 — Class × Preprocessing heatmap
-      </h3>
-      <div class="subtitle" style="margin-bottom:8px">
-        Each cell = median rmsep on (model_class, pp). Empty = the class never used
-        that pp. Best column for each row is highlighted in the hover.
-      </div>
-      <div id="pp-heatmap" class="plot-tall"></div>
-
-      <h3 style="margin-top:24px;margin-bottom:6px;color:#555;font-size:13px">
-        M11.3 — Best preprocessing per dataset
-      </h3>
-      <div class="subtitle" style="margin-bottom:8px">
-        For each dataset with ≥2 pp tested, the spread between best and worst pp.
-        Sorted by absolute spread (most pp-sensitive datasets first).
-      </div>
-      <div class="filter-bar">
-        <label>Sort by:
-          <select id="pp-ds-sort">
-            <option value="spread">absolute spread ↓</option>
-            <option value="rel_spread">relative spread (%) ↓</option>
-            <option value="dataset">dataset name</option>
-          </select>
-        </label>
-        <label>Hide datasets with spread &lt;
-          <input id="pp-ds-min-spread" type="number" value="0" min="0" step="0.1" style="width:70px"> rmsep
-        </label>
-      </div>
-      <div class="scroll-table" id="pp-best-per-ds" style="max-height:420px"></div>
-
-      <h3 style="margin-top:24px;margin-bottom:6px;color:#555;font-size:13px">
-        M11.4 — Preprocessing influence on a specific model
-      </h3>
-      <div class="subtitle" style="margin-bottom:8px">
-        Pick a model from the master list and see its rmsep distribution across
-        every pp it was tested with. Reuses the M10 picker logic.
-      </div>
-      <div class="filter-bar">
-        <label>Model:
-          <input id="pp-model-filter" type="text" list="pp-model-list" placeholder="type a model name…" style="width:340px">
-          <datalist id="pp-model-list"></datalist>
-        </label>
-      </div>
-      <div id="pp-model-stats" style="margin-bottom:8px;font-size:11px;color:#666"></div>
-      <div id="pp-model-boxplot" class="plot"></div>
-    </div>
-
-    <div class="section" id="sec-m9" style="border: 2px solid #2ca02c; background: linear-gradient(135deg, #f0fff4 0%, #fff 100%);">
-      <h2 style="color:#2ca02c">▶ M9. Per-Dataset Detail — every observation for any dataset ◀</h2>
-      <div class="subtitle">
-        Pick a dataset to see <strong>every single observation</strong> across all
-        source_runs, all models, all seeds. Includes legacy paper rows + Phase
-        2-5 production rows + D-A-* + D-B-* diagnostic rows.
-      </div>
-      <div class="grid-2" style="gap:18px;grid-template-columns:380px 1fr">
+      <div class="grid-picker">
         <div>
-          <div style="font-size:12px;font-weight:600;color:#555;margin-bottom:6px">
-            Dataset picker — click a row to select
+          <div style="font-family:var(--ff-ui);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;font-weight:600">
+            Dataset picker
           </div>
           <div class="picker" id="ds-picker">
             <div class="picker-toolbar">
-              <input id="ds-filter" type="text" placeholder="filter datasets (try 'beer', 'wood', 'spxy'…)">
+              <input id="ds-filter" type="text" placeholder="filter (try 'beer', 'wood', 'spxy'…)">
               <select id="ds-sort">
-                <option value="n_observations">sort: # obs ↓</option>
-                <option value="alpha">sort: alpha</option>
-                <option value="n_train">sort: n_train ↓</option>
-                <option value="best_rmsep">sort: best rmsep ↑</option>
+                <option value="n_observations"># obs ↓</option>
+                <option value="alpha">alpha</option>
+                <option value="n_train">n_train ↓</option>
+                <option value="best_rmsep">best rmsep ↑</option>
               </select>
             </div>
             <div class="picker-list" id="ds-picker-list"></div>
             <div class="picker-stats-line" id="ds-picker-stats">—</div>
           </div>
-          <div style="margin-top:10px;padding:8px;background:#f5f5f5;border-radius:4px;font-size:11px">
-            <strong>Selected:</strong> <span id="ds-detail-current" style="font-weight:600;color:#2ca02c">(none)</span>
+          <div class="selected-tray">
+            <div class="header-line">
+              <span>Selected dataset</span>
+            </div>
+            <div id="ds-detail-current" style="font-family:var(--ff-display);font-weight:500;font-size:18px;color:var(--accent)">(none)</div>
           </div>
           <div class="filter-bar" style="margin-top:14px">
-            <label>Filter class:
+            <label>Filter class
               <select id="ds-detail-class"><option value="">all classes</option></select>
             </label>
-            <label>Filter maturity:
+            <label>Maturity
               <select id="ds-detail-maturity"><option value="">all</option><option value="locked">locked</option><option value="exploratory">exploratory</option></select>
             </label>
-            <label>Sort table by:
+            <label>Sort
               <select id="ds-detail-sort">
                 <option value="rmsep">rmsep ↑</option>
                 <option value="model_class">model class</option>
@@ -683,125 +1124,248 @@
               </select>
             </label>
           </div>
-          <div id="ds-detail-count" style="font-size:11px;color:var(--muted);margin-top:6px"></div>
+          <div id="ds-detail-count" style="font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);margin-top:4px"></div>
         </div>
         <div>
-          <div class="kpi-row" id="ds-detail-kpis" style="margin-bottom:14px"></div>
-          <div id="ds-detail-boxplot" class="plot"></div>
+          <div class="kpis" id="ds-detail-kpis" style="margin:0 0 24px;border-top-color:var(--accent)"></div>
+          <figure class="bare">
+            <figcaption>rmsep by class on this dataset
+              <span class="lede">Box-plot per model class on the selected dataset.</span>
+            </figcaption>
+            <div id="ds-detail-boxplot" class="plot"></div>
+          </figure>
         </div>
       </div>
 
-      <div class="scroll-table" id="ds-detail-table" style="max-height:600px;margin-top:14px"></div>
+      <div class="scroll-table" id="ds-detail-table" style="max-height:600px;margin-top:8px;background:var(--bg-card)"></div>
+
+      <figure style="margin-top:36px">
+        <figcaption>Best model per dataset
+          <span class="lede">Across all sources and runs, the single observation with the
+          lowest rmsep on each dataset.</span>
+        </figcaption>
+        <div class="filter-bar">
+          <label>Sort by
+            <select id="filter-pdb-sort">
+              <option value="dataset">dataset</option>
+              <option value="n_train">n_train</option>
+              <option value="best_rmsep">best rmsep</option>
+              <option value="best_model_class">model class</option>
+            </select>
+          </label>
+        </div>
+        <div class="scroll-table" id="per-dataset-best-table"></div>
+      </figure>
     </div>
+  </section>
 
-    <!-- ========================================================== -->
-    <!-- PRODUCTION PRESETS section                                  -->
-    <!-- ========================================================== -->
-    <div class="section-divider">Production Preset Runs (Phase 2-5, full-57 cohort)</div>
+  <!-- ============================================================ -->
+  <!-- §4 PREPROCESSING                                             -->
+  <!-- ============================================================ -->
+  <section class="section" id="sec-preprocessing">
+    <div class="section-rail"><div class="section-num">§4</div></div>
+    <div class="section-body">
+      <header>
+        <h2>Preprocessing, <em>decomposed</em></h2>
+        <p class="lede with-dropcap">
+          The master CSV's <code>preprocessing_pipeline</code> column is heterogeneous —
+          AOM atom-bank labels, classical pp names, HPO compound strings, and stringified
+          Python pipeline paths all coexist. The aggregator now parses each entry into
+          five canonical components (<em>baseline · scaling · scatter · derivative · atom_bank</em>)
+          so we can report on what actually helps, marginalised over everything else.
+        </p>
+      </header>
 
-    <div class="kpi-row" id="preset-kpis"></div>
-
-    <div class="section" id="sec-p1">
-      <h2>P1. Per-Preset Leaderboards</h2>
-      <div class="subtitle">Median rmsep across the full-57 cohort. Production runs only.</div>
-      <div class="tabs" id="preset-tabs"></div>
-      <div id="preset-panels"></div>
-    </div>
-
-    <div class="section" id="sec-p2">
-      <h2>P2. Per-Preset-Dataset Heatmap</h2>
-      <div class="subtitle">
-        Each row is a dataset (preset workspace), columns are candidates. Cell color:
-        rmsep / row-best (green = best, red = much worse).
+      <div class="component-grid">
+        <div class="component-card" id="pp-comp-baseline-card"></div>
+        <div class="component-card" id="pp-comp-scaling-card"></div>
+        <div class="component-card" id="pp-comp-scatter-card"></div>
+        <div class="component-card" id="pp-comp-derivative-card"></div>
+        <div class="component-card" id="pp-comp-atom_bank-card"></div>
+        <div class="component-card" id="pp-comp-bank_filtering-card"></div>
       </div>
-      <div class="tabs">
-        <div class="tab active" data-ds-sort="n_train">Sort by n_train ↑</div>
-        <div class="tab" data-ds-sort="n_features">Sort by n_features ↑</div>
-        <div class="tab" data-ds-sort="best_rmsep">Sort by best rmsep ↑</div>
-      </div>
-      <div id="dataset-heatmap" class="plot-xtall"></div>
-    </div>
 
-    <div class="section" id="sec-p3">
-      <h2>P3. Performance vs n_train (preset candidates)</h2>
-      <div class="subtitle">
-        Scatter of preset-candidate × dataset rmsep vs n_train. Log-log scale.
-      </div>
-      <div id="size-scatter" class="plot-tall"></div>
-    </div>
+      <figure>
+        <figcaption>Baseline × Scatter correction
+          <span class="lede">Median rmsep at the intersection of baseline correction and
+          scatter correction. Cells with fewer than five observations are blank.</span>
+        </figcaption>
+        <div id="pp-baseline-scatter-matrix" class="plot"></div>
+      </figure>
 
-    <div class="section" id="sec-p4">
-      <h2>P4. Preprocessing Influence (none vs SNV on AOMRidge-global)</h2>
-      <div class="subtitle">
-        Δ rmsep per dataset. <code>0</code> = no impact ; positive = SNV worse.
-      </div>
-      <div class="grid-2">
-        <div id="preproc-hist" class="plot"></div>
-        <div id="preproc-scatter" class="plot"></div>
-      </div>
-    </div>
+      <figure>
+        <figcaption>Class × Preprocessing heatmap
+          <span class="lede">Cell = median rmsep on (model_class, raw pp). Useful to
+          spot interactions: which class likes which pp.</span>
+        </figcaption>
+        <div id="pp-heatmap" class="plot-tall"></div>
+      </figure>
 
-    <div class="section" id="sec-p5">
-      <h2>P5. Speed vs Accuracy Pareto (best_current)</h2>
-      <div class="subtitle">Median fit time (log) vs median rmsep. Bottom-left is best.</div>
-      <div id="pareto-scatter" class="plot-tall"></div>
-    </div>
+      <figure>
+        <figcaption>pp-sensitive datasets
+          <span class="lede">Datasets where preprocessing choice swings rmsep the most.
+          Sorted by absolute spread between best and worst pp tried.</span>
+        </figcaption>
+        <div class="filter-bar">
+          <label>Sort
+            <select id="pp-ds-sort">
+              <option value="spread">absolute spread ↓</option>
+              <option value="rel_spread">relative spread (%) ↓</option>
+              <option value="dataset">dataset</option>
+            </select>
+          </label>
+          <label>Hide spread &lt;
+            <input id="pp-ds-min-spread" type="number" value="0" min="0" step="0.1" style="width:70px">
+          </label>
+        </div>
+        <div class="scroll-table" id="pp-best-per-ds" style="max-height:380px"></div>
+      </figure>
 
-    <div class="section" id="sec-p6">
-      <h2>P6. Head-to-Head Win Matrix (best_current 8×8)</h2>
-      <div class="subtitle">Cell (row, col): datasets where row's rmsep is strictly less than col's.</div>
-      <div id="h2h-heatmap" class="plot-tall"></div>
-    </div>
+      <figure>
+        <figcaption>Preprocessing influence on a specific model
+          <span class="lede">A few models were tested across multiple pps. Pick one to see
+          the rmsep distribution per pp.</span>
+        </figcaption>
+        <div class="filter-bar">
+          <label>Model
+            <input id="pp-model-filter" type="text" list="pp-model-list" placeholder="type a model name…" style="width:340px;font-family:var(--ff-mono)">
+            <datalist id="pp-model-list"></datalist>
+          </label>
+        </div>
+        <div id="pp-model-stats" style="font-family:var(--ff-mono);font-size:11.5px;color:var(--muted);margin-bottom:8px"></div>
+        <div id="pp-model-boxplot" class="plot"></div>
+      </figure>
 
-    <div class="section" id="sec-p7">
-      <h2>P7. Cross-Preset Robustness</h2>
-      <div class="subtitle">Same candidate × different preset: bars identical = robust.</div>
-      <div id="robustness-grouped" class="plot-tall"></div>
+      <details>
+        <summary>Raw preprocessing leaderboard (all unparsed strings)</summary>
+        <p class="lede" style="font-size:14px;font-style:italic;color:var(--muted);margin:0 0 18px">
+          Shown for audit only — the component cards above are the actionable version.
+        </p>
+        <div class="filter-bar">
+          <label>Min datasets <input id="pp-min-ds" type="number" value="5" min="1" max="80" style="width:60px"></label>
+          <label>Sort by
+            <select id="pp-sort">
+              <option value="median">median rmsep ↑</option>
+              <option value="n_obs"># obs ↓</option>
+              <option value="n_datasets">coverage ↓</option>
+              <option value="n_classes">class diversity ↓</option>
+              <option value="best">best rmsep ↑</option>
+            </select>
+          </label>
+        </div>
+        <div class="scroll-table" id="pp-leaderboard" style="max-height:380px"></div>
+      </details>
     </div>
+  </section>
 
-    <div class="section" id="sec-p8">
-      <h2>P8. Failure &amp; Timeout Patterns</h2>
-      <div class="subtitle">Per dataset: data-issue failures (left) and dispatcher timeouts (right).</div>
-      <div class="grid-2">
-        <div id="failure-bars" class="plot"></div>
-        <div id="timeout-bars" class="plot"></div>
-      </div>
+  <!-- ============================================================ -->
+  <!-- §5 PRODUCTION RUNS                                           -->
+  <!-- ============================================================ -->
+  <section class="section" id="sec-production">
+    <div class="section-rail"><div class="section-num">§5</div></div>
+    <div class="section-body">
+      <header>
+        <h2>Production <em>presets</em></h2>
+        <p class="lede with-dropcap">
+          The four locked preset runs on the full-57 cohort:
+          <em>fast_reliable</em>, <em>strong_practical</em>, <em>best_current</em>,
+          and the in-flight <em>exhaustive_research</em>.
+          Each preset uses an identical pipeline and dataset cohort with seed=0.
+          Cross-preset robustness shows which candidates are stable across protocols.
+        </p>
+      </header>
+
+      <div class="kpis" id="preset-kpis" style="border-top-color:var(--gold)"></div>
+
+      <figure>
+        <figcaption>Per-preset leaderboards</figcaption>
+        <div class="tabs" id="preset-tabs"></div>
+        <div id="preset-panels"></div>
+      </figure>
+
+      <figure>
+        <figcaption>Cross-preset robustness
+          <span class="lede">Each candidate's median rmsep across the four presets. Tight
+          spreads = robust; wide spreads = preset-dependent.</span>
+        </figcaption>
+        <div id="robustness-grouped" class="plot-tall"></div>
+      </figure>
+
+      <details>
+        <summary>Head-to-head (best_current 8×8)</summary>
+        <div id="h2h-heatmap" class="plot-tall"></div>
+      </details>
+
+      <details>
+        <summary>Speed vs accuracy (Pareto)</summary>
+        <div id="pareto-scatter" class="plot"></div>
+      </details>
+
+      <details>
+        <summary>Performance vs n_train (size-scatter)</summary>
+        <div id="size-scatter" class="plot"></div>
+      </details>
+
+      <details>
+        <summary>Per-dataset performance heatmap</summary>
+        <div class="tabs" style="margin-bottom:10px">
+          <div class="tab active" data-sort="n_train">n_train</div>
+          <div class="tab" data-sort="n_features">n_features</div>
+          <div class="tab" data-sort="best_rmsep">best rmsep</div>
+        </div>
+        <div id="dataset-heatmap" class="plot-tall"></div>
+      </details>
+
+      <details>
+        <summary>Failures &amp; timeouts</summary>
+        <div class="grid-2">
+          <div id="failure-bars" class="plot"></div>
+          <div id="timeout-bars" class="plot"></div>
+        </div>
+      </details>
+
+      <details>
+        <summary>TabPFN paper reference</summary>
+        <div id="tabpfn-summary"></div>
+      </details>
     </div>
+  </section>
 
-    <div class="section" id="sec-p9">
-      <h2>P9. TabPFN paper reference (legacy master_pivot.csv)</h2>
-      <div class="subtitle">
-        Box plots of legacy TabPFN paper rows by model_name (TabPFN-Raw,
-        TabPFN-opt, TabPFN-HPO-preprocessing). Will be replaced when user
-        imports their detailed tabpfn_paper runs.
-      </div>
-      <div id="tabpfn-summary" class="plot"></div>
-    </div>
+</main>
 
-    <div class="section recommendations">
-      <h2>S. Synthesis &amp; Recommendations</h2>
-      <ul id="synthesis-list">
-        <li>Loading…</li>
-      </ul>
-    </div>
-  </div>
+<footer>
+  <span>nirs4all · Benchmark synthesis · generated by build_dashboard.py</span>
+  <span class="text-italic">Cite the master CSV hash from MASTER_CSV_HASH.txt</span>
+</footer>
 
-  <script>
+<script>
   // --------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------
   const FAM_COLOR = {
-    'AOM-Ridge': '#d62728', 'AOM-PLS': '#1f77b4', 'ASLS': '#9467bd',
-    'Ridge': '#2ca02c', 'PLS': '#8c564b', 'MoE/Stack': '#ff7f0e',
-    'FCK': '#17becf', 'Residual NN': '#bcbd22', 'Multi-Kernel': '#7f7f7f',
-    'TabPFN': '#e377c2', 'Paper-ref': '#aaaaaa', 'Other': '#cccccc',
+    'AOM-Ridge': '#8e2718', 'AOM-PLS': '#c14a3e', 'ASLS': '#6b3a26',
+    'Ridge': '#836b58', 'PLS': '#b8956b', 'MoE/Stack': '#1f7a8c',
+    'FCK': '#4a7c4f', 'Residual NN': '#c79a2d', 'Multi-Kernel': '#2b5063',
+    'TabPFN': '#a44a8c', 'Paper-ref': '#a89888', 'Other': '#948275',
   };
+  // Locked 13-class palette — editorial chemistry-journal earth tones.
+  // Colorblind-safe (Tol-inspired); each pair has visible grayscale separation.
   const MC_COLOR = {
-    'AOM-PLS': '#1f77b4', 'AOM-Ridge': '#d62728', 'PLS': '#8c564b',
-    'NICON/CNN': '#bcbd22', 'Ridge': '#2ca02c', 'Meta-selector/MoE': '#ff7f0e',
-    'Hybrid CNN+AOM': '#17becf', 'POP-PLS': '#5fa8e3', 'Hybrid CNN+linear': '#c4c443',
-    'Multi-kernel ridge': '#7f7f7f', 'TabPFN': '#e377c2', 'CatBoost': '#9467bd',
-    'FCK-PLS': '#0e8898', 'Stacked NN+Linear': '#ffaa00',
+    'AOM-PLS':            '#c14a3e',  // terracotta
+    'AOM-Ridge':          '#8e2718',  // oxblood
+    'POP-PLS':            '#6b3a26',  // sienna
+    'PLS':                '#b8956b',  // camel
+    'Ridge':              '#836b58',  // mahogany
+    'Multi-kernel ridge': '#2b5063',  // deep teal
+    'Meta-selector/MoE':  '#1f7a8c',  // lagoon
+    'NICON/CNN':          '#5b8aa6',  // denim
+    'Hybrid CNN+linear':  '#6c757d',  // slate
+    'Hybrid CNN+AOM':     '#3d6a78',  // alt denim
+    'CatBoost':           '#c79a2d',  // mustard
+    'FCK-PLS':            '#4a7c4f',  // forest
+    'TabPFN':             '#a44a8c',  // orchid
+    'Stacked NN+Linear':  '#7a5b8f',  // plum
+    'Other':              '#948275',  // taupe
   };
   const fmtNum = (x, d=4) => x === null || x === undefined ? '—' : Number(x).toFixed(d);
   const fmtTime = (s) => s === null || s === undefined ? '—' : (s < 1 ? s.toFixed(2) + 's' : s < 60 ? s.toFixed(1) + 's' : (s/60).toFixed(1) + 'min');
@@ -812,35 +1376,56 @@
   // --------------------------------------------------------------------
   fetch('./dashboard_data.json').then(r => r.json()).then(data => {
     window.dashData = data;
-    renderHeader(data);
-    renderMasterKPIs(data);
-    renderPresetKPIs(data);
-    renderTopModels(data);
-    bindTopModelsFilter(data);
-    renderClassBars(data);
-    renderClassBox(data);
-    renderSourceTreemap(data);
-    renderPerDatasetBest(data);
-    bindPerDatasetBestFilter(data);
-    renderMaturity(data);
-    renderAllScatter(data);
-    renderSourceFamily(data);
-    initDatasetDetail(data);
-    initM10(data);
-    initM11(data);
-    renderPresets(data);
-    renderDatasetHeatmap(data, 'n_train');
-    bindDatasetSortTabs(data);
-    renderSizeScatter(data);
-    renderPreprocPair(data);
-    renderParetoScatter(data);
-    renderH2H(data);
-    renderRobustness(data);
-    renderFailures(data);
-    renderTabPFN(data);
-    renderSynthesis(data);
+    const renderCalls = [
+      // Header + status
+      ['renderHeader', renderHeader],
+      ['renderNavStatus', renderNavStatus],
+      ['renderMasterKPIs', renderMasterKPIs],
+      ['renderPresetKPIs', renderPresetKPIs],
+      // Overview
+      ['renderRankLeaderboard', renderRankLeaderboard],
+      ['renderCDDiagram', renderCDDiagram],
+      ['renderTopModels', renderTopModels],
+      ['bindTopModelsFilter', bindTopModelsFilter],
+      // Models
+      ['initM10', initM10],
+      ['renderFacetedScatter', renderFacetedScatter],
+      ['bindFacetedScatterFilters', bindFacetedScatterFilters],
+      ['renderRankDistribution', renderRankDistribution],
+      // Datasets
+      ['initDatasetDetail', initDatasetDetail],
+      ['renderPerDatasetBest', renderPerDatasetBest],
+      ['bindPerDatasetBestFilter', bindPerDatasetBestFilter],
+      // Preprocessing
+      ['renderComponentBars', renderComponentBars],
+      ['renderBaselineScatterMatrix', renderBaselineScatterMatrix],
+      ['initM11', initM11],
+      // Production
+      ['renderPresets', renderPresets],
+      ['renderDatasetHeatmap', d => renderDatasetHeatmap(d, 'n_train')],
+      ['bindDatasetSortTabs', bindDatasetSortTabs],
+      ['renderSizeScatter', renderSizeScatter],
+      ['renderParetoScatter', renderParetoScatter],
+      ['renderH2H', renderH2H],
+      ['renderRobustness', renderRobustness],
+      ['renderFailures', renderFailures],
+      ['renderTabPFN', renderTabPFN],
+      // Legacy charts (will silently skip if container removed)
+      ['renderClassBars', renderClassBars],
+      ['renderClassBox', renderClassBox],
+      ['renderSourceTreemap', renderSourceTreemap],
+      ['renderMaturity', renderMaturity],
+      ['renderAllScatter', renderAllScatter],
+      ['renderSourceFamily', renderSourceFamily],
+      ['renderPreprocPair', renderPreprocPair],
+      ['renderSynthesis', renderSynthesis],
+    ];
+    for (const [name, fn] of renderCalls) {
+      try { fn(data); }
+      catch (e) { console.warn(`[render skip] ${name}:`, e.message); }
+    }
   }).catch(err => {
-    document.body.innerHTML = '<pre style="color:red;padding:32px">Error loading dashboard_data.json: ' + err.message + '</pre>';
+    document.body.innerHTML = '<pre style="color:#8e2718;padding:32px;font-family:monospace">Error loading dashboard_data.json: ' + err.message + '</pre>';
   });
 
   function renderHeader(data) {
@@ -2335,6 +2920,363 @@
 
     document.getElementById('synthesis-list').innerHTML = items.map(i => `<li>${i}</li>`).join('');
   }
-  </script>
+
+  // ====================================================================
+  // NEW FUNCTIONS — added in editorial refactor (M11 components, rank
+  // leaderboard, CD diagram, rank distribution, faceted scatter)
+  // ====================================================================
+
+  function renderRankLeaderboard(data) {
+    const el = document.getElementById('rank-leaderboard');
+    if (!el || !data.master.ranks) return;
+    const ranks = data.master.ranks.mean_ranks;
+    const maxMean = Math.max(...ranks.map(r => r.mean_rank));
+    const html = ranks.map((r, i) => {
+      const cls = i === 0 ? 'rk-1' : (i === 1 ? 'rk-2' : '');
+      const pct = (r.mean_rank / maxMean) * 100;
+      return `<div class="rank-bar ${cls}">
+        <div class="rk-num">${i + 1}</div>
+        <div class="rk-class"><span class="class-pill" style="background:${MC_COLOR[r.class] || '#888'}">${r.class}</span></div>
+        <div class="rk-track"><div class="rk-fill" style="width:${pct}%"></div></div>
+        <div class="rk-stat">μ=${r.mean_rank.toFixed(2)} · σ=${r.std_rank.toFixed(2)}</div>
+        <div class="rk-wins">${r.wins} wins</div>
+      </div>`;
+    }).join('');
+    el.innerHTML = html;
+  }
+
+  function renderCDDiagram(data) {
+    if (!data.master.ranks || !data.master.ranks.subset_analyses) return;
+    const sel = document.getElementById('cd-k');
+    if (!sel) return;
+    const subsets = data.master.ranks.subset_analyses;
+    if (subsets.length === 0) return;
+    sel.innerHTML = subsets.map(s => `<option value="${s.k}">${s.k} classes (N=${s.n_datasets} ds, CD=${s.critical_difference.toFixed(2)})</option>`).join('');
+    sel.value = subsets[0].k;
+    const draw = () => {
+      const k = parseInt(sel.value);
+      const subset = subsets.find(s => s.k === k);
+      if (!subset) return;
+      _drawCD(subset);
+    };
+    sel.addEventListener('change', draw);
+    draw();
+  }
+
+  function _drawCD(subset) {
+    const svg = document.getElementById('cd-diagram-svg');
+    if (!svg) return;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    const W = 700, H = 200;
+    const padL = 80, padR = 80, padT = 50;
+    const innerW = W - padL - padR;
+    const mr = subset.mean_ranks;
+    const minR = 1;
+    const maxR = subset.k;
+    const xScale = (r) => padL + ((r - minR) / (maxR - minR)) * innerW;
+    const cd = subset.critical_difference;
+
+    // Axis line
+    const axis = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    axis.setAttribute('x1', padL); axis.setAttribute('x2', W - padR);
+    axis.setAttribute('y1', padT); axis.setAttribute('y2', padT);
+    axis.setAttribute('class', 'cd-bar-line');
+    svg.appendChild(axis);
+
+    // Tick marks
+    for (let r = Math.ceil(minR); r <= maxR; r++) {
+      const x = xScale(r);
+      const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      tick.setAttribute('x1', x); tick.setAttribute('x2', x);
+      tick.setAttribute('y1', padT - 6); tick.setAttribute('y2', padT);
+      tick.setAttribute('class', 'cd-bar-line');
+      svg.appendChild(tick);
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', x); label.setAttribute('y', padT - 12);
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('class', 'cd-rank-label');
+      label.textContent = r;
+      svg.appendChild(label);
+    }
+
+    // CD bar (top right) showing the critical difference span
+    const cdX1 = xScale(minR);
+    const cdX2 = xScale(minR + cd);
+    const cdY = padT - 28;
+    const cdLine = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    cdLine.setAttribute('x1', cdX1); cdLine.setAttribute('x2', cdX2);
+    cdLine.setAttribute('y1', cdY); cdLine.setAttribute('y2', cdY);
+    cdLine.setAttribute('class', 'cd-cd-bar');
+    svg.appendChild(cdLine);
+    [cdX1, cdX2].forEach(x => {
+      const cap = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      cap.setAttribute('x1', x); cap.setAttribute('x2', x);
+      cap.setAttribute('y1', cdY - 4); cap.setAttribute('y2', cdY + 4);
+      cap.setAttribute('class', 'cd-cd-bar');
+      svg.appendChild(cap);
+    });
+    const cdLabel = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    cdLabel.setAttribute('x', (cdX1 + cdX2) / 2);
+    cdLabel.setAttribute('y', cdY - 6);
+    cdLabel.setAttribute('text-anchor', 'middle');
+    cdLabel.setAttribute('class', 'cd-rank-label');
+    cdLabel.setAttribute('style', 'fill:var(--accent);font-weight:600');
+    cdLabel.textContent = `CD = ${cd.toFixed(2)}`;
+    svg.appendChild(cdLabel);
+
+    // Classes as markers + labels
+    // Top half: class name + rank, alternating sides for clarity
+    mr.forEach((cls, i) => {
+      const x = xScale(cls.mean_rank);
+      const y = padT + 14 + (i % 2) * 10;
+      // Tick from axis down
+      const tick = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      tick.setAttribute('x1', x); tick.setAttribute('x2', x);
+      tick.setAttribute('y1', padT); tick.setAttribute('y2', y);
+      tick.setAttribute('class', 'cd-bar-line');
+      tick.setAttribute('stroke', MC_COLOR[cls.class] || '#888');
+      svg.appendChild(tick);
+      // Class label
+      const yLabel = padT + 65 + (i * 16);
+      // Connector
+      const conn = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      conn.setAttribute('x1', x); conn.setAttribute('x2', x);
+      conn.setAttribute('y1', y); conn.setAttribute('y2', yLabel - 4);
+      conn.setAttribute('class', 'cd-bar-line');
+      conn.setAttribute('stroke', MC_COLOR[cls.class] || '#888');
+      conn.setAttribute('stroke-dasharray', '2,3');
+      svg.appendChild(conn);
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', x); label.setAttribute('y', yLabel);
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('class', 'cd-class-label');
+      label.setAttribute('fill', MC_COLOR[cls.class] || '#222');
+      label.textContent = cls.class + ` (${cls.mean_rank.toFixed(2)})`;
+      svg.appendChild(label);
+    });
+
+    // Cluster bars (groups of classes within CD of each other)
+    const sorted = [...mr].sort((a, b) => a.mean_rank - b.mean_rank);
+    const groups = [];
+    sorted.forEach(c => {
+      const last = groups[groups.length - 1];
+      if (last && c.mean_rank - last[0].mean_rank <= cd) {
+        last.push(c);
+      } else {
+        groups.push([c]);
+      }
+    });
+    let stack = 0;
+    groups.forEach(g => {
+      if (g.length < 2) return;
+      const x1 = xScale(g[0].mean_rank);
+      const x2 = xScale(g[g.length - 1].mean_rank);
+      const y = padT + 24 + (stack * 6);
+      const bar = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      bar.setAttribute('x1', x1 - 2); bar.setAttribute('x2', x2 + 2);
+      bar.setAttribute('y1', y); bar.setAttribute('y2', y);
+      bar.setAttribute('class', 'cd-cluster');
+      bar.setAttribute('stroke', 'var(--ink)');
+      svg.appendChild(bar);
+      stack++;
+    });
+
+    // Adjust viewbox height if there are many classes
+    const neededH = Math.max(200, padT + 80 + sorted.length * 16);
+    svg.setAttribute('viewBox', `0 0 ${W} ${neededH}`);
+
+    // Caption
+    const cap = document.getElementById('cd-diagram-caption');
+    if (cap) {
+      cap.innerHTML = `k=${subset.k} · N=${subset.n_datasets} datasets · Friedman χ²=${subset.friedman_chi2.toFixed(1)} · CD(α=0.05)=${cd.toFixed(3)}`;
+    }
+  }
+
+  function renderRankDistribution(data) {
+    const el = document.getElementById('rank-distribution');
+    if (!el || !data.master.ranks) return;
+    const rpc = data.master.ranks.rank_per_class;
+    const classes = data.master.ranks.mean_ranks.map(r => r.class);
+    const traces = classes.map(c => {
+      const ranks = (rpc[c] || []).map(r => r.rank);
+      return {
+        type: 'box', name: c, x: ranks,
+        marker: { color: MC_COLOR[c] || '#888', size: 4, opacity: 0.6 },
+        line: { color: MC_COLOR[c] || '#888' },
+        boxpoints: 'outliers',
+        orientation: 'h',
+        hovertemplate: '<b>' + c + '</b><br>rank: %{x}<extra></extra>',
+      };
+    });
+    Plotly.newPlot(el, traces, {
+      xaxis: { title: 'rank (1 = best on that dataset)', dtick: 1, automargin: true },
+      yaxis: { automargin: true, autorange: 'reversed' },
+      margin: { l: 160, r: 40, t: 20, b: 50 },
+      height: 480,
+      showlegend: false,
+      paper_bgcolor: '#fbf6ec',
+      plot_bgcolor: '#fbf6ec',
+      font: { family: "'JetBrains Mono', monospace", size: 11, color: '#1c1813' },
+    }, { responsive: true, displaylogo: false });
+  }
+
+  function renderFacetedScatter(data) {
+    const el = document.getElementById('faceted-scatter');
+    if (!el || !data.master.observations_lean) return;
+    const minObs = parseInt(document.getElementById('facet-min-obs').value || '30') || 30;
+    const colorBy = document.getElementById('facet-color-by').value;
+
+    // Group by class
+    const byClass = {};
+    data.master.observations_lean.forEach(o => {
+      if (!o.n_train || !o.model_class || !o.rmsep) return;
+      byClass[o.model_class] = byClass[o.model_class] || [];
+      byClass[o.model_class].push(o);
+    });
+    const classes = Object.keys(byClass).filter(c => byClass[c].length >= minObs)
+      .sort((a, b) => byClass[b].length - byClass[a].length);
+    if (classes.length === 0) {
+      el.innerHTML = '<div class="picker-empty">No classes meet the minimum observation count.</div>';
+      return;
+    }
+
+    // Grid: 4 cols, ceil(n/4) rows
+    const cols = Math.min(4, classes.length);
+    const rows = Math.ceil(classes.length / cols);
+    const traces = [];
+    const annotations = [];
+    classes.forEach((c, idx) => {
+      const r = Math.floor(idx / cols) + 1;
+      const col = (idx % cols) + 1;
+      const axNum = idx + 1;
+      const xAxisName = idx === 0 ? 'x' : `x${axNum}`;
+      const yAxisName = idx === 0 ? 'y' : `y${axNum}`;
+      const obs = byClass[c];
+      const xs = obs.map(o => o.n_train);
+      const ys = obs.map(o => o.rmsep);
+      const color = MC_COLOR[c] || '#888';
+      const marker = colorBy === 'rmsep'
+        ? { color: ys, colorscale: 'Viridis', reversescale: true, showscale: false, size: 5, opacity: 0.7 }
+        : { color, size: 5, opacity: 0.5, line: { width: 0 } };
+      traces.push({
+        type: 'scattergl', mode: 'markers',
+        x: xs, y: ys,
+        xaxis: xAxisName, yaxis: yAxisName,
+        name: c, marker,
+        hovertemplate: `<b>${c}</b><br>n_train: %{x}<br>rmsep: %{y:.4f}<extra></extra>`,
+        showlegend: false,
+      });
+      annotations.push({
+        text: `${c} <span style="color:#888">· ${obs.length} obs</span>`,
+        xref: `${xAxisName} domain`, yref: `${yAxisName} domain`,
+        x: 0.03, y: 0.96, xanchor: 'left', yanchor: 'top',
+        showarrow: false,
+        font: { size: 11, color: '#1c1813', family: "'Newsreader', serif" },
+        bgcolor: 'rgba(247,241,232,0.85)', bordercolor: color, borderwidth: 1, borderpad: 4,
+      });
+    });
+
+    const layout = {
+      grid: { rows, columns: cols, pattern: 'independent', xgap: 0.06, ygap: 0.08 },
+      height: Math.max(280 * rows, 320),
+      paper_bgcolor: '#fbf6ec',
+      plot_bgcolor: '#fbf6ec',
+      margin: { l: 50, r: 20, t: 20, b: 50 },
+      font: { family: "'JetBrains Mono', monospace", size: 10, color: '#1c1813' },
+      annotations,
+    };
+    // Common log axes for all facets
+    for (let i = 0; i < classes.length; i++) {
+      const suffix = i === 0 ? '' : (i + 1);
+      layout[`xaxis${suffix}`] = { type: 'log', title: i >= classes.length - cols ? 'n_train' : '', tickfont: { size: 9 }, automargin: true };
+      layout[`yaxis${suffix}`] = { type: 'log', title: (i % cols) === 0 ? 'rmsep' : '', tickfont: { size: 9 }, automargin: true };
+    }
+    Plotly.newPlot(el, traces, layout, { responsive: true, displaylogo: false });
+  }
+
+  function bindFacetedScatterFilters(data) {
+    const ev = () => renderFacetedScatter(data);
+    document.getElementById('facet-color-by')?.addEventListener('change', ev);
+    document.getElementById('facet-min-obs')?.addEventListener('input', ev);
+  }
+
+  function renderComponentBars(data) {
+    const pp = data.master.preprocessing;
+    if (!pp || !pp.components) return;
+    const titles = {
+      baseline: ['Baseline correction', 'ASLS / Detrend / none'],
+      scaling: ['Scaling', 'MinMax / Standard / Center / Identity / Normalize'],
+      scatter: ['Scatter correction', 'SNV / MSC / Normalize / none'],
+      derivative: ['Derivative', 'Savitzky-Golay / first / second / none'],
+      atom_bank: ['AOM atom bank', 'compact / default / extended / deep3…'],
+      bank_filtering: ['Bank filtering', 'family_pruned / response_dedup / none'],
+    };
+    Object.entries(titles).forEach(([key, [title, sub]]) => {
+      const el = document.getElementById(`pp-comp-${key}-card`);
+      if (!el) return;
+      const entries = pp.components[key] || [];
+      if (entries.length === 0) {
+        el.innerHTML = `<h4>${title}</h4><div class="status-line">no data</div>`;
+        return;
+      }
+      const maxMedian = Math.max(...entries.map(e => e.median));
+      const minMedian = Math.min(...entries.map(e => e.median));
+      const rows = entries.slice(0, 8).map((e, i) => {
+        // Bar width: inverse of median (best = full, worst = small)
+        const pct = 100 * (1 - (e.median - minMedian) / Math.max(maxMedian - minMedian, 0.001)) * 0.85 + 15;
+        const fillClass = i === 0 ? 'winner' : (i === 1 ? 'runner-up' : '');
+        return `<div class="bar-row">
+          <div class="name" title="${e.value}">${e.value || '(none)'}</div>
+          <div class="bar-track"><div class="bar-fill ${fillClass}" style="width:${pct}%"></div></div>
+          <div class="val">${fmtNum(e.median)}</div>
+          <div class="meta">n=${e.n_obs} · ${e.n_datasets} ds · ${e.n_classes} cls · q25=${fmtNum(e.q25)} · q75=${fmtNum(e.q75)} · best=${fmtNum(e.best)}</div>
+        </div>`;
+      }).join('');
+      el.innerHTML = `<h4>${title} <span class="sub">${sub}</span></h4><div class="bars">${rows}</div>`;
+    });
+  }
+
+  function renderBaselineScatterMatrix(data) {
+    const el = document.getElementById('pp-baseline-scatter-matrix');
+    if (!el || !data.master.preprocessing) return;
+    const mat = data.master.preprocessing.baseline_scatter_matrix;
+    if (!mat) return;
+    Plotly.newPlot(el, [{
+      type: 'heatmap',
+      x: mat.cols, y: mat.rows,
+      z: mat.values,
+      text: mat.counts.map(row => row.map(v => v > 0 ? `n=${v}` : '')),
+      texttemplate: '%{text}',
+      textfont: { family: "'JetBrains Mono', monospace", size: 11, color: 'white' },
+      colorscale: [
+        [0, '#4a7c4f'],
+        [0.4, '#c79a2d'],
+        [0.8, '#c14a3e'],
+        [1, '#8e2718'],
+      ],
+      zmin: 0,
+      zmax: Math.min(3, Math.max(...mat.values.flat().filter(v => v != null && Number.isFinite(v)))),
+      hovertemplate: 'baseline=%{y} × scatter=%{x}<br>median rmsep: %{z:.3f}<extra></extra>',
+      colorbar: { title: 'median rmsep', thickness: 14 },
+    }], {
+      xaxis: { title: 'scatter correction', automargin: true },
+      yaxis: { title: 'baseline correction', automargin: true },
+      paper_bgcolor: '#fbf6ec',
+      plot_bgcolor: '#fbf6ec',
+      margin: { l: 100, r: 40, t: 20, b: 50 },
+      height: 280,
+      font: { family: "'JetBrains Mono', monospace", size: 11, color: '#1c1813' },
+    }, { responsive: true, displaylogo: false });
+  }
+
+  // Update nav-status badge
+  function renderNavStatus(data) {
+    const el = document.getElementById('nav-status');
+    if (!el) return;
+    const m = data.metadata;
+    el.textContent = `${m.master_observed_total.toLocaleString()} obs · ${m.master_distinct_models} models · ${m.phases_complete}/4 presets`;
+  }
+</script>
+
 </body>
 </html>
