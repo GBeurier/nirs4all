@@ -5,7 +5,7 @@
   <title>NIRS4All — Benchmark Synthesis</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,300..900;1,9..144,400..700&family=Newsreader:ital,opsz,wght@0,6..72,400..700;1,6..72,400..600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Lato:wght@300;400;700;900&family=Roboto+Slab:wght@500;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
   <style>
     /* ============================================================== */
@@ -13,28 +13,29 @@
     /*  warm-cream paper · oxblood accent · serif-driven hierarchy     */
     /* ============================================================== */
     :root {
-      --paper:    #f7f1e8;
-      --paper-2:  #ede4d3;
-      --bg-card:  #fbf6ec;
-      --ink:      #1c1813;
-      --ink-2:    #3a3128;
-      --muted:    #7a6e5e;
-      --muted-2:  #a89888;
-      --rule:     #d6c8b2;
-      --rule-2:   #e7dcc7;
-      --accent:   #8e2718;  /* oxblood */
-      --accent-2: #c14a3e;  /* terracotta */
-      --teal:     #2b5063;
-      --forest:   #4a7c4f;
-      --gold:     #c79a2d;
-      --good:     #4a7c4f;
-      --warn:     #c79a2d;
-      --bad:      #8e2718;
+      /* nirs4all docs palette — sphinx_rtd_theme aesthetic */
+      --paper:    #ffffff;
+      --paper-2:  #f5f5f5;
+      --bg-card:  #fbfbfb;
+      --ink:      #2c3e50;          /* dark slate (RTD heading color) */
+      --ink-2:    #404040;
+      --muted:    #6b7888;
+      --muted-2:  #95a3b3;
+      --rule:     #e1e4e5;
+      --rule-2:   #ececec;
+      --accent:   #2980b9;          /* RTD blue */
+      --accent-2: #3498db;          /* RTD lighter blue (hover) */
+      --teal:     #1f6f8b;
+      --forest:   #27ae60;
+      --gold:     #f39c12;
+      --good:     #27ae60;
+      --warn:     #f39c12;
+      --bad:      #c0392b;
 
-      --ff-display: 'Fraunces', 'Times New Roman', serif;
-      --ff-body:    'Newsreader', Georgia, serif;
-      --ff-mono:    'JetBrains Mono', 'Menlo', monospace;
-      --ff-ui:      'Newsreader', Georgia, serif;
+      --ff-display: 'Roboto Slab', 'Georgia', serif;
+      --ff-body:    'Lato', 'Helvetica Neue', Arial, sans-serif;
+      --ff-mono:    'JetBrains Mono', 'SFMono-Regular', Menlo, Consolas, monospace;
+      --ff-ui:      'Lato', 'Helvetica Neue', Arial, sans-serif;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body {
@@ -58,16 +59,16 @@
       position: sticky;
       top: 0;
       z-index: 50;
-      background: rgba(247, 241, 232, 0.94);
+      background: rgba(255, 255, 255, 0.96);
       backdrop-filter: saturate(180%) blur(12px);
       -webkit-backdrop-filter: saturate(180%) blur(12px);
       border-bottom: 1px solid var(--rule);
-      padding: 8px 32px;
+      padding: 10px 32px;
       display: flex;
       align-items: center;
-      gap: 18px;
-      font-family: var(--ff-mono);
-      font-size: 11px;
+      gap: 22px;
+      font-family: var(--ff-ui);
+      font-size: 13px;
       letter-spacing: 0;
     }
     .sticky-nav .brand {
@@ -956,13 +957,15 @@
           <div class="picker-toolbar">
             <input id="m10-filter" type="text" placeholder="filter by name or class (try 'ridge', 'tabpfn', 'snv'…)">
             <select id="m10-sort">
-              <option value="median_rmsep">median rmsep ↑</option>
+              <option value="oracle" selected>oracle ratio ↑ (normalized)</option>
+              <option value="median_rmsep">median rmsep ↑ (absolute)</option>
               <option value="n_datasets">coverage ↓</option>
               <option value="name">alpha</option>
               <option value="n_obs"># obs ↓</option>
             </select>
             <span style="margin-left:8px;color:var(--muted);font-size:10px">numeric:</span>
             <label style="font-size:10px;color:var(--muted)">min ds ≥ <input id="m10-min-ds" type="number" min="0" max="80" value="0" style="width:50px;padding:2px 4px"></label>
+            <label style="font-size:10px;color:var(--muted)" title="rmsep / dataset_best_rmsep, normalised — comparable across datasets">max oracle ≤ <input id="m10-max-oracle" type="number" min="1" step="0.1" placeholder="∞" style="width:55px;padding:2px 4px"></label>
             <label style="font-size:10px;color:var(--muted)">max rmsep ≤ <input id="m10-max-rmsep" type="number" min="0" step="0.5" placeholder="∞" style="width:60px;padding:2px 4px"></label>
             <label style="font-size:10px;color:var(--muted)">min obs ≥ <input id="m10-min-obs" type="number" min="0" max="10000" value="0" style="width:60px;padding:2px 4px"></label>
             <button id="m10-filters-reset" style="padding:2px 8px;font-size:10px">reset filters</button>
@@ -1046,6 +1049,12 @@
           named model_names from the picker.</span>
         </figcaption>
         <div class="filter-bar">
+          <label>Y metric
+            <select id="facet-y-metric">
+              <option value="oracle" selected>oracle ratio (normalized)</option>
+              <option value="rmsep">rmsep (absolute, log)</option>
+            </select>
+          </label>
           <label>Show classes
             <span id="facet-class-picker" style="display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:6px"></span>
           </label>
@@ -1090,6 +1099,61 @@
           </span>
         </div>
         <div id="rank-distribution" class="plot-tall"></div>
+      </figure>
+
+      <!-- ============ DECISION SUPPORT: top-K frequency + greedy portfolio ============ -->
+      <figure>
+        <figcaption>Decision support — which models to train on a new dataset
+          <span class="lede">Two complementary views for the practical question
+          "given a new NIRS dataset, which 5 models should I actually train?".
+          (a) <strong>Top-K frequency</strong> — how often each model ranks in the
+          top-K across the 71 covered datasets. (b) <strong>Greedy portfolio
+          coverage</strong> — the smallest set of models such that on every dataset
+          at least one of them is in top-K. Drives the recommendation card below.</span>
+        </figcaption>
+        <div class="filter-bar">
+          <label>K =
+            <select id="topk-k">
+              <option value="1">top-1 (winner)</option>
+              <option value="3" selected>top-3</option>
+              <option value="5">top-5</option>
+              <option value="10">top-10</option>
+              <option value="20">top-20</option>
+              <option value="5pct">top-5%</option>
+              <option value="10pct">top-10%</option>
+              <option value="20pct">top-20%</option>
+            </select>
+          </label>
+          <label>Min datasets ≥
+            <input id="topk-min-ds" type="number" value="30" min="1" max="80" style="width:60px">
+          </label>
+          <label>Show top
+            <input id="topk-top-n" type="number" value="25" min="5" max="100" style="width:60px"> models
+          </label>
+        </div>
+        <div class="grid-asym-65" style="gap:24px">
+          <div>
+            <div style="font-family:var(--ff-ui);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-weight:600">
+              (a) Top-K hit count per model
+            </div>
+            <div id="topk-bars" class="plot-tall"></div>
+          </div>
+          <div>
+            <div style="font-family:var(--ff-ui);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);margin-bottom:6px;font-weight:600">
+              (b) Greedy portfolio coverage
+            </div>
+            <div id="portfolio-coverage" class="plot-tall"></div>
+          </div>
+        </div>
+      </figure>
+
+      <figure id="recommendation-card-wrap" style="background:linear-gradient(135deg, rgba(193,74,62,0.06) 0%, var(--bg-card) 100%);border-left:3px solid var(--accent)">
+        <figcaption style="color:var(--accent)">Train these models — greedy recommendation
+          <span class="lede" style="color:var(--ink-2)">For the chosen K and min-coverage,
+          the smallest set of models that puts a top-K performer on every dataset.
+          Marginal contribution = the number of datasets each addition newly covers.</span>
+        </figcaption>
+        <div id="recommendation-card"></div>
       </figure>
 
       <figure>
@@ -1428,6 +1492,9 @@
       ['bindFacetedScatterFilters', bindFacetedScatterFilters],
       ['renderRankDistribution', renderRankDistribution],
       ['renderPromisingModels', renderPromisingModels],
+      ['renderTopKFrequency', renderTopKFrequency],
+      ['renderPortfolioCoverage', renderPortfolioCoverage],
+      ['bindDecisionSupport', bindDecisionSupport],
       // Datasets
       ['initDatasetDetail', initDatasetDetail],
       ['renderPerDatasetBest', renderPerDatasetBest],
@@ -1461,7 +1528,7 @@
       catch (e) { console.warn(`[render skip] ${name}:`, e.message); }
     }
   }).catch(err => {
-    document.body.innerHTML = '<pre style="color:#8e2718;padding:32px;font-family:monospace">Error loading dashboard_data.json: ' + err.message + '</pre>';
+    document.body.innerHTML = '<pre style="color:#2980b9;padding:32px;font-family:monospace">Error loading dashboard_data.json: ' + err.message + '</pre>';
   });
 
   function renderHeader(data) {
@@ -2076,29 +2143,41 @@
         }
       });
     });
+    const dsBest = {};
+    data.master.per_dataset_best.forEach(d => { dsBest[d.dataset] = d; });
+
     // Pick a representative display name (most-observed variant) + compute median/coverage
+    // + median oracle ratio (rmsep / dataset_best_rmsep) which IS comparable across datasets,
+    // unlike median_rmsep which is bound to the per-dataset target-variable scale.
     Object.values(canonical).forEach(c => {
       c.display = c.variants.slice().sort((a, b) => c.variant_obs[b] - c.variant_obs[a])[0];
       const rs = Object.values(c.datasets);
       c.median_rmsep = m10MedianOf(rs);
       c.n_datasets = rs.length;
+      // Oracle ratios per dataset
+      const ratios = [];
+      Object.entries(c.datasets).forEach(([ds, rmsep]) => {
+        const ref = dsBest[ds] ? dsBest[ds].best_rmsep : null;
+        if (ref && ref > 0 && Number.isFinite(rmsep)) ratios.push(rmsep / ref);
+      });
+      c.median_oracle_ratio = ratios.length ? m10MedianOf(ratios) : null;
     });
-
-    const dsBest = {};
-    data.master.per_dataset_best.forEach(d => { dsBest[d.dataset] = d; });
 
     window._m10 = { canonical, dsBest, selected: new Set() };
 
     // Bindings
     document.getElementById('m10-filter').addEventListener('input', renderM10Picker);
     document.getElementById('m10-sort').addEventListener('change', renderM10Picker);
-    ['m10-min-ds', 'm10-max-rmsep', 'm10-min-obs'].forEach(id => {
-      document.getElementById(id).addEventListener('input', renderM10Picker);
+    ['m10-min-ds', 'm10-max-rmsep', 'm10-max-oracle', 'm10-min-obs'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.addEventListener('input', renderM10Picker);
     });
     document.getElementById('m10-filters-reset').addEventListener('click', () => {
       document.getElementById('m10-filter').value = '';
       document.getElementById('m10-min-ds').value = '0';
       document.getElementById('m10-max-rmsep').value = '';
+      const mo = document.getElementById('m10-max-oracle');
+      if (mo) mo.value = '';
       document.getElementById('m10-min-obs').value = '0';
       renderM10Picker();
     });
@@ -2144,13 +2223,16 @@
     const minDs = parseInt(document.getElementById('m10-min-ds').value || '0') || 0;
     const maxRmsepRaw = document.getElementById('m10-max-rmsep').value;
     const maxRmsep = maxRmsepRaw === '' ? Infinity : (parseFloat(maxRmsepRaw) || Infinity);
+    const maxOracleRaw = document.getElementById('m10-max-oracle')?.value;
+    const maxOracle = !maxOracleRaw ? Infinity : (parseFloat(maxOracleRaw) || Infinity);
     const minObs = parseInt(document.getElementById('m10-min-obs').value || '0') || 0;
 
-    // Filter (text + numeric)
+    // Filter (text + numeric + normalised)
     const entries = Object.entries(state.canonical).filter(([key, e]) => {
       if (e.n_datasets < minDs) return false;
       if (e.n_obs < minObs) return false;
       if (Number.isFinite(maxRmsep) && (e.median_rmsep == null || e.median_rmsep > maxRmsep)) return false;
+      if (Number.isFinite(maxOracle) && (e.median_oracle_ratio == null || e.median_oracle_ratio > maxOracle)) return false;
       if (!filter) return true;
       return key.includes(filter)
         || e.class.toLowerCase().includes(filter)
@@ -2165,15 +2247,16 @@
       groups[e.class].push({ key, ...e });
     });
 
+    const sortKey = sort === 'oracle' ? 'median_oracle_ratio' : 'median_rmsep';
     Object.values(groups).forEach(g => {
       if (sort === 'name') g.sort((a, b) => a.display.localeCompare(b.display));
       else if (sort === 'n_datasets') g.sort((a, b) => b.n_datasets - a.n_datasets);
       else if (sort === 'n_obs') g.sort((a, b) => b.n_obs - a.n_obs);
-      else g.sort((a, b) => (a.median_rmsep ?? Infinity) - (b.median_rmsep ?? Infinity));
+      else g.sort((a, b) => (a[sortKey] ?? Infinity) - (b[sortKey] ?? Infinity));
     });
     const sortedClasses = Object.keys(groups).sort((a, b) => {
-      const am = groups[a][0] ? (groups[a][0].median_rmsep ?? Infinity) : Infinity;
-      const bm = groups[b][0] ? (groups[b][0].median_rmsep ?? Infinity) : Infinity;
+      const am = groups[a][0] ? (groups[a][0][sortKey] ?? Infinity) : Infinity;
+      const bm = groups[b][0] ? (groups[b][0][sortKey] ?? Infinity) : Infinity;
       return am - bm;
     });
 
@@ -2197,13 +2280,19 @@
         const variantsBadge = item.variants.length > 1
           ? `<span class="variants-count" title="merged variants: ${item.variants.join(', ')}">×${item.variants.length} variants</span>`
           : '';
+        const oracleStr = item.median_oracle_ratio != null ? item.median_oracle_ratio.toFixed(2) : '—';
+        const oracleColor = item.median_oracle_ratio != null
+          ? (item.median_oracle_ratio < 1.2 ? 'var(--forest)'
+            : item.median_oracle_ratio < 2 ? 'var(--gold)'
+            : 'var(--accent)')
+          : 'var(--muted)';
         html += `<div class="picker-row ${sel}" data-key="${item.key.replace(/"/g, '&quot;')}">
           <input type="checkbox" ${sel ? 'checked' : ''}>
           <span class="row-name" title="${item.variants.join(' / ')}">${item.display}${variantsBadge}</span>
           <span class="row-meta">
             <span class="stat" title="datasets covered">${item.n_datasets} ds</span>
-            <span class="stat" title="total observations">${item.n_obs} obs</span>
-            <span class="stat rmsep" title="median rmsep">${fmtNum(item.median_rmsep) ?? '?'}</span>
+            <span class="stat" style="color:${oracleColor};font-weight:600" title="median oracle ratio — normalised, 1.0 = ties best on every covered dataset">⊙ ${oracleStr}</span>
+            <span class="stat rmsep" title="median rmsep — absolute, NOT comparable across datasets">${fmtNum(item.median_rmsep) ?? '?'}</span>
           </span>
         </div>`;
       });
@@ -2217,6 +2306,7 @@
     if (filter) activeFilters.push(`text='${filter}'`);
     if (minDs > 0) activeFilters.push(`ds≥${minDs}`);
     if (Number.isFinite(maxRmsep)) activeFilters.push(`rmsep≤${maxRmsep}`);
+    if (Number.isFinite(maxOracle)) activeFilters.push(`oracle≤${maxOracle}`);
     if (minObs > 0) activeFilters.push(`obs≥${minObs}`);
     const filterSuffix = activeFilters.length ? ` (filters: ${activeFilters.join(', ')})` : '';
     document.getElementById('m10-picker-stats').textContent =
@@ -2308,7 +2398,8 @@
     }
     if (name === 'best_per_class') {
       // Best of each class after applying the current numeric filters.
-      // Uses median_rmsep as the ranking criterion within each class.
+      // Ranking criterion: median_oracle_ratio (rmsep / dataset_best, comparable
+      // across datasets). Fallback to median_rmsep only if oracle is missing.
       const filter = (document.getElementById('m10-filter').value || '').toLowerCase().trim();
       const minDs = parseInt(document.getElementById('m10-min-ds').value || '0') || 0;
       const maxRmsepRaw = document.getElementById('m10-max-rmsep').value;
@@ -2324,12 +2415,15 @@
           || e.display.toLowerCase().includes(filter)
           || e.variants.some(v => v.toLowerCase().includes(filter));
       });
-      // Group by class, keep best (lowest median_rmsep) of each
+      // Group by class, keep best (lowest oracle ratio) of each.
+      // Oracle ratio is normalised: 1.0 = ties best on every covered dataset.
       const bestPerClass = {};
       eligible.forEach(([key, e]) => {
+        const score = e.median_oracle_ratio != null ? e.median_oracle_ratio
+                    : (e.median_rmsep != null ? e.median_rmsep : Infinity);
         const cur = bestPerClass[e.class];
-        if (!cur || (e.median_rmsep != null && e.median_rmsep < cur.median)) {
-          bestPerClass[e.class] = { key, median: e.median_rmsep ?? Infinity };
+        if (!cur || score < cur.score) {
+          bestPerClass[e.class] = { key, score };
         }
       });
       return Object.values(bestPerClass).map(v => v.key);
@@ -2391,23 +2485,35 @@
       : (metric === 'delta' ? 'rmsep − best' : 'rmsep (absolute)');
 
     // ---- Build per-model trace data ----
+    // Each trace iterates ALL sorted datasets and pushes null for missing ones.
+    // This way Plotly's categorical x-axis aligns identically across traces and
+    // null breaks the line cleanly (no zigzag between non-adjacent x positions).
     const traceData = selectedKeys.map((key, i) => {
       const e = state.canonical[key];
       if (!e) return null;
       const x = [], y = [], text = [];
+      let n_real = 0;
       datasets.forEach(ds => {
+        x.push(ds);
         const myR = e.datasets[ds];
-        if (myR === undefined) return;
         const dsRec = state.dsBest[ds];
-        if (!dsRec) return;
+        if (myR === undefined || !dsRec) {
+          y.push(null);
+          text.push('');
+          return;
+        }
         const dsB = dsRec.best_rmsep;
         let value;
         if (metric === 'ratio') value = dsB > 0 ? myR / dsB : null;
         else if (metric === 'delta') value = myR - dsB;
         else value = myR;
-        if (value === null || !Number.isFinite(value)) return;
-        x.push(ds);
+        if (value === null || !Number.isFinite(value)) {
+          y.push(null);
+          text.push('');
+          return;
+        }
         y.push(value);
+        n_real += 1;
         text.push(
           `<b>${e.display}</b>${e.variants.length > 1 ? ` <span style="color:#999">(${e.variants.length}v)</span>` : ''}<br>` +
           `class: ${e.class}<br>` +
@@ -2417,8 +2523,8 @@
           `ratio: ${(dsB > 0 ? myR / dsB : 0).toFixed(3)} · delta: ${(myR - dsB).toFixed(4)}`
         );
       });
-      return { key, e, x, y, text, color: MC_COLOR[e.class] || colorForClass(e.class, i) };
-    }).filter(d => d !== null && d.x.length > 0);
+      return { key, e, x, y, text, n_real, color: MC_COLOR[e.class] || colorForClass(e.class, i) };
+    }).filter(d => d !== null && d.n_real > 0);
 
     // ---- FACET MODE ----
     if (layout === 'facet') {
@@ -2436,10 +2542,11 @@
           x: d.x, y: d.y, text: d.text,
           xaxis: xax, yaxis: yax,
           name: d.e.display,
-          marker: { size: markerSize, color: d.color, opacity: 0.85, line: { color: '#1c1813', width: 0.4 } },
+          marker: { size: markerSize, color: d.color, opacity: 0.85, line: { color: '#2c3e50', width: 0.4 } },
           line: { color: d.color, width: lineWidth + 0.2 },
           hovertemplate: '%{text}<extra></extra>',
           showlegend: false,
+          connectgaps: false,
         });
         // Title annotation per facet
         annotations.push({
@@ -2447,24 +2554,24 @@
           xref: `${xax} domain`, yref: `${yax} domain`,
           x: 0.02, y: 0.98, xanchor: 'left', yanchor: 'top',
           showarrow: false,
-          font: { size: 11, family: "'Newsreader', serif", color: '#1c1813' },
-          bgcolor: 'rgba(247,241,232,0.88)', bordercolor: d.color, borderwidth: 1, borderpad: 4,
+          font: { size: 11, family: "'Lato', sans-serif", color: '#2c3e50' },
+          bgcolor: 'rgba(255,255,255,0.88)', bordercolor: d.color, borderwidth: 1, borderpad: 4,
         });
         // Reference line per facet
         if (yref !== null) {
           shapes.push({
             type: 'line', xref: `${xax} domain`, yref: yax,
             x0: 0, x1: 1, y0: yref, y1: yref,
-            line: { color: '#8e2718', dash: 'dash', width: 1 },
+            line: { color: '#2980b9', dash: 'dash', width: 1 },
           });
         }
       });
       const lay = {
         grid: { rows, columns: cols, pattern: 'independent', xgap: 0.06, ygap: 0.1 },
         height: Math.max(280 * rows, 320),
-        paper_bgcolor: '#fbf6ec', plot_bgcolor: '#fbf6ec',
+        paper_bgcolor: '#fbfbfb', plot_bgcolor: '#fbfbfb',
         margin: { l: 60, r: 20, t: 20, b: 110 },
-        font: { family: "'JetBrains Mono', monospace", size: 10, color: '#1c1813' },
+        font: { family: "'JetBrains Mono', monospace", size: 10, color: '#2c3e50' },
         annotations, shapes,
       };
       for (let i = 0; i < traceData.length; i++) {
@@ -2475,6 +2582,9 @@
           tickangle: -45, tickfont: { size: 8 }, automargin: true,
           showticklabels: rowIdx === rows - 1,
           title: rowIdx === rows - 1 ? 'dataset' : '',
+          type: 'category',
+          categoryorder: 'array',
+          categoryarray: datasets,
         };
         lay[`yaxis${suf}`] = {
           title: colIdx === 0 ? yTitle : '', type: yscale,
@@ -2491,30 +2601,38 @@
       mode: modeRaw,
       name: `${d.e.display}${d.e.variants.length > 1 ? ` ×${d.e.variants.length}` : ''}`,
       x: d.x, y: d.y, text: d.text,
-      marker: { size: markerSize, color: d.color, opacity, line: { color: '#1c1813', width: 0.4 } },
+      marker: { size: markerSize, color: d.color, opacity, line: { color: '#2c3e50', width: 0.4 } },
       line: { color: d.color, width: lineWidth, dash: 'solid' },
       opacity: modeRaw === 'lines' ? opacity : 1,
       hovertemplate: '%{text}<extra></extra>',
+      connectgaps: false,
     }));
 
     Plotly.newPlot('m10-scatter', traces, {
-      xaxis: { title: 'dataset', tickangle: -45, tickfont: { size: 9, family: "'JetBrains Mono', monospace" }, automargin: true, gridcolor: '#e7dcc7' },
+      xaxis: {
+        title: 'dataset', tickangle: -45,
+        tickfont: { size: 9, family: "'JetBrains Mono', monospace" },
+        automargin: true, gridcolor: '#e7dcc7',
+        type: 'category',
+        categoryorder: 'array',
+        categoryarray: datasets,
+      },
       yaxis: { title: yTitle, type: yscale, gridcolor: '#e7dcc7', tickfont: { family: "'JetBrains Mono', monospace" } },
       showlegend: true,
-      legend: { orientation: 'v', y: 1, x: 1.02, font: { size: 10, family: "'Newsreader', serif" }, bgcolor: 'rgba(251,246,236,0.85)', bordercolor: '#d6c8b2', borderwidth: 1 },
+      legend: { orientation: 'v', y: 1, x: 1.02, font: { size: 10, family: "'Lato', sans-serif" }, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#d6c8b2', borderwidth: 1 },
       margin: { l: 70, r: 280, t: 30, b: 200 },
       height: 640,
-      paper_bgcolor: '#fbf6ec',
-      plot_bgcolor: '#fbf6ec',
-      font: { family: "'Newsreader', serif", size: 11, color: '#1c1813' },
+      paper_bgcolor: '#fbfbfb',
+      plot_bgcolor: '#fbfbfb',
+      font: { family: "'Lato', sans-serif", size: 11, color: '#2c3e50' },
       shapes: yref !== null ? [{
         type: 'line', xref: 'paper', x0: 0, x1: 1, y0: yref, y1: yref,
-        line: { color: '#8e2718', dash: 'dash', width: 2 },
+        line: { color: '#2980b9', dash: 'dash', width: 2 },
       }] : [],
       annotations: yref !== null ? [{
         xref: 'paper', x: 1.005, y: yref, yanchor: 'middle', xanchor: 'left',
         text: metric === 'ratio' ? '← best (1.0)' : '← best (0.0)',
-        showarrow: false, font: { size: 10, color: '#8e2718', family: "'Newsreader', serif", style: 'italic' },
+        showarrow: false, font: { size: 10, color: '#2980b9', family: "'Lato', sans-serif", style: 'italic' },
       }] : [],
     }, { responsive: true, displaylogo: false });
   }
@@ -3354,9 +3472,9 @@
       margin: { l: 240, r: 40, t: 20, b: 50 },
       height: Math.max(420, traces.length * 26 + 100),
       showlegend: false,
-      paper_bgcolor: '#fbf6ec',
-      plot_bgcolor: '#fbf6ec',
-      font: { family: "'Newsreader', serif", size: 11, color: '#1c1813' },
+      paper_bgcolor: '#fbfbfb',
+      plot_bgcolor: '#fbfbfb',
+      font: { family: "'Lato', sans-serif", size: 11, color: '#2c3e50' },
     }, { responsive: true, displaylogo: false });
   }
 
@@ -3436,13 +3554,20 @@
     const minObs = parseInt(document.getElementById('facet-min-obs').value || '0') || 0;
     const colorBy = document.getElementById('facet-color-by').value;
     const overlay = document.getElementById('facet-overlay-selected').checked;
+    const yMetric = document.getElementById('facet-y-metric')?.value || 'oracle';
     const wantClasses = window._facetClasses || new Set();
 
-    // Per-class observations from lean cache
+    // Per-dataset best rmsep for oracle ratio computation
+    const dsBestMap = {};
+    data.master.per_dataset_best.forEach(d => { dsBestMap[d.dataset] = d.best_rmsep; });
+
+    // Per-class observations from lean cache (decorate with oracle ratio)
     const byClass = {};
     data.master.observations_lean.forEach(o => {
       if (!o.n_train || !o.model_class || !o.rmsep) return;
       if (!wantClasses.has(o.model_class)) return;
+      const ref = dsBestMap[o.dataset];
+      o._oracle = (ref && ref > 0) ? o.rmsep / ref : null;
       byClass[o.model_class] = byClass[o.model_class] || [];
       byClass[o.model_class].push(o);
     });
@@ -3479,39 +3604,47 @@
     const rows = Math.ceil(classes.length / cols);
     const traces = [];
     const annotations = [];
+    const useOracle = yMetric === 'oracle';
+    const yLabel = useOracle ? 'oracle ratio' : 'rmsep';
     classes.forEach((c, idx) => {
       const axNum = idx + 1;
       const xAx = idx === 0 ? 'x' : `x${axNum}`;
       const yAx = idx === 0 ? 'y' : `y${axNum}`;
-      const obs = byClass[c];
+      const obs = byClass[c].filter(o => useOracle ? o._oracle != null : o.rmsep != null);
       const xs = obs.map(o => o.n_train);
-      const ys = obs.map(o => o.rmsep);
+      const ys = obs.map(o => useOracle ? o._oracle : o.rmsep);
       const color = MC_COLOR[c] || '#888';
       const marker = colorBy === 'rmsep'
         ? { color: ys, colorscale: 'Viridis', reversescale: true, showscale: false, size: 5, opacity: 0.6 }
         : { color, size: 5, opacity: 0.45, line: { width: 0 } };
-      // Background scatter (all obs for this class)
       traces.push({
         type: 'scattergl', mode: 'markers',
         x: xs, y: ys,
         xaxis: xAx, yaxis: yAx,
         name: c, marker,
-        hovertemplate: `<b>${c}</b><br>n_train: %{x}<br>rmsep: %{y:.4f}<extra></extra>`,
+        hovertemplate: `<b>${c}</b><br>n_train: %{x}<br>${yLabel}: %{y:.4f}<extra></extra>`,
         showlegend: false,
       });
       // Overlay points for selected models in this class
       if (overlayPoints[c] && overlayPoints[c].length > 0) {
+        const overlayY = overlayPoints[c].map(p => {
+          if (useOracle) {
+            const ref = dsBestMap[p.ds];
+            return (ref && ref > 0) ? p.rmsep / ref : null;
+          }
+          return p.rmsep;
+        });
         traces.push({
           type: 'scatter', mode: 'markers+text',
           x: overlayPoints[c].map(p => p.n_train),
-          y: overlayPoints[c].map(p => p.rmsep),
+          y: overlayY,
           xaxis: xAx, yaxis: yAx,
           name: 'selected · ' + c,
-          marker: { color: '#1c1813', size: 9, line: { color: '#fff', width: 1.2 }, symbol: 'diamond' },
+          marker: { color: '#2c3e50', size: 9, line: { color: '#fff', width: 1.2 }, symbol: 'diamond' },
           text: overlayPoints[c].map(p => p.name.slice(0, 16)),
           textposition: 'top center',
-          textfont: { size: 9, family: "'JetBrains Mono', monospace", color: '#8e2718' },
-          hovertemplate: '<b>%{text}</b><br>%{customdata}<br>n_train: %{x}<br>rmsep: %{y:.4f}<extra></extra>',
+          textfont: { size: 9, family: "'JetBrains Mono', monospace", color: '#2980b9' },
+          hovertemplate: '<b>%{text}</b><br>%{customdata}<br>n_train: %{x}<br>' + yLabel + ': %{y:.4f}<extra></extra>',
           customdata: overlayPoints[c].map(p => p.ds),
           showlegend: false,
         });
@@ -3521,23 +3654,23 @@
         xref: `${xAx} domain`, yref: `${yAx} domain`,
         x: 0.03, y: 0.96, xanchor: 'left', yanchor: 'top',
         showarrow: false,
-        font: { size: 11, color: '#1c1813', family: "'Newsreader', serif" },
-        bgcolor: 'rgba(247,241,232,0.85)', bordercolor: color, borderwidth: 1, borderpad: 4,
+        font: { size: 11, color: '#2c3e50', family: "'Lato', sans-serif" },
+        bgcolor: 'rgba(255,255,255,0.85)', bordercolor: color, borderwidth: 1, borderpad: 4,
       });
     });
 
     const layout = {
       grid: { rows, columns: cols, pattern: 'independent', xgap: 0.06, ygap: 0.1 },
       height: Math.max(280 * rows, 320),
-      paper_bgcolor: '#fbf6ec', plot_bgcolor: '#fbf6ec',
+      paper_bgcolor: '#fbfbfb', plot_bgcolor: '#fbfbfb',
       margin: { l: 50, r: 20, t: 20, b: 60 },
-      font: { family: "'JetBrains Mono', monospace", size: 10, color: '#1c1813' },
+      font: { family: "'JetBrains Mono', monospace", size: 10, color: '#2c3e50' },
       annotations,
     };
     for (let i = 0; i < classes.length; i++) {
       const suf = i === 0 ? '' : (i + 1);
       layout[`xaxis${suf}`] = { type: 'log', title: i >= classes.length - cols ? 'n_train' : '', tickfont: { size: 9 }, automargin: true };
-      layout[`yaxis${suf}`] = { type: 'log', title: (i % cols) === 0 ? 'rmsep' : '', tickfont: { size: 9 }, automargin: true };
+      layout[`yaxis${suf}`] = { type: 'log', title: (i % cols) === 0 ? yLabel : '', tickfont: { size: 9 }, automargin: true };
     }
     Plotly.newPlot(el, traces, layout, { responsive: true, displaylogo: false });
   }
@@ -3545,6 +3678,7 @@
   function bindFacetedScatterFilters(data) {
     const ev = () => renderFacetedScatter(data);
     document.getElementById('facet-color-by')?.addEventListener('change', ev);
+    document.getElementById('facet-y-metric')?.addEventListener('change', ev);
     document.getElementById('facet-min-obs')?.addEventListener('input', ev);
     document.getElementById('facet-overlay-selected')?.addEventListener('change', ev);
     // Rank-distribution bindings
@@ -3640,6 +3774,313 @@
       </table>`;
   }
 
+  // ====================================================================
+  // Decision support: top-K frequency + greedy portfolio coverage
+  // ====================================================================
+
+  // Build dataset → ordered list of (model_name, rmsep) on that dataset.
+  // Cached on window._dsRanksCache (NOT window._dsRankings — that would
+  // collide with the function name and shadow the cache check).
+  function _dsRankings(data) {
+    if (window._dsRanksCache) return window._dsRanksCache;
+    const obs = data.master.observations_per_dataset;
+    const out = {};
+    Object.entries(obs).forEach(([ds, rows]) => {
+      const byMn = {};
+      rows.forEach(r => {
+        const mn = r.model_name;
+        if (!mn || r.rmsep == null) return;
+        if (byMn[mn] == null || r.rmsep < byMn[mn]) byMn[mn] = r.rmsep;
+      });
+      out[ds] = Object.entries(byMn)
+        .sort((a, b) => a[1] - b[1])
+        .map(([mn, rmsep]) => ({ mn, rmsep }));
+    });
+    window._dsRanksCache = out;
+    return out;
+  }
+
+  // Resolve the K parameter — handles absolute (5) and percentile ('5pct')
+  function _resolveK(kRaw, totalModels) {
+    if (typeof kRaw === 'string' && kRaw.endsWith('pct')) {
+      const pct = parseFloat(kRaw) / 100;
+      return Math.max(1, Math.round(totalModels * pct));
+    }
+    return parseInt(kRaw) || 5;
+  }
+
+  function renderTopKFrequency(data) {
+    const el = document.getElementById('topk-bars');
+    if (!el) return;
+    const kRaw = document.getElementById('topk-k').value;
+    const minDs = parseInt(document.getElementById('topk-min-ds').value || '30') || 30;
+    const topN = parseInt(document.getElementById('topk-top-n').value || '25') || 25;
+
+    const dsRanks = _dsRankings(data);
+    const allDs = Object.keys(dsRanks);
+    // Per-model hit counts and coverage
+    const modelStats = {};  // mn → { hits, n_ranked, class }
+    allDs.forEach(ds => {
+      const ranking = dsRanks[ds];
+      const totalOnDs = ranking.length;
+      const kAbs = _resolveK(kRaw, totalOnDs);
+      ranking.forEach((entry, idx) => {
+        const r = idx + 1;
+        modelStats[entry.mn] = modelStats[entry.mn] || { hits: 0, n_ranked: 0 };
+        modelStats[entry.mn].n_ranked += 1;
+        if (r <= kAbs) modelStats[entry.mn].hits += 1;
+      });
+    });
+    // Attach class from top_models
+    const tmLookup = {};
+    data.master.top_models.forEach(m => { tmLookup[m.model_name] = m; });
+    let counts = Object.entries(modelStats)
+      .map(([mn, s]) => ({
+        model_name: mn,
+        n_ranked: s.n_ranked,
+        hits: s.hits,
+        hit_rate: s.n_ranked > 0 ? s.hits / s.n_ranked : 0,
+        class: tmLookup[mn]?.model_class || '?',
+      }))
+      .filter(m => m.n_ranked >= minDs);
+    counts.sort((a, b) => b.hits - a.hits || b.hit_rate - a.hit_rate);
+    counts = counts.slice(0, topN);
+
+    if (counts.length === 0) {
+      el.innerHTML = '<div class="picker-empty" style="padding:30px">No models meet the min-coverage threshold.</div>';
+      return;
+    }
+
+    // Horizontal bar chart — hit count on bottom axis, model_name on Y
+    const colors = counts.map(c => MC_COLOR[c.class] || '#888');
+    const labelK = kRaw.endsWith('pct') ? `top-${kRaw.replace('pct', '%')}` : `top-${kRaw}`;
+    Plotly.newPlot(el, [{
+      type: 'bar',
+      orientation: 'h',
+      x: counts.map(c => c.hits),
+      y: counts.map(c => `${c.model_name.slice(0, 38)}`),
+      marker: { color: colors },
+      text: counts.map(c => `${c.hits}/${c.n_ranked} (${(c.hit_rate * 100).toFixed(0)}%)`),
+      textposition: 'auto',
+      textfont: { size: 9, family: "'JetBrains Mono', monospace", color: '#2c3e50' },
+      customdata: counts.map(c => `${c.class} · ${c.n_ranked} datasets · ${c.hits} ${labelK} hits`),
+      hovertemplate: '<b>%{y}</b><br>%{customdata}<extra></extra>',
+    }], {
+      xaxis: { title: `# datasets where model is in ${labelK}`, gridcolor: '#e7dcc7' },
+      yaxis: { automargin: true, autorange: 'reversed', tickfont: { family: "'JetBrains Mono', monospace", size: 10 } },
+      margin: { l: 280, r: 30, t: 20, b: 50 },
+      height: Math.max(360, counts.length * 22 + 100),
+      paper_bgcolor: '#fbfbfb', plot_bgcolor: '#fbfbfb',
+      showlegend: false,
+      font: { family: "'Lato', sans-serif", size: 11, color: '#2c3e50' },
+    }, { responsive: true, displaylogo: false });
+  }
+
+  function _greedyPortfolio(data, kRaw, minDsPerModel) {
+    const dsRanks = _dsRankings(data);
+    const allDs = Object.keys(dsRanks);
+    // Per-dataset top-K set
+    const dsTopK = {};
+    allDs.forEach(ds => {
+      const ranking = dsRanks[ds];
+      const kAbs = _resolveK(kRaw, ranking.length);
+      dsTopK[ds] = new Set(ranking.slice(0, kAbs).map(e => e.mn));
+    });
+    // Candidate pool: models meeting min-coverage
+    const modelCoverage = {};
+    Object.values(dsRanks).forEach(ranking => {
+      ranking.forEach(({ mn }) => {
+        modelCoverage[mn] = (modelCoverage[mn] || 0) + 1;
+      });
+    });
+    const candidates = Object.keys(modelCoverage).filter(mn => modelCoverage[mn] >= minDsPerModel);
+
+    // Greedy selection: at each step, pick the model that covers the most uncovered datasets
+    const uncovered = new Set(allDs);
+    const picked = [];
+    while (uncovered.size > 0 && picked.length < 15) {
+      let best = null, bestCount = -1, bestCovered = null;
+      candidates.forEach(mn => {
+        if (picked.includes(mn)) return;
+        let count = 0;
+        uncovered.forEach(ds => { if (dsTopK[ds].has(mn)) count++; });
+        if (count > bestCount) {
+          bestCount = count;
+          best = mn;
+        }
+      });
+      if (!best || bestCount === 0) break;
+      bestCovered = new Set();
+      uncovered.forEach(ds => {
+        if (dsTopK[ds].has(best)) bestCovered.add(ds);
+      });
+      picked.push({ mn: best, marginal: bestCount, covered: [...bestCovered] });
+      bestCovered.forEach(ds => uncovered.delete(ds));
+    }
+    return { picked, total: allDs.length, uncovered: [...uncovered] };
+  }
+
+  function renderPortfolioCoverage(data) {
+    const el = document.getElementById('portfolio-coverage');
+    if (!el) return;
+    const kRaw = document.getElementById('topk-k').value;
+    const minDs = parseInt(document.getElementById('topk-min-ds').value || '30') || 30;
+    const portfolio = _greedyPortfolio(data, kRaw, minDs);
+
+    if (portfolio.picked.length === 0) {
+      el.innerHTML = '<div class="picker-empty" style="padding:30px">No portfolio could be built — relax min-coverage or K.</div>';
+      return;
+    }
+
+    // Cumulative coverage curve + per-step marginal
+    let cumulative = 0;
+    const xLabels = ['baseline'];
+    const cumPct = [0];
+    const marginalPct = [0];
+    const marginalText = [''];
+    portfolio.picked.forEach((p, i) => {
+      cumulative += p.marginal;
+      xLabels.push(`+ ${p.mn.slice(0, 32)}`);
+      cumPct.push(cumulative / portfolio.total * 100);
+      marginalPct.push(p.marginal / portfolio.total * 100);
+      marginalText.push(`+${p.marginal} ds`);
+    });
+
+    const tmLookup = {};
+    data.master.top_models.forEach(m => { tmLookup[m.model_name] = m; });
+    const traces = [
+      {
+        type: 'bar',
+        x: marginalPct,
+        y: xLabels,
+        orientation: 'h',
+        marker: {
+          color: ['#cdbfa9'].concat(portfolio.picked.map(p => MC_COLOR[tmLookup[p.mn]?.model_class] || '#888')),
+        },
+        text: marginalText,
+        textposition: 'auto',
+        textfont: { size: 10, family: "'JetBrains Mono', monospace" },
+        hovertemplate: '<b>%{y}</b><br>marginal +%{x:.0f}% of datasets<extra></extra>',
+        showlegend: false,
+        name: 'marginal',
+      },
+      {
+        type: 'scatter',
+        mode: 'lines+markers',
+        x: cumPct,
+        y: xLabels,
+        line: { color: '#2980b9', width: 2.5 },
+        marker: { color: '#2980b9', size: 8, symbol: 'diamond' },
+        hovertemplate: 'cumulative coverage: <b>%{x:.1f}%</b><extra></extra>',
+        showlegend: false,
+        xaxis: 'x2',
+        name: 'cumulative',
+      },
+    ];
+
+    const labelK = kRaw.endsWith('pct') ? `top-${kRaw.replace('pct', '%')}` : `top-${kRaw}`;
+    Plotly.newPlot(el, traces, {
+      xaxis: { title: `marginal coverage gained (${labelK})`, gridcolor: '#e7dcc7', range: [0, 100], side: 'bottom' },
+      xaxis2: { title: 'cumulative %', overlaying: 'x', side: 'top', range: [0, 100], showgrid: false, tickfont: { color: '#2980b9' } },
+      yaxis: { automargin: true, autorange: 'reversed', tickfont: { family: "'JetBrains Mono', monospace", size: 10 } },
+      margin: { l: 280, r: 30, t: 50, b: 50 },
+      height: Math.max(360, (portfolio.picked.length + 1) * 28 + 100),
+      paper_bgcolor: '#fbfbfb', plot_bgcolor: '#fbfbfb',
+      font: { family: "'Lato', sans-serif", size: 11, color: '#2c3e50' },
+    }, { responsive: true, displaylogo: false });
+
+    // Render recommendation card
+    _renderRecommendationCard(data, portfolio, kRaw);
+  }
+
+  function _renderRecommendationCard(data, portfolio, kRaw) {
+    const el = document.getElementById('recommendation-card');
+    if (!el) return;
+    const tmLookup = {};
+    data.master.top_models.forEach(m => { tmLookup[m.model_name] = m; });
+    const labelK = kRaw.endsWith('pct') ? `top-${kRaw.replace('pct', '%')}` : `top-${kRaw}`;
+    const total = portfolio.total;
+    const totalCovered = portfolio.picked.reduce((s, p) => s + p.marginal, 0);
+    const pct = (totalCovered / total * 100).toFixed(0);
+
+    const rows = portfolio.picked.map((p, i) => {
+      const md = tmLookup[p.mn] || {};
+      const color = MC_COLOR[md.model_class] || '#888';
+      const cum = portfolio.picked.slice(0, i + 1).reduce((s, x) => s + x.marginal, 0);
+      const cumPct = (cum / total * 100).toFixed(0);
+      const oracle = md.median_oracle_ratio != null ? md.median_oracle_ratio.toFixed(3) : '—';
+      return `<tr>
+        <td class="num" style="color:var(--accent);font-weight:600">#${i + 1}</td>
+        <td title="${p.mn}">${p.mn.length > 42 ? p.mn.slice(0, 42) + '…' : p.mn}</td>
+        <td><span class="class-pill" style="background:${color}">${md.model_class || '?'}</span></td>
+        <td class="num"><strong>+${p.marginal}</strong></td>
+        <td class="num">${cum}/${total} (${cumPct}%)</td>
+        <td class="num">${oracle}</td>
+        <td class="num">${md.n_datasets || 0}</td>
+        <td class="num">${md.wins || 0}</td>
+      </tr>`;
+    }).join('');
+
+    const uncoveredStr = portfolio.uncovered.length > 0
+      ? `<div style="margin-top:14px;padding:8px 12px;background:rgba(199,154,45,0.1);border-left:3px solid var(--warn);font-size:12px;color:var(--ink-2)">
+          <strong>${portfolio.uncovered.length} datasets still uncovered</strong> after ${portfolio.picked.length} models:
+          ${portfolio.uncovered.slice(0, 6).join(', ')}${portfolio.uncovered.length > 6 ? `, +${portfolio.uncovered.length - 6} more` : ''}.
+          Add more models or relax K.
+         </div>`
+      : `<div style="margin-top:14px;padding:8px 12px;background:rgba(74,124,79,0.1);border-left:3px solid var(--forest);font-size:12px;color:var(--ink-2)">
+          <strong>All ${total} datasets covered.</strong> Train these ${portfolio.picked.length} models and at least one will be in ${labelK} on every dataset.
+         </div>`;
+
+    el.innerHTML = `
+      <div style="font-family:var(--ff-mono);font-size:11px;color:var(--muted);margin:8px 0 14px">
+        Greedy portfolio for <strong>${labelK}</strong> · ${pct}% of ${total} datasets covered by ${portfolio.picked.length} models
+      </div>
+      <table class="lb">
+        <thead><tr>
+          <th class="num">Rank</th><th>Model</th><th>Class</th>
+          <th class="num" title="Datasets this model newly covers when added">+ds</th>
+          <th class="num">cumulative</th>
+          <th class="num">median oracle</th>
+          <th class="num">total ds</th>
+          <th class="num">wins</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>
+      ${uncoveredStr}
+      <div style="margin-top:10px">
+        <button id="recommendation-apply" style="padding:6px 14px;font-family:var(--ff-ui);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;border:1px solid var(--accent);background:var(--accent);color:var(--paper);cursor:pointer">Apply to model picker →</button>
+        <span style="font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);margin-left:8px">Replaces the current M10 selection with this portfolio</span>
+      </div>`;
+
+    document.getElementById('recommendation-apply')?.addEventListener('click', () => {
+      // Map model_names to canonical keys
+      const state = window._m10;
+      if (!state) return;
+      const wantedSet = new Set();
+      portfolio.picked.forEach(p => {
+        const canon = m10Canonicalize(p.mn);
+        if (state.canonical[canon]) wantedSet.add(canon);
+      });
+      state.selected = wantedSet;
+      renderM10Picker();
+      renderM10();
+      try { renderFacetedScatter(data); } catch (e) {}
+      try { renderRankDistribution(data); } catch (e) {}
+      // Scroll to distance chart to show the picked models
+      document.getElementById('m10-scatter')?.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    });
+  }
+
+  function bindDecisionSupport(data) {
+    const ev = () => {
+      try { renderTopKFrequency(data); } catch (e) { console.warn(e); }
+      try { renderPortfolioCoverage(data); } catch (e) { console.warn(e); }
+    };
+    document.getElementById('topk-k')?.addEventListener('change', ev);
+    document.getElementById('topk-min-ds')?.addEventListener('input', ev);
+    document.getElementById('topk-top-n')?.addEventListener('input', ev);
+  }
+
   function renderComponentBars(data) {
     const pp = data.master.preprocessing;
     if (!pp || !pp.components) return;
@@ -3701,11 +4142,11 @@
     }], {
       xaxis: { title: 'scatter correction', automargin: true },
       yaxis: { title: 'baseline correction', automargin: true },
-      paper_bgcolor: '#fbf6ec',
-      plot_bgcolor: '#fbf6ec',
+      paper_bgcolor: '#fbfbfb',
+      plot_bgcolor: '#fbfbfb',
       margin: { l: 100, r: 40, t: 20, b: 50 },
       height: 280,
-      font: { family: "'JetBrains Mono', monospace", size: 11, color: '#1c1813' },
+      font: { family: "'JetBrains Mono', monospace", size: 11, color: '#2c3e50' },
     }, { responsive: true, displaylogo: false });
   }
 
