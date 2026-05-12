@@ -2469,7 +2469,17 @@
       return;
     }
 
-    let datasets = Object.keys(state.dsBest);
+    // Only keep datasets where at least one selected model has a value
+    // (otherwise the X-axis fills with empty columns).
+    const datasetsWithAny = new Set();
+    selectedKeys.forEach(key => {
+      const e = state.canonical[key];
+      if (!e) return;
+      Object.keys(e.datasets).forEach(ds => {
+        if (state.dsBest[ds]) datasetsWithAny.add(ds);
+      });
+    });
+    let datasets = [...datasetsWithAny];
     if (xsort === 'alpha') datasets.sort();
     else if (xsort === 'n_train') datasets.sort((a, b) => (state.dsBest[a].n_train || 0) - (state.dsBest[b].n_train || 0));
     else if (xsort === 'best') datasets.sort((a, b) => (state.dsBest[a].best_rmsep ?? Infinity) - (state.dsBest[b].best_rmsep ?? Infinity));
@@ -2619,9 +2629,19 @@
       },
       yaxis: { title: yTitle, type: yscale, gridcolor: '#e7dcc7', tickfont: { family: "'JetBrains Mono', monospace" } },
       showlegend: true,
-      legend: { orientation: 'v', y: 1, x: 1.02, font: { size: 10, family: "'Lato', sans-serif" }, bgcolor: 'rgba(255,255,255,0.85)', bordercolor: '#d6c8b2', borderwidth: 1 },
-      margin: { l: 70, r: 280, t: 30, b: 200 },
-      height: 640,
+      legend: {
+        orientation: 'h',
+        y: 1.08,
+        x: 0,
+        xanchor: 'left',
+        yanchor: 'bottom',
+        font: { size: 10, family: "'Lato', sans-serif" },
+        bgcolor: 'rgba(255,255,255,0.85)',
+        bordercolor: '#e1e4e5',
+        borderwidth: 1,
+      },
+      margin: { l: 70, r: 30, t: 70 + Math.min(80, Math.ceil(traces.length / 4) * 18), b: 200 },
+      height: 640 + Math.min(80, Math.ceil(traces.length / 4) * 18),
       paper_bgcolor: '#fbfbfb',
       plot_bgcolor: '#fbfbfb',
       font: { family: "'Lato', sans-serif", size: 11, color: '#2c3e50' },
@@ -2630,8 +2650,8 @@
         line: { color: '#2980b9', dash: 'dash', width: 2 },
       }] : [],
       annotations: yref !== null ? [{
-        xref: 'paper', x: 1.005, y: yref, yanchor: 'middle', xanchor: 'left',
-        text: metric === 'ratio' ? '← best (1.0)' : '← best (0.0)',
+        xref: 'paper', x: 1.005, y: yref, yanchor: 'middle', xanchor: 'right',
+        text: metric === 'ratio' ? 'best (1.0)' : 'best (0.0)',
         showarrow: false, font: { size: 10, color: '#2980b9', family: "'Lato', sans-serif", style: 'italic' },
       }] : [],
     }, { responsive: true, displaylogo: false });
