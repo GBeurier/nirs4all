@@ -1,12 +1,12 @@
 # Benchmark Strategy Synthesis
 
-Generated on 2026-05-10 from `benchmark_master_results.csv`.
+Generated on 2026-05-12 from `benchmark_master_results.csv`.
 
 ## Reformulation of the whole project
 
 The project is an empirical search for robust NIRS prediction models across many small-to-medium spectral datasets. The current practical baseline is the `tabpfn_paper` HPO TabPFN run: TabPFN plus a broad preprocessing search. The rest of `bench/` explores whether spectroscopy-aware linear models, operator selection, kernel mixtures, CNNs, hybrids, and learnable convolutional filters can beat or complement that baseline without losing robustness.
 
-The merged CSV stores 24066 observed/reference rows from 9 source families, covering 83 distinct eligible datasets across 86 (dataset, task) pairs. It also adds derived oracle rows per dataset/model class and per dataset globally, so strategy-level visualizations can ask: if this class were allowed to pick its best executed variant per dataset, how far would it get?
+The merged CSV stores 25121 observed/reference rows from 9 source families, covering 83 distinct eligible datasets across 86 (dataset, task) pairs. It also adds derived oracle rows per dataset/model class and per dataset globally, so strategy-level visualizations can ask: if this class were allowed to pick its best executed variant per dataset, how far would it get?
 
 ### Protocol maturity distribution
 
@@ -14,10 +14,10 @@ Each row carries a `protocol_maturity` tag introduced in the 2026-05-05 master f
 
 | Tag | Rows | Meaning |
 |---|---:|---|
-| locked | 19392 | Stable production-eligible source row (default for clean source runs). |
+| locked | 20447 | Stable production-eligible source row (default for clean source runs). |
 | exploratory | 4615 | Partial coverage / smoke / diagnostic / pending nested audit (e.g. AOMRidge-headline-spxy3, multiview Phase-11 atoms, smoke runs). |
 | legacy | 0 | Explicitly superseded run (reserved for owner-driven downgrades via bench/SYNC.md; not auto-applied in this freeze). |
-| oracle | 813 | Derived oracle rows (`oracle_by_model_class`, `oracle_global_dataset`). |
+| oracle | 815 | Derived oracle rows (`oracle_by_model_class`, `oracle_global_dataset`). |
 | local_not_master | 59 | `source_oracle` rows already present in source tables; kept for audit, excluded from derived oracle calculations. |
 
 The tagging rules implemented in `bench/build_benchmark_synthesis.py::assign_maturity` are PROVISIONAL; see the P0 freeze entry in `bench/SYNC.md` for the Codex-review status and the explicit rule list.
@@ -39,7 +39,7 @@ The tagging rules implemented in `bench/build_benchmark_synthesis.py::assign_mat
 | NICON/CNN | 56 | 1.018 | 26/56 |
 | Other | 10 | 1.021 | 4/10 |
 | CatBoost | 57 | 1.038 | 23/57 |
-| POP-PLS | 57 | 1.457 | 9/57 |
+| POP-PLS | 59 | 1.459 | 9/59 |
 
 Interpretation: this is an optimistic oracle within each class, not a deployable protocol. It answers which strategy family contains useful models somewhere in the search space.
 
@@ -97,149 +97,149 @@ Ranking rule: for each variant, keep its best observed row per dataset, then ran
 - Strong points: Can extract non-linear residual signal on some small plant/chemistry datasets.
 - Flaws: Pure CNN signal is weak on many NIRS sets; stacked gains are not enough to beat AOM-Ridge/TabPFN globally.
 
-### 2. mean-ensemble-4-fixed
+### 2. AOMRidgeBlender
+- Class: AOM-Ridge; datasets: 55; median rel. RMSEP vs PLS: 0.875; wins: 46/55.
+- How it works: Ridge regression after selecting or blending spectral operator branches; variants differ by global, local, auto-select, and blender selection.
+- Strong points: Best broad empirical challenger to TabPFN-opt; cheap inference and strong median gains over Ridge/PLS.
+- Flaws: Selection layer is complex and can overfit small validation splits; branch/local/MKL variants add variance if not locked down.
+
+### 3. mean-ensemble-4-fixed
 - Class: Meta-selector/MoE; datasets: 59; median rel. RMSEP vs PLS: 0.883; wins: 49/59.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 3. mean-ensemble-3-fixed
+### 4. mean-ensemble-3-fixed
 - Class: Meta-selector/MoE; datasets: 59; median rel. RMSEP vs PLS: 0.887; wins: 49/59.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 4. trimmed-mean-4
+### 5. trimmed-mean-4
 - Class: Meta-selector/MoE; datasets: 39; median rel. RMSEP vs PLS: 0.887; wins: 33/39.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 5. adaptive-super-learner
+### 6. adaptive-super-learner
 - Class: Meta-selector/MoE; datasets: 38; median rel. RMSEP vs PLS: 0.890; wins: 35/38.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 6. nnls-stack-multiview
+### 7. nnls-stack-multiview
 - Class: Hybrid CNN+linear; datasets: 14; median rel. RMSEP vs PLS: 0.890; wins: 11/14.
 - How it works: Hybrid model that stacks or residualizes CNN/NICON features with Ridge, PLS, or AOM predictions.
 - Strong points: Can extract non-linear residual signal on some small plant/chemistry datasets.
 - Flaws: Pure CNN signal is weak on many NIRS sets; stacked gains are not enough to beat AOM-Ridge/TabPFN globally.
 
-### 7. TabPFN-opt
+### 8. TabPFN-opt
 - Class: TabPFN; datasets: 58; median rel. RMSEP vs PLS: 0.894; wins: 43/58.
 - How it works: TabPFN regression with a searched spectral preprocessing chain before the foundation tabular prior.
 - Strong points: Very strong small-tabular prior; benefits from the preprocessing HPO already done in `tabpfn_paper`.
 - Flaws: Expensive and hard to interpret; performance depends heavily on preprocessing search and may not extrapolate to larger or shifted domains.
 
-### 8. nnls-stack-atoms
+### 9. nnls-stack-atoms
 - Class: Hybrid CNN+linear; datasets: 38; median rel. RMSEP vs PLS: 0.896; wins: 35/38.
 - How it works: Hybrid model that stacks or residualizes CNN/NICON features with Ridge, PLS, or AOM predictions.
 - Strong points: Can extract non-linear residual signal on some small plant/chemistry datasets.
 - Flaws: Pure CNN signal is weak on many NIRS sets; stacked gains are not enough to beat AOM-Ridge/TabPFN globally.
 
-### 9. mean-ensemble-3
+### 10. mean-ensemble-3
 - Class: Meta-selector/MoE; datasets: 10; median rel. RMSEP vs PLS: 0.899; wins: 8/10.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 10. nnls-stack-calibrated
+### 11. AOMPLSRegressor
+- Class: AOM-PLS; datasets: 58; median rel. RMSEP vs PLS: 0.901; wins: 47/58.
+- How it works: PLS with an adaptive bank of spectral operators and fold-based or holdout model selection.
+- Strong points: Fast and spectroscopically grounded; ASLS plus compact/CV variants are robust first-line baselines.
+- Flaws: Large operator banks trigger winner's-curse selection; OSC/EMSC/POP variants can fail badly on small n.
+
+### 12. nnls-stack-calibrated
 - Class: Hybrid CNN+linear; datasets: 38; median rel. RMSEP vs PLS: 0.904; wins: 35/38.
 - How it works: Hybrid model that stacks or residualizes CNN/NICON features with Ridge, PLS, or AOM predictions.
 - Strong points: Can extract non-linear residual signal on some small plant/chemistry datasets.
 - Flaws: Pure CNN signal is weak on many NIRS sets; stacked gains are not enough to beat AOM-Ridge/TabPFN globally.
 
-### 11. moe-preproc-soft-pls-compact
+### 13. moe-preproc-soft-pls-compact
 - Class: Meta-selector/MoE; datasets: 59; median rel. RMSEP vs PLS: 0.905; wins: 50/59.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 12. mean-ensemble-4
+### 14. mean-ensemble-4
 - Class: Meta-selector/MoE; datasets: 10; median rel. RMSEP vs PLS: 0.908; wins: 8/10.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 13. moe-view-multiK-wide-2-10
+### 15. moe-view-multiK-wide-2-10
 - Class: Meta-selector/MoE; datasets: 59; median rel. RMSEP vs PLS: 0.918; wins: 47/59.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 14. AOM-PLS-compact-numpy
+### 16. AOM-PLS-compact-numpy
 - Class: AOM-PLS; datasets: 59; median rel. RMSEP vs PLS: 0.922; wins: 48/59.
 - How it works: PLS with an adaptive bank of spectral operators and fold-based or holdout model selection.
 - Strong points: Fast and spectroscopically grounded; ASLS plus compact/CV variants are robust first-line baselines.
 - Flaws: Large operator banks trigger winner's-curse selection; OSC/EMSC/POP variants can fail badly on small n.
 
-### 15. AOMPLSRegressor
-- Class: AOM-PLS; datasets: 54; median rel. RMSEP vs PLS: 0.923; wins: 41/54.
-- How it works: PLS with an adaptive bank of spectral operators and fold-based or holdout model selection.
-- Strong points: Fast and spectroscopically grounded; ASLS plus compact/CV variants are robust first-line baselines.
-- Flaws: Large operator banks trigger winner's-curse selection; OSC/EMSC/POP variants can fail badly on small n.
+### 17. AOMRidgeAutoSelector
+- Class: AOM-Ridge; datasets: 35; median rel. RMSEP vs PLS: 0.923; wins: 29/35.
+- How it works: Ridge regression after selecting or blending spectral operator branches; variants differ by global, local, auto-select, and blender selection.
+- Strong points: Best broad empirical challenger to TabPFN-opt; cheap inference and strong median gains over Ridge/PLS.
+- Flaws: Selection layer is complex and can overfit small validation splits; branch/local/MKL variants add variance if not locked down.
 
-### 16. bestof-multiview-asls
+### 18. bestof-multiview-asls
 - Class: Other; datasets: 10; median rel. RMSEP vs PLS: 0.925; wins: 6/10.
 - How it works: Variant-specific benchmark entry from the merged result table.
 - Strong points: Useful as an explored point in the search space.
 - Flaws: Needs a locked protocol before treating the number as a production claim.
 
-### 17. moe-view-multiK-3-5-7-auto
+### 19. moe-view-multiK-3-5-7-auto
 - Class: Meta-selector/MoE; datasets: 10; median rel. RMSEP vs PLS: 0.927; wins: 7/10.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 18. moe-view-soft-pls
+### 20. moe-view-soft-pls
 - Class: Meta-selector/MoE; datasets: 59; median rel. RMSEP vs PLS: 0.929; wins: 42/59.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 19. moe-preproc-soft-response-dedup
+### 21. moe-preproc-soft-response-dedup
 - Class: Meta-selector/MoE; datasets: 10; median rel. RMSEP vs PLS: 0.932; wins: 8/10.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 20. TabPFN-HPO-preprocessing
+### 22. TabPFN-HPO-preprocessing
 - Class: TabPFN; datasets: 58; median rel. RMSEP vs PLS: 0.933; wins: 40/58.
 - How it works: TabPFN regression with a searched spectral preprocessing chain before the foundation tabular prior.
 - Strong points: Very strong small-tabular prior; benefits from the preprocessing HPO already done in `tabpfn_paper`.
 - Flaws: Expensive and hard to interpret; performance depends heavily on preprocessing search and may not extrapolate to larger or shifted domains.
 
-### 21. asls-moe-preproc-soft-compact
+### 23. asls-moe-preproc-soft-compact
 - Class: Meta-selector/MoE; datasets: 10; median rel. RMSEP vs PLS: 0.934; wins: 7/10.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 22. moe-view-multiK-3-5-7
+### 24. moe-view-multiK-3-5-7
 - Class: Meta-selector/MoE; datasets: 59; median rel. RMSEP vs PLS: 0.934; wins: 39/59.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
 
-### 23. asls-moe-view-soft-K3
+### 25. asls-moe-view-soft-K3
 - Class: Meta-selector/MoE; datasets: 10; median rel. RMSEP vs PLS: 0.938; wins: 6/10.
 - How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
 - Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
 - Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
-
-### 24. moe-preproc-soft-family-pruned
-- Class: Meta-selector/MoE; datasets: 10; median rel. RMSEP vs PLS: 0.940; wins: 8/10.
-- How it works: Chooses or averages candidate predictors/views with a meta-model, soft gating rule, or simple ensemble aggregation.
-- Strong points: Captures complementarity between strong base learners and is useful for estimating oracle headroom.
-- Flaws: High leakage risk unless selection is nested; small-cohort ensemble gains may disappear when the candidate set is frozen.
-
-### 25. lazy-V2-AOM-combined-compact-holdout
-- Class: Meta-selector/MoE; datasets: 59; median rel. RMSEP vs PLS: 0.942; wins: 41/59.
-- How it works: PLS with an adaptive bank of spectral operators and fold-based or holdout model selection.
-- Strong points: Fast and spectroscopically grounded; ASLS plus compact/CV variants are robust first-line baselines.
-- Flaws: Large operator banks trigger winner's-curse selection; OSC/EMSC/POP variants can fail badly on small n.
 
 ## Actionable Waypoints
 

@@ -1,0 +1,29 @@
+{
+  "schema_version": "0.1.0",
+  "preset": "d_a_002_canonical_atoms",
+  "description": "Canonical D-A-002 launch (Phase-11 ASL with bigN guard active, canonical atoms = {multiK-3-5-7=AOMMoEMultiK, moe-preproc-soft=AOMMoERegressor, lazy-V2-AOM=LazyV2AOM, aom-pls-compact=AOMPLSRegressor}, light_atoms = {multiK-3-5-7, moe-preproc-soft}). Codex round-10b LOCK 2026-05-09 17:30 CEST authorised the launch CONDITIONAL on harness seed-injection ; D-C-018 LOCKED via Codex R14 + IMPLEMENTED by C 2026-05-09 18:00 CEST adds Prong D (seed propagation across model_native materialisation), so seeds 0/1/2 are now meaningfully distinct. Cohort = same 4 big-n datasets as D-A-002-stub (Chla+b_spxyG_species n=3734, LUCAS_SOC_Cropland_8731_NocitaKS n=6111, LUCAS_SOC_all_26650_NocitaKS n=13325, LMA_spxyG_block2deg n=39225). Workspace = da002_canonical_atoms_seeds012 (disjoint from da002_stub_atoms_seeds012 per R10b Q5 LOCK). CSV tagging: source_run=da002_canonical_atoms_seeds012, extras.atom_set=canonical_phase11, extras.canonical_phase11_atoms=true. Forbidden language for stub forcing: 'canonical D-A-002 result' must be applied ONLY to this canonical run, not the prior stub.",
+  "generated_on": "2026-05-09T18:05:00+02:00",
+  "generated_by": "agent-A (canonical D-A-002 launch, post Codex R10b + R14 LOCK + D-C-018 IMPLEMENTED)",
+  "registry_source": "bench/scenarios/model_registry.yaml",
+  "runtime_tier_max": "slow",
+  "maturity_min": "exploratory",
+  "cohort_size_assumed": 4,
+  "missing_registry_entries": [],
+  "candidates": [
+    {
+      "canonical_name": "AdaptiveSuperLearner-bigN-guarded",
+      "aliases": ["adaptive-super-learner-bigN-guarded"],
+      "model_class": "AdaptiveSuperLearner",
+      "module": "bench.AOM_v0.multiview.multiview.super_learner",
+      "config_template": "bench/scenarios/configs/adaptive_super_learner_bigN_guarded.yaml",
+      "task_types": ["regression"],
+      "input_constraints": {"min_n": 3001},
+      "supports_predefined_test_split": true,
+      "inner_cv_nested": true,
+      "runtime_tier": "slow",
+      "maturity": "exploratory",
+      "not_runnable_in_production": false,
+      "notes": "Canonical Phase-11 ASL with atom-set guard. Replaces stub Ridge+PLS atoms with multiK/moe/lazyV2/aom-pls-compact per R10b Q4 LOCK. Light_atoms guard at huge_threshold=3000."
+    }
+  ]
+}

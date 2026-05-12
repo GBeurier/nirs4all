@@ -70,7 +70,12 @@ models:
 
   - canonical_name: PLS-tuned-cv5
     aliases:
-      - PLS-Tuned
+      # Cheap variants: single PLS fit + optional 5-fold CV n_components tuning.
+      # Provenance note (2026-05-12 audit by Agent C): we DO NOT alias `PLS-Tuned`
+      # (fck_pls cartesian preprocessing search, ~330 candidates per dataset)
+      # nor plain `PLS` (paper master_pivot, 60-trial HPO over preprocessing)
+      # because both reflect expensive preprocessing-HPO sweeps and would mis-credit
+      # the cheap canonical with HPO scores. Those rows are silently skipped.
       - PLS-standard
       - PLS-standard-numpy
       - PLS-baseline
@@ -88,10 +93,15 @@ models:
     notes: |
       Anchor: every preset includes a tuned PLS as denominator for
       `score_ratio_vs_source_run_pls`. n_components selected by 5-fold CV.
+      Does NOT include preprocessing HPO; for that see TabPFN-HPO-preprocessing
+      (paper-derived label, covers PLS-tuned and Ridge-tuned HPO variants too).
 
   - canonical_name: Ridge-tuned-cv5
     aliases:
-      - Ridge
+      # Cheap variants: single Ridge fit + 5-fold CV alpha tuning.
+      # We DO NOT alias `Ridge` (paper master_pivot Cartesian preprocessing HPO,
+      # 60-trial α grid × ~22 preprocessing recipes) because that reflects an
+      # expensive HPO sweep, not a cheap cv5 Ridge.
       - Ridge-baseline
       - Ridge-raw
       - Ridge-raw-stdscale
@@ -355,24 +365,19 @@ models:
     notes: |
       Hard gate from plan §9.2: n_train <= 5000, n_features <= 1000.
 
-  - canonical_name: TabPFN-opt
-    aliases:
-      - TabPFN-opt
-      - tabpfn-opt
-    model_class: TabPFNRegressor
-    module: tabpfn
-    config_template: bench/scenarios/configs/tabpfn_opt.yaml
-    task_types: [regression]
-    input_constraints: {min_n: 10, max_n: 5000, max_features: 1000}
-    supports_predefined_test_split: true
-    inner_cv_nested: true
-    runtime_tier: slow
-    maturity: locked
-
   - canonical_name: TabPFN-HPO-preprocessing
     aliases:
       - TabPFN-HPO-preprocessing
       - tabpfn-hpo-preprocessing
+      # The TabPFN-NIRS paper pivot reports the same Cartesian preprocessing-HPO
+      # output under the column label "TabPFN-opt"; verified by cross-checking
+      # bench/AOM_v0/publication/tables/master_pivot.csv vs
+      # bench/tabpfn_paper/table_results_tabpfn_final_light.csv. Treat the two
+      # labels as the same expensive HPO sweep so it cannot be allocated to a
+      # cheaper budget by the time-budget audit.
+      - TabPFN-opt
+      - tabpfn-opt
+      - tabpfn_opt
     model_class: TabPFNRegressor
     module: tabpfn
     config_template: bench/scenarios/configs/tabpfn_hpo_preprocessing.yaml
@@ -384,7 +389,8 @@ models:
     maturity: locked
     notes: |
       Strongest paper baseline (`tabpfn_paper/table_results_tabpfn_final_light.csv`).
-      Requires explicit preprocessing budget + rationale per plan §9.3.
+      Includes the upstream Cartesian preprocessing search; expensive (q90 ~1h
+      on RTX 4090 per dataset). Requires explicit preprocessing budget per plan §9.3.
 
 # ---------------------------------------------------------------------------
 # F. Multiview / MoE / ensembles — `best_current` candidates after gates.
@@ -763,107 +769,74 @@ cohorts:
 # ---------------------------------------------------------------------------
 
 presets:
+  # 2026-05-12 reload: presets re-derived from
+  # `bench/scenarios/preset_audit/audit_presets.py` (data-driven time-budget pool
+  # selection). Methodology and per-preset evidence: PROPOSAL.md / AUDIT.md.
+  # Per-preset time budget is the sequential wall-clock upper bound *per dataset*.
+  # Each pool is the model set that minimises the mean over datasets of the
+  # min-of-pool rmsep/PLS ratio under that budget (greedy + beam cross-check).
+  # PLS-tuned-cv5 is hard-anchored everywhere as the denominator reference.
+
   fast_reliable:
-    description: "Seconds to a few minutes; no TabPFN, no multiview, no NN."
+    description: "≤30 s per dataset; safe linear baselines, no NN, no TabPFN."
     members:
       - PLS-tuned-cv5
       - Ridge-tuned-cv5
-      - ASLS-AOM-compact-cv5-numpy
       - AOM-PLS-compact-numpy
-      - AOMRidge-global-compact-none
-      - AOMRidge-global-compact-snv
     runtime_tier_max: fast
     maturity_min: locked
+    target_per_dataset_seconds: 30
+    audit_source: bench/scenarios/preset_audit/proposed_presets.json
 
   strong_practical:
-    description: "Minutes to <1h; TabPFN gated by (n<=5000, p<=1000)."
+    description: "≤10 min per dataset; AOM-PLS + AOM-Ridge ladder, no TabPFN-HPO yet."
     members:
       - PLS-tuned-cv5
       - Ridge-tuned-cv5
-      - ASLS-AOM-compact-cv5-numpy
-      - AOM-PLS-compact-numpy
-      - AOMRidge-global-compact-none
-      - AOMRidge-global-compact-snv
-      - AOMRidge-Local-compact-knn50
-      # TabPFN family (Raw, opt) deferred from Phase 1 production runs per user
-      # 2026-05-09 18:50 CEST: user will import tabpfn_paper data separately.
-      # TabPFN-Raw + TabPFN-opt re-enter strong_practical when tabpfn_paper
-      # ingest lands in master CSV.
-      # AOMRidge-Blender-headline-spxy3 / AutoSelect-headline-spxy3 enter
-      # only after D-A-001 nested-audit verdict + multi-seed.
-    runtime_tier_max: slow
-    maturity_min: locked
-
-  best_current:
-    description: "1-3h; multi-strategy mix with explicit gates."
-    members:
-      - PLS-tuned-cv5
-      - Ridge-tuned-cv5
-      - ASLS-AOM-compact-cv5-numpy
-      - AOM-PLS-compact-numpy
-      - AOMRidge-global-compact-none
-      - AOMRidge-global-compact-snv
-      - AOMRidge-Local-compact-knn50
-      - AOMRidge-MultiBranchMKL-compact-shrink03
-      # TabPFN family (Raw, opt, HPO-preprocessing) deferred from Phase 1
-      # production runs per user 2026-05-09 18:50 CEST: user will import
-      # tabpfn_paper data separately. Re-enter best_current when that ingest
-      # lands in master CSV.
-      # Removed 2026-05-09 18:30 CEST per user authorisation: 4 IMPORT_ERROR
-      # entries dropped from best_current and demoted to exhaustive_research
-      # only — class modules not surfaced (Multi-kernel was never package-ified
-      # by B; AOMMultiView ensemble + MoEPreprocSoftPLS were not part of A's
-      # Task #25 atom surfacing). Legacy benchmark data exists in master CSV
-      # under variant=*-* labels (~60-70 % coverage) but is not harness-runnable.
-      # Re-add when modules land:
-      #   - MKM-reml-default                  (B's Multi-kernel module)
-      #   - mkR-softmax-cv-default            (B's Multi-kernel module)
-      #   - moe-preproc-soft-pls-compact      (A's multiview ensemble)
-      #   - AOMMultiView-MeanEnsemble4-fixed  (A's multiview ensemble)
-      # AdaptiveSuperLearner-recipe-nnls and V2L-Residual-AOMPLS enter
-      # only after their respective gates land.
-    runtime_tier_max: very_slow
-    maturity_min: locked
-
-  exhaustive_research:
-    description: "Multi-hour overnight; explicit `exploratory` rows allowed."
-    members:
-      - PLS-tuned-cv5
-      - Ridge-tuned-cv5
-      - ASLS-AOM-compact-cv5-numpy
       - AOM-PLS-compact-numpy
       - AOM-default-nipals-adjoint-numpy
-      - POP-PLS-compact-numpy
+      - ASLS-AOM-compact-cv5-numpy
+      - AOMRidge-Local-compact-knn50
       - AOMRidge-global-compact-none
       - AOMRidge-global-compact-snv
+    runtime_tier_max: slow
+    maturity_min: locked
+    target_per_dataset_seconds: 600
+    audit_source: bench/scenarios/preset_audit/proposed_presets.json
+
+  best_current:
+    description: "≤2 h per dataset; TabPFN-HPO-preprocessing + AOM-Ridge blender."
+    members:
+      - PLS-tuned-cv5
+      - Ridge-tuned-cv5
+      - AOM-PLS-compact-numpy
       - AOMRidge-Local-compact-knn50
-      - AOMRidge-MultiBranchMKL-compact-shrink03
       - AOMRidge-Blender-headline-spxy3
+      - AOMRidge-global-compact-none
+      - AOMRidge-global-compact-snv
+      - TabPFN-Raw
+      - TabPFN-HPO-preprocessing
+    runtime_tier_max: very_slow
+    maturity_min: locked
+    target_per_dataset_seconds: 7200
+    audit_source: bench/scenarios/preset_audit/proposed_presets.json
+
+  exhaustive_research:
+    description: "≤12 h per dataset; adds NN residual, super-learner, AutoSelect."
+    members:
+      - PLS-tuned-cv5
+      - Ridge-tuned-cv5
+      - AOM-PLS-compact-numpy
       - AOMRidge-AutoSelect-headline-spxy3
-      - MKM-reml-default
-      - mkR-softmax-cv-default
-      - moe-preproc-soft-pls-compact
-      - AOMMultiView-MeanEnsemble4-fixed
+      - AOMRidge-Blender-headline-spxy3
+      - AOMRidge-Local-compact-knn50
+      - AOMRidge-global-compact-none
+      - AOMRidge-global-compact-snv
       - AdaptiveSuperLearner-recipe-nnls
-      - AdaptiveSuperLearner-bigN-guarded
-      # TabPFN family deferred from production runs per user 2026-05-09 + 2026-05-11
-      # ("use the one you have for now" — TabPFN evidence comes from tabpfn_paper
-      # legacy data already in master CSV, NOT new runs). Re-add when user requests.
-      # - TabPFN-Raw
-      # - TabPFN-opt
-      # - TabPFN-HPO-preprocessing
-      - Stack-Ridge-PLS-V1c
-      - V2L-Residual-AOMPLS
+      - TabPFN-Raw
+      - TabPFN-HPO-preprocessing
       - V2L-Boost-AOMPLS
-      - FCK-AOMPLS-static
-      - FCK-PLS-static
-      - Concat-SNV-FCK-AOMPLS-static
-      - ASLS-FCK-PLS-static
-      - AOMPLS-compact-with-fck-full57
-      - AOMRidgePLSCV-compact-with-fck
-      - FCKResidual-AOMPLS-teacher
-      - AOMRidge-Local-compact-knn-sweep
-      - paper-CNN-reference
-      - paper-CatBoost-reference
     runtime_tier_max: very_slow
     maturity_min: exploratory
+    target_per_dataset_seconds: 43200
+    audit_source: bench/scenarios/preset_audit/proposed_presets.json

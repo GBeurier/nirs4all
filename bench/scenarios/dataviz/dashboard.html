@@ -824,6 +824,7 @@
   <a href="#sec-datasets">§3 Datasets</a>
   <a href="#sec-preprocessing">§4 Preprocessing</a>
   <a href="#sec-production">§5 Production</a>
+  <a href="#sec-preset-pools">§6 Presets pool</a>
   <span class="nav-spacer"></span>
   <span class="nav-status" id="nav-status">loading…</span>
 </nav>
@@ -956,12 +957,12 @@
         <div class="picker" id="m10-picker" style="max-width:none">
           <div class="picker-toolbar">
             <input id="m10-filter" type="text" placeholder="filter by name or class (try 'ridge', 'tabpfn', 'snv'…)">
-            <select id="m10-sort">
-              <option value="oracle" selected>oracle ratio ↑ (normalized)</option>
-              <option value="median_rmsep">median rmsep ↑ (absolute)</option>
-              <option value="n_datasets">coverage ↓</option>
-              <option value="name">alpha</option>
-              <option value="n_obs"># obs ↓</option>
+            <select id="m10-sort" title="Sort criterion. Also drives the preset buttons: 'Top 5 master' picks the top 5 by this criterion, 'Best per class' picks the leader of each class by this criterion, family presets (AOM-Ridge, AOM-PLS, TabPFN, …) order their members by it.">
+              <option value="oracle" selected>oracle ratio ↑ (normalized, 1.0 = ties dataset-best)</option>
+              <option value="median_rmsep">median rmsep ↑ (absolute, not comparable across datasets)</option>
+              <option value="n_datasets">coverage ↓ (# datasets the model appears on)</option>
+              <option value="n_obs"># observations ↓ (total rows across all datasets)</option>
+              <option value="name">alphabetical (model display name)</option>
             </select>
             <span style="margin-left:8px;color:var(--muted);font-size:10px">numeric:</span>
             <label style="font-size:10px;color:var(--muted)">min ds ≥ <input id="m10-min-ds" type="number" min="0" max="80" value="0" style="width:50px;padding:2px 4px"></label>
@@ -1001,7 +1002,10 @@
           dataset relative to the dataset's best score across the whole master.
           <strong>y = 1.0 is the best</strong>. The ratio metric is the canonical
           NIRS normalisation because absolute rmsep is incomparable across datasets
-          with different target-variable scales.</span>
+          with different target-variable scales. The y-axis is clipped near the 95th
+          percentile so a handful of very-bad rows don't compress the readable range —
+          double-click the plot to autoscale to the full data when you need to inspect
+          outliers.</span>
         </figcaption>
         <div class="filter-bar">
           <label>Metric
@@ -1327,8 +1331,7 @@
         </figcaption>
         <div class="filter-bar">
           <label>Model
-            <input id="pp-model-filter" type="text" list="pp-model-list" placeholder="type a model name…" style="width:340px;font-family:var(--ff-mono)">
-            <datalist id="pp-model-list"></datalist>
+            <select id="pp-model-filter" style="min-width:340px;font-family:var(--ff-mono)"></select>
           </label>
         </div>
         <div id="pp-model-stats" style="font-family:var(--ff-mono);font-size:11.5px;color:var(--muted);margin-bottom:8px"></div>
@@ -1430,6 +1433,68 @@
     </div>
   </section>
 
+  <!-- ============================================================ -->
+  <!-- §6 PRESET POOLS (time-budget pool selection)                  -->
+  <!-- ============================================================ -->
+  <section class="section" id="sec-preset-pools">
+    <div class="section-rail"><div class="section-num">§6</div></div>
+    <div class="section-body">
+      <header>
+        <h2>Preset pools — time-budget selection</h2>
+        <p class="lede with-dropcap">
+          Re-design of the 4 presets as <em>time-budget pools</em>: given a user's
+          available time per dataset, run all models in the pool and pick the best
+          out-of-sample score. Selection is greedy (cross-checked by beam search)
+          to minimise the expected min-of-pool ratio vs PLS over the master cohort.
+          Methodology and per-model evidence:
+          <code>bench/scenarios/preset_audit/AUDIT.md</code>.
+        </p>
+      </header>
+
+      <div class="kpis" id="pool-kpis"></div>
+
+      <figure>
+        <figcaption>Current registry pools vs proposed data-driven pools
+          <span class="lede">Same scoring methodology on both. Negative
+          delta means the new pool achieves a better (lower) mean ratio. The
+          large delta for <em>best_current</em> and <em>exhaustive_research</em>
+          comes from including TabPFN-HPO-preprocessing in the proposed pools.</span>
+        </figcaption>
+        <div id="pool-delta-table"></div>
+      </figure>
+
+      <figure>
+        <figcaption>Preset pools at a glance
+          <span class="lede">Each badge is a model in the pool, coloured by family.
+          Tooltip shows the model's median ratio, q90 ratio, and q90 fit-time.</span>
+        </figcaption>
+        <div id="pool-membership"></div>
+      </figure>
+
+      <figure>
+        <figcaption>Per-dataset best-in-pool ratio (heatmap)
+          <span class="lede">Each cell is the best (lowest) rmsep/PLS ratio that
+          the pool achieves on that dataset. Green = pool beats PLS;
+          red = pool loses to PLS. Datasets sorted by best_current's ratio.</span>
+        </figcaption>
+        <div id="pool-heatmap" class="plot-tall"></div>
+      </figure>
+
+      <figure>
+        <figcaption>Sequential pool fit-time per preset
+          <span class="lede">q90 fit-time per model summed sequentially.
+          The dotted line shows the budget guidance.</span>
+        </figcaption>
+        <div id="pool-timing" class="plot"></div>
+      </figure>
+
+      <details>
+        <summary>Per-preset detail (member tables)</summary>
+        <div id="pool-tables"></div>
+      </details>
+    </div>
+  </section>
+
 </main>
 
 <footer>
@@ -1441,34 +1506,33 @@
   // --------------------------------------------------------------------
   // Helpers
   // --------------------------------------------------------------------
-  const FAM_COLOR = {
-    'AOM-Ridge': '#8e2718', 'AOM-PLS': '#c14a3e', 'ASLS': '#6b3a26',
-    'Ridge': '#836b58', 'PLS': '#b8956b', 'MoE/Stack': '#1f7a8c',
-    'FCK': '#4a7c4f', 'Residual NN': '#c79a2d', 'Multi-Kernel': '#2b5063',
-    'TabPFN': '#a44a8c', 'Paper-ref': '#a89888', 'Other': '#948275',
-  };
-  // Locked 13-class palette — editorial chemistry-journal earth tones.
-  // Colorblind-safe (Tol-inspired); each pair has visible grayscale separation.
+  // High-contrast 15-class palette. Designed for max pairwise distinction
+  // on a near-white background: every neighbour pair differs in hue AND
+  // lightness, so lines and markers stay readable even at 1px width.
+  // (Set1 + ColorBrewer-derived; legibility prioritised over editorial tone.)
   const MC_COLOR = {
-    'AOM-PLS':            '#c14a3e',  // terracotta
-    'AOM-Ridge':          '#8e2718',  // oxblood
-    'POP-PLS':            '#6b3a26',  // sienna
-    'PLS':                '#b8956b',  // camel
-    'Ridge':              '#836b58',  // mahogany
-    'Multi-kernel ridge': '#2b5063',  // deep teal
-    'Meta-selector/MoE':  '#1f7a8c',  // lagoon
-    'NICON/CNN':          '#5b8aa6',  // denim
-    'Hybrid CNN+linear':  '#6c757d',  // slate
-    'Hybrid CNN+AOM':     '#3d6a78',  // alt denim
-    'CatBoost':           '#c79a2d',  // mustard
-    'FCK-PLS':            '#4a7c4f',  // forest
-    'TabPFN':             '#a44a8c',  // orchid
-    'Stacked NN+Linear':  '#7a5b8f',  // plum
-    'Other':              '#948275',  // taupe
+    'AOM-PLS':            '#E41A1C',  // vivid red
+    'AOM-Ridge':          '#377EB8',  // mid blue
+    'POP-PLS':            '#4DAF4A',  // vivid green
+    'PLS':                '#FF7F00',  // vivid orange
+    'Ridge':              '#984EA3',  // violet
+    'Multi-kernel ridge': '#A65628',  // brown
+    'Meta-selector/MoE':  '#F781BF',  // light pink
+    'NICON/CNN':          '#00CED1',  // turquoise
+    'Hybrid CNN+linear':  '#BCBD22',  // olive
+    'Hybrid CNN+AOM':     '#000000',  // black
+    'CatBoost':           '#DAA520',  // goldenrod
+    'FCK-PLS':            '#1B9E77',  // deep teal
+    'TabPFN':             '#FF1493',  // deep pink / magenta
+    'Stacked NN+Linear':  '#4B0082',  // indigo
+    'Other':              '#7F7F7F',  // medium gray
   };
   const fmtNum = (x, d=4) => x === null || x === undefined ? '—' : Number(x).toFixed(d);
   const fmtTime = (s) => s === null || s === undefined ? '—' : (s < 1 ? s.toFixed(2) + 's' : s < 60 ? s.toFixed(1) + 's' : (s/60).toFixed(1) + 'min');
   const fmtInt = x => x === null || x === undefined ? '—' : Number(x).toLocaleString();
+  const escapeHtml = (s) => String(s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   // --------------------------------------------------------------------
   // Load + render
@@ -1513,6 +1577,13 @@
       ['renderRobustness', renderRobustness],
       ['renderFailures', renderFailures],
       ['renderTabPFN', renderTabPFN],
+      // §6 Preset pools (time-budget pool selection)
+      ['renderPoolKPIs', renderPoolKPIs],
+      ['renderPoolDeltaTable', renderPoolDeltaTable],
+      ['renderPoolMembership', renderPoolMembership],
+      ['renderPoolHeatmap', renderPoolHeatmap],
+      ['renderPoolTiming', renderPoolTiming],
+      ['renderPoolTables', renderPoolTables],
       // Legacy charts (will silently skip if container removed)
       ['renderClassBars', renderClassBars],
       ['renderClassBox', renderClassBox],
@@ -2055,18 +2126,20 @@
       const color = MC_COLOR[r.model_class] || '#888';
       const matColor = r.maturity === 'locked' ? '#2ca02c' : r.maturity === 'exploratory' ? '#ff7f0e' : '#aaa';
       const winner = idx === 0 ? 'winner' : '';
+      const pp = r.preprocessing || '';
+      const ppShort = pp.length > 36 ? pp.slice(0, 34) + '…' : pp;
       return `<tr class="${winner}">
-        <td title="${r.model_name}">${(r.model_name || '').slice(0,45)}</td>
-        <td><span class="class-pill" style="background:${color}">${r.model_class || '?'}</span></td>
-        <td title="${r.variant}">${(r.variant || '').slice(0,30)}</td>
-        <td>${(r.source_run || '').slice(0,28)}</td>
+        <td title="${escapeHtml(r.model_name || '')}">${escapeHtml((r.model_name || '').slice(0,45))}</td>
+        <td><span class="class-pill" style="background:${color}">${escapeHtml(r.model_class || '?')}</span></td>
+        <td title="${escapeHtml(r.variant || '')}">${escapeHtml((r.variant || '').slice(0,30))}</td>
+        <td>${escapeHtml((r.source_run || '').slice(0,28))}</td>
         <td class="num">${r.seed ?? ''}</td>
         <td class="num">${fmtNum(r.rmsep)}</td>
         <td class="num">${fmtNum(r.mae)}</td>
         <td class="num">${fmtNum(r.r2, 3)}</td>
         <td class="num">${fmtTime(r.fit_time_s)}</td>
-        <td><span class="class-pill" style="background:${matColor}">${r.maturity || '?'}</span></td>
-        <td>${(r.preprocessing || '').slice(0,20)}</td>
+        <td><span class="class-pill" style="background:${matColor}">${escapeHtml(r.maturity || '?')}</span></td>
+        <td title="${escapeHtml(pp)}" style="font-family:var(--ff-mono);font-size:11px">${escapeHtml(ppShort)}</td>
         <td class="num">${r.n_components || ''}</td>
       </tr>`;
     }).join('');
@@ -2105,7 +2178,9 @@
   }
 
   function initM10(data) {
-    // Raw per-model-per-dataset min rmsep
+    // Raw per-model-per-dataset best observation: keep rmsep AND the
+    // preprocessing / n_components of the BEST row so tooltips and per-dataset
+    // tables can surface what configuration produced the displayed score.
     const obs = data.master.observations_per_dataset;
     const rawModels = {};
     Object.entries(obs).forEach(([ds, rows]) => {
@@ -2115,7 +2190,13 @@
         if (!m) return;
         if (!rawModels[m]) rawModels[m] = { class: r.model_class || '?', datasets: {}, n_obs: 0 };
         const cur = rawModels[m].datasets[ds];
-        if (cur === undefined || r.rmsep < cur) rawModels[m].datasets[ds] = r.rmsep;
+        if (cur === undefined || r.rmsep < cur.rmsep) {
+          rawModels[m].datasets[ds] = {
+            rmsep: r.rmsep,
+            pp: r.preprocessing || '',
+            nc: r.n_components || '',
+          };
+        }
         rawModels[m].n_obs += 1;
       });
     });
@@ -2137,9 +2218,10 @@
       canonical[key].variants.push(name);
       canonical[key].variant_obs[name] = info.n_obs;
       canonical[key].n_obs += info.n_obs;
-      Object.entries(info.datasets).forEach(([ds, r]) => {
-        if (canonical[key].datasets[ds] === undefined || r < canonical[key].datasets[ds]) {
-          canonical[key].datasets[ds] = r;
+      Object.entries(info.datasets).forEach(([ds, cell]) => {
+        const cur = canonical[key].datasets[ds];
+        if (cur === undefined || cell.rmsep < cur.rmsep) {
+          canonical[key].datasets[ds] = cell;
         }
       });
     });
@@ -2151,19 +2233,19 @@
     // unlike median_rmsep which is bound to the per-dataset target-variable scale.
     Object.values(canonical).forEach(c => {
       c.display = c.variants.slice().sort((a, b) => c.variant_obs[b] - c.variant_obs[a])[0];
-      const rs = Object.values(c.datasets);
+      const rs = Object.values(c.datasets).map(cell => cell.rmsep);
       c.median_rmsep = m10MedianOf(rs);
       c.n_datasets = rs.length;
       // Oracle ratios per dataset
       const ratios = [];
-      Object.entries(c.datasets).forEach(([ds, rmsep]) => {
+      Object.entries(c.datasets).forEach(([ds, cell]) => {
         const ref = dsBest[ds] ? dsBest[ds].best_rmsep : null;
-        if (ref && ref > 0 && Number.isFinite(rmsep)) ratios.push(rmsep / ref);
+        if (ref && ref > 0 && Number.isFinite(cell.rmsep)) ratios.push(cell.rmsep / ref);
       });
       c.median_oracle_ratio = ratios.length ? m10MedianOf(ratios) : null;
     });
 
-    window._m10 = { canonical, dsBest, selected: new Set() };
+    window._m10 = { canonical, dsBest, selected: new Set(), collapsed: new Set() };
 
     // Bindings
     document.getElementById('m10-filter').addEventListener('input', renderM10Picker);
@@ -2182,9 +2264,13 @@
       renderM10Picker();
     });
     document.getElementById('m10-collapse-all').addEventListener('click', () => {
-      document.querySelectorAll('#m10-picker-list .picker-group').forEach(g => g.classList.add('collapsed'));
+      document.querySelectorAll('#m10-picker-list .picker-group').forEach(g => {
+        g.classList.add('collapsed');
+        window._m10.collapsed.add(g.dataset.class);
+      });
     });
     document.getElementById('m10-expand-all').addEventListener('click', () => {
+      window._m10.collapsed.clear();
       document.querySelectorAll('#m10-picker-list .picker-group').forEach(g => g.classList.remove('collapsed'));
     });
     document.getElementById('m10-clear').addEventListener('click', () => {
@@ -2265,7 +2351,8 @@
       const g = groups[cls];
       const color = MC_COLOR[cls] || colorForClass(cls);
       const selectedInGroup = g.filter(item => state.selected.has(item.key)).length;
-      html += `<div class="picker-group" data-class="${cls.replace(/"/g, '&quot;')}">
+      const isCollapsed = state.collapsed.has(cls) ? ' collapsed' : '';
+      html += `<div class="picker-group${isCollapsed}" data-class="${cls.replace(/"/g, '&quot;')}">
         <div class="picker-group-header">
           <span class="caret"></span>
           <span class="class-pill" style="background:${color}">${cls}</span>
@@ -2328,7 +2415,11 @@
     list.querySelectorAll('.picker-group-header').forEach(h => {
       h.addEventListener('click', (e) => {
         if (e.target.closest('.group-toggle-all')) return;
-        h.parentElement.classList.toggle('collapsed');
+        const grp = h.parentElement;
+        grp.classList.toggle('collapsed');
+        const cls = grp.dataset.class;
+        if (grp.classList.contains('collapsed')) state.collapsed.add(cls);
+        else state.collapsed.delete(cls);
       });
     });
     // Group add-all / remove-all
@@ -2385,21 +2476,48 @@
     });
   }
 
+  // Comparator driven by the active "Sort by" selector in the picker.
+  // Used by every preset so the button output is consistent with whatever the
+  // user is currently ordering the picker by (oracle ratio, median rmsep,
+  // coverage, # obs, or alphabetical).
+  function m10ActiveComparator() {
+    const sort = document.getElementById('m10-sort').value;
+    const sortKey = sort === 'oracle' ? 'median_oracle_ratio' : 'median_rmsep';
+    return (a, b) => {
+      const ea = a[1], eb = b[1];
+      if (sort === 'name') return (ea.display || '').localeCompare(eb.display || '');
+      if (sort === 'n_datasets') return (eb.n_datasets || 0) - (ea.n_datasets || 0);
+      if (sort === 'n_obs') return (eb.n_obs || 0) - (ea.n_obs || 0);
+      return (ea[sortKey] ?? Infinity) - (eb[sortKey] ?? Infinity);
+    };
+  }
+  function m10ActiveScore(e) {
+    const sort = document.getElementById('m10-sort').value;
+    if (sort === 'name') return e.display || '';
+    if (sort === 'n_datasets') return -(e.n_datasets || 0);
+    if (sort === 'n_obs') return -(e.n_obs || 0);
+    if (sort === 'median_rmsep') return e.median_rmsep ?? Infinity;
+    return e.median_oracle_ratio ?? Infinity;  // 'oracle' default
+  }
+
   function m10ComputePreset(name, data) {
     const state = window._m10;
     if (!state) return [];
     const keys = Object.keys(state.canonical);
+    const cmp = m10ActiveComparator();
     if (name === 'best5') {
+      // Top 5 by the current sort criterion. Coverage filter (≥10 datasets)
+      // still applies so a single-dataset run can't claim the top spot just
+      // because it happens to be alphabetically first.
       return Object.entries(state.canonical)
-        .filter(([, e]) => e.n_datasets >= 10 && Number.isFinite(e.median_rmsep))
-        .sort(([, a], [, b]) => a.median_rmsep - b.median_rmsep)
+        .filter(([, e]) => e.n_datasets >= 10)
+        .sort(cmp)
         .slice(0, 5)
         .map(([k]) => k);
     }
     if (name === 'best_per_class') {
-      // Best of each class after applying the current numeric filters.
-      // Ranking criterion: median_oracle_ratio (rmsep / dataset_best, comparable
-      // across datasets). Fallback to median_rmsep only if oracle is missing.
+      // Best of each class after applying the current numeric filters and the
+      // current sort criterion. "Best" = comes first under the active sort.
       const filter = (document.getElementById('m10-filter').value || '').toLowerCase().trim();
       const minDs = parseInt(document.getElementById('m10-min-ds').value || '0') || 0;
       const maxRmsepRaw = document.getElementById('m10-max-rmsep').value;
@@ -2415,20 +2533,20 @@
           || e.display.toLowerCase().includes(filter)
           || e.variants.some(v => v.toLowerCase().includes(filter));
       });
-      // Group by class, keep best (lowest oracle ratio) of each.
-      // Oracle ratio is normalised: 1.0 = ties best on every covered dataset.
       const bestPerClass = {};
       eligible.forEach(([key, e]) => {
-        const score = e.median_oracle_ratio != null ? e.median_oracle_ratio
-                    : (e.median_rmsep != null ? e.median_rmsep : Infinity);
+        const score = m10ActiveScore(e);
         const cur = bestPerClass[e.class];
-        if (!cur || score < cur.score) {
-          bestPerClass[e.class] = { key, score };
-        }
+        if (!cur || score < cur.score) bestPerClass[e.class] = { key, score };
       });
-      return Object.values(bestPerClass).map(v => v.key);
+      // Order the per-class winners themselves by the active sort.
+      return Object.values(bestPerClass)
+        .sort((a, b) => (a.score < b.score ? -1 : a.score > b.score ? 1 : 0))
+        .map(v => v.key);
     }
     if (name === 'best_current') {
+      // Preset definition supplies the candidate list; we re-order it by the
+      // user's active sort instead of trusting the registry's original order.
       const p = data.presets.best_current;
       if (!p || !p.available) return [];
       const matched = [];
@@ -2438,8 +2556,14 @@
         const fuzzy = keys.find(k => k.includes(canon));
         if (fuzzy) matched.push(fuzzy);
       });
-      return matched;
+      return matched
+        .map(k => [k, state.canonical[k]])
+        .filter(([, e]) => e)
+        .sort(cmp)
+        .map(([k]) => k);
     }
+    // Family presets (AOM-Ridge, AOM-PLS, TabPFN, MoE/Stack, FCK): filter by
+    // family pattern then keep the top 15 by the active sort criterion.
     const filterFn = {
       aomridge: k => /aom-?ridge/.test(k) || state.canonical[k].class === 'AOM-Ridge',
       aompls: k => /aom-?pls/.test(k) || state.canonical[k].class === 'AOM-PLS',
@@ -2448,7 +2572,12 @@
       fck: k => /fck/.test(k),
     }[name];
     if (!filterFn) return [];
-    return keys.filter(filterFn).slice(0, 15);
+    return keys
+      .filter(filterFn)
+      .map(k => [k, state.canonical[k]])
+      .sort(cmp)
+      .slice(0, 15)
+      .map(([k]) => k);
   }
 
   function renderM10() {
@@ -2505,13 +2634,14 @@
       let n_real = 0;
       datasets.forEach(ds => {
         x.push(ds);
-        const myR = e.datasets[ds];
+        const cell = e.datasets[ds];
         const dsRec = state.dsBest[ds];
-        if (myR === undefined || !dsRec) {
+        if (cell === undefined || !dsRec) {
           y.push(null);
           text.push('');
           return;
         }
+        const myR = cell.rmsep;
         const dsB = dsRec.best_rmsep;
         let value;
         if (metric === 'ratio') value = dsB > 0 ? myR / dsB : null;
@@ -2524,17 +2654,70 @@
         }
         y.push(value);
         n_real += 1;
+        const ppLine = cell.pp ? `<br>preproc: <span style="font-family:monospace">${escapeHtml(cell.pp)}</span>` : '';
+        const ncLine = cell.nc ? `<br>n_components: ${escapeHtml(String(cell.nc))}` : '';
         text.push(
           `<b>${e.display}</b>${e.variants.length > 1 ? ` <span style="color:#999">(${e.variants.length}v)</span>` : ''}<br>` +
           `class: ${e.class}<br>` +
           `dataset: ${ds} (n_train=${dsRec.n_train ?? '?'})<br>` +
           `<b>rmsep: ${myR.toFixed(4)}</b><br>` +
           `best on ds: ${dsB.toFixed(4)} (${dsRec.best_model_name})<br>` +
-          `ratio: ${(dsB > 0 ? myR / dsB : 0).toFixed(3)} · delta: ${(myR - dsB).toFixed(4)}`
+          `ratio: ${(dsB > 0 ? myR / dsB : 0).toFixed(3)} · delta: ${(myR - dsB).toFixed(4)}` +
+          ppLine + ncLine
         );
       });
       return { key, e, x, y, text, n_real, color: MC_COLOR[e.class] || colorForClass(e.class, i) };
     }).filter(d => d !== null && d.n_real > 0);
+
+    // ---- Robust y-axis range: cap at P95 + headroom so a handful of very-bad
+    // rows don't compress the readable range around y=1.0. Outliers still
+    // render but clip at the chart edge; double-click resets to autoscale. ----
+    const allY = [];
+    traceData.forEach(d => d.y.forEach(v => {
+      if (v !== null && Number.isFinite(v)) allY.push(v);
+    }));
+    const percentile = (arr, p) => {
+      if (!arr.length) return null;
+      const s = [...arr].sort((a, b) => a - b);
+      const idx = (s.length - 1) * p;
+      const lo = Math.floor(idx), hi = Math.ceil(idx);
+      return s[lo] + (s[hi] - s[lo]) * (idx - lo);
+    };
+    let yRangeLinear = null;
+    if (allY.length >= 4) {
+      const minObs = Math.min(...allY);
+      const maxObs = Math.max(...allY);
+      const p95 = percentile(allY, 0.95);
+      const p5 = percentile(allY, 0.05);
+      const med = percentile(allY, 0.5);
+      let yMin, yMax;
+      if (metric === 'ratio') {
+        yMin = Math.min(0.95, Math.max(minObs * 0.98, 0.5));
+        const cap = Math.max(p95 * 1.15, 1.6);
+        yMax = (maxObs > cap * 1.2) ? cap : maxObs * 1.05;
+      } else if (metric === 'delta') {
+        const span = Math.max(Math.abs(p95 - med), Math.abs(med - p5), 1e-9);
+        yMin = (minObs < p5 - 0.5 * span) ? (Math.min(p5 - 0.15 * span, 0)) : minObs - 0.05 * span;
+        yMax = (maxObs > p95 + 0.5 * span) ? (p95 + 0.15 * span) : maxObs + 0.05 * span;
+      } else {  // 'abs'
+        const span = Math.max(p95 - p5, 1e-9);
+        yMin = Math.max(0, p5 - 0.1 * span);
+        const cap = p95 + 0.15 * span;
+        yMax = (maxObs > cap * 1.5) ? cap : maxObs * 1.05;
+      }
+      if (yMax > yMin) yRangeLinear = [yMin, yMax];
+    }
+    const yRangeFor = (s) => {
+      if (!yRangeLinear) return null;
+      if (s === 'log') {
+        const [a, b] = yRangeLinear;
+        const la = Math.log10(Math.max(a, 1e-9));
+        const lb = Math.log10(Math.max(b, 1e-9));
+        return (lb > la) ? [la, lb] : null;
+      }
+      return yRangeLinear;
+    };
+    const yRange = yRangeFor(yscale);
 
     // ---- FACET MODE ----
     if (layout === 'facet') {
@@ -2599,6 +2782,7 @@
         lay[`yaxis${suf}`] = {
           title: colIdx === 0 ? yTitle : '', type: yscale,
           tickfont: { size: 9 }, automargin: true,
+          ...(yRange ? { range: yRange, autorange: false } : {}),
         };
       }
       Plotly.newPlot('m10-scatter', traces, lay, { responsive: true, displaylogo: false });
@@ -2627,7 +2811,11 @@
         categoryorder: 'array',
         categoryarray: datasets,
       },
-      yaxis: { title: yTitle, type: yscale, gridcolor: '#e7dcc7', tickfont: { family: "'JetBrains Mono', monospace" } },
+      yaxis: {
+        title: yTitle, type: yscale, gridcolor: '#e7dcc7',
+        tickfont: { family: "'JetBrains Mono', monospace" },
+        ...(yRange ? { range: yRange, autorange: false } : {}),
+      },
       showlegend: true,
       legend: {
         orientation: 'h',
@@ -2659,7 +2847,12 @@
 
   function colorForClass(cls, idx) {
     if (MC_COLOR[cls]) return MC_COLOR[cls];
-    const palette = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf'];
+    // High-contrast fallback cycle for unknown classes — same family as MC_COLOR.
+    const palette = [
+      '#E41A1C', '#377EB8', '#4DAF4A', '#FF7F00', '#984EA3',
+      '#A65628', '#F781BF', '#00CED1', '#BCBD22', '#000000',
+      '#DAA520', '#1B9E77', '#FF1493', '#4B0082', '#7F7F7F',
+    ];
     return palette[(idx || 0) % palette.length];
   }
 
@@ -2696,21 +2889,32 @@
 
     window._m11 = { ...pp, modelPp, modelsWithPp };
 
-    // Populate datalist for model picker
-    const dl = document.getElementById('pp-model-list');
-    modelsWithPp.forEach(m => {
+    // Populate the model-picker <select>. Options are sorted by # of pps
+    // descending (richest models first); the visible text combines the
+    // model name and the pp count for context, but `option.value` is the
+    // model name only so the lookup stays clean.
+    const sel = document.getElementById('pp-model-filter');
+    sel.innerHTML = '';
+    if (modelsWithPp.length === 0) {
       const opt = document.createElement('option');
-      opt.value = m;
-      opt.label = `${Object.keys(modelPp[m]).length} pps`;
-      dl.appendChild(opt);
-    });
+      opt.value = '';
+      opt.textContent = '(no models with ≥2 preprocessing pipelines)';
+      opt.disabled = true;
+      sel.appendChild(opt);
+    } else {
+      modelsWithPp.forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m;
+        opt.textContent = `${m} — ${Object.keys(modelPp[m]).length} pps`;
+        sel.appendChild(opt);
+      });
+    }
 
     // Bindings
     document.getElementById('pp-min-ds').addEventListener('input', renderM11Leaderboard);
     document.getElementById('pp-sort').addEventListener('change', renderM11Leaderboard);
     document.getElementById('pp-ds-sort').addEventListener('change', renderM11BestPerDataset);
     document.getElementById('pp-ds-min-spread').addEventListener('input', renderM11BestPerDataset);
-    document.getElementById('pp-model-filter').addEventListener('input', renderM11ModelDrilldown);
     document.getElementById('pp-model-filter').addEventListener('change', renderM11ModelDrilldown);
 
     renderM11Leaderboard();
@@ -4176,6 +4380,274 @@
     if (!el) return;
     const m = data.metadata;
     el.textContent = `${m.master_observed_total.toLocaleString()} obs · ${m.master_distinct_models} models · ${m.phases_complete}/4 presets`;
+  }
+
+  // -----------------------------------------------------------
+  // §6 — Preset pools (time-budget pool selection)
+  // -----------------------------------------------------------
+  const POOL_PRESETS = ['fast_reliable', 'strong_practical', 'best_current', 'exhaustive_research'];
+  const POOL_LABELS = {
+    fast_reliable: 'Fast (~30 s)',
+    strong_practical: 'Strong (~10 min)',
+    best_current: 'Best (~2 h)',
+    exhaustive_research: 'Exhaustive (~12 h)',
+  };
+  const POOL_FAMILY_COLORS = {
+    'PLS-tuned-cv5': '#8c564b',
+    'Ridge-tuned-cv5': '#2ca02c',
+    'AOM-PLS-compact-numpy': '#1f77b4',
+    'AOM-default-nipals-adjoint-numpy': '#3d8bcc',
+    'POP-PLS-compact-numpy': '#5fa8e3',
+    'AOMRidge-global-compact-none': '#d62728',
+    'AOMRidge-global-compact-snv': '#e3493b',
+    'AOMRidge-Local-compact-knn50': '#e87e6f',
+    'AOMRidge-Blender-headline-spxy3': '#b0140e',
+    'AOMRidge-AutoSelect-headline-spxy3': '#92100a',
+    'TabPFN-Raw': '#e377c2',
+    'TabPFN-opt': '#eb95cf',
+    'TabPFN-HPO-preprocessing': '#f2b4dc',
+    'V2L-Boost-AOMPLS': '#bcbd22',
+    'AdaptiveSuperLearner-recipe-nnls': '#ffb066',
+  };
+  function poolColor(canon) { return POOL_FAMILY_COLORS[canon] || '#666'; }
+  function poolBudget(s) {
+    if (s < 120) return `${s} s`;
+    if (s < 7200) return `${Math.round(s/60)} min`;
+    return `${(s/3600).toFixed(1)} h`;
+  }
+
+  function renderPoolKPIs(data) {
+    const el = document.getElementById('pool-kpis');
+    if (!el || !data.preset_pools || !data.preset_pools.available) return;
+    const pp = data.preset_pools.presets;
+    const kpis = POOL_PRESETS.map(p => {
+      const r = pp[p] && pp[p].proposed;
+      if (!r) return null;
+      return {
+        label: POOL_LABELS[p],
+        value: r.mean_ratio != null ? r.mean_ratio.toFixed(3) : '—',
+        sub: `${r.pool.length} models · ${poolBudget(Math.round(r.total_seq_time_s))}`,
+      };
+    }).filter(Boolean);
+    el.innerHTML = kpis.map(k => `
+      <div class="kpi">
+        <div class="kpi-value">${k.value}</div>
+        <div class="kpi-label">${k.label}</div>
+        <div class="kpi-sub">${k.sub}</div>
+      </div>`).join('');
+  }
+
+  function renderPoolDeltaTable(data) {
+    const el = document.getElementById('pool-delta-table');
+    if (!el || !data.preset_pools || !data.preset_pools.available) return;
+    const pp = data.preset_pools.presets;
+    const fmt = v => v == null ? '—' : v.toFixed(4);
+    const fmtS = s => s < 120 ? `${Math.round(s)} s` : s < 7200 ? `${Math.round(s/60)} min` : `${(s/3600).toFixed(1)} h`;
+    const rows = POOL_PRESETS.map(preset => {
+      const r = pp[preset];
+      if (!r) return '';
+      const c = r.current; const p = r.proposed;
+      const deltaMean = (c && p && c.mean_ratio != null && p.mean_ratio != null) ? (p.mean_ratio - c.mean_ratio) : null;
+      const deltaSign = deltaMean == null ? '' : (deltaMean < 0 ? 'color:#1a8b5f' : 'color:#b03228');
+      return `<tr>
+        <td><strong>${POOL_LABELS[preset]}</strong></td>
+        <td>${c ? c.pool.length : '—'}</td>
+        <td>${c ? fmt(c.mean_ratio) : '—'}</td>
+        <td>${c ? fmt(c.median_ratio) : '—'}</td>
+        <td>${c ? fmtS(c.total_seq_time_s) : '—'}</td>
+        <td style="border-left:1px solid #ccc">${p.pool.length}</td>
+        <td>${fmt(p.mean_ratio)}</td>
+        <td>${fmt(p.median_ratio)}</td>
+        <td>${fmtS(p.total_seq_time_s)}</td>
+        <td style="${deltaSign};font-weight:bold;border-left:1px solid #ccc">${deltaMean == null ? '—' : (deltaMean >= 0 ? '+' : '') + deltaMean.toFixed(4)}</td>
+      </tr>`;
+    }).join('');
+    el.innerHTML = `<table style="width:100%;border-collapse:collapse;font-size:11.5px;font-family:var(--ff-mono)">
+      <thead>
+        <tr style="border-bottom:2px solid #333">
+          <th rowspan="2" style="text-align:left;padding:6px">Preset</th>
+          <th colspan="4" style="text-align:center;padding:6px;border-left:1px solid #ccc">Current registry pool</th>
+          <th colspan="4" style="text-align:center;padding:6px;border-left:1px solid #ccc">Proposed data-driven pool</th>
+          <th rowspan="2" style="text-align:right;padding:6px;border-left:1px solid #ccc">Δ mean_ratio</th>
+        </tr>
+        <tr style="border-bottom:1px solid #999">
+          <th style="border-left:1px solid #ccc;padding:4px">n_models</th><th>mean</th><th>median</th><th>seq_time</th>
+          <th style="border-left:1px solid #ccc;padding:4px">n_models</th><th>mean</th><th>median</th><th>seq_time</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+  }
+
+  function renderPoolMembership(data) {
+    const el = document.getElementById('pool-membership');
+    if (!el || !data.preset_pools || !data.preset_pools.available) return;
+    const pp = data.preset_pools.presets;
+    // Pre-index q90 from any preset (the cell carries pool_q90_times in same order).
+    el.innerHTML = POOL_PRESETS.map(preset => {
+      const r = pp[preset] && pp[preset].proposed;
+      if (!r) return '';
+      const cap = pp[preset].budget_seconds;
+      const chips = r.pool.map((canon, idx) => {
+        const t = r.pool_q90_times[idx];
+        const tStr = t == null ? '—' : t < 60 ? `${Math.round(t)}s` : t < 3600 ? `${(t/60).toFixed(1)}m` : `${(t/3600).toFixed(1)}h`;
+        const bg = poolColor(canon);
+        const fg = (bg === '#666') ? '#fff' : '#fff';
+        return `<span class="pool-chip"
+                  style="background:${bg};color:${fg};padding:3px 8px;margin:2px;
+                  border-radius:11px;font-size:11px;font-family:var(--ff-mono);display:inline-block"
+                  title="q90 fit-time: ${tStr}">${canon} · ${tStr}</span>`;
+      }).join(' ');
+      const mean = r.mean_ratio != null ? r.mean_ratio.toFixed(4) : '—';
+      const median = r.median_ratio != null ? r.median_ratio.toFixed(4) : '—';
+      const q90 = r.q90_ratio != null ? r.q90_ratio.toFixed(4) : '—';
+      return `<div style="margin-bottom:14px">
+        <div style="display:flex;gap:10px;align-items:baseline;margin-bottom:4px">
+          <h4 style="margin:0;font-size:13.5px">${POOL_LABELS[preset]}</h4>
+          <span class="lede" style="font-size:11px">
+            budget=${poolBudget(cap)} · seq=${poolBudget(Math.round(r.total_seq_time_s))} ·
+            mean=${mean} · median=${median} · q90=${q90} · datasets=${r.n_datasets_scored}
+          </span>
+        </div>
+        <div>${chips}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function renderPoolHeatmap(data) {
+    const el = document.getElementById('pool-heatmap');
+    if (!el || !data.preset_pools || !data.preset_pools.available) return;
+    const pp = data.preset_pools.presets;
+    // Determine dataset order from best_current's per_dataset (best ratios → ascending).
+    const ref = pp.best_current && pp.best_current.proposed;
+    if (!ref) return;
+    const sortedDatasets = ref.per_dataset
+      .filter(d => d.best_ratio != null)
+      .sort((a, b) => a.best_ratio - b.best_ratio)
+      .map(d => d.dataset);
+    const z = POOL_PRESETS.map(preset => {
+      const r = pp[preset] && pp[preset].proposed;
+      const byDs = new Map((r ? r.per_dataset : []).map(d => [d.dataset, d.best_ratio]));
+      return sortedDatasets.map(ds => byDs.get(ds) ?? null);
+    });
+    const hover = POOL_PRESETS.map(preset => {
+      const r = pp[preset] && pp[preset].proposed;
+      const byDs = new Map((r ? r.per_dataset : []).map(d => [d.dataset, d]));
+      return sortedDatasets.map(ds => {
+        const cell = byDs.get(ds);
+        if (!cell || cell.best_ratio == null) return 'no data';
+        return `${ds}<br>${POOL_LABELS[preset]}<br>best ratio=${cell.best_ratio.toFixed(3)}<br>via ${cell.best_model}`;
+      });
+    });
+    Plotly.newPlot(el, [{
+      type: 'heatmap',
+      z: z,
+      x: sortedDatasets,
+      y: POOL_PRESETS.map(p => POOL_LABELS[p]),
+      text: hover,
+      hovertemplate: '%{text}<extra></extra>',
+      colorscale: [
+        [0.00, '#1a8b5f'],   // best ~0.5
+        [0.40, '#4ca38a'],   // 0.8
+        [0.60, '#cccccc'],   // 1.0 (PLS parity)
+        [0.80, '#e08a6e'],   // 1.2
+        [1.00, '#b03228'],   // 2.0
+      ],
+      zmin: 0.5, zmax: 2.0,
+      colorbar: { title: 'best ratio<br>vs PLS', thickness: 14 },
+    }], {
+      xaxis: { title: '', tickangle: -45, automargin: true, tickfont: { size: 9 } },
+      yaxis: { automargin: true },
+      paper_bgcolor: '#fbfbfb',
+      plot_bgcolor: '#fbfbfb',
+      margin: { l: 130, r: 50, t: 10, b: 120 },
+      height: 340,
+      font: { family: "'JetBrains Mono', monospace", size: 11, color: '#2c3e50' },
+    }, { responsive: true, displaylogo: false });
+  }
+
+  function renderPoolTiming(data) {
+    const el = document.getElementById('pool-timing');
+    if (!el || !data.preset_pools || !data.preset_pools.available) return;
+    const pp = data.preset_pools.presets;
+    // Stacked bar: each pool member contributes its q90 fit-time.
+    const traces = [];
+    const presetsArr = POOL_PRESETS.filter(p => pp[p] && pp[p].proposed);
+    const labelsArr = presetsArr.map(p => POOL_LABELS[p]);
+    // Collect all unique canonicals for trace order.
+    const allCanons = [];
+    for (const preset of presetsArr) {
+      for (const canon of pp[preset].proposed.pool) {
+        if (!allCanons.includes(canon)) allCanons.push(canon);
+      }
+    }
+    for (const canon of allCanons) {
+      const yvals = presetsArr.map(preset => {
+        const r = pp[preset].proposed;
+        const idx = r.pool.indexOf(canon);
+        if (idx === -1) return 0;
+        return r.pool_q90_times[idx] || 0;
+      });
+      traces.push({
+        type: 'bar', orientation: 'h',
+        name: canon, x: yvals, y: labelsArr,
+        marker: { color: poolColor(canon) },
+        hovertemplate: `${canon}<br>%{x:.1f} s on %{y}<extra></extra>`,
+      });
+    }
+    // Budget reference lines.
+    const budgets = presetsArr.map(p => pp[p].budget_seconds);
+    Plotly.newPlot(el, traces, {
+      barmode: 'stack',
+      xaxis: { title: 'sequential fit-time (s, log scale)', type: 'log', automargin: true },
+      yaxis: { automargin: true },
+      paper_bgcolor: '#fbfbfb',
+      plot_bgcolor: '#fbfbfb',
+      margin: { l: 150, r: 50, t: 10, b: 60 },
+      height: 320,
+      showlegend: true,
+      legend: { orientation: 'h', y: -0.4, font: { size: 9 } },
+      shapes: presetsArr.map((p, i) => ({
+        type: 'line',
+        x0: pp[p].budget_seconds, x1: pp[p].budget_seconds,
+        y0: i - 0.45, y1: i + 0.45,
+        xref: 'x', yref: 'y',
+        line: { color: '#222', width: 1.5, dash: 'dot' },
+      })),
+      font: { family: "'JetBrains Mono', monospace", size: 11, color: '#2c3e50' },
+    }, { responsive: true, displaylogo: false });
+  }
+
+  function renderPoolTables(data) {
+    const el = document.getElementById('pool-tables');
+    if (!el || !data.preset_pools || !data.preset_pools.available) return;
+    const pp = data.preset_pools.presets;
+    el.innerHTML = POOL_PRESETS.map(preset => {
+      const r = pp[preset] && pp[preset].proposed;
+      if (!r) return '';
+      const datasets = r.per_dataset.slice().sort((a, b) => {
+        if (a.best_ratio == null) return 1;
+        if (b.best_ratio == null) return -1;
+        return a.best_ratio - b.best_ratio;
+      });
+      const rows = datasets.map(d => `
+        <tr>
+          <td>${d.dataset}</td>
+          <td>${d.pls_rmsep != null ? d.pls_rmsep.toExponential(3) : '—'}</td>
+          <td>${d.best_rmsep != null ? d.best_rmsep.toExponential(3) : '—'}</td>
+          <td style="${d.best_ratio != null && d.best_ratio < 1 ? 'color:#1a8b5f' : 'color:#b03228'}">${d.best_ratio != null ? d.best_ratio.toFixed(3) : '—'}</td>
+          <td>${d.best_model || '—'}</td>
+        </tr>`).join('');
+      return `<details style="margin:8px 0">
+        <summary><strong>${POOL_LABELS[preset]}</strong> · ${r.pool.length} models · ${poolBudget(Math.round(r.total_seq_time_s))} sequential</summary>
+        <table style="width:100%;border-collapse:collapse;margin-top:6px;font-size:11px">
+          <thead><tr style="border-bottom:1px solid #ccc;text-align:left">
+            <th>dataset</th><th>PLS rmsep</th><th>best rmsep</th><th>ratio</th><th>winner</th>
+          </tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </details>`;
+    }).join('');
   }
 </script>
 

@@ -1,0 +1,171 @@
+{
+  "fast_reliable": {
+    "pool": [
+      "PLS-tuned-cv5",
+      "AOM-PLS-compact-numpy",
+      "Ridge-tuned-cv5"
+    ],
+    "expected_seq_time_s": 22.330723971601543,
+    "expected_pool_mean_ratio": 0.931064758674967,
+    "expected_pool_median_ratio": 0.974888498930705,
+    "expected_pool_q90_ratio": 1.0,
+    "n_datasets_covered": 63,
+    "n_datasets_total": 63,
+    "preset": "fast_reliable",
+    "budget_seconds": 30,
+    "candidate_pool_size": 9,
+    "gate": {
+      "max_q90": 1.5,
+      "min_wins_ratio": 0.3,
+      "min_success_rate": 0.9,
+      "max_pool_size": 5
+    },
+    "beam_pool": [
+      "PLS-tuned-cv5",
+      "AOM-PLS-compact-numpy",
+      "Ridge-tuned-cv5"
+    ],
+    "beam_score": 0.931064758674967,
+    "beam_time_s": 22.330723971601543,
+    "beam_matches_greedy": true,
+    "selected_search": "greedy"
+  },
+  "strong_practical": {
+    "pool": [
+      "PLS-tuned-cv5",
+      "AOM-PLS-compact-numpy",
+      "Ridge-tuned-cv5",
+      "AOMRidge-global-compact-snv",
+      "AOMRidge-global-compact-none",
+      "ASLS-AOM-compact-cv5-numpy",
+      "AOMRidge-Local-compact-knn50",
+      "AOM-default-nipals-adjoint-numpy"
+    ],
+    "expected_seq_time_s": 439.19542947236437,
+    "expected_pool_mean_ratio": 0.9211539208619027,
+    "expected_pool_median_ratio": 0.9621694992651594,
+    "expected_pool_q90_ratio": 1.0,
+    "n_datasets_covered": 63,
+    "n_datasets_total": 63,
+    "preset": "strong_practical",
+    "budget_seconds": 600,
+    "candidate_pool_size": 10,
+    "gate": {
+      "max_q90": 1.8,
+      "min_wins_ratio": 0.2,
+      "min_success_rate": 0.5,
+      "max_pool_size": 8
+    },
+    "beam_pool": [
+      "PLS-tuned-cv5",
+      "AOM-PLS-compact-numpy",
+      "Ridge-tuned-cv5",
+      "AOMRidge-global-compact-snv",
+      "AOMRidge-global-compact-none",
+      "ASLS-AOM-compact-cv5-numpy",
+      "AOMRidge-Local-compact-knn50",
+      "AOM-default-nipals-adjoint-numpy"
+    ],
+    "beam_score": 0.9211539208619027,
+    "beam_time_s": 439.19542947236437,
+    "beam_matches_greedy": true,
+    "selected_search": "greedy"
+  },
+  "best_current": {
+    "pool": [
+      "PLS-tuned-cv5",
+      "TabPFN-HPO-preprocessing",
+      "Ridge-tuned-cv5",
+      "AOM-PLS-compact-numpy",
+      "AOMRidge-Local-compact-knn50",
+      "AOMRidge-Blender-headline-spxy3",
+      "AOMRidge-global-compact-none",
+      "TabPFN-Raw",
+      "AOMRidge-global-compact-snv"
+    ],
+    "expected_seq_time_s": 5998.416678070079,
+    "expected_pool_mean_ratio": 0.8230096705222889,
+    "expected_pool_median_ratio": 0.867105268966005,
+    "expected_pool_q90_ratio": 1.0,
+    "n_datasets_covered": 63,
+    "n_datasets_total": 63,
+    "preset": "best_current",
+    "budget_seconds": 7200,
+    "candidate_pool_size": 11,
+    "gate": {
+      "max_q90": 2.5,
+      "min_wins_ratio": 0.15,
+      "min_success_rate": 0.3,
+      "max_pool_size": 12
+    },
+    "beam_pool": [
+      "PLS-tuned-cv5",
+      "TabPFN-HPO-preprocessing",
+      "Ridge-tuned-cv5",
+      "AOM-PLS-compact-numpy",
+      "AOMRidge-global-compact-snv",
+      "AOMRidge-global-compact-none",
+      "AOMRidge-Blender-headline-spxy3",
+      "TabPFN-Raw",
+      "AOMRidge-Local-compact-knn50",
+      "AOM-default-nipals-adjoint-numpy",
+      "ASLS-AOM-compact-cv5-numpy"
+    ],
+    "beam_score": 0.8230096705222889,
+    "beam_time_s": 6110.523044832365,
+    "beam_matches_greedy": false,
+    "selected_search": "greedy"
+  },
+  "exhaustive_research": {
+    "pool": [
+      "PLS-tuned-cv5",
+      "TabPFN-HPO-preprocessing",
+      "Ridge-tuned-cv5",
+      "V2L-Boost-AOMPLS",
+      "AOM-PLS-compact-numpy",
+      "AOMRidge-Local-compact-knn50",
+      "AdaptiveSuperLearner-recipe-nnls",
+      "AOMRidge-AutoSelect-headline-spxy3",
+      "AOMRidge-Blender-headline-spxy3",
+      "AOMRidge-global-compact-none",
+      "TabPFN-Raw",
+      "AOMRidge-global-compact-snv"
+    ],
+    "expected_seq_time_s": 9001.08667162288,
+    "expected_pool_mean_ratio": 0.815212063240413,
+    "expected_pool_median_ratio": 0.8668599566960544,
+    "expected_pool_q90_ratio": 1.0,
+    "n_datasets_covered": 63,
+    "n_datasets_total": 63,
+    "preset": "exhaustive_research",
+    "budget_seconds": 43200,
+    "candidate_pool_size": 15,
+    "gate": {
+      "max_q90": 4.0,
+      "min_wins_ratio": 0.05,
+      "min_success_rate": null,
+      "max_pool_size": 20
+    },
+    "beam_pool": [
+      "PLS-tuned-cv5",
+      "TabPFN-HPO-preprocessing",
+      "Ridge-tuned-cv5",
+      "V2L-Boost-AOMPLS",
+      "AOM-PLS-compact-numpy",
+      "AOMRidge-Local-compact-knn50",
+      "AdaptiveSuperLearner-recipe-nnls",
+      "AOMRidge-AutoSelect-headline-spxy3",
+      "AOMRidge-Blender-headline-spxy3",
+      "AOMRidge-global-compact-none",
+      "TabPFN-Raw",
+      "AOMRidge-global-compact-snv",
+      "AOM-default-nipals-adjoint-numpy",
+      "ASLS-AOM-compact-cv5-numpy",
+      "V2L-Residual-AOMPLS"
+    ],
+    "beam_score": 0.815212063240413,
+    "beam_time_s": 9904.863881247164,
+    "beam_matches_greedy": false,
+    "selected_search": "greedy"
+  }
+}

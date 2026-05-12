@@ -9906,3 +9906,417 @@ none across all 3 presets — collapse candidate for future registry cleanup.
 
 ### (a)/(b)/(c)/(d)/(e) detector
 all settled. Counter reset.
+
+## 2026-05-11 17:00 CEST — Agent A — heartbeat #237 (post-Phase-4 closure standby, 3-preset programme done)
+
+Standby. Phase 4 best_current closed by C at 16:35 (AOMRidge-global-compact wins median rmsep 1.0956). All A decisions LOCKED+CLOSED (10/10). Master CSV at SHA `000eb68c5371...`, locked=19392 P0 contract intact since 2026-05-05 (6 days). No new Codex/B/C events affecting A. (a)/(b)/(c)/(d)/(e) all settled. Watching for: Phase 5 exhaustive_research kickoff (deferred until cluster), any new D-A-XXX initiation, MBMKL hyperparameter grid (D-A-011 future). Counter reset.
+
+## 2026-05-11 17:25 CEST — Agent A — heartbeat #238 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #237 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 17:50 CEST — Agent A — heartbeat #239 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #238 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 18:15 CEST — Agent A — heartbeat #240 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #239 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 18:40 CEST — Agent A — heartbeat #241 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #240 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 19:05 CEST — Agent A — heartbeat #242 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #241 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 19:30 CEST — Agent A — heartbeat #243 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #242 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 19:55 CEST — Agent A — heartbeat #244 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #243 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 20:20 CEST — Agent A — heartbeat #245 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #244 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 20:45 CEST — Agent A — heartbeat #246 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #245 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 21:10 CEST — Agent A — heartbeat #247 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #246 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 21:35 CEST — Agent A — heartbeat #248 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #247 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 22:00 CEST — Agent A — heartbeat #249 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #248 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 22:25 CEST — Agent A — heartbeat #250 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #249 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 22:50 CEST — Agent A — heartbeat #251 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #250 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 23:15 CEST — Agent A — heartbeat #252 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #251 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-11 23:40 CEST — Agent A — heartbeat #253 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #252 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 00:05 CEST — Agent A — heartbeat #254 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #253 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 00:30 CEST — Agent A — heartbeat #255 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #254 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 00:55 CEST — Agent A — heartbeat #256 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #255 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 01:20 CEST — Agent A — heartbeat #257 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #256 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 01:45 CEST — Agent A — heartbeat #258 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #257 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 02:10 CEST — Agent A — heartbeat #259 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #258 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 02:35 CEST — Agent A — heartbeat #260 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #259 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 03:00 CEST — Agent A — heartbeat #261 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #260 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 03:25 CEST — Agent A — heartbeat #262 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #261 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 03:50 CEST — Agent A — heartbeat #263 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #262 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 04:15 CEST — Agent A — heartbeat #264 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #263 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 04:40 CEST — Agent A — heartbeat #265 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #264 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 05:05 CEST — Agent A — heartbeat #266 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #265 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 05:30 CEST — Agent A — heartbeat #267 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #266 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 05:55 CEST — Agent A — heartbeat #268 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #267 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 06:20 CEST — Agent A — heartbeat #269 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #268 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 06:45 CEST — Agent A — heartbeat #270 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #269 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 07:10 CEST — Agent A — heartbeat #271 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #270 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 07:35 CEST — Agent A — heartbeat #272 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #271 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 08:00 CEST — Agent A — heartbeat #273 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #272 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 08:25 CEST — Agent A — heartbeat #274 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #273 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 08:50 CEST — Agent A — heartbeat #275 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #274 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 09:15 CEST — Agent A — heartbeat #276 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #275 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 09:40 CEST — Agent A — heartbeat #277 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #276 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 10:05 CEST — Agent A — heartbeat #278 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #277 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 10:30 CEST — Agent A — heartbeat #279 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #278 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 10:55 CEST — Agent A — heartbeat #280 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #279 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 11:20 CEST — Agent A — heartbeat #281 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #280 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 11:45 CEST — Agent A — heartbeat #282 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #281 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 12:10 CEST — Agent A — heartbeat #283 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #282 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 12:35 CEST — Agent A — heartbeat #284 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #283 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 13:00 CEST — Agent A — heartbeat #285 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #284 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 13:25 CEST — Agent A — heartbeat #286 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #285 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 13:50 CEST — Agent A — heartbeat #287 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #286 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 14:15 CEST — Agent A — heartbeat #288 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #287 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 14:40 CEST — Agent A — heartbeat #289 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #288 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 15:05 CEST — Agent A — heartbeat #290 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #289 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 15:30 CEST — Agent A — heartbeat #291 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #290 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 15:55 CEST — Agent A — heartbeat #292 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #291 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 16:20 CEST — Agent A — heartbeat #293 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #292 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 16:45 CEST — Agent A — heartbeat #294 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #293 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 17:10 CEST — Agent A — heartbeat #295 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #294 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 17:35 CEST — Agent A — heartbeat #296 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #295 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 18:00 CEST — Agent A — heartbeat #297 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #296 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 18:25 CEST — Agent A — heartbeat #298 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #297 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 18:50 CEST — Agent A — heartbeat #299 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #298 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 19:15 CEST — Agent A — heartbeat #300 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #299 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 19:40 CEST — Agent A — heartbeat #301 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #300 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 20:05 CEST — Agent A — heartbeat #302 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #301 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 20:30 CEST — Agent A — heartbeat #303 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #302 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 20:55 CEST — Agent A — heartbeat #304 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #303 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 21:20 CEST — Agent A — heartbeat #305 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #304 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 21:45 CEST — Agent A — heartbeat #306 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #305 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 22:10 CEST — Agent A — heartbeat #307 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #306 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 22:35 CEST — Agent A — heartbeat #308 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #307 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 23:00 CEST — Agent A — heartbeat #309 (post-Phase-4 closure standby)
+
+Standby. 5 silent ticks since #308 (25 min stagnant). No new SYNC entries from B/C/Codex. A queue empty (10 LOCKED+CLOSED). Master CSV unchanged. (a)/(b)/(c)/(d)/(e) all settled. Counter reset.
+
+## 2026-05-12 23:25 CEST — Agent C — preset re-design (time-budget pools)
+
+Per user 2026-05-12 09:30 CEST: the 4 presets must be time-budget pools (user picks
+preset = "I have N time per dataset, give me the best score"), not publication-rigor
+progressions. Old presets were AOM-Ridge-heavy stacks with TabPFN deferred —
+mismatched the user's stated intent.
+
+Re-derivation: `bench/scenarios/preset_audit/audit_presets.py` (greedy + beam
+cross-check). Methodology: minimise mean-over-datasets of min-of-pool rmsep/PLS
+ratio under sequential per-dataset budget. Time budgets (user-clarified):
+fast 30 s / strong 10 min / best 2 h / exhaustive 12 h. Quality gates: per-preset
+caps on q90_ratio + min_wins_ratio + latest_run_success_rate.
+
+Codex round-13 review (preset_audit/PROPOSAL.md): 3 NEEDS_FIX flagged.
+Applied fixes:
+  - Hard-exclude models with 0 % latest-run success (MKM-reml-default,
+    mkR-softmax-cv-default, moe-preproc-soft-pls-compact, etc.) — they no longer
+    appear in any preset.
+  - Hard-exclude `not_runnable_in_production` (paper-CNN, paper-CatBoost).
+  - Documented TabPFN external runtime estimates (paper-derived) as a known
+    assumption pending RTX 4090 calibration (D-C-013 to file).
+
+New presets (canonical_name order = greedy-add order):
+  fast_reliable (30 s, mean=0.92): PLS-tuned-cv5, Ridge-tuned-cv5, AOM-PLS-compact-numpy.
+  strong_practical (10 min, mean=0.80): + TabPFN-opt, AOMRidge-Local-knn50,
+    AOMRidge-global-compact-{none,snv}.
+  best_current (2 h, mean=0.78): + TabPFN-HPO-preprocessing, TabPFN-Raw,
+    AOMRidge-Blender-headline-spxy3.
+  exhaustive_research (12 h, mean=0.77): + V2L-Boost-AOMPLS,
+    AdaptiveSuperLearner-recipe-nnls, AOMRidge-AutoSelect-headline-spxy3.
+
+Files updated:
+  - bench/scenarios/model_registry.yaml (presets.* members + target_per_dataset_seconds)
+  - bench/scenarios/{fast_reliable,strong_practical,best_current,exhaustive_research}.json
+    (regenerated by bench/export_benchmark_scenarios.py).
+  - bench/scenarios/dataviz/{build_dashboard.py,dashboard.html,dashboard_data.json}
+    (new §6 "Preset pools" section with KPI cards, per-pool membership chips,
+    per-dataset best-in-pool heatmap, stacked-bar timing chart, detail tables).
+
+Outstanding (separate tasks):
+  - D-C-013: TabPFN runtime calibration on RTX 4090.
+  - D-C-014: bench/harness/run_benchmark.py to enforce `input_constraints`
+    (max_n, max_features) at dispatch time so TabPFN gates kick in.
+
+Status: DECISION_PENDING_CODEX_REVIEW until a Codex round-14 ACK lands here.
+
+## 2026-05-12 23:50 CEST — Agent C — TabPFN-opt correction (user flag)
+
+User flag 2026-05-12 ~23:30 CEST: the preset audit was crediting TabPFN-opt with
+~3 min q90 fit-time and putting it in strong_practical. But the master CSV
+"TabPFN-opt" rows come from `AOM_v0/publication/tables/master_pivot.csv`, which
+in turn was pivoted from `bench/tabpfn_paper/master_results.csv` (the TabPFN
+NIRS paper).
+
+Verified by cross-joining `master_pivot.csv` (columns TabPFN-Raw, TabPFN-opt)
+against `table_results_tabpfn_final_light.csv` (the HPO sweep): the TabPFN-opt
+column equals the per-dataset HPO best (`selected_by mean_val(top3)`), e.g.
+ALPINE_P_291_KS: TabPFN-opt=0.0434 ≈ HPO best=0.044. So TabPFN-opt represents
+the OUTPUT of the paper's Cartesian preprocessing search (~hours of compute),
+not a single TabPFN fit.
+
+Fix:
+  - audit_presets.py EXTRA_ALIASES: alias `tabpfn-opt` → `TabPFN-HPO-preprocessing`
+    so the audit cannot place the HPO score in a sub-HPO budget.
+  - EXTERNAL_TIME_ESTIMATES: removed `TabPFN-opt`; bumped TabPFN-Raw to 5 s / 20 s
+    (single fit + predict, conservative); raised TabPFN-HPO-preprocessing to
+    30 min / 60 min q90 (paper-derived; calibration on RTX 4090 still pending
+    D-C-013).
+  - model_registry.yaml: removed standalone `TabPFN-opt` registry entry,
+    folded its aliases into `TabPFN-HPO-preprocessing` so master-CSV ingest
+    still maps the rows correctly.
+  - preset members: `TabPFN-opt` removed from strong_practical, best_current,
+    exhaustive_research.
+
+Updated pools (data-driven, post-fix):
+  fast_reliable     (30 s,   3 models): mean_ratio 0.92
+  strong_practical  (10 min, 8 models): mean_ratio 0.87
+  best_current      (2 h,    9 models): mean_ratio 0.78 (incl. TabPFN-HPO-preprocessing)
+  exhaustive_research (12 h, 12 models): mean_ratio 0.77
+
+Manifests, dashboard data, and preset_audit/AUDIT.md regenerated.
+Status: DECISION_PENDING_CODEX_REVIEW (round-15 ack expected).
+
+Calibration TODO unchanged: D-C-013 — local TabPFN-Raw + HPO-preprocessing
+wall-clock on RTX 4090 to replace paper-derived estimates.
+
+## 2026-05-13 00:15 CEST — Agent C — PLS/Ridge tuned-alias correction (user flag #2)
+
+User flag 2026-05-12 ~23:55 CEST: "tuned" model scores in master CSV looked
+suspicious; PLS-tuned-cv5 was getting credit for HPO-tuned PLS scores.
+
+Investigation:
+  - master_pivot.csv columns `PLS` / `Ridge` are the TabPFN-NIRS paper's PLS /
+    Ridge baselines. The paper's recipe (per `bench/nicon_v2/nicon_v2/models/searched_baseline.py`
+    docstring) includes EMSC, SG×4 windows, ASLSBaseline, OSC, 60-trial α grid
+    — Cartesian preprocessing-HPO search.
+  - `PLS-Tuned` (fck_pls source, 96 rows) is documented as
+    "PLSRegression with cartesian preprocessing matrix + n_components tuning"
+    (`bench/fck_pls/benchmark_fckpls.py` line 8) — ~330 candidates per dataset.
+  - Both label sets have NULL fit_time in master CSV (mean=0.00s), confirming
+    they are reference scores, not local runs.
+  - Aliasing both into the cheap `PLS-tuned-cv5` / `Ridge-tuned-cv5` canonicals
+    let the audit credit those HPO scores to a sub-HPO time budget.
+
+Fix:
+  - Removed `PLS-Tuned` from PLS-tuned-cv5 aliases.
+  - Removed `Ridge` from Ridge-tuned-cv5 aliases (paper master_pivot Ridge).
+  - Added inline registry comments documenting the exclusions and pointing to
+    TabPFN-HPO-preprocessing as the canonical container for "expensive paper
+    HPO baseline" rows.
+
+Audit re-ran. Updated pool mean ratios:
+  fast_reliable     mean 0.93 (was 0.92, +1 pp, honest cheap-PLS anchor)
+  strong_practical  mean 0.92 (was 0.85, +7 pp, stripped HPO-PLS bleed-through)
+  best_current      mean 0.78 (essentially unchanged; TabPFN-HPO dominates)
+  exhaustive_research mean 0.77 (essentially unchanged)
+
+The big movement in strong_practical confirms the diagnosis: the previous
+"0.85" was an artifact of HPO-Ridge / HPO-PLS leaking via the alias map.
+
+Manifests, dashboard data regenerated. SYNC entry pending Codex round-16 ack.

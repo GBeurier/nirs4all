@@ -1,0 +1,51 @@
+{
+  "source_dataset": "x_bank_DIESEL_d_263_hla-b",
+  "wavelengths": {
+    "start": 750.0,
+    "end": 1550.0,
+    "step": 2.0
+  },
+  "detected_preprocessing": "second_derivative",
+  "detected_components": [],
+  "fitted_parameters": {
+    "noise_base": 0.0006828456235079165,
+    "noise_signal_dep": 0.05227365886327075,
+    "scatter_alpha_std": 0.03918870259076357,
+    "scatter_beta_std": 0.0013062900863587857,
+    "complexity": "complex"
+  },
+  "augmentation_config": {
+    "temperature_range": [
+      -5.0,
+      5.0
+    ],
+    "emsc_multiplicative_range": [
+      0.95,
+      1.05
+    ],
+    "emsc_additive_range": [
+      -0.02,
+      0.02
+    ],
+    "particle_size_range_um": [
+      20,
+      100
+    ]
+  },
+  "pca_variation": {
+    "n_pcs_injected": 5,
+    "pc_variances": [
+      0.0005960427806712687,
+      4.193015047349036e-05,
+      2.5027586161741056e-05,
+      8.175094080797862e-06,
+      2.4865721570677124e-06
+    ]
+  },
+  "quality_metrics": {
+    "mean_corr": 0.8771850032704761,
+    "std_corr": 0.9994610607032636,
+    "discriminator_accuracy": 1.0,
+    "overall_score": 62.527531886507425
+  }
+}
