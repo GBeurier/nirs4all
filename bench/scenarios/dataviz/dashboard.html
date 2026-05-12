@@ -975,6 +975,7 @@
         <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
           <span style="font-family:var(--ff-ui);font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-right:6px">presets</span>
           <button class="m10-preset" data-models="best5" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">Top 5 master</button>
+          <button class="m10-preset" data-models="best_per_class" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--accent);background:rgba(193,74,62,0.06);color:var(--accent);cursor:pointer;font-weight:600">Best per class (filtered)</button>
           <button class="m10-preset" data-models="best_current" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">best_current</button>
           <button class="m10-preset" data-models="aomridge" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">AOM-Ridge</button>
           <button class="m10-preset" data-models="aompls" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">AOM-PLS</button>
@@ -2304,6 +2305,34 @@
         .sort(([, a], [, b]) => a.median_rmsep - b.median_rmsep)
         .slice(0, 5)
         .map(([k]) => k);
+    }
+    if (name === 'best_per_class') {
+      // Best of each class after applying the current numeric filters.
+      // Uses median_rmsep as the ranking criterion within each class.
+      const filter = (document.getElementById('m10-filter').value || '').toLowerCase().trim();
+      const minDs = parseInt(document.getElementById('m10-min-ds').value || '0') || 0;
+      const maxRmsepRaw = document.getElementById('m10-max-rmsep').value;
+      const maxRmsep = maxRmsepRaw === '' ? Infinity : (parseFloat(maxRmsepRaw) || Infinity);
+      const minObs = parseInt(document.getElementById('m10-min-obs').value || '0') || 0;
+      const eligible = Object.entries(state.canonical).filter(([key, e]) => {
+        if (e.n_datasets < minDs) return false;
+        if (e.n_obs < minObs) return false;
+        if (Number.isFinite(maxRmsep) && (e.median_rmsep == null || e.median_rmsep > maxRmsep)) return false;
+        if (!filter) return true;
+        return key.includes(filter)
+          || e.class.toLowerCase().includes(filter)
+          || e.display.toLowerCase().includes(filter)
+          || e.variants.some(v => v.toLowerCase().includes(filter));
+      });
+      // Group by class, keep best (lowest median_rmsep) of each
+      const bestPerClass = {};
+      eligible.forEach(([key, e]) => {
+        const cur = bestPerClass[e.class];
+        if (!cur || (e.median_rmsep != null && e.median_rmsep < cur.median)) {
+          bestPerClass[e.class] = { key, median: e.median_rmsep ?? Infinity };
+        }
+      });
+      return Object.values(bestPerClass).map(v => v.key);
     }
     if (name === 'best_current') {
       const p = data.presets.best_current;
