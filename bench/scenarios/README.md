@@ -4,16 +4,16 @@ Auto-generated manifests describing the four benchmark presets defined in `bench
 
 Master CSV SHA256: `b27ea6f52b45e2568fb0c6912f535565f678d8b3e4f28af70dc2b86ae201ab5d`
 Generator: `bench/export_benchmark_scenarios.py`
-Generated on: 2026-05-11
+Generated on: 2026-05-12
 
 ## Presets
 
 | Preset | Description | Members | Penalised |
 |---|---|---:|---:|
-| `fast_reliable` | Seconds to a few minutes; no TabPFN, no multiview, no NN. | 6 | 0 |
-| `strong_practical` | Minutes to <1h; TabPFN gated by (n<=5000, p<=1000). | 7 | 0 |
-| `best_current` | 1-3h; multi-strategy mix with explicit gates. | 8 | 0 |
-| `exhaustive_research` | Multi-hour overnight; explicit `exploratory` rows allowed. | 31 | 16 |
+| `fast_reliable` | ≤30 s per dataset; safe linear baselines, no NN, no TabPFN. | 3 | 0 |
+| `strong_practical` | ≤10 min per dataset; AOM-PLS + AOM-Ridge ladder, no TabPFN-HPO yet. | 8 | 0 |
+| `best_current` | ≤2 h per dataset; TabPFN-HPO-preprocessing + AOM-Ridge blender. | 9 | 2 |
+| `exhaustive_research` | ≤12 h per dataset; adds NN residual, super-learner, AutoSelect. | 12 | 5 |
 
 ## Codex review
 

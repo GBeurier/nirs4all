@@ -1,8 +1,8 @@
 {
   "schema_version": "0.1.0",
   "preset": "exhaustive_research",
-  "description": "Multi-hour overnight; explicit `exploratory` rows allowed.",
-  "generated_on": "2026-05-11",
+  "description": "≤12 h per dataset; adds NN residual, super-learner, AutoSelect.",
+  "generated_on": "2026-05-12",
   "generated_by": "/home/delete/nirs4all/nirs4all/bench/export_benchmark_scenarios.py",
   "registry_source": "bench/scenarios/model_registry.yaml",
   "master_csv_source": "bench/benchmark_master_results.csv",
@@ -82,7 +82,6 @@
     {
       "canonical_name": "Ridge-tuned-cv5",
       "aliases": [
-        "Ridge",
         "Ridge-baseline",
         "Ridge-raw",
         "Ridge-raw-stdscale",
@@ -105,27 +104,25 @@
       "notes": "",
       "evidence": {
         "present_in_master": true,
-        "n_rows_locked": 1217,
-        "n_rows_total": 1551,
-        "n_datasets": 59,
-        "coverage_fraction_raw": 1.0351,
-        "median_rel_source_pls": 0.948,
-        "q75_rel_source_pls": 0.9758,
-        "q90_rel_source_pls": 0.9954,
-        "median_rel_dataset_pls": 0.9765,
-        "q75_rel_dataset_pls": 1.0008,
-        "q90_rel_dataset_pls": 1.088,
-        "worst_clipped_ratio": 1.1521,
-        "wins_vs_source_pls": 54,
-        "wins_vs_dataset_pls": 43,
-        "median_fit_time_s": 0.784,
-        "q90_fit_time_s": 21.486,
+        "n_rows_locked": 1163,
+        "n_rows_total": 1239,
+        "n_datasets": 56,
+        "coverage_fraction_raw": 0.9825,
+        "median_rel_source_pls": 0.9715,
+        "q75_rel_source_pls": 0.9984,
+        "q90_rel_source_pls": 1.099,
+        "median_rel_dataset_pls": 0.9884,
+        "q75_rel_dataset_pls": 1.0956,
+        "q90_rel_dataset_pls": 1.2806,
+        "worst_clipped_ratio": 5.0,
+        "wins_vs_source_pls": 39,
+        "wins_vs_dataset_pls": 31,
+        "median_fit_time_s": 0.591,
+        "q90_fit_time_s": 23.624,
         "source_families": [
           "AOM_v0_MultiKernel",
           "AOM_v0_Ridge",
-          "bench",
-          "nicon_v2",
-          "paper_master_pivot"
+          "nicon_v2"
         ],
         "source_runs": [
           "all53_top5_fast_parallel",
@@ -134,13 +131,10 @@
           "all54_headline",
           "all54_stageA",
           "all54_top5_fast",
-          "best_current_full57_seed0",
           "curated",
           "curated10",
           "curated11",
           "curated_v2",
-          "da001_audit20_seeds012",
-          "da001_partial_fast12_seeds012",
           "diverse10",
           "diverse11_iter2",
           "diverse11_ridgepls",
@@ -153,12 +147,10 @@
           "diverse_iter3_lean",
           "diverse_iter3_top5_n_wo",
           "diverse_iter3_wrappers_giants",
-          "fast_reliable_full57_seed0",
           "final_curated",
           "full_test",
           "iter6_diverse10_champions",
           "iter8_full54_champions",
-          "master_pivot",
           "phase1a_smoke",
           "phase1b_smoke",
           "phase1c_smoke",
@@ -186,7 +178,6 @@
           "stack_extended",
           "stack_full",
           "stack_smoke",
-          "strong_practical_full57_seed0",
           "v2_r10_rep",
           "v2_r11_rep",
           "v2_r6_rep",
@@ -203,119 +194,8 @@
           "v5b_smoke_alpine"
         ],
         "maturities_observed": [
-          "locked:1217",
-          "exploratory:334"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "ASLS-AOM-compact-cv5-numpy",
-      "aliases": [
-        "ASLS-AOM-compact-cv5",
-        "ASLS_AOM_compact_cv5",
-        "asls-aom-compact-cv5",
-        "ASLS-AOM-compact-cv5-numpy"
-      ],
-      "model_class": "AOMPLSRegressor",
-      "module": "aompls.estimators",
-      "config_template": "bench/scenarios/configs/asls_aom_compact_cv5.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30,
-        "min_features": 20
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "fast",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "AOM_v0 champion: median 0.960 rel-RMSEP, ~42/57 wins vs PLS-std.\nHPO does not improve median (cf. AOM_v0/Summary §6).",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 57,
-        "n_rows_total": 72,
-        "n_datasets": 57,
-        "coverage_fraction_raw": 1.0,
-        "median_rel_source_pls": 0.96,
-        "q75_rel_source_pls": 1.0009,
-        "q90_rel_source_pls": 1.1155,
-        "median_rel_dataset_pls": 1.0335,
-        "q75_rel_dataset_pls": 1.1593,
-        "q90_rel_dataset_pls": 1.3437,
-        "worst_clipped_ratio": 2.5616,
-        "wins_vs_source_pls": 42,
-        "wins_vs_dataset_pls": 18,
-        "median_fit_time_s": 1.485,
-        "q90_fit_time_s": 8.203,
-        "source_families": [
-          "AOM_v0"
-        ],
-        "source_runs": [
-          "full",
-          "smoke",
-          "smoke_old_11ds"
-        ],
-        "maturities_observed": [
-          "locked:57",
-          "exploratory:15"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "AOM-default-nipals-adjoint-numpy",
-      "aliases": [
-        "AOM-default-nipals-adjoint-numpy",
-        "AOM-default-simpls-covariance-numpy"
-      ],
-      "model_class": "AOMPLSRegressor",
-      "module": "aompls.estimators",
-      "config_template": "bench/scenarios/configs/aom_default_numpy.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "fast",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 341,
-        "n_rows_total": 341,
-        "n_datasets": 59,
-        "coverage_fraction_raw": 1.0351,
-        "median_rel_source_pls": 0.9865,
-        "q75_rel_source_pls": 1.019,
-        "q90_rel_source_pls": 1.0826,
-        "median_rel_dataset_pls": 1.0618,
-        "q75_rel_dataset_pls": 1.1424,
-        "q90_rel_dataset_pls": 1.3776,
-        "worst_clipped_ratio": 1.4466,
-        "wins_vs_source_pls": 35,
-        "wins_vs_dataset_pls": 17,
-        "median_fit_time_s": 5.988,
-        "q90_fit_time_s": 27.808,
-        "source_families": [
-          "AOM_v0",
-          "AOM_v0_MultiKernel"
-        ],
-        "source_runs": [
-          "deep",
-          "extended",
-          "full",
-          "full_pre_parity",
-          "full_v1_11variants"
-        ],
-        "maturities_observed": [
-          "locked:341"
+          "locked:1163",
+          "exploratory:76"
         ]
       },
       "penalties": []
@@ -323,7 +203,6 @@
     {
       "canonical_name": "PLS-tuned-cv5",
       "aliases": [
-        "PLS-Tuned",
         "PLS-standard",
         "PLS-standard-numpy",
         "PLS-baseline",
@@ -344,20 +223,20 @@
       "runtime_tier": "fast",
       "maturity": "locked",
       "not_runnable_in_production": false,
-      "notes": "Anchor: every preset includes a tuned PLS as denominator for\n`score_ratio_vs_source_run_pls`. n_components selected by 5-fold CV.",
+      "notes": "Anchor: every preset includes a tuned PLS as denominator for\n`score_ratio_vs_source_run_pls`. n_components selected by 5-fold CV.\nDoes NOT include preprocessing HPO; for that see TabPFN-HPO-preprocessing\n(paper-derived label, covers PLS-tuned and Ridge-tuned HPO variants too).",
       "evidence": {
         "present_in_master": true,
-        "n_rows_locked": 862,
-        "n_rows_total": 1196,
-        "n_datasets": 66,
-        "coverage_fraction_raw": 1.1579,
+        "n_rows_locked": 812,
+        "n_rows_total": 1146,
+        "n_datasets": 65,
+        "coverage_fraction_raw": 1.1404,
         "median_rel_source_pls": 1.0,
         "q75_rel_source_pls": 1.0,
         "q90_rel_source_pls": 1.0,
         "median_rel_dataset_pls": 1.0,
         "q75_rel_dataset_pls": 1.0,
         "q90_rel_dataset_pls": 1.0,
-        "worst_clipped_ratio": 4.9044,
+        "worst_clipped_ratio": 1.0211,
         "wins_vs_source_pls": 0,
         "wins_vs_dataset_pls": 2,
         "median_fit_time_s": 0.554,
@@ -412,7 +291,6 @@
           "stack_full",
           "stack_smoke",
           "strong_practical_full57_seed0",
-          "synthetic_nirs",
           "v2_r10_rep",
           "v2_r11_rep",
           "v2_r6_rep",
@@ -426,209 +304,51 @@
           "v2h_full"
         ],
         "maturities_observed": [
-          "locked:862",
+          "locked:812",
           "exploratory:334"
         ]
       },
       "penalties": []
     },
     {
-      "canonical_name": "POP-PLS-compact-numpy",
+      "canonical_name": "TabPFN-Raw",
       "aliases": [
-        "POP-PLS-compact",
-        "nirs4all-POP-PLS-default",
-        "POP-simpls-covariance-numpy",
-        "POP-nipals-adjoint-numpy"
+        "TabPFN-Raw",
+        "TabPFN-raw",
+        "tabpfn-raw"
       ],
-      "model_class": "POPPLSRegressor",
-      "module": "nirs4all.operators.models.sklearn.pop_pls",
-      "config_template": "bench/scenarios/configs/pop_pls_compact_numpy.yaml",
+      "model_class": "TabPFNRegressor",
+      "module": "tabpfn",
+      "config_template": "bench/scenarios/configs/tabpfn_raw.yaml",
       "task_types": [
         "regression"
       ],
       "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "fast",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "Slated for unification with AOM-PLS per AOM/ROADMAP M1.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 477,
-        "n_rows_total": 486,
-        "n_datasets": 59,
-        "coverage_fraction_raw": 1.0351,
-        "median_rel_source_pls": 1.1316,
-        "q75_rel_source_pls": 1.4817,
-        "q90_rel_source_pls": 2.3376,
-        "median_rel_dataset_pls": 1.4632,
-        "q75_rel_dataset_pls": 2.3064,
-        "q90_rel_dataset_pls": 5.0034,
-        "worst_clipped_ratio": 5.0,
-        "wins_vs_source_pls": 22,
-        "wins_vs_dataset_pls": 7,
-        "median_fit_time_s": 1.105,
-        "q90_fit_time_s": 12.402,
-        "source_families": [
-          "AOM_v0",
-          "AOM_v0_MultiKernel"
-        ],
-        "source_runs": [
-          "extended",
-          "full",
-          "full_pre_parity",
-          "full_v1_11variants",
-          "smoke"
-        ],
-        "maturities_observed": [
-          "locked:477",
-          "exploratory:9"
-        ]
-      },
-      "penalties": [
-        "q90_toxic(2.34)"
-      ]
-    },
-    {
-      "canonical_name": "AOMMultiView-MeanEnsemble4-fixed",
-      "aliases": [
-        "mean-ensemble-4-fixed"
-      ],
-      "model_class": "AOMMeanEnsemble",
-      "module": "bench.AOM_v0.multiview.estimators",
-      "config_template": "bench/scenarios/configs/mean_ensemble_4.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": false,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "Equal-weight average of 4 bases. inner_cv_nested=false because the\nensemble does not fit a meta on Y; exporter must keep it out of\n`strong_practical` per the gating rule.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 59,
-        "n_rows_total": 59,
-        "n_datasets": 59,
-        "coverage_fraction_raw": 1.0351,
-        "median_rel_source_pls": 0.8829,
-        "q75_rel_source_pls": 0.9708,
-        "q90_rel_source_pls": 1.0479,
-        "median_rel_dataset_pls": 1.0241,
-        "q75_rel_dataset_pls": 1.1938,
-        "q90_rel_dataset_pls": 1.3093,
-        "worst_clipped_ratio": 1.364,
-        "wins_vs_source_pls": 49,
-        "wins_vs_dataset_pls": 26,
-        "median_fit_time_s": 1.674,
-        "q90_fit_time_s": 8.117,
-        "source_families": [
-          "AOM_v0_multiview"
-        ],
-        "source_runs": [
-          "full57.csv"
-        ],
-        "maturities_observed": [
-          "locked:59"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "moe-preproc-soft-pls-compact",
-      "aliases": [
-        "moe-preproc-soft-pls-compact"
-      ],
-      "model_class": "MoEPreprocSoftPLS",
-      "module": "bench.AOM_v0.multiview.estimators",
-      "config_template": "bench/scenarios/configs/moe_preproc_soft_pls_compact.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
+        "min_n": 10,
+        "max_n": 5000,
+        "max_features": 1000
       },
       "supports_predefined_test_split": true,
       "inner_cv_nested": true,
       "runtime_tier": "medium",
       "maturity": "locked",
       "not_runnable_in_production": false,
-      "notes": "47/61 vs PLS-std (multiview/docs/SUMMARY §6).",
+      "notes": "Hard gate from plan §9.2: n_train <= 5000, n_features <= 1000.",
       "evidence": {
         "present_in_master": true,
-        "n_rows_locked": 153,
-        "n_rows_total": 167,
-        "n_datasets": 59,
-        "coverage_fraction_raw": 1.0351,
-        "median_rel_source_pls": 0.9046,
-        "q75_rel_source_pls": 0.9728,
-        "q90_rel_source_pls": 1.0429,
-        "median_rel_dataset_pls": 1.0458,
-        "q75_rel_dataset_pls": 1.2207,
-        "q90_rel_dataset_pls": 1.586,
-        "worst_clipped_ratio": 1.2989,
-        "wins_vs_source_pls": 50,
-        "wins_vs_dataset_pls": 17,
-        "median_fit_time_s": 2.247,
-        "q90_fit_time_s": 25.688,
-        "source_families": [
-          "AOM_v0_multiview"
-        ],
-        "source_runs": [
-          "full57.csv",
-          "meta_selector_full57",
-          "smoke10.csv",
-          "smoke4_baseline.csv"
-        ],
-        "maturities_observed": [
-          "locked:153",
-          "exploratory:14"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "paper-CatBoost-reference",
-      "aliases": [
-        "Catboost"
-      ],
-      "model_class": "PaperCatBoostReference",
-      "module": "bench.tabpfn_paper.reference",
-      "config_template": "bench/scenarios/configs/paper_catboost_reference.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": false,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": true,
-      "notes": "Paper reference; not runnable in this registry. Harness must refuse to dispatch.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 57,
-        "n_rows_total": 57,
-        "n_datasets": 57,
-        "coverage_fraction_raw": 1.0,
-        "median_rel_source_pls": 0.9889,
-        "q75_rel_source_pls": 1.1876,
-        "q90_rel_source_pls": 1.8809,
-        "median_rel_dataset_pls": 1.0375,
-        "q75_rel_dataset_pls": 1.3264,
-        "q90_rel_dataset_pls": 2.0791,
+        "n_rows_locked": 61,
+        "n_rows_total": 61,
+        "n_datasets": 61,
+        "coverage_fraction_raw": 1.0702,
+        "median_rel_source_pls": 0.954,
+        "q75_rel_source_pls": 1.1255,
+        "q90_rel_source_pls": 2.0935,
+        "median_rel_dataset_pls": 1.0059,
+        "q75_rel_dataset_pls": 1.2784,
+        "q90_rel_dataset_pls": 1.9202,
         "worst_clipped_ratio": 5.0,
-        "wins_vs_source_pls": 29,
-        "wins_vs_dataset_pls": 23,
+        "wins_vs_source_pls": 31,
+        "wins_vs_dataset_pls": 28,
         "median_fit_time_s": null,
         "q90_fit_time_s": null,
         "source_families": [
@@ -638,13 +358,69 @@
           "master_pivot"
         ],
         "maturities_observed": [
-          "locked:57"
+          "locked:61"
         ]
       },
       "penalties": [
-        "q90_toxic(1.88)",
-        "not_runnable_in_production"
+        "q90_toxic(2.09)"
       ]
+    },
+    {
+      "canonical_name": "AOMRidge-Local-compact-knn50",
+      "aliases": [
+        "AOMRidge-Local-compact-knn50",
+        "AOMRidge-Local-compact-cv-blended"
+      ],
+      "model_class": "AOMLocalRidge",
+      "module": "aomridge.local_ridge",
+      "config_template": "bench/scenarios/configs/aomridge_local_compact_knn50.yaml",
+      "task_types": [
+        "regression"
+      ],
+      "input_constraints": {
+        "min_n": 50
+      },
+      "supports_predefined_test_split": true,
+      "inner_cv_nested": true,
+      "runtime_tier": "medium",
+      "maturity": "locked",
+      "not_runnable_in_production": false,
+      "notes": "k-NN local kernel; safe for n_train > 3000.",
+      "evidence": {
+        "present_in_master": true,
+        "n_rows_locked": 304,
+        "n_rows_total": 304,
+        "n_datasets": 53,
+        "coverage_fraction_raw": 0.9298,
+        "median_rel_source_pls": null,
+        "q75_rel_source_pls": null,
+        "q90_rel_source_pls": null,
+        "median_rel_dataset_pls": 1.0793,
+        "q75_rel_dataset_pls": 1.2545,
+        "q90_rel_dataset_pls": 1.5399,
+        "worst_clipped_ratio": 5.0,
+        "wins_vs_source_pls": 0,
+        "wins_vs_dataset_pls": 17,
+        "median_fit_time_s": 22.197,
+        "q90_fit_time_s": 178.084,
+        "source_families": [
+          "AOM_v0_Ridge"
+        ],
+        "source_runs": [
+          "all53_top5_fast_parallel",
+          "all54_combined",
+          "all54_top5_fast",
+          "diverse_iter3_ablations",
+          "diverse_iter3_giants_extras",
+          "diverse_iter3_giants_local",
+          "diverse_iter3_hextras",
+          "diverse_iter3_top5_n_wo"
+        ],
+        "maturities_observed": [
+          "locked:304"
+        ]
+      },
+      "penalties": []
     },
     {
       "canonical_name": "AOMRidge-global-compact-none",
@@ -775,72 +551,13 @@
       "penalties": []
     },
     {
-      "canonical_name": "AOMRidge-Local-compact-knn50",
+      "canonical_name": "AOMRidge-AutoSelect-headline-spxy3",
       "aliases": [
-        "AOMRidge-Local-compact-knn50",
-        "AOMRidge-Local-compact-cv-blended"
+        "AOMRidge-AutoSelect-headline-spxy3"
       ],
-      "model_class": "AOMLocalRidge",
-      "module": "aomridge.local_ridge",
-      "config_template": "bench/scenarios/configs/aomridge_local_compact_knn50.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 50
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "k-NN local kernel; safe for n_train > 3000.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 304,
-        "n_rows_total": 304,
-        "n_datasets": 53,
-        "coverage_fraction_raw": 0.9298,
-        "median_rel_source_pls": null,
-        "q75_rel_source_pls": null,
-        "q90_rel_source_pls": null,
-        "median_rel_dataset_pls": 1.0793,
-        "q75_rel_dataset_pls": 1.2545,
-        "q90_rel_dataset_pls": 1.5399,
-        "worst_clipped_ratio": 5.0,
-        "wins_vs_source_pls": 0,
-        "wins_vs_dataset_pls": 17,
-        "median_fit_time_s": 22.197,
-        "q90_fit_time_s": 178.084,
-        "source_families": [
-          "AOM_v0_Ridge"
-        ],
-        "source_runs": [
-          "all53_top5_fast_parallel",
-          "all54_combined",
-          "all54_top5_fast",
-          "diverse_iter3_ablations",
-          "diverse_iter3_giants_extras",
-          "diverse_iter3_giants_local",
-          "diverse_iter3_hextras",
-          "diverse_iter3_top5_n_wo"
-        ],
-        "maturities_observed": [
-          "locked:304"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "MKM-reml-default",
-      "aliases": [
-        "MKM-reml",
-        "MKM-reml-asls",
-        "MKM-reml-msc"
-      ],
-      "model_class": "MKMRegressor",
-      "module": "bench.AOM_v0.Multi-kernel.estimators",
-      "config_template": "bench/scenarios/configs/mkm_reml_default.yaml",
+      "model_class": "AOMRidgeAutoSelector",
+      "module": "aomridge.auto_selector",
+      "config_template": "bench/scenarios/configs/aomridge_autoselect_headline_spxy3.yaml",
       "task_types": [
         "regression"
       ],
@@ -850,211 +567,43 @@
       },
       "supports_predefined_test_split": true,
       "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "`module` path uses a hyphen; harness must quote-and-escape it.\nLocked but ranked below AOM-Ridge for `strong_practical`.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 216,
-        "n_rows_total": 228,
-        "n_datasets": 53,
-        "coverage_fraction_raw": 0.9298,
-        "median_rel_source_pls": null,
-        "q75_rel_source_pls": null,
-        "q90_rel_source_pls": null,
-        "median_rel_dataset_pls": 0.9884,
-        "q75_rel_dataset_pls": 1.0425,
-        "q90_rel_dataset_pls": 1.2102,
-        "worst_clipped_ratio": 4.1148,
-        "wins_vs_source_pls": 0,
-        "wins_vs_dataset_pls": 32,
-        "median_fit_time_s": 11.451,
-        "q90_fit_time_s": 162.579,
-        "source_families": [
-          "AOM_v0_MultiKernel"
-        ],
-        "source_runs": [
-          "all54_stageA",
-          "curated10",
-          "curated11",
-          "diverse10",
-          "smoke3",
-          "smoke3_branches"
-        ],
-        "maturities_observed": [
-          "locked:216",
-          "exploratory:12"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "mkR-softmax-cv-default",
-      "aliases": [
-        "mkR-softmax_cv",
-        "mkR-softmax_cv-snv"
-      ],
-      "model_class": "SoftmaxCVMultiKernelRidge",
-      "module": "bench.AOM_v0.Multi-kernel.estimators",
-      "config_template": "bench/scenarios/configs/mkr_softmax_cv_default.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30,
-        "max_n": 3000
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 144,
-        "n_rows_total": 153,
-        "n_datasets": 53,
-        "coverage_fraction_raw": 0.9298,
-        "median_rel_source_pls": null,
-        "q75_rel_source_pls": null,
-        "q90_rel_source_pls": null,
-        "median_rel_dataset_pls": 1.0119,
-        "q75_rel_dataset_pls": 1.0556,
-        "q90_rel_dataset_pls": 1.1761,
-        "worst_clipped_ratio": 1.9904,
-        "wins_vs_source_pls": 0,
-        "wins_vs_dataset_pls": 23,
-        "median_fit_time_s": 16.09,
-        "q90_fit_time_s": 277.427,
-        "source_families": [
-          "AOM_v0_MultiKernel"
-        ],
-        "source_runs": [
-          "all54_stageA",
-          "curated10",
-          "curated11",
-          "diverse10",
-          "smoke3",
-          "smoke3_branches"
-        ],
-        "maturities_observed": [
-          "locked:144",
-          "exploratory:9"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "Stack-Ridge-PLS-V1c",
-      "aliases": [
-        "Stack-Ridge-PLS",
-        "Stack-Ridge-PLS-V1c",
-        "Stack-Ridge-PLS-V1aHead"
-      ],
-      "model_class": "StackRidgePLS",
-      "module": "bench.nicon_v2.stack",
-      "config_template": "bench/scenarios/configs/stack_ridge_pls_v1c.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
       "runtime_tier": "slow",
-      "maturity": "locked",
+      "maturity": "exploratory",
       "not_runnable_in_production": false,
-      "notes": "Hybrid CNN+linear stack. Pending B's residual gate.",
+      "notes": "Same audit gate as AOMRidge-Blender. 117 source rows, 53 datasets.",
       "evidence": {
         "present_in_master": true,
-        "n_rows_locked": 182,
-        "n_rows_total": 209,
-        "n_datasets": 39,
-        "coverage_fraction_raw": 0.6842,
-        "median_rel_source_pls": 0.9617,
-        "q75_rel_source_pls": 0.9871,
-        "q90_rel_source_pls": 1.0417,
-        "median_rel_dataset_pls": 1.0602,
-        "q75_rel_dataset_pls": 1.1265,
-        "q90_rel_dataset_pls": 1.4421,
-        "worst_clipped_ratio": 5.0,
-        "wins_vs_source_pls": 31,
-        "wins_vs_dataset_pls": 11,
-        "median_fit_time_s": 33.351,
-        "q90_fit_time_s": 104.555,
-        "source_families": [
-          "nicon_v2"
-        ],
-        "source_runs": [
-          "stack_curated",
-          "stack_extended",
-          "stack_full",
-          "stack_smoke"
-        ],
-        "maturities_observed": [
-          "locked:182",
-          "exploratory:27"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "AOMRidge-MultiBranchMKL-compact-shrink03",
-      "aliases": [
-        "AOMRidge-MultiBranchMKL-compact-shrink03"
-      ],
-      "model_class": "AOMMultiBranchMKL",
-      "module": "aomridge.multi_branch_mkl",
-      "config_template": "bench/scenarios/configs/aomridge_mbmkl_compact.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 50,
-        "max_n": 3000
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "slow",
-      "maturity": "locked",
-      "not_runnable_in_production": false,
-      "notes": "",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 152,
-        "n_rows_total": 152,
+        "n_rows_locked": 0,
+        "n_rows_total": 117,
         "n_datasets": 53,
         "coverage_fraction_raw": 0.9298,
         "median_rel_source_pls": null,
         "q75_rel_source_pls": null,
         "q90_rel_source_pls": null,
-        "median_rel_dataset_pls": 1.2764,
-        "q75_rel_dataset_pls": 3.598,
-        "q90_rel_dataset_pls": 9.3122,
-        "worst_clipped_ratio": 5.0,
+        "median_rel_dataset_pls": 0.9942,
+        "q75_rel_dataset_pls": 1.0889,
+        "q90_rel_dataset_pls": 1.2416,
+        "worst_clipped_ratio": 1.9824,
         "wins_vs_source_pls": 0,
-        "wins_vs_dataset_pls": 8,
-        "median_fit_time_s": 253.682,
-        "q90_fit_time_s": 1765.192,
+        "wins_vs_dataset_pls": 30,
+        "median_fit_time_s": 661.017,
+        "q90_fit_time_s": 2322.524,
         "source_families": [
           "AOM_v0_Ridge"
         ],
         "source_runs": [
-          "all53_top5_fast_parallel",
           "all54_combined",
-          "all54_top5_fast",
-          "diverse_iter3_giants_extras",
-          "diverse_iter3_hextras",
-          "diverse_iter3_top5_n_wo"
+          "all54_headline",
+          "diverse_iter3_headline",
+          "diverse_iter3_wrappers_giants"
         ],
         "maturities_observed": [
-          "locked:152"
+          "exploratory:117"
         ]
       },
-      "penalties": []
+      "penalties": [
+        "no_locked_evidence_in_master"
+      ]
     },
     {
       "canonical_name": "AOMRidge-Blender-headline-spxy3",
@@ -1107,61 +656,6 @@
         ],
         "maturities_observed": [
           "exploratory:128"
-        ]
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "AOMRidge-AutoSelect-headline-spxy3",
-      "aliases": [
-        "AOMRidge-AutoSelect-headline-spxy3"
-      ],
-      "model_class": "AOMRidgeAutoSelector",
-      "module": "aomridge.auto_selector",
-      "config_template": "bench/scenarios/configs/aomridge_autoselect_headline_spxy3.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30,
-        "max_n": 3000
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "slow",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "Same audit gate as AOMRidge-Blender. 117 source rows, 53 datasets.",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 0,
-        "n_rows_total": 117,
-        "n_datasets": 53,
-        "coverage_fraction_raw": 0.9298,
-        "median_rel_source_pls": null,
-        "q75_rel_source_pls": null,
-        "q90_rel_source_pls": null,
-        "median_rel_dataset_pls": 0.9942,
-        "q75_rel_dataset_pls": 1.0889,
-        "q90_rel_dataset_pls": 1.2416,
-        "worst_clipped_ratio": 1.9824,
-        "wins_vs_source_pls": 0,
-        "wins_vs_dataset_pls": 30,
-        "median_fit_time_s": 661.017,
-        "q90_fit_time_s": 2322.524,
-        "source_families": [
-          "AOM_v0_Ridge"
-        ],
-        "source_runs": [
-          "all54_combined",
-          "all54_headline",
-          "diverse_iter3_headline",
-          "diverse_iter3_wrappers_giants"
-        ],
-        "maturities_observed": [
-          "exploratory:117"
         ]
       },
       "penalties": [
@@ -1227,108 +721,63 @@
       ]
     },
     {
-      "canonical_name": "V2L-Residual-AOMPLS",
+      "canonical_name": "TabPFN-HPO-preprocessing",
       "aliases": [
-        "V2L-Residual-AOMPLS",
-        "V2L-Residual-AOMPLS-shrinkage-r21"
+        "TabPFN-HPO-preprocessing",
+        "tabpfn-hpo-preprocessing",
+        "TabPFN-opt",
+        "tabpfn-opt",
+        "tabpfn_opt"
       ],
-      "model_class": "V2LResidualAOMPLS",
-      "module": "bench.nicon_v2.residual",
-      "config_template": "bench/scenarios/configs/v2l_residual_aompls.yaml",
+      "model_class": "TabPFNRegressor",
+      "module": "tabpfn",
+      "config_template": "bench/scenarios/configs/tabpfn_hpo_preprocessing.yaml",
       "task_types": [
         "regression"
       ],
       "input_constraints": {
-        "min_n": 30
+        "min_n": 10,
+        "max_n": 5000,
+        "max_features": 1000
       },
       "supports_predefined_test_split": true,
       "inner_cv_nested": true,
       "runtime_tier": "very_slow",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-B-012 LOCKED NO-GO via Codex round 4 APPROVE (2026-05-06).\nr21 multiseed (n=195, 5 seeds × 39 datasets) full results in\nbench/nicon_v2/benchmark_runs/r21_curated_oof_multiseed/.\nProduction gate failed: median +7.5 % vs aom_ridge_curated_best,\n14.9 % wins. Paper-CNN descriptive: median -9.8 %, 71 % wins.\nTail-variance instability (s* IQR > 0.3 on 17/39 datasets)\nmotivated D-B-018 r22 hybrid Option-A shrinkage diagnostic\n(in flight 2026-05-09).\ngpu_long ; exhaustive_research only ; do NOT promote.\nEvidence: bench/nicon_v2/benchmark_runs/r21_curated_oof_multiseed/results.csv (n=195)\nLinear analogue (FCK-static residual instead of V2L-CNN residual):\nsee FCKResidual-AOMPLS-teacher (D-B-016 LOCKED, weaker than V2L).",
-      "evidence": {
-        "present_in_master": true,
-        "n_rows_locked": 139,
-        "n_rows_total": 139,
-        "n_datasets": 42,
-        "coverage_fraction_raw": 0.7368,
-        "median_rel_source_pls": 0.9509,
-        "q75_rel_source_pls": 1.0051,
-        "q90_rel_source_pls": 1.1042,
-        "median_rel_dataset_pls": 1.0442,
-        "q75_rel_dataset_pls": 1.1389,
-        "q90_rel_dataset_pls": 1.3235,
-        "worst_clipped_ratio": 2.3529,
-        "wins_vs_source_pls": 27,
-        "wins_vs_dataset_pls": 13,
-        "median_fit_time_s": 103.541,
-        "q90_fit_time_s": 518.036,
-        "source_families": [
-          "nicon_v2"
-        ],
-        "source_runs": [
-          "r17_priority1",
-          "r18_residual_multiseed",
-          "r20_curated_oof"
-        ],
-        "maturities_observed": [
-          "locked:139"
-        ]
-      },
-      "penalties": []
-    },
-    {
-      "canonical_name": "paper-CNN-reference",
-      "aliases": [
-        "CNN"
-      ],
-      "model_class": "PaperCNNReference",
-      "module": "bench.tabpfn_paper.reference",
-      "config_template": "bench/scenarios/configs/paper_cnn_reference.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": false,
-      "runtime_tier": "very_slow",
       "maturity": "locked",
-      "not_runnable_in_production": true,
-      "notes": "Paper reference column from master_pivot.csv. Not runnable in this\nregistry; kept for leaderboard inclusion. Harness must refuse to\ndispatch.",
+      "not_runnable_in_production": false,
+      "notes": "Strongest paper baseline (`tabpfn_paper/table_results_tabpfn_final_light.csv`).\nIncludes the upstream Cartesian preprocessing search; expensive (q90 ~1h\non RTX 4090 per dataset). Requires explicit preprocessing budget per plan §9.3.",
       "evidence": {
         "present_in_master": true,
-        "n_rows_locked": 51,
-        "n_rows_total": 51,
-        "n_datasets": 51,
-        "coverage_fraction_raw": 0.8947,
-        "median_rel_source_pls": 1.0262,
-        "q75_rel_source_pls": 1.2783,
-        "q90_rel_source_pls": 2.7472,
-        "median_rel_dataset_pls": 1.0317,
-        "q75_rel_dataset_pls": 1.3273,
-        "q90_rel_dataset_pls": 2.8527,
+        "n_rows_locked": 174,
+        "n_rows_total": 174,
+        "n_datasets": 58,
+        "coverage_fraction_raw": 1.0175,
+        "median_rel_source_pls": 0.894,
+        "q75_rel_source_pls": 0.9915,
+        "q90_rel_source_pls": 1.1053,
+        "median_rel_dataset_pls": 0.9021,
+        "q75_rel_dataset_pls": 0.9968,
+        "q90_rel_dataset_pls": 1.1287,
         "worst_clipped_ratio": 5.0,
-        "wins_vs_source_pls": 23,
-        "wins_vs_dataset_pls": 19,
+        "wins_vs_source_pls": 41,
+        "wins_vs_dataset_pls": 44,
         "median_fit_time_s": null,
         "q90_fit_time_s": null,
         "source_families": [
-          "paper_master_pivot"
+          "AOM_v0_multiview",
+          "paper_master_pivot",
+          "tabpfn_paper"
         ],
         "source_runs": [
-          "master_pivot"
+          "master_pivot",
+          "meta_selector_full57",
+          "table_results_tabpfn_final_light"
         ],
         "maturities_observed": [
-          "locked:51"
+          "locked:174"
         ]
       },
-      "penalties": [
-        "q90_toxic(2.75)",
-        "not_runnable_in_production"
-      ]
+      "penalties": []
     },
     {
       "canonical_name": "V2L-Boost-AOMPLS",
@@ -1382,291 +831,21 @@
       "penalties": [
         "q90_toxic(2.06)"
       ]
-    },
-    {
-      "canonical_name": "FCK-AOMPLS-static",
-      "aliases": [
-        "FCK-AOMPLS",
-        "fck-aompls"
-      ],
-      "model_class": "AOMPLSRegressor",
-      "module": "nirs4all.operators.models.sklearn.aom_pls",
-      "config_template": "bench/scenarios/configs/fck_aompls_static.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-B-011 NO-GO for promotion (Codex round 3 APPROVE 2026-05-05).\nMedian +12.6 % vs aom_ridge_curated_best on audit20; q90 +57.1 %;\nworst +102.7 %. Beats paper CNN by median −5.5 % (9/17 wins) and\nties paper CatBoost (10/20 wins). exhaustive_research only.",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "FCK-PLS-static",
-      "aliases": [
-        "FCK-PLS",
-        "fck-pls"
-      ],
-      "model_class": "PLSRegression",
-      "module": "sklearn.cross_decomposition",
-      "config_template": "bench/scenarios/configs/fck_pls_static.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 20
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-B-011 NO-GO. Median +19.4 % vs aom_ridge_curated_best on audit20.\nQuartz_spxy70 outlier at +11072.7 % flagged in Codex round 3 §5.\nexhaustive_research only.",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "ASLS-FCK-PLS-static",
-      "aliases": [
-        "ASLS-FCK-PLS",
-        "asls-fck-pls"
-      ],
-      "model_class": "PLSRegression",
-      "module": "sklearn.cross_decomposition",
-      "config_template": "bench/scenarios/configs/asls_fck_pls_static.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-B-011 NO-GO. fast12-only evidence; audit20 / full-57 not run\n(Codex round 3 §4 caveat). SNV step is a placeholder pending B's\nASLS preprocessor. exhaustive_research only.",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "AOMPLS-compact-with-fck-full57",
-      "aliases": [
-        "aompls_compact_with_fck",
-        "AOMPLS-compact-with-fck",
-        "AOMPLS-compact-with-fck-audit20"
-      ],
-      "model_class": "AOMPLSRegressor",
-      "module": "aompls.estimators",
-      "config_template": "bench/scenarios/configs/aompls_compact_with_fck_full57.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-B-015 LOCKED 2026-05-07 (Codex round 6 APPROVE; supersedes\nD-B-014 audit20 lock). FCK kernels integrated into AOM-PLS bank:\n9 compact ops + 8 FCK ops = 17 total. FCK selected on 17/57\ndatasets (29.8 %) in full-57. Strict §3.3 gate FAILS: median\n+8.7 % vs aom_ridge_curated_best (gate ≤ +5 %), q90 +35.8 %\n(gate ≤ +25 %), worst +136.6 % (gate ≤ +75 %). Paper-CNN scoped\nclaim: median −5.5 %, 28/48 wins (58 %, below 75 % science gate).\nexhaustive_research only; do NOT promote.\nEvidence:\n  bench/fck_pls/runs/aom_with_fck_fast12/results.csv (n=12)\n  bench/fck_pls/runs/aom_with_fck_audit20/results.csv (n=20)\n  bench/fck_pls/runs/aom_with_fck_full57/results.csv (n=57)",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "AOMRidgePLSCV-compact-with-fck",
-      "aliases": [
-        "AOMRidgePLSCV-compact-with-fck",
-        "aomridge-pls-cv-compact-with-fck"
-      ],
-      "model_class": "AOMRidgePLSCV",
-      "module": "aomridge.aom_ridge_pls",
-      "config_template": "bench/scenarios/configs/aomridge_pls_cv_compact_with_fck.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-B-017b LOCKED via Codex round 8 APPROVE (2026-05-08). CV-tuned\nAOM-Ridge with the 17-op `compact_with_fck` bank (9 compact + 8 FCK).\nThe fair comparison Codex round-7 demanded; supersedes D-B-017's\ndefault-hyperparam audit. Strict +5 % gate FAILS at median +13.4 %\nvs aom_ridge_curated_best (n=39); q90 +45.9 % (-10.7 pp better than\ncompact-only); worst +3173 % (-4278 pp better, but Quartz_spxy70\nreference rmsep ≈ 3e-9 dominates the worst ratio so q90 is the\ncleaner anchor); 4/39 wins (+1 over compact-only).\nvs paper CNN: median -2.8 %, 26/48 wins (54.2 %) — beats paper CNN.\nvs paper Ridge/PLS/CatBoost/TabPFN-raw: tied/slightly behind\n(+5.9/+4.8/+3.9/+4.1 % median).\nStability trade-off (HYPOTHESIS, not proven by aggregate numbers):\nthe 8 added FCK blocks make Ridge more conservative ; sacrifices\nsmall median for substantially more robust tails.\nexhaustive_research only ; do NOT promote, recommend, prefer, or\ndescribe as better than aom_ridge_curated_best.\nEvidence:\n  bench/fck_pls/runs/aom_with_fck_full57/results.csv\n  (399 data rows; 114 AOMRidgePLSCV-* rows; 57 compact + 57 compact-with-fck)",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "FCKResidual-AOMPLS-teacher",
-      "aliases": [
-        "FCKResidual-AOMPLS",
-        "fck-residual-aompls"
-      ],
-      "model_class": "FCKResidualRegressor",
-      "module": "bench.fck_pls.fck_residual",
-      "config_template": "bench/scenarios/configs/fck_residual_aompls_static.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": false,
-      "runtime_tier": "medium",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-B-016 LOCKED NO-GO via Codex round 7 APPROVE (2026-05-08 ~20:00 CEST).\nFull-57 results: median +11.0 % vs aom_ridge_curated_best (FAILS strict\ngate by 6.0 pp), q90 +32.2 %, worst +131.4 %, 3/39 wins. Paper-CNN\ndescriptive: median −3.2 %, 28/48 wins (58.3 %) — weaker than r21\nV2L-Residual-AOMPLS's −9.8 %, 71 % wins. The \"linear pendant\" of r21\nV2L-Residual gives a consistent but weaker NO-GO; FCK-static feature\nextractor + Ridge head captures less of V2L-CNN's non-linear edge.\nCloses the FCK × AOM matrix (preprocessing, in-bank, residual all NO-GO\nvs strict AOM-Ridge gate, all paper-CNN-tied).\nexhaustive_research only ; do NOT promote.\nEvidence:\n  bench/fck_pls/runs/aom_with_fck_audit20/results.csv (n=20, FCKResidual-AOMPLS)\n  bench/fck_pls/runs/aom_with_fck_full57/results.csv (n=57, FCKResidual-AOMPLS)",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "AOMRidge-Local-compact-knn-sweep",
-      "aliases": [
-        "AOMRidge-Local-compact-knn-sweep"
-      ],
-      "model_class": "AOMLocalRidge",
-      "module": "aomridge.local_ridge",
-      "config_template": "bench/scenarios/configs/aomridge_local_compact_knn_sweep.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 50
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "medium",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-A-009 k-tuning sweep variant (Codex round 12 LOCK 2026-05-08 17:10 CEST).\nSame AOMLocalRidge class as `AOMRidge-Local-compact-knn50` (the D-A-003\nk=50-only baseline) but with internal `k_grid: [10, 25, 50, 100, 200]`\nsweep selecting best k per fit. Single-seed protocol (D-A-003 demonstrated\nbit-identical RMSEPs across seeds 0/1/2 for this deterministic atom).\nDiagnostic for the Chla+b_spxyG_species small-big-n boundary regression\n(n_train=3734, R²=-13.45 at k=50). Cohort: same 4 big-n datasets as D-A-003.\nA's manifest at bench/AOM_v0/Ridge/scenarios/da009_local_knn_sweep.json\nreuses the `AOMRidge-Local-compact-knn50` canonical_name with the\nkgrid-sweep YAML for registry-validation parity (workaround documented in\nA's manifest description). This registry entry is the formal Codex-R12-§3\npreset path for any future generic k-sweep runs.",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "AdaptiveSuperLearner-bigN-guarded",
-      "aliases": [
-        "adaptive-super-learner-bigN-guarded"
-      ],
-      "model_class": "AdaptiveSuperLearner",
-      "module": "bench.AOM_v0.multiview.multiview.super_learner",
-      "config_template": "bench/scenarios/configs/adaptive_super_learner_bigN_guarded.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 3001
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "slow",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "Phase-11 ASL with atom-set guard active. Drops AOM-PLS-compact and\nlazy-V2-AOM from the NNLS atom pool; keeps {multiK-3-5-7,\nmoe-preproc-soft}. Use only for n_train > 3000 datasets. Result\nrows are tagged `extras.atom_guard=true` so the synthesis can keep\nthem out of the apples-to-apples comparison with the unguarded\nASL. Source: D-A-002 LOCKED in\n`bench/AOM_v0/multiview/docs/PHASE11_PARTIAL_RUN.md` §3.1.",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
-    },
-    {
-      "canonical_name": "Concat-SNV-FCK-AOMPLS-static",
-      "aliases": [
-        "Concat-SNV-FCK-AOMPLS",
-        "concat-snv-fck-aompls"
-      ],
-      "model_class": "AOMPLSRegressor",
-      "module": "nirs4all.operators.models.sklearn.aom_pls",
-      "config_template": "bench/scenarios/configs/concat_snv_fck_aompls_static.yaml",
-      "task_types": [
-        "regression"
-      ],
-      "input_constraints": {
-        "min_n": 30
-      },
-      "supports_predefined_test_split": true,
-      "inner_cv_nested": true,
-      "runtime_tier": "slow",
-      "maturity": "exploratory",
-      "not_runnable_in_production": false,
-      "notes": "D-B-011 NO-GO. AOM-Ridge deltas worse than FCK-AOMPLS-static\n(+13.8 % median, +98.5 % q90, +159.5 % worst, 1/15 wins) but\nabsolute median rmsep beats PLS-baseline by +15.92 %, the largest\ncohort improvement among FCK pipelines. exhaustive_research only.",
-      "evidence": {
-        "present_in_master": false
-      },
-      "penalties": [
-        "no_locked_evidence_in_master"
-      ]
     }
   ],
   "ordering_hint": [
     "AOM-PLS-compact-numpy",
     "Ridge-tuned-cv5",
-    "ASLS-AOM-compact-cv5-numpy",
-    "AOM-default-nipals-adjoint-numpy",
     "PLS-tuned-cv5",
-    "POP-PLS-compact-numpy",
-    "AOMMultiView-MeanEnsemble4-fixed",
-    "moe-preproc-soft-pls-compact",
-    "paper-CatBoost-reference",
+    "TabPFN-Raw",
+    "AOMRidge-Local-compact-knn50",
     "AOMRidge-global-compact-none",
     "AOMRidge-global-compact-snv",
-    "AOMRidge-Local-compact-knn50",
-    "MKM-reml-default",
-    "mkR-softmax-cv-default",
-    "Stack-Ridge-PLS-V1c",
-    "AOMRidge-MultiBranchMKL-compact-shrink03",
-    "AOMRidge-Blender-headline-spxy3",
     "AOMRidge-AutoSelect-headline-spxy3",
+    "AOMRidge-Blender-headline-spxy3",
     "AdaptiveSuperLearner-recipe-nnls",
-    "V2L-Residual-AOMPLS",
-    "paper-CNN-reference",
-    "V2L-Boost-AOMPLS",
-    "FCK-AOMPLS-static",
-    "FCK-PLS-static",
-    "ASLS-FCK-PLS-static",
-    "AOMPLS-compact-with-fck-full57",
-    "AOMRidgePLSCV-compact-with-fck",
-    "FCKResidual-AOMPLS-teacher",
-    "AOMRidge-Local-compact-knn-sweep",
-    "AdaptiveSuperLearner-bigN-guarded",
-    "Concat-SNV-FCK-AOMPLS-static"
+    "TabPFN-HPO-preprocessing",
+    "V2L-Boost-AOMPLS"
   ],
   "budget": {
     "target_runtime": "multi-hour / overnight per dataset",

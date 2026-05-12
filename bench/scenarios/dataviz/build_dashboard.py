@@ -30,6 +30,7 @@ import statistics
 from collections import defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Any
 
 BENCH = Path(__file__).resolve().parents[2]
 RUNS = BENCH / "scenarios" / "runs"
@@ -254,7 +255,7 @@ def build_head_to_head(workspace: str) -> dict:
                 h2h[a][b] = 0
                 continue
             wins = 0
-            for ds in {k[1] for k in pair_rmsep.keys() if k[0] == a}:
+            for ds in {k[1] for k in pair_rmsep if k[0] == a}:
                 ra = pair_rmsep.get((a, ds))
                 rb = pair_rmsep.get((b, ds))
                 if ra is not None and rb is not None and ra < rb:
@@ -280,7 +281,7 @@ def build_preprocessing_pairs(workspace: str) -> list[dict]:
     out = []
     for a, b, label in pairs:
         deltas = []
-        for ds in {k[1] for k in pair_rmsep.keys() if k[0] == a}:
+        for ds in {k[1] for k in pair_rmsep if k[0] == a}:
             ra = pair_rmsep.get((a, ds))
             rb = pair_rmsep.get((b, ds))
             if ra is None or rb is None:
@@ -913,14 +914,14 @@ def _norm_token(name: str) -> str:
     if "minmax" in n: return "MinMax"
     if "standardscaler" in n: return "StdScaler"
     if "normalize" in n: return "Normalize"
-    if "asls" in n or "aslsbaseline" == n: return "ASLS"
+    if "asls" in n or n == "aslsbaseline": return "ASLS"
     if "standardnormalvariate" in n or n == "snv": return "SNV"
     if "multiplicativescatter" in n or n == "msc": return "MSC"
     if "savitzkygolay" in n: return "SG"
     if "firstderivative" in n: return "Deriv1"
     if "secondderivative" in n: return "Deriv2"
     if "detrend" in n: return "Detrend"
-    if "feature_std" == n: return "FeatureStd"
+    if n == "feature_std": return "FeatureStd"
     if n == "center": return "Center"
     if n == "identity": return "Identity"
     if n == "none": return None  # type: ignore[return-value]
@@ -1241,6 +1242,191 @@ def build_preprocessing_master(obs: list[dict]) -> dict:
     }
 
 
+def build_preset_pools_section(master: list[dict]) -> dict:
+    """Surface the data-driven pool re-design (`preset_audit/proposed_presets.json`).
+
+    For each preset:
+      - pool: list of canonical_name in the pool
+      - sequential q90 fit-time budget (per dataset)
+      - per-dataset best-in-pool rmsep/PLS ratio
+      - per-dataset cumulative pool time (sum of q90_fit_time across pool)
+    Both proposed and current pools are scored, so the dashboard can show the
+    delta the new pools deliver.
+    """
+    audit_path = BENCH / "scenarios" / "preset_audit" / "proposed_presets.json"
+    evidence_path = BENCH / "scenarios" / "preset_audit" / "per_model_evidence.csv"
+    registry_path = BENCH / "scenarios" / "model_registry.yaml"
+    if not audit_path.exists() or not evidence_path.exists():
+        return {"available": False, "reason": "preset_audit artefacts missing"}
+
+    proposed = json.loads(audit_path.read_text(encoding="utf-8"))
+
+    # Build alias→canonical index by reading the registry as YAML-ish text
+    # (avoid pulling pyyaml here; the file has a strict structure).
+    alias_to_canonical: dict[str, str] = {}
+    canonical_name: str | None = None
+    in_models_section = False
+    for line in registry_path.read_text(encoding="utf-8").splitlines():
+        s = line.rstrip()
+        if s.startswith("models:"):
+            in_models_section = True
+            continue
+        if in_models_section and (s.startswith("cohorts:") or s.startswith("presets:")):
+            in_models_section = False
+        if not in_models_section:
+            continue
+        stripped = s.lstrip()
+        if stripped.startswith("- canonical_name:"):
+            canonical_name = stripped.split(":", 1)[1].strip()
+            alias_to_canonical[_norm_token(canonical_name)] = canonical_name
+        elif stripped.startswith("- ") and canonical_name and ":" not in stripped:
+            alias = stripped[2:].strip()
+            if alias:
+                alias_to_canonical[_norm_token(alias)] = canonical_name
+    # Hard extras same as audit script (TabPFN raw fallbacks).
+    for raw, canon in (
+        ("tabpfnregressor", "TabPFN-Raw"),
+        ("tabpfn-standalone", "TabPFN-Raw"),
+        ("tabpfn-oracle", "TabPFN-opt"),
+        ("aomridgeregressor", "AOMRidge-global-compact-none"),
+        ("aomplsregressor", "AOM-PLS-compact-numpy"),
+        ("aomlocalridge", "AOMRidge-Local-compact-knn50"),
+    ):
+        alias_to_canonical.setdefault(raw, canon)
+
+    # Per-model q90_fit_time_s for budget bookkeeping in the dashboard.
+    q90_time: dict[str, float | None] = {}
+    median_ratio: dict[str, float | None] = {}
+    with evidence_path.open(newline="", encoding="utf-8") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            canon = row["canonical_name"]
+            q90_time[canon] = safe_float(row.get("q90_fit_time_s"))
+            median_ratio[canon] = safe_float(row.get("median_ratio"))
+
+    # Aggregate master → per (canonical, dataset) best rmsep + per-dataset PLS.
+    by_cell: dict[tuple[str, str], float] = {}
+    pls_per_dataset: dict[str, float] = {}
+    for row in master:
+        if row.get("record_type") not in ("observed", "reference_paper"):
+            continue
+        if (row.get("status") or "ok").lower() not in ("", "ok", "success", "done", "complete", "completed"):
+            continue
+        if (row.get("evaluation_split") or "").lower() in ("train", "cv", "cross_val", "cross-validation", "cros val"):
+            continue
+        if row.get("score_metric") != "rmsep":
+            continue
+        dataset = (row.get("dataset") or "").strip()
+        model_name = (row.get("model_name") or "").strip()
+        variant = (row.get("variant") or "").strip()
+        if not dataset or not model_name:
+            continue
+        rmsep = safe_float(row.get("rmsep")) or safe_float(row.get("score_value"))
+        if rmsep is None:
+            continue
+        canon = alias_to_canonical.get(_norm_token(model_name)) or alias_to_canonical.get(_norm_token(variant))
+        if canon is None:
+            continue
+        key = (canon, dataset)
+        prev = by_cell.get(key)
+        if prev is None or rmsep < prev:
+            by_cell[key] = rmsep
+        if canon == "PLS-tuned-cv5":
+            cur = pls_per_dataset.get(dataset)
+            if cur is None or rmsep < cur:
+                pls_per_dataset[dataset] = rmsep
+
+    # For each pool, score each dataset.
+    def score_pool(pool: list[str]) -> dict[str, Any]:
+        per_dataset: list[dict] = []
+        for dataset in sorted(pls_per_dataset.keys()):
+            pls = pls_per_dataset[dataset]
+            if pls <= 0:
+                continue
+            best_canon = None
+            best_ratio = None
+            best_rmsep = None
+            for canon in pool:
+                rms = by_cell.get((canon, dataset))
+                if rms is None:
+                    continue
+                ratio = min(rms / pls, 5.0)
+                if best_ratio is None or ratio < best_ratio:
+                    best_ratio = ratio
+                    best_canon = canon
+                    best_rmsep = rms
+            per_dataset.append({
+                "dataset": dataset,
+                "pls_rmsep": pls,
+                "best_rmsep": best_rmsep,
+                "best_ratio": best_ratio,
+                "best_model": best_canon,
+            })
+        total_time = sum((q90_time.get(c) or 0.0) for c in pool)
+        scored = [d for d in per_dataset if d["best_ratio"] is not None]
+        ratios = [d["best_ratio"] for d in scored]
+        return {
+            "pool": pool,
+            "pool_q90_times": [q90_time.get(c) for c in pool],
+            "total_seq_time_s": total_time,
+            "per_dataset": per_dataset,
+            "n_datasets_scored": len(scored),
+            "mean_ratio": statistics.fmean(ratios) if ratios else None,
+            "median_ratio": (quantile(ratios, 0.5) if ratios else None),
+            "q90_ratio": (quantile(ratios, 0.9) if ratios else None),
+        }
+
+    # Score the *current* pre-redesign preset members the same way for delta.
+    CURRENT_PRESETS = {
+        "fast_reliable": [
+            "PLS-tuned-cv5", "Ridge-tuned-cv5", "ASLS-AOM-compact-cv5-numpy",
+            "AOM-PLS-compact-numpy", "AOMRidge-global-compact-none",
+            "AOMRidge-global-compact-snv",
+        ],
+        "strong_practical": [
+            "PLS-tuned-cv5", "Ridge-tuned-cv5", "ASLS-AOM-compact-cv5-numpy",
+            "AOM-PLS-compact-numpy", "AOMRidge-global-compact-none",
+            "AOMRidge-global-compact-snv", "AOMRidge-Local-compact-knn50",
+        ],
+        "best_current": [
+            "PLS-tuned-cv5", "Ridge-tuned-cv5", "ASLS-AOM-compact-cv5-numpy",
+            "AOM-PLS-compact-numpy", "AOMRidge-global-compact-none",
+            "AOMRidge-global-compact-snv", "AOMRidge-Local-compact-knn50",
+            "AOMRidge-MultiBranchMKL-compact-shrink03",
+        ],
+        "exhaustive_research": [
+            "PLS-tuned-cv5", "Ridge-tuned-cv5", "ASLS-AOM-compact-cv5-numpy",
+            "AOM-PLS-compact-numpy", "AOM-default-nipals-adjoint-numpy",
+            "POP-PLS-compact-numpy", "AOMRidge-global-compact-none",
+            "AOMRidge-global-compact-snv", "AOMRidge-Local-compact-knn50",
+            "AOMRidge-MultiBranchMKL-compact-shrink03",
+            "AOMRidge-Blender-headline-spxy3",
+            "AOMRidge-AutoSelect-headline-spxy3",
+            "V2L-Residual-AOMPLS", "V2L-Boost-AOMPLS",
+            "FCK-AOMPLS-static", "FCK-PLS-static",
+        ],
+    }
+
+    out: dict[str, Any] = {
+        "available": True,
+        "generated_on": proposed.get("generated_on") or "2026-05-12",
+        "presets": {},
+    }
+    for preset, plan in proposed.items():
+        proposed_scored = score_pool(plan["pool"])
+        current_scored = score_pool(CURRENT_PRESETS.get(preset, []))
+        out["presets"][preset] = {
+            "budget_seconds": plan.get("budget_seconds"),
+            "candidate_pool_size": plan.get("candidate_pool_size"),
+            "expected_pool_mean_ratio": plan.get("expected_pool_mean_ratio"),
+            "selected_search": plan.get("selected_search"),
+            "gate": plan.get("gate"),
+            "proposed": proposed_scored,
+            "current": current_scored,
+        }
+    return out
+
+
 def main() -> None:
     master = load_master_rows()
 
@@ -1254,6 +1440,7 @@ def main() -> None:
     failures_out = build_failures(presets_out)
     tabpfn_out = build_tabpfn_paper(master)
     master_aggregations = build_master_aggregations(master)
+    preset_pools_out = build_preset_pools_section(master)
 
     payload = {
         "metadata": {
@@ -1274,6 +1461,7 @@ def main() -> None:
         "failures": failures_out,
         "tabpfn_paper": tabpfn_out,
         "master": master_aggregations,
+        "preset_pools": preset_pools_out,
     }
 
     OUT_JSON.write_text(json.dumps(payload, indent=2, default=str), encoding="utf-8")

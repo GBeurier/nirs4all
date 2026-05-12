@@ -3,7 +3,7 @@
 # Owner: Agent C / MLOps Spine. Bound to registry entry
 # `AdaptiveSuperLearner-bigN-guarded` (D-A-002 LOCKED in
 # bench/AOM_v0/multiview/docs/PHASE11_PARTIAL_RUN.md §3.1).
-# Status: SKELETON, sub-decision under D-C-010. DECISION_PENDING_CODEX_REVIEW.
+# Status: canonical D-A-002 launch config; Codex referee LOCK 2026-05-09.
 #
 # Phase-11 Adaptive Super Learner with the big-n atom-set guard active.
 #
@@ -14,16 +14,13 @@
 # `recipe_min_margin`). The "bigN guard" semantics are encoded by
 # `huge_threshold` + a smaller `light_atoms` set (per docstring §252).
 #
-# This config provides a MINIMAL, RUNNABLE atom/light_atom set built
-# from sklearn primitives so the dispatcher contract holds. Agent A
-# (multiview owner) can replace the atoms with the canonical
-# {multiK-3-5-7, moe-preproc-soft, lazy-V2-AOM, AOM-PLS-compact} family
-# once those estimators are surfaced as importable Python classes; this
-# yaml is only the shape the harness expects.
+# This config now uses the canonical Phase-11 atom family. The full atom pool
+# is retained for the ASL contract; for n_train >= huge_threshold the guard
+# switches to the cheaper light_atoms subset {multiK-3-5-7, moe-preproc-soft}.
 
 canonical_name: AdaptiveSuperLearner-bigN-guarded
 schema_version: 0.1.0
-codex_review_status: DECISION_PENDING_CODEX_REVIEW
+codex_review_status: DECISION_LOCKED
 
 model:
   pipeline:
@@ -35,16 +32,28 @@ model:
           # dicts below into proper tuples before the AdaptiveSuperLearner is
           # instantiated.
           atoms:
-            - {name: ridge_a1, class: sklearn.linear_model.Ridge, params: {alpha: 1.0, random_state: 0}}
-            - {name: pls_a8,   class: sklearn.cross_decomposition.PLSRegression, params: {n_components: 8}}
-            - {name: pls_a12,  class: sklearn.cross_decomposition.PLSRegression, params: {n_components: 12}}
-            - {name: pls_a16,  class: sklearn.cross_decomposition.PLSRegression, params: {n_components: 16}}
+            - name: multiK-3-5-7
+              class: bench.AOM_v0.multiview.multiview.atoms.AOMMoEMultiK
+              params: {K_list: [3, 5, 7], per_expert_components: 10, random_state: 0}
+            - name: moe-preproc-soft
+              class: bench.AOM_v0.multiview.multiview.atoms.AOMMoERegressor
+              params: {expert_layout: per_preproc, routing: soft, bank_name: compact, per_expert_components: 10, random_state: 0}
+            - name: lazy-V2-AOM
+              class: bench.AOM_v0.multiview.multiview.atoms.LazyV2AOM
+              params: {max_components: 10, random_state: 0}
+            - name: aom-pls-compact
+              class: bench.AOM_v0.multiview.multiview.atoms.AOMPLSRegressor
+              params: {n_components: auto, max_components: 10, engine: simpls_covariance, selection: global, criterion: holdout, operator_bank: compact, random_state: 0}
           # bigN guard: when n_train >= huge_threshold, AdaptiveSuperLearner
           # uses the lighter `light_atoms` set instead of `atoms`. Per the
           # docstring at super_learner.py:260.
           light_atoms:
-            - {name: ridge_light, class: sklearn.linear_model.Ridge, params: {alpha: 1.0, random_state: 0}}
-            - {name: pls_light,   class: sklearn.cross_decomposition.PLSRegression, params: {n_components: 8}}
+            - name: multiK-3-5-7
+              class: bench.AOM_v0.multiview.multiview.atoms.AOMMoEMultiK
+              params: {K_list: [3, 5, 7], per_expert_components: 10, random_state: 0}
+            - name: moe-preproc-soft
+              class: bench.AOM_v0.multiview.multiview.atoms.AOMMoERegressor
+              params: {expert_layout: per_preproc, routing: soft, bank_name: compact, per_expert_components: 10, random_state: 0}
           huge_threshold: 3000
           n_oof_folds: 5
           min_margin: 0.005

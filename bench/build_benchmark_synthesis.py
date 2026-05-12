@@ -546,37 +546,144 @@ def collect_result_paths() -> list[Path]:
     return sorted(paths)
 
 
-def parse_master_pivot(records: list[dict[str, Any]]) -> None:
-    path = BENCH / "AOM_v0" / "publication" / "tables" / "master_pivot.csv"
+def parse_tabpfn_master_results(records: list[dict[str, Any]]) -> None:
+    """Ingest the rich TabPFN-paper benchmark dump at bench/1_master_results.csv.
+
+    Strict 1:1 superset of the legacy AOM_v0/publication/tables/master_pivot.csv
+    (335 rows: 6 paper models × ~57 datasets) with per-row preprocessing,
+    MAE, R², RMSECV, n_splits, best_config_json, best_model_params_json,
+    best_fold_scores_json. No timing columns are available in the source.
+    """
+
+    def _pp_chunks(best_config: dict[str, Any]) -> list[str]:
+        # Map best_config_json keys to the HPO compound vocabulary that
+        # bench/scenarios/dataviz/build_dashboard.py::parse_preprocessing
+        # already recognizes (`scaler`, `baseline`, `simple`, `pca`).
+        chunks: list[str] = []
+        for raw_key, raw_val in best_config.items():
+            val = clean_text(raw_val)
+            if not val or val.lower() == "none":
+                continue
+            key = clean_text(raw_key).lower()
+            if key == "scatter":
+                chunks.append(f"simple={val}")
+            elif key == "shape":
+                if val.startswith("SG_"):
+                    chunks.append(f"simple=SavitzkyGolay_{val[3:]}")
+                elif val.lower().startswith("asls"):
+                    chunks.append("baseline=ASLS")
+                else:
+                    chunks.append(f"shape={val}")
+            elif key in {"scaler", "pca"}:
+                chunks.append(f"{key}={val}")
+            else:
+                chunks.append(f"{key}={val}")
+        return chunks
+
+    def _load_json_dict(text: str) -> dict[str, Any]:
+        cleaned = clean_text(text)
+        if not cleaned or cleaned.lower() == "none":
+            return {}
+        try:
+            data = json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    def _load_json_list(text: str) -> list[Any]:
+        cleaned = clean_text(text)
+        if not cleaned or cleaned.lower() == "none":
+            return []
+        try:
+            data = json.loads(cleaned)
+        except (json.JSONDecodeError, ValueError):
+            return []
+        return list(data) if isinstance(data, list) else []
+
+    path = BENCH / "1_master_results.csv"
     if not path.exists():
         return
     for row in read_csv_dicts(path):
         dataset = first(row, "dataset")
-        group = infer_dataset_group(dataset, first(row, "database_name"))
-        for model in ["CNN", "Catboost", "PLS", "Ridge", "TabPFN-Raw", "TabPFN-opt"]:
-            rmsep = as_float(row.get(model))
-            if rmsep is None:
-                continue
-            model_class, strategy = classify_model(model, "paper_reference")
-            record = make_record(
-                record_type="reference_paper",
-                source_family="paper_master_pivot",
-                source_kind="paper_reference",
-                source_path=path.as_posix(),
-                source_run="master_pivot",
-                dataset_group=group,
-                dataset=dataset,
-                task="regression",
-                evaluation_split="test",
-                status="ok",
-                model_name=model,
-                variant=model,
-                model_class=model_class,
-                strategy_family=strategy,
-                rmsep=rmsep,
+        if not dataset:
+            continue
+        model = first(row, "model")
+        if not model:
+            continue
+        rmsep = as_float(row.get("RMSEP"))
+        if rmsep is None:
+            continue
+
+        best_config = _load_json_dict(row.get("best_config_json", ""))
+        model_params = _load_json_dict(row.get("best_model_params_json", ""))
+        fold_scores = _load_json_list(row.get("best_fold_scores_json", ""))
+        search_mean = as_float(row.get("search_mean_score"))
+        n_splits_val = as_float(row.get("n_splits"))
+        n_splits_int = int(n_splits_val) if n_splits_val is not None else None
+
+        n_components_val: Any = model_params.get("n_components") if model_params else None
+        n_components = clean_text(n_components_val) if n_components_val is not None else ""
+
+        pp_chunks = _pp_chunks(best_config)
+        preprocessing_pipeline = " | ".join(pp_chunks) if pp_chunks else "none"
+
+        is_hpo = bool(pp_chunks) or (n_splits_int is not None and n_splits_int > 1)
+        selection = "hpo_outer" if is_hpo else "no_hpo"
+        cv_protocol = "outer_cv3" if (n_splits_int is not None and n_splits_int > 1) else "single_split"
+
+        if is_hpo:
+            hpo_scope = "preprocessing + model hyperparams" if model_params else "preprocessing"
+            artifact_fmt = clean_text(row.get("artifact_best_config_format"))
+            notes_human = (
+                f"TabPFN-paper master_results enrichment; HPO over {hpo_scope}; "
+                f"n_splits={n_splits_int}; artifact_best_config_format={artifact_fmt}"
             )
-            score_record(record)
-            records.append(record)
+        else:
+            rmse_mf_source = clean_text(row.get("rmse_mf_source"))
+            notes_human = (
+                "TabPFN-paper master_results enrichment; no preprocessing HPO; "
+                f"single train/test split; rmse_mf_source={rmse_mf_source}"
+            )
+
+        config_payload = {
+            "best_config": best_config,
+            "model_params": model_params,
+            "fold_scores": fold_scores,
+            "search_mean_score": search_mean,
+        }
+
+        model_class, strategy = classify_model(model, "paper_reference")
+        record = make_record(
+            record_type="reference_paper",
+            source_family="tabpfn_paper_master",
+            source_kind="paper_reference_enriched",
+            source_path=path.as_posix(),
+            source_run="tabpfn_paper_master",
+            dataset_group=infer_dataset_group(dataset, first(row, "database_name")),
+            dataset=dataset,
+            task="regression",
+            evaluation_split="test",
+            status="ok",
+            model_name=model,
+            variant=f"paper-{model}",
+            model_class=model_class,
+            strategy_family=strategy,
+            preprocessing_pipeline=preprocessing_pipeline,
+            selection=selection,
+            seed=as_float(row.get("seed")),
+            cv_protocol=cv_protocol,
+            n_splits=n_splits_int,
+            n_components=n_components,
+            rmsep=rmsep,
+            rmsecv=as_float(row.get("RMSECV")),
+            rmse_mf=as_float(row.get("RMSE_MF")),
+            mae=as_float(row.get("MAE_test")),
+            r2=as_float(row.get("r2_test")),
+            config_json=json.dumps(config_payload, ensure_ascii=False, sort_keys=True),
+            notes=notes_human,
+        )
+        score_record(record)
+        records.append(record)
 
 
 def parse_tabpfn_light(records: list[dict[str, Any]]) -> None:
@@ -776,7 +883,7 @@ def parse_meta_selector(records: list[dict[str, Any]]) -> None:
 
 def collect_records() -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
-    parse_master_pivot(records)
+    parse_tabpfn_master_results(records)
     parse_tabpfn_light(records)
     parse_fck_reports(records)
     parse_meta_selector(records)

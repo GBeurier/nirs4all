@@ -1,2 +1,0 @@
-status,source,task,dataset,split_index,route,model,n_train,n_test,n_features,n_synthetic,synthetic_preset,rmse,mae,r2,phase_a_gate_override,b1_downstream_training_status,b2_realism_risk,synthetic_transfer_claim_status,blocked_reason,raw_compared,raw_smoke_failures,raw_blocked,raw_missing_auc
-BLOCKED_BY_REALISM_GATE,B2_B3_realism_gate,regression,all,,gate_first,none,0,0,0,0,none,,,,A3_failed_documented,not_run_gate_blocked,B2_realism_failed,blocked_no_transfer_claim,adversarial_auc_raw_gate_NO-GO;B2_raw_realism_gate_failed,71,71,6,0

@@ -1,0 +1,316 @@
+"""Tests for the R9m DIESEL width gain damping clean attenuation audit."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+from csv import DictReader
+from pathlib import Path
+from types import ModuleType
+from typing import Any
+
+import pytest
+
+
+def _load_module(name: str, filename: str) -> ModuleType:
+    if name in sys.modules:
+        return sys.modules[name]
+    path = Path(__file__).resolve().parents[1] / "experiments" / filename
+    experiments_dir = str(path.parent)
+    if experiments_dir not in sys.path:
+        sys.path.insert(0, experiments_dir)
+    spec = importlib.util.spec_from_file_location(name, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except Exception:
+        sys.modules.pop(name, None)
+        raise
+    return module
+
+
+def _load_exp23() -> ModuleType:
+    return _load_module(
+        "exp23_diesel_width_gain_damping_clean_attenuation_audit",
+        "exp23_diesel_width_gain_damping_clean_attenuation_audit.py",
+    )
+
+
+def _make_row(
+    exp23: ModuleType,
+    *,
+    profile: str,
+    seed: int = 20260501,
+    global_mean_delta: float,
+    morphology_gap_score: float,
+    derivative: float,
+    mean_curve_corr: float,
+    guard_clip_fraction: float | None = None,
+) -> Any:
+    return exp23.R9mRow(
+        status="compared",
+        seed=seed,
+        remediation_profile=profile,
+        effective_remediation_profile=profile,
+        source="AOM_regression",
+        task="regression",
+        dataset="DIESEL/DIESEL_bp50_246_b-a",
+        synthetic_preset="fuel",
+        effective_matrix_route="diesel_fuel_matrix",
+        comparison_space=exp23.COMPARISON_SPACE,
+        n_real_samples=8,
+        n_synthetic_samples=8,
+        n_wavelengths=6,
+        wavelength_min=750.0,
+        wavelength_max=1550.0,
+        support_low_nm=exp23.SUPPORT_LOW_NM,
+        support_high_nm=exp23.SUPPORT_HIGH_NM,
+        support_count=6,
+        off_support_count=0,
+        support_weight=1.0,
+        off_support_weight=0.0,
+        support_mean_delta=global_mean_delta,
+        off_support_mean_delta=0.0,
+        support_weighted_delta=global_mean_delta,
+        off_support_weighted_delta=0.0,
+        global_mean_delta=global_mean_delta,
+        decomposition_residual=0.0,
+        real_global_mean=0.003,
+        synthetic_global_mean=0.003 + global_mean_delta,
+        real_global_std=0.014,
+        synthetic_global_std=0.015,
+        log10_global_std_ratio=0.03,
+        log10_amplitude_p50_ratio=0.0,
+        log10_derivative_std_p50_ratio=derivative,
+        mean_curve_corr=mean_curve_corr,
+        morphology_gap_score=morphology_gap_score,
+        dominant_morphology_gap="mean_shift",
+        guard_clip_fraction=guard_clip_fraction,
+        audit_calibration=False,
+        audit_real_stat_capture=False,
+        audit_uses_pca=False,
+        audit_captures_noise=False,
+        audit_uses_ml=False,
+        audit_uses_dl=False,
+        audit_label_inputs_used=False,
+        audit_target_inputs_used=False,
+        audit_split_inputs_used=False,
+        audit_thresholds_modified=False,
+        audit_metrics_modified=False,
+        audit_source_oracle_used=False,
+        audit_scope=exp23.R9M_AUDIT_SCOPE,
+        blocked_reason="",
+    )
+
+
+def _synthetic_rows(exp23: ModuleType) -> list[Any]:
+    return [
+        _make_row(
+            exp23,
+            profile="r3d_diesel_matrix_v1",
+            global_mean_delta=0.0057,
+            morphology_gap_score=1.60,
+            derivative=-0.03,
+            mean_curve_corr=0.035,
+        ),
+        _make_row(
+            exp23,
+            profile="r4b_diesel_derivative_restore_v1",
+            global_mean_delta=0.0046,
+            morphology_gap_score=1.45,
+            derivative=-0.09,
+            mean_curve_corr=0.040,
+        ),
+        _make_row(
+            exp23,
+            profile="r4c_diesel_balanced_derivative_v1",
+            global_mean_delta=0.0051,
+            morphology_gap_score=1.50,
+            derivative=-0.07,
+            mean_curve_corr=0.037,
+        ),
+        _make_row(
+            exp23,
+            profile="r9e_diesel_pathlength_reference_attenuation_v1",
+            global_mean_delta=0.0055,
+            morphology_gap_score=1.57,
+            derivative=-0.04,
+            mean_curve_corr=0.035,
+            guard_clip_fraction=0.0,
+        ),
+        _make_row(
+            exp23,
+            profile="r9i_diesel_ch_width_gain_isolation_v1",
+            global_mean_delta=0.0052,
+            morphology_gap_score=1.52,
+            derivative=-0.02,
+            mean_curve_corr=0.036,
+        ),
+        _make_row(
+            exp23,
+            profile="r9j_diesel_residual_damping_isolation_v1",
+            global_mean_delta=0.0050,
+            morphology_gap_score=1.54,
+            derivative=-0.05,
+            mean_curve_corr=0.037,
+        ),
+        _make_row(
+            exp23,
+            profile="r9l_diesel_residual_damping_clean_attenuation_v1",
+            global_mean_delta=0.0049,
+            morphology_gap_score=1.50,
+            derivative=-0.052,
+            mean_curve_corr=0.038,
+        ),
+        _make_row(
+            exp23,
+            profile=exp23.R9M_FOCUS_PROFILE,
+            global_mean_delta=0.0050,
+            morphology_gap_score=1.49,
+            derivative=-0.05,
+            mean_curve_corr=0.038,
+            guard_clip_fraction=None,
+        ),
+    ]
+
+
+def test_exp23_constants_and_profile_contract() -> None:
+    exp23 = _load_exp23()
+
+    assert exp23.R9M_AUDITED_PROFILES == (
+        "r3d_diesel_matrix_v1",
+        "r4b_diesel_derivative_restore_v1",
+        "r4c_diesel_balanced_derivative_v1",
+        "r9e_diesel_pathlength_reference_attenuation_v1",
+        "r9i_diesel_ch_width_gain_isolation_v1",
+        "r9j_diesel_residual_damping_isolation_v1",
+        "r9l_diesel_residual_damping_clean_attenuation_v1",
+        "r9m_diesel_width_gain_damping_clean_attenuation_v1",
+    )
+    assert exp23.R9M_FOCUS_PROFILES == ("r9m_diesel_width_gain_damping_clean_attenuation_v1",)
+    assert exp23.R9M_REFERENCE_PROFILES == (
+        "r3d_diesel_matrix_v1",
+        "r9i_diesel_ch_width_gain_isolation_v1",
+        "r9j_diesel_residual_damping_isolation_v1",
+        "r9l_diesel_residual_damping_clean_attenuation_v1",
+        "r9e_diesel_pathlength_reference_attenuation_v1",
+        "r4b_diesel_derivative_restore_v1",
+        "r4c_diesel_balanced_derivative_v1",
+    )
+    assert exp23.R9M_BASE_PROFILE == "r3d_diesel_matrix_v1"
+    assert exp23.COMPARISON_SPACE == "uncalibrated_raw"
+    assert exp23.DEFAULT_SEEDS == (20260501, 20260502, 20260503)
+    assert exp23.DEFAULT_N_SYNTHETIC_SAMPLES == 64
+    assert exp23.DEFAULT_MAX_REAL_SAMPLES == 64
+    assert exp23.DEFAULT_MAX_SENTINEL_DATASETS == 8
+    assert exp23.DEFAULT_SENTINEL_TOKENS == ("DIESEL",)
+    assert exp23.DEFAULT_REPORT.name == ("r9m_diesel_width_gain_damping_clean_attenuation_audit.md")
+    assert Path("/tmp/r9m_diesel_width_gain_damping_clean_attenuation_audit.csv") == exp23.DEFAULT_CSV
+    assert exp23.PAIRED_DELTA_ATTRS == (
+        "global_mean_delta",
+        "support_mean_delta",
+        "morphology_gap_score",
+        "log10_derivative_std_p50_ratio",
+        "mean_curve_corr",
+    )
+    audit_fields = exp23._audit_fields()
+    assert audit_fields["audit_scope"] == exp23.R9M_AUDIT_SCOPE
+    forbidden = [
+        "audit_calibration",
+        "audit_real_stat_capture",
+        "audit_uses_pca",
+        "audit_captures_noise",
+        "audit_uses_ml",
+        "audit_uses_dl",
+        "audit_label_inputs_used",
+        "audit_target_inputs_used",
+        "audit_split_inputs_used",
+        "audit_thresholds_modified",
+        "audit_metrics_modified",
+        "audit_source_oracle_used",
+    ]
+    assert all(audit_fields[name] is False for name in forbidden)
+
+
+def test_validate_profiles_rejects_unknown_profile() -> None:
+    exp23 = _load_exp23()
+
+    with pytest.raises(ValueError, match="at least one"):
+        exp23._validate_profiles(())
+    with pytest.raises(ValueError, match="unknown R9m profiles"):
+        exp23._validate_profiles(("r9z_not_real",))
+
+
+def test_write_csv_and_render_markdown_isolation_contract(tmp_path: Path) -> None:
+    exp23 = _load_exp23()
+    rows = _synthetic_rows(exp23)
+    csv_path = tmp_path / "r9m.csv"
+    report_path = tmp_path / "r9m.md"
+
+    exp23.write_csv(rows, csv_path)
+    with csv_path.open("r", encoding="utf-8", newline="") as handle:
+        reader = DictReader(handle)
+        records = list(reader)
+
+    assert len(records) == 8
+    assert reader.fieldnames == exp23._csv_fieldnames()
+    delta_col = "delta_r9m_diesel_width_gain_damping_clean_attenuation_v1_minus_r3d_diesel_matrix_v1__morphology_gap_score"
+    r9i_delta_col = "delta_r9m_diesel_width_gain_damping_clean_attenuation_v1_minus_r9i_diesel_ch_width_gain_isolation_v1__mean_curve_corr"
+    r9j_delta_col = "delta_r9m_diesel_width_gain_damping_clean_attenuation_v1_minus_r9j_diesel_residual_damping_isolation_v1__morphology_gap_score"
+    r9l_delta_col = "delta_r9m_diesel_width_gain_damping_clean_attenuation_v1_minus_r9l_diesel_residual_damping_clean_attenuation_v1__morphology_gap_score"
+    dominant_col = "dominant_gap_r9m_diesel_width_gain_damping_clean_attenuation_v1_minus_r4c_diesel_balanced_derivative_v1"
+    assert delta_col in reader.fieldnames
+    assert r9i_delta_col in reader.fieldnames
+    assert r9j_delta_col in reader.fieldnames
+    assert r9l_delta_col in reader.fieldnames
+    assert dominant_col in reader.fieldnames
+    r9m_record = next(row for row in records if row["remediation_profile"] == exp23.R9M_FOCUS_PROFILE)
+    assert float(r9m_record[delta_col]) == pytest.approx(-0.11)
+    assert r9m_record["audit_scope"] == exp23.R9M_AUDIT_SCOPE
+    assert r9m_record["audit_uses_pca"] == "False"
+    assert r9m_record["audit_metrics_modified"] == "False"
+
+    result = {
+        "status": "done",
+        "rows": rows,
+        "real_runnable_count": 1,
+        "real_sentinel_candidate_count": 1,
+        "real_selected_count": 1,
+        "sentinel_tokens": ["DIESEL"],
+        "seeds": [20260501],
+        "audited_profiles": list(exp23.R9M_AUDITED_PROFILES),
+        "support_low_nm": exp23.SUPPORT_LOW_NM,
+        "support_high_nm": exp23.SUPPORT_HIGH_NM,
+    }
+    md = exp23.render_markdown(
+        result=result,
+        report_path=report_path,
+        csv_path=csv_path,
+        n_synthetic_samples=8,
+        max_real_samples=8,
+        max_sentinel_datasets=1,
+        seeds=[20260501],
+        sentinel_tokens=["DIESEL"],
+        profiles=exp23.R9M_AUDITED_PROFILES,
+    )
+
+    assert "# R9m DIESEL Width/Gain Damping Clean Attenuation Diagnostic Audit" in md
+    assert "diagnostic-only" in md.lower()
+    assert "not promoted" in md.lower()
+    assert "no gate" in md.lower()
+    assert "No `nirs4all/` integration" in md
+    assert "R3d remains the accepted DIESEL baseline" in md
+    assert "R9m changes only R9i `ch_overtone_width_nm = 36.0`" in md
+    assert "R9m keeps R3d CH centers" in md
+    assert "Width/gain values: exactly R9i width `36.0`" in md
+    assert "Damping windows: exactly" in md
+    assert "Clean attenuation: exactly R9e factor range `0.970-0.985`" in md
+    assert "975 nm continuum hump: absent" in md
+    assert "R9f pre-offset attenuation, support intercept, support shape" in md
+    assert "reports aggregate and paired deltas versus R3d/R9i/R9j/R9l/R9e/R4b/R4c" in md
+    assert "directions can differ on this cohort" in md
+    assert f"--report {report_path}" in md
+    assert f"--csv {csv_path}" in md
+    assert "B2 PASS" not in md.upper().replace(":", "")
