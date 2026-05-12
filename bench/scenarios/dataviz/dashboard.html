@@ -1032,6 +1032,19 @@
                   <option value="log">log</option>
                 </select>
               </label>
+              <label>Mode
+                <select id="m10-mode">
+                  <option value="markers">markers only</option>
+                  <option value="lines" selected>lines only</option>
+                  <option value="markers+lines">markers + lines</option>
+                </select>
+              </label>
+              <label>Layout
+                <select id="m10-layout">
+                  <option value="overlay" selected>overlay (single chart)</option>
+                  <option value="facet">facet per model</option>
+                </select>
+              </label>
             </div>
             <div id="m10-scatter" class="plot-tall"></div>
           </figure>
@@ -2060,7 +2073,7 @@
       renderM10Picker();
       renderM10();
     });
-    ['m10-metric', 'm10-xsort', 'm10-yscale'].forEach(id => {
+    ['m10-metric', 'm10-xsort', 'm10-yscale', 'm10-mode', 'm10-layout'].forEach(id => {
       document.getElementById(id).addEventListener('change', renderM10);
     });
     document.querySelectorAll('.m10-preset').forEach(btn => {
@@ -2279,6 +2292,8 @@
     const xsort = document.getElementById('m10-xsort').value;
     const yscaleRaw = document.getElementById('m10-yscale').value;
     const yscale = yscaleRaw === 'auto' ? (metric === 'delta' ? 'linear' : 'log') : yscaleRaw;
+    const modeRaw = (document.getElementById('m10-mode') || {}).value || 'lines';
+    const layout = (document.getElementById('m10-layout') || {}).value || 'overlay';
 
     renderM10SelectedPills();
 
@@ -2292,7 +2307,18 @@
     else if (xsort === 'n_train') datasets.sort((a, b) => (state.dsBest[a].n_train || 0) - (state.dsBest[b].n_train || 0));
     else if (xsort === 'best') datasets.sort((a, b) => (state.dsBest[a].best_rmsep ?? Infinity) - (state.dsBest[b].best_rmsep ?? Infinity));
 
-    const traces = selectedKeys.map((key, i) => {
+    // Adaptive opacity: 1 model = 1.0, 12+ models = 0.45
+    const nSel = selectedKeys.length;
+    const opacity = Math.max(0.45, Math.min(1.0, 1.2 - 0.06 * nSel));
+    const lineWidth = nSel > 8 ? 1.0 : nSel > 4 ? 1.3 : 1.6;
+    const markerSize = layout === 'facet' ? 5 : (nSel > 10 ? 5 : nSel > 5 ? 6 : 7);
+    const yref = metric === 'ratio' ? 1 : (metric === 'delta' ? 0 : null);
+    const yTitle = metric === 'ratio'
+      ? 'rmsep / best (1.0 = best, 2.0 = 2× worse)'
+      : (metric === 'delta' ? 'rmsep − best' : 'rmsep (absolute)');
+
+    // ---- Build per-model trace data ----
+    const traceData = selectedKeys.map((key, i) => {
       const e = state.canonical[key];
       if (!e) return null;
       const x = [], y = [], text = [];
@@ -2310,42 +2336,114 @@
         x.push(ds);
         y.push(value);
         text.push(
-          `<b>${e.display}</b>${e.variants.length > 1 ? ` <span style="color:#999">(${e.variants.length} variants merged)</span>` : ''}<br>` +
+          `<b>${e.display}</b>${e.variants.length > 1 ? ` <span style="color:#999">(${e.variants.length}v)</span>` : ''}<br>` +
           `class: ${e.class}<br>` +
-          `dataset: ${ds} (n_train=${dsRec.n_train ?? '?'}, p=${dsRec.n_features ?? '?'})<br>` +
+          `dataset: ${ds} (n_train=${dsRec.n_train ?? '?'})<br>` +
           `<b>rmsep: ${myR.toFixed(4)}</b><br>` +
           `best on ds: ${dsB.toFixed(4)} (${dsRec.best_model_name})<br>` +
           `ratio: ${(dsB > 0 ? myR / dsB : 0).toFixed(3)} · delta: ${(myR - dsB).toFixed(4)}`
         );
       });
-      const color = MC_COLOR[e.class] || colorForClass(e.class, i);
-      return {
-        type: 'scatter',
-        mode: 'markers+lines',
-        name: `${e.display}${e.variants.length > 1 ? ` ×${e.variants.length}` : ''}`,
-        x, y, text,
-        marker: { size: 9, color, line: { color: '#222', width: 0.5 } },
-        line: { color, width: 1.2, dash: 'dot' },
-        hovertemplate: '%{text}<extra></extra>',
-      };
-    }).filter(t => t !== null && t.x.length > 0);
+      return { key, e, x, y, text, color: MC_COLOR[e.class] || colorForClass(e.class, i) };
+    }).filter(d => d !== null && d.x.length > 0);
 
-    const yref = metric === 'ratio' ? 1 : (metric === 'delta' ? 0 : null);
-    const yTitle = metric === 'ratio'
-      ? 'rmsep / best_rmsep_on_dataset (1.0 = best, 2.0 = 2× worse)'
-      : (metric === 'delta' ? 'rmsep − best_rmsep_on_dataset' : 'rmsep (absolute)');
+    // ---- FACET MODE ----
+    if (layout === 'facet') {
+      const cols = Math.min(3, traceData.length);
+      const rows = Math.ceil(traceData.length / cols);
+      const traces = [];
+      const annotations = [];
+      const shapes = [];
+      traceData.forEach((d, idx) => {
+        const axNum = idx + 1;
+        const xax = idx === 0 ? 'x' : `x${axNum}`;
+        const yax = idx === 0 ? 'y' : `y${axNum}`;
+        traces.push({
+          type: 'scatter', mode: modeRaw,
+          x: d.x, y: d.y, text: d.text,
+          xaxis: xax, yaxis: yax,
+          name: d.e.display,
+          marker: { size: markerSize, color: d.color, opacity: 0.85, line: { color: '#1c1813', width: 0.4 } },
+          line: { color: d.color, width: lineWidth + 0.2 },
+          hovertemplate: '%{text}<extra></extra>',
+          showlegend: false,
+        });
+        // Title annotation per facet
+        annotations.push({
+          text: `<b>${d.e.display}</b>` + (d.e.variants.length > 1 ? ` <span style="color:#999">×${d.e.variants.length}</span>` : ''),
+          xref: `${xax} domain`, yref: `${yax} domain`,
+          x: 0.02, y: 0.98, xanchor: 'left', yanchor: 'top',
+          showarrow: false,
+          font: { size: 11, family: "'Newsreader', serif", color: '#1c1813' },
+          bgcolor: 'rgba(247,241,232,0.88)', bordercolor: d.color, borderwidth: 1, borderpad: 4,
+        });
+        // Reference line per facet
+        if (yref !== null) {
+          shapes.push({
+            type: 'line', xref: `${xax} domain`, yref: yax,
+            x0: 0, x1: 1, y0: yref, y1: yref,
+            line: { color: '#8e2718', dash: 'dash', width: 1 },
+          });
+        }
+      });
+      const lay = {
+        grid: { rows, columns: cols, pattern: 'independent', xgap: 0.06, ygap: 0.1 },
+        height: Math.max(280 * rows, 320),
+        paper_bgcolor: '#fbf6ec', plot_bgcolor: '#fbf6ec',
+        margin: { l: 60, r: 20, t: 20, b: 110 },
+        font: { family: "'JetBrains Mono', monospace", size: 10, color: '#1c1813' },
+        annotations, shapes,
+      };
+      for (let i = 0; i < traceData.length; i++) {
+        const suf = i === 0 ? '' : (i + 1);
+        const rowIdx = Math.floor(i / cols);
+        const colIdx = i % cols;
+        lay[`xaxis${suf}`] = {
+          tickangle: -45, tickfont: { size: 8 }, automargin: true,
+          showticklabels: rowIdx === rows - 1,
+          title: rowIdx === rows - 1 ? 'dataset' : '',
+        };
+        lay[`yaxis${suf}`] = {
+          title: colIdx === 0 ? yTitle : '', type: yscale,
+          tickfont: { size: 9 }, automargin: true,
+        };
+      }
+      Plotly.newPlot('m10-scatter', traces, lay, { responsive: true, displaylogo: false });
+      return;
+    }
+
+    // ---- OVERLAY MODE (default, with adaptive styling) ----
+    const traces = traceData.map(d => ({
+      type: 'scatter',
+      mode: modeRaw,
+      name: `${d.e.display}${d.e.variants.length > 1 ? ` ×${d.e.variants.length}` : ''}`,
+      x: d.x, y: d.y, text: d.text,
+      marker: { size: markerSize, color: d.color, opacity, line: { color: '#1c1813', width: 0.4 } },
+      line: { color: d.color, width: lineWidth, dash: 'solid' },
+      opacity: modeRaw === 'lines' ? opacity : 1,
+      hovertemplate: '%{text}<extra></extra>',
+    }));
 
     Plotly.newPlot('m10-scatter', traces, {
-      title: { text: `${selectedKeys.length} model${selectedKeys.length === 1 ? '' : 's'} × ${datasets.length} datasets — ${metric}`, font: { size: 13 } },
-      xaxis: { title: 'dataset', tickangle: -45, tickfont: { size: 9 }, automargin: true },
-      yaxis: { title: yTitle, type: yscale },
+      xaxis: { title: 'dataset', tickangle: -45, tickfont: { size: 9, family: "'JetBrains Mono', monospace" }, automargin: true, gridcolor: '#e7dcc7' },
+      yaxis: { title: yTitle, type: yscale, gridcolor: '#e7dcc7', tickfont: { family: "'JetBrains Mono', monospace" } },
       showlegend: true,
-      legend: { orientation: 'v', y: 1, x: 1.02, font: { size: 10 } },
-      margin: { l: 70, r: 280, t: 50, b: 200 },
+      legend: { orientation: 'v', y: 1, x: 1.02, font: { size: 10, family: "'Newsreader', serif" }, bgcolor: 'rgba(251,246,236,0.85)', bordercolor: '#d6c8b2', borderwidth: 1 },
+      margin: { l: 70, r: 280, t: 30, b: 200 },
       height: 640,
-      shapes: yref !== null ? [{ type: 'line', xref: 'paper', x0: 0, x1: 1, y0: yref, y1: yref, line: { color: '#d62728', dash: 'dash', width: 1.5 } }] : [],
-      annotations: yref !== null ? [{ xref: 'paper', x: 1.005, y: yref, yanchor: 'middle', xanchor: 'left', text: metric === 'ratio' ? '← best (1.0)' : '← best (0.0)', showarrow: false, font: { size: 10, color: '#d62728' } }] : [],
-    }, { responsive: true });
+      paper_bgcolor: '#fbf6ec',
+      plot_bgcolor: '#fbf6ec',
+      font: { family: "'Newsreader', serif", size: 11, color: '#1c1813' },
+      shapes: yref !== null ? [{
+        type: 'line', xref: 'paper', x0: 0, x1: 1, y0: yref, y1: yref,
+        line: { color: '#8e2718', dash: 'dash', width: 2 },
+      }] : [],
+      annotations: yref !== null ? [{
+        xref: 'paper', x: 1.005, y: yref, yanchor: 'middle', xanchor: 'left',
+        text: metric === 'ratio' ? '← best (1.0)' : '← best (0.0)',
+        showarrow: false, font: { size: 10, color: '#8e2718', family: "'Newsreader', serif", style: 'italic' },
+      }] : [],
+    }, { responsive: true, displaylogo: false });
   }
 
   function colorForClass(cls, idx) {
