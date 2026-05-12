@@ -367,24 +367,38 @@ def build_master_aggregations(master: list[dict]) -> dict:
         if mn:
             by_model_name[mn].append(r)
 
+    # Best rmsep per (model_name, dataset) — used for both leaderboard + per-model ranks
+    best_per_mn_ds: dict[str, dict[str, float]] = defaultdict(dict)
+    for r in obs:
+        mn = (r.get("model_name") or "").strip()
+        ds = (r.get("dataset") or "").strip()
+        if not mn or not ds:
+            continue
+        v = safe_float(r.get("rmsep"))
+        if v is None:
+            continue
+        if ds not in best_per_mn_ds[mn] or v < best_per_mn_ds[mn][ds]:
+            best_per_mn_ds[mn][ds] = v
+
+    # Per-dataset rank table at model_name granularity
+    # For each dataset, sort all model_names by their best rmsep → rank
+    per_ds_model_ranks: dict[str, dict[str, int]] = defaultdict(dict)
+    ds_universe: set[str] = set()
+    for mn, ds_map in best_per_mn_ds.items():
+        for ds in ds_map:
+            ds_universe.add(ds)
+    for ds in ds_universe:
+        contestants = [(mn, m[ds]) for mn, m in best_per_mn_ds.items() if ds in m]
+        contestants.sort(key=lambda x: x[1])
+        for rk, (mn, _) in enumerate(contestants, start=1):
+            per_ds_model_ranks[ds][mn] = rk
+
     # Per-model_name aggregation
     top_models = []
     for mn, mn_rows in by_model_name.items():
-        rmseps = [safe_float(r.get("rmsep")) for r in mn_rows]
-        rmseps = [x for x in rmseps if x is not None]
-        if not rmseps:
+        if mn not in best_per_mn_ds:
             continue
-        # Best rmsep per dataset for this model_name (collapse duplicates)
-        best_per_ds: dict[str, float] = {}
-        for r in mn_rows:
-            v = safe_float(r.get("rmsep"))
-            if v is None:
-                continue
-            ds = r.get("dataset", "")
-            if not ds:
-                continue
-            if ds not in best_per_ds or v < best_per_ds[ds]:
-                best_per_ds[ds] = v
+        best_per_ds = best_per_mn_ds[mn]
         ds_rmseps = list(best_per_ds.values())
         if not ds_rmseps:
             continue
@@ -397,6 +411,21 @@ def build_master_aggregations(master: list[dict]) -> dict:
         source_runs = sorted({r.get("source_run", "") for r in mn_rows if r.get("source_run")})
         # Maturity tags
         maturities = sorted({r.get("protocol_maturity", "") for r in mn_rows if r.get("protocol_maturity")})
+        # Normalized score metrics — built into master CSV (score_ratio_to_dataset_oracle has 100% coverage)
+        oracle_ratios = []
+        pls_ratios = []
+        for r in mn_rows:
+            v = safe_float(r.get("score_ratio_to_dataset_oracle"))
+            if v is not None and math.isfinite(v):
+                oracle_ratios.append(v)
+            v = safe_float(r.get("score_ratio_vs_dataset_pls"))
+            if v is not None and math.isfinite(v) and v > 0:
+                pls_ratios.append(v)
+        # Per-dataset ranks for this model
+        my_ranks = [per_ds_model_ranks[ds].get(mn) for ds in best_per_ds]
+        my_ranks = [r for r in my_ranks if r is not None]
+        # Wins (rank 1 on at least 1 dataset)
+        wins = sum(1 for r in my_ranks if r == 1)
         top_models.append({
             "model_name": mn,
             "model_class": model_class,
@@ -407,7 +436,14 @@ def build_master_aggregations(master: list[dict]) -> dict:
             "q75_rmsep": quantile(ds_rmseps, 0.75),
             "q90_rmsep": quantile(ds_rmseps, 0.90),
             "best_rmsep": min(ds_rmseps),
-            "source_runs": source_runs[:10],  # cap list length
+            "median_oracle_ratio": median(oracle_ratios) if oracle_ratios else None,
+            "median_pls_ratio": median(pls_ratios) if pls_ratios else None,
+            "n_oracle": len(oracle_ratios),
+            "median_rank": median(my_ranks) if my_ranks else None,
+            "mean_rank": statistics.mean(my_ranks) if my_ranks else None,
+            "wins": wins,
+            "n_ranks": len(my_ranks),
+            "source_runs": source_runs[:10],
             "n_source_runs": len(source_runs),
             "maturities": maturities,
         })

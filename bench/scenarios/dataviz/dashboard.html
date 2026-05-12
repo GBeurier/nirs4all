@@ -48,11 +48,7 @@
       text-rendering: optimizeLegibility;
     }
     body {
-      background-image:
-        radial-gradient(circle at 20% 10%, rgba(193,74,62,0.04) 0, transparent 50%),
-        radial-gradient(circle at 80% 90%, rgba(43,80,99,0.04) 0, transparent 50%);
-      background-attachment: fixed;
-      padding-bottom: 96px;
+      padding-bottom: 64px;
     }
     a { color: var(--accent); text-decoration: none; }
     a:hover { text-decoration: underline; text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
@@ -62,109 +58,93 @@
       position: sticky;
       top: 0;
       z-index: 50;
-      background: rgba(247, 241, 232, 0.88);
-      backdrop-filter: saturate(180%) blur(16px);
-      -webkit-backdrop-filter: saturate(180%) blur(16px);
+      background: rgba(247, 241, 232, 0.94);
+      backdrop-filter: saturate(180%) blur(12px);
+      -webkit-backdrop-filter: saturate(180%) blur(12px);
       border-bottom: 1px solid var(--rule);
-      padding: 14px 48px;
+      padding: 8px 32px;
       display: flex;
-      align-items: baseline;
-      gap: 32px;
-      font-family: var(--ff-ui);
-      font-size: 12px;
-      letter-spacing: 0.02em;
+      align-items: center;
+      gap: 18px;
+      font-family: var(--ff-mono);
+      font-size: 11px;
+      letter-spacing: 0;
     }
     .sticky-nav .brand {
       font-family: var(--ff-display);
-      font-size: 17px;
+      font-size: 14px;
       font-weight: 700;
       letter-spacing: -0.01em;
       color: var(--ink);
-      margin-right: 24px;
     }
     .sticky-nav a {
       color: var(--muted);
       text-decoration: none;
       transition: color 0.15s;
-      font-variant: small-caps;
-      letter-spacing: 0.04em;
-      font-size: 13px;
+      font-size: 11.5px;
     }
-    .sticky-nav a:hover { color: var(--accent); text-decoration: none; }
+    .sticky-nav a:hover { color: var(--accent); }
     .sticky-nav .nav-spacer { flex: 1; }
     .sticky-nav .nav-status {
       font-family: var(--ff-mono);
-      font-size: 10.5px;
+      font-size: 10px;
       color: var(--muted-2);
-      letter-spacing: 0;
     }
 
-    /* ============== Masthead (hero) ============== */
+    /* ============== Masthead (compact lab-report style) ============== */
     .masthead {
       max-width: 1280px;
       margin: 0 auto;
-      padding: 96px 48px 56px;
+      padding: 36px 48px 28px;
       position: relative;
+      border-bottom: 1px solid var(--rule);
     }
     .masthead .eyebrow {
-      font-family: var(--ff-ui);
-      font-size: 12px;
-      letter-spacing: 0.18em;
+      font-family: var(--ff-mono);
+      font-size: 10.5px;
+      letter-spacing: 0.10em;
       text-transform: uppercase;
-      color: var(--accent);
+      color: var(--muted);
       font-weight: 600;
-      margin-bottom: 28px;
-      display: flex;
-      align-items: center;
-      gap: 14px;
+      margin-bottom: 10px;
     }
-    .masthead .eyebrow::before, .masthead .eyebrow::after {
-      content: '';
-      flex: 0 0 32px;
-      height: 1px;
-      background: var(--accent);
-    }
-    .masthead .eyebrow::after { flex: 1; max-width: 200px; }
     .masthead .title {
       font-family: var(--ff-display);
       font-weight: 600;
-      font-size: clamp(48px, 7vw, 112px);
-      line-height: 0.94;
-      letter-spacing: -0.025em;
+      font-size: clamp(28px, 3.6vw, 44px);
+      line-height: 1.08;
+      letter-spacing: -0.015em;
       color: var(--ink);
-      margin-bottom: 32px;
-      font-variation-settings: 'opsz' 144, 'SOFT' 30;
-      max-width: 1100px;
+      margin-bottom: 12px;
+      max-width: 920px;
+      font-variation-settings: 'opsz' 48;
     }
     .masthead .title em {
       font-style: italic;
-      font-weight: 400;
+      font-weight: 500;
       color: var(--accent);
-      font-variation-settings: 'opsz' 144, 'SOFT' 50;
     }
     .masthead .subtitle {
       font-family: var(--ff-body);
-      font-size: 20px;
+      font-size: 14.5px;
       line-height: 1.45;
       color: var(--ink-2);
       max-width: 720px;
-      margin-bottom: 18px;
+      margin-bottom: 12px;
     }
     .masthead .meta {
       font-family: var(--ff-mono);
-      font-size: 11.5px;
+      font-size: 10.5px;
       color: var(--muted);
-      letter-spacing: 0;
       max-width: 900px;
     }
     .masthead .by-line {
-      font-family: var(--ff-ui);
-      font-size: 12px;
+      font-family: var(--ff-mono);
+      font-size: 10.5px;
       color: var(--muted);
-      margin-top: 24px;
+      margin-top: 12px;
       display: flex;
-      gap: 16px;
-      font-style: italic;
+      gap: 14px;
     }
 
     /* ============== Section grid ============== */
@@ -174,134 +154,138 @@
       padding: 0 48px;
     }
     section.section {
-      padding: 88px 0 24px;
+      padding: 48px 0 16px;
       border-top: 1px solid var(--rule);
       display: grid;
-      grid-template-columns: 60px 1fr;
-      gap: 32px;
+      grid-template-columns: 44px 1fr;
+      gap: 20px;
     }
-    section.section:first-of-type { border-top: 3px solid var(--accent); }
+    section.section:first-of-type { border-top: none; padding-top: 36px; }
     .section-rail {
       position: relative;
     }
     .section-rail .section-num {
-      font-family: var(--ff-display);
-      font-size: 32px;
-      font-weight: 300;
+      font-family: var(--ff-mono);
+      font-size: 13px;
+      font-weight: 600;
       color: var(--accent);
-      letter-spacing: -0.02em;
-      font-feature-settings: "lnum" 1;
+      letter-spacing: 0.04em;
       position: sticky;
-      top: 80px;
-      writing-mode: horizontal-tb;
+      top: 64px;
     }
     .section-body { min-width: 0; }
     .section-body header h2 {
       font-family: var(--ff-display);
-      font-weight: 500;
-      font-size: clamp(36px, 4vw, 56px);
-      line-height: 1.02;
-      letter-spacing: -0.02em;
+      font-weight: 600;
+      font-size: clamp(22px, 2.4vw, 30px);
+      line-height: 1.15;
+      letter-spacing: -0.01em;
       color: var(--ink);
-      margin-bottom: 16px;
-      font-variation-settings: 'opsz' 72;
+      margin-bottom: 8px;
+      font-variation-settings: 'opsz' 36;
     }
     .section-body header h2 em {
       font-style: italic;
       color: var(--accent);
-      font-weight: 400;
+      font-weight: 500;
     }
     .section-body header .lede {
       font-family: var(--ff-body);
-      font-size: 19px;
+      font-size: 14.5px;
       line-height: 1.5;
       color: var(--ink-2);
-      max-width: 720px;
-      margin-bottom: 36px;
-      font-variation-settings: 'opsz' 24;
+      max-width: 780px;
+      margin-bottom: 18px;
     }
     .section-body header .lede em {
       font-style: italic;
       color: var(--accent);
     }
+    .section-body header .lede.with-dropcap::first-letter {
+      /* Drop caps removed in the toned-down aesthetic */
+      font-family: inherit;
+      font-size: inherit;
+      float: none;
+      line-height: inherit;
+      margin: 0;
+      color: inherit;
+    }
 
     /* ============== KPI strip ============== */
     .kpis {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
       gap: 0;
-      margin: 24px 0 48px;
+      margin: 16px 0 28px;
       border-top: 1px solid var(--ink);
       border-bottom: 1px solid var(--rule);
     }
     .kpi {
-      padding: 20px 16px;
+      padding: 12px 14px;
       border-right: 1px solid var(--rule-2);
     }
     .kpi:last-child { border-right: none; }
     .kpi .label {
-      font-family: var(--ff-ui);
-      font-size: 10.5px;
-      letter-spacing: 0.14em;
+      font-family: var(--ff-mono);
+      font-size: 10px;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
       color: var(--muted);
-      margin-bottom: 10px;
+      margin-bottom: 6px;
       font-weight: 600;
     }
     .kpi .value {
       font-family: var(--ff-display);
-      font-size: 36px;
+      font-size: 26px;
       font-weight: 500;
-      line-height: 1;
-      letter-spacing: -0.025em;
+      line-height: 1.05;
+      letter-spacing: -0.015em;
       color: var(--ink);
-      font-variation-settings: 'opsz' 48;
+      font-variation-settings: 'opsz' 36;
       font-feature-settings: "lnum" 1, "tnum" 1;
     }
     .kpi .value.value-text {
-      font-size: 17px;
-      line-height: 1.15;
+      font-size: 14.5px;
+      line-height: 1.2;
+      font-weight: 500;
     }
     .kpi .sub {
       font-family: var(--ff-mono);
-      font-size: 10.5px;
+      font-size: 10px;
       color: var(--muted);
-      margin-top: 8px;
-      letter-spacing: 0;
+      margin-top: 4px;
     }
 
     /* ============== Figures (charts) ============== */
     figure {
-      margin: 36px 0;
+      margin: 22px 0;
       background: var(--bg-card);
       border: 1px solid var(--rule-2);
-      border-radius: 4px;
-      padding: 28px 28px 24px;
+      padding: 16px 18px 14px;
     }
     figure.bare {
       background: none;
       border: none;
-      padding: 24px 0;
+      padding: 12px 0;
     }
     figcaption {
       font-family: var(--ff-display);
-      font-size: 20px;
-      font-weight: 500;
-      letter-spacing: -0.005em;
+      font-size: 15.5px;
+      font-weight: 600;
+      letter-spacing: 0;
       color: var(--ink);
       margin-bottom: 4px;
-      font-variation-settings: 'opsz' 24;
+      font-variation-settings: 'opsz' 18;
     }
     figcaption .lede {
       display: block;
       font-family: var(--ff-body);
-      font-size: 14.5px;
+      font-size: 13px;
       font-style: italic;
       color: var(--muted);
       font-weight: 400;
-      margin-top: 4px;
-      letter-spacing: 0;
-      max-width: 720px;
+      margin-top: 3px;
+      max-width: 780px;
       line-height: 1.45;
     }
     figcaption + .figure-tools {
@@ -785,17 +769,7 @@
     #sec-preprocessing .section-rail .section-num { color: var(--teal); }
     #sec-production .section-rail .section-num { color: var(--gold); }
 
-    /* Drop cap on first paragraph of a section's lede */
-    .section-body header .lede.with-dropcap::first-letter {
-      font-family: var(--ff-display);
-      font-size: 64px;
-      font-weight: 600;
-      float: left;
-      line-height: 0.85;
-      margin: 4px 8px 0 0;
-      color: var(--accent);
-      font-variation-settings: 'opsz' 72;
-    }
+    /* (drop cap intentionally disabled in the scientific aesthetic) */
 
     /* Inline rank-leaderboard */
     .rank-bars {
@@ -843,7 +817,7 @@
 <body>
 
 <nav class="sticky-nav">
-  <span class="brand">nirs<em>4</em>all</span>
+  <span class="brand">nirs4all</span>
   <a href="#sec-overview">§1 Overview</a>
   <a href="#sec-models">§2 Models</a>
   <a href="#sec-datasets">§3 Datasets</a>
@@ -854,12 +828,12 @@
 </nav>
 
 <header class="masthead">
-  <div class="eyebrow">NIRS4All · Benchmark synthesis · v0.8.x</div>
-  <h1 class="title">A finer-grained look at <em>spectroscopy</em> models.</h1>
+  <div class="eyebrow">benchmark synthesis · v0.8.x · master</div>
+  <h1 class="title">nirs4all NIR-spectroscopy benchmark</h1>
   <p class="subtitle">
-    A reproducible chemometrics benchmark spanning every model
-    class deployed in <span class="text-mono">nirs4all</span>, evaluated
-    across an unusually wide collection of public and proprietary NIRS datasets.
+    Cross-class evaluation of every model in <span class="text-mono">nirs4all</span>
+    across the master record set: 332 distinct model_names, 13 model classes,
+    71 datasets, 73 source runs. Use the picker in §2 to drive the charts.
   </p>
   <p class="meta" id="header-meta">Loading…</p>
   <div class="by-line">
@@ -880,7 +854,7 @@
     <div class="section-rail"><div class="section-num">§1</div></div>
     <div class="section-body">
       <header>
-        <h2>Overview &amp; <em>headline results</em></h2>
+        <h2>Overview &amp; headline results</h2>
         <p class="lede with-dropcap">
           The benchmark aggregates every observed and reference-paper row across
           the master record set. Below: high-level counts, the mean-rank
@@ -895,9 +869,17 @@
 
       <figure>
         <figcaption>Mean rank per model class
-          <span class="lede">Lower is better. Computed on every dataset where the class
-          appears at least once, taking each class's best (min rmsep) on that dataset.</span>
+          <span class="lede">Lower mean rank = better. For each dataset, classes are ranked by
+          their best (min) rmsep; we then average each class's per-dataset rank. The
+          min-datasets filter hides classes with narrow coverage (e.g. FCK-PLS, tested
+          on only 7 datasets, was the apparent winner before filtering).</span>
         </figcaption>
+        <div class="filter-bar" style="margin-top:12px">
+          <label>Min datasets per class ≥ <input id="rank-min-ds" type="number" value="30" min="0" max="80" style="width:60px"></label>
+          <span style="font-family:var(--ff-mono);font-size:11px;color:var(--muted);font-style:italic">
+            (rmsep is per-dataset absolute; ranking compares classes within each dataset)
+          </span>
+        </div>
         <div id="rank-leaderboard" class="rank-bars" style="margin-top:14px"></div>
       </figure>
 
@@ -917,18 +899,26 @@
 
       <figure>
         <figcaption>Master leaderboard
-          <span class="lede">All 332 distinct model_names aggregated across every source and
-          dataset. Median rmsep is the per-dataset best for that model_name, then
-          medianed across covered datasets. Filter and sort below.</span>
+          <span class="lede">All 332 distinct model_names aggregated across every source × dataset.
+          <strong>Oracle ratio</strong> = median across datasets of rmsep / dataset_best_rmsep
+          (≥ 1.0, lower = better) is the canonical normalised metric — comparable across
+          datasets with different target-variable scales.
+          <strong>Mean rank</strong> = mean position of this model_name among all 332+ on
+          each covered dataset.
+          <strong>Median rmsep</strong> is shown for reference but is <em>not</em> comparable
+          across datasets (a low value can simply mean the model was tested on small-scale targets).</span>
         </figcaption>
         <div class="filter-bar" style="margin-top:14px">
           <label>Min datasets <input id="filter-min-ds" type="number" value="10" min="1" max="80" style="width:60px"></label>
           <label>Model class <select id="filter-model-class"><option value="">all</option></select></label>
           <label>Sort by
             <select id="filter-sort">
-              <option value="median_rmsep">Median rmsep ↑</option>
-              <option value="best_rmsep">Best rmsep ↑</option>
+              <option value="median_oracle_ratio" selected>Oracle ratio ↑ (normalized)</option>
+              <option value="mean_rank">Mean rank ↑</option>
+              <option value="wins">Wins ↓</option>
               <option value="n_datasets">Coverage ↓</option>
+              <option value="median_rmsep">Median rmsep ↑ (absolute)</option>
+              <option value="best_rmsep">Best rmsep ↑</option>
               <option value="model_class">Model class</option>
             </select>
           </label>
@@ -946,7 +936,7 @@
     <div class="section-rail"><div class="section-num">§2</div></div>
     <div class="section-body">
       <header>
-        <h2>The <em>model</em> picker</h2>
+        <h2>Models</h2>
         <p class="lede with-dropcap">
           Pick any subset of the 329 canonical models (cases &amp; separators
           collapsed). The picker is grouped by class with live text-filter and
@@ -956,127 +946,158 @@
         </p>
       </header>
 
-      <div class="grid-picker">
-        <div>
-          <div style="font-family:var(--ff-ui);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;font-weight:600">
-            Model picker
+      <!-- Picker: compact, full-width above the chart -->
+      <div style="font-family:var(--ff-ui);font-size:11px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:8px;font-weight:600;display:flex;justify-content:space-between;align-items:center">
+        <span>Model picker · click to expand / collapse</span>
+        <button id="m10-picker-toggle" style="font-family:var(--ff-mono);font-size:11px;padding:2px 10px;border:1px solid var(--rule);background:white;cursor:pointer">hide picker ▲</button>
+      </div>
+      <div id="m10-picker-wrap">
+        <div class="picker" id="m10-picker" style="max-width:none">
+          <div class="picker-toolbar">
+            <input id="m10-filter" type="text" placeholder="filter by name or class (try 'ridge', 'tabpfn', 'snv'…)">
+            <select id="m10-sort">
+              <option value="median_rmsep">median rmsep ↑</option>
+              <option value="n_datasets">coverage ↓</option>
+              <option value="name">alpha</option>
+              <option value="n_obs"># obs ↓</option>
+            </select>
+            <span style="margin-left:8px;color:var(--muted);font-size:10px">numeric:</span>
+            <label style="font-size:10px;color:var(--muted)">min ds ≥ <input id="m10-min-ds" type="number" min="0" max="80" value="0" style="width:50px;padding:2px 4px"></label>
+            <label style="font-size:10px;color:var(--muted)">max rmsep ≤ <input id="m10-max-rmsep" type="number" min="0" step="0.5" placeholder="∞" style="width:60px;padding:2px 4px"></label>
+            <label style="font-size:10px;color:var(--muted)">min obs ≥ <input id="m10-min-obs" type="number" min="0" max="10000" value="0" style="width:60px;padding:2px 4px"></label>
+            <button id="m10-filters-reset" style="padding:2px 8px;font-size:10px">reset filters</button>
+            <button id="m10-collapse-all" title="collapse all class groups">▶|◀</button>
+            <button id="m10-expand-all" title="expand all class groups">◀|▶</button>
           </div>
-          <div class="picker" id="m10-picker">
-            <div class="picker-toolbar">
-              <input id="m10-filter" type="text" placeholder="filter by name or class (try 'ridge', 'tabpfn', 'snv'…)">
-              <select id="m10-sort">
-                <option value="median_rmsep">median rmsep ↑</option>
-                <option value="n_datasets">coverage ↓</option>
-                <option value="name">alpha</option>
-                <option value="n_obs"># obs ↓</option>
-              </select>
-              <button id="m10-collapse-all" title="collapse all class groups">▶|◀</button>
-              <button id="m10-expand-all" title="expand all class groups">◀|▶</button>
-            </div>
-            <div class="picker-toolbar" style="background:rgba(193,74,62,0.06);border-top:0;font-size:10px;gap:6px;padding:5px 12px">
-              <span style="color:var(--muted)">Numeric filters</span>
-              <label>min ds ≥ <input id="m10-min-ds" type="number" min="0" max="80" value="0" style="width:50px;padding:2px 4px"></label>
-              <label>max rmsep ≤ <input id="m10-max-rmsep" type="number" min="0" step="0.5" placeholder="∞" style="width:60px;padding:2px 4px"></label>
-              <label>min obs ≥ <input id="m10-min-obs" type="number" min="0" max="10000" value="0" style="width:60px;padding:2px 4px"></label>
-              <button id="m10-filters-reset" style="padding:1px 8px;font-size:9px">reset</button>
-            </div>
-            <div class="picker-list" id="m10-picker-list"></div>
-            <div class="picker-stats-line" id="m10-picker-stats">—</div>
-          </div>
-          <div style="margin-top:10px">
-            <div style="font-family:var(--ff-ui);font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-bottom:4px">Quick presets</div>
-            <div style="display:flex;flex-wrap:wrap;gap:4px">
-              <button class="m10-preset" data-models="best5" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">Top 5 master</button>
-              <button class="m10-preset" data-models="best_current" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">best_current</button>
-              <button class="m10-preset" data-models="aomridge" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">AOM-Ridge</button>
-              <button class="m10-preset" data-models="aompls" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">AOM-PLS</button>
-              <button class="m10-preset" data-models="tabpfn" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">TabPFN</button>
-              <button class="m10-preset" data-models="moe" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">MoE/Stack</button>
-              <button class="m10-preset" data-models="fck" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">FCK</button>
-            </div>
-          </div>
-          <div class="selected-tray">
-            <div class="header-line">
-              <span>Selected · <strong id="m10-selected-count">0</strong></span>
-              <button id="m10-clear">Clear all</button>
-            </div>
-            <div id="m10-selected-pills" class="pills-list"></div>
-          </div>
+          <div class="picker-list" id="m10-picker-list" style="max-height:280px"></div>
+          <div class="picker-stats-line" id="m10-picker-stats">—</div>
         </div>
-        <div>
-          <figure class="bare">
-            <figcaption>Distance to best score, per dataset
-              <span class="lede">For each selected model and each dataset, plot rmsep on the
-              dataset relative to the dataset's best score across the whole master.
-              y = 1.0 is the best.</span>
-            </figcaption>
-            <div class="filter-bar">
-              <label>Metric
-                <select id="m10-metric">
-                  <option value="ratio">rmsep / best (ratio)</option>
-                  <option value="delta">rmsep − best</option>
-                  <option value="abs">rmsep (absolute)</option>
-                </select>
-              </label>
-              <label>Sort x by
-                <select id="m10-xsort">
-                  <option value="n_train">n_train ↑</option>
-                  <option value="alpha">alphabetical</option>
-                  <option value="best">best rmsep ↑</option>
-                </select>
-              </label>
-              <label>y scale
-                <select id="m10-yscale">
-                  <option value="auto" selected>auto</option>
-                  <option value="linear">linear</option>
-                  <option value="log">log</option>
-                </select>
-              </label>
-              <label>Mode
-                <select id="m10-mode">
-                  <option value="markers">markers only</option>
-                  <option value="lines" selected>lines only</option>
-                  <option value="markers+lines">markers + lines</option>
-                </select>
-              </label>
-              <label>Layout
-                <select id="m10-layout">
-                  <option value="overlay" selected>overlay (single chart)</option>
-                  <option value="facet">facet per model</option>
-                </select>
-              </label>
-            </div>
-            <div id="m10-scatter" class="plot-tall"></div>
-          </figure>
+        <div style="margin-top:8px;display:flex;flex-wrap:wrap;gap:4px;align-items:center">
+          <span style="font-family:var(--ff-ui);font-size:10.5px;letter-spacing:0.08em;text-transform:uppercase;color:var(--muted);margin-right:6px">presets</span>
+          <button class="m10-preset" data-models="best5" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">Top 5 master</button>
+          <button class="m10-preset" data-models="best_current" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">best_current</button>
+          <button class="m10-preset" data-models="aomridge" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">AOM-Ridge</button>
+          <button class="m10-preset" data-models="aompls" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">AOM-PLS</button>
+          <button class="m10-preset" data-models="tabpfn" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">TabPFN</button>
+          <button class="m10-preset" data-models="moe" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">MoE/Stack</button>
+          <button class="m10-preset" data-models="fck" style="padding:3px 9px;font-size:10.5px;font-family:var(--ff-mono);border:1px solid var(--rule);background:white;cursor:pointer">FCK</button>
+        </div>
+        <div class="selected-tray">
+          <div class="header-line">
+            <span>Selected · <strong id="m10-selected-count">0</strong></span>
+            <button id="m10-clear">Clear all</button>
+          </div>
+          <div id="m10-selected-pills" class="pills-list"></div>
         </div>
       </div>
 
       <figure>
-        <figcaption>Per-class behavior: rmsep vs n_train
-          <span class="lede">Small multiples by model class (faceted, replaces the previous
-          overplotted scatter of 6000+ points). Both axes log-scaled.</span>
+        <figcaption>Distance to best score, per dataset
+          <span class="lede">For each selected model and each dataset, plot rmsep on the
+          dataset relative to the dataset's best score across the whole master.
+          <strong>y = 1.0 is the best</strong>. The ratio metric is the canonical
+          NIRS normalisation because absolute rmsep is incomparable across datasets
+          with different target-variable scales.</span>
         </figcaption>
         <div class="filter-bar">
+          <label>Metric
+            <select id="m10-metric">
+              <option value="ratio">rmsep / best (ratio, recommended)</option>
+              <option value="delta">rmsep − best</option>
+              <option value="abs">rmsep (absolute — beware scale)</option>
+            </select>
+          </label>
+          <label>Sort x by
+            <select id="m10-xsort">
+              <option value="n_train">n_train ↑</option>
+              <option value="alpha">alphabetical</option>
+              <option value="best">best rmsep ↑</option>
+            </select>
+          </label>
+          <label>y scale
+            <select id="m10-yscale">
+              <option value="auto" selected>auto</option>
+              <option value="linear">linear</option>
+              <option value="log">log</option>
+            </select>
+          </label>
+          <label>Mode
+            <select id="m10-mode">
+              <option value="markers">markers only</option>
+              <option value="lines" selected>lines only</option>
+              <option value="markers+lines">markers + lines</option>
+            </select>
+          </label>
+          <label>Layout
+            <select id="m10-layout">
+              <option value="overlay" selected>overlay (single chart)</option>
+              <option value="facet">facet per model</option>
+            </select>
+          </label>
+        </div>
+        <div id="m10-scatter" class="plot-xtall"></div>
+      </figure>
+
+      <figure>
+        <figcaption>Per-class behavior: rmsep vs n_train
+          <span class="lede">Small multiples per model class. Pick the classes to display,
+          show all observations or just the top model per class, optionally overlay
+          named model_names from the picker.</span>
+        </figcaption>
+        <div class="filter-bar">
+          <label>Show classes
+            <span id="facet-class-picker" style="display:inline-flex;flex-wrap:wrap;gap:4px;margin-left:6px"></span>
+          </label>
+          <button id="facet-class-all" style="padding:3px 9px;font-size:10.5px">all</button>
+          <button id="facet-class-none" style="padding:3px 9px;font-size:10.5px">none</button>
           <label>Color by
             <select id="facet-color-by">
               <option value="class">class (single)</option>
               <option value="rmsep">rmsep value</option>
             </select>
           </label>
-          <label>Min obs per class ≥
-            <input id="facet-min-obs" type="number" value="30" min="0" max="1000" style="width:60px">
+          <label>Min obs/class ≥
+            <input id="facet-min-obs" type="number" value="0" min="0" max="1000" style="width:55px">
           </label>
+          <label><input id="facet-overlay-selected" type="checkbox" checked> highlight picker-selected models</label>
         </div>
         <div id="faceted-scatter" class="plot-xtall"></div>
       </figure>
 
       <figure>
-        <figcaption>Rank distribution per class
-          <span class="lede">For each class, distribution of ranks across the datasets it covered.
-          Tight, low-position boxes (left side) indicate consistent winners; wide
-          boxes indicate variable performance.</span>
+        <figcaption>Rank distribution
+          <span class="lede">Box-plot of per-dataset ranks. Tight, low-position boxes (left)
+          indicate consistent winners; wide boxes indicate variable performance.
+          Choose granularity:</span>
         </figcaption>
+        <div class="filter-bar">
+          <label>Granularity
+            <select id="rank-dist-level">
+              <option value="class" selected>by model class</option>
+              <option value="model">by selected model_names</option>
+              <option value="model_top">by top-N model_names</option>
+            </select>
+          </label>
+          <label id="rank-dist-topn-wrap" style="display:none">Top N
+            <input id="rank-dist-topn" type="number" value="15" min="3" max="50" style="width:60px">
+          </label>
+          <label>Min datasets ≥
+            <input id="rank-dist-min-ds" type="number" value="20" min="1" max="80" style="width:55px">
+          </label>
+          <span style="font-family:var(--ff-mono);font-size:11px;color:var(--muted);font-style:italic">
+            (per-model uses ranks across the full universe of 332+ model_names)
+          </span>
+        </div>
         <div id="rank-distribution" class="plot-tall"></div>
+      </figure>
+
+      <figure>
+        <figcaption>Promising models — candidates to expand on the full cohort
+          <span class="lede">Models flagged by automatic rules: <em>sparse but strong</em>
+          (low normalized score, &lt; 30 datasets), <em>high variance</em> (large rank
+          spread suggests preset-dependence), <em>under-tested classes</em>.</span>
+        </figcaption>
+        <div class="scroll-table" id="promising-models" style="max-height:520px"></div>
       </figure>
     </div>
   </section>
@@ -1088,7 +1109,7 @@
     <div class="section-rail"><div class="section-num">§3</div></div>
     <div class="section-body">
       <header>
-        <h2>Per-<em>dataset</em> deep dive</h2>
+        <h2>Datasets</h2>
         <p class="lede with-dropcap">
           Pick any of the 71 datasets in the picker on the left to see every
           observation collected on it — paper references, locked production runs,
@@ -1179,7 +1200,7 @@
     <div class="section-rail"><div class="section-num">§4</div></div>
     <div class="section-body">
       <header>
-        <h2>Preprocessing, <em>decomposed</em></h2>
+        <h2>Preprocessing</h2>
         <p class="lede with-dropcap">
           The master CSV's <code>preprocessing_pipeline</code> column is heterogeneous —
           AOM atom-bank labels, classical pp names, HPO compound strings, and stringified
@@ -1278,7 +1299,7 @@
     <div class="section-rail"><div class="section-num">§5</div></div>
     <div class="section-body">
       <header>
-        <h2>Production <em>presets</em></h2>
+        <h2>Production presets</h2>
         <p class="lede with-dropcap">
           The four locked preset runs on the full-57 cohort:
           <em>fast_reliable</em>, <em>strong_practical</em>, <em>best_current</em>,
@@ -1405,6 +1426,7 @@
       ['renderFacetedScatter', renderFacetedScatter],
       ['bindFacetedScatterFilters', bindFacetedScatterFilters],
       ['renderRankDistribution', renderRankDistribution],
+      ['renderPromisingModels', renderPromisingModels],
       // Datasets
       ['initDatasetDetail', initDatasetDetail],
       ['renderPerDatasetBest', renderPerDatasetBest],
@@ -1451,20 +1473,25 @@
   function renderMasterKPIs(data) {
     const m = data.metadata;
     const ma = data.master;
-    const bestClass = ma.by_model_class[0];
-    const bestModel = ma.top_models.find(t => t.n_datasets >= 10);
+    // Top class by mean rank (filtered ≥30 datasets to avoid sparse outliers)
+    const ranks = (ma.ranks && ma.ranks.mean_ranks) || [];
+    const topRanked = ranks.filter(r => r.n_datasets >= 30)[0] || ranks[0];
+    // Top model by oracle ratio (≥30 datasets)
+    const topModel = (ma.top_models || [])
+      .filter(t => t.n_datasets >= 30 && t.median_oracle_ratio != null)
+      .sort((a, b) => a.median_oracle_ratio - b.median_oracle_ratio)[0];
     const kpis = [
-      {label: 'Master observed rows', value: fmtInt(m.master_observed_total), sub: `incl. ${data.tabpfn_paper.length} TabPFN paper rows`},
+      {label: 'Observed rows', value: fmtInt(m.master_observed_total), sub: `incl. ${data.tabpfn_paper.length} paper-ref rows`},
       {label: 'Distinct models', value: m.master_distinct_models, sub: `across ${m.master_source_runs} source runs`},
-      {label: 'Model classes', value: m.master_model_classes, sub: 'AOM-PLS · AOM-Ridge · PLS · Ridge · …'},
+      {label: 'Model classes', value: m.master_model_classes, sub: 'AOM-PLS · AOM-Ridge · PLS · …'},
       {label: 'Datasets covered', value: ma.per_dataset_best.length, sub: 'master scope'},
-      {label: 'Best class (median)', value: bestClass ? bestClass.model_class : '—', sub: bestClass ? fmtNum(bestClass.median_best_rmsep) + ' rmsep' : ''},
-      {label: 'Best model (≥10 ds)', value: bestModel ? bestModel.model_name.slice(0,18) : '—', sub: bestModel ? fmtNum(bestModel.median_rmsep) + ' median' : ''},
+      {label: 'Top class (≥30 ds)', valueText: topRanked ? topRanked.class : '—', sub: topRanked ? `mean rank ${topRanked.mean_rank.toFixed(2)}` : ''},
+      {label: 'Top model (≥30 ds)', valueText: topModel ? topModel.model_name.slice(0,22) : '—', sub: topModel ? `oracle ${topModel.median_oracle_ratio.toFixed(3)}` : ''},
     ];
     document.getElementById('master-kpis').innerHTML = kpis.map(k => `
       <div class="kpi">
         <div class="label">${k.label}</div>
-        <div class="value">${k.value}</div>
+        <div class="value${k.valueText ? ' value-text' : ''}">${k.valueText ?? k.value}</div>
         <div class="sub">${k.sub}</div>
       </div>`).join('');
   }
@@ -1534,30 +1561,40 @@
       .filter(m => m.n_datasets >= minDs)
       .filter(m => !classFilter || m.model_class === classFilter);
 
-    if (sortBy === 'median_rmsep' || sortBy === 'best_rmsep') {
+    if (sortBy === 'median_oracle_ratio') {
+      models.sort((a,b) => (a.median_oracle_ratio ?? Infinity) - (b.median_oracle_ratio ?? Infinity));
+    } else if (sortBy === 'mean_rank') {
+      models.sort((a,b) => (a.mean_rank ?? Infinity) - (b.mean_rank ?? Infinity));
+    } else if (sortBy === 'wins') {
+      models.sort((a,b) => (b.wins ?? 0) - (a.wins ?? 0));
+    } else if (sortBy === 'median_rmsep' || sortBy === 'best_rmsep') {
       models.sort((a,b) => (a[sortBy] ?? Infinity) - (b[sortBy] ?? Infinity));
     } else if (sortBy === 'n_datasets') {
       models.sort((a,b) => (b.n_datasets ?? 0) - (a.n_datasets ?? 0));
     } else if (sortBy === 'model_class') {
       models.sort((a,b) => (a.model_class || '').localeCompare(b.model_class || '')
-                          || (a.median_rmsep ?? Infinity) - (b.median_rmsep ?? Infinity));
+                          || (a.median_oracle_ratio ?? Infinity) - (b.median_oracle_ratio ?? Infinity));
     }
     models = models.slice(0, topN);
 
     const rows = models.map((m, idx) => {
       const color = MC_COLOR[m.model_class] || '#888';
       const winner = idx < 3 ? 'winner' : '';
+      const oracleCol = m.median_oracle_ratio == null ? '—' :
+        `<span title="rmsep / dataset_best_rmsep; 1.0 = ties best">${m.median_oracle_ratio.toFixed(3)}</span>`;
+      const rankCol = m.mean_rank == null ? '—' :
+        `<span title="mean rank among 332+ model_names per dataset">${m.mean_rank.toFixed(1)}</span>`;
       return `<tr class="${winner}">
         <td title="${m.model_name}">${m.model_name.length > 50 ? m.model_name.slice(0,50)+'…' : m.model_name}</td>
         <td><span class="class-pill" style="background:${color}">${m.model_class || '?'}</span></td>
         <td class="num">${m.n_datasets}</td>
         <td class="num">${m.n_observations}</td>
-        <td class="num">${fmtNum(m.best_rmsep)}</td>
+        <td class="num">${oracleCol}</td>
+        <td class="num">${rankCol}</td>
+        <td class="num">${m.wins ?? 0}</td>
         <td class="num">${fmtNum(m.median_rmsep)}</td>
         <td class="num">${fmtNum(m.q25_rmsep)}</td>
         <td class="num">${fmtNum(m.q75_rmsep)}</td>
-        <td class="num">${fmtNum(m.q90_rmsep)}</td>
-        <td class="num">${m.n_source_runs}</td>
       </tr>`;
     }).join('');
     document.getElementById('top-models-table').innerHTML = `
@@ -1565,9 +1602,11 @@
         <thead><tr>
           <th>Model name</th><th>Class</th>
           <th class="num">Datasets</th><th class="num">Obs.</th>
-          <th class="num">Best</th><th class="num">Median</th>
-          <th class="num">Q25</th><th class="num">Q75</th><th class="num">Q90</th>
-          <th class="num">Source runs</th>
+          <th class="num" title="median across datasets of (model_rmsep / dataset_best_rmsep). 1.0 = best on every covered dataset. Comparable across datasets.">Oracle ratio ↓</th>
+          <th class="num" title="mean rank across covered datasets (1 = best)">Mean rank ↓</th>
+          <th class="num">Wins</th>
+          <th class="num" title="median absolute rmsep — NOT comparable across datasets; reported for completeness only">Median rmsep ⚠</th>
+          <th class="num">Q25</th><th class="num">Q75</th>
         </tr></thead>
         <tbody>${rows}</tbody>
       </table>`;
@@ -2227,6 +2266,11 @@
     else state.selected.delete(key);
     renderM10Picker();
     renderM10();
+    // Cross-update: faceted scatter overlay + per-model rank dist
+    if (window.dashData) {
+      try { renderFacetedScatter(window.dashData); } catch (e) {}
+      try { renderRankDistribution(window.dashData); } catch (e) {}
+    }
   }
 
   function renderM10SelectedPills() {
@@ -3027,20 +3071,42 @@
   function renderRankLeaderboard(data) {
     const el = document.getElementById('rank-leaderboard');
     if (!el || !data.master.ranks) return;
+    const minDsEl = document.getElementById('rank-min-ds');
+    const minDs = minDsEl ? (parseInt(minDsEl.value || '0') || 0) : 30;
     const ranks = data.master.ranks.mean_ranks;
-    const maxMean = Math.max(...ranks.map(r => r.mean_rank));
-    const html = ranks.map((r, i) => {
+    const filtered = ranks.filter(r => r.n_datasets >= minDs);
+    const sparse = ranks.filter(r => r.n_datasets < minDs);
+    if (filtered.length === 0) {
+      el.innerHTML = '<div class="status-line">No class meets the min-datasets filter.</div>';
+      return;
+    }
+    const maxMean = Math.max(...filtered.map(r => r.mean_rank));
+    const html = filtered.map((r, i) => {
       const cls = i === 0 ? 'rk-1' : (i === 1 ? 'rk-2' : '');
       const pct = (r.mean_rank / maxMean) * 100;
       return `<div class="rank-bar ${cls}">
         <div class="rk-num">${i + 1}</div>
-        <div class="rk-class"><span class="class-pill" style="background:${MC_COLOR[r.class] || '#888'}">${r.class}</span></div>
+        <div class="rk-class"><span class="class-pill" style="background:${MC_COLOR[r.class] || '#888'}">${r.class}</span><span style="color:var(--muted);font-size:10px;margin-left:6px">${r.n_datasets} ds</span></div>
         <div class="rk-track"><div class="rk-fill" style="width:${pct}%"></div></div>
         <div class="rk-stat">μ=${r.mean_rank.toFixed(2)} · σ=${r.std_rank.toFixed(2)}</div>
         <div class="rk-wins">${r.wins} wins</div>
       </div>`;
     }).join('');
-    el.innerHTML = html;
+    const sparseHtml = sparse.length ? `
+      <details style="margin-top:14px;padding:8px 12px;background:var(--paper-2);border-left:3px solid var(--warn)">
+        <summary style="font-family:var(--ff-mono);font-size:11px;color:var(--muted);cursor:pointer">
+          ⚠ ${sparse.length} sparse-coverage class${sparse.length>1?'es':''} hidden (&lt; ${minDs} datasets) — click to expand
+        </summary>
+        <div style="margin-top:8px;font-family:var(--ff-mono);font-size:11px;color:var(--ink-2)">
+          ${sparse.map(r => `<div style="padding:3px 0"><span class="class-pill" style="background:${MC_COLOR[r.class] || '#888'}">${r.class}</span> · ${r.n_datasets} ds · mean_rank=${r.mean_rank.toFixed(2)} · ${r.wins} wins <span style="color:var(--muted);font-style:italic">(coverage too narrow for fair ranking)</span></div>`).join('')}
+        </div>
+      </details>` : '';
+    el.innerHTML = html + sparseHtml;
+    // Wire the filter input (idempotent)
+    if (minDsEl && !minDsEl.dataset.bound) {
+      minDsEl.dataset.bound = '1';
+      minDsEl.addEventListener('input', () => renderRankLeaderboard(data));
+    }
   }
 
   function renderCDDiagram(data) {
@@ -3190,83 +3256,240 @@
     }
   }
 
+  // ====================================================================
+  // Rank distribution — supports class / selected-model / top-N-model
+  // ====================================================================
   function renderRankDistribution(data) {
     const el = document.getElementById('rank-distribution');
     if (!el || !data.master.ranks) return;
-    const rpc = data.master.ranks.rank_per_class;
-    const classes = data.master.ranks.mean_ranks.map(r => r.class);
-    const traces = classes.map(c => {
-      const ranks = (rpc[c] || []).map(r => r.rank);
-      return {
-        type: 'box', name: c, x: ranks,
-        marker: { color: MC_COLOR[c] || '#888', size: 4, opacity: 0.6 },
-        line: { color: MC_COLOR[c] || '#888' },
-        boxpoints: 'outliers',
-        orientation: 'h',
-        hovertemplate: '<b>' + c + '</b><br>rank: %{x}<extra></extra>',
-      };
-    });
+    const level = document.getElementById('rank-dist-level').value;
+    const minDs = parseInt(document.getElementById('rank-dist-min-ds').value || '20') || 20;
+    const topN = parseInt(document.getElementById('rank-dist-topn').value || '15') || 15;
+    document.getElementById('rank-dist-topn-wrap').style.display = level === 'model_top' ? '' : 'none';
+
+    let traces;
+    if (level === 'class') {
+      const rpc = data.master.ranks.rank_per_class || {};
+      const classes = data.master.ranks.mean_ranks
+        .filter(r => r.n_datasets >= minDs)
+        .map(r => r.class);
+      traces = classes.map(c => {
+        const ranks = (rpc[c] || []).map(r => r.rank);
+        return {
+          type: 'box', name: c, x: ranks,
+          marker: { color: MC_COLOR[c] || '#888', size: 4, opacity: 0.6 },
+          line: { color: MC_COLOR[c] || '#888' },
+          boxpoints: 'outliers', orientation: 'h',
+          hovertemplate: '<b>' + c + '</b><br>rank: %{x}<extra></extra>',
+        };
+      });
+    } else {
+      // Per-model ranks
+      const tm = data.master.top_models.filter(m => (m.n_ranks || 0) >= minDs);
+      let chosen;
+      if (level === 'model_top') {
+        chosen = [...tm].sort((a, b) => (a.mean_rank ?? Infinity) - (b.mean_rank ?? Infinity)).slice(0, topN);
+      } else {
+        // From M10 picker selection — flatten variants
+        const sel = window._m10?.selected ? [...window._m10.selected] : [];
+        const wanted = new Set();
+        sel.forEach(k => {
+          const e = window._m10.canonical[k];
+          if (e) e.variants.forEach(v => wanted.add(v));
+        });
+        chosen = tm.filter(m => wanted.has(m.model_name));
+        if (chosen.length === 0) {
+          el.innerHTML = '<div class="picker-empty" style="padding:30px">Select models in the picker above to populate this chart.</div>';
+          return;
+        }
+      }
+      // Reuse the per-dataset ranks from ranks.per_ds_model_ranks if available,
+      // else re-derive from observations_per_dataset
+      const ranksPerMn = data.master.ranks.per_model_ranks || _derivePerModelRanksClient(data);
+      traces = chosen.map(m => {
+        const rs = ranksPerMn[m.model_name] || [];
+        const color = MC_COLOR[m.model_class] || '#888';
+        return {
+          type: 'box', name: `${m.model_name.slice(0, 40)} (${m.model_class})`, x: rs,
+          marker: { color, size: 4, opacity: 0.6 },
+          line: { color },
+          boxpoints: 'outliers', orientation: 'h',
+          hovertemplate: '<b>' + m.model_name + '</b><br>class: ' + m.model_class + '<br>rank: %{x}<extra></extra>',
+        };
+      });
+    }
+
     Plotly.newPlot(el, traces, {
-      xaxis: { title: 'rank (1 = best on that dataset)', dtick: 1, automargin: true },
-      yaxis: { automargin: true, autorange: 'reversed' },
-      margin: { l: 160, r: 40, t: 20, b: 50 },
-      height: 480,
+      xaxis: { title: 'rank (1 = best on that dataset)', automargin: true, gridcolor: '#e7dcc7' },
+      yaxis: { automargin: true, autorange: 'reversed', tickfont: { family: "'JetBrains Mono', monospace", size: 10 } },
+      margin: { l: 240, r: 40, t: 20, b: 50 },
+      height: Math.max(420, traces.length * 26 + 100),
       showlegend: false,
       paper_bgcolor: '#fbf6ec',
       plot_bgcolor: '#fbf6ec',
-      font: { family: "'JetBrains Mono', monospace", size: 11, color: '#1c1813' },
+      font: { family: "'Newsreader', serif", size: 11, color: '#1c1813' },
     }, { responsive: true, displaylogo: false });
+  }
+
+  // Client-side per-model rank derivation if not pre-computed in JSON
+  function _derivePerModelRanksClient(data) {
+    if (window._perModelRanks) return window._perModelRanks;
+    const obs = data.master.observations_per_dataset;
+    const map = {};  // mn → list of ranks across datasets
+    Object.entries(obs).forEach(([ds, rows]) => {
+      // best rmsep per model_name on this dataset
+      const best = {};
+      rows.forEach(r => {
+        const mn = r.model_name;
+        if (!mn || r.rmsep == null) return;
+        if (best[mn] == null || r.rmsep < best[mn]) best[mn] = r.rmsep;
+      });
+      const sorted = Object.entries(best).sort((a, b) => a[1] - b[1]);
+      sorted.forEach(([mn, _], i) => {
+        map[mn] = map[mn] || [];
+        map[mn].push(i + 1);
+      });
+    });
+    window._perModelRanks = map;
+    return map;
+  }
+
+  // ====================================================================
+  // Faceted scatter — customizable: class checkboxes + selected overlay
+  // ====================================================================
+  function _initFacetedScatterUI(data) {
+    const wrap = document.getElementById('facet-class-picker');
+    if (!wrap || wrap.dataset.init) return;
+    wrap.dataset.init = '1';
+    // List all classes from observations_lean, sorted by n_obs
+    const byClass = {};
+    data.master.observations_lean.forEach(o => {
+      if (!o.model_class) return;
+      byClass[o.model_class] = (byClass[o.model_class] || 0) + 1;
+    });
+    const classes = Object.keys(byClass).sort((a, b) => byClass[b] - byClass[a]);
+    window._facetClasses = new Set(classes);
+    wrap.innerHTML = classes.map(c => {
+      const color = MC_COLOR[c] || '#888';
+      return `<label style="display:inline-flex;align-items:center;gap:3px;background:white;border:1px solid var(--rule);padding:2px 8px;font-size:10.5px;cursor:pointer">
+        <input type="checkbox" class="facet-cls-cb" data-cls="${c.replace(/"/g, '&quot;')}" checked style="margin:0;accent-color:${color}">
+        <span style="color:${color}">${c}</span>
+        <span style="color:var(--muted);font-size:9px">${byClass[c]}</span>
+      </label>`;
+    }).join('');
+    wrap.querySelectorAll('.facet-cls-cb').forEach(cb => {
+      cb.addEventListener('change', () => {
+        if (cb.checked) window._facetClasses.add(cb.dataset.cls);
+        else window._facetClasses.delete(cb.dataset.cls);
+        renderFacetedScatter(data);
+      });
+    });
+    document.getElementById('facet-class-all').addEventListener('click', () => {
+      wrap.querySelectorAll('.facet-cls-cb').forEach(cb => {
+        cb.checked = true;
+        window._facetClasses.add(cb.dataset.cls);
+      });
+      renderFacetedScatter(data);
+    });
+    document.getElementById('facet-class-none').addEventListener('click', () => {
+      wrap.querySelectorAll('.facet-cls-cb').forEach(cb => {
+        cb.checked = false;
+      });
+      window._facetClasses.clear();
+      renderFacetedScatter(data);
+    });
   }
 
   function renderFacetedScatter(data) {
     const el = document.getElementById('faceted-scatter');
     if (!el || !data.master.observations_lean) return;
-    const minObs = parseInt(document.getElementById('facet-min-obs').value || '30') || 30;
+    _initFacetedScatterUI(data);
+    const minObs = parseInt(document.getElementById('facet-min-obs').value || '0') || 0;
     const colorBy = document.getElementById('facet-color-by').value;
+    const overlay = document.getElementById('facet-overlay-selected').checked;
+    const wantClasses = window._facetClasses || new Set();
 
-    // Group by class
+    // Per-class observations from lean cache
     const byClass = {};
     data.master.observations_lean.forEach(o => {
       if (!o.n_train || !o.model_class || !o.rmsep) return;
+      if (!wantClasses.has(o.model_class)) return;
       byClass[o.model_class] = byClass[o.model_class] || [];
       byClass[o.model_class].push(o);
     });
-    const classes = Object.keys(byClass).filter(c => byClass[c].length >= minObs)
+    const classes = Object.keys(byClass)
+      .filter(c => byClass[c].length >= minObs)
       .sort((a, b) => byClass[b].length - byClass[a].length);
     if (classes.length === 0) {
-      el.innerHTML = '<div class="picker-empty">No classes meet the minimum observation count.</div>';
+      el.innerHTML = '<div class="picker-empty" style="padding:30px">No classes selected (or below min-obs threshold).</div>';
       return;
     }
 
-    // Grid: 4 cols, ceil(n/4) rows
+    // Build per-canonical-model overlay points if requested
+    const selectedKeys = (overlay && window._m10) ? [...window._m10.selected] : [];
+    // Build a map class → [{model_name, ds, n_train, rmsep, displayName}]
+    const overlayPoints = {};
+    if (overlay && selectedKeys.length > 0) {
+      selectedKeys.forEach(k => {
+        const e = window._m10.canonical[k];
+        if (!e) return;
+        const cls = e.class;
+        if (!classes.includes(cls)) return;
+        Object.entries(e.datasets).forEach(([ds, r]) => {
+          // get n_train for this ds
+          const meta = data.master.per_dataset_meta?.[ds];
+          if (!meta || !meta.n_train) return;
+          (overlayPoints[cls] = overlayPoints[cls] || []).push({
+            name: e.display, ds, n_train: meta.n_train, rmsep: r,
+          });
+        });
+      });
+    }
+
     const cols = Math.min(4, classes.length);
     const rows = Math.ceil(classes.length / cols);
     const traces = [];
     const annotations = [];
     classes.forEach((c, idx) => {
-      const r = Math.floor(idx / cols) + 1;
-      const col = (idx % cols) + 1;
       const axNum = idx + 1;
-      const xAxisName = idx === 0 ? 'x' : `x${axNum}`;
-      const yAxisName = idx === 0 ? 'y' : `y${axNum}`;
+      const xAx = idx === 0 ? 'x' : `x${axNum}`;
+      const yAx = idx === 0 ? 'y' : `y${axNum}`;
       const obs = byClass[c];
       const xs = obs.map(o => o.n_train);
       const ys = obs.map(o => o.rmsep);
       const color = MC_COLOR[c] || '#888';
       const marker = colorBy === 'rmsep'
-        ? { color: ys, colorscale: 'Viridis', reversescale: true, showscale: false, size: 5, opacity: 0.7 }
-        : { color, size: 5, opacity: 0.5, line: { width: 0 } };
+        ? { color: ys, colorscale: 'Viridis', reversescale: true, showscale: false, size: 5, opacity: 0.6 }
+        : { color, size: 5, opacity: 0.45, line: { width: 0 } };
+      // Background scatter (all obs for this class)
       traces.push({
         type: 'scattergl', mode: 'markers',
         x: xs, y: ys,
-        xaxis: xAxisName, yaxis: yAxisName,
+        xaxis: xAx, yaxis: yAx,
         name: c, marker,
         hovertemplate: `<b>${c}</b><br>n_train: %{x}<br>rmsep: %{y:.4f}<extra></extra>`,
         showlegend: false,
       });
+      // Overlay points for selected models in this class
+      if (overlayPoints[c] && overlayPoints[c].length > 0) {
+        traces.push({
+          type: 'scatter', mode: 'markers+text',
+          x: overlayPoints[c].map(p => p.n_train),
+          y: overlayPoints[c].map(p => p.rmsep),
+          xaxis: xAx, yaxis: yAx,
+          name: 'selected · ' + c,
+          marker: { color: '#1c1813', size: 9, line: { color: '#fff', width: 1.2 }, symbol: 'diamond' },
+          text: overlayPoints[c].map(p => p.name.slice(0, 16)),
+          textposition: 'top center',
+          textfont: { size: 9, family: "'JetBrains Mono', monospace", color: '#8e2718' },
+          hovertemplate: '<b>%{text}</b><br>%{customdata}<br>n_train: %{x}<br>rmsep: %{y:.4f}<extra></extra>',
+          customdata: overlayPoints[c].map(p => p.ds),
+          showlegend: false,
+        });
+      }
       annotations.push({
-        text: `${c} <span style="color:#888">· ${obs.length} obs</span>`,
-        xref: `${xAxisName} domain`, yref: `${yAxisName} domain`,
+        text: `<b>${c}</b> <span style="color:#888">${obs.length} obs</span>`,
+        xref: `${xAx} domain`, yref: `${yAx} domain`,
         x: 0.03, y: 0.96, xanchor: 'left', yanchor: 'top',
         showarrow: false,
         font: { size: 11, color: '#1c1813', family: "'Newsreader', serif" },
@@ -3275,19 +3498,17 @@
     });
 
     const layout = {
-      grid: { rows, columns: cols, pattern: 'independent', xgap: 0.06, ygap: 0.08 },
+      grid: { rows, columns: cols, pattern: 'independent', xgap: 0.06, ygap: 0.1 },
       height: Math.max(280 * rows, 320),
-      paper_bgcolor: '#fbf6ec',
-      plot_bgcolor: '#fbf6ec',
-      margin: { l: 50, r: 20, t: 20, b: 50 },
+      paper_bgcolor: '#fbf6ec', plot_bgcolor: '#fbf6ec',
+      margin: { l: 50, r: 20, t: 20, b: 60 },
       font: { family: "'JetBrains Mono', monospace", size: 10, color: '#1c1813' },
       annotations,
     };
-    // Common log axes for all facets
     for (let i = 0; i < classes.length; i++) {
-      const suffix = i === 0 ? '' : (i + 1);
-      layout[`xaxis${suffix}`] = { type: 'log', title: i >= classes.length - cols ? 'n_train' : '', tickfont: { size: 9 }, automargin: true };
-      layout[`yaxis${suffix}`] = { type: 'log', title: (i % cols) === 0 ? 'rmsep' : '', tickfont: { size: 9 }, automargin: true };
+      const suf = i === 0 ? '' : (i + 1);
+      layout[`xaxis${suf}`] = { type: 'log', title: i >= classes.length - cols ? 'n_train' : '', tickfont: { size: 9 }, automargin: true };
+      layout[`yaxis${suf}`] = { type: 'log', title: (i % cols) === 0 ? 'rmsep' : '', tickfont: { size: 9 }, automargin: true };
     }
     Plotly.newPlot(el, traces, layout, { responsive: true, displaylogo: false });
   }
@@ -3296,6 +3517,98 @@
     const ev = () => renderFacetedScatter(data);
     document.getElementById('facet-color-by')?.addEventListener('change', ev);
     document.getElementById('facet-min-obs')?.addEventListener('input', ev);
+    document.getElementById('facet-overlay-selected')?.addEventListener('change', ev);
+    // Rank-distribution bindings
+    document.getElementById('rank-dist-level')?.addEventListener('change', () => renderRankDistribution(data));
+    document.getElementById('rank-dist-min-ds')?.addEventListener('input', () => renderRankDistribution(data));
+    document.getElementById('rank-dist-topn')?.addEventListener('input', () => renderRankDistribution(data));
+    // Picker toggle
+    const tog = document.getElementById('m10-picker-toggle');
+    if (tog) {
+      tog.addEventListener('click', () => {
+        const w = document.getElementById('m10-picker-wrap');
+        if (!w) return;
+        const hidden = w.style.display === 'none';
+        w.style.display = hidden ? '' : 'none';
+        tog.textContent = hidden ? 'hide picker ▲' : 'show picker ▼';
+      });
+    }
+  }
+
+  // ====================================================================
+  // Promising models panel
+  // ====================================================================
+  function renderPromisingModels(data) {
+    const el = document.getElementById('promising-models');
+    if (!el) return;
+    const tm = data.master.top_models;
+    const allDs = data.master.per_dataset_best.length;
+
+    // Rule A: sparse but strong (low oracle ratio, < 30 datasets, ≥ 5)
+    const sparseStrong = tm.filter(m =>
+      m.median_oracle_ratio != null
+      && m.median_oracle_ratio < 1.5
+      && m.n_datasets >= 5
+      && m.n_datasets < 30
+    ).sort((a, b) => a.median_oracle_ratio - b.median_oracle_ratio).slice(0, 12);
+
+    // Rule B: high rank variance (wide rank spread)
+    const variableModels = tm.filter(m =>
+      m.n_datasets >= 30
+      && m.median_oracle_ratio != null
+    );
+    // compute std of ranks per-model from rank list lengths/values requires re-derive
+    const ranksMap = _derivePerModelRanksClient(data);
+    variableModels.forEach(m => {
+      const rs = ranksMap[m.model_name] || [];
+      m._std = rs.length >= 2 ? Math.sqrt(rs.reduce((s, x) => s + (x - (m.mean_rank || 0)) ** 2, 0) / (rs.length - 1)) : 0;
+    });
+    const highVariance = variableModels
+      .filter(m => m._std > 40)
+      .sort((a, b) => b._std - a._std)
+      .slice(0, 10);
+
+    // Rule C: best on rare wins (high win count relative to coverage)
+    const winners = tm
+      .filter(m => m.wins >= 3 && m.n_datasets >= 5)
+      .sort((a, b) => (b.wins / Math.max(b.n_datasets, 1)) - (a.wins / Math.max(a.n_datasets, 1)))
+      .slice(0, 10);
+
+    function rows(list, ruleLabel) {
+      return list.map(m => {
+        const color = MC_COLOR[m.model_class] || '#888';
+        const oraStr = m.median_oracle_ratio != null ? m.median_oracle_ratio.toFixed(3) : '—';
+        const stdStr = m._std != null ? m._std.toFixed(1) : '—';
+        const ratioCov = (m.n_datasets / allDs * 100).toFixed(0) + '%';
+        return `<tr>
+          <td><span class="pill-soft" style="background:rgba(193,74,62,0.08);color:var(--accent);border-color:var(--accent);font-style:italic">${ruleLabel}</span></td>
+          <td title="${m.model_name}">${m.model_name.slice(0, 38)}</td>
+          <td><span class="class-pill" style="background:${color}">${m.model_class || '?'}</span></td>
+          <td class="num">${m.n_datasets}/${allDs} (${ratioCov})</td>
+          <td class="num">${oraStr}</td>
+          <td class="num">${m.median_rmsep.toFixed(3)}</td>
+          <td class="num">${m.wins}</td>
+          <td class="num">${stdStr}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    el.innerHTML = `
+      <table class="lb">
+        <thead><tr>
+          <th>Flag</th><th>Model</th><th>Class</th>
+          <th class="num">Coverage</th>
+          <th class="num">median oracle (1.0=best)</th>
+          <th class="num">median rmsep</th>
+          <th class="num">wins</th>
+          <th class="num">rank σ</th>
+        </tr></thead>
+        <tbody>
+          ${rows(sparseStrong, 'sparse-strong')}
+          ${rows(highVariance, 'high-variance')}
+          ${rows(winners, 'frequent-winner')}
+        </tbody>
+      </table>`;
   }
 
   function renderComponentBars(data) {
