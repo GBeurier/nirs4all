@@ -117,6 +117,60 @@ class TestParallelExecution:
         assert result is not None
         assert result.best_rmse is not None
 
+    @pytest.mark.parametrize("n_jobs", [1, 2])
+    def test_generated_runs_persist_original_template_for_reload(self, tmp_path, n_jobs):
+        """Generated runs must persist the pre-expansion authoring template.
+
+        Regression test for Phase 2 run reload persistence: the store should keep
+        the original authoring template, not just the expanded executed variant,
+        across the full execution path for both sequential and parallel runs.
+        """
+        import nirs4all
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        dataset = _make_dataset()
+        workspace = tmp_path / f"workspace_{n_jobs}"
+
+        pipeline = [
+            ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
+            {"_or_": [None, StandardScaler()]},
+            {"model": PLSRegression(n_components=4)},
+        ]
+        authoring_template = PipelineConfigs(pipeline).original_template
+
+        result = nirs4all.run(
+            pipeline=pipeline,
+            dataset=dataset,
+            verbose=0,
+            n_jobs=n_jobs,
+            workspace_path=str(workspace),
+            random_state=42,
+        )
+
+        assert result is not None
+
+        store = WorkspaceStore(workspace_path=workspace)
+        try:
+            pipelines_df = store.list_pipelines()
+            generated_rows = [
+                row for row in pipelines_df.iter_rows(named=True)
+                if not str(row.get("name") or "").endswith("_refit")
+            ]
+            assert len(generated_rows) == 2
+
+            checked = 0
+            for row in generated_rows:
+                stored_pipeline = store.get_pipeline(row["pipeline_id"])
+                assert stored_pipeline is not None
+                assert stored_pipeline["original_template"] == authoring_template
+                assert stored_pipeline["expanded_config"] != authoring_template
+                checked += 1
+
+            assert checked == 2
+        finally:
+            store.close()
+
     def test_parallel_pipeline_best_val_uses_avg_fold(self, tmp_path):
         """Parallel store reconstruction must persist RMSECV from fold_id='avg'.
 
