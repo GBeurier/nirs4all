@@ -1,0 +1,429 @@
+- generic [active] [ref=e1]:
+  - navigation [ref=e2]:
+    - generic [ref=e3]: nirs4all
+    - link "§1 Overview" [ref=e4] [cursor=pointer]:
+      - /url: "#sec-overview"
+    - link "§2 Models" [ref=e5] [cursor=pointer]:
+      - /url: "#sec-models"
+    - link "§3 Datasets" [ref=e6] [cursor=pointer]:
+      - /url: "#sec-datasets"
+    - link "§4 Preprocessing" [ref=e7] [cursor=pointer]:
+      - /url: "#sec-preprocessing"
+    - link "§5 Production" [ref=e8] [cursor=pointer]:
+      - /url: "#sec-production"
+    - link "§6 Presets pool" [ref=e9] [cursor=pointer]:
+      - /url: "#sec-preset-pools"
+    - generic [ref=e10]: loading…
+  - banner [ref=e11]:
+    - generic [ref=e12]: benchmark synthesis · v0.8.x · master
+    - heading "nirs4all NIR-spectroscopy benchmark" [level=1] [ref=e13]
+    - paragraph [ref=e14]: "Cross-class evaluation of every model in nirs4all across the master record set: 332 distinct model_names, 13 model classes, 71 datasets, 73 source runs. Use the picker in §2 to drive the charts."
+    - paragraph [ref=e15]: Loading…
+    - generic [ref=e16]:
+      - generic [ref=e17]: Agent C (MLOps spine)
+      - generic [ref=e18]: ·
+      - generic [ref=e19]: commits 51d1b0c5 → master
+      - generic [ref=e20]: ·
+      - generic [ref=e21]: "data: bench/benchmark_master_results.csv"
+  - main [ref=e22]:
+    - generic [ref=e23]:
+      - generic [ref=e25]: §1
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - heading "Overview & headline results" [level=2] [ref=e28]
+          - paragraph [ref=e29]: "The benchmark aggregates every observed and reference-paper row across the master record set. Below: high-level counts, the mean-rank leaderboard for the 13 model classes that compete on this benchmark, and a critical-difference analysis on the balanced six-class subset (Friedman + Nemenyi, α = 0.05) — the canonical chart for declaring which classes are statistically tied vs. distinguishable."
+        - figure "Mean rank per model class Lower mean rank = better. For each dataset, classes are ranked by their best (min) rmsep; we then average each class's per-dataset rank. The min-datasets filter hides classes with narrow coverage (e.g. FCK-PLS, tested on only 7 datasets, was the apparent winner before filtering)." [ref=e31]:
+          - generic [ref=e32]:
+            - text: Mean rank per model class
+            - generic [ref=e33]: Lower mean rank = better. For each dataset, classes are ranked by their best (min) rmsep; we then average each class's per-dataset rank. The min-datasets filter hides classes with narrow coverage (e.g. FCK-PLS, tested on only 7 datasets, was the apparent winner before filtering).
+          - generic [ref=e34]:
+            - generic [ref=e35]:
+              - text: Min datasets per class ≥
+              - spinbutton "Min datasets per class ≥" [ref=e36]: "30"
+            - generic [ref=e37]: (rmsep is per-dataset absolute; ranking compares classes within each dataset)
+        - figure "Critical Difference — six-class balanced subset k=6 classes evaluated on N=56 common datasets. Friedman χ² with Nemenyi post-hoc. Classes spanned by a horizontal bar are statistically tied." [ref=e38]:
+          - generic [ref=e39]:
+            - text: Critical Difference — six-class balanced subset
+            - generic [ref=e40]: k=6 classes evaluated on N=56 common datasets. Friedman χ² with Nemenyi post-hoc. Classes spanned by a horizontal bar are statistically tied.
+          - img [ref=e42]
+          - generic [ref=e44]:
+            - text: k =
+            - combobox "k =" [ref=e45]
+        - figure "Master leaderboard All 332 distinct model_names aggregated across every source × dataset. Oracle ratio = median across datasets of rmsep / dataset_best_rmsep (≥ 1.0, lower = better) is the canonical normalised metric — comparable across datasets with different target-variable scales. Mean rank = mean position of this model_name among all 332+ on each covered dataset. Median rmsep is shown for reference but is not comparable across datasets (a low value can simply mean the model was tested on small-scale targets)." [ref=e46]:
+          - generic [ref=e47]:
+            - text: Master leaderboard
+            - generic [ref=e48]:
+              - text: All 332 distinct model_names aggregated across every source × dataset.
+              - strong [ref=e49]: Oracle ratio
+              - text: = median across datasets of rmsep / dataset_best_rmsep (≥ 1.0, lower = better) is the canonical normalised metric — comparable across datasets with different target-variable scales.
+              - strong [ref=e50]: Mean rank
+              - text: = mean position of this model_name among all 332+ on each covered dataset.
+              - strong [ref=e51]: Median rmsep
+              - text: is shown for reference but is
+              - emphasis [ref=e52]: not
+              - text: comparable across datasets (a low value can simply mean the model was tested on small-scale targets).
+          - generic [ref=e53]:
+            - generic [ref=e54]:
+              - text: Min datasets
+              - spinbutton "Min datasets" [ref=e55]: "10"
+            - generic [ref=e56]:
+              - text: Model class
+              - combobox "Model class" [ref=e57]:
+                - option "all" [selected]
+            - generic [ref=e58]:
+              - text: Sort by
+              - combobox "Sort by" [ref=e59]:
+                - option "Oracle ratio ↑ (normalized)" [selected]
+                - option "Mean rank ↑"
+                - option "Wins ↓"
+                - option "Coverage ↓"
+                - option "Median rmsep ↑ (absolute)"
+                - option "Best rmsep ↑"
+                - option "Model class"
+            - generic [ref=e60]:
+              - text: Top N
+              - spinbutton "Top N" [ref=e61]: "50"
+    - generic [ref=e63]:
+      - generic [ref=e65]: §2
+      - generic [ref=e66]:
+        - generic [ref=e67]:
+          - heading "Models" [level=2] [ref=e68]
+          - paragraph [ref=e69]: Pick any subset of the 329 canonical models (cases & separators collapsed). The picker is grouped by class with live text-filter and numeric filters on dataset coverage, median rmsep, and observation count. Selections feed the distance-to-best chart on the right, the per-class faceted scatter, and the rank distribution.
+        - generic [ref=e70]:
+          - generic [ref=e71]: Model picker · click to expand / collapse
+          - button "hide picker ▲" [ref=e72] [cursor=pointer]
+        - generic [ref=e73]:
+          - generic [ref=e74]:
+            - generic [ref=e75]:
+              - textbox "filter by name or class (try 'ridge', 'tabpfn', 'snv'…)" [ref=e76]
+              - 'combobox "Sort criterion. Also drives the preset buttons: ''Top 5 master'' picks the top 5 by this criterion, ''Best per class'' picks the leader of each class by this criterion, family presets (AOM-Ridge, AOM-PLS, TabPFN, …) order their members by it." [ref=e77] [cursor=pointer]':
+                - option "oracle ratio ↑ (normalized, 1.0 = ties dataset-best)" [selected]
+                - option "median rmsep ↑ (absolute, not comparable across datasets)"
+                - option "coverage ↓ (# datasets the model appears on)"
+                - option "# observations ↓ (total rows across all datasets)"
+                - option "alphabetical (model display name)"
+              - generic [ref=e78]: "numeric:"
+              - generic [ref=e79]:
+                - text: min ds ≥
+                - spinbutton "min ds ≥" [ref=e80]: "0"
+              - generic "rmsep / dataset_best_rmsep, normalised — comparable across datasets" [ref=e81]:
+                - text: max oracle ≤
+                - spinbutton "max oracle ≤" [ref=e82]
+              - generic [ref=e83]:
+                - text: max rmsep ≤
+                - spinbutton "max rmsep ≤" [ref=e84]
+              - generic [ref=e85]:
+                - text: min obs ≥
+                - spinbutton "min obs ≥" [ref=e86]: "0"
+              - button "reset filters" [ref=e87] [cursor=pointer]
+              - button "▶|◀" [ref=e88] [cursor=pointer]
+              - button "◀|▶" [ref=e89] [cursor=pointer]
+            - generic [ref=e90]: —
+          - generic [ref=e91]:
+            - generic [ref=e92]: presets
+            - button "Top 5 master" [ref=e93] [cursor=pointer]
+            - button "Best per class (filtered)" [ref=e94] [cursor=pointer]
+            - button "best_current" [ref=e95] [cursor=pointer]
+            - button "AOM-Ridge" [ref=e96] [cursor=pointer]
+            - button "AOM-PLS" [ref=e97] [cursor=pointer]
+            - button "TabPFN" [ref=e98] [cursor=pointer]
+            - button "MoE/Stack" [ref=e99] [cursor=pointer]
+            - button "FCK" [ref=e100] [cursor=pointer]
+          - generic [ref=e102]:
+            - generic [ref=e103]:
+              - text: Selected ·
+              - strong [ref=e104]: "0"
+            - button "Clear all" [ref=e105] [cursor=pointer]
+        - figure "Distance to best score, per dataset For each selected model and each dataset, plot rmsep on the dataset relative to the dataset's best score across the whole master. y = 1.0 is the best. The ratio metric is the canonical NIRS normalisation because absolute rmsep is incomparable across datasets with different target-variable scales. The y-axis is clipped near the 95th percentile so a handful of very-bad rows don't compress the readable range — double-click the plot to autoscale to the full data when you need to inspect outliers." [ref=e107]:
+          - generic [ref=e108]:
+            - text: Distance to best score, per dataset
+            - generic [ref=e109]:
+              - text: For each selected model and each dataset, plot rmsep on the dataset relative to the dataset's best score across the whole master.
+              - strong [ref=e110]: y = 1.0 is the best
+              - text: . The ratio metric is the canonical NIRS normalisation because absolute rmsep is incomparable across datasets with different target-variable scales. The y-axis is clipped near the 95th percentile so a handful of very-bad rows don't compress the readable range — double-click the plot to autoscale to the full data when you need to inspect outliers.
+          - generic [ref=e111]:
+            - generic [ref=e112]:
+              - text: Metric
+              - combobox "Metric" [ref=e113]:
+                - option "rmsep / best (ratio, recommended)" [selected]
+                - option "rmsep − best"
+                - option "rmsep (absolute — beware scale)"
+            - generic [ref=e114]:
+              - text: Sort x by
+              - combobox "Sort x by" [ref=e115]:
+                - option "n_train ↑" [selected]
+                - option "alphabetical"
+                - option "best rmsep ↑"
+            - generic [ref=e116]:
+              - text: y scale
+              - combobox "y scale" [ref=e117]:
+                - option "auto" [selected]
+                - option "linear"
+                - option "log"
+            - generic [ref=e118]:
+              - text: Mode
+              - combobox "Mode" [ref=e119]:
+                - option "markers only"
+                - option "lines only" [selected]
+                - option "markers + lines"
+            - generic [ref=e120]:
+              - text: Layout
+              - combobox "Layout" [ref=e121]:
+                - option "overlay (single chart)" [selected]
+                - option "facet per model"
+        - 'figure "Per-class behavior: rmsep vs n_train Small multiples per model class. Pick the classes to display, show all observations or just the top model per class, optionally overlay named model_names from the picker." [ref=e123]':
+          - generic [ref=e124]:
+            - text: "Per-class behavior: rmsep vs n_train"
+            - generic [ref=e125]: Small multiples per model class. Pick the classes to display, show all observations or just the top model per class, optionally overlay named model_names from the picker.
+          - generic [ref=e126]:
+            - generic [ref=e127]:
+              - text: Y metric
+              - combobox "Y metric" [ref=e128]:
+                - option "oracle ratio (normalized)" [selected]
+                - option "rmsep (absolute, log)"
+            - generic [ref=e129]: Show classes
+            - button "all" [ref=e130] [cursor=pointer]
+            - button "none" [ref=e131] [cursor=pointer]
+            - generic [ref=e132]:
+              - text: Color by
+              - combobox "Color by" [ref=e133]:
+                - option "class (single)" [selected]
+                - option "rmsep value"
+            - generic [ref=e134]:
+              - text: Min obs/class ≥
+              - spinbutton "Min obs/class ≥" [ref=e135]: "0"
+            - generic [ref=e136]:
+              - checkbox "highlight picker-selected models" [checked] [ref=e137]
+              - text: highlight picker-selected models
+        - figure "Rank distribution Box-plot of per-dataset ranks. Tight, low-position boxes (left) indicate consistent winners; wide boxes indicate variable performance. Choose granularity:" [ref=e139]:
+          - generic [ref=e140]:
+            - text: Rank distribution
+            - generic [ref=e141]: "Box-plot of per-dataset ranks. Tight, low-position boxes (left) indicate consistent winners; wide boxes indicate variable performance. Choose granularity:"
+          - generic [ref=e142]:
+            - generic [ref=e143]:
+              - text: Granularity
+              - combobox "Granularity" [ref=e144]:
+                - option "by model class" [selected]
+                - option "by selected model_names"
+                - option "by top-N model_names"
+            - generic [ref=e145]:
+              - text: Min datasets ≥
+              - spinbutton "Min datasets ≥" [ref=e146]: "20"
+            - generic [ref=e147]: (per-model uses ranks across the full universe of 332+ model_names)
+        - figure "Decision support — which models to train on a new dataset Two complementary views for the practical question \"given a new NIRS dataset, which 5 models should I actually train?\". (a) Top-K frequency — how often each model ranks in the top-K across the 71 covered datasets. (b) Greedy portfolio coverage — the smallest set of models such that on every dataset at least one of them is in top-K. Drives the recommendation card below." [ref=e149]:
+          - generic [ref=e150]:
+            - text: Decision support — which models to train on a new dataset
+            - generic [ref=e151]:
+              - text: Two complementary views for the practical question "given a new NIRS dataset, which 5 models should I actually train?". (a)
+              - strong [ref=e152]: Top-K frequency
+              - text: — how often each model ranks in the top-K across the 71 covered datasets. (b)
+              - strong [ref=e153]: Greedy portfolio coverage
+              - text: — the smallest set of models such that on every dataset at least one of them is in top-K. Drives the recommendation card below.
+          - generic [ref=e154]:
+            - generic [ref=e155]:
+              - text: K =
+              - combobox "K =" [ref=e156]:
+                - option "top-1 (winner)"
+                - option "top-3" [selected]
+                - option "top-5"
+                - option "top-10"
+                - option "top-20"
+                - option "top-5%"
+                - option "top-10%"
+                - option "top-20%"
+            - generic [ref=e157]:
+              - text: Min datasets ≥
+              - spinbutton "Min datasets ≥" [ref=e158]: "30"
+            - generic [ref=e159]:
+              - text: Show top
+              - spinbutton "Show top models" [ref=e160]: "25"
+              - text: models
+          - generic [ref=e161]:
+            - generic [ref=e163]: (a) Top-K hit count per model
+            - generic [ref=e166]: (b) Greedy portfolio coverage
+        - figure "Train these models — greedy recommendation For the chosen K and min-coverage, the smallest set of models that puts a top-K performer on every dataset. Marginal contribution = the number of datasets each addition newly covers." [ref=e168]:
+          - generic [ref=e169]:
+            - text: Train these models — greedy recommendation
+            - generic [ref=e170]: For the chosen K and min-coverage, the smallest set of models that puts a top-K performer on every dataset. Marginal contribution = the number of datasets each addition newly covers.
+        - 'figure "Promising models — candidates to expand on the full cohort Models flagged by automatic rules: sparse but strong (low normalized score, < 30 datasets), high variance (large rank spread suggests preset-dependence), under-tested classes." [ref=e171]':
+          - generic [ref=e172]:
+            - text: Promising models — candidates to expand on the full cohort
+            - generic [ref=e173]:
+              - text: "Models flagged by automatic rules:"
+              - emphasis [ref=e174]: sparse but strong
+              - text: (low normalized score, < 30 datasets),
+              - emphasis [ref=e175]: high variance
+              - text: (large rank spread suggests preset-dependence),
+              - emphasis [ref=e176]: under-tested classes
+              - text: .
+    - generic [ref=e178]:
+      - generic [ref=e180]: §3
+      - generic [ref=e181]:
+        - generic [ref=e182]:
+          - heading "Datasets" [level=2] [ref=e183]
+          - paragraph [ref=e184]: Pick any of the 71 datasets in the picker on the left to see every observation collected on it — paper references, locked production runs, and exploratory diagnostic rows alike. The right column shows summary KPIs, the per-class rmsep distribution, and the full observation table.
+        - generic [ref=e185]:
+          - generic [ref=e186]:
+            - generic [ref=e187]: Dataset picker
+            - generic [ref=e188]:
+              - generic [ref=e189]:
+                - textbox "filter (try 'beer', 'wood', 'spxy'…)" [ref=e190]
+                - combobox [ref=e191] [cursor=pointer]:
+                  - option "# obs ↓" [selected]
+                  - option "alpha"
+                  - option "n_train ↓"
+                  - option "best rmsep ↑"
+              - generic [ref=e192]: —
+            - generic [ref=e193]:
+              - generic [ref=e195]: Selected dataset
+              - generic [ref=e196]: (none)
+            - generic [ref=e197]:
+              - generic [ref=e198]:
+                - text: Filter class
+                - combobox "Filter class" [ref=e199]:
+                  - option "all classes" [selected]
+              - generic [ref=e200]:
+                - text: Maturity
+                - combobox "Maturity" [ref=e201]:
+                  - option "all" [selected]
+                  - option "locked"
+                  - option "exploratory"
+              - generic [ref=e202]:
+                - text: Sort
+                - combobox "Sort" [ref=e203]:
+                  - option "rmsep ↑" [selected]
+                  - option "model class"
+                  - option "source run"
+                  - option "fit time ↑"
+          - figure "rmsep by class on this dataset Box-plot per model class on the selected dataset." [ref=e206]:
+            - generic [ref=e207]:
+              - text: rmsep by class on this dataset
+              - generic [ref=e208]: Box-plot per model class on the selected dataset.
+        - figure "Best model per dataset Across all sources and runs, the single observation with the lowest rmsep on each dataset." [ref=e211]:
+          - generic [ref=e212]:
+            - text: Best model per dataset
+            - generic [ref=e213]: Across all sources and runs, the single observation with the lowest rmsep on each dataset.
+          - generic [ref=e215]:
+            - text: Sort by
+            - combobox "Sort by" [ref=e216]:
+              - option "dataset" [selected]
+              - option "n_train"
+              - option "best rmsep"
+              - option "model class"
+    - generic [ref=e218]:
+      - generic [ref=e220]: §4
+      - generic [ref=e221]:
+        - generic [ref=e222]:
+          - heading "Preprocessing" [level=2] [ref=e223]
+          - paragraph [ref=e224]:
+            - text: The master CSV's
+            - code [ref=e225]: preprocessing_pipeline
+            - text: column is heterogeneous — AOM atom-bank labels, classical pp names, HPO compound strings, and stringified Python pipeline paths all coexist. The aggregator now parses each entry into five canonical components (
+            - emphasis [ref=e226]: baseline · scaling · scatter · derivative · atom_bank
+            - text: ) so we can report on what actually helps, marginalised over everything else.
+        - figure "Baseline × Scatter correction Median rmsep at the intersection of baseline correction and scatter correction. Cells with fewer than five observations are blank." [ref=e234]:
+          - generic [ref=e235]:
+            - text: Baseline × Scatter correction
+            - generic [ref=e236]: Median rmsep at the intersection of baseline correction and scatter correction. Cells with fewer than five observations are blank.
+        - 'figure "Class × Preprocessing heatmap Cell = median rmsep on (model_class, raw pp). Useful to spot interactions: which class likes which pp." [ref=e238]':
+          - generic [ref=e239]:
+            - text: Class × Preprocessing heatmap
+            - generic [ref=e240]: "Cell = median rmsep on (model_class, raw pp). Useful to spot interactions: which class likes which pp."
+        - figure "pp-sensitive datasets Datasets where preprocessing choice swings rmsep the most. Sorted by absolute spread between best and worst pp tried." [ref=e242]:
+          - generic [ref=e243]:
+            - text: pp-sensitive datasets
+            - generic [ref=e244]: Datasets where preprocessing choice swings rmsep the most. Sorted by absolute spread between best and worst pp tried.
+          - generic [ref=e245]:
+            - generic [ref=e246]:
+              - text: Sort
+              - combobox "Sort" [ref=e247]:
+                - option "absolute spread ↓" [selected]
+                - option "relative spread (%) ↓"
+                - option "dataset"
+            - generic [ref=e248]:
+              - text: Hide spread <
+              - spinbutton "Hide spread <" [ref=e249]: "0"
+        - figure "Preprocessing influence on a specific model A few models were tested across multiple pps. Pick one to see the rmsep distribution per pp." [ref=e251]:
+          - generic [ref=e252]:
+            - text: Preprocessing influence on a specific model
+            - generic [ref=e253]: A few models were tested across multiple pps. Pick one to see the rmsep distribution per pp.
+          - generic [ref=e255]:
+            - text: Model
+            - combobox "Model" [ref=e256]
+        - group [ref=e258]:
+          - generic "▸ Raw preprocessing leaderboard (all unparsed strings)" [ref=e259] [cursor=pointer]
+          - option "median rmsep ↑" [selected]
+          - option "# obs ↓"
+          - option "coverage ↓"
+          - option "class diversity ↓"
+          - option "best rmsep ↑"
+    - generic [ref=e260]:
+      - generic [ref=e262]: §5
+      - generic [ref=e263]:
+        - generic [ref=e264]:
+          - heading "Production presets" [level=2] [ref=e265]
+          - paragraph [ref=e266]:
+            - text: "The four locked preset runs on the full-57 cohort:"
+            - emphasis [ref=e267]: fast_reliable
+            - text: ","
+            - emphasis [ref=e268]: strong_practical
+            - text: ","
+            - emphasis [ref=e269]: best_current
+            - text: ", and the in-flight"
+            - emphasis [ref=e270]: exhaustive_research
+            - text: . Each preset uses an identical pipeline and dataset cohort with seed=0. Cross-preset robustness shows which candidates are stable across protocols.
+        - figure "Per-preset leaderboards" [ref=e272]:
+          - generic [ref=e273]: Per-preset leaderboards
+        - figure "Cross-preset robustness Each candidate's median rmsep across the four presets. Tight spreads = robust; wide spreads = preset-dependent." [ref=e275]:
+          - generic [ref=e276]:
+            - text: Cross-preset robustness
+            - generic [ref=e277]: Each candidate's median rmsep across the four presets. Tight spreads = robust; wide spreads = preset-dependent.
+        - group [ref=e279]:
+          - generic "▸ Head-to-head (best_current 8×8)" [ref=e280] [cursor=pointer]
+        - group [ref=e281]:
+          - generic "▸ Speed vs accuracy (Pareto)" [ref=e282] [cursor=pointer]
+        - group [ref=e283]:
+          - generic "▸ Performance vs n_train (size-scatter)" [ref=e284] [cursor=pointer]
+        - group [ref=e285]:
+          - generic "▸ Per-dataset performance heatmap" [ref=e286] [cursor=pointer]
+        - group [ref=e287]:
+          - generic "▸ Failures & timeouts" [ref=e288] [cursor=pointer]
+        - group [ref=e289]:
+          - generic "▸ TabPFN paper reference" [ref=e290] [cursor=pointer]
+    - generic [ref=e291]:
+      - generic [ref=e293]: §6
+      - generic [ref=e294]:
+        - generic [ref=e295]:
+          - heading "Preset pools — time-budget selection" [level=2] [ref=e296]
+          - paragraph [ref=e297]:
+            - text: Re-design of the 4 presets as
+            - emphasis [ref=e298]: time-budget pools
+            - text: ": given a user's available time per dataset, run all models in the pool and pick the best out-of-sample score. Selection is greedy (cross-checked by beam search) to minimise the expected min-of-pool ratio vs PLS over the master cohort. Methodology and per-model evidence:"
+            - code [ref=e299]: bench/scenarios/preset_audit/AUDIT.md
+            - text: .
+        - figure "Current registry pools vs proposed data-driven pools Same scoring methodology on both. Negative delta means the new pool achieves a better (lower) mean ratio. The large delta for best_current and exhaustive_research comes from including TabPFN-HPO-preprocessing in the proposed pools." [ref=e301]:
+          - generic [ref=e302]:
+            - text: Current registry pools vs proposed data-driven pools
+            - generic [ref=e303]:
+              - text: Same scoring methodology on both. Negative delta means the new pool achieves a better (lower) mean ratio. The large delta for
+              - emphasis [ref=e304]: best_current
+              - text: and
+              - emphasis [ref=e305]: exhaustive_research
+              - text: comes from including TabPFN-HPO-preprocessing in the proposed pools.
+        - figure "Preset pools at a glance Each badge is a model in the pool, coloured by family. Tooltip shows the model's median ratio, q90 ratio, and q90 fit-time." [ref=e306]:
+          - generic [ref=e307]:
+            - text: Preset pools at a glance
+            - generic [ref=e308]: Each badge is a model in the pool, coloured by family. Tooltip shows the model's median ratio, q90 ratio, and q90 fit-time.
+        - figure "Per-dataset best-in-pool ratio (heatmap) Each cell is the best (lowest) rmsep/PLS ratio that the pool achieves on that dataset. Green = pool beats PLS; red = pool loses to PLS. Datasets sorted by best_current's ratio." [ref=e309]:
+          - generic [ref=e310]:
+            - text: Per-dataset best-in-pool ratio (heatmap)
+            - generic [ref=e311]: Each cell is the best (lowest) rmsep/PLS ratio that the pool achieves on that dataset. Green = pool beats PLS; red = pool loses to PLS. Datasets sorted by best_current's ratio.
+        - figure "Sequential pool fit-time per preset q90 fit-time per model summed sequentially. The dotted line shows the budget guidance." [ref=e313]:
+          - generic [ref=e314]:
+            - text: Sequential pool fit-time per preset
+            - generic [ref=e315]: q90 fit-time per model summed sequentially. The dotted line shows the budget guidance.
+        - group [ref=e317]:
+          - generic "▸ Per-preset detail (member tables)" [ref=e318] [cursor=pointer]
+  - contentinfo [ref=e319]:
+    - generic [ref=e320]: nirs4all · Benchmark synthesis · generated by build_dashboard.py
+    - generic [ref=e321]: Cite the master CSV hash from MASTER_CSV_HASH.txt

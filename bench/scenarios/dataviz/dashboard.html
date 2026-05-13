@@ -1133,6 +1133,7 @@
           </label>
           <label>Show top
             <input id="topk-top-n" type="number" value="25" min="5" max="100" style="width:60px"> models
+            <span style="font-family:var(--ff-mono);font-size:10.5px;color:var(--muted);font-style:italic">(also caps the greedy portfolio)</span>
           </label>
         </div>
         <div class="grid-asym-65" style="gap:24px">
@@ -3069,8 +3070,8 @@
       hovertemplate: `<b>${p}</b><br>rmsep: %{y:.4f}<br>n=${ppMap[p].length}<extra></extra>`,
     }));
     Plotly.newPlot('pp-model-boxplot', traces, {
-      title: { text: `rmsep distribution per pp for ${m}`, font: { size: 13 } },
-      yaxis: { title: 'rmsep' },
+      title: { text: `rmsep distribution per pp for ${m} (log scale)`, font: { size: 13 } },
+      yaxis: { title: 'rmsep (log)', type: 'log' },
       xaxis: { tickangle: -30, tickfont: { size: 10 } },
       margin: { l: 60, r: 30, t: 40, b: 140 },
       height: 420,
@@ -4100,7 +4101,7 @@
     }, { responsive: true, displaylogo: false });
   }
 
-  function _greedyPortfolio(data, kRaw, minDsPerModel) {
+  function _greedyPortfolio(data, kRaw, minDsPerModel, maxPicks) {
     const dsRanks = _dsRankings(data);
     const allDs = Object.keys(dsRanks);
     // Per-dataset top-K set
@@ -4122,7 +4123,8 @@
     // Greedy selection: at each step, pick the model that covers the most uncovered datasets
     const uncovered = new Set(allDs);
     const picked = [];
-    while (uncovered.size > 0 && picked.length < 15) {
+    const cap = Math.max(1, maxPicks || 15);
+    while (uncovered.size > 0 && picked.length < cap) {
       let best = null, bestCount = -1, bestCovered = null;
       candidates.forEach(mn => {
         if (picked.includes(mn)) return;
@@ -4149,7 +4151,8 @@
     if (!el) return;
     const kRaw = document.getElementById('topk-k').value;
     const minDs = parseInt(document.getElementById('topk-min-ds').value || '30') || 30;
-    const portfolio = _greedyPortfolio(data, kRaw, minDs);
+    const maxPicks = parseInt(document.getElementById('topk-top-n').value || '25') || 25;
+    const portfolio = _greedyPortfolio(data, kRaw, minDs, maxPicks);
 
     if (portfolio.picked.length === 0) {
       el.innerHTML = '<div class="picker-empty" style="padding:30px">No portfolio could be built — relax min-coverage or K.</div>';
