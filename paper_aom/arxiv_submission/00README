@@ -1,0 +1,7 @@
+process:
+  compiler: pdflatex
+sources:
+  - filename: main.tex
+    usage: toplevel
+  - filename: supplement.tex
+    usage: toplevel

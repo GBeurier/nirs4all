@@ -1,0 +1,413 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[margin=2.4cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb,bm}
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{xcolor}
+\usepackage[numbers,sort&compress]{natbib}
+\usepackage[hidelinks]{hyperref}
+\usepackage{url}
+
+\emergencystretch=3em
+\newcolumntype{L}[1]{>{\raggedright\arraybackslash}p{#1}}
+\newcommand{\X}{\mathbf{X}}
+\newcommand{\Y}{\mathbf{Y}}
+\newcommand{\A}{\mathbf{A}}
+\newcommand{\K}{\mathbf{K}}
+\newcommand{\B}{\mathbf{B}}
+\newcommand{\Z}{\mathbf{Z}}
+\newcommand{\transpose}{^{\mathsf T}}
+\newcommand{\code}[1]{\nolinkurl{#1}}
+
+\title{\textbf{Supplementary Material}\\
+Reframing preprocessing selection as model-internal calibration in near-infrared spectroscopy}
+
+\author{
+Gr{\'e}gory Beurier \quad Robin Reiter \quad Camille No{\^u}s\\[0.35em]
+Lauriane Rouan \quad Denis Cornet
+}
+
+\date{Draft of May 13, 2026}
+
+\begin{document}
+\maketitle
+
+\tableofcontents
+
+\section{Purpose of the Supplement}
+
+This supplement documents the evidence chain behind the main manuscript.  It
+is deliberately more operational than the article: local result sources are
+listed, claims are mapped to files, deployable and oracle quantities are
+separated, and reviewer-sensitive weaknesses are made explicit.  The goal is
+to make the AOM study auditable rather than to hide ongoing work behind a
+single compressed results table.
+
+The supplement uses existing local artifacts only.  No additional benchmark was
+launched to prepare this draft.
+
+For a Talanta submission, the supplement should ultimately become the place
+where full dataset tables, paired statistical tests, operator-selection
+frequencies, failure cases, leakage audits and software reproducibility
+metadata are made explicit.  The present version already establishes that
+structure and marks the remaining experiments required before submission.
+
+\section{Notation and Linear-Operator Scope}
+
+Let $\X\in\mathbb{R}^{n\times p}$ be a centered spectral matrix and
+$\Y\in\mathbb{R}^{n\times q}$ a centered response matrix.  A strict linear
+spectral operator $\A_b\in\mathbb{R}^{p\times p}$ acts as
+\begin{equation}
+  \X_b = \X\A_b\transpose .
+\end{equation}
+The operator bank always contains the identity.  This makes standard PLS or
+standard Ridge available to the selection procedure.
+
+The strict-linear scope includes smoothing filters, derivative filters,
+finite differences and detrending projections.  It does not include
+sample-adaptive or fitted transformations such as SNV, MSC, EMSC or ASLS.
+Those transformations are useful in NIRS but must be treated as fold-local
+pipeline branches.  This distinction is central to the paper because the fast
+AOM algebra is valid only for fixed operators inside a calibration fold.
+
+\section{AOM-PLS Derivation}
+
+\subsection{Covariance identity}
+
+For a fixed linear operator $\A_b$, the transformed cross-covariance is
+\begin{equation}
+  \X_b\transpose \Y =
+  (\X\A_b\transpose)\transpose\Y =
+  \A_b\X\transpose\Y .
+  \label{eq:sup_cov_identity}
+\end{equation}
+This identity permits candidate operators to be evaluated in covariance space
+for SIMPLS and in adjoint form for NIPALS.  It avoids materializing every
+transformed matrix $\X\A_b\transpose$ when the operator can be applied directly
+to vectors or matrices.
+
+\subsection{Original-space coefficients}
+
+If a PLS component is estimated in transformed space with direction $r_a$, the
+corresponding original-space direction is
+\begin{equation}
+  z_a = \A_b\transpose r_a .
+\end{equation}
+Collecting $k$ such directions gives $\Z=[z_1,\ldots,z_k]$ and scores
+$\mathbf T=\X\Z$.  The final coefficient matrix is
+\begin{equation}
+  \B = \Z(\mathbf P\transpose\Z)^+\mathbf Q\transpose .
+\end{equation}
+Thus AOM-PLS remains a single linear calibration model on the original
+wavelength grid.
+
+\section{AOM-Ridge Derivation}
+
+For centered $\X_c$ and $\Y_c$, Ridge regression can be solved in the dual.  A
+single operator gives
+\begin{align}
+  \mathbf Z_b &= \X_c\A_b\transpose,\\
+  \K_b &= \mathbf Z_b\mathbf Z_b\transpose
+       = \X_c\A_b\transpose\A_b\X_c\transpose,\\
+  \mathbf C &= (\K_b + \alpha \mathbf I_n)^{-1}\Y_c.
+\end{align}
+The original-space coefficient matrix is
+\begin{equation}
+  \bm\beta_b = \A_b\transpose\A_b\X_c\transpose\mathbf C.
+\end{equation}
+
+For a superblock or weighted operator mixture,
+\begin{equation}
+  \K = \sum_{b=1}^{m}s_b^2\X_c\A_b\transpose\A_b\X_c\transpose,
+  \qquad
+  \mathbf M = \sum_{b=1}^{m}s_b^2\A_b\transpose\A_b,
+\end{equation}
+and the original-space coefficient matrix is
+\begin{equation}
+  \bm\beta = \mathbf M\X_c\transpose(\K+\alpha\mathbf I_n)^{-1}\Y_c.
+\end{equation}
+
+\section{Algorithmic Sketches}
+
+\subsection{Global AOM-PLS}
+
+\begin{enumerate}
+  \item Build a compact operator bank containing identity and a small set of
+  smoothing, derivative and detrending operators.
+  \item For each candidate number of components and each operator, evaluate
+  calibration-fold performance.
+  \item Select the operator and component count with the best calibration-fold
+  criterion.
+  \item Refit on the complete calibration set.
+  \item Store selected operator, component count, original-space coefficients,
+  centering constants and fold-level diagnostics.
+\end{enumerate}
+
+\subsection{AOM-Ridge}
+
+\begin{enumerate}
+  \item Build operator-induced kernels
+  $\K_b=\X_c\A_b\transpose\A_b\X_c\transpose$ inside the calibration fold.
+  \item Select $\alpha$ and operator geometry by nested calibration-fold
+  validation.
+  \item Solve the dual Ridge system.
+  \item Recover original-space coefficients.
+  \item Refit on the complete calibration set and evaluate once on the external
+  test set.
+\end{enumerate}
+
+\section{Operator and Branch Catalogue}
+
+\begin{table}[h]
+\centering
+\caption{Strict operators and branch preprocessors considered in the AOM study.}
+\small
+\begin{tabularx}{\linewidth}{p{0.23\linewidth}p{0.35\linewidth}X}
+\toprule
+Group & Examples & Treatment in the paper \\
+\midrule
+Identity & $I$ & Always included; recovers the standard model.\\
+Smoothing & Savitzky--Golay smoothing & Strict linear operator.\\
+Derivatives & SG first and second derivatives, finite difference & Strict linear operator.\\
+Detrending & degree-1 and degree-2 trend projections & Strict linear operator when fitted inside folds.\\
+Scatter correction & SNV, MSC, EMSC & Fold-local branch preprocessing, not a fixed operator.\\
+Baseline correction & ASLS and related smoothers & Fold-local branch preprocessing, not a fixed operator.\\
+Orthogonal correction & OSC-style branches & Fold-local branch; not part of the strict AOM algebra.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Benchmark Protocol Ledger}
+
+\begin{longtable}{L{0.28\linewidth}L{0.29\linewidth}L{0.35\linewidth}}
+\caption{Local evidence map used to prepare the manuscript.}\\
+\toprule
+Artifact & Content & Use in the paper \\
+\midrule
+\endfirsthead
+\toprule
+Artifact & Content & Use in the paper \\
+\midrule
+\endhead
+\code{bench/AOM_v0/Summary.md} &
+57-dataset AOM-PLS summary; compact ASLS+AOM CV-5 champion. &
+Primary AOM-PLS headline source.\\
+\code{bench/AOM_v0/publication/tables/relative_rmsep_per_variant.csv} &
+Relative RMSEP and fit-time summaries for AOM-PLS variants. &
+Source for median RMSEP/PLS, wins and fit time.\\
+\code{bench/AOM_v0/docs/AOMPLS_MATH_SPEC.md} &
+AOM-PLS operator algebra, NIPALS/SIMPLS conventions. &
+Method verification and notation.\\
+\code{bench/AOM_v0/docs/AOMPLS_VALIDATION.md} &
+Equivalence tests: identity, fixed operator, NumPy/Torch parity. &
+Implementation validation.\\
+\code{bench/AOM_v0/Ridge/docs/AOM_RIDGE_MATH_SPEC.md} &
+Dual AOM-Ridge derivation and branch warnings. &
+Ridge method section.\\
+\code{bench/AOM_v0/Ridge/publication/tables/table_per_method_summary.tex} &
+Deployable AOM-Ridge variants on 52 datasets. &
+Conservative deployable Ridge claim.\\
+\code{bench/AOM_v0/Ridge/publication/tables/table_summary.tex} &
+Oracle envelope against reference baselines. &
+Upper-bound Ridge claim only.\\
+\code{bench/AOM_v0/Ridge/docs/HEADLINE_SPXY3_NESTED_AUDIT.md} &
+Nested-selection audit for headline Ridge variants. &
+Leakage-risk discussion.\\
+\code{bench/tabpfn_paper/article/main.tex} &
+Reference benchmark protocol, preprocessing search budgets and splits. &
+Baseline protocol context; model name not emphasized in the article.\\
+\code{bench/benchmark_master_results.csv} &
+Unified registry of many variants and maturity levels. &
+Exploration registry, not a direct source of all headline statistics.\\
+\bottomrule
+\end{longtable}
+
+\section{Claim Ledger}
+
+\begin{longtable}{L{0.29\linewidth}L{0.19\linewidth}L{0.13\linewidth}L{0.23\linewidth}}
+\caption{Main claims and their current evidence status.}\\
+\toprule
+Claim & Status & Dataset count & Source / caveat \\
+\midrule
+\endfirsthead
+\toprule
+Claim & Status & Dataset count & Source / caveat \\
+\midrule
+\endhead
+ASLS + compact AOM-PLS CV-5 improves over PLS with median RMSEP/PLS 0.960. &
+Deployable AOM-PLS benchmark result. & 57 &
+\code{bench/AOM_v0/Summary.md}; needs final cohort manifest for journal submission.\\
+AOM-PLS compact CV-5 wins against PLS on 42 datasets. &
+Deployable AOM-PLS benchmark result. & 57 &
+Same source; no multi-seed uncertainty yet.\\
+AOM-PLS compact CV-5 median fit time is approximately 1.36 s. &
+Measured in local benchmark table. & 57 &
+Hardware-specific; should be remeasured on the final machine.\\
+AOM-Ridge Blender improves over tuned Ridge by median 2.22\%. &
+Deployable AOM-Ridge table result. & 52 &
+\code{table_per_method_summary.tex}; single-seed cohort.\\
+AOM-Ridge Blender wins 35/52 against tuned Ridge. &
+Deployable AOM-Ridge table result. & 52 &
+Nested-audit evidence exists, but full multi-seed promotion is pending.\\
+AOM-Ridge oracle improves over tuned Ridge by median 4.73\%. &
+Oracle envelope only. & 52 &
+\code{table_summary.tex}; not a deployable method claim.\\
+AOM-Ridge oracle wins 45/52 against tuned Ridge. &
+Oracle envelope only. & 52 &
+Use only as headroom / upper-bound evidence.\\
+Large preprocessing searches evaluate thousands of fold-level candidates. &
+Reference protocol fact. & per dataset &
+PLS/Ridge approximately 5400, CNN approximately 2700, CatBoost approximately 90.\\
+\bottomrule
+\end{longtable}
+
+\section{AOM-PLS Variant Summary}
+
+\begin{table}[h]
+\centering
+\caption{Selected AOM-PLS variants from the existing 57-dataset summary.}
+\small
+\begin{tabularx}{\linewidth}{Xrrrr}
+\toprule
+Variant & Datasets & Median RMSEP/PLS & Wins & Median fit (s) \\
+\midrule
+ASLS-AOM compact CV-5 & 57 & 0.960 & 42 & 1.36\\
+ASLS-AOM response-dedup CV-3 & 57 & 0.964 & 37 & 4.57\\
+ASLS-AOM family-pruned CV-3 & 57 & 0.964 & 38 & 1.60\\
+ASLS-AOM compact repeated CV-3 & 57 & 0.975 & 39 & 2.21\\
+ASLS-AOM compact CV-3 & 57 & 0.979 & 38 & 0.91\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{AOM-Ridge Result Separation}
+
+\begin{table}[h]
+\centering
+\caption{Deployable AOM-Ridge variants.  These are the appropriate primary
+Ridge-family claims before multi-seed promotion; full local identifiers are in
+the source table.}
+\small
+\begin{tabularx}{\linewidth}{Xrrrr}
+\toprule
+Variant & Wins / N & Win-rate (\%) & Mean rank & Median $\Delta$ vs Ridge (\%) \\
+\midrule
+Blender headline SPXY3 & 35/52 & 67.3 & 3.56 & -2.22\\
+AutoSelect headline SPXY3 & 27/52 & 51.9 & 4.61 & -0.61\\
+Global compact none & 29/52 & 55.8 & 4.79 & -0.63\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\begin{table}[h]
+\centering
+\caption{AOM-Ridge oracle envelope.  These values describe headroom and must
+not be worded as deployable practitioner performance.}
+\small
+\begin{tabularx}{\linewidth}{Xrrrr}
+\toprule
+Baseline & Median $\Delta$ (\%) & Mean $\Delta$ capped (\%) & Win-rate (\%) & Wins / N\\
+\midrule
+Ridge & -4.73 & -12.37 & 86.5 & 45/52\\
+PLS & -7.73 & -14.66 & 90.4 & 47/52\\
+CNN & -12.56 & -16.08 & 74.5 & 35/47\\
+CatBoost & -13.27 & -19.77 & 73.1 & 38/52\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Paired Statistical Evidence}
+
+\begin{table}[h]
+\centering
+\caption{Current paired statistical evidence for the two primary deployable
+claims.  These values were computed from existing result files and should be
+regenerated after the final Talanta cohort manifest is frozen.}
+\small
+\input{tables/table_paired_stats.tex}
+\end{table}
+
+\section{Leakage and Audit Controls}
+
+\begin{table}[h]
+\centering
+\caption{Leakage controls that must be preserved in any final rerun.}
+\small
+\begin{tabularx}{\linewidth}{p{0.28\linewidth}X}
+\toprule
+Control & Requirement \\
+\midrule
+External test set & Never used for operator, branch, component or $\alpha$ selection.\\
+Original splits & Preserved when supplied by the dataset source.\\
+Generated splits & Deterministic SPXY or stratified variants, with split type logged.\\
+Branch preprocessing & Fitted inside each calibration fold only.\\
+Operator selection & Performed using calibration-fold validation only.\\
+Final refit & Refit selected configuration on the full calibration set, then evaluate once on test.\\
+Oracle tables & Clearly labeled as retrospective upper bounds.\\
+Skipped datasets & Logged with inclusion/exclusion reason.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\section{Additional Experiments Required for a Journal Submission}
+
+\begin{longtable}{L{0.13\linewidth}L{0.35\linewidth}L{0.44\linewidth}}
+\caption{Experiment backlog.}\\
+\toprule
+Priority & Experiment & Purpose \\
+\midrule
+\endfirsthead
+\toprule
+Priority & Experiment & Purpose \\
+\midrule
+\endhead
+P0 & Freeze one regression cohort manifest. & Remove denominator drift across 52/57/58/61 dataset statements.\\
+P0 & Regenerate headline tables from one manifest. & Ensure PLS, Ridge, CatBoost, CNN, AOM-PLS and AOM-Ridge are compared on a common subset.\\
+P0 & Separate deployable and oracle tables. & Prevent reviewers from interpreting oracle envelopes as methods.\\
+P0 & Add exclusion table. & Document QUARTZ-style degenerate denominators, missing CNN rows and compute skips.\\
+P1 & Full multi-seed rerun. & Quantify selection variance and win-rate uncertainty.\\
+P1 & Paired statistical tests. & Add Wilcoxon/Friedman/Nemenyi or equivalent tests on the common subset.\\
+P1 & Strict-linear vs branch ablation. & Separate gains from AOM itself and gains from ASLS/SNV/MSC branches.\\
+P1 & Operator-frequency table. & Show which spectral operations are actually selected.\\
+P1 & Runtime scaling study. & Quantify cost versus $n$, $p$, bank size and branch count.\\
+P1 & Prediction artifact export. & Enable residual plots, bias, RPD/RPIQ, and independent audit.\\
+P1 & Software release validation. & Validate the clean-room C++ AOM-PLS implementation, R bindings, Python package \texttt{AOM-PLS}, and planned pip AOM-PLS/AOM-Ridge packages against the reference implementation.\\
+\bottomrule
+\end{longtable}
+
+\section{Reproducibility Checklist}
+
+\begin{enumerate}
+  \item Record repository commit hash, Python version and package versions.
+  \item Store the cohort manifest used for every table.
+  \item Store split indices for every dataset.
+  \item Store fold predictions and final test predictions.
+  \item Store selected operators, component counts, $\alpha$ values and branch
+  preprocessing choices.
+  \item Store runtime and hardware metadata.
+  \item Regenerate tables from scripts rather than manually editing manuscript
+  tables.
+\end{enumerate}
+
+\section{Recommended Positioning}
+
+The safest wording for the current draft is: AOM is a general linear-operator
+framework; AOM-PLS has the strongest deployable full-cohort evidence; AOM-Ridge
+is a mathematically consistent and promising extension with deployable evidence
+and a stronger oracle envelope, but requires full multi-seed promotion before
+being described as a production default.  This position is scientifically
+stronger than claiming universal benchmark dominance.
+
+\nocite{geladi1986partial,wold2001pls,dejong1993simpls,hoerl1970ridge,rinnan2009review,savitzky1964smoothing,barnes1989standard,geladi1985linearization}
+
+\bibliographystyle{unsrtnat}
+\bibliography{references}
+
+\end{document}

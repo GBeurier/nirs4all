@@ -1,0 +1,16 @@
+{
+  "name": "aompls",
+  "version": "0.1.0",
+  "description": "AOM-PLS compact (PLS1) — WebAssembly build with embind",
+  "type": "module",
+  "main": "src/aompls.mjs",
+  "scripts": {
+    "build": "./build.sh",
+    "test": "node test/parity.mjs"
+  },
+  "license": "CECILL-2.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gbeurier/nirs4all"
+  }
+}
