@@ -2,7 +2,12 @@
 \toprule
 Comparison & $N$ & Median effect & 95\% bootstrap CI & Wins & Wilcoxon $p_{\mathrm{Holm}}$ \\
 \midrule
-AOM-PLS compact CV-5 vs PLS & 57 & RMSEP ratio 0.960 & 0.926--0.990 & 42/57 & $1.48\times 10^{-4}$ \\
-AOM-Ridge Blender vs tuned Ridge & 52 & $\Delta$RMSEP -2.22\% & -3.66 to -0.83\% & 35/52 & $8.05\times 10^{-3}$ \\
+ASLS-AOM-compact-cv5 vs PLS-TabPFN-HPO & 25 & RMSEP ratio 0.980 & 0.907--1.034 & 14/25 & 1.000 \\
+ASLS-AOM-compact-cv5 vs PLS-default & 25 & RMSEP ratio 0.972 & 0.907--1.038 & 15/25 & 1.000 \\
+AOM-compact-cv5 vs PLS-default & 25 & RMSEP ratio 1.000 & 0.971--1.046 & 13/25 & 1.000 \\
+AOMRidge-global-compact-none vs Ridge-TabPFN-HPO & 9 & RMSEP ratio 1.162 & 0.814--1.343 & 4/9 & 1.000 \\
+AOMRidge-Local-compact-knn50 vs Ridge-TabPFN-HPO & 9 & RMSEP ratio 1.076 & 0.986--1.305 & 2/9 & 1.000 \\
+AOMRidge-Blender vs Ridge-TabPFN-HPO & 9 & RMSEP ratio 0.914 & 0.829--1.039 & 6/9 & 1.000 \\
+AOMRidge-AutoSelect vs Ridge-TabPFN-HPO & 9 & RMSEP ratio 0.968 & 0.852--1.091 & 5/9 & 1.000 \\
 \bottomrule
 \end{tabularx}

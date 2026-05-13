@@ -157,3 +157,6 @@ bench/nirs_synthetic_pfn/reports/
 bench/nicon_v2/benchmark_runs/
 bench/_archive/studies/wk/runs/
 bench/synthesis/nirs_synthetic_pfn/reports/
+.claude/worktrees/
+*.Identifier
+bench/tabpfn_paper/article

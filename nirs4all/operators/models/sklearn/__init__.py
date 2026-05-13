@@ -18,6 +18,7 @@ from .aom_pls import (
     default_operator_bank,
     extended_operator_bank,
 )
+from .aom_pls_aomlib import AOMPLSAomlibRegressor
 from .aom_pls_classifier import AOMPLSClassifier
 from .dipls import DiPLS
 from .fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS
@@ -65,6 +66,7 @@ __all__ = [
     "FractionalPLS",
     "FractionalConvFeaturizer",
     "AOMPLSRegressor",
+    "AOMPLSAomlibRegressor",
     "LinearOperator",
     "IdentityOperator",
     "SavitzkyGolayOperator",

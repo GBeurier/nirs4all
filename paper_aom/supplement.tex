@@ -50,8 +50,9 @@ separated, and reviewer-sensitive weaknesses are made explicit.  The goal is
 to make the AOM study auditable rather than to hide ongoing work behind a
 single compressed results table.
 
-The supplement uses existing local artifacts only.  No additional benchmark was
-launched to prepare this draft.
+The supplement uses local artifacts generated in the repository, including the
+refreshed cohort manifest, partial aggregation outputs and the seeds 0/1/2
+AOM-PLS robustness run.
 
 For a Talanta submission, the supplement should ultimately become the place
 where full dataset tables, paired statistical tests, operator-selection
@@ -184,6 +185,206 @@ Orthogonal correction & OSC-style branches & Fold-local branch; not part of the 
 \end{tabularx}
 \end{table}
 
+\section{Empirical Path to the Compact Operator Bank}
+
+The compact operator bank used in the main manuscript is not an arbitrary
+small list of preprocessors.  It is the result of a sequence of AOM-specific
+experiments whose common conclusion is that, for NIRS calibration with small
+external-validation splits, the main risk is not insufficient preprocessing
+variety but selection variance over too many near-duplicate operators.  The
+compact bank keeps one or two representatives of the main linear spectral
+families while avoiding large redundant grids of Savitzky--Golay widths,
+Norris--Williams variants and composed operators.
+
+\subsection{Bank genealogy}
+
+\begin{longtable}{L{0.16\linewidth}L{0.09\linewidth}L{0.13\linewidth}L{0.44\linewidth}}
+\caption{Operator-bank genealogy used during AOM development.  Candidate
+pairs are counted as bank size $\times K_{\max}$ with $K_{\max}=15$, before
+fold replication.}\\
+\toprule
+Bank & Ops & Candidate pairs & Purpose in the study \\
+\midrule
+\endfirsthead
+\toprule
+Bank & Ops & Candidate pairs & Purpose in the study \\
+\midrule
+\endhead
+\code{compact} & 9 & 135 &
+Minimal strict-linear bank used for the final deployable AOM-PLS
+recommendation and for the C++ \code{AOM_lib} implementation.\\
+\code{family_pruned} & 15 & 225 &
+Pruned version of the production bank, keeping at most two representatives
+per preprocessing family.  It tests whether a small but broader family set
+beats the compact bank.\\
+\code{response_dedup} & 46--47 & 690--705 &
+Default-bank reduction by intrinsic-response cosine similarity.  It tests
+whether removing near-duplicate operator responses is enough to control
+selection variance.\\
+\code{default} & 100 & 1500 &
+Mirror of the deployed \code{nirs4all} production bank: identity, 32
+Savitzky--Golay/Norris--Williams/finite-difference operators, three detrend
+projections and 64 SG-by-detrend compositions.\\
+\code{deep3} & 116 & 1740 &
+Default bank plus third-order strict-linear composition chains.  Used to test
+whether deeper composed preprocessors add useful capacity.\\
+\code{deep4} & 132 & 1980 &
+Default bank plus third- and fourth-order composition chains.  Used as a
+stress test for bank-size effects.\\
+\code{compact+FCK} & 17 & 255 &
+Compact bank augmented with eight fractional convolution kernels.  Used as a
+diagnostic extension, not promoted as the default.\\
+\bottomrule
+\end{longtable}
+
+The final compact bank is exactly:
+\begin{equation}
+\begin{split}
+\mathcal A_{\mathrm{compact}}=\{&
+\mathrm{identity},
+\mathrm{SG}_{11,2}^{(0)},\mathrm{SG}_{21,3}^{(0)},
+\mathrm{SG}_{11,2}^{(1)},\mathrm{SG}_{21,3}^{(1)},\\
+&\mathrm{SG}_{11,2}^{(2)},
+\mathrm{detrend}_{1},\mathrm{detrend}_{2},
+\mathrm{FD}_{1}\}.
+\end{split}
+\end{equation}
+The C++ implementation uses the same ordering:
+\code{identity},
+\code{sg_smooth_w11_p2},
+\code{sg_smooth_w21_p3},
+\code{sg_d1_w11_p2},
+\code{sg_d1_w21_p3},
+\code{sg_d2_w11_p2},
+\code{detrend_d1},
+\code{detrend_d2},
+\code{fd_d1}.
+
+\subsection{Why fewer operators can be better}
+
+For a bank with $B$ operators and $K_{\max}$ component prefixes, a global
+AOM selector evaluates approximately $M=B K_{\max}$ operator/component
+candidates per selection split, and $F M$ candidates under $F$-fold
+cross-validation.  On small calibration sets, validation RMSE estimates have
+non-negligible noise.  The empirical minimum over many candidates is therefore
+optimistically biased; a crude order-statistic approximation is
+\begin{equation}
+  \mathbb E[\min_i \widehat R_i]
+  \approx
+  \mu - \frac{\sigma}{\sqrt{n_{\mathrm{val}}}}\sqrt{2\log M}.
+\end{equation}
+Thus adding near-duplicate operators can worsen external performance even
+when the larger bank strictly contains the smaller one.  In the AOM setting,
+moving from \code{compact} to \code{default} increases $M$ from 135 to 1500
+at $K_{\max}=15$.  The nominal selection-bias factor
+$\sqrt{\log(1500)/\log(135)}$ is about 1.22, which is large enough to matter
+for BEER- or BISCUIT-sized splits where the internal validation set contains
+only a few samples.  The compact bank was therefore treated as a bias-control
+device, not only as a speed optimization.
+
+\subsection{Ablation evidence}
+
+\begin{longtable}{L{0.27\linewidth}L{0.20\linewidth}rrrr}
+\caption{AOM-PLS ablations that led to the compact-bank recommendation.
+Lower median relative RMSEP is better.  Values are from
+\code{bench/AOM_v0/publication/tables/relative_rmsep_per_variant.csv}; full
+variant identifiers are preserved in that source table.}\\
+\toprule
+Variant & Bank / selector & N & Median & Wins & Median fit (s) \\
+\midrule
+\endfirsthead
+\toprule
+Variant & Bank / selector & N & Median & Wins & Median fit (s) \\
+\midrule
+\endhead
+nirs4all default & 100-op production holdout & 57 & 0.999 & 29 & 0.96\\
+Default NIPALS & 100-op default holdout & 57 & 0.999 & 29 & 8.44\\
+Family-pruned & 15-op holdout & 57 & 0.998 & 30 & 0.58\\
+Response-dedup & 46--47-op holdout & 57 & 0.998 & 29 & 1.97\\
+Compact CV-3 & 9-op CV-3 & 57 & 0.997 & 32 & 0.96\\
+Compact CV-5 & 9-op CV-5 & 57 & 0.992 & 38 & 1.23\\
+Compact repeated CV-3 & 9-op repeated CV-3 & 57 & 0.984 & 39 & 2.08\\
+Response-dedup CV-3 & 46--47-op CV-3 & 57 & 0.988 & 33 & 4.27\\
+ASLS compact CV-3 & ASLS + 9-op CV-3 & 57 & 0.979 & 38 & 0.91\\
+ASLS compact repeated CV-3 & ASLS + 9-op repeated CV-3 & 57 & 0.975 & 39 & 2.21\\
+ASLS compact CV-5 & ASLS + 9-op CV-5 & 57 & 0.960 & 42 & 1.36\\
+ASLS family-pruned CV-3 & ASLS + 15-op CV-3 & 57 & 0.964 & 38 & 1.60\\
+ASLS response-dedup CV-3 & ASLS + 46--47-op CV-3 & 57 & 0.964 & 37 & 4.57\\
+SPXY response-dedup CV-3 & SPXY + 46--47-op CV-3 & 54 & 0.962 & 35 & 29.16\\
+\bottomrule
+\end{longtable}
+
+These ablations support three practical conclusions.  First, the compact bank
+already matches the 100-operator production/default bank at the median while
+using roughly one tenth of the operator/component candidates.  Second, the
+largest gain comes from replacing deterministic holdout selection with
+fold-based selection: compact CV-5 improves from the production/default
+median near 0.999 to 0.992 without any ASLS branch, and repeated CV-3 reaches
+0.984.  Third, adding the ASLS branch before compact AOM-PLS gives the current
+headline variant, but the nearby 15-op and 46--47-op bank results show that
+the conclusion is not a one-off artifact of one tiny bank.  The compact bank
+is selected as the deployable default because it lies on the accuracy/time
+frontier: ASLS + response-dedup with SPXY can be marginally close, but it is
+substantially slower and has fewer paired rows.
+
+\subsection{Selected operators inside the compact bank}
+
+\begin{table}[h]
+\centering
+\caption{Selected first operator in the compact bank on the 57-dataset
+cohort.  Counts are taken from the fold-based AOM-PLS result files and show
+that the compact bank does not collapse to a single preprocessing choice.}
+\small
+\begin{tabularx}{\linewidth}{L{0.27\linewidth}Xrr}
+\toprule
+Operator & Spectral role & AOM CV-5 & ASLS-AOM CV-5 \\
+\midrule
+\code{identity} & Raw centered spectrum / PLS fallback & 5 & 7\\
+\code{sg_smooth_w11_p2} & Short-window SG smoothing & 0 & 1\\
+\code{sg_smooth_w21_p3} & Wider SG smoothing & 12 & 17\\
+\code{sg_d1_w11_p2} & Short-window first derivative & 9 & 7\\
+\code{sg_d1_w21_p3} & Wider first derivative & 8 & 7\\
+\code{sg_d2_w11_p2} & Second derivative & 1 & 3\\
+\code{detrend_d1} & Linear detrending projection & 8 & 3\\
+\code{detrend_d2} & Quadratic detrending projection & 8 & 4\\
+\code{fd_d1} & Finite difference first derivative & 6 & 8\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+The selected-operator distribution is important for interpretation.  The
+identity remains selected on several datasets, which is expected when raw
+spectra already carry the analyte signal.  The most frequent non-identity
+operator is the wider SG smoother, followed by derivative and detrending
+operators.  This supports the design choice that the compact bank should cover
+distinct spectral mechanisms rather than dense parameter grids within one
+mechanism.
+
+\subsection{Extensions that were not promoted}
+
+Several extensions were explored and intentionally not moved into the compact
+default.
+
+\begin{itemize}
+  \item The 100-operator default bank and the deep3/deep4 banks did not improve
+  the median external RMSEP enough to justify the added selection variance and
+  runtime.  Deep banks mostly reproduced the default-bank choice on the tested
+  splits.
+  \item OSC and EMSC branches were not promoted as defaults.  Existing
+  AOM\_v0 summaries show OSC variants hurting at the default
+  component setting and EMSC degree 1--2 being numerically unstable on small
+  splits.
+  \item SNV can help as a branch, but SNV+ASLS did not improve over ASLS alone
+  in the 57-dataset summary.  SNV, MSC, EMSC and ASLS remain branch
+  preprocessors, not strict fixed operators in the AOM algebra.
+  \item Fractional convolution kernel operators were implemented as diagnostic
+  bank extensions (\code{compact+FCK}: 9 compact operators plus eight FCK
+  kernels).  They remain useful evidence that fractional-derivative
+  preprocessors were considered, but they are not part of the current compact
+  recommendation until they pass the same paired, multi-seed and no-harm gates
+  as the compact AOM-PLS variants.
+\end{itemize}
+
 \section{Benchmark Protocol Ledger}
 
 \begin{longtable}{L{0.28\linewidth}L{0.29\linewidth}L{0.35\linewidth}}
@@ -229,6 +430,82 @@ Exploration registry, not a direct source of all headline statistics.\\
 \bottomrule
 \end{longtable}
 
+\subsection{Cohort manifest}
+
+The frozen review manifest is stored at
+\code{paper_aom/review/cohort_manifest.csv}.  It contains 78 source rows:
+61 regression rows and 17 classification rows.  For primary paired analyses,
+the effective cohort is 60 regression datasets plus 16 classification
+datasets: the QUARTZ regression row is retained for absolute-error and failure
+tables but excluded from ratio summaries because the reference denominator is
+near zero, and one classification row is excluded because source files are
+missing.  The companion denominator document
+\code{paper_aom/review/cohort_manifest.md} records the gates for TabPFN-allowed
+subsets and AOM-Ridge-global allowability.
+
+\subsection{Software artefacts}
+
+Table~\ref{tab:sup_software} mirrors the software-status table used in the
+main manuscript.  It separates production \code{nirs4all} code, the new
+AOM-lib-backed wrapper, parity-verified C++/Python \code{AOM_lib} components,
+code-ready bindings that were not locally executed in this validation
+environment, and AOM-Ridge research code.
+
+\begin{table}[h]
+\centering
+\caption{Software artefacts distributed with the AOM study.}
+\label{tab:sup_software}
+\small
+\input{tables/table_software.tex}
+\end{table}
+
+\subsection{Multi-seed regression robustness}
+
+The refreshed AOM-PLS robustness run is
+\code{bench/scenarios/runs/paper_aom_aompls_seeds012/results.csv}.  It covers
+55 datasets, 9 variants and seeds 0/1/2, with 1486 CSV lines at validation
+time.  For the headline comparison
+\code{ASLS-AOM-compact-cv5-numpy} versus \code{PLS-standard-numpy}, the 53
+paired datasets give a median RMSEP/PLS ratio of 0.9623 and 37/53 wins after
+averaging RMSEP over seeds.  This is close to the earlier single-seed median
+0.960, but the win denominator changes from 57 to 53 under the refreshed
+paired multi-seed run.
+
+\begin{table}[h]
+\centering
+\caption{Seed-stability summary emitted by
+\code{paper_aom/review/final_stats.md}.  Median and IQR are the raw RMSEP
+dispersion summaries across available seeds, so they are used here as
+stability diagnostics rather than cross-trait effect sizes.}
+\small
+\begin{tabularx}{\linewidth}{Xrrrr}
+\toprule
+Variant & Datasets & Seeds & Median & IQR \\
+\midrule
+ASLS-AOM-compact-cv5-numpy & 59 & 3 & 0.4515 & 3.3055\\
+AOM-compact-cv5-numpy & 59 & 3 & 0.6327 & 3.3118\\
+AOMRidge-Blender-headline-spxy3 & 20 & 3 & 0.3300 & 2.2792\\
+AOMRidge-Local-compact-knn50 & 20 & 3 & 0.5549 & 2.5818\\
+AOMRidge-AutoSelect-headline-spxy3 & 20 & 3 & 0.3455 & 2.2845\\
+AOMRidge-global-compact-none & 20 & 3 & 0.4153 & 2.7123\\
+Ridge-tabpfn-hpo-60trials & 7 & 3 & 0.4257 & 3.2861\\
+PLS-default-cv5 & 7 & 3 & 0.5713 & 3.4682\\
+PLS-tabpfn-hpo-25trials & 7 & 3 & 0.3535 & 4.1037\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+\subsection{Parity validation}
+
+The dedicated \code{AOM_lib} implementation was validated against the
+reference Python AOM\_v0 calculations on BEER, CORN and ALPINE under three
+split/selection regimes: kfold5, kfold5+oneSE and spxy5.  The local validation
+commands \code{cpp/build/test_operators},
+\code{cpp/build/test_parity_kfold cpp/tests/reference} and
+\code{python/tests/test_parity.py} passed.  Across the nine parity cases, the
+largest reported coefficient difference was below $10^{-8}$, with prediction
+and RMSE-curve differences also below the tolerance used by the parity tests.
+
 \section{Claim Ledger}
 
 \begin{longtable}{L{0.29\linewidth}L{0.19\linewidth}L{0.13\linewidth}L{0.23\linewidth}}
@@ -241,21 +518,21 @@ Claim & Status & Dataset count & Source / caveat \\
 Claim & Status & Dataset count & Source / caveat \\
 \midrule
 \endhead
-ASLS + compact AOM-PLS CV-5 improves over PLS with median RMSEP/PLS 0.960. &
-Deployable AOM-PLS benchmark result. & 57 &
-\code{bench/AOM_v0/Summary.md}; needs final cohort manifest for journal submission.\\
-AOM-PLS compact CV-5 wins against PLS on 42 datasets. &
-Deployable AOM-PLS benchmark result. & 57 &
-Same source; no multi-seed uncertainty yet.\\
-AOM-PLS compact CV-5 median fit time is approximately 1.36 s. &
-Measured in local benchmark table. & 57 &
-Hardware-specific; should be remeasured on the final machine.\\
-AOM-Ridge Blender improves over tuned Ridge by median 2.22\%. &
-Deployable AOM-Ridge table result. & 52 &
-\code{table_per_method_summary.tex}; single-seed cohort.\\
-AOM-Ridge Blender wins 35/52 against tuned Ridge. &
-Deployable AOM-Ridge table result. & 52 &
-Nested-audit evidence exists, but full multi-seed promotion is pending.\\
+ASLS + compact AOM-PLS CV-5 improves over PLS with median RMSEP/PLS 0.9623. &
+Multi-seed AOM-PLS robustness result. & 53 &
+\code{paper_aom_aompls_seeds012/results.csv}; paired after averaging over seeds.\\
+AOM-PLS compact CV-5 wins against PLS on 37 datasets. &
+Multi-seed AOM-PLS robustness result. & 53 &
+Same source; replaces the earlier single-seed 57-dataset headline.\\
+AOM-PLS compact CV-5 median fit time is approximately 1.65 s. &
+Measured in refreshed aggregation. & 339 &
+\code{paper_aom/review/final_stats.md}; hardware- and partial-run dependent.\\
+AOM-Ridge Blender has median RMSEP/Ridge-HPO ratio 0.905 in the refreshed overlap. &
+Partial regenerated evidence. & 4 &
+\code{paper_aom/review/final_stats.md}; denominator limited by incomplete HPO overlap.\\
+AOM-Ridge Blender wins 4/4 against Ridge-HPO in the refreshed overlap. &
+Partial regenerated evidence. & 4 &
+Full-cohort Blender/AutoSelect multi-seed promotion is pending.\\
 AOM-Ridge oracle improves over tuned Ridge by median 4.73\%. &
 Oracle envelope only. & 52 &
 \code{table_summary.tex}; not a deployable method claim.\\
@@ -272,7 +549,9 @@ PLS/Ridge approximately 5400, CNN approximately 2700, CatBoost approximately 90.
 
 \begin{table}[h]
 \centering
-\caption{Selected AOM-PLS variants from the existing 57-dataset summary.}
+\caption{Historical single-seed AOM-PLS variants from the existing
+57-dataset summary.  The refreshed multi-seed headline is reported in the
+robustness subsection above.}
 \small
 \begin{tabularx}{\linewidth}{Xrrrr}
 \toprule
@@ -291,9 +570,9 @@ ASLS-AOM compact CV-3 & 57 & 0.979 & 38 & 0.91\\
 
 \begin{table}[h]
 \centering
-\caption{Deployable AOM-Ridge variants.  These are the appropriate primary
-Ridge-family claims before multi-seed promotion; full local identifiers are in
-the source table.}
+\caption{Single-seed AOM-Ridge deployable variants retained as background
+evidence before full multi-seed promotion; full local identifiers are in the
+source table.}
 \small
 \begin{tabularx}{\linewidth}{Xrrrr}
 \toprule
@@ -378,7 +657,7 @@ P1 & Strict-linear vs branch ablation. & Separate gains from AOM itself and gain
 P1 & Operator-frequency table. & Show which spectral operations are actually selected.\\
 P1 & Runtime scaling study. & Quantify cost versus $n$, $p$, bank size and branch count.\\
 P1 & Prediction artifact export. & Enable residual plots, bias, RPD/RPIQ, and independent audit.\\
-P1 & Software release validation. & Validate the clean-room C++ AOM-PLS implementation, R bindings, Python package \texttt{AOM-PLS}, and planned pip AOM-PLS/AOM-Ridge packages against the reference implementation.\\
+P1 & Software release validation. & Maintain C++/Python parity validation and complete local execution for the R, MATLAB, Julia and JavaScript/WASM bindings before release promotion.\\
 \bottomrule
 \end{longtable}
 

@@ -50,47 +50,55 @@
 \citation{kennard1969computer,galvao2005method}
 \@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces AOM mathematical structure. AOM-PLS exploits an operator identity on cross-covariances, while AOM-Ridge builds operator-specific sample kernels. Both recover original-space coefficients.}}{6}{figure.2}\protected@file@percent }
 \newlabel{fig:math}{{2}{6}{AOM mathematical structure. AOM-PLS exploits an operator identity on cross-covariances, while AOM-Ridge builds operator-specific sample kernels. Both recover original-space coefficients}{figure.2}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Software availability. The production package contains the current AOM-PLS family; the AOM-Ridge experiments are distributed as research code in the benchmark directory pending API stabilization.}}{6}{table.1}\protected@file@percent }
-\newlabel{tab:software}{{1}{6}{Software availability. The production package contains the current AOM-PLS family; the AOM-Ridge experiments are distributed as research code in the benchmark directory pending API stabilization}{table.1}{}}
 \@writefile{toc}{\contentsline {section}{\numberline {5}Implementation and software availability}{6}{section.5}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Benchmark diversity and external-validation design. The headline AOM-PLS and AOM-Ridge claims use different finalized subsets; the table reports the corresponding denominators and the broader regression-corpus ranges used to characterize heterogeneity.}}{7}{table.2}\protected@file@percent }
-\newlabel{tab:benchmark_diversity}{{2}{7}{Benchmark diversity and external-validation design. The headline AOM-PLS and AOM-Ridge claims use different finalized subsets; the table reports the corresponding denominators and the broader regression-corpus ranges used to characterize heterogeneity}{table.2}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {6}Benchmark design and validation protocol}{7}{section.6}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Datasets and splits}{7}{subsection.6.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Model selection}{7}{subsection.6.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {6}Benchmark design and validation protocol}{6}{section.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Datasets and splits}{6}{subsection.6.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.2}Model selection}{6}{subsection.6.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Software availability. The production package contains the current AOM-PLS family; the AOM-Ridge experiments are distributed as research code in the benchmark directory pending API stabilization.}}{7}{table.1}\protected@file@percent }
+\newlabel{tab:software}{{1}{7}{Software availability. The production package contains the current AOM-PLS family; the AOM-Ridge experiments are distributed as research code in the benchmark directory pending API stabilization}{table.1}{}}
 \@writefile{toc}{\contentsline {subsection}{\numberline {6.3}Metrics}{7}{subsection.6.3}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Compact operator bank and branch preprocessing distinction.}}{8}{table.3}\protected@file@percent }
-\newlabel{tab:operators}{{3}{8}{Compact operator bank and branch preprocessing distinction}{table.3}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Search-budget contrast under the local reference benchmark protocol.}}{8}{table.4}\protected@file@percent }
-\newlabel{tab:budget}{{4}{8}{Search-budget contrast under the local reference benchmark protocol}{table.4}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}Reference search budgets}{8}{subsection.6.4}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Paired statistical summary for the primary deployable comparisons. Bootstrap intervals are for the median effect. Wilcoxon signed-rank tests use the one-sided alternative that AOM has lower RMSEP than the reference; reported values are Holm-adjusted across the two primary comparisons.}}{9}{table.5}\protected@file@percent }
-\newlabel{tab:paired_stats}{{5}{9}{Paired statistical summary for the primary deployable comparisons. Bootstrap intervals are for the median effect. Wilcoxon signed-rank tests use the one-sided alternative that AOM has lower RMSEP than the reference; reported values are Holm-adjusted across the two primary comparisons}{table.5}{}}
-\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Headline benchmark results used in this draft. Deployable results are separated from oracle-envelope values; oracle values quantify headroom and do not support deployable performance claims.}}{9}{table.6}\protected@file@percent }
-\newlabel{tab:main_results}{{6}{9}{Headline benchmark results used in this draft. Deployable results are separated from oracle-envelope values; oracle values quantify headroom and do not support deployable performance claims}{table.6}{}}
-\@writefile{toc}{\contentsline {section}{\numberline {7}Results}{9}{section.7}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Large-scale validation across heterogeneous NIRS calibration problems}{9}{subsection.7.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Speed and search-budget reduction}{9}{subsection.7.2}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Median error reductions and win counts from the available headline result tables. Filled markers denote deployable variants; open markers denote oracle-envelope analyses.}}{10}{figure.3}\protected@file@percent }
-\newlabel{fig:results}{{3}{10}{Median error reductions and win counts from the available headline result tables. Filled markers denote deployable variants; open markers denote oracle-envelope analyses}{figure.3}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Robustness to preprocessing search complexity}{10}{subsection.7.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Operator-adaptive Ridge as a complementary calibration model}{10}{subsection.7.4}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Search-budget contrast. Counts for PLS, Ridge, CatBoost and CNN-1D come from the local reference preprocessing-HPO protocol. The AOM-PLS bar is an illustrative compact-bank fold-evaluation count; the measured median fit time of the headline compact variant is about 1.36 seconds.}}{11}{figure.4}\protected@file@percent }
-\newlabel{fig:budget}{{4}{11}{Search-budget contrast. Counts for PLS, Ridge, CatBoost and CNN-1D come from the local reference preprocessing-HPO protocol. The AOM-PLS bar is an illustrative compact-bank fold-evaluation count; the measured median fit time of the headline compact variant is about 1.36 seconds}{figure.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.4}Reference search budgets}{7}{subsection.6.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Benchmark diversity and external-validation design. The headline AOM-PLS and AOM-Ridge claims use different finalized subsets; the table reports the corresponding denominators and the broader regression-corpus ranges used to characterize heterogeneity.}}{8}{table.2}\protected@file@percent }
+\newlabel{tab:benchmark_diversity}{{2}{8}{Benchmark diversity and external-validation design. The headline AOM-PLS and AOM-Ridge claims use different finalized subsets; the table reports the corresponding denominators and the broader regression-corpus ranges used to characterize heterogeneity}{table.2}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Results}{8}{section.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}Large-scale validation across heterogeneous NIRS calibration problems}{8}{subsection.7.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.2}Multi-seed robustness}{8}{subsection.7.2}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Compact operator bank and branch preprocessing distinction.}}{9}{table.3}\protected@file@percent }
+\newlabel{tab:operators}{{3}{9}{Compact operator bank and branch preprocessing distinction}{table.3}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Search-budget contrast under the local reference benchmark protocol.}}{9}{table.4}\protected@file@percent }
+\newlabel{tab:budget}{{4}{9}{Search-budget contrast under the local reference benchmark protocol}{table.4}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.3}Speed and search-budget reduction}{9}{subsection.7.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.4}Robustness to preprocessing search complexity}{9}{subsection.7.4}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Paired statistical summary for the primary deployable comparisons. Bootstrap intervals are for the median effect. Wilcoxon signed-rank tests use the one-sided alternative that AOM has lower RMSEP than the reference; reported values are Holm-adjusted across the two primary comparisons.}}{10}{table.5}\protected@file@percent }
+\newlabel{tab:paired_stats}{{5}{10}{Paired statistical summary for the primary deployable comparisons. Bootstrap intervals are for the median effect. Wilcoxon signed-rank tests use the one-sided alternative that AOM has lower RMSEP than the reference; reported values are Holm-adjusted across the two primary comparisons}{table.5}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.5}Operator-adaptive Ridge as a complementary calibration model}{10}{subsection.7.5}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Headline benchmark results used in this draft. Deployable results are separated from oracle-envelope values; oracle values quantify headroom and do not support deployable performance claims.}}{11}{table.6}\protected@file@percent }
+\newlabel{tab:main_results}{{6}{11}{Headline benchmark results used in this draft. Deployable results are separated from oracle-envelope values; oracle values quantify headroom and do not support deployable performance claims}{table.6}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.6}Classification as secondary validation}{11}{subsection.7.6}\protected@file@percent }
 \@writefile{toc}{\contentsline {section}{\numberline {8}Analytical implications}{11}{section.8}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.1}What changes for NIRS method development}{11}{subsection.8.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.2}Why larger banks can fail}{11}{subsection.8.2}\protected@file@percent }
-\citation{beurier2026nirs4all,beurier2026nirs4allstudio}
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Median error reductions and win counts from the available headline result tables. Filled markers denote deployable variants; open markers denote oracle-envelope analyses.}}{12}{figure.3}\protected@file@percent }
+\newlabel{fig:results}{{3}{12}{Median error reductions and win counts from the available headline result tables. Filled markers denote deployable variants; open markers denote oracle-envelope analyses}{figure.3}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.2}Why larger banks can fail}{12}{subsection.8.2}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.3}PLS and Ridge are complementary}{12}{subsection.8.3}\protected@file@percent }
 \@writefile{toc}{\contentsline {subsection}{\numberline {8.4}Limits of strict linearity}{12}{subsection.8.4}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {8.5}Implications for routine NIRS calibration}{12}{subsection.8.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {9}Limitations and future work}{12}{section.9}\protected@file@percent }
+\citation{beurier2026nirs4all,beurier2026nirs4allstudio}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces Runtime summary from the refreshed partial aggregation. The HPO rows are still incomplete and should be refreshed after the background linear-HPO run completes.}}{13}{table.7}\protected@file@percent }
+\newlabel{tab:time_budget}{{7}{13}{Runtime summary from the refreshed partial aggregation. The HPO rows are still incomplete and should be refreshed after the background linear-HPO run completes}{table.7}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces AOM-Ridge selector diagnostics: AutoSelect chosen-candidate counts, Blender weight means, and cross-seed stability.}}{13}{table.8}\protected@file@percent }
+\newlabel{tab:selector-diagnostics}{{8}{13}{AOM-Ridge selector diagnostics: AutoSelect chosen-candidate counts, Blender weight means, and cross-seed stability}{table.8}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.5}Implications for routine NIRS calibration}{13}{subsection.8.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {9}Limitations and future work}{13}{section.9}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Search-budget contrast. Counts for PLS, Ridge, CatBoost and CNN-1D come from the local reference preprocessing-HPO protocol. The AOM-PLS bar is an illustrative compact-bank fold-evaluation count; the measured median fit time of the headline compact variant is about 1.65 seconds in the refreshed multi-seed aggregation.}}{14}{figure.4}\protected@file@percent }
+\newlabel{fig:budget}{{4}{14}{Search-budget contrast. Counts for PLS, Ridge, CatBoost and CNN-1D come from the local reference preprocessing-HPO protocol. The AOM-PLS bar is an illustrative compact-bank fold-evaluation count; the measured median fit time of the headline compact variant is about 1.65 seconds in the refreshed multi-seed aggregation}{figure.4}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces Classification summary on the 16-dataset cohort with seeds 0/1/2 multi-seed averaging. Positive balanced-accuracy differences favour the AOM or POP variant over PLS-DA. Holm-corrected Wilcoxon signed-rank $p$-values are computed within the family of four AOM-PLS-DA vs PLS-DA comparisons.}}{14}{table.9}\protected@file@percent }
+\newlabel{tab:classification_main}{{9}{14}{Classification summary on the 16-dataset cohort with seeds 0/1/2 multi-seed averaging. Positive balanced-accuracy differences favour the AOM or POP variant over PLS-DA. Holm-corrected Wilcoxon signed-rank $p$-values are computed within the family of four AOM-PLS-DA vs PLS-DA comparisons}{table.9}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10}Conclusion}{14}{section.10}\protected@file@percent }
 \bibstyle{unsrtnat}
 \bibdata{references}
 \bibcite{burns2007handbook}{{1}{2007}{{Burns and Ciurczak}}{{}}}
 \bibcite{pasquini2018near}{{2}{2018}{{Pasquini}}{{}}}
 \bibcite{geladi1986partial}{{3}{1986}{{Geladi and Kowalski}}{{}}}
-\@writefile{toc}{\contentsline {section}{\numberline {10}Conclusion}{13}{section.10}\protected@file@percent }
 \bibcite{wold2001pls}{{4}{2001}{{Wold et~al.}}{{Wold, Sj{\"o}str{\"o}m, and Eriksson}}}
 \bibcite{dejong1993simpls}{{5}{1993}{{De~Jong}}{{}}}
 \bibcite{hoerl1970ridge}{{6}{1970}{{Hoerl and Kennard}}{{}}}
@@ -113,4 +121,4 @@
 \bibcite{galvao2005method}{{23}{2005}{{Galv{\~a}o et~al.}}{{Galv{\~a}o, Araujo, Jose, Pontes, Silva, and Saldanha}}}
 \bibcite{beurier2026nirs4all}{{24}{2026{}}{{Beurier et~al.}}{{Beurier, Cornet, and Rouan}}}
 \bibcite{beurier2026nirs4allstudio}{{25}{2026{}}{{Beurier et~al.}}{{Beurier, Cornet, and Rouan}}}
-\gdef \@abspage@last{15}
+\gdef \@abspage@last{17}
