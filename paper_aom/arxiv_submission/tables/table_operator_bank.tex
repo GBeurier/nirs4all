@@ -1,0 +1,15 @@
+\begin{tabularx}{\linewidth}{p{0.23\linewidth}X p{0.24\linewidth}}
+\toprule
+Family & Operators in compact bank & Strict linear status \\
+\midrule
+Identity & identity transform & yes \\
+Smoothing & Savitzky--Golay smoothing, windows 11 and 21 & yes \\
+Derivatives & Savitzky--Golay first derivative, windows 11 and 21 & yes \\
+Derivatives & Savitzky--Golay second derivative, window 11 & yes \\
+Baseline trend & polynomial detrending, degrees 1 and 2 & yes, fitted inside calibration folds \\
+Local contrast & first finite difference & yes \\
+\midrule
+Scatter correction & SNV, MSC, EMSC & branch preprocessing, fold-local \\
+Baseline correction & ASLS and related asymmetric smoothers & branch preprocessing, fold-local \\
+\bottomrule
+\end{tabularx}

@@ -1,0 +1,19 @@
+\contentsline {section}{\numberline {1}Purpose of the Supplement}{2}{section.1}%
+\contentsline {section}{\numberline {2}Notation and Linear-Operator Scope}{2}{section.2}%
+\contentsline {section}{\numberline {3}AOM-PLS Derivation}{2}{section.3}%
+\contentsline {subsection}{\numberline {3.1}Covariance identity}{2}{subsection.3.1}%
+\contentsline {subsection}{\numberline {3.2}Original-space coefficients}{2}{subsection.3.2}%
+\contentsline {section}{\numberline {4}AOM-Ridge Derivation}{3}{section.4}%
+\contentsline {section}{\numberline {5}Algorithmic Sketches}{3}{section.5}%
+\contentsline {subsection}{\numberline {5.1}Global AOM-PLS}{3}{subsection.5.1}%
+\contentsline {subsection}{\numberline {5.2}AOM-Ridge}{3}{subsection.5.2}%
+\contentsline {section}{\numberline {6}Operator and Branch Catalogue}{3}{section.6}%
+\contentsline {section}{\numberline {7}Benchmark Protocol Ledger}{3}{section.7}%
+\contentsline {section}{\numberline {8}Claim Ledger}{5}{section.8}%
+\contentsline {section}{\numberline {9}AOM-PLS Variant Summary}{5}{section.9}%
+\contentsline {section}{\numberline {10}AOM-Ridge Result Separation}{6}{section.10}%
+\contentsline {section}{\numberline {11}Paired Statistical Evidence}{6}{section.11}%
+\contentsline {section}{\numberline {12}Leakage and Audit Controls}{6}{section.12}%
+\contentsline {section}{\numberline {13}Additional Experiments Required for a Journal Submission}{6}{section.13}%
+\contentsline {section}{\numberline {14}Reproducibility Checklist}{7}{section.14}%
+\contentsline {section}{\numberline {15}Recommended Positioning}{7}{section.15}%

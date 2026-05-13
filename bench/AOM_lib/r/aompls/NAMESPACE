@@ -1,0 +1,8 @@
+useDynLib(aompls, .registration = TRUE)
+importFrom(Rcpp, sourceCpp)
+export(aom_pls)
+export(aom_pls_tune)
+S3method(predict, aom_pls)
+S3method(coef, aom_pls)
+S3method(print, aom_pls)
+S3method(summary, aom_pls)

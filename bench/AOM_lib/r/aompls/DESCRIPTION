@@ -1,0 +1,25 @@
+Package: aompls
+Type: Package
+Title: AOM-PLS Compact (PLS1) with Adaptive Operator Mixture and Optional Preprocessing
+Version: 0.1.0
+Authors@R: c(person("nirs4all contributors", role = c("aut", "cre"),
+                    email = "noreply@example.com"))
+Description: Adaptive Operator Mixture Partial Least Squares regression
+    (PLS1) with a compact 9-operator bank (Identity, Savitzky-Golay smoothing
+    and derivatives, polynomial detrend, finite difference). Implements
+    materialized SIMPLS with cross-validation-based operator and prefix
+    selection. Supports optional Standard Normal Variate, Multiplicative
+    Scatter Correction, Orthogonal Signal Correction, and Asymmetric Least
+    Squares preprocessing. Performance-critical core is C++17 with vendored
+    Eigen 3.4 (header-only, MPL2). Cross-validated against the Python
+    reference implementation to machine precision.
+License: CeCILL-2.1
+URL: https://github.com/gbeurier/nirs4all
+SystemRequirements: C++17
+Encoding: UTF-8
+Imports: Rcpp (>= 1.0.10), methods
+LinkingTo: Rcpp
+Suggests: testthat (>= 3.0.0), jsonlite, knitr, rmarkdown
+RoxygenNote: 7.3.0
+Config/testthat/edition: 3
+NeedsCompilation: yes
