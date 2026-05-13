@@ -160,6 +160,7 @@ class TestPipelineLifecycleMethods:
         assert "run_id" in params
         assert "name" in params
         assert "expanded_config" in params
+        assert "original_template" in params
         assert "generator_choices" in params
         assert "dataset_name" in params
         assert "dataset_hash" in params

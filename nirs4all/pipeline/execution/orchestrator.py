@@ -313,6 +313,7 @@ class PipelineOrchestrator:
                     and len(pipeline_configs.steps) > 1
                     and self.mode == "train"  # Only train mode for now
                 )
+                authoring_template = pipeline_configs.get_template_dict()
 
                 # Parallel execution disables deferred artifacts (can't compare across workers)
                 if use_parallel:
@@ -445,6 +446,7 @@ class PipelineOrchestrator:
                                         generator_choices=gen_choices,
                                         dataset_name=name,
                                         dataset_hash=dataset_obj.content_hash() if dataset_obj else "",
+                                        original_template=authoring_template,
                                     )
 
                                     # Sync artifact records from parallel worker
@@ -595,7 +597,8 @@ class PipelineOrchestrator:
                                 context=context,
                                 runtime_context=runtime_context,
                                 prediction_store=config_predictions,
-                                generator_choices=gen_choices
+                                generator_choices=gen_choices,
+                                original_template=authoring_template,
                             )
                         except Exception:
                             # Rollback deferred artifacts before cleanup

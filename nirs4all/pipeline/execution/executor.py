@@ -121,7 +121,8 @@ class PipelineExecutor:
         context: ExecutionContext,
         runtime_context: Any,  # RuntimeContext
         prediction_store: Predictions | None = None,
-        generator_choices: list[dict[str, Any]] | None = None
+        generator_choices: list[dict[str, Any]] | None = None,
+        original_template: Any | None = None,
     ) -> None:
         """Execute pipeline steps sequentially on dataset.
 
@@ -133,6 +134,7 @@ class PipelineExecutor:
             runtime_context: Runtime infrastructure context
             prediction_store: Prediction store for accumulating results
             generator_choices: List of generator choices that produced this pipeline
+            original_template: Original authoring-time template for run reload
 
         Raises:
             RuntimeError: If pipeline execution fails
@@ -164,6 +166,7 @@ class PipelineExecutor:
                     generator_choices=generator_choices or [],
                     dataset_name=dataset.name,
                     dataset_hash=dataset.content_hash(),
+                    original_template=original_template,
                 )
                 # Use pipeline_id as pipeline_uid for backward compatibility
                 pipeline_uid = pipeline_id

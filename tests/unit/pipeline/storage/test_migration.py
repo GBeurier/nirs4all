@@ -769,6 +769,75 @@ class TestAutoMigrationOnOpen:
         assert has_table is None
         store.close()
 
+    def test_auto_migration_adds_original_template_column(self, tmp_path: Path) -> None:
+        """Opening a legacy store adds the nullable pipelines.original_template column."""
+        workspace = tmp_path / "workspace"
+        workspace.mkdir(parents=True, exist_ok=True)
+
+        conn = sqlite3.connect(str(workspace / "store.sqlite"))
+        conn.execute(
+            "CREATE TABLE runs ("
+            "  run_id TEXT PRIMARY KEY,"
+            "  name TEXT NOT NULL,"
+            "  config TEXT,"
+            "  datasets TEXT,"
+            "  status TEXT DEFAULT 'running',"
+            "  created_at TIMESTAMP DEFAULT current_timestamp,"
+            "  completed_at TIMESTAMP,"
+            "  summary TEXT,"
+            "  error TEXT"
+            ")"
+        )
+        conn.execute(
+            "CREATE TABLE pipelines ("
+            "  pipeline_id TEXT PRIMARY KEY,"
+            "  run_id TEXT NOT NULL REFERENCES runs(run_id),"
+            "  name TEXT NOT NULL,"
+            "  expanded_config TEXT,"
+            "  generator_choices TEXT,"
+            "  dataset_name TEXT NOT NULL,"
+            "  dataset_hash TEXT,"
+            "  status TEXT DEFAULT 'running',"
+            "  created_at TIMESTAMP DEFAULT current_timestamp,"
+            "  completed_at TIMESTAMP,"
+            "  best_val REAL,"
+            "  best_test REAL,"
+            "  metric TEXT,"
+            "  duration_ms INTEGER,"
+            "  error TEXT"
+            ")"
+        )
+        conn.execute(
+            "INSERT INTO runs (run_id, name, config, datasets) VALUES (?, ?, ?, ?)",
+            ["run-legacy", "Legacy run", "{}", "[]"],
+        )
+        conn.execute(
+            "INSERT INTO pipelines (pipeline_id, run_id, name, expanded_config, generator_choices, dataset_name, dataset_hash) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            [
+                "pipe-legacy",
+                "run-legacy",
+                "Legacy pipeline",
+                json.dumps([{"split": "ShuffleSplit", "n_splits": 5}]),
+                json.dumps([]),
+                "dataset_a",
+                "hash-1",
+            ],
+        )
+        conn.commit()
+        conn.close()
+
+        store = WorkspaceStore(workspace)
+        migrated_conn = store._ensure_open()
+        columns = {row[1] for row in migrated_conn.execute("PRAGMA table_info('pipelines')").fetchall()}
+        assert "original_template" in columns
+
+        pipeline = store.get_pipeline("pipe-legacy")
+        assert pipeline is not None
+        assert pipeline["original_template"] is None
+        assert pipeline["expanded_config"] == [{"split": "ShuffleSplit", "n_splits": 5}]
+        store.close()
+
     def test_legacy_table_auto_migrated_on_open(self, tmp_path: Path) -> None:
         """Opening a store with legacy prediction_arrays auto-migrates to Parquet."""
         workspace = tmp_path / "workspace"

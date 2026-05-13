@@ -60,9 +60,9 @@ LIST_PIPELINES_BASE = "SELECT * FROM pipelines"
 
 INSERT_PIPELINE = """
 INSERT INTO pipelines
-    (pipeline_id, run_id, name, expanded_config, generator_choices,
-     dataset_name, dataset_hash, status)
-VALUES (?, ?, ?, ?, ?, ?, ?, 'running')
+    (pipeline_id, run_id, name, expanded_config, original_template,
+     generator_choices, dataset_name, dataset_hash, status)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'running')
 """
 
 COMPLETE_PIPELINE = """

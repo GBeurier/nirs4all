@@ -495,6 +495,7 @@ class WorkspaceStore:
         generator_choices: list,
         dataset_name: str,
         dataset_hash: str,
+        original_template: Any | None = None,
     ) -> str:
         """Register a new pipeline execution under a run.
 
@@ -508,6 +509,8 @@ class WorkspaceStore:
                 (serialisable to JSON).  This is the resolved configuration
                 after all ``_or_``, ``_range_``, ``_log_range_``, and
                 ``_cartesian_`` generators have been applied.
+            original_template: The original authoring-time template before
+                generator expansion. Stored as canonical JSON for run reload.
             generator_choices: List of generator choices that produced this
                 pipeline.  Each entry is a dict like ``{"_or_": value}``
                 or ``{"_range_": 18}``.
@@ -521,7 +524,7 @@ class WorkspaceStore:
         pipeline_id = str(uuid4())
         self._execute_with_retry(INSERT_PIPELINE, [
             pipeline_id, run_id, name,
-            _to_json(expanded_config), _to_json(generator_choices),
+            _to_json(expanded_config), _to_json(original_template), _to_json(generator_choices),
             dataset_name, dataset_hash,
         ])
         return pipeline_id
@@ -1616,7 +1619,7 @@ class WorkspaceStore:
         Returns:
             A dictionary with all pipeline fields (``pipeline_id``,
             ``run_id``, ``name``, ``status``, ``expanded_config``,
-            ``generator_choices``, ``dataset_name``, ``dataset_hash``,
+            ``original_template``, ``generator_choices``, ``dataset_name``, ``dataset_hash``,
             ``best_val``, ``best_test``, ``metric``, ``duration_ms``,
             ``created_at``, ``completed_at``, ``error``), or ``None``
             if the pipeline does not exist.
@@ -1624,7 +1627,7 @@ class WorkspaceStore:
         row = self._fetch_one(GET_PIPELINE, [pipeline_id])
         if row is None:
             return None
-        for field in ("expanded_config", "generator_choices"):
+        for field in ("expanded_config", "original_template", "generator_choices"):
             row[field] = _from_json(row[field])
         return row
 
