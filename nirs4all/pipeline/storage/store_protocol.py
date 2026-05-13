@@ -71,6 +71,7 @@ class WorkspaceStoreProtocol(Protocol):
         generator_choices: list,
         dataset_name: str,
         dataset_hash: str,
+        original_template: Any | None = None,
     ) -> str:
         """Register a new pipeline execution under a run."""
         ...
