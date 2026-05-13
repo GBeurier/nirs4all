@@ -1,5 +1,7 @@
 ## ROADMAP
 
+> JS in page, pls lib, aom publish, test protocol, tabpfn 3.
+
 > [publish] auto release on tag
 
 > [refit] refit as an operator of pipeline

@@ -1,421 +1,834 @@
-# AOM paper review: experiments and reviewer risks
+# AOM paper: experiments to finish before Talanta submission
 
 Date: 2026-05-13.
 
-Scope reviewed: `bench/AOM`, `bench/AOM_v0`, `bench/AOM_v0/Ridge`, and
-`bench/tabpfn_paper`, excluding files whose path contains `synthetic`.
-No benchmark was launched for this review.
+Target manuscript: `paper_aom/` / `AOM-paper.pdf`.
 
-## Talanta repositioning update
+Target journal: Talanta. Talanta's Guide for Authors asks for demonstrated
+analytical applicability, validation against established methods, statistical
+treatment, and data/code availability. Current guide:
+https://www.sciencedirect.com/journal/talanta/publish/guide-for-authors
 
-The target journal is now **Talanta**. This changes the bar: the manuscript
-must read less like an algorithmic chemometrics note and more like an advance
-in analytical NIRS calibration development. The central story should be:
+## Position
 
-> preprocessing selection is a critical part of analytical method development,
-> and AOM converts it from an external trial-and-error pipeline search into a
-> model-internal, auditable calibration component.
+Keep the broad AOM paper. Do not reduce the manuscript to a smaller
+Ridge-only, PLS-only, or "scope down" story. The publishable idea is the
+linear exploration/operator-adaptive calibration layer:
 
-For Talanta, the paper should foreground:
+- PLS and Ridge are two instantiations of the same operator-adaptive principle.
+- The central value is not only a small RMSEP gain; it is a fast, auditable
+  alternative to large preprocessing/HPO searches.
+- Classification can be added as a secondary validation axis if its results
+  are generated with the same cohort discipline and metrics.
+- The paper must distinguish current production `nirs4all`, the benchmark
+  target under `bench/`, and the dedicated `AOM_lib` package.
 
-- analytical calibration, not only PLS/Ridge implementation;
-- external validation and leakage-safe preprocessing;
-- robustness and reproducibility across heterogeneous matrices and traits;
-- development cost and refit cost;
-- traceability of selected operators and original-wavelength coefficients;
-- deployability through `nirs4all`, `nirs4all Studio`, and planned standalone
-  AOM-PLS/AOM-Ridge packages.
+The missing work is therefore:
 
-The manuscript has been updated in this direction, but the experiments below
-remain necessary before a defensible Talanta submission.
+1. freeze and characterize datasets/tasks cleanly;
+2. rerun fair PLS/Ridge HPO baselines from the TabPFN paper setup with timing;
+3. validate robustness across seeds for the models actually presented;
+4. add classification scores as secondary evidence;
+5. connect the dedicated C++ implementation and bindings as real software
+   artefacts;
+6. provide `nirs4all` example/wrapper code that uses `AOM_lib` and explains
+   how it supports the paper.
 
-## Talanta P0 experiments and tables
+## Current state verified locally
 
-These should be completed before submission to Talanta.
+### Paper narrative
 
-1. **Freeze a single Talanta cohort manifest.** Include dataset group, dataset,
-   analytical domain, trait/response type, split type, `n_train`, `n_test`,
-   `p`, inclusion/exclusion reason, and source baseline file. This is the most
-   important anti-reviewer-risk item.
+`paper_aom/main.tex` already frames the broad contribution correctly:
 
-2. **Regenerate all headline comparisons from that manifest.** Required rows:
-   PLS-HPO, Ridge-HPO, CatBoost, CNN-1D, AOM-PLS compact CV-5, AOM-Ridge
-   Blender, and clearly separated AOM-Ridge oracle envelope.
+- operator-adaptive calibration, not only a new preprocessing filter;
+- strict linear operators inside the calibration model;
+- SNV, MSC, EMSC, OSC and ASLS treated as fold-local branches, not fixed
+  operators;
+- AOM-PLS and AOM-Ridge as complementary linear calibration models;
+- current manuscript is regression-only, with classification not yet integrated.
 
-3. **Add paired statistics on the common subset.** Minimum Talanta table:
-   `Comparison`, `N`, `median ratio/delta`, `bootstrap 95% CI`, `wins`,
-   `Wilcoxon p`, `Holm-adjusted p`, and an effect-size column. Current draft
-   values exist for AOM-PLS compact vs PLS and AOM-Ridge Blender vs Ridge, but
-   they must be regenerated after final cohort freeze.
+Current abstract-level numbers should be treated as provisional until the
+final reruns:
 
-4. **Add benchmark diversity table in final form.** Current manuscript has a
-   first version. Final table should include analytical domains, response
-   families, min/median/max sample size, min/median/max wavelength variables,
-   split strategies, and number of external-test datasets per comparison.
+- ASLS + compact AOM-PLS CV-5: median RMSEP/PLS = 0.960, 42/57 wins;
+- deployable AOM-Ridge selector: median -2.22% vs tuned Ridge, 35/52 wins;
+- oracle AOM-Ridge quantities are separated from deployable results.
 
-5. **Add operator-selection patterns.** Talanta reviewers will expect evidence
-   that AOM is interpretable in practice. Provide selected operator frequencies
-   for AOM-PLS compact, selected component counts, and Ridge selected operator
-   or kernel-family frequencies.
+This is the right high-level structure for Talanta if the evidence is made
+cleaner and the compute-time story is explicitly measured.
 
-6. **Add robustness-to-search-complexity results.** Formalize compact vs
-   family-pruned vs response-dedup vs default/deep-bank behavior. The story is
-   important analytically: larger preprocessing spaces can worsen external
-   robustness through selection variance.
+### Bench target vs current nirs4all
 
-7. **Add failure-case table.** Include QUARTZ exclusion, y-based splits,
-   outlier-sensitive cases, missing CNN rows, large-N compute limitations, and
-   datasets where ASLS/SNV branches harm performance.
+Earlier recommendations mixed the production state of `nirs4all` with the
+benchmark target. The paper should use `bench/` as the scientific evidence
+source and use `nirs4all` as a user-facing integration path.
 
-8. **Add software validation plan.** The future clean-room C++ implementation
-   for R and Python package `AOM-PLS`, plus planned pip AOM-PLS/AOM-Ridge
-   packages, should be validated against the reference NumPy/PyTorch
-   implementation on identity, fixed-operator, covariance/SIMPLS, and
-   prediction-equivalence tests.
+Relevant current targets:
 
-## Talanta P1 experiments
+- `bench/AOM_v0/Summary.md`: AOM-PLS evidence; the benchmark champion is
+  `ASLS-AOM-compact-cv5-numpy`, not the older
+  `nirs4all-AOM-PLS-default`.
+- `bench/scenarios/model_registry.yaml`: current canonical candidate names
+  and preset membership.
+- `bench/scenarios/{fast_reliable,strong_practical,best_current,exhaustive_research}.json`:
+  generated scenario manifests as of 2026-05-12.
+- `bench/scenarios/runs/*_full57_seed0/results.csv`: recent production
+  harness runs, seed 0 only, useful for dispatch sanity but not sufficient for
+  journal-level robustness.
+- `bench/AOM_lib/`: dedicated AOM-PLS C++/Python/R/MATLAB/Julia/JS package
+  artefacts.
 
-These are strongly recommended for revision robustness.
+The manuscript must explicitly say which numbers come from the bench target
+and which software is production `nirs4all` versus dedicated `AOM_lib`.
 
-1. **Multi-seed full-cohort rerun.** At least seeds 0/1/2 for final deployable
-   AOM-PLS and AOM-Ridge variants and the key linear baselines.
+### Regression evidence map
 
-2. **Strict-linear vs branch ablation.** Report strict AOM only, ASLS branch,
-   SNV branch, MSC/EMSC branches where stable, and no-ASLS variants. This
-   prevents branch preprocessing gains from being attributed solely to strict
-   operator algebra.
-
-3. **Runtime and memory table.** Median/q90 fit time, prediction time, OOM or
-   skipped count, and hardware. Talanta will care because routine analytical
-   recalibration cost is part of the claim.
-
-4. **Chemometric metrics table.** In addition to RMSEP ratios, report RMSECV,
-   MAE, R2, bias and, where response scale permits, RPD/RPIQ or justify their
-   exclusion across heterogeneous response scales.
-
-5. **Prediction artifacts.** Save fold predictions and final test predictions
-   for all final rows to enable residual plots and independent audit.
-
-6. **Deployment examples.** Add a short, reproducible use case showing how
-   selected operators, coefficients and prediction artifacts are exported from
-   `nirs4all`/Studio or the future `AOM-PLS` package.
-
-## Executive verdict
-
-The current material can support a Talanta-oriented analytical calibration
-manuscript if the claims are frozen around deployable variants and documented
-search budgets. The main blocker is not implementation volume; it is claim
-control. The local sources mix at least four different empirical stories:
-
-- early AOM-PLS prototypes on 5 datasets in `bench/AOM/report.md`;
-- AOM_v0/AOM-PLS selection-bank experiments on roughly 57 datasets in
-  `bench/AOM_v0/Summary.md`;
-- a curated 39-dataset AOM-Ridge manuscript pipeline in
-  `bench/AOM_v0/Ridge/REPRODUCIBILITY.md` and
-  `bench/AOM_v0/Ridge/benchmark_runs/curated_v2/results.csv`;
-- a later 52-paired-dataset AOM-Ridge combined analysis in
-  `bench/AOM_v0/Ridge/benchmark_runs/all54_combined/results.csv` and
-  `bench/AOM_v0/Ridge/publication/tables/`.
-
-For Talanta, the safest path is to present one frozen analytical-calibration
-story: compact AOM-PLS as the primary deployable result, AOM-Ridge Blender as a
-complementary deployable result, and Ridge oracle envelopes only as secondary
-headroom analyses. A general AOM paper that merges AOM-PLS, AOM_v0, AOM-Ridge,
-foundation-model comparisons, oracles, branch preprocessors, and classification
-without strict cohort control would invite reviewer objections about multiple
-testing, cohort drift, and retrospective selection.
-
-## Local evidence map
-
-| Path | What it contains | Review implication |
+| Artefact | What it currently proves | Limitation before Talanta |
 | --- | --- | --- |
-| `bench/AOM/report.md` | 5-dataset comparison of baseline AOM-PLS vs Bandit, DARTS, Zero-Shot Router, and MoE. | Useful background only; too small and prototype-heavy for headline evidence. |
-| `bench/AOM/PUBLICATION_PLAN.md` | Architecture argument for deployed AOM-PLS, including hard-gate holdout selection and known `n_components` inconsistency. | Good methods narrative, but it documents unresolved API and validation issues. |
-| `bench/AOM/PUBLICATION_BACKLOG.md` | Workstreams W1-W8 requiring selection-criterion head-to-heads, holdout removal, API split, custom banks, stats, and drafting. | Many "must land before paper" items are still listed as required. |
-| `bench/AOM_v0/Summary.md` | 57-dataset AOM_v0 conclusion: ASLS + compact bank + CV5 is the current champion; compact banks beat larger banks due to selection variance. | Strongest AOM-PLS empirical story, but it blends strict-linear AOM with non-linear upstream preprocessing. |
-| `bench/AOM_v0/benchmark_runs/full/results.csv` | 7,888 rows, 59 datasets, 1 seed (`seed=0`, `run_seed=0`), statuses `ok` and `skipped`. Prediction path columns are empty. | Broad coverage but insufficient uncertainty and incomplete artifacts for audit. |
-| `bench/AOM_v0/Multi-kernel/docs/BENCHMARK_PROTOCOL.md` | Planned 5-seed regression/classification protocol, master-result joins, Friedman/Nemenyi, Wilcoxon, bootstrap CIs. | The intended statistical protocol is stricter than most completed local outputs. |
-| `bench/AOM_v0/Multi-kernel/docs/CODEX_REVIEWS.md` | Prior high-severity fixes and remaining deferred issues: classification CV criterion, supervised-operator CV leakage, ignored `scale`, sklearn validation. | Reviewers may ask whether these deferred issues affect current claims. |
-| `bench/AOM_v0/Ridge/docs/BENCHMARK_PROTOCOL.md` | AOM-Ridge benchmark protocol and required schema: RMSEP, MAE, R2, relative RMSEP, time, status, alpha, operator names. | Good protocol skeleton; final claims need to align exactly with it. |
-| `bench/AOM_v0/Ridge/docs/AOM_RIDGE_MATH_SPEC.md` | Strict linear Ridge math, fold-local block scaling, alpha grid, global/superblock/active variants, branch warning. | Useful for methods rigor; must separate strict-linear claims from branch preprocessors. |
-| `bench/AOM_v0/Ridge/docs/HEADLINE_SPXY3_NESTED_AUDIT.md` | Anti-leakage audit for AutoSelect and Blender; verdict nested, but caveats include single seed, 53/57 coverage, duplicate source runs, promotion gate pending. | Strong anti-leakage evidence, but explicitly labels the headline variants exploratory until multi-seed/full evidence lands. |
-| `bench/AOM_v0/Ridge/docs/D_A_001_FAST12_PAIRED_STATS.md` | 12-dataset, 3-seed stats for Blender/AutoSelect; several comparisons fail Holm-adjusted thresholds. | Good pilot, not enough for broad headline claims. |
-| `bench/AOM_v0/Ridge/docs/D_A_001_AUDIT20_PAIRED_STATS.md` | 20-dataset, 3-seed stats; AutoSelect vs Ridge strong, but comparisons vs ASLS-AOM often no-win after Holm; Blender has extreme Quartz ratios. | Useful audit-tier evidence; still not full-cohort. |
-| `bench/AOM_v0/Ridge/REPRODUCIBILITY.md` | Reproducibility guide claims 39-dataset curated cohort, 96 tests, 1.5h benchmark, QUARTZ dropped. | Inconsistent with later manuscript/tables using 52 paired datasets and 231 tests. |
-| `bench/AOM_v0/Ridge/publication/manuscript/aomridge_paper.tex` | Manuscript draft: intro says 39 datasets and 32/38 wins; results later say 52 paired datasets, Blender 35/52, oracle 45/52. | Needs consistency pass before Talanta submission. |
-| `bench/AOM_v0/Ridge/publication/tables/table_summary.tex` | Oracle envelope vs baselines: 45/52 vs Ridge, median -4.73%; 27/52 vs TabPFN-opt, median -0.21%. | This is oracle, not deployable; cannot be the primary practitioner claim. |
-| `bench/AOM_v0/Ridge/publication/tables/table_per_method_summary.tex` | Deployable variant ranking: Blender 35/52, median -2.22%; AutoSelect 27/52, median -0.61%. | Best current deployable Ridge claim if cohort and stats are cleaned. |
-| `bench/tabpfn_paper/scan_results.json` | 65 loaded regression dataset cards, 0 failures; paths are Windows-style from a prior machine. | Useful dataset metadata, but path provenance should be normalized for reproducibility. |
-| `bench/tabpfn_paper/run_reg_pls.py` | Full TabPFN-paper-like pipeline with SPXYFold(3), 25 PLS trials, 60 Ridge trials, 50 CNN trials, 20 TabPFN estimators; dataset list partly commented. | Confirms reference protocol complexity; not itself a frozen result source. |
-| `bench/tabpfn_paper/run_reg_aom.py` | AOM-PLS script with 200 Optuna trials over `n_components`, `n_orth`, and `operator_index`; current active list includes only two LUCAS datasets marked skipped too big. | Not suitable as current full AOM evidence unless rerun/frozen. |
-| `bench/1_master_results.csv` | 335 rows, 61 regression splits, 6 baselines, seed 42. | Actual local TabPFN baseline table; note docs sometimes cite a missing `bench/tabpfn_paper/master_results.csv`. |
-| `bench/benchmark_master_results.csv` | 25,936 unified records across regression/classification, 446 variants, mixed statuses/seeds/maturity. | Good registry, but too heterogeneous for direct paper statistics without filtering rules. |
+| `bench/AOM_v0/publication/tables/relative_rmsep_per_variant.csv` | AOM-PLS champion: `ASLS-AOM-compact-cv5-numpy`, 57 datasets, median 0.960, 42 wins, median fit 1.36 s. | Single seed; cohort properties not fully surfaced; prediction artefacts incomplete. |
+| `bench/AOM_v0/benchmark_runs/full/results.csv` | Broad AOM-PLS grid: 7888 rows, 59 datasets, 134 variants, seed 0. | Too heterogeneous for direct claims unless filtered. |
+| `bench/AOM_v0/Ridge/publication/tables/table_per_method_summary.tex` | Deployable AOM-Ridge variants: Blender 35/52, median -2.22% vs Ridge; AutoSelect 27/52, median -0.61%. | Single-seed publication table; selectors still need full multi-seed support. |
+| `bench/AOM_v0/Ridge/docs/HEADLINE_SPXY3_NESTED_AUDIT.md` | AutoSelect/Blender selector mechanism is nested with respect to external test set. | Audit does not replace full-cohort multi-seed evidence. |
+| `bench/AOM_v0/Ridge/docs/D_A_001_AUDIT20_PAIRED_STATS.md` | 20 datasets x 3 seeds; AutoSelect/Blender beat Ridge and global compact; mixed versus ASLS-AOM. | Still not full 57/61; relative ratios have extreme tails on QUARTZ-like rows. |
+| `bench/scenarios/runs/best_current_full57_seed0/results.csv` | Recent production harness sanity: 456 rows, 57 datasets, 8 candidates, seed 0, 428 OK. | Old preset membership; single seed; failures/timeouts on several datasets. |
+| `bench/scenarios/runs/exhaustive_research_full57_seed0/results.csv` | Broad dispatch sanity: 1823 rows, 61 datasets, 31 candidates, seed 0, includes FCK and selectors. | Exploratory; many terminal failures, failures and skips. |
+| `bench/AOM_lib/README.md` | Dedicated package exists: C++ core, C API, Python, R, MATLAB, Julia, JS/WASM. | R/Julia/MATLAB/JS tests need matching runtimes or honest tested-status labels. |
 
-## Blocking uncertainties
+Local verification done for this review:
 
-1. **Paper object is not yet uniquely defined.** `bench/AOM/PUBLICATION_PLAN.md`
-   argues for deployed AOM-PLS. `bench/AOM_v0/Summary.md` argues for ASLS +
-   compact AOM-PLS with CV5. `bench/AOM_v0/Ridge/publication/manuscript/`
-   argues for AOM-Ridge. A reviewer will ask what the contribution is:
-   operator-adaptive PLS, operator-adaptive Ridge, a meta-selector, or a
-   benchmark of preprocessing strategies.
+- `bench/AOM_lib/cpp/build/test_operators`: pass.
+- `bench/AOM_lib/cpp/build/test_parity_kfold bench/AOM_lib/cpp/tests/reference`: pass on BEER/CORN/ALPINE x kfold5/kfold5+oneSE/spxy5.
+- C ABI smoke compiled and ran against `libaompls.so`; the smoke source needs
+  `#include <math.h>` to remove the `sqrt` warning.
+- `PYTHONPATH=bench/AOM_lib/python/src pytest -q bench/AOM_lib/python/tests/test_parity.py`: 9 passed.
+- `ctest`, `R`, `julia` and `matlab` are not installed in this local shell, so
+  those package gates were not run here.
 
-2. **Cohort denominators drift across files.** Local sources mention 5, 20, 39,
-   52, 54, 57, 59, 61, and 65 datasets. This is explainable by filters, but
-   the manuscript cannot leave it implicit. The largest visible contradiction
-   is in `bench/AOM_v0/Ridge/publication/manuscript/aomridge_paper.tex`: the
-   introduction reports 39 datasets and 32/38 wins, while the results/tables
-   report 52 paired datasets and 35/52 or 45/52 wins.
+### TabPFN-paper PLS/Ridge HPO state
 
-3. **Oracle and deployable claims are too easy to conflate.** The Ridge paper
-   explicitly reports an oracle envelope in
-   `publication/tables/table_summary.tex` and a deployable Blender in
-   `publication/tables/table_per_method_summary.tex`. The oracle uses
-   retrospective test-set knowledge and must not be presented as a method
-   result. The primary claim should be Blender 35/52, median -2.22% vs paper
-   Ridge HPO, not oracle 45/52, median -4.73%.
+The old TabPFN paper setup contains exactly the baseline budget that should be
+recreated for the AOM paper's time-gain claim.
 
-4. **Full-cohort seed uncertainty is missing.** The broad AOM_v0 result CSV has
-   a single seed. Ridge `all54_combined/results.csv`, `curated_v2/results.csv`,
-   and `final_curated/results.csv` also show one `random_state=0`. Multi-seed
-   evidence exists only for subsets such as `da001_partial_fast12_seeds012` and
-   `da001_audit20_seeds012`.
+Verified files:
 
-5. **Some published-style claims already have non-winning paired tests.** In
-   `D_A_001_FAST12_PAIRED_STATS.md`, Blender vs Ridge-tuned-cv5 is `NO_WIN`
-   after Holm despite median -13.55%; AutoSelect vs Ridge-tuned-cv5 is also
-   `NO_WIN`. In `D_A_001_AUDIT20_PAIRED_STATS.md`, Blender and AutoSelect often
-   fail vs `ASLS-AOM-compact-cv5-numpy` after Holm. This does not kill the
-   method, but it blocks overbroad "beats everything" wording.
+- `bench/tabpfn_paper/run_reg_pls.py`
+- `bench/tabpfn_paper/full_run.py`
+- `bench/tabpfn_paper/run_reg_tabpfn.py`
 
-6. **Selection protocol is a central vulnerability.** AOM-PLS sources document
-   that the old 20% holdout is arbitrary and high variance
-   (`bench/AOM/PUBLICATION_BACKLOG.md`). AOM_v0 says CV5 is essential for the
-   ASLS gain (`bench/AOM_v0/Summary.md`). Ridge says SPXY3 nested selection is
-   leakage-safe but high variance (`HEADLINE_SPXY3_NESTED_AUDIT.md`). The paper
-   needs one final selection policy and a clear reason it is not tuned to the
-   test set.
+Important setup details:
 
-7. **Strict-linear vs non-linear preprocessing boundaries are blurred.** AOM's
-   clean math is for fixed strict-linear operators. But the strongest AOM_v0
-   story uses ASLS and sometimes SNV/MSC/EMSC/OSC branches. Ridge math
-   correctly says these are branch transformers, not fixed `A_b` operators
-   (`docs/AOM_RIDGE_MATH_SPEC.md`). Claims must state which gains are strict
-   AOM and which are branch/preprocessing ensemble gains.
+- external split: `SPXYFold(n_splits=3, random_state=42)`;
+- PLS preprocessing search:
+  - `[None, SNV, MSC, EMSC(degree=1), EMSC(degree=2)]`
+  - `[None, SG(11,2,1), SG(15,2,1), SG(21,2,1), SG(31,2,1), SG(15,3,2), SG(21,3,2), SG(31,3,2), Gaussian(0,1), Gaussian(0,2)]`
+  - `[None, ASLSBaseline, Detrend]`
+  - `[None, OSC(1), OSC(2), OSC(3)]`
+  - `StandardScaler(with_mean=True, with_std=False)`
+  - `PLSRegression(scale=False)`, `n_components` 1..25, 25 trials;
+- Ridge HPO from `full_run.py`:
+  - same linear preprocessing space;
+  - `Ridge()`, 60 TPE trials;
+  - `alpha` log-uniform 1e-5..1e4;
+  - `fit_intercept` bool;
+  - `solver` in `auto`, `svd`, `cholesky`, `lsqr`;
+  - `tol=1e-4`, `positive=False`.
 
-8. **Artifact-level reproducibility is incomplete.** `bench/AOM_v0/benchmark_runs/full/results.csv`
-   has empty prediction-path columns despite the Multi-kernel protocol requiring
-   fold and final predictions. The Ridge runs have CSVs and tables, but selector
-   diagnostics are explicitly not surfaced in the results schema according to
-   `D_A_001_FAST12_PAIRED_STATS.md` and `D_A_001_AUDIT20_PAIRED_STATS.md`.
+Current aggregate result files:
 
-9. **Known failure cases require quantified handling.** The Ridge discussion
-   already identifies y-based split miscalibration and SNV-on-outlier failures.
-   A reviewer will expect per-failure tables: AMYLOSE y-based splits, BEER
-   `YbaseSplit`, TIC, Quartz degeneracy, LUCAS compute exclusion, and giant
-   ECOSIS behavior.
+- `bench/1_master_results.csv`: regression baselines, 335 rows, seed 42.
+  PLS and Ridge are partial; no usable timing columns for the time-gain claim.
+- `bench/master_results_classif.csv`: classification baselines, 71 rows,
+  15 datasets, seed 42.
 
-10. **Reference baseline provenance is fragile.** Protocol docs cite
-    `bench/tabpfn_paper/master_results.csv`, but the local baseline file is
-    `bench/1_master_results.csv`; the unified registry is
-    `bench/benchmark_master_results.csv`. The paper should name exactly which
-    file generated every table.
+Conclusion: do not merely import the old TabPFN CSVs. Recreate PLS/Ridge HPO
+with the current paper cohort, fixed splits, result artefacts and wall-clock
+timing. This is essential because "AOM saves time" is a stronger and cleaner
+Talanta claim than only "AOM slightly improves RMSEP".
 
-## Metrics missing before a defensible Talanta submission
+### Classification state
 
-- **Full-cohort uncertainty:** bootstrap 95% confidence intervals for median
-  delta RMSEP, win-rate intervals, and per-dataset paired seed distributions.
-- **Full-cohort significance:** Friedman/Nemenyi ranks and paired Wilcoxon or
-  Nadeau-Bengio corrected tests on the same final cohort used in the headline.
-- **Multi-seed stability:** at least seeds 0/1/2 for the final deployable
-  variants and baselines on the full paired cohort, not only fast12/audit20.
-- **Selector diagnostics:** AutoSelect chosen-candidate counts, Blender weights
-  mean/std, OOF fold RMSE variance, and cases where the selected candidate
-  differs across seeds.
-- **Failure-case metrics:** separate table for y-based splits, outlier splits,
-  tiny-`n` splits, giant-`n` splits, and degenerate-reference exclusions.
-- **No-harm metrics:** q75/q90/worst relative RMSEP for each headline variant,
-  with named worst datasets and explicit exclusion policy for Quartz-like
-  denominators.
-- **Compute metrics:** median and q90 fit time, predict time, and memory/OOM
-  counts per variant; the Ridge manuscript currently mentions 46-72 minutes on
-  ALPINE and 4-4.5 hours on giant datasets, but this needs tabular support.
-- **Calibration-style chemometrics metrics:** RMSEC, RMSECV, RMSEP, SEP, MAE,
-  R2, bias, RPD/RPIQ where available. `early_results.txt` shows the TabPFN
-  source reports these; the AOM paper should either align or justify not doing
-  so.
-- **Alpha/grid diagnostics for Ridge:** alpha boundary rate, grid expansions,
-  one-SE selection frequency, and effective component distributions. Columns
-  exist in Ridge CSVs but are not summarized in the paper tables.
-- **Artifact integrity:** links or paths to final predictions, fold predictions,
-  configs, exact cohort manifests, and generated figures/tables. Empty
-  prediction path columns in AOM_v0 full results need a note or regeneration.
+Classification is already partly implemented and should be added as secondary
+evidence, not as a new main claim unless the final results are strong.
 
-## Experiments to redo or add
+Verified artefacts:
 
-### P0: required before posting today
+- `bench/master_results_classif.csv`: 15 classification datasets.
+  Models include `TabPFN-opt`, `Catboost`, `PLS-DA`, `TabPFN-Raw`, `NICON`.
+  Primary metric is balanced accuracy; macro-F1 is also present.
+- `bench/AOM_v0/benchmarks/cohort_classification.csv`: 17 classification
+  datasets with train/test paths and properties.
+- `bench/AOM_v0/benchmarks/run_aompls_benchmark.py`: supports classification
+  variants:
+  - `PLS-DA-standard`
+  - `AOM-PLS-DA-global-nipals-adjoint`
+  - `POP-PLS-DA-nipals-adjoint`
+  - `AOM-PLS-DA-global-simpls-covariance`
+  - `POP-PLS-DA-simpls-covariance`
+- `bench/AOM_v0/Ridge/benchmarks/run_aomridge_classification.py`: supports
+  AOM-Ridge classifier variants and reports balanced accuracy, macro-F1,
+  log loss and ECE.
+- `bench/AOM_v0/Ridge/benchmark_runs/classification_all17/results.csv`:
+  70 rows, 14 datasets, 5 variants, seed 0 only.
 
-1. **Freeze one paper scope.** Choose either AOM-PLS/AOM_v0 or AOM-Ridge. Do
-   not submit a broad "general AOM" paper unless all mixed claims are
-   explicitly downgraded to related work.
+Current classification baselines should be used only as orientation:
 
-2. **Create one final cohort manifest.** For the chosen paper, produce a CSV
-   with dataset group, dataset, task, n_train, n_test, n_features, split type,
-   inclusion/exclusion reason, and source baseline file. Use one denominator
-   throughout.
+- `bench/master_results_classif.csv` median balanced accuracy:
+  `PLS-DA` about 0.757, `TabPFN-opt` about 0.732, `TabPFN-Raw` about 0.718,
+  `Catboost` about 0.717, `NICON` about 0.500.
 
-3. **Regenerate paper tables from one results file.** For Ridge, use
-   `bench/AOM_v0/Ridge/benchmark_runs/all54_combined/results.csv` if the
-   52-paired-dataset story is final, or revert the manuscript to the 39-dataset
-   `curated_v2` story. Do not mix them.
+Conclusion: add classification scores, but rerun AOM-PLS-DA and AOM-Ridge
+classification on the 17-dataset cohort for seeds 0/1/2 before making claims.
 
-4. **Separate deployable vs oracle tables.** The deployable table must lead.
-   The oracle table should be labeled "upper bound, retrospective test-set
-   selection" in caption and text.
+### nirs4all and AOM_lib integration state
 
-5. **Add a claim ledger.** For every abstract/introduction claim, record:
-   result file, cohort size, variant, baseline, metric, seed count, and whether
-   it is deployable or oracle.
+Current `nirs4all` does not yet use `AOM_lib` as its AOM implementation.
 
-6. **Add an explicit exclusion table.** At minimum: Quartz due to degenerate
-   paper Ridge RMSEP; LUCAS Cropland due to compute for wrappers; any missing
-   CNN baselines; any skipped/failed rows in AOM_v0 full results.
+Verified files:
 
-7. **Aggregate available subset stats into the manuscript.** Use the existing
-   fast12/audit20 3-seed results as "audit subsets", not as full-cohort proof.
-   State where Holm-adjusted tests are no-win.
+- `nirs4all/operators/models/sklearn/aom_pls.py`: legacy Python/Numpy AOM-PLS
+  implementation.
+- `nirs4all/operators/models/sklearn/aom_pls_classifier.py`: classifier wrapper
+  around the legacy regressor.
+- `nirs4all/operators/models/sklearn/__init__.py`: exports the current
+  legacy classes.
+- `tests/unit/operators/models/test_aom_pls.py`
+- `tests/unit/operators/models/test_aom_pls_classifier.py`
+- `tests/unit/operators/models/test_pop_pls.py`
 
-8. **Normalize TabPFN baseline provenance.** Replace references to missing
-   `bench/tabpfn_paper/master_results.csv` with the actual source used:
-   `bench/1_master_results.csv` or `bench/benchmark_master_results.csv`.
+`bench/AOM_lib/python/src/aompls` provides a tested Python package binding to
+the dedicated implementation. The safer integration path is to add a new
+optional wrapper or backend instead of changing existing `nirs4all` behaviour:
 
-9. **Downgrade unsupported language.** Avoid "best current", "dominates",
-   "state of the art", and "beats TabPFN-opt" unless the exact deployable
-   paired result supports it. For Ridge, current deployable Blender loses to
-   TabPFN-opt at the median in the manuscript text (+4.72%).
+- new wrapper: `nirs4all/operators/models/sklearn/aom_pls_aomlib.py`; or
+- new parameter on the existing estimator: `backend="legacy" | "aomlib"`.
 
-10. **Insert failure-mode table.** The discussion already names y-based splits
-    and SNV-on-outliers; add rows with exact datasets, selected variant/branch,
-    baseline winner, and delta.
+For the paper, prefer the new wrapper first. It gives a clean example without
+risking regressions in existing `nirs4all` users.
 
-### P1: should be done for a robust revision
+### AOM_lib and AOM-Ridge scope
 
-1. **Full paired multi-seed rerun for the final deployable variants.** Minimum:
-   seeds 0/1/2 on the final 52/57/61 cohort for Blender, AutoSelect, strongest
-   single AOM variant, raw/tuned Ridge, PLS, ASLS-AOM compact CV5, TabPFN-Raw,
-   and TabPFN-opt where feasible.
+`bench/AOM_lib` currently implements AOM-PLS, not AOM-Ridge. A search for
+Ridge/AOMRidge in `bench/AOM_lib` returns no AOM-Ridge implementation.
 
-2. **Selection-criterion ablation.** For AOM-PLS/AOM_v0: holdout20 vs CV3 vs
-   CV5 vs repeated CV3 vs PRESS on the same cohort. `bench/AOM_v0/Summary.md`
-   says PRESS underperforms and CV5 is important; make that a formal table.
+Therefore:
 
-3. **Bank-size ablation with uncertainty.** Compact vs family-pruned vs
-   response-dedup vs default vs deep banks, with the multiple-comparison
-   explanation tested by seed stability and selected-operator entropy.
+- do not present `AOM_lib` as the full PLS+Ridge implementation yet;
+- do present it as the dedicated AOM-PLS implementation with C++ core and
+  multi-language bindings;
+- keep AOM-Ridge code referenced under `bench/AOM_v0/Ridge`;
+- if adding the paper to the `AOM_lib` repo/subdir, label it as a companion
+  paper for operator-adaptive calibration, with AOM-PLS implemented in
+  `AOM_lib` and AOM-Ridge still in the benchmark research code.
 
-4. **Non-linear branch ablation.** Strict-linear AOM only, SNV upstream, ASLS
-   upstream, MSC, EMSC, OSC, and branch ensembles. Report gains separately so
-   strict AOM claims are not inflated by branch preprocessing.
+## Claims to keep
 
-5. **Leakage audit for every final variant.** Ridge has a strong audit for
-   AutoSelect/Blender; the final AOM-PLS/AOM_v0 path needs a similarly concise
-   fold-local audit, especially for ASLS/SNV/MSC/EMSC/OSC branches.
+### Primary claim A: AOM gives fast auditable calibration
 
-6. **Prediction artifact export.** Save final and fold predictions for the
-   final runs. This enables residual plots, paired tests, bias/RPD tables, and
-   independent audit.
+This should become the main Talanta story:
 
-7. **Runtime scaling experiment.** Small representative benchmark over
-   increasing `n`, `p`, bank size, and branch count. AOM-Ridge wrappers are
-   expensive enough that reviewers will ask about practical limits.
+> AOM moves part of the preprocessing/model-search burden inside a linear
+> coefficient-bearing calibration model, reducing the need for expensive
+> external preprocessing HPO while preserving or improving accuracy on many
+> NIRS datasets.
 
-8. **Robustness to split type.** Stratify results by KS, SPXY, random,
-   group/cultivar, block2deg, species, y-based, and random split. The known
-   y-based failure mode should become an analysis, not a caveat only.
+This claim requires a new timing table:
 
-9. **Reference-baseline verification.** Recompute at least PLS and Ridge on the
-   frozen cohort under the same split and scaling rules. Treat TabPFN/CNN/CatBoost
-   as imported baselines only if their provenance is fully documented.
+- PLS default/light CV;
+- PLS TabPFN-style preprocessing HPO;
+- Ridge default/light CV;
+- Ridge TabPFN-style preprocessing HPO;
+- AOM-PLS compact CV-5;
+- ASLS-AOM compact CV-5;
+- AOM-Ridge deployable variants;
+- TabPFN-Raw/HPO only where allowed.
 
-10. **Classification either removed or finished.** Multi-kernel docs include a
-    classification plan and deferred classification CV issues. If the paper is
-    regression-only, remove classification claims. If classification remains,
-    rerun with balanced accuracy, macro-F1, log loss, ECE, label encoding, and
-    stratified fold-local calibration.
+Report both:
 
-## Reviewer risk register
+- calibration accuracy: RMSEP, MAE, R2, paired ratios/deltas;
+- time budget: preprocessing search time, final fit time, total wall-clock,
+  failed/timeout rows.
 
-| Severity | Likely reviewer concern | Local evidence | Required mitigation |
-| --- | --- | --- | --- |
-| High | "The headline result is retrospective/oracle, not deployable." | Oracle table in `table_summary.tex`; deployable table in `table_per_method_summary.tex`. | Lead with deployable Blender/AutoSelect; label oracle as upper bound only. |
-| High | "The paper changes dataset denominator midstream." | `aomridge_paper.tex` intro 39/38; results 52; `REPRODUCIBILITY.md` 39; `all54_combined` 54 raw datasets. | One cohort manifest and consistency pass across abstract, intro, captions, results. |
-| High | "Single-seed full-cohort results are not enough." | `all54_combined`, `curated_v2`, `final_curated`, and AOM_v0 full all show one random state/seed. | Full multi-seed or downgrade to exploratory with subset audit evidence. |
-| High | "Claims are overfit to a local benchmark through many variants." | `benchmark_master_results.csv` has 446 variants; Ridge oracle uses 29 benched variants. | Pre-register final variants; report all tried families; use held-out/frozen claim ledger. |
-| High | "Strict-linear math does not cover ASLS/SNV/MSC/EMSC/OSC gains." | `AOM_RIDGE_MATH_SPEC.md` says these are branch transformers, not fixed `A_b`. | Split strict-linear AOM claims from branch ensemble claims. |
-| High | "Known no-win statistical tests contradict headline wording." | `D_A_001_FAST12_PAIRED_STATS.md` and `D_A_001_AUDIT20_PAIRED_STATS.md`. | Include subset stats honestly; avoid universal superiority language. |
-| Medium | "Selection CV is miscalibrated on y-based splits." | Ridge discussion and AOM_v0 Summary both identify this. | Add split-type stratified results and failure table. |
-| Medium | "Quartz and degenerate denominators distort relative metrics." | `REPRODUCIBILITY.md`, audit20 worst ratios, manuscript table captions. | Exclusion policy plus absolute RMSEP deltas for degenerate cases. |
-| Medium | "Compute cost makes the method impractical." | Manuscript says Blender can take 72 min on ALPINE and 4.5h on giants. | Runtime table, recommended fast variant, and compute-budget guidance. |
-| Medium | "Reference baselines are imported, not rerun under identical conditions." | TabPFN scripts and `bench/1_master_results.csv` use seed 42; Ridge uses local random_state 0. | Clarify imported baselines; rerun PLS/Ridge locally for sanity. |
-| Medium | "Prediction artifacts and configs are missing." | Empty path columns in `bench/AOM_v0/benchmark_runs/full/results.csv`. | Export artifacts or document why unavailable. |
-| Medium | "Deferred code-review issues may affect results." | `CODEX_REVIEWS.md` lists deferred classification CV, supervised-operator leakage, ignored scale. | State which final variants are unaffected; fix or remove affected scopes. |
-| Low | "Windows paths in dataset cards hurt reproducibility." | `bench/tabpfn_paper/scan_results.json` paths start with `D:\nirs4all`. | Regenerate cards on current workspace or store relative paths. |
+### Primary claim B: AOM-PLS is a robust fast calibration layer
 
-## Minimum acceptable Talanta framing
+Use `ASLS-AOM-compact-cv5-numpy` as the AOM-PLS headline, but separate:
 
-If submitting the current draft trajectory, use conservative wording:
+- ASLS as branch preprocessing;
+- strict operator contribution from `AOM-compact-cv5`,
+  `AOM-compact-cv3`, `AOM-compact-repcv3`;
+- compact-vs-default bank ablations.
 
-- "We propose operator-adaptive analytical calibration and evaluate frozen
-  deployable PLS and Ridge variants on a heterogeneous NIRS benchmark."
-- "The best deployable Ridge aggregator, Blender, improves over paper Ridge HPO
-  on 35/52 paired datasets with median -2.22% RMSEP; an oracle envelope shows
-  additional headroom but is not deployable."
-- "Multi-seed audit subsets support the trend but full-cohort multi-seed
-  confirmation is ongoing."
-- "Gains from ASLS/SNV/MSC/EMSC/OSC branches are reported separately from the
-  strict-linear operator contribution."
+Numbers currently usable as provisional references:
+
+- `ASLS-AOM-compact-cv5-numpy`: 57 datasets, median RMSEP/PLS 0.960,
+  42/57 wins.
+- `AOM-compact-cv5-numpy`: 57 datasets, median RMSEP/PLS 0.992,
+  38/57 wins.
+- `nirs4all-AOM-PLS-default`: 57 datasets, median around 0.999,
+  29/57 wins.
+
+### Primary claim C: AOM-Ridge is the second instantiation
+
+Use AOM-Ridge to show that operator adaptation is not PLS-specific.
+
+Current conservative deployable numbers:
+
+- `AOMRidge-Blender-headline-spxy3`: 52 paired datasets, median -2.22% vs
+  tuned Ridge, 35/52 wins.
+- `AOMRidge-AutoSelect-headline-spxy3`: 52 paired datasets, median -0.61% vs
+  tuned Ridge, 27/52 wins.
+
+Current subset robustness:
+
+- audit20 x seeds 0/1/2: AutoSelect and Blender beat Ridge-tuned-cv5 with
+  Holm-adjusted p < 0.05;
+- they do not consistently clear the Holm gate versus
+  `ASLS-AOM-compact-cv5-numpy`.
+
+Do not lead with oracle results. Keep oracle tables as retrospective upper
+bounds only.
+
+### Secondary claim D: classification generalizes the scoring setup
+
+Classification can strengthen the paper if framed as secondary validation:
+
+- same operator-adaptive idea;
+- different loss/metric family;
+- balanced accuracy, macro-F1, log loss and ECE;
+- 17-dataset cohort with explicit denominators;
+- seeds 0/1/2 minimum.
+
+Do not let classification distract from the regression/HPO/time story. It
+belongs in one concise main-text table or figure plus Supplement details.
+
+### Secondary claim E: FCK and other extensions were explored, not promoted
+
+FCK is useful to show that the exploration was not hand-picked, but it should
+not be promoted as a recommended default:
+
+- `AOMPLS-compact-with-fck-full57`: FCK selected on 17/57 datasets, but strict
+  AOM-Ridge gate fails: median +8.7% vs curated AOM-Ridge best, q90 +35.8%,
+  worst +136.6%.
+- `AOMRidgePLSCV-compact-with-fck`: also fails strict promotion gates.
+
+Mention in Supplement as negative/diagnostic exploration.
+
+## Ordered actionable roadmap
+
+### P0 - freeze the paper object and cohorts
+
+Goal: stop denominator drift before launching expensive runs.
+
+Deliverables:
+
+1. `paper_aom/review/cohort_manifest.csv`
+2. `paper_aom/review/cohort_manifest.md`
+3. `paper_aom/review/claim_ledger.md`
+4. regenerated `paper_aom/tables/table_benchmark_diversity.tex`
+
+The manifest must have one row per dataset/task/split with at least:
+
+- `dataset`
+- `task`
+- `source_family`
+- `source_run`
+- `domain_group`
+- `response_or_trait`
+- `split_type`
+- `n_train`
+- `n_test`
+- `n_features`
+- `p_over_n_train`
+- `has_pls`
+- `has_ridge`
+- `has_aom_pls`
+- `has_aom_ridge`
+- `has_pls_da`
+- `has_aom_pls_da`
+- `has_aom_ridge_cls`
+- `has_tabpfn_raw`
+- `has_tabpfn_hpo`
+- `tabpfn_allowed`
+- `aomridge_global_allowed`
+- `status_in_primary_analysis`
+- `exclusion_reason`
+
+Current dimension sanity from recent harness outputs:
+
+- `exhaustive_research_full57_seed0`: 61 datasets observed, OK dims for 60;
+  `n_train` 28-39225, median 227;
+  `n_test` 12-6192, median 146;
+  `n_features` 125-4200, median 1003;
+  median `p/n_train` about 3.50.
+- split markers include SPXY/spxy, KS, y-based, random, group, by-cultivar,
+  block2deg, NocitaKS and Maia.
+
+Rules:
+
+- Broad regression corpus can remain 57/61 datasets.
+- Classification corpus is 17 datasets unless failures reduce a paired table.
+- Pairwise tables may have different denominators, but each denominator must
+  be explicit in the caption and derived from the manifest.
+- QUARTZ needs an explicit treatment rule: include absolute RMSEP in the
+  failure table, but exclude or cap relative ratios when the denominator is
+  near zero.
+
+Suggested command skeleton:
+
+```bash
+python paper_aom/review/build_cohort_manifest.py \
+  --sources \
+    bench/1_master_results.csv \
+    bench/master_results_classif.csv \
+    bench/AOM_v0/benchmark_runs/full/results.csv \
+    bench/AOM_v0/Ridge/benchmark_runs/classification_all17/results.csv \
+    bench/scenarios/runs/exhaustive_research_full57_seed0/results.csv \
+    bench/scenarios/runs/best_current_full57_seed0/results.csv \
+  --out paper_aom/review/cohort_manifest.csv
+```
+
+If the script does not exist, create it before any heavy compute.
+
+### P1 - rebuild fair PLS/Ridge HPO baselines with timing
+
+Goal: support the time-gain claim against the strongest classical baselines.
+
+This is the first heavy experiment to run because it changes the paper's main
+argument from "AOM can win some datasets" to "AOM provides competitive
+calibration with much lower search budget".
+
+Deliverables:
+
+1. `bench/scenarios/runs/paper_aom_linear_hpo/results.csv`
+2. `bench/scenarios/runs/paper_aom_linear_hpo/search_artifacts/`
+3. `paper_aom/review/linear_hpo_time_audit.md`
+4. `paper_aom/tables/table_time_budget.tex`
+5. `paper_aom/figures/fig_accuracy_time_pareto.*`
+
+Required variants:
+
+- `PLS-default-cv5`
+- `PLS-tabpfn-hpo-25trials`
+- `Ridge-default-cv5`
+- `Ridge-tabpfn-hpo-60trials`
+- `AOM-PLS-compact-cv5-numpy`
+- `ASLS-AOM-compact-cv5-numpy`
+- `AOMRidge-global-compact-none`
+- `AOMRidge-Local-compact-knn50`
+- `AOMRidge-Blender-headline-spxy3`
+- `AOMRidge-AutoSelect-headline-spxy3`
+
+Timing requirements:
+
+- record total wall-clock;
+- record HPO/search time separately from final refit time;
+- record number of preprocessing candidates/trials evaluated;
+- record fit time and predict time for AOM methods;
+- record timeout and failure rows without silently dropping them;
+- run on the same machine/environment for all methods in the time table.
+
+Use the TabPFN paper preprocessing/HPO spaces described above, but do not reuse
+old CSVs without timing. The old setup used `SPXYFold(n_splits=3,
+random_state=42)`; for the AOM paper, either:
+
+- reproduce that exact split as a historical TabPFN-paper baseline, and label
+  it as such; or
+- map the same HPO budget onto the frozen AOM paper splits and seeds.
+
+Preferred paper route: map the same HPO budget onto the frozen AOM paper
+cohort/splits, because the paired table then answers the current paper.
+
+### P2 - integrate AOM_lib into nirs4all examples
+
+Goal: make the software claim real and explainable to readers.
+
+This can be done before or in parallel with long runs because it is mostly
+code integration and documentation.
+
+Deliverables:
+
+1. `nirs4all/operators/models/sklearn/aom_pls_aomlib.py`
+2. export in `nirs4all/operators/models/sklearn/__init__.py`
+3. optional dependency/extra in `pyproject.toml` once package naming is fixed
+4. `examples/aom_paper/aomlib_nirs4all_regression.py`
+5. `examples/aom_paper/linear_hpo_vs_aom_time.py`
+6. tests under `tests/unit/operators/models/`
+
+Recommended implementation:
+
+- add a new estimator wrapper, not a silent replacement of legacy AOM-PLS;
+- import `aompls` lazily with a helpful error if the optional package is not
+  installed;
+- expose sklearn-compatible `fit`, `predict`, `get_params`, `set_params`;
+- document the mapping between paper terminology and code:
+  - compact bank;
+  - CV selector;
+  - one-SE rule if supported;
+  - selected operator sequence;
+  - component count.
+
+Required tests:
+
+- wrapper imports cleanly when `aompls` is available through
+  `PYTHONPATH=bench/AOM_lib/python/src`;
+- fit/predict returns shape-compatible predictions on a tiny regression
+  fixture;
+- wrapper diagnostics expose selected operator/component information;
+- existing legacy AOM-PLS tests still pass.
+
+This code is also the right place to show how `nirs4all` uses `AOM_lib` for
+the paper. Keep the example small and executable.
+
+### P3 - run final regression robustness seeds
+
+Goal: robustness on the actual models presented in the paper.
+
+Minimum final candidate set:
+
+- `PLS-default-cv5`
+- `PLS-tabpfn-hpo-25trials`
+- `Ridge-default-cv5`
+- `Ridge-tabpfn-hpo-60trials`
+- `AOM-PLS-compact-cv5-numpy`
+- `ASLS-AOM-compact-cv5-numpy`
+- `AOMRidge-global-compact-none`
+- `AOMRidge-global-compact-snv` only if kept in the text;
+- `AOMRidge-Local-compact-knn50`
+- `AOMRidge-Blender-headline-spxy3`
+- `AOMRidge-AutoSelect-headline-spxy3`
+- `TabPFN-Raw`
+- `TabPFN-HPO-preprocessing` where allowed by `tabpfn_allowed`
+
+Seed policy:
+
+- required: seeds 0/1/2 on the final cohort;
+- preferred for Talanta: seeds 0/1/2/3/4 for the final table;
+- primary statistical unit: dataset-level seed mean;
+- sensitivity: row-level dataset x seed table.
+
+Do not use preset pools as paper claims. Presets are for software workflows.
+The paper needs a fixed comparison table.
+
+Suggested starting point, after verifying manifest membership:
+
+```bash
+python bench/harness/run_benchmark.py \
+  --cohort full57 \
+  --pipeline bench/scenarios/best_current.json \
+  --workspace bench/scenarios/runs/paper_aom_best_current_full57_seeds012 \
+  --seeds 0,1,2 \
+  --stats
+```
+
+Then add selectors if they are not in the chosen manifest:
+
+```bash
+python bench/harness/run_benchmark.py \
+  --cohort full57 \
+  --pipeline bench/scenarios/exhaustive_research.json \
+  --workspace bench/scenarios/runs/paper_aom_selectors_full57_seeds012 \
+  --seeds 0,1,2 \
+  --stats \
+  --max-models 12
+```
+
+Expected outputs:
+
+- one consolidated `results.csv` with all final candidates;
+- `stats.json`;
+- per-dataset failure/timeout table;
+- exact list of candidate/dataset/seed rows not run because of constraints;
+- sidecar artefacts for predictions/diagnostics where available.
+
+### P4 - add classification score block
+
+Goal: add classification without diluting the regression paper.
+
+Deliverables:
+
+1. `bench/AOM_v0/benchmark_runs/classification_aompls_seeds012/results.csv`
+2. `bench/AOM_v0/Ridge/benchmark_runs/classification_all17_seeds012/results.csv`
+3. `paper_aom/tables/table_classification_main.tex`
+4. `paper_aom/review/classification_stats.md`
+
+Run AOM-PLS-DA/POP-PLS-DA:
+
+```bash
+PYTHONPATH=bench/AOM_v0 python bench/AOM_v0/benchmarks/run_aompls_benchmark.py \
+  --task classification \
+  --cohort bench/AOM_v0/benchmarks/cohort_classification.csv \
+  --master bench/master_results_classif.csv \
+  --workspace bench/AOM_v0/benchmark_runs/classification_aompls_seeds012 \
+  --seeds 0,1,2 \
+  --cv 5
+```
+
+Run AOM-Ridge classifiers:
+
+```bash
+PYTHONPATH=bench/AOM_v0:bench/AOM_v0/Ridge python \
+  bench/AOM_v0/Ridge/benchmarks/run_aomridge_classification.py \
+  --workspace bench/AOM_v0/Ridge/benchmark_runs/classification_all17_seeds012 \
+  --cohort full \
+  --variants smoke \
+  --cv 3 \
+  --seeds 0 1 2 \
+  --cohort-path bench/AOM_v0/benchmarks/cohort_classification.csv
+```
+
+Metrics:
+
+- primary: balanced accuracy;
+- secondary: macro-F1;
+- calibration: log loss and ECE;
+- higher-is-better stats for balanced accuracy/macro-F1;
+- lower-is-better stats for log loss/ECE.
+
+Stats:
+
+- paired dataset-level seed means;
+- win/tie/loss;
+- bootstrap CI;
+- sign/Wilcoxon with Holm correction for pre-registered comparisons;
+- no-harm tails for decreases in balanced accuracy;
+- failure/timeout table.
+
+Classification should appear as secondary validation unless it clearly passes
+all gates.
+
+### P5 - final statistical tables and figures
+
+Goal: make the paper statistically defensible.
+
+Generate:
+
+- `paper_aom/review/final_stats.md`
+- `paper_aom/tables/table_main_results.tex`
+- `paper_aom/tables/table_paired_stats.tex`
+- `paper_aom/tables/table_time_budget.tex`
+- `paper_aom/tables/table_classification_main.tex`
+- `paper_aom/figures/fig_accuracy_time_pareto.*`
+- `paper_aom/figures/fig_runtime_distribution.*`
+
+Required regression analyses:
+
+1. Median paired RMSEP ratios or deltas with 95% bootstrap CI.
+2. Win/tie/loss counts per paired comparison.
+3. Sign test and Wilcoxon signed-rank on log RMSEP ratios.
+4. Holm correction over pre-registered primary comparisons.
+5. Friedman test and Nemenyi/critical-difference summary on the complete
+   candidate subset.
+6. Effect sizes: Cliff's delta or paired rank-biserial.
+7. No-harm tails: q75, q90, worst ratio, named worst dataset.
+8. Stratification by split type and size regime.
+9. Seed stability:
+   - per-method median and IQR across seeds;
+   - number of datasets where the winner changes across seeds;
+   - selector variance for AutoSelect/Blender.
+10. Runtime:
+   - median/q75/q90 fit time;
+   - median/q75/q90 total HPO+fit time;
+   - timeout and failure counts;
+   - speedup ratio of AOM methods versus TabPFN-style PLS/Ridge HPO.
+
+Primary comparisons to pre-register:
+
+- `ASLS-AOM-compact-cv5` vs `PLS-tabpfn-hpo-25trials`.
+- `ASLS-AOM-compact-cv5` vs `PLS-default-cv5`.
+- `AOM-compact-cv5` vs `PLS-default-cv5`.
+- `AOMRidge-global-compact-none` vs `Ridge-tabpfn-hpo-60trials`.
+- `AOMRidge-Local-compact-knn50` vs `Ridge-tabpfn-hpo-60trials` on compatible rows.
+- `AOMRidge-Blender` vs `Ridge-tabpfn-hpo-60trials`.
+- `AOMRidge-AutoSelect` vs `Ridge-tabpfn-hpo-60trials`.
+- AOM-Ridge selectors vs `ASLS-AOM-compact-cv5` as cross-family context,
+  not the central claim.
+- TabPFN-HPO-preprocessing as a reference baseline only on allowed datasets.
+
+Do not claim "beats TabPFN-opt" unless the deployable paired allowed-cohort
+result supports it after correction.
+
+### P6 - selector, operator and failure diagnostics
+
+Goal: support the mathematical story with inspectable behaviour.
+
+Required outputs:
+
+- `paper_aom/review/selector_diagnostics.csv`
+- `paper_aom/tables/table_selector_diagnostics.tex`
+- `paper_aom/review/compact_bank_justification.md`
+- generated Supplement section/table for the empirical path from broad AOM
+  exploration to the compact preprocessing set;
+- selected operator frequency for AOM-PLS compact CV-5;
+- selected component count distribution;
+- strict-linear AOM vs ASLS-branch contribution:
+  `AOM-compact-cv5` vs `ASLS-AOM-compact-cv5`;
+- compact vs default bank:
+  `AOM-compact-*` vs `nirs4all-AOM-PLS-default`;
+- AutoSelect chosen-candidate counts;
+- Blender weight mean/std per candidate;
+- cases where selector choice changes across seeds;
+- failure-mode table for QUARTZ, Brix, Tleaf, FinalScore, LMA,
+  LUCAS_SOC_all, LUCAS_SOC_Cropland, y-based splits and outlier splits.
+
+Supplement rule: keep only the clean, source-backed compact-bank evidence in
+the submitted Supplement. Anything still hand-assembled, not regenerated from
+scripts, or not backed by final multi-seed runs should stay in
+`paper_aom/review/compact_bank_justification.md` or this checklist until it is
+ready.
+
+The clean Supplement version should justify:
+
+- exact compact bank contents and ordering, matching `bench/AOM_lib`;
+- bank-size genealogy: compact, family-pruned, response-dedup, default,
+  deep3/deep4 and compact+FCK;
+- candidate-count argument for selection variance;
+- ablation table from
+  `bench/AOM_v0/publication/tables/relative_rmsep_per_variant.csv`;
+- selected-operator frequencies from final result files;
+- why OSC/EMSC/deep banks/FCK are exploratory or not promoted.
+
+### P7 - software/package linkage and paper placement
+
+Goal: the paper must stop saying only "planned". The implementation status
+must be precise.
+
+Required manuscript edits:
+
+- `main.tex`: replace "under development" with the actual status:
+  "A dedicated C++17 AOM-PLS implementation with C ABI and
+  Python/R/MATLAB/Julia bindings is provided under `bench/AOM_lib`; C++ and
+  Python parity were verified against the Python AOM_v0 reference."
+- `tables/table_software.tex`: add rows for `AOM_lib/cpp`, `AOM_lib/python`,
+  `AOM_lib/r`, `AOM_lib/matlab`, `AOM_lib/julia`; mark tested/not tested.
+- `supplement.tex`: add the parity fixture design:
+  BEER/CORN/ALPINE x kfold5/kfold5+oneSE/spxy5; coefficient tolerance < 1e-8,
+  prediction tolerance < 1e-8, RMSE-curve tolerance < 1e-9.
+- Data/code availability: include repository URL, exact subdirectory, release
+  tag or archive hash.
+
+Package/test gates:
+
+```bash
+# C++ direct tests without ctest
+bench/AOM_lib/cpp/build/test_operators
+bench/AOM_lib/cpp/build/test_parity_kfold bench/AOM_lib/cpp/tests/reference
+
+# Python binding
+PYTHONPATH=bench/AOM_lib/python/src pytest -q bench/AOM_lib/python/tests/test_parity.py
+
+# C smoke after adding #include <math.h>
+gcc bench/AOM_lib/cpp/build/c_smoke.c \
+  -Ibench/AOM_lib/cpp/include \
+  -Lbench/AOM_lib/cpp/build -laompls \
+  -Wl,-rpath,$PWD/bench/AOM_lib/cpp/build \
+  -lm -lstdc++ -o /tmp/aompls_c_smoke && /tmp/aompls_c_smoke
+```
+
+For the `AOM_lib` repo/subdir:
+
+- add `bench/AOM_lib/paper/README.md` pointing to `paper_aom/` or the final
+  DOI/preprint;
+- add `CITATION.cff` once authors/title/DOI are fixed;
+- if copying the manuscript source, state clearly that `AOM_lib` currently
+  implements the AOM-PLS part, while AOM-Ridge remains in
+  `bench/AOM_v0/Ridge`.
+
+## Execution order
+
+### Day 0: no heavy compute
+
+1. Create `cohort_manifest.csv` and `claim_ledger.md`.
+2. Freeze final regression and classification candidate lists.
+3. Decide whether the HPO timing rerun uses exact old SPXYFold(3, seed 42) or
+   the frozen paper splits. Preferred: frozen paper splits.
+4. Add the `nirs4all` AOM-lib wrapper skeleton and tiny example.
+5. Add/fix software status table and C smoke `math.h` warning.
+
+### Days 1-3: heavy runs
+
+1. Launch PLS/Ridge HPO timing rerun first.
+2. Launch final regression seeds 0/1/2 for the fixed candidate set.
+3. Launch classification AOM-PLS-DA and AOM-Ridge seeds 0/1/2.
+4. Monitor timeouts and failures; never silently drop rows.
+5. If time permits, extend final regression to seeds 3/4.
+
+### Day 4: aggregation
+
+1. Build final paired regression stats.
+2. Build time-budget table and accuracy-time Pareto figure.
+3. Build classification stats.
+4. Aggregate selector/operator diagnostics.
+5. Regenerate LaTeX tables and figures.
+
+### Day 5: manuscript sync
+
+1. Update `main.tex`, `supplement.tex`, `table_main_results.tex`,
+   `table_paired_stats.tex`, `table_benchmark_diversity.tex`,
+   `table_time_budget.tex`, `table_classification_main.tex`,
+   `table_software.tex`.
+2. Rebuild `paper_aom/AOM-paper.pdf` and `AOM-supplement.pdf`.
+3. Add data/code availability, Novelty Statement, and AI-assisted technologies
+   declaration if applicable.
+
+## Reviewer risks and mitigation
+
+| Risk | Why it matters | Mitigation |
+| --- | --- | --- |
+| Dataset denominator drift | Current files mention 52, 57, 59, 61 and other denominators depending on source. | Manifest plus pairwise denominators in every caption. |
+| Time-gain overclaim | Old CSVs do not contain enough timing detail. | Recompute PLS/Ridge HPO and AOM runs on the same machine with wall-clock/search/refit timing. |
+| "AOM" means too many things | AOM-PLS, AOM-Ridge, branches, FCK and oracles can blur together. | Define strict operators, branch preprocessors, deployable selectors and oracle envelopes separately. |
+| Single-seed full-cohort results | Current headline full cohorts are mostly seed 0; audit subsets have seeds. | Final seed 0/1/2 minimum, 0..4 preferred. |
+| Selector overfitting | AOM-Ridge selectors are powerful and expensive. | Use nested audit plus multi-seed selector diagnostics. |
+| Oracle confused with method | Oracle numbers are stronger than deployable ones. | Keep oracle in Supplement or clearly label as retrospective upper bound. |
+| Classification distracts from regression | Classification is only partly run today. | Keep it as secondary validation unless it passes all gates. |
+| AOM_lib overclaim | AOM_lib implements AOM-PLS, not AOM-Ridge. | State exact implementation scope and tested language status. |
+| nirs4all confusion | Current nirs4all AOM is legacy Python, not AOM_lib. | Add explicit wrapper/example and state which code produced paper numbers. |
+| TabPFN fairness | TabPFN rows are constrained by n/p gates and old splits. | Pair only where allowed; document preprocessing/HPO budget; do not claim broad superiority unless corrected stats support it. |
+
+## Minimum acceptable submission framing
+
+Use this framing if the final multi-seed and timing runs are completed:
+
+> We introduce operator-adaptive calibration as a linear, coefficient-bearing
+> way to move preprocessing/model selection inside NIRS calibration. The
+> framework is instantiated in PLS and Ridge, evaluated across heterogeneous
+> NIRS regression datasets, extended to classification scores, and compared
+> against classical HPO and modern baselines with paired statistics, seed
+> sensitivity, runtime budgets and software parity checks.
 
 Avoid:
 
-- "AOM beats TabPFN-opt" for deployable Ridge; the manuscript text reports a
-  median loss vs TabPFN-opt for Blender.
-- "State of the art" unless the final deployable result beats all imported and
-  rerun baselines under the same frozen protocol.
-- "Leakage-free" globally unless every final branch and selector path has the
-  same audit quality as `HEADLINE_SPXY3_NESTED_AUDIT.md`.
-- Any headline based on the oracle envelope without saying "retrospective upper
-  bound requiring test-set knowledge."
+- "state of the art" unless the final deployable paired table supports it;
+- "AOM beats TabPFN" unless the allowed paired cohort supports it;
+- presenting ASLS/SNV/MSC gains as strict linear operator gains;
+- presenting FCK or oracle results as recommended defaults;
+- presenting `AOM_lib` as the full AOM-Ridge implementation;
+- using old `nirs4all-AOM-PLS-default` performance as if it were the bench
+  target.
 
-## Files read as primary evidence
+## Open implementation tasks
 
-- `bench/AOM/report.md`
-- `bench/AOM/PUBLICATION_PLAN.md`
-- `bench/AOM/PUBLICATION_BACKLOG.md`
-- `bench/AOM_v0/README.md`
-- `bench/AOM_v0/Summary.md`
-- `bench/AOM_v0/benchmark_runs/full/results.csv`
-- `bench/AOM_v0/Multi-kernel/docs/BENCHMARK_PROTOCOL.md`
-- `bench/AOM_v0/Multi-kernel/docs/CODEX_REVIEWS.md`
-- `bench/AOM_v0/Ridge/README.md`
-- `bench/AOM_v0/Ridge/REPRODUCIBILITY.md`
-- `bench/AOM_v0/Ridge/docs/BENCHMARK_PROTOCOL.md`
-- `bench/AOM_v0/Ridge/docs/AOM_RIDGE_MATH_SPEC.md`
-- `bench/AOM_v0/Ridge/docs/HEADLINE_SPXY3_NESTED_AUDIT.md`
-- `bench/AOM_v0/Ridge/docs/D_A_001_FAST12_PAIRED_STATS.md`
-- `bench/AOM_v0/Ridge/docs/D_A_001_AUDIT20_PAIRED_STATS.md`
-- `bench/AOM_v0/Ridge/benchmark_runs/all54_combined/results.csv`
-- `bench/AOM_v0/Ridge/benchmark_runs/curated_v2/results.csv`
-- `bench/AOM_v0/Ridge/benchmark_runs/final_curated/results.csv`
-- `bench/AOM_v0/Ridge/benchmark_runs/da001_partial_fast12_seeds012/results.csv`
-- `bench/AOM_v0/Ridge/benchmark_runs/da001_audit20_seeds012/results.csv`
-- `bench/AOM_v0/Ridge/publication/manuscript/aomridge_paper.tex`
-- `bench/AOM_v0/Ridge/publication/tables/table_summary.tex`
-- `bench/AOM_v0/Ridge/publication/tables/table_per_method_summary.tex`
-- `bench/tabpfn_paper/early_results.txt`
-- `bench/tabpfn_paper/scan_results.json`
-- `bench/tabpfn_paper/scan_datasets.py`
-- `bench/tabpfn_paper/run_reg_pls.py`
-- `bench/tabpfn_paper/run_reg_aom.py`
-- `bench/1_master_results.csv`
-- `bench/benchmark_master_results.csv`
-- `bench/master_results_classif.csv`
+- [ ] Create `paper_aom/review/build_cohort_manifest.py`.
+- [ ] Create `paper_aom/review/cohort_manifest.csv`.
+- [ ] Create `paper_aom/review/claim_ledger.md`.
+- [ ] Regenerate `paper_aom/tables/table_benchmark_diversity.tex`.
+- [ ] Freeze final regression candidate list.
+- [ ] Freeze final classification candidate list.
+- [ ] Recompute TabPFN-paper-style PLS HPO with timing.
+- [ ] Recompute TabPFN-paper-style Ridge HPO with timing.
+- [ ] Run final regression seeds 0/1/2, preferably 0..4.
+- [ ] Run AOM-PLS-DA classification seeds 0/1/2.
+- [ ] Run AOM-Ridge classification seeds 0/1/2.
+- [ ] Add `nirs4all` optional AOM-lib wrapper/example.
+- [ ] Add tests for the `nirs4all` AOM-lib wrapper.
+- [ ] Aggregate final stats into `paper_aom/review/final_stats.md`.
+- [ ] Aggregate classification stats into `paper_aom/review/classification_stats.md`.
+- [ ] Export selector diagnostics.
+- [ ] Finalize compact-bank justification for Supplement, or keep provisional
+  material in `paper_aom/review/compact_bank_justification.md`.
+- [ ] Export or document prediction artefacts.
+- [ ] Update `table_time_budget.tex`.
+- [ ] Update `table_classification_main.tex`.
+- [ ] Update `table_software.tex` with `bench/AOM_lib` package status.
+- [ ] Run R/Julia/MATLAB package parity where available.
+- [ ] Add `bench/AOM_lib/paper/README.md` or equivalent paper pointer.
+- [ ] Rebuild manuscript and supplement.

@@ -71,14 +71,15 @@ benchmark of more than 50 NIRS datasets and compared with conventional PLS,
 Ridge, CatBoost and CNN baselines under documented search budgets.
 
 Compact operator-adaptive PLS combined with ASLS branch preprocessing achieved
-a median RMSEP/PLS ratio of 0.960 with 42 wins on 57 datasets, while a
-deployable AOM-Ridge selector improved over tuned Ridge by a median 2.22\%
-with 35 wins on 52 datasets.  Beyond predictive accuracy, the proposed models
-reduce the dependence on large preprocessing-HPO campaigns, produce traceable
-operator choices, retain interpretable coefficients, and achieve seconds-scale
-fitting for compact AOM-PLS.  Operator-adaptive calibration therefore provides
-a practical route toward faster, more robust and auditable NIRS method
-development.
+a multi-seed median RMSEP/PLS ratio of 0.962 with 37 wins on 53 paired
+datasets.  In the current partial AOM-Ridge overlap, the Blender selector
+achieved a median RMSEP/Ridge-HPO ratio of 0.905 with 4 wins on 4 paired
+datasets; the full-cohort Blender/AutoSelect promotion remains pending.
+Beyond predictive accuracy, the proposed models reduce the dependence on large
+preprocessing-HPO campaigns, produce traceable operator choices, retain
+interpretable coefficients, and achieve seconds-scale fitting for compact
+AOM-PLS.  Operator-adaptive calibration therefore provides a practical route
+toward faster, more robust and auditable NIRS method development.
 \end{abstract}
 
 \noindent\textbf{Keywords:} near-infrared spectroscopy; analytical calibration;
@@ -362,12 +363,11 @@ serialization.  The desktop application \texttt{nirs4all Studio} uses the same
 library stack and exposes these workflows through a graphical interface for
 users who do not write Python scripts.  The research implementations and
 benchmark scripts used for the present AOM-PLS and AOM-Ridge analyses are kept
-in the public repository under \texttt{bench/AOM\_v0}.  A clean-room C++
-implementation of AOM-PLS is under development to support R bindings and a
-dedicated Python package named \texttt{AOM-PLS}.  AOM-PLS and AOM-Ridge are
-also planned for pip-distributed implementations once the API and validation
-suite are stabilized.  Table~\ref{tab:software} summarizes the current
-artifacts.
+in the public repository under \texttt{bench/AOM\_v0}.  A dedicated
+\texttt{bench/AOM\_lib} implementation now provides the AOM-PLS compact bank
+through C++, Python, R, Julia, MATLAB and JavaScript/WASM bindings, with local
+C++ and Python parity validation against the research reference.
+Table~\ref{tab:software} summarizes the current artifacts.
 
 \begin{table}[t]
   \centering
@@ -467,21 +467,23 @@ produces the final model.
 
 \subsection{Large-scale validation across heterogeneous NIRS calibration problems}
 
-The strongest AOM-PLS result in the available full benchmark is the ASLS branch
-followed by compact AOM with 5-fold cross-validation.  This variant reaches a
-median RMSEP/PLS ratio of 0.960 across 57 datasets, with 42 wins and a median
-fit time of approximately 1.36 seconds.  The result has two chemometric
-implications.  First, a small bank of interpretable linear operators is enough
-to improve over a standard PLS reference on a majority of datasets.  Second,
-ASLS remains valuable because baseline correction cannot always be reproduced
-by strict fixed linear operators alone.
+The strongest AOM-PLS result in the refreshed benchmark is the ASLS branch
+followed by compact AOM with 5-fold cross-validation.  Across the complete
+seeds 0/1/2 robustness run, this variant reaches a median RMSEP/PLS ratio of
+0.9623 across 53 paired datasets, with 37 wins after averaging RMSEP over
+seeds.  The refreshed runtime table reports a median fit time of 1.65 seconds
+for the same variant.  The result has two chemometric implications.  First, a
+small bank of interpretable linear operators is enough to improve over a
+standard PLS reference on a majority of datasets.  Second, ASLS remains
+valuable because baseline correction cannot always be reproduced by strict
+fixed linear operators alone.
 
-The deployable AOM-Ridge result is more modest but consistent with the same
-calibration principle.  On the 52-dataset paired cohort obtained after
-duplicate removal and exclusion of the degenerate QUARTZ reference case, the
-Blender selector improves over tuned Ridge by a median 2.22\% and wins on 35
-of 52 datasets.  These two deployable results are the primary performance
-claims in this draft.
+The AOM-Ridge result remains more provisional.  In the current regenerated
+paired table, the available overlap for the Blender selector versus
+Ridge-HPO is still small: median RMSEP/Ridge-HPO ratio 0.905 with 4 wins on 4
+paired datasets.  The earlier full-cohort tuned-Ridge result is retained only
+as single-seed background evidence until the full headline selector rerun
+completes.
 
 \begin{table}[t]
   \centering
@@ -513,6 +515,17 @@ claims in this draft.
   \label{fig:results}
 \end{figure}
 
+\subsection{Multi-seed robustness}
+
+The merged AOM-PLS robustness workspace
+\texttt{bench/scenarios/runs/paper\_aom\_aompls\_seeds012/results.csv}
+contains 1486 CSV lines from 55 datasets, 9 variants and seeds 0/1/2.  On the
+53 datasets with paired ASLS-AOM compact CV-5 and PLS-standard rows, the
+multi-seed median RMSEP/PLS ratio is 0.9623 and the AOM variant wins on 37
+datasets after averaging RMSEP over seeds.  Multi-seed regression robustness:
+the refreshed run moves the ASLS-AOM compact CV-5 headline from 0.960 with
+42/57 wins to 0.9623 with 37/53 wins.
+
 \subsection{Speed and search-budget reduction}
 
 In analytical method development, calibration cost is not only computational;
@@ -527,9 +540,19 @@ Ridge baselines in the reference protocol are not merely single models; they
 are selected outcomes of large preprocessing and hyperparameter searches.  By
 contrast, compact AOM-PLS evaluates a small structured operator bank and
 returns a single original-space linear model with documented selected
-operators.  AOM-PLS therefore reaches RMSEP/PLS = 0.960 while replacing
+operators.  AOM-PLS therefore reaches RMSEP/PLS = 0.962 while replacing
 thousands of external preprocessing-HPO evaluations by a compact
 operator-adaptive calibration procedure.
+
+\begin{table}[t]
+  \centering
+  \caption{Runtime summary from the refreshed partial aggregation.  The HPO
+  rows are still incomplete and should be refreshed after the background
+  linear-HPO run completes.}
+  \label{tab:time_budget}
+  \small
+  \input{tables/table_time_budget.tex}
+\end{table}
 
 \begin{figure}[t]
   \centering
@@ -537,7 +560,8 @@ operator-adaptive calibration procedure.
   \caption{Search-budget contrast.  Counts for PLS, Ridge, CatBoost and CNN-1D
   come from the local reference preprocessing-HPO protocol.  The AOM-PLS bar is
   an illustrative compact-bank fold-evaluation count; the measured median fit
-  time of the headline compact variant is about 1.36 seconds.}
+  time of the headline compact variant is about 1.65 seconds in the refreshed
+  multi-seed aggregation.}
   \label{fig:budget}
 \end{figure}
 
@@ -559,15 +583,26 @@ variance.  Compact operator banks provide a better bias--variance compromise
 for routine NIRS calibration because they reduce the number of redundant
 candidate filters competing for the same validation signal.
 
+The refreshed selector diagnostics support this compact-bank position:
+the three most frequently selected strict operators
+(\texttt{sg\_smooth\_w21\_p3}, \texttt{sg\_d1\_w21\_p3} and
+\texttt{sg\_d1\_w11\_p2}) account for 54.7\% of compact-bank selections, and
+the compact bank beats the production default on 34 of 53 paired datasets.
+The AOM-Ridge selector table is still sparse because the current top5\_fast
+run does not emit Blender/AutoSelect diagnostics.
+
+\input{tables/table_selector_diagnostics.tex}
+
 \subsection{Operator-adaptive Ridge as a complementary calibration model}
 
 AOM-Ridge gives a second instantiation of the same operator-adaptive principle.
-The strongest deployable variant currently retained in the manuscript is the
-Blender selector.  The same result table reports AutoSelect at a median 0.61\%
-improvement with 27 wins, and the best single global compact variant at a
-median 0.63\% improvement with 29 wins.  This indicates that operator-adaptive
-Ridge is promising, but less mature than the compact AOM-PLS pipeline as a
-deployment claim.
+The strongest deployable variant in the earlier single-seed evidence source
+was the Blender selector, with AutoSelect and the global compact variant close
+behind.  The refreshed multi-seed full-cohort run currently covers only the
+faster top5\_fast variants, while Blender and AutoSelect remain supported by
+the earlier full-cohort single-seed table plus the 20-dataset audit run.  This
+indicates that operator-adaptive Ridge is promising, but less mature than the
+compact AOM-PLS pipeline as a deployment claim.
 
 The stronger AOM-Ridge numbers are oracle-envelope quantities.  In the master
 oracle-by-model-class view, AOM-Ridge has a median RMSEP/PLS ratio of
@@ -582,6 +617,37 @@ operator-kernel formulation and are not used to support deployable performance
 claims.  The central point is that Ridge, although less standard than PLS in
 routine chemometrics, becomes a useful and interpretable competitor when the
 spectral geometry is allowed to adapt through operator kernels.
+
+\subsection{Classification as secondary validation}
+
+The AOM-PLS-DA multi-seed benchmark on the 16-dataset classification cohort
+completed with seeds 0/1/2 and produced 240 fits across five variants
+(`bench/AOM_v0/benchmark_runs/paper_aom_aompls_da_seeds012/results.csv`,
+204 successful rows after standard SPXY/holdout-failure filtering).
+Compared with the PLS-DA reference, the SIMPLS variants of AOM-PLS-DA
+improve balanced accuracy significantly: AOM-PLS-DA global SIMPLS gains a
+median $+0.159$ (12/13 paired wins, Wilcoxon $p_\mathrm{Holm}=0.007$), and
+POP-PLS-DA SIMPLS gains $+0.052$ (11/13 wins, $p_\mathrm{Holm}=0.018$).
+The NIPALS-adjoint variants are noisier: AOM-PLS-DA global NIPALS shows a
+non-significant $+0.030$ trend, and POP-PLS-DA NIPALS does not separate
+from PLS-DA.  Classification is therefore reported as a complementary
+validation axis rather than as a primary contribution; the SIMPLS path
+nonetheless provides a clear cross-task signal that operator adaptation
+generalizes beyond regression.  AOM-Ridge classification results on the
+same 17-dataset cohort are still accumulating and will be folded into the
+Supplement at submission time.
+
+\begin{table}[t]
+  \centering
+  \caption{Classification summary on the 16-dataset cohort with seeds
+  0/1/2 multi-seed averaging.  Positive balanced-accuracy differences
+  favour the AOM or POP variant over PLS-DA.  Holm-corrected Wilcoxon
+  signed-rank $p$-values are computed within the family of four AOM-PLS-DA
+  vs PLS-DA comparisons.}
+  \label{tab:classification_main}
+  \small
+  \input{tables/table_classification_main.tex}
+\end{table}
 
 \section{Analytical implications}
 
@@ -648,11 +714,11 @@ The value of a method in chemometrics also depends on implementation.  The
 AOM-PLS family is available in \texttt{nirs4all} and in \texttt{nirs4all
 Studio} \citep{beurier2026nirs4all,beurier2026nirs4allstudio}.  This matters
 for adoption because many NIRS users work through graphical pipelines rather
-than scripts.  A clean-room C++ implementation of AOM-PLS is being developed
-for R and Python distribution under the package name \texttt{AOM-PLS}, and
-pip-distributed AOM-PLS/AOM-Ridge implementations are planned once the API and
-validation suite are stabilized.  These software routes are part of the
-analytical deployment strategy, not only implementation details.
+than scripts.  The dedicated \texttt{bench/AOM\_lib} package now gives a
+smaller parity-tested route to AOM-PLS through C++ and Python, with additional
+R, MATLAB, Julia and JavaScript/WASM bindings distributed as code-ready
+interfaces.  These software routes are part of the analytical deployment
+strategy, not only implementation details.
 
 \section{Limitations and future work}
 
@@ -696,15 +762,25 @@ a faster, more traceable and more deployable route for NIRS analytical method
 development, especially when calibration must be updated or audited in routine
 use.
 
-\section*{Data and Code Availability}
+\section*{Data and code availability}
 
 The software is available through \texttt{nirs4all} at
 \url{https://github.com/GBeurier/nirs4all} and the documentation at
 \url{https://nirs4all.readthedocs.io}.  The desktop application is available at
-\url{https://github.com/GBeurier/nirs4all-webapp}.  The AOM research benchmark
-materials used for this draft are in the repository under
-\texttt{bench/AOM\_v0}, including the AOM-PLS, AOM-Ridge, audit and publication
-tables.
+\url{https://github.com/GBeurier/nirs4all-webapp}.  The repository paths used
+to regenerate this manuscript are: \path{bench/AOM_v0/} for the AOM-PLS
+research code, \path{bench/AOM_v0/Ridge/} for the AOM-Ridge research code,
+\path{bench/AOM_lib/} for the dedicated C++/Python/R/Julia/MATLAB/JS AOM-PLS
+package, \path{nirs4all/operators/models/sklearn/aom_pls.py} for the legacy
+\texttt{nirs4all} AOM-PLS implementation,
+\path{nirs4all/operators/models/sklearn/aom_pls_aomlib.py} for the new
+AOM-lib-backed wrapper, and \path{paper_aom/review/} for the cohort manifest,
+claim ledger, aggregation scripts and selector diagnostics.
+
+\section*{Submission TODOs}
+
+Before Talanta submission, add the Novelty Statement and the AI-assisted
+technologies declaration required by the journal.
 
 \section*{Supplementary Material}
 
