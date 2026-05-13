@@ -70,7 +70,8 @@ Experiences:
    multiplicative gain/offset, bruit heteroscedastique, wavelength shift,
    resolution/broadening, band dropout.
 2. Calibrer les amplitudes par regime de dataset, pas globalement.
-3. Tester chaque augmentation seule puis en composition sur PLS/Ridge/AOM/TabPFN.
+3. Tester chaque augmentation seule puis en composition sur PLS (+cartesian preprocessing)/AOMPLS/Ridge(+cartesian preprocessing)/AOMRidge/CNN/TabPFN (+2-3 preprocessings).
+ndlr: Utiliser AOMPLS en fast smoke model avant de se lancer dans plus gros. Les AOMPLS et AOMRidge sont rapides et efficace. (Ou prendre les presets listés avec le dashboard aussi)
 4. Mesurer les effets sur:
    - performance moyenne;
    - queues de target;
