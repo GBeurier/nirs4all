@@ -175,6 +175,7 @@ class TestPipelineCrud:
             run_id=run_id,
             name="pipe_001",
             expanded_config={"steps": ["scaler", "pls"]},
+            original_template=[{"_or_": ["SNV", "MSC"]}, {"model": "PLSRegression"}],
             generator_choices=[],
             dataset_name="corn",
             dataset_hash="def456",
@@ -186,6 +187,7 @@ class TestPipelineCrud:
         assert pipeline["status"] == "running"
         assert pipeline["dataset_name"] == "corn"
         assert pipeline["expanded_config"] == {"steps": ["scaler", "pls"]}
+        assert pipeline["original_template"] == [{"_or_": ["SNV", "MSC"]}, {"model": "PLSRegression"}]
 
         # Complete
         store.complete_pipeline(pid, best_val=0.05, best_test=0.08, metric="rmse", duration_ms=1234)

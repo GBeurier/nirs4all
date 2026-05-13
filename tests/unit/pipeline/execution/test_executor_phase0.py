@@ -35,10 +35,12 @@ def test_execute_passes_dataset_content_hash_to_begin_pipeline():
         context=context,
         runtime_context=runtime_context,
         prediction_store=Predictions(),
+        original_template=[{"_or_": ["SNV", "MSC"]}, {"model": "PLSRegression"}],
     )
 
     assert store.begin_pipeline.call_count == 1
     assert store.begin_pipeline.call_args.kwargs["dataset_hash"] == "dataset-hash-123"
+    assert store.begin_pipeline.call_args.kwargs["original_template"] == [{"_or_": ["SNV", "MSC"]}, {"model": "PLSRegression"}]
 
 def test_flush_predictions_uses_refit_runtime_overrides():
     """Refit runtime labels should be applied before saving predictions."""

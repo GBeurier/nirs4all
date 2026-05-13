@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS pipelines (
     run_id TEXT NOT NULL REFERENCES runs(run_id),
     name TEXT NOT NULL,
     expanded_config TEXT,
+    original_template TEXT,
     generator_choices TEXT,
     dataset_name TEXT NOT NULL,
     dataset_hash TEXT,
@@ -634,6 +635,12 @@ def _migrate_schema(conn: sqlite3.Connection, *, workspace_path: Path | None = N
         workspace_path: Optional workspace root directory for auto-migrating
             legacy ``prediction_arrays`` to Parquet.
     """
+    # Migration: add original_template column to pipelines table
+    if _table_exists(conn, "pipelines"):
+        pipeline_columns = _get_table_columns(conn, "pipelines")
+        if "original_template" not in pipeline_columns:
+            conn.execute("ALTER TABLE pipelines ADD COLUMN original_template TEXT")
+
     # Migration: add refit_context column to predictions table
     existing_columns = _get_table_columns(conn, "predictions")
     if "refit_context" not in existing_columns:
