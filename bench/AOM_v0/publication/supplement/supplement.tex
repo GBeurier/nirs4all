@@ -1,0 +1,352 @@
+%% =====================================================================
+%% Supplementary material for
+%% "Operator-Adaptive Partial Least Squares for Near-Infrared
+%% Spectroscopy: Unified AOM/POP Selection, Covariance-Space SIMPLS,
+%% and PLS-DA"
+%% =====================================================================
+
+\documentclass[a4paper,11pt]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{geometry}
+\geometry{margin=2.4cm}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+}
+
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\softmax}{\mathrm{softmax}}
+\newcommand{\diag}{\mathrm{diag}}
+\newcommand{\identity}{\mathbf{I}}
+\newcommand{\Xmat}{\mathbf{X}}
+\newcommand{\Ymat}{\mathbf{Y}}
+\newcommand{\Tmat}{\mathbf{T}}
+\newcommand{\Pmat}{\mathbf{P}}
+\newcommand{\Wmat}{\mathbf{W}}
+\newcommand{\Qmat}{\mathbf{Q}}
+\newcommand{\Bmat}{\mathbf{B}}
+\newcommand{\Amat}{\mathbf{A}}
+\newcommand{\Smat}{\mathbf{S}}
+\newcommand{\Zmat}{\mathbf{Z}}
+\newcommand{\xvec}{\mathbf{x}}
+\newcommand{\yvec}{\mathbf{y}}
+\newcommand{\zvec}{\mathbf{z}}
+\newcommand{\rvec}{\mathbf{r}}
+\newcommand{\wvec}{\mathbf{w}}
+\newcommand{\tvec}{\mathbf{t}}
+\newcommand{\pvec}{\mathbf{p}}
+\newcommand{\qvec}{\mathbf{q}}
+\newcommand{\bvec}{\mathbf{b}}
+\newcommand{\AOM}{\textsc{AOM}}
+\newcommand{\POP}{\textsc{POP}}
+\newcommand{\PLS}{\textsc{PLS}}
+\newcommand{\PLSDA}{\textsc{PLS-DA}}
+\newcommand{\NIPALS}{\textsc{NIPALS}}
+\newcommand{\SIMPLS}{\textsc{SIMPLS}}
+
+\title{Supplementary material:\\
+Operator-Adaptive Partial Least Squares for Near-Infrared Spectroscopy}
+\author{Gr\'egory Beurier and the \texttt{nirs4all} contributors}
+\date{}
+
+\begin{document}
+\maketitle
+
+\renewcommand{\thesection}{S\arabic{section}}
+
+%% =====================================================================
+\section{Extended derivations}\label{app:math}
+%% =====================================================================
+
+\subsection{The covariance identity}\label{app:identity}
+Let $\Xmat\in\R^{n\times p}$ and $\Ymat\in\R^{n\times q}$ be centered.
+Let $\Amat\in\R^{p\times p}$ be a strict linear operator that acts on
+row spectra by $\Xmat_b=\Xmat\Amat^\top$. Then
+\[
+(\Xmat_b)^\top \Ymat
+= (\Xmat\Amat^\top)^\top \Ymat
+= \Amat\,\Xmat^\top \Ymat.
+\]
+The proof is one line of matrix algebra and uses only the fact that
+$\Amat$ does not depend on the rows of $\Xmat$. Two corollaries follow
+immediately:
+\begin{enumerate}[leftmargin=2em]
+  \item Cross-covariance evaluation: $\Smat_b=\Amat\Smat$ where
+        $\Smat=\Xmat^\top \Ymat$. This makes operator scoring
+        $\mathcal{O}(p^2 q)$ at most, and $\mathcal{O}(pq)$ when
+        $\Amat$ is banded (e.g.\ Savitzky-Golay or finite difference).
+  \item Effective weight: if $\rvec_b$ is a weight vector in the
+        transformed space (for example, the dominant left-singular
+        vector of $\Smat_b$), then the same direction is represented
+        in the original space by $\zvec=\Amat^\top \rvec_b$. This is
+        what lets per-component policies map back to a single
+        coordinate system for the final coefficient $\Bmat$.
+\end{enumerate}
+
+\subsection{Effective weights with operator change}\label{app:effective}
+For the per-component selection policy, the operator $\Amat^{(a)}$ may
+change with the component index $a$. Let $\rvec_a\in\R^p$ be the
+dominant left-singular vector of $\Amat^{(a)}\Smat$. The original-space
+effective weight at component $a$ is $\zvec_a=\Amat^{(a)\,\top}\rvec_a$.
+The score is $\tvec_a=\Xmat\zvec_a$, the loading is
+$\pvec_a=\Xmat^\top\tvec_a/\|\tvec_a\|^2$. After the rank-one
+deflation $\Smat\leftarrow \Smat - \pvec_a(\pvec_a^\top \Smat)$, the
+next operator $\Amat^{(a+1)}$ is selected on the deflated $\Smat$ and
+the construction repeats.
+
+A subtle but important point: orthogonality of subsequent components
+must be enforced in the original space, not in any single transformed
+space, because the transformed spaces change between components. This
+is the reason we expose an \texttt{orthogonalization="original"} mode
+and we set it as the automatic default for \POP and the soft policy.
+For the \AOM-\textsc{global} policy, the operator does not change and
+both modes coincide; we keep \texttt{transformed} as the default for
+\textsc{global} for parity with the materialized reference.
+
+\subsection{Soft mixture degeneracy}\label{app:soft}
+Let $\lambda\in\Delta^{B-1}$, the simplex on the bank
+$\mathcal{B}=\{\Amat_1,\dots,\Amat_B\}$. The covariance objective for
+the first component, given a normalised weight $\rvec\in\R^p$, is
+\[
+\Phi(\lambda,\rvec)
+\;=\;\Big\|\rvec^\top \Big(\sum_b \lambda_b \Amat_b\Big) \Smat\Big\|.
+\]
+For fixed $\rvec$, $\Phi(\cdot,\rvec)$ is a convex function on the
+simplex (it is the absolute value of a linear function of $\lambda$),
+hence its maximum is attained at a vertex. Conversely, for fixed
+$\lambda$, the optimal $\rvec$ is the dominant left-singular vector of
+$\sum_b \lambda_b \Amat_b\Smat$. Alternation between $\lambda$ and
+$\rvec$ therefore drives $\lambda$ to a vertex, which is exactly
+\AOM-\textsc{global}. Hence the soft policy collapses to hard global
+selection under the covariance objective. Numerically richer behaviour
+can in principle be obtained by adding a strictly concave entropy
+penalty to $\Phi$, but we do not pursue that here, and we report
+\textsc{soft} only as a research interface.
+
+\subsection{Class-balanced coding equivalence}\label{app:plsda-coding}
+Let $\Ymat^{(0)}$ be the standard one-hot indicator matrix
+($Y^{(0)}_{ic}=1$ if $y_i=c$, $0$ otherwise) and let $\Ymat$ be the
+class-balanced encoding of equation~(7) of the main text:
+$Y_{ic}=1/\sqrt{\pi_c}$ if $y_i=c$, $0$ otherwise. Write
+$\Ymat=\Ymat^{(0)}\,\diag(\pi^{-1/2})$ where $\pi^{-1/2}$ is the vector
+of class-rescaling factors. Then the cross-covariance becomes
+\[
+\Xmat^\top \Ymat
+\;=\; \Xmat^\top \Ymat^{(0)}\,\diag(\pi^{-1/2}),
+\]
+which uniformly scales the per-class columns of the cross-covariance.
+This is exactly the rebalancing one obtains from the
+\verb|class_weight="balanced"| option of \texttt{sklearn} logistic
+regression on a per-row scale, but applied to the latent extraction
+itself. Class-balanced coding does not change the linear span of the
+latent space; it changes which directions are dominant when classes
+are imbalanced.
+
+\subsection{Logistic calibration as a fold-internal classifier}\label{app:calibration}
+For each component count $K$, the latent-score matrix
+$\Tmat=\Xmat\Zmat\in\R^{n\times K}$ is fixed by the chosen operator
+sequence and the regression coefficient $\Bmat$. The logistic
+calibrator fits $\Wmat_{\mathrm{lr}}\in\R^{K\times K}$ and
+$\bvec_{\mathrm{lr}}\in\R^K$ by maximising the multinomial likelihood
+on $\Tmat$ with L2 regularisation
+$\frac{1}{2C}\|\Wmat_{\mathrm{lr}}\|_F^2$ where $C=1$ by default. Because
+$\Tmat$ depends only on training-fold information, the calibrator is
+trained on the same fold and never sees the test set. The fallback
+$\softmax(\Tmat/\tau)$ shares the same scope: the temperature $\tau$
+is fitted by minimising training-fold log loss and is held fixed at
+inference time.
+
+%% =====================================================================
+\section{Extended tables}\label{app:tables}
+%% =====================================================================
+
+\subsection{Per-variant per-dataset smoke regression}
+\begin{longtable}{lll}
+\caption{Smoke benchmark: RMSEP per variant per dataset (3 regression
+datasets, 11 variants).}\\
+\toprule
+Variant & Dataset & RMSEP \\
+\midrule
+\endfirsthead
+\toprule
+Variant & Dataset & RMSEP \\
+\midrule
+\endhead
+\bottomrule
+\endfoot
+PLS-standard-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0766 \\
+AOM-global-nipals-materialized-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0766 \\
+AOM-global-nipals-adjoint-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0766 \\
+POP-nipals-materialized-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0721 \\
+POP-nipals-adjoint-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0721 \\
+AOM-global-simpls-materialized-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0766 \\
+AOM-global-simpls-covariance-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0766 \\
+POP-simpls-materialized-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0804 \\
+POP-simpls-covariance-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0804 \\
+AOM-soft-simpls-covariance-numpy & ALPINE/ALPINE\_P\_291\_KS & 0.0767 \\
+PLS-standard-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 4.3290 \\
+AOM-global-nipals-materialized-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 4.3290 \\
+AOM-global-nipals-adjoint-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 4.3290 \\
+POP-nipals-materialized-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 3.9181 \\
+POP-nipals-adjoint-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 3.9181 \\
+AOM-global-simpls-materialized-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 4.3290 \\
+AOM-global-simpls-covariance-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 4.3290 \\
+POP-simpls-materialized-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 4.4407 \\
+POP-simpls-covariance-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 4.4407 \\
+AOM-soft-simpls-covariance-numpy & AMYLOSE/Rice\_Amylose\_313\_YbasedSplit & 4.2924 \\
+PLS-standard-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.5713 \\
+AOM-global-nipals-materialized-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.5713 \\
+AOM-global-nipals-adjoint-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.5713 \\
+POP-nipals-materialized-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.4212 \\
+POP-nipals-adjoint-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.4212 \\
+AOM-global-simpls-materialized-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.5713 \\
+AOM-global-simpls-covariance-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.5713 \\
+POP-simpls-materialized-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.4207 \\
+POP-simpls-covariance-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.4207 \\
+AOM-soft-simpls-covariance-numpy & BEER/Beer\_OriginalExtract\_60\_KS & 0.5199 \\
+\end{longtable}
+
+\subsection{Smoke classification, partial run}
+\begin{table}[h]
+\centering
+\caption{Smoke classification on \texttt{ARABIDOPSIS\_CEFE/Genotype10\_250}. Other
+classification datasets in the smoke run hit a numerical
+non-convergence and are reported as exception rows in
+\texttt{results\_classification.csv}.}
+\begin{tabular}{lrrrr}
+\toprule
+Variant & Bal.\ Acc. & Macro-F1 & log-loss & ECE \\
+\midrule
+PLS-DA-standard & 0.247 & 0.224 & 2.199 & 0.047 \\
+AOM-PLS-DA-global-nipals-adjoint & 0.247 & 0.224 & 2.199 & 0.047 \\
+POP-PLS-DA-nipals-adjoint & 0.154 & 0.127 & 2.243 & 0.030 \\
+AOM-PLS-DA-global-simpls-covariance & 0.274 & 0.247 & 2.265 & 0.169 \\
+POP-PLS-DA-simpls-covariance & 0.208 & 0.166 & 2.263 & 0.118 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+%% =====================================================================
+\section{Dataset cards}\label{app:datasets}
+%% =====================================================================
+
+\subsection{Regression: ALPINE}
+ALPINE is a NIRS quantification cohort included in the TabPFN/NIRS
+benchmark. Train/test split is Kennard-Stone~\cite{kennard1969computer}
+(KS) on the predictor space. The dataset has $\sim$291 samples and
+moderate spectral dimensionality. Reference RMSEPs (master CSV):
+\PLS $\approx 0.062$, TabPFN-Raw $\approx 0.060$,
+TabPFN-opt $\approx 0.043$.
+
+\subsection{Regression: AMYLOSE (Rice amylose)}
+Rice amylose calibration with a $y$-based split. $\sim$313 samples;
+the response variable is a positive concentration. Reference RMSEPs:
+\PLS $\approx 1.91$, TabPFN-Raw $\approx 4.51$,
+TabPFN-opt $\approx 1.63$.
+
+\subsection{Regression: BEER}
+BEER calibration of original extract concentration with $\sim$60
+samples and a Kennard-Stone split. Reference RMSEPs: \PLS $\approx 0.38$,
+TabPFN-Raw $\approx 0.25$, TabPFN-opt $\approx 0.13$.
+
+\subsection{Classification: ARABIDOPSIS CEFE genotype}
+Multi-class genotype classification with $\sim$250 samples and 10
+classes (Genotype10\_250). Used as a controlled, balanced toy cohort for
+the classification protocol.
+
+%% =====================================================================
+\section{Operator parameter choices}\label{app:operators}
+%% =====================================================================
+
+\subsection{Whittaker smoother}
+The Whittaker smoother~\cite{eilers2003perfect} solves
+$(\identity+\lambda \mathbf{D}^\top \mathbf{D})\,\xvec=\xvec$ where
+$\mathbf{D}$ is a second-difference operator. For a vector of length
+$p$, the operator can be expressed as a banded matrix and applied via
+\texttt{scipy.linalg.solve\_banded}. The compact bank includes one
+Whittaker smoother with $\lambda=10^{3}$; the extended bank adds
+$\lambda\in\{10,\,10^5\}$ to span a smoothing range. The bandedness is
+exploited to keep $\Smat_b=\Amat_b\Smat$ at $\mathcal{O}(pq)$.
+
+\subsection{Norris-Williams gap derivative}
+The Norris-Williams operator~\cite{norris1976influence} is the
+composition of a moving-average smoother and a finite-difference
+derivative with a fixed gap. We expose two presets:
+\begin{itemize}[leftmargin=2em]
+  \item \texttt{NorrisWilliams(gap=5, smoothing=5, order=1)}: moderate
+        smoothing, first derivative.
+  \item \texttt{NorrisWilliams(gap=11, smoothing=5, order=1)}: longer
+        gap, useful when peaks are broader.
+\end{itemize}
+The extended bank also contains an order-2 variant
+\texttt{NorrisWilliams(gap=5, smoothing=5, order=2)}.
+
+\subsection{Savitzky-Golay parameters}
+Bank entries cover $(11,2,0)$, $(21,3,0)$, $(11,2,1)$, $(21,3,1)$, and
+$(11,2,2)$ for $(\text{window},\text{polyorder},\text{deriv})$. These
+parameter triples cover the practical range used in NIRS without
+introducing redundant entries that the bank-selection mechanism would
+ignore in any case.
+
+\subsection{Detrend projections}
+The detrend operator with degree $d$ projects each row onto the
+orthogonal complement of the polynomial subspace
+$\mathrm{span}\{1,t,\dots,t^d\}$ where $t$ is a normalised wavelength
+axis. Bank entries are $d=1$ (linear detrend) and $d=2$ (quadratic
+detrend). These are strict linear operators in our sense because the
+projection matrix is fixed once $p$ is fixed.
+
+%% =====================================================================
+\section{Implementation notes}\label{app:impl}
+%% =====================================================================
+
+\paragraph{Banded vs.\ dense matrices.}
+We never instantiate the dense $p\times p$ matrix when an operator
+admits a cheap convolution implementation. Each operator class
+overrides \verb|_apply_cov_impl| (apply $\Amat$ to columns of the
+cross-covariance) and \verb|_adjoint_vec_impl| (apply $\Amat^\top$ to a
+vector or matrix). Materialised matrices are computed only when the
+operator is exercised by the materialised \NIPALS reference engine.
+
+\paragraph{Backends.}
+The numpy backend is the reference. The Torch backend mirrors the
+numpy semantics with \verb|torch.float32| or \verb|torch.float64|
+tensors and exposes the same engines (\verb|simpls_covariance|,
+\verb|nipals_adjoint|, \verb|superblock_simpls|). The unit tests
+assert numerical equivalence under tight tolerances.
+
+\paragraph{Result schema.}
+Every benchmark row carries the master \verb|RESULT_COLUMNS| schema
+plus the AOM-specific diagnostic columns
+\verb|selected_operator_sequence_json| and
+\verb|selected_operator_scores_json|. This keeps result files
+joinable across variants and, when the master CSV is available,
+joinable to TabPFN reference rows.
+
+\bibliographystyle{plain}
+\bibliography{../manuscript/references}
+
+\end{document}
