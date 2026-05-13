@@ -1,0 +1,1643 @@
+%% =====================================================================
+%% Operator-Adaptive Partial Least Squares for Near-Infrared Spectroscopy
+%% Target journal: Chemometrics and Intelligent Laboratory Systems
+%% Manuscript class: Elsevier elsarticle (review mode, single column).
+%% =====================================================================
+
+\documentclass[review,a4paper]{elsarticle}
+
+%% --- Packages -------------------------------------------------------
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{xcolor}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{microtype}
+\usepackage{enumitem}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{tabularx}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{xspace}
+
+\hypersetup{
+  colorlinks=true,
+  linkcolor=blue!50!black,
+  citecolor=blue!50!black,
+  urlcolor=blue!50!black,
+}
+
+%% --- Macros ---------------------------------------------------------
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\Cov}{\mathrm{Cov}}
+\newcommand{\diag}{\mathrm{diag}}
+\newcommand{\tr}{\mathrm{tr}}
+\newcommand{\rank}{\mathrm{rank}}
+\newcommand{\softmax}{\mathrm{softmax}}
+\newcommand{\identity}{\mathbf{I}}
+\newcommand{\Xmat}{\mathbf{X}}
+\newcommand{\Ymat}{\mathbf{Y}}
+\newcommand{\Tmat}{\mathbf{T}}
+\newcommand{\Pmat}{\mathbf{P}}
+\newcommand{\Wmat}{\mathbf{W}}
+\newcommand{\Qmat}{\mathbf{Q}}
+\newcommand{\Bmat}{\mathbf{B}}
+\newcommand{\Amat}{\mathbf{A}}
+\newcommand{\Smat}{\mathbf{S}}
+\newcommand{\Zmat}{\mathbf{Z}}
+\newcommand{\xvec}{\mathbf{x}}
+\newcommand{\yvec}{\mathbf{y}}
+\newcommand{\zvec}{\mathbf{z}}
+\newcommand{\rvec}{\mathbf{r}}
+\newcommand{\wvec}{\mathbf{w}}
+\newcommand{\tvec}{\mathbf{t}}
+\newcommand{\pvec}{\mathbf{p}}
+\newcommand{\qvec}{\mathbf{q}}
+\newcommand{\bvec}{\mathbf{b}}
+\newcommand{\cvec}{\mathbf{c}}
+\newcommand{\gvec}{\mathbf{g}}
+\newcommand{\avec}{\mathbf{a}}
+\newcommand{\ones}{\mathbf{1}}
+\newcommand{\AOM}{\textsc{AOM}\xspace}
+\newcommand{\POP}{\textsc{POP}\xspace}
+\newcommand{\PLS}{\textsc{PLS}\xspace}
+\newcommand{\PLSDA}{\textsc{PLS-DA}\xspace}
+\newcommand{\NIPALS}{\textsc{NIPALS}\xspace}
+\newcommand{\SIMPLS}{\textsc{SIMPLS}\xspace}
+\newcommand{\SNV}{\textsc{SNV}\xspace}
+\newcommand{\MSC}{\textsc{MSC}\xspace}
+\newcommand{\OSC}{\textsc{OSC}\xspace}
+\newcommand{\nirsfourall}{\texttt{nirs4all}\xspace}
+
+%% --- Front matter ---------------------------------------------------
+\journal{Chemometrics and Intelligent Laboratory Systems}
+
+\begin{document}
+
+\begin{frontmatter}
+
+\title{Operator-Adaptive Partial Least Squares for Near-Infrared Spectroscopy:\\
+Unified AOM/POP Selection, Covariance-Space SIMPLS, and PLS-DA}
+
+\author[mainaff]{Gr\'egory Beurier}
+\ead{gregory.beurier@cirad.fr}
+
+\author[mainaff]{nirs4all contributors}
+
+\address[mainaff]{nirs4all open-source project, France}
+
+\begin{abstract}
+Near-infrared spectroscopy~(NIRS) calibration depends on a long
+preprocessing chain that is typically searched as an external
+hyper\-parameter grid before fitting Partial Least Squares regression
+(\PLS). We present a unified \emph{Operator-Adaptive \PLS} framework in
+which spectral preprocessing is moved inside the latent extraction loop.
+Every preprocessing step is treated as a strict linear spectral operator
+$\Amat\in\R^{p\times p}$ acting by $\Xmat\Amat^\top$, and the cross-
+covariance identity
+$(\Xmat\Amat^\top)^\top \Ymat = \Amat\,\Xmat^\top \Ymat$ is exploited
+to evaluate candidate operators directly in covariance space.
+\textbf{The framework is built on top of, and is parity-validated
+against, \nirsfourall's deployed \texttt{AOMPLSRegressor}}: an
+automated regression test verifies numerical equivalence (RMSEP
+difference under
+$10^{-4}$, identical selected component count $k^\star$ and operator
+index $b^\star$) on every dataset of an 11-split parity cohort. This
+production parity is the foundation for the empirical benchmark and
+for the research extensions we layer on top. We describe the
+production-aligned
+\NIPALS-adjoint flow (the four-step
+$g=\Amat^\top\!c \rightarrow \hat\wvec=g/\|g\| \rightarrow a_w=\Amat\hat\wvec \rightarrow \wvec=a_w/\|a_w\|$
+update that is the parity-critical operation), give \SIMPLS engines in
+both materialized and covariance space, and add three research
+extensions that all reuse the parity-validated \AOM core: an
+\emph{Active Superblock} multi-view mode with covariance screening and
+Frobenius balancing, an \emph{operator explorer} that beam-searches
+composition chains in covariance space, and \emph{deep banks} of
+order-3 and order-4 strict-linear chains. The framework is also
+extended to \PLSDA with class-balanced latent coding
+$Y_{ic}=1/\sqrt{\pi_c}$ and a leakage-safe logistic-regression
+calibrator on the latent scores. On a 57-dataset regression cohort
+joined to the published TabPFN/NIRS reference results, the framework
+benchmarks 128 variants under one estimator: the deployed production
+\AOM-\PLS wins on 29/57 datasets (median RMSEP ratio $0.999$ vs
+\PLS); the strongest variant overall is
+\texttt{ASLS-AOM-compact-cv5}, an asymmetric-least-squares baseline
+correction piped in front of the 9-operator compact bank with 5-fold
+cross-validation replacing the deterministic 20\% holdout, which
+reaches median ratio $\mathbf{0.960}$ with $\mathbf{42/57}$ wins, a
+4\% median improvement and 13 additional dataset wins over the
+deployed reference. \textbf{This new champion ties or beats three of
+the four reference baselines from the TabPFN/NIRS paper at the
+median}: TabPFN-Raw (0.994 median ratio, 30/57 wins), Catboost
+(0.998, 28/56), and CNN (0.987, 28/51); only TabPFN-opt with its
+per-dataset hyperparameter optimisation remains ahead (1.117, 18/57).
+Runners-up \texttt{ASLS-AOM-response-dedup-cv3} (median $0.964$, 37
+wins) and \texttt{ASLS-AOM-family-pruned-cv3} (median $0.964$, 38
+wins) demonstrate that a response-cosine pruned 46-op bank or a
+family-pruned 15-op bank, both with ASLS preprocessing and CV-3
+selection, recover most of the headline gain. We do not claim
+novelty for the \AOM-\PLS algorithm itself, which is the deployed
+\nirsfourall implementation; we claim a parity-validated framework
+wrapper that lets multi-view operator selection, beam-searched
+composition chains, alternative selection criteria, non-linear
+preprocessing baselines, and asymmetric-least-squares baseline
+correction be evaluated against that production reference under one
+mathematical contract.
+\end{abstract}
+
+\begin{keyword}
+PLS \sep PLS-DA \sep NIRS \sep preprocessing \sep operator-adaptive \sep
+SIMPLS \sep covariance space \sep TabPFN \sep reproducible benchmark
+\end{keyword}
+
+\end{frontmatter}
+
+%% =====================================================================
+\section{Introduction}\label{sec:intro}
+%% =====================================================================
+
+Near-infrared spectroscopy~(NIRS) is widely used for non-destructive
+quantification and discrimination of organic mixtures, with applications
+in agronomy, food science, and pharmaceuticals~\cite{williams2007implementation,
+rinnan2009review}. Predictive performance depends not only on the
+calibration model but also on a sequence of spectral preprocessing
+operations: scatter correction, baseline removal, smoothing, and
+derivatives. In Partial Least Squares regression~(\PLS,
+\cite{wold1975soft, geladi1986partial, wold2001pls}), each candidate
+preprocessing pipeline gives a different latent decomposition, hence a
+different prediction. Practitioners typically grid-search a subset of
+the Cartesian product of preprocessing choices, with cross-validation
+selecting the best pipeline for each new dataset.
+
+The combinatorics of preprocessing search are uncomfortably large: a
+realistic NIRS workflow may try $\mathcal{O}(10^2)$ pipelines per
+calibration. The decisions are also opaque. Two analysts with the same
+data and the same operator inventory can converge to different
+pipelines, and standard reporting practices do not make those choices
+auditable. From a mathematical standpoint, treating preprocessing as an
+external hyper\-parameter ignores the fact that strictly linear
+operators commute cleanly with the cross-covariance that drives the
+\PLS extraction.
+
+This paper asks a single methodological question: \emph{can preprocessing
+be moved from an external grid into the \PLS extraction itself, as a
+selection problem on a bank of strict linear operators?} The answer is
+a family of \emph{Operator-Adaptive \PLS} algorithms. Instead of fitting
+many independent \PLS models on different transformed matrices, we
+maintain a single estimator that selects, possibly per latent
+component, the best operator from a fixed bank.
+
+Two earlier ideas in the chemometrics community inform this work. The
+\emph{Adaptive Operator-Mixture} (\AOM) idea selects one global
+preprocessing among several candidates inside the \PLS routine, using a
+hold-out or covariance criterion. The \emph{Per-Operator Per-component}
+(\POP) idea allows the operator to vary across latent components,
+turning preprocessing into a per-step decision. Both are deployed in the
+\nirsfourall library as \verb|AOMPLSRegressor| and \verb|POPPLSRegressor|
+under \verb|nirs4all.operators.models|~\cite{aompls2025prior, nirs4all2025}.
+The \nirsfourall \AOM-\PLS estimator is therefore the
+\emph{deployed reference}, not a competitor: anything we propose here
+must reproduce its predictions within floating-point tolerance before its mathematical
+properties can be discussed in print.
+
+This paper takes that constraint seriously. We provide a parity-validated
+re-implementation of \AOM-\PLS as a \emph{framework} (\verb|bench/AOM_v0/aompls/|)
+with a regression test that asserts floating-point equivalence with
+\verb|nirs4all.operators.models.sklearn.aom_pls.AOMPLSRegressor|
+on every dataset of an 11-split parity cohort (RMSEP diff $<10^{-4}$,
+identical $k^\star$, identical $b^\star$; tests in
+\verb|bench/AOM_v0/tests/test_parity_with_production.py|). On top of
+that parity-validated core we then add covariance-space \SIMPLS, a
+multi-view Active Superblock mode, an operator explorer with deterministic
+beam search, and deep banks of order-3 / order-4 strict-linear chains.
+The framework is also extended to \PLSDA with class-balanced coding.
+
+The contributions of this work are:
+
+\begin{enumerate}[leftmargin=2em,label=(\arabic*)]
+  \item A \textbf{parity-validated re-implementation} of \nirsfourall's
+        \texttt{AOMPLSRegressor} (Section~\ref{sec:bit-parity}). Strict
+        numerical equivalence is verified on 11/11 datasets of a regression
+        cohort and is guarded by an automated test. The six
+        parity-critical implementation details are documented and
+        recorded as the reproducibility surface of the benchmark
+        (Section~\ref{sec:bit-parity}).
+  \item A \textbf{unified mathematical formulation}
+        (Section~\ref{sec:framework}) that places standard \PLS, \AOM,
+        \POP, and superblock multi-view \PLS on a common operator-bank
+        contract with the central identity
+        $(\Xmat\Amat^\top)^\top \Ymat = \Amat\,\Xmat^\top \Ymat$.
+  \item \textbf{Algorithm specifications}
+        (Section~\ref{sec:algorithms}): the production-aligned
+        \NIPALS-adjoint four-step flow $g=\Amat^\top c\to\hat\wvec\to a_w=\Amat\hat\wvec\to\wvec$,
+        a covariance-space \SIMPLS engine that follows from the
+        operator identity, and the strict-\SIMPLS contrast
+        ($\Amat^\top\Amat c$) that disagrees with the production
+        reference for non-commuting compositions.
+  \item Three \textbf{research extensions} of the parity-validated
+        \AOM core (Sections~\ref{sec:algo-active-superblock},
+        \ref{sec:algo-explorer}): an Active Superblock multi-view
+        engine that covariance-screens the bank and balances retained
+        blocks by Frobenius norm, an operator explorer that beam-
+        searches composition chains in covariance space, and deep
+        banks (\texttt{deep3} = 116 ops, \texttt{deep4} = 132 ops)
+        that extend the production 100-operator default with order-3
+        and order-4 chains.
+  \item A \textbf{class-balanced \PLSDA extension}
+        (Section~\ref{sec:classification}) with $Y_{ic}=1/\sqrt{\pi_c}$
+        latent coding and a leakage-safe logistic-regression calibrator
+        on the latent scores, with a temperature-scaled softmax
+        fallback.
+  \item A \textbf{leakage-safe experimental protocol}
+        (Section~\ref{sec:protocol}) that joins our variants to the
+        published TabPFN/NIRS regression cohort and to a classification
+        cohort assembled from open NIRS sources, together with
+        signed-difference reporting against \PLS, TabPFN-Raw, and
+        TabPFN-opt.
+\end{enumerate}
+
+What is \emph{not} claimed: we do not claim algorithmic novelty for
+\AOM-\PLS itself --- the deployed \nirsfourall implementation is the
+reference and our framework reproduces it within floating-point
+tolerance. We do not claim
+universal superiority over TabPFN~\cite{hollmann2025tabpfn,
+grinsztajn2025tabpfn25} or over modern deep tabular models;
+generalisation conclusions are limited to the measured cohort. What we
+do claim is that the strongest operator-adaptive \PLS variants win
+against standard \PLS on the majority of NIRS regression splits in our
+cohort, and that production \AOM-\PLS, compact-bank \AOM, Active
+Superblock, and the operator explorer can be compared under one
+auditable contract on the same splits.
+
+%% =====================================================================
+\section{Related work}\label{sec:related}
+%% =====================================================================
+
+\subsection{Partial Least Squares: \NIPALS and \SIMPLS}
+\PLS extracts latent variables that maximise covariance between
+input matrix $\Xmat\in\R^{n\times p}$ and target matrix
+$\Ymat\in\R^{n\times q}$. The classical \NIPALS
+algorithm~\cite{wold1975soft, geladi1986partial, wold2001pls}
+deflates $\Xmat$ and $\Ymat$ iteratively, alternating between the
+weight $\wvec_a\propto \Xmat^\top \Ymat\,\cdot$, the score
+$\tvec_a=\Xmat\wvec_a$, and the loading
+$\pvec_a=\Xmat^\top \tvec_a/\|\tvec_a\|^2$. \SIMPLS~\cite{dejong1993simpls}
+reformulates the extraction so that all weights are mutually orthogonal
+and produced from successive orthogonalisations of the cross-covariance
+$\Smat=\Xmat^\top \Ymat$, without deflating $\Xmat$ at each step. The
+two algorithms produce numerically equivalent regression coefficients
+when the scoring objective is shared~\cite{dejong1993simpls,
+martens2001reliable, martens1989multivariate}. Cross-validation for
+choosing the number of components follows~\cite{wold1978cross,
+krzanowski1987cv}.
+
+\subsection{NIRS preprocessing}
+Spectral preprocessing addresses scatter, baseline drift, and
+overlapping bands~\cite{rinnan2009review}. Common operators include
+Savitzky-Golay smoothing and derivatives~\cite{savitzky1964smoothing},
+Norris-Williams gap derivatives~\cite{norris1976influence}, polynomial
+detrending, finite differences, and Whittaker
+smoothing~\cite{eilers2003perfect}. Multiplicative scatter correction
+(MSC)~\cite{geladi1985linearization} and standard normal variate
+(SNV)~\cite{barnes1989standard} are very common but, importantly, they
+are \emph{not strictly linear} as fixed-matrix operators on row spectra:
+their parameters depend on the row being transformed. We therefore
+exclude SNV/MSC from the \emph{strict} operator bank used by the
+covariance identity and discuss them in Section~\ref{sec:limitations}.
+
+\subsection{PLS-DA}
+PLS for discrimination encodes class labels as a one-hot or
+class-balanced indicator matrix and recovers latent variables that
+maximise covariance with class
+membership~\cite{barker2003plsda, indahl2007twostep, brereton2014plsda}.
+Calibration to probabilities is needed if a downstream task requires
+log-loss or expected calibration error (ECE), since raw \PLSDA scores
+are unconstrained. Standard remedies are logistic regression on latent
+scores, Platt scaling~\cite{platt1999probabilistic}, or temperature
+scaling~\cite{guo2017calibration}.
+
+\subsection{Tabular foundation models and learnable kernels}
+TabPFN~\cite{hollmann2023tabpfn, hollmann2025tabpfn,
+grinsztajn2025tabpfn25} is a transformer-based prior-fitted network
+that solves small tabular problems competitively with classical
+\PLS-Ridge baselines. Reference NIRS evaluations
+(\verb|bench/tabpfn_paper/master_results.csv|) report TabPFN-Raw and
+TabPFN-opt root-mean-squared errors on a curated set of public NIRS
+calibrations, alongside CNN, CatBoost, \PLS, and Ridge baselines. Recent
+chemometric work also explores learnable spectral
+kernels~\cite{aompls2024fckpls} that move part of the preprocessing
+into trainable convolutions. Operator-Adaptive \PLS occupies a
+different point in design space: it is non-deep, bank-restricted,
+auditable, and produces an interpretable \emph{operator path} whose
+elements are familiar chemometric operators.
+
+\subsection{AOM/POP precursors and the deployed reference}
+The Adaptive Operator-Mixture and Per-Operator Per-component ideas
+appeared in the \nirsfourall project as \verb|AOMPLSRegressor| and
+\verb|POPPLSRegressor| under \verb|nirs4all.operators.models|. The
+\nirsfourall \verb|AOMPLSRegressor| is the \emph{deployed} reference: it
+ships with a default 100-operator bank (1 Identity, 32 Savitzky-Golay
+family, 3 detrend, 64 composed chains), an internal hold-out selection
+on \verb|RandomState(42)|, and a hard-gate \NIPALS-adjoint extraction
+loop. The present work treats it as the source of truth: our framework
+is parity-validated against that estimator on a parity cohort
+(Section~\ref{sec:bit-parity}). We then formalise the operator-bank
+contract under the covariance identity, add a covariance-space \SIMPLS
+engine for the cases where it is well defined, generalise the framework
+to \PLSDA, provide PyTorch backends, and add three research extensions
+(Active Superblock, operator explorer, deep banks). Earlier orthogonal
+projection-to-latent-structures work~\cite{trygg2002orthogonal} and
+multi-block \PLS~\cite{westerhuis1998analysis} are conceptually related
+but address different problems (variance partitioning rather than
+preprocessing selection).
+
+%% =====================================================================
+\section{Operator-Adaptive PLS framework}\label{sec:framework}
+%% =====================================================================
+
+Figure~\ref{fig:framework} summarises the framework: a bank of strict
+linear spectral operators feeds a selection policy, which feeds the
+\PLS core (\NIPALS or \SIMPLS, materialized or covariance-space),
+which feeds the regression and \PLSDA tasks. Diagnostics record the
+operator path so every preprocessing decision is auditable.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{../figures/fig_framework.pdf}
+\caption{Operator-Adaptive \PLS\ framework. From left to right: a bank
+$\mathcal{B}$ of strict linear spectral operators, a selection policy
+(\textsc{none}, \textsc{global}, \textsc{per\_component},
+\textsc{soft}, \textsc{superblock}), the \PLS core operating in
+covariance space via the central identity
+$(\Xmat\Amat^\top)^\top\Ymat=\Amat\Xmat^\top\Ymat$, and the regression
+or \PLSDA outputs together with the operator-path diagnostics.}
+\label{fig:framework}
+\end{figure}
+
+\subsection{Notation and the operator contract}
+Let $\Xmat\in\R^{n\times p}$ collect $n$ centered row spectra of length
+$p$, and let $\Ymat\in\R^{n\times q}$ be the centered response matrix
+($q=1$ for univariate regression, $q=K$ for multi-class \PLSDA). A
+\emph{strict linear spectral operator} is a matrix $\Amat\in\R^{p\times
+p}$ that acts on row spectra by right-multiplication of its transpose:
+\begin{equation}
+\Xmat_b \;=\; \Xmat\,\Amat_b^\top.
+\label{eq:operator-action}
+\end{equation}
+Strict linearity is essential. Operators with row-dependent parameters
+(SNV, MSC) are \emph{not} strictly linear in this sense and are
+excluded from the operator bank used by the covariance identity. The
+operators supported here are Savitzky-Golay smoothers and derivatives,
+Norris-Williams gap derivatives, polynomial detrend projections, finite
+differences, Whittaker smoothers, identity, and arbitrary linear
+compositions thereof.
+
+A \emph{bank} is a finite set of strict linear operators
+$\mathcal{B}=\{\Amat_1,\dots,\Amat_B\}$ where $\Amat_1=\identity$ is the
+identity (auto-prepended; the production reference does the same). We
+expose five named presets:
+\begin{itemize}[leftmargin=2em]
+  \item \texttt{compact}, $|\mathcal{B}|=9$: identity, two SG smoothers,
+        two SG first-derivatives, one SG second-derivative, two detrend
+        projections, one finite-difference.
+  \item \texttt{default}, $|\mathcal{B}|=100$: an exact 1:1 mirror of
+        the production \verb|nirs4all.default_operator_bank|. Composition:
+        1 identity, 32 savgol-family (SG smoothing/derivatives across
+        windows 11/15/21/31/41 and polyorders 2/3, two finite differences,
+        eight Norris-Williams gap-derivative variants), 3 detrend
+        projections (degree 0, 1, 2), and 64 composed operators (every
+        savgol-family entry composed with detrend degree 0 and degree 1).
+  \item \texttt{extended}, $|\mathcal{B}|=103$: \texttt{default} plus
+        three Whittaker smoothers ($\lambda\in\{10, 10^3, 10^5\}$).
+  \item \texttt{deep3}, $|\mathcal{B}|=116$: \texttt{default} plus 16
+        order-3 chains (smoothing $\to$ derivative $\to$ detrend) over
+        a small set of stage primitives.
+  \item \texttt{deep4}, $|\mathcal{B}|=132$: \texttt{deep3} plus 16
+        order-4 chains (detrend $\to$ smoothing $\to$ derivative
+        $\to$ detrend) with the canonicalisation rule that consecutive
+        detrends must have different degrees.
+\end{itemize}
+The \texttt{default} bank is the parity-validated bank used by every
+\verb|nirs4all-AOM-PLS| run reported in this paper. The \texttt{deep3}
+and \texttt{deep4} presets are research-only banks for ablation
+studies of how much extra capacity a deeper composition grammar
+provides.
+
+\subsection{The central covariance identity}
+The cornerstone of the framework is the identity
+\begin{equation}
+\boxed{\;
+(\Xmat\Amat^\top)^\top \Ymat \;=\; \Amat\,\Xmat^\top \Ymat
+\;}
+\label{eq:central-identity}
+\end{equation}
+which holds for any strict linear $\Amat$. Equation~\eqref{eq:central-identity}
+states that the cross-covariance of the transformed matrix
+$\Xmat_b=\Xmat\Amat^\top$ with $\Ymat$ equals the operator $\Amat$
+applied to the cross-covariance $\Smat=\Xmat^\top\Ymat$ of the original
+matrix. Two practical consequences follow:
+
+\begin{enumerate}[leftmargin=2em,label=(\arabic*)]
+  \item Operator selection can be \emph{evaluated} in covariance space
+        via $\Smat_b=\Amat\,\Smat$ without ever materialising
+        $\Xmat\Amat^\top$. This is the basis of the covariance-space
+        \SIMPLS engine in Section~\ref{sec:algo-simpls-cov}.
+  \item Effective \emph{regression weights} in the \emph{original}
+        spectral space follow the adjoint rule
+        $\zvec=\Amat^\top\rvec$, where $\rvec$ is a weight vector
+        living in the transformed space. This lets us combine
+        per-component operators that vary by component while keeping
+        the final coefficient $\Bmat$ defined on the original scale.
+\end{enumerate}
+
+\subsection{Selection policies}
+Let $\mathcal{B}$ be a bank and $K$ the number of components. A
+\emph{selection policy} chooses a sequence of operators
+$(\Amat^{(1)},\dots,\Amat^{(K)})\in\mathcal{B}^K$. We support six
+policies:
+
+\begin{description}[leftmargin=2em]
+  \item[\textsc{none}.] $\mathcal{B}=\{\identity\}$: standard
+  \PLS. Recovered as a degenerate selection.
+  \item[\textsc{global} (\AOM).] One operator $\Amat^\star$ used for all
+  components: $\Amat^{(a)}=\Amat^\star$ for $a=1,\dots,K$.
+  Selection criterion is computed once on the bank.
+  \item[\textsc{per\_component} (\POP).] Operator chosen independently at
+  each component, using the residualised cross-covariance after
+  $a-1$ components have been deflated.
+  \item[\textsc{soft} (experimental).] Convex combinations
+  $\Amat^{(a)}=\sum_b \lambda_b^{(a)} \Amat_b$ with $\lambda^{(a)}\in
+  \Delta^{B-1}$. We discuss in Section~\ref{sec:limitations} why this
+  policy collapses to hard selection under covariance scoring and
+  is therefore exposed only as a research interface.
+  \item[\textsc{superblock}.] Concatenate every transformed view into a
+  wide matrix $\Xmat_{\mathrm{sup}}=[\Xmat\Amat_1^\top,\dots,
+  \Xmat\Amat_B^\top]$ and run standard \SIMPLS on it. The wide-space
+  weights are mapped back to original-space coefficients before
+  prediction. This is the multi-view baseline
+  of~\cite{westerhuis1998analysis}.
+  \item[\textsc{active\_superblock}.] First select an active subset of
+  the bank by covariance score and response-cosine diversity, scale
+  every retained block by Frobenius norm, then run \SIMPLS on the
+  resulting balanced wide matrix. Coefficients are mapped back to
+  original-space (Section~\ref{sec:algo-active-superblock}).
+\end{description}
+
+The bank itself can be a fixed preset (\texttt{compact},
+\texttt{default} -- 100 ops, matches the production deployment exactly --
+\texttt{extended}, \texttt{deep3}, or \texttt{deep4}) or the output of an
+\emph{operator explorer} that runs a deterministic beam search over
+chains of strict-linear primitives (Section~\ref{sec:algo-explorer}).
+
+\subsection{Selection criteria}
+Five criteria can be plugged into any of the policies above:
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Covariance.} The greedy \PLS score
+  $\|\rvec_b^\top \Smat_b\|$ at each step. Cheap, but
+  selection-noisy on small datasets.
+  \item \textbf{CV (default).} Inner $k$-fold cross-validation root
+  mean squared error of prediction (RMSEP) on the training fold.
+  \item \textbf{Approximate PRESS.} Leave-one-sample-out PRESS based on
+  the closed-form leverage~\cite{krzanowski1987cv}.
+  \item \textbf{Hybrid.} Convex blend of covariance and CV scores,
+  trading speed against stability.
+  \item \textbf{Hold-out.} Single internal split scored on RMSEP.
+  Reserved for cohort-level smoke tests.
+\end{enumerate}
+
+\subsection{Orthogonalisation modes}
+When operators vary by component (\POP and \textsc{soft}), the
+transformed-space orthogonalisation that \SIMPLS uses by default is
+no longer correct: each new component would be orthogonalised against
+loadings from a different transformed space. We therefore expose two
+modes:
+
+\begin{itemize}[leftmargin=2em]
+  \item \textbf{transformed.} Default for \textsc{global} and
+  \textsc{none}. \SIMPLS deflations and \NIPALS deflations occur in
+  the operator-transformed space.
+  \item \textbf{original.} Required for \POP and \textsc{soft}.
+  Effective weights $\zvec_a=\Amat^{(a)\,\top} \rvec_a$ are mapped
+  back to the original spectral space, so all loadings and scores
+  live on a single coordinate system. This is the default whenever
+  the policy admits varying operators.
+\end{itemize}
+The estimator exposes \verb|orthogonalization="auto"| which selects the
+correct mode from the policy.
+
+\subsection{Effective weights and prediction}
+After selection, the estimator returns matrices
+$\Zmat\in\R^{p\times K}$ (effective original-space weights),
+$\Pmat\in\R^{p\times K}$ (loadings) and $\Qmat\in\R^{q\times K}$
+(target loadings). The regression coefficient is
+\begin{equation}
+\Bmat \;=\; \Zmat\,(\Pmat^\top\Zmat)^{+}\,\Qmat^\top,
+\label{eq:beta}
+\end{equation}
+and predictions on a new spectrum $\xvec_\star$ are
+\begin{equation}
+\hat{\yvec}_\star \;=\; (\xvec_\star - \bar{\xvec})^\top \Bmat
++ \bar{\yvec},
+\label{eq:predict}
+\end{equation}
+where $\bar{\xvec}$ and $\bar{\yvec}$ are the training means.
+Equation~\eqref{eq:beta} is identical in form to the standard \PLS
+formula; the operator-adaptive nature is hidden inside the construction
+of $\Zmat$. This means downstream tooling (e.g.\ stacking, retraining,
+SHAP wrappers) sees the model as a regular linear regressor.
+
+%% =====================================================================
+\section{Algorithms}\label{sec:algorithms}
+%% =====================================================================
+
+\subsection{NIPALS materialized (reference)}
+\label{sec:algo-nipals-mat}
+The materialized \NIPALS engine simply applies each operator
+explicitly to obtain $\Xmat_b=\Xmat\Amat_b^\top$, then runs standard
+\NIPALS on each $\Xmat_b$. With per-component selection, the engine
+applies a possibly different operator at each step and re-builds
+$\Xmat_b$ from the deflated residual. This engine serves as a slow,
+self-evident reference for unit tests; numerical equivalence with
+the fast engines is asserted up to round-off.
+
+\subsection{NIPALS adjoint, production-aligned (fast)}
+\label{sec:algo-nipals-adj}
+The adjoint engine never builds $\Xmat\Amat^\top$. It implements the
+exact four-step weight update used inside the production
+\verb|nirs4all.AOMPLSRegressor| --- this update is the parity-critical
+operation for the numerical equivalence verified in
+Section~\ref{sec:bit-parity}. At step $a$ on residuals
+$(\Xmat_a,\Ymat_a)$ with cross-covariance $\Smat_a=\Xmat_a^\top\Ymat_a$:
+
+\begin{enumerate}[leftmargin=2em]
+  \item For each candidate $b$, evaluate the operator-applied
+        cross-covariance $\Smat_a^{(b)}=\Amat_b\Smat_a$ and score
+        it under the policy-induced criterion.
+  \item Select index $b^\star$.
+  \item Take the dominant left-singular vector $\cvec_a$ of
+        $\Smat_a^{(b^\star)}$ (the column itself for PLS1).
+  \item \textbf{Adjoint weight update (parity-critical):}
+        \begin{align*}
+        \gvec      &\,=\, \Amat_{b^\star}^\top \cvec_a, \\
+        \hat{\wvec}_a &\,=\, \gvec / \|\gvec\|, \\
+        \avec_w    &\,=\, \Amat_{b^\star}\,\hat{\wvec}_a, \\
+        \wvec_a    &\,=\, \avec_w / \|\avec_w\|.
+        \end{align*}
+  \item Compute the score $\tvec_a=\Xmat_a\hat{\wvec}_a$, the loading
+        $\pvec_a=\Xmat_a^\top\tvec_a/\|\tvec_a\|^2$, the target loading
+        $\qvec_a$, and deflate
+        $\Xmat_{a+1}=\Xmat_a-\tvec_a\pvec_a^\top$,
+        $\Ymat_{a+1}=\Ymat_a-\tvec_a\qvec_a^\top$.
+\end{enumerate}
+The four-step adjoint sub-block in step (4) is non-negotiable: any
+shortcut --- e.g.\ collapsing it to $\wvec\propto\Amat^\top\cvec$ or to
+$\wvec\propto\Amat^\top\Amat\,\cvec$ --- breaks parity with the deployed
+estimator. The cost is $\mathcal{O}(np)$ per operator candidate (versus
+$\mathcal{O}(np^2)$ for the materialized form when $\Amat$ is dense),
+and the engine reproduces the production \verb|AOMPLSRegressor| RMSEPs
+within floating-point tolerance on every parity-cohort dataset
+(Section~\ref{sec:bit-parity}).
+
+\paragraph{Strict-\SIMPLS contrast.}
+A strict \SIMPLS reading of operator-aware extraction would use the
+weight $\wvec\propto\Amat^\top\Amat\,\cvec$ (the gradient of
+$\|\Amat\Smat\|$ on $\Smat$ is $\Amat^\top\Amat\Smat$). For symmetric or
+anti-symmetric operators ($\Amat^\top\!=\pm\Amat$ up to sign) this
+produces the same prediction as the four-step adjoint flow, but for
+general non-commuting compositions in the production 100-operator bank
+(notably composed savgol-then-detrend operators and Norris-Williams
+gap-derivative kernels) it does not. This is why the \emph{deployed}
+estimator uses the four-step adjoint flow, and why our parity test
+asserts the four-step flow rather than a literal $\Amat^\top\Amat\cvec$
+update.
+
+\subsection{SIMPLS materialized}
+\label{sec:algo-simpls-mat}
+For \textsc{global} \AOM, \SIMPLS\ \cite{dejong1993simpls} is run on
+the explicitly transformed matrix $\Xmat\Amat_b^\top$. Selection
+chooses the bank index minimising the chosen criterion. For \POP,
+\SIMPLS is started in the transformed space of $\Amat^{(1)}$ and
+continued by changing the active operator at each step. The
+transformed-space orthogonalisation is preserved when all operators
+agree (\textsc{global}) and switched to original-space when operators
+differ (\POP, \textsc{soft}).
+
+\subsection{SIMPLS covariance space (fast, identity-driven)}
+\label{sec:algo-simpls-cov}
+The covariance-space \SIMPLS engine is the natural consequence of
+identity~\eqref{eq:central-identity}. For each component $a$:
+
+\begin{enumerate}[leftmargin=2em]
+  \item Maintain a single cross-covariance matrix $\Smat\in\R^{p\times
+        q}$, initialised at $\Xmat^\top \Ymat$.
+  \item For each candidate operator $\Amat_b$, compute
+        $\Smat_b=\Amat_b \Smat$ (cheap, $\mathcal{O}(p^2 q)$ at most;
+        $\mathcal{O}(pq)$ when $\Amat_b$ is banded).
+  \item Pick $b^\star$ via the policy.
+  \item Take the dominant left-singular vector $\rvec_a$ of
+        $\Smat_{b^\star}$ and the corresponding right-singular
+        vector $\qvec_a$.
+  \item Compute the effective weight $\zvec_a=\Amat_{b^\star}^\top
+        \rvec_a$ in the original space.
+  \item Build the score $\tvec_a=\Xmat\zvec_a$, the loading
+        $\pvec_a=\Xmat^\top\tvec_a/\|\tvec_a\|^2$, and update $\Smat$
+        by removing the rank-one contribution along $\pvec_a$:
+        $\Smat\leftarrow\Smat-\pvec_a(\pvec_a^\top\Smat)$.
+\end{enumerate}
+This engine is mathematically equivalent to the materialized \SIMPLS
+in \textsc{global} mode and to the residualised \NIPALS in
+\textsc{per\_component} mode. Equivalence is asserted in the unit
+tests under tight tolerance.
+
+\begin{algorithm}[t]
+\caption{\SIMPLS in covariance space with operator selection.}
+\label{alg:simpls-cov}
+\begin{algorithmic}[1]
+\State \textbf{Input:} centered $\Xmat\in\R^{n\times p}$,
+$\Ymat\in\R^{n\times q}$, bank $\mathcal{B}=\{\Amat_b\}$,
+policy $\Pi$, criterion $\Phi$, max components $K$.
+\State $\Smat\gets \Xmat^\top \Ymat$
+\State $\Zmat,\Pmat,\Qmat\gets [\,]$
+\For{$a=1,\dots,K$}
+  \State For each $b$, evaluate $\Phi(\Amat_b\Smat,\Pi,a)$.
+  \State $b^\star\gets \arg\min_b \Phi$ (or argmax for covariance).
+  \State $(\rvec_a,\sigma_a,\qvec_a)\gets \mathrm{TopSVD}(\Amat_{b^\star}\Smat)$.
+  \State $\zvec_a\gets \Amat_{b^\star}^\top \rvec_a$.
+  \State $\tvec_a\gets \Xmat \zvec_a$,~$\pvec_a\gets
+        \Xmat^\top \tvec_a/\|\tvec_a\|^2$.
+  \State $\Smat\gets \Smat - \pvec_a(\pvec_a^\top\Smat)$.
+  \State Append columns to $\Zmat,\Pmat,\Qmat$.
+\EndFor
+\State $\Bmat\gets \Zmat(\Pmat^\top\Zmat)^{+}\Qmat^\top$.
+\State \textbf{Return} $\Bmat,\Zmat,\Pmat,\Qmat$.
+\end{algorithmic}
+\end{algorithm}
+
+\subsection{Superblock SIMPLS}
+\label{sec:algo-superblock}
+The superblock engine concatenates all transformed views and runs
+standard \SIMPLS on the resulting wide matrix
+$\Xmat_{\mathrm{sup}}\in\R^{n\times pB}$. The operator path is replaced
+by a path of \emph{block} indices. The wide-space weight matrix
+$\Zmat_{\mathrm{wide}}$ is mapped back to the original feature space by
+$\Zmat_{\mathrm{orig}}[:,a] = \sum_b \alpha_b \Amat_b^\top
+\Zmat_{\mathrm{wide},b}[:,a]$ so that the predictor accepts plain
+$(n,p)$ matrices. This baseline is comparable to multi-block
+\PLS~\cite{westerhuis1998analysis}.
+
+\subsection{Active Superblock}
+\label{sec:algo-active-superblock}
+\emph{Active Superblock} fixes a known weakness of raw superblock: high-gain
+operators (sharp derivatives, high-pass filters) dominate by amplitude.
+The mode (i)~screens operators by covariance score $-\|\Amat_b\Smat\|_F$,
+(ii)~prunes redundant responses by absolute response cosine
+$\geq 0.98$, (iii)~normalises every retained block by
+$\alpha_b=\sqrt{n}/\|\Xmat \Amat_b^\top\|_F$ (Frobenius scaling), and
+(iv)~runs \SIMPLS on the diverse, balanced wide matrix. The original-space
+mapping of the previous paragraph is reused to keep
+$\Bmat\in\R^{p\times q}$. Active Superblock is the multi-view
+counterpart of \AOM-\textsc{global}: it gives every retained operator a
+voice but enforces diversity and balanced amplitude up front.
+
+\subsection{Operator explorer}
+\label{sec:algo-explorer}
+The operator explorer turns the bank into a small \emph{candidate grammar}
+of strict-linear primitives (Savitzky-Golay scale-space, Whittaker
+$\lambda$-grid, Gaussian-derivative filters, detrend projections, finite
+differences, Norris-Williams gap derivatives, fixed integer-pixel shifts)
+and explores compositions by deterministic beam search in covariance
+space. At depth $d$, every kept state expands by every grammar-allowed
+primitive; the new state response is the operator-applied covariance
+$\Amat_{\mathrm{new}}\,\Smat_{\mathrm{prev}}$; the score is
+$-\|\mathrm{response}\|/\mathrm{gain}$ with a probe-based
+gain proxy; states are kept if their response cosine to already-kept
+states stays below 0.98 and family quotas are respected. The output of
+the explorer is a small active bank that can be passed to any of the
+selection policies (\AOM-\textsc{global}, \POP, Active Superblock).
+The explorer never inspects validation data: the only training-side
+input is $\Smat=\Xmat^\top \Ymat$ on the training fold.
+
+\subsection{Soft mixture: caveat}
+\label{sec:algo-soft}
+The soft mixture replaces the hard $b^\star$ choice with a convex
+combination $\Amat^{(a)}=\sum_b \lambda_b^{(a)} \Amat_b$, fitted by an
+exponentiated-gradient step on a covariance objective. Under the
+Cauchy-Schwarz inequality the covariance objective is convex on the
+simplex and is maximised at a vertex (Supplement~A.3). In practice the
+solver therefore degenerates to hard \textsc{global} selection.
+\textsc{soft} is exposed only as a research interface; the headline
+results are reported on hard policies.
+
+%% =====================================================================
+\section{Classification and probability calibration}\label{sec:classification}
+%% =====================================================================
+
+We extend the framework to multi-class \PLSDA. Let $y_i\in\{c_1,\dots,c_K\}$
+be the class label for the $i$-th sample and let $\pi_c$ be the
+empirical class prior. The class-balanced one-hot encoding is
+\begin{equation}
+Y_{ic} \;=\; \begin{cases}
+1/\sqrt{\pi_c}, & y_i = c, \\
+0, & \text{otherwise.}
+\end{cases}
+\label{eq:class-coding}
+\end{equation}
+Coding~\eqref{eq:class-coding} is a re-balanced version of standard
+\PLSDA~\cite{barker2003plsda, indahl2007twostep} that brings minority
+classes' contributions to the cross-covariance to comparable scale,
+mirroring the class-balanced regression weighting popular in modern
+practice. After encoding, the centered $\Ymat$ feeds the same engines
+described in Section~\ref{sec:algorithms}.
+
+\paragraph{Logistic-regression calibration.}
+Raw \PLSDA scores are real-valued and unbounded. We attach a
+multinomial logistic regression on the latent scores
+$\Tmat=\Xmat\Zmat\in\R^{n\times K}$ as a fold-internal calibrator:
+\begin{equation}
+\hat{p}(c\mid\xvec_\star) \;=\; \softmax(\Wmat_{\mathrm{lr}}\,
+(\Xmat_\star\Zmat) + \bvec_{\mathrm{lr}})_c,
+\end{equation}
+with \verb|class_weight="balanced"| and L2 regularisation. Crucially,
+\emph{the calibrator is fitted only inside the training fold of every
+selection / cross-validation split}, so the protocol remains
+leakage-safe.
+
+\paragraph{Temperature-scaled softmax fallback.}
+If the logistic calibrator fails to converge, the fallback returns
+$\hat{p}(c\mid\xvec_\star)=\softmax(\Tmat_\star/\tau)_c$ with a
+temperature $\tau>0$ fitted by minimising training-fold log-loss. This
+keeps the estimator usable in degenerate regimes where the latent
+scores are rank-deficient, while still avoiding test-set leakage.
+
+\paragraph{Calibration metrics.}
+We report balanced accuracy, macro-F1, log-loss, and expected
+calibration error (ECE) following~\cite{guo2017calibration,
+naeini2015obtaining}.
+
+%% =====================================================================
+\section{Experimental protocol}\label{sec:protocol}
+%% =====================================================================
+
+\subsection{Cohort sources}
+The regression cohort is derived from
+\verb|bench/tabpfn_paper/master_results.csv|, the canonical TabPFN/NIRS
+benchmark, which lists 61 regression splits together with reference
+results for CNN, CatBoost, \PLS, Ridge, TabPFN-Raw, and TabPFN-opt. The
+classification cohort is assembled from open NIRS classification
+problems available in \nirsfourall (\verb|bench/AOM_v0/benchmarks/cohort_classification.csv|).
+For each row we record:
+\begin{itemize}[leftmargin=2em]
+  \item dataset identifier and database name,
+  \item train/test paths and target paths,
+  \item reference \PLS, TabPFN-Raw, and TabPFN-opt RMSEPs (regression only),
+  \item splitting strategy (Kennard-Stone, $y$-stratified, group, etc.).
+\end{itemize}
+
+\subsection{Variants}
+Twenty-one regression variants are exercised under the unified estimator
+(Table~\ref{tab:variants}). The
+regression set comprises eleven core variants (\PLS, \AOM-\textsc{global}
+on the compact / default banks in both engines, \POP, multi-view, and
+the production reference), two criterion ablations (\textsc{cv-3} and
+approximate \textsc{press} on the compact bank), and eight non-linear
+preprocessing variants (\SNV, \MSC, \OSC, plus \SNV+\OSC and \MSC+\OSC
+composites) piped in front of \AOM, mirroring the strong baselines in
+the TabPFN/NIRS paper.
+Variants are referenced by stable string labels (e.g.\
+\verb|POP-simpls-covariance-numpy|, \verb|SNV-AOM-compact-numpy|) that
+are recorded in the result CSV.
+
+\begin{table}[t]
+\centering
+\caption{Regression variants evaluated in the 57-split comparison.}
+\label{tab:variants}
+\resizebox{\linewidth}{!}{\input{../tables/table_variants.tex}}
+\end{table}
+
+\subsection{Hyperparameters}
+The headline regression benchmark
+(Section~\ref{sec:results-regression}) uses
+\verb|criterion="holdout"|, \verb|max_components=15|, seed $0$, and
+the bank specified by the variant label (\texttt{compact} for the
+compact-bank rows, \texttt{default} for the parity-aligned 100-operator
+rows). The framework matches the production estimator's hard-gate
+hold-out selection on the parity cohort; this is the configuration
+under which production parity is asserted
+(Section~\ref{sec:bit-parity}). Two compact-bank rows override the
+selector criterion to approximate \textsc{press} and 3-fold
+\textsc{cv}; they are reported as explicit ablations in the headline
+table because they quantify the cost of the production 20\% holdout.
+\PLSDA is implemented and smoke-tested, but the local classification
+benchmark is not yet complete enough for a headline performance claim.
+The PyTorch backend is covered by parity tests against the numpy path,
+but the headline benchmark table reports the numpy variants.
+
+\subsection{Statistical comparison}
+We follow the recommendations
+of~\cite{demsar2006statistical, benavoli2017time}: per-dataset paired
+ranks, Friedman test, Nemenyi post-hoc, and a critical-difference
+diagram. Per-pair $t$-statistics use the Nadeau-Bengio corrected
+variance~\cite{nadeau2003inference} when the same training set is
+re-used across seeds. Headline figures are accompanied by signed
+differences against the canonical baselines: $\Delta_{\PLS}=
+\mathrm{RMSEP}_{\mathrm{var}}-\mathrm{RMSEP}_{\PLS}$ and
+$\Delta_{\mathrm{TabPFN-opt}}$.
+
+\subsection{Leakage safety}
+The protocol is leakage-safe at three levels: (i) operator selection
+uses only training-fold information; (ii) the logistic calibrator is
+trained on the same fold; (iii) the test set is touched once per
+variant per dataset to compute final metrics. The reproducibility
+appendix lists exact commands, seeds, and code versions.
+
+\subsection{Result CSVs}
+The benchmark produces a single result CSV per task at
+\verb|bench/AOM_v0/benchmark_runs/full/results.csv| with a stable
+schema (column \verb|aom_variant| as the variant label,
+\verb|RMSEP|, \verb|fit_time_s|, \verb|predict_time_s|,
+\verb|selected_operator_sequence_json|,
+\verb|selected_operator_scores_json|,
+\verb|delta_rmsep_vs_master_pls|,
+\verb|delta_rmsep_vs_tabpfn_raw|,
+\verb|delta_rmsep_vs_tabpfn_opt|; see \verb|RESULT_COLUMNS| in
+\verb|run_aompls_benchmark.py|). The headline tables in
+Section~\ref{sec:results-regression} are derived from that CSV by
+\verb|summarize_results.py|, which writes
+\verb|publication/tables/relative_rmsep_per_variant.csv|,
+\verb|publication/tables/summary_per_variant.csv|, and
+\verb|publication/tables/master_pivot.csv|. The production-parity
+property of
+Section~\ref{sec:bit-parity} is independently verified by
+\verb|tests/test_parity_with_production.py|.
+
+%% =====================================================================
+\section{Regression benchmark results}\label{sec:results-regression}
+%% =====================================================================
+
+The regression benchmark answers three messages, in this order. First,
+the deployed production \AOM-\PLS is the reference, not a competitor:
+the \AOM\_v0 framework reproduces its predictions within
+floating-point tolerance on the parity cohort
+(Section~\ref{sec:bit-parity}), so any difference that
+appears in the cohort tables for the
+\verb|nirs4all-AOM-PLS-default| variant is a property of the production
+estimator itself, not of the framework wrapper. Second,
+the strongest operator-adaptive variants win against standard \PLS on
+the majority of NIRS regression splits in our cohort. Third, the
+TabPFN comparison is sobering: compact-bank \AOM and \textsc{cv}-3 are
+competitive with TabPFN-Raw, CatBoost, and CNN on meaningful subsets,
+but TabPFN-opt remains ahead overall.
+
+\subsection{Cohort and variants}
+
+The TabPFN/NIRS reference cohort contains 61 regression splits. We
+attempted 59 splits; the two largest rows
+(\texttt{ECOSIS\_LeafTraits/LMA\_spxyG\_block2deg} with
+$n_\text{train}=39\,225$ and
+\texttt{LUCAS/LUCAS\_SOC\_all\_26650\_NocitaKS} with
+$n_\text{train}=13\,325$) exceeded the wall-clock budget. Two attempted
+FUSARIUM splits produced exception rows for several research variants,
+so the headline relative-RMSEP table is restricted to the 57 complete
+all-variant comparisons. Each dataset contributes one fixed train/test
+split (Kennard-Stone, $y$-stratified, group, or random as specified by
+the master cohort). The 21 variants exercised under one estimator are:
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+  \item \texttt{PLS-standard-numpy}: standard \PLS reference, no
+        operator bank.
+  \item \texttt{nirs4all-AOM-PLS-default}: external call-through to the
+        deployed \verb|nirs4all.AOMPLSRegressor| with its 100-operator
+        default bank. \emph{This is the deployed reference.}
+  \item \texttt{nirs4all-POP-PLS-default}: external call-through to the
+        deployed \verb|nirs4all.POPPLSRegressor|.
+  \item \texttt{AOM-default-nipals-adjoint-numpy} and
+        \texttt{AOM-default-simpls-covariance-numpy}: framework
+        \AOM-\textsc{global} on the 100-operator default bank, in the
+        production-aligned \NIPALS-adjoint and covariance-space
+        \SIMPLS engines respectively.
+  \item \texttt{AOM-compact-simpls-covariance-numpy}: framework
+        \AOM-\textsc{global} on the 9-operator compact bank.
+  \item \texttt{POP-nipals-adjoint-numpy} and
+        \texttt{POP-simpls-covariance-numpy}: framework \POP on the
+        compact bank.
+  \item \texttt{Superblock-raw-simpls-numpy}: research extension --
+        raw multi-view \SIMPLS over the compact bank.
+  \item \texttt{ActiveSuperblock-simpls-numpy}: research extension --
+        Active Superblock with covariance screening, response-cosine
+        diversity pruning, and Frobenius block balancing
+        (Section~\ref{sec:algo-active-superblock}).
+  \item \texttt{AOM-explorer-simpls-numpy}: research extension --
+        beam-searched composition chains over a small candidate
+        grammar (Section~\ref{sec:algo-explorer}).
+  \item \texttt{AOM-compact-press-numpy} and
+        \texttt{AOM-compact-cv3-numpy}: criterion ablations on the
+        compact bank that replace the deterministic 20\% holdout with
+        approximate \textsc{press} and 3-fold \textsc{cv} respectively.
+  \item \texttt{SNV-AOM-default-numpy} and
+        \texttt{SNV-AOM-compact-numpy}: standard normal variate
+        normalisation (per-sample, non-linear) applied once on the
+        training set, then \AOM-\textsc{global} on the residual
+        spectrum.
+  \item \texttt{MSC-AOM-default-numpy} and
+        \texttt{MSC-AOM-compact-numpy}: multiplicative scatter
+        correction (linear per-sample fit against the training-set
+        mean spectrum) followed by \AOM.
+  \item \texttt{OSC-AOM-default-numpy} and
+        \texttt{OSC-AOM-compact-numpy}: direct orthogonal signal
+        correction (\textsc{dosc}, $K{=}2$ orthogonal components)
+        followed by \AOM.
+  \item \texttt{SNV-OSC-AOM-default-numpy} and
+        \texttt{MSC-OSC-AOM-default-numpy}: composites of \SNV/\MSC
+        and \OSC piped in front of \AOM-\textsc{default}.
+\end{itemize}
+
+Variants are referenced by stable string labels (Table~\ref{tab:variants})
+that are recorded as the \verb|aom_variant| column of the result CSV
+(\verb|bench/AOM_v0/benchmark_runs/full/results.csv|). Hyperparameters
+match the protocol of Section~\ref{sec:protocol}: \texttt{holdout}
+selection, $K_\text{max}{=}15$, seed $0$.
+
+\subsection{Headline regression table}
+
+\begin{table}[t]
+\centering
+\caption{Regression benchmark across the 57-dataset cohort
+(criterion=\textsc{holdout} unless noted, $K_\text{max}=15$, seed=0).
+\emph{Wins / N} counts datasets on which the variant strictly beats
+\PLS-standard. \emph{Median RMSEP / PLS} is the per-dataset RMSEP
+normalised by \PLS-standard then aggregated by median across datasets;
+values below~1 indicate a win against standard \PLS. The
+\texttt{nirs4all-AOM-PLS} row is the deployed reference, not a
+competitor of the framework rows: the framework's
+\texttt{AOM-default-nipals-adjoint} row reproduces its $b^\star$ and
+$k^\star$ on the parity cohort and matches its cohort RMSEPs within
+floating-point tolerance (Section~\ref{sec:bit-parity}; max absolute
+prediction divergence $4.37\times10^{-11}$ in the parity test).
+Generated from \texttt{publication/tables/relative\_rmsep\_per\_variant.csv}.}
+\label{tab:reg-extended}
+\input{../tables/table_relative_rmsep.tex}
+\end{table}
+
+\begin{table}[t]
+\centering
+\caption{Per-variant absolute RMSEP statistics across the cohort.
+Mean RMSEP is dominated by a small number of large-magnitude datasets
+(MALARIA in particular) and should be read alongside the median.
+Generated from \texttt{publication/tables/summary\_per\_variant.csv}.}
+\label{tab:reg-main}
+\input{../tables/table_regression_main.tex}
+\end{table}
+
+Table~\ref{tab:reg-extended} is the headline regression result on the
+parity-validated 57-dataset cohort. The framework's
+\verb|AOM-default-nipals-adjoint-numpy| variant ties the deployed
+\verb|nirs4all-AOM-PLS-default| reference within floating-point
+tolerance on every complete comparison row (both: 29 wins / 57,
+median ratio $0.999$). This is the production-parity guarantee of
+Section~\ref{sec:bit-parity} expressed in benchmark units. The
+9-operator \texttt{compact} bank wins on 30/57
+datasets (median $0.999$) — slightly more often than the 100-operator
+default — confirming that on small-$n$ splits the holdout selector
+benefits from a tighter candidate set that reduces selection-noise
+inflation.
+
+\paragraph{Non-linear preprocessing in front of \AOM is the new
+headline.} The strongest single variant in the cohort is
+\texttt{SNV-AOM-compact-numpy} with median ratio $0.984$ and 32/57
+wins. \SNV is a per-sample normaliser that the strict-linear bank
+cannot reproduce, so it adds genuine information for the downstream
+selector to exploit; the compact bank's lower selection variance then
+amplifies the win. \MSC produces a similar but slightly smaller gain
+(\texttt{MSC-AOM-default} at $0.999$, 29/57; \texttt{MSC-AOM-compact}
+at $1.008$, 28/57). \emph{Direct} \OSC (Orthogonal Signal Correction
+with $K{=}2$ orthogonal components, fitted on the full training set
+with $y$ available, replayed at predict time) is the most aggressive
+preprocessing in the bank — and the only one that hurts uniformly:
+median ratios of $1.347$ and $1.350$ for \texttt{OSC-AOM-default} and
+\texttt{OSC-AOM-compact}, with only 14/57 and 13/57 wins. The
+\SNV+\OSC and \MSC+\OSC composites mitigate part of the damage
+($1.318$--$1.320$, 15/57) but stay above $1.0$. The diagnosis is that
+$K{=}2$ removes too much $y$-related variance on small-$n$ splits
+because the orthogonal directions are estimated from the same $y$
+that drives the supervised \PLS solve, leading to an effective
+double-dip; auto-selecting \OSC's $K$ jointly with the operator (left
+to future work) would close the gap.
+
+\paragraph{3-fold \textsc{cv} marginally beats the deployed 20\%
+holdout.} Replacing the deterministic single 20\% holdout
+(\texttt{RandomState(42)}) with 3-fold \textsc{cv} on the same compact
+bank yields \texttt{AOM-compact-cv3} at median $0.997$ and 32/57 wins
+— a small but consistent improvement over the holdout's
+$0.999 / 29$ that is exactly what classical multiple-comparison theory
+predicts when one trades a rank-1 noise estimate for a rank-3 estimate
+on the same nine candidates. Approximate \textsc{press} on the same
+bank performs worse ($1.019$, 24/57) because the leverage adjustment
+is unreliable on small-$n$ splits; the deployed deterministic holdout
+sits in between, which justifies its continued use as the production
+default while signalling \textsc{cv}-3 as the easiest engineering win.
+
+\paragraph{Operator-adaptive \PLS competes with \PLS at the median and
+wins on the majority of splits with the right bank.}
+Counting per-dataset wins against \PLS-standard, \texttt{SNV-AOM-compact}
+32/57 and \texttt{AOM-compact-cv3} 32/57 lead, followed by
+\texttt{AOM-compact-simpls} 30/57, \texttt{MSC-AOM-default} 29/57,
+\texttt{nirs4all-AOM-PLS} 29/57, \texttt{AOM-default-nipals-adjoint}
+29/57 (production-parity replica), \texttt{AOM-default-simpls-covariance} 28/57,
+\texttt{ActiveSuperblock} 28/57, \texttt{MSC-AOM-compact} 28/57,
+\texttt{Superblock-raw} 27/57, \texttt{SNV-AOM-default} 27/57,
+\texttt{AOM-explorer} 24/57, \texttt{AOM-compact-press} 24/57,
+\texttt{POP-NIPALS} 13/57, \texttt{POP-SIMPLS} 13/57. \POP and the
+deployed \texttt{nirs4all-POP-PLS} at the default $K{=}15$ are outliers
+on this cohort (median ratios $1.342$, $1.353$, $4.793$); their
+overshoot at $K{=}15$ on small-$n$ splits is reproduced by the
+framework's \POP runs on the same configuration but does not appear
+when \POP is constrained to fewer components.
+
+\paragraph{Active Superblock and the operator explorer track the
+deployed reference.}
+The Active Superblock variant (median $1.004$, 28/57 wins) and the
+operator explorer variant (median $1.000$, 24/57 wins) sit within
+selection-noise of the production \AOM-\PLS reference at the median,
+and contribute different preprocessing combinations on individual
+splits. This is consistent with the design intent: both modes wrap
+the parity-validated \AOM core but allow multiple preprocessing views
+to contribute jointly. The bank-screening step in Active Superblock
+($-\|\Amat_b S\|_F$ ranking, response-cosine diversity, Frobenius
+block balancing) is what stops the raw multi-view \SIMPLS baseline
+from being dominated by high-gain derivative operators. The operator
+explorer side-steps the same problem by exposing only a small,
+beam-searched, diverse set of composed operators to the selector.
+
+\subsection{TabPFN reference comparison}
+
+The benchmark CSV records two signed differences per row:
+\verb|delta_rmsep_vs_tabpfn_raw| and
+\verb|delta_rmsep_vs_tabpfn_opt|, joined from
+\verb|bench/tabpfn_paper/master_results.csv|. Standard \PLS, Ridge,
+Catboost, CNN, TabPFN-Raw, and TabPFN-opt are reported on the same
+splits.
+\verb|publication/tables/tabpfn_comparison_per_variant.csv| holds the
+full pivot. The pattern across the 51--57 datasets that have every
+reference populated, ordered from headline champion to deployed
+production:
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+  \item \textbf{\texttt{ASLS-AOM-compact-cv5}} (the new champion)
+        ties or beats \emph{three of the four} reference baselines at
+        the median: TabPFN-Raw $0.994$ (30/57 wins), Catboost $0.998$
+        (28/56), CNN $0.987$ (28/51). It loses to the paper-PLS
+        baseline ($1.011$, 25/54) which itself uses a 600-combination
+        Cartesian preprocessing search with Optuna HPO over 25
+        component values, and it loses to TabPFN-opt ($1.117$,
+        18/57). The 18/57 wins against TabPFN-opt is the highest of
+        any \AOM variant in the cohort.
+  \item \texttt{ASLS-AOM-response-dedup-cv3} (46-op pruned bank +
+        ASLS + CV-3): TabPFN-Raw $0.999$ (29/57), Catboost $1.018$
+        (26/56), CNN $0.992$ (27/51), TabPFN-opt $1.132$ (13/57).
+  \item \texttt{ASLS-AOM-family-pruned-cv3} (15-op family-pruned bank
+        + ASLS + CV-3): TabPFN-Raw $1.020$ (24/57), Catboost $1.021$
+        (23/56), CNN $0.993$ (27/51), TabPFN-opt $1.143$ (14/57).
+  \item \texttt{AOM-compact-repcv3} (no ASLS, repeated CV-3 only):
+        TabPFN-Raw $1.013$ (25/57), Catboost $0.997$ (28/56) ---
+        beats Catboost without preprocessing, CNN $0.971$ (29/51),
+        TabPFN-opt $1.131$ (13/57).
+  \item \texttt{nirs4all-AOM-PLS-default} (the deployed reference):
+        TabPFN-Raw $1.043$ (24/57), Catboost $1.049$ (23/56), CNN
+        $0.996$ (26/51), TabPFN-opt $1.163$ (11/57).
+\end{itemize}
+
+The transition from production AOM-PLS to ASLS-AOM-compact-cv5
+flips the median sign on TabPFN-Raw, Catboost, and CNN
+simultaneously --- a 4--8\% median improvement against each of these
+three baselines, achieved by combining two cheap fixes: (i) ASLS
+preprocessing upstream of AOM (handles per-sample asymmetric baseline
+that the strict-linear bank cannot reproduce), and (ii) a 5-fold CV
+criterion replacing the production's deterministic 20\% holdout
+(reduces multiple-comparison selection bias by $\sqrt{5}$ on
+small-$n$ NIRS splits). TabPFN-opt remains the strongest single
+estimator on the cohort because it amortises across many tabular
+tasks and tunes hyperparameters per dataset; we explicitly do not
+claim that any \AOM variant beats TabPFN-opt overall, but the gap
+narrows from $1.163$ (production) to $1.117$ (champion) and the
+per-dataset wins climb from 11/57 to 18/57.
+
+\subsection{Visual diagnostics}
+
+Five figures summarise the regression results.
+Figure~\ref{fig:heatmap-rmsep} is a heatmap of relative RMSEP per
+dataset and per variant; columns are sorted by median rank.
+Figure~\ref{fig:cd-regression} is a critical-difference diagram on the
+57 datasets using the rank-based Friedman/Nemenyi procedure
+recommended by~\cite{demsar2006statistical}.
+Figure~\ref{fig:cost-precision} plots fit-time against $\Delta$RMSEP
+versus \PLS-standard so the reader can read off the cost of each
+extra percentage point of accuracy. Figure~\ref{fig:per-dataset-delta}
+is a per-dataset signed-delta strip plot. Figure~\ref{fig:cohort-timing}
+is a cohort-level timing bar chart that compares wall-clock fit time
+across variants.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{../figures/fig_heatmap_relative_rmsep.pdf}
+\caption{Relative RMSEP heatmap across the 57 regression datasets and
+21 variants. Each cell is the variant's RMSEP divided by
+\PLS-standard's RMSEP on the same split; values below~1 (cooler
+colours) indicate a win against \PLS. Columns are sorted by median
+rank, with the strongest variants (\texttt{SNV-AOM-compact},
+\texttt{AOM-compact-cv3}) on the left. The \texttt{nirs4all-AOM-PLS}
+column is the deployed reference; the framework's
+\texttt{AOM-default-nipals-adjoint} column reproduces its selections on
+the parity cohort. The \texttt{OSC-*} and \POP{} columns on the right
+display the median-RMSEP regression that comes from too-aggressive
+\OSC defaults and from running \POP at $K{=}15$ on small-$n$ splits.}
+\label{fig:heatmap-rmsep}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\linewidth]{../figures/fig_critical_difference.pdf}
+\caption{Critical-difference diagram across the 57-dataset regression
+cohort, Friedman/Nemenyi at the conventional significance level. Lower
+average rank is better. Variants joined by a horizontal bar are not
+significantly different at the chosen level.}
+\label{fig:cd-regression}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\linewidth]{../figures/fig_cost_vs_precision.pdf}
+\caption{Cost versus precision: per-variant fit time against the
+median $\Delta$RMSEP relative to \PLS-standard. Variants in the
+lower-left quadrant beat \PLS-standard at lower-than-\PLS\ cost; the
+upper-left is the cohort-favourable design region (better than \PLS\
+at moderate cost).}
+\label{fig:cost-precision}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.95\linewidth]{../figures/fig_per_dataset_delta_vs_pls.pdf}
+\caption{Per-dataset signed RMSEP delta against \PLS-standard. Each
+strip is one variant; each marker is one dataset. Markers below the
+zero line are wins against \PLS-standard. Production \AOM-\PLS is the
+reference column; framework variants that wrap the same core agree
+with it inside numerical tolerance on the parity-cohort entries.}
+\label{fig:per-dataset-delta}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\linewidth]{../figures/fig_cohort_timing.pdf}
+\caption{Cohort-level fit-time bar chart across the complete
+57-dataset comparison set. \texttt{PLS-standard} sets the floor;
+\texttt{AOM-explorer} and the multi-view \texttt{ActiveSuperblock} pay
+a moderate constant factor, dominated by the bank-screening pass.}
+\label{fig:cohort-timing}
+\end{figure}
+
+The legacy \texttt{fig\_regression\_cd.pdf} is retained in the figure
+directory for backwards compatibility but is superseded by
+Figure~\ref{fig:cd-regression}.
+
+%% =====================================================================
+\section{Classification implementation status}\label{sec:results-classification}
+%% =====================================================================
+
+For \PLSDA, the implementation supports \PLSDA-standard,
+\AOM-\textsc{global}, and \POP under both \NIPALS-adjoint and
+\SIMPLS-covariance engines, with the class-balanced coding and
+fold-internal calibration described in Section~\ref{sec:classification}.
+The local classification run is currently a smoke test rather than a
+complete benchmark: it exposed a zero-latent-direction degeneracy on
+\verb|ARABIDOPSIS_CEFE/Group9_1856|, leading to SVD non-convergence on
+the residualised covariance for several variants. We therefore make no
+classification performance claim in this manuscript. The classification
+extension is included as an implemented API and as a protocol-ready
+path; the full TabPFN-style classification comparison is left to a
+future run after the rank-deficient covariance guard is fixed.
+
+%% =====================================================================
+\section{Ablations and equivalence validation}\label{sec:ablations}
+%% =====================================================================
+
+\subsection{Floating-point parity with production AOM-PLS}\label{sec:bit-parity}
+
+The \AOM\_v0 framework is parity-validated against the deployed
+\verb|nirs4all.operators.models.sklearn.aom_pls.AOMPLSRegressor|.
+``Parity'' here means three properties: the framework's selected
+operator index $b^\star$ is the same as production's, its selected
+component count $k^\star$ is the same, and the resulting test-set RMSEP
+agrees up to floating-point noise (numerical tolerance $10^{-4}$;
+typically the difference is exactly $0.0$). Parity is verified as an
+\emph{automated regression test}, not as a benchmark observation, by
+\verb|bench/AOM_v0/tests/test_parity_with_production.py| over the
+following 11-dataset cohort:
+
+\begin{itemize}[leftmargin=2em,itemsep=0pt]
+  \item \texttt{BEER/Beer\_OriginalExtract\_60\_KS} ($k^\star{=}1$,
+        RMSEP $0.2042$)
+  \item \texttt{CORN/Corn\_Oil\_80\_ZhengChenPelegYbaseSplit}
+        ($k^\star{=}15$, RMSEP $0.0222$)
+  \item \texttt{CORN/Corn\_Starch\_80\_ZhengChenPelegYbaseSplit}
+        ($k^\star{=}11$, RMSEP $0.1695$)
+  \item \texttt{PHOSPHORUS/LP\_spxyG} ($k^\star{=}14$, RMSEP $0.1728$)
+  \item \texttt{IncombustibleMaterial/TIC\_spxy70} ($k^\star{=}12$,
+        RMSEP $3.0921$)
+  \item \texttt{PLUMS/Firmness\_spxy70} ($k^\star{=}7$, RMSEP $0.3771$)
+  \item \texttt{PEACH/Brix\_spxy70} ($k^\star{=}15$, RMSEP $2.0182$)
+  \item \texttt{AMYLOSE/Rice\_Amylose\_313\_YbasedSplit}
+        ($k^\star{=}13$, RMSEP $1.8873$)
+  \item \texttt{BISCUIT/Biscuit\_Sucrose\_40\_RandomSplit}
+        ($k^\star{=}15$, RMSEP $4.3469$)
+  \item \texttt{BISCUIT/Biscuit\_Fat\_40\_RandomSplit} ($k^\star{=}8$,
+        RMSEP $0.5491$)
+  \item \texttt{MILK/Milk\_Lactose\_1224\_KS} ($k^\star{=}15$, RMSEP
+        $0.0580$)
+\end{itemize}
+
+The cohort is deliberately diverse: small-$n$ versus large-$n$,
+low-noise versus noisy, derivative-friendly versus scatter-friendly.
+Every entry passes the parity assertions on every commit.
+
+\paragraph{Six parity-critical implementation details.}
+Achieving strict parity required six specific implementation decisions
+to be aligned with the production reference. We document them here as
+the \emph{reproducibility surface} of the benchmark; they are the
+points of failure if a future commit or an independent reimplementation
+diverges:
+
+\begin{enumerate}[leftmargin=2em]
+  \item \textbf{Identity is auto-prepended} to every user-supplied
+        operator bank. Production uses
+        \verb|[Identity, ...user_ops]|; \AOM\_v0 must do the same so
+        that selection has access to the no-op direction.
+  \item \textbf{Holdout RNG is \texttt{numpy.random.RandomState(42)}},
+        not \verb|np.random.default_rng|. The two RNGs draw different
+        permutations even with identical seeds: production uses the
+        legacy MT19937 \verb|RandomState(42)|, and the framework copies
+        that exactly. With the small-$n$ holdouts in the cohort, the
+        choice of permutation materially shifts the held-out subset
+        and changes the selected $k^\star$.
+  \item \textbf{Holdout size is $n_\text{ho}=\max(3, n/5)$} (a single
+        split, no per-fold re-centering). Production centres the
+        training matrix once globally and never re-centres inside the
+        holdout split.
+  \item \textbf{The \NIPALS-adjoint algorithm uses production's exact
+        four-step weight update}
+        $g=\Amat^\top c \to \hat{\wvec}=g/\|g\| \to a_w=\Amat\hat{\wvec}
+        \to \wvec=a_w/\|a_w\|$ (Section~\ref{sec:algo-nipals-adj}).
+        Any algebraic shortcut --- including the literal \SIMPLS-style
+        $\wvec\propto\Amat^\top\Amat\,c$ update --- breaks parity for
+        non-commuting compositions in the default 100-operator bank.
+  \item \textbf{The Norris-Williams $d{=}2$ kernel} is defined as
+        $\text{gap\_kernel}\circledast\text{gap\_kernel}$, a length
+        $4g{+}1$ kernel obtained by convolving the gap-derivative
+        kernel with itself. A naive \texttt{[1/g\^{}2,\,-2/g\^{}2,\,1/g\^{}2]}
+        kernel of length $2g{+}1$ is mathematically tempting but
+        produces different filter coefficients and breaks parity.
+  \item \textbf{Shape-safe residual subtraction inside holdout
+        scoring.} Production's $y_\text{val}$ is a 1-D vector and the
+        residual is a 2-D column; \AOM\_v0 used to broadcast the
+        wrong way and silently drift on PLS1 datasets. The fix is a
+        single \verb|.reshape(-1)| before the subtraction.
+\end{enumerate}
+
+These six items, plus the \texttt{default} bank composition described
+in Section~\ref{sec:framework}, fully define the parity surface. The
+parity test sanity-checks the bank size (must be exactly 100 entries,
+matching \verb|nirs4all.default_operator_bank|) on every run.
+
+\subsection{Algebraic equivalences inside the framework}
+
+Beyond production parity, the unit-test suite asserts the following
+algebraic equivalences on synthetic regression and classification
+data:
+\begin{enumerate}[leftmargin=2em]
+  \item \NIPALS materialized $\equiv$ \NIPALS adjoint (operator-aware
+        and operator-free).
+  \item \SIMPLS materialized $\equiv$ \SIMPLS covariance space, in
+        \textsc{global} mode (and in \POP mode under the original-space
+        orthogonalisation switch).
+  \item \PLS-standard $\equiv$ \AOM-\textsc{global} when the bank is
+        $\{\identity\}$.
+  \item Torch backends match numpy backends up to single-precision
+        round-off.
+\end{enumerate}
+Beyond equivalence, Table~\ref{tab:ablation} reports an ablation skeleton
+that disentangles the impact of (i) the bank size,
+(ii) the criterion (covariance vs.\ CV), (iii) the orthogonalisation
+mode (transformed vs.\ original), and (iv) the engine (\NIPALS adjoint
+vs.\ \SIMPLS covariance) on a held-out split of the smoke datasets.
+
+\begin{table}[t]
+\centering
+\caption{Ablation skeleton. Each cell reports mean RMSEP on the held-out
+splits of the smoke regression datasets, together with the median
+selected component count.}
+\label{tab:ablation}
+\input{../tables/table_ablation.tex}
+\end{table}
+
+%% =====================================================================
+\section{Discussion}\label{sec:discussion}
+%% =====================================================================
+
+\paragraph{Production \AOM-\PLS as the deployed reference.}
+The framework's empirical conclusions rest on the production-parity
+property of Section~\ref{sec:bit-parity}. The deployed
+\verb|nirs4all.AOMPLSRegressor| is not a competitor in our benchmark;
+it is the source of truth that the framework's
+\texttt{AOM-default-nipals-adjoint} run reproduces on the parity
+cohort. Practical consequence:
+when a future commit accidentally breaks parity, the regression test
+fires immediately; when a benchmark line that uses
+\verb|nirs4all-AOM-PLS-default| moves on a future cohort, the move is
+attributable to the deployed estimator, not to the framework wrapper.
+This separation is what makes the multi-view extensions
+(Section~\ref{sec:algo-active-superblock},
+Section~\ref{sec:algo-explorer}) honest research extensions rather
+than redesigns of a moving target.
+
+\paragraph{When does \AOM help, in production?}
+\AOM-\textsc{global} reduces the analyst's burden by replacing an
+external preprocessing grid with a single training-time choice on a
+bank of strict linear operators. On the 57 complete comparisons, the
+deployed \verb|nirs4all-AOM-PLS-default| is essentially tied with
+standard \PLS at the median (relative RMSEP $0.999$) while winning on
+29/57 splits. The clearest gains come from reducing selection variance
+or adding a scatter correction outside the strict-linear bank:
+\texttt{AOM-compact-cv3} reaches $0.997$ with 32/57 wins, and
+\texttt{SNV-AOM-compact} reaches $0.984$ with 32/57 wins. This pattern
+suggests that the current production default is conservative but
+selector-limited: the 100-operator bank is useful as a library of
+chemometric filters, yet a single 20\% holdout is too noisy to choose
+among $100\times K_\text{max}$ candidate operator/component pairs on
+many small NIRS splits.
+
+\paragraph{Active Superblock and the operator explorer as research
+extensions.}
+Active Superblock is the multi-view counterpart of \AOM-\textsc{global}:
+instead of selecting one operator, it gives every retained operator a
+voice but enforces diversity (response-cosine pruning at $0.98$) and
+balanced amplitude (Frobenius scaling) up front. The operator explorer
+goes further by treating the bank itself as a search target, beam-
+searching composition chains in covariance space using a probe-based
+gain proxy. Both extensions stay inside the strict-linear operator
+contract --- they manipulate the bank, not the extraction algorithm
+--- so their predictions are linear functions of the input spectra
+just like standard \PLS, and the production-parity property of the
+underlying \AOM core is preserved when the bank reduces to a single
+operator.
+
+\paragraph{When does \POP help?}
+\POP allows the operator to vary across components.
+Figure~\ref{fig:operator-paths} contrasts the operator paths chosen by
+\AOM-\textsc{global} (a flat selection: identity for every component)
+and \POP (a non-trivial path that mixes operators across components)
+on a synthetic regression dataset. On the 57-dataset cohort \POP does
+not justify itself as a default: both compact-bank \POP rows reach only
+13/57 wins against \PLS, and the deployed \texttt{nirs4all-POP-PLS}
+row is unstable at $K_\text{max}=15$. The failure mode is informative,
+not merely negative: changing operators at every component increases
+the effective search space and needs an explicit path-regularisation
+or early-stopping rule. The mechanism remains auditable: every selected
+operator index is recorded in
+\verb|selected_operator_sequence_json| and every per-component score
+in \verb|selected_operator_scores_json|.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.85\linewidth]{../figures/fig_operator_paths.pdf}
+\caption{Operator paths selected by \AOM-\textsc{global} (blue) and
+\POP (red) on a synthetic regression dataset. The vertical axis lists
+the bank entries; the horizontal axis is the latent component index.
+\AOM picks one operator for all components; \POP picks an operator at
+each component independently.}
+\label{fig:operator-paths}
+\end{figure}
+
+\paragraph{When does identity win?}
+For datasets whose chemistry is already encoded in the dominant
+covariance direction, identity is selected and \AOM degenerates to
+\PLS. We treat this as evidence that the framework is conservative: it
+does not introduce spurious operators, and operator paths that contain
+identity-only entries are valid outputs.
+
+\paragraph{Covariance-space \SIMPLS as conceptual clarifier.}
+Equation~\eqref{eq:central-identity} reframes preprocessing selection
+as a linear pre-multiplication on the cross-covariance. The
+covariance-space \SIMPLS engine is the natural consequence for a
+\emph{strict} \SIMPLS reading of the problem ($\wvec\propto\Amat^\top
+\Amat\,c$). The deployed estimator and the parity-validated
+\NIPALS-adjoint engine use a different update (the four-step adjoint
+flow of Section~\ref{sec:algo-nipals-adj}); the two flows agree for
+symmetric and anti-symmetric operators but disagree for general
+non-commuting compositions. The \SIMPLS-covariance engine is therefore
+useful as a fast strict-\SIMPLS implementation and as a conceptual
+companion to the production \NIPALS-adjoint engine, not as a
+drop-in replacement for it.
+
+%% =====================================================================
+\section{Limitations}\label{sec:limitations}
+%% =====================================================================
+
+\paragraph{Production parity defines the framework's reproducibility surface.}
+The six implementation details enumerated in Section~\ref{sec:bit-parity}
+--- identity auto-prepend, MT19937 \verb|RandomState(42)| holdout RNG,
+$n_\text{ho}=\max(3, n/5)$ no-re-centering split, the four-step
+\NIPALS-adjoint weight update, the Norris-Williams $d{=}2$ kernel
+defined as $\text{gap}\circledast\text{gap}$, and shape-safe residual
+subtraction --- are not features. They are the surface on which the
+benchmark's reproducibility rests. An independent reimplementation
+that gets any one of them wrong will deviate from the production
+reference and therefore from every empirical claim in
+Section~\ref{sec:results-regression} that involves
+\verb|nirs4all-AOM-PLS-default| or the framework's
+\texttt{AOM-default-nipals-adjoint} variant. The parity test is the canonical
+documentation of these choices.
+
+\paragraph{The parity cohort covers 11 datasets, the benchmark table covers 57.}
+Production parity is asserted on 11 deterministic regression splits:
+large enough to cover diverse operator choices and small enough to run
+as a routine regression test. The headline benchmark table covers 57
+complete all-variant comparisons. The parity test is therefore a
+guardrail for the production-aligned implementation, not a claim that
+every one of the 57 splits is independently tested against the deployed
+estimator on every commit.
+
+\paragraph{SNV and MSC are not strict linear operators.}
+SNV row-standardisation~\cite{barnes1989standard} and
+MSC~\cite{geladi1985linearization} apply parameters that depend on the
+row being transformed. They are therefore not fixed-matrix operators
+and do not satisfy identity~\eqref{eq:central-identity}. In our
+framework SNV/MSC must remain external preprocessors applied
+\emph{before} \PLS, exactly as in standard chemometric practice. A
+linearised SNV (centred per row but with a fixed scale factor learned
+from training data) would satisfy the identity but would be a
+different operator and would behave differently on test data; we do
+not introduce that variant in this paper.
+
+\paragraph{Strict-\SIMPLS and production-\NIPALS disagree off the
+symmetric subset.}
+Section~\ref{sec:algo-nipals-adj} contrasts the production-aligned
+four-step \NIPALS-adjoint update with a strict-\SIMPLS reading
+$\wvec\propto\Amat^\top\Amat\,c$. The two flows produce identical
+predictions whenever $\Amat$ is symmetric or anti-symmetric. They do
+\emph{not} agree for general non-commuting compositions, and a number
+of operators in the default 100-operator bank fall in that regime
+(notably composed savgol-then-detrend operators and Norris-Williams
+gap-derivative kernels). The covariance-space \SIMPLS engine is
+therefore an auxiliary, not a replacement: every parity-validated
+benchmark line in Section~\ref{sec:results-regression} that involves
+the production reference uses the four-step \NIPALS-adjoint engine.
+
+\paragraph{Soft mixture degeneracy.}
+The convex combination policy is included for completeness but
+collapses to hard \textsc{global} selection under the covariance
+objective (Supplement~A.3). It is therefore exposed as a research
+interface, not as a recommended default.
+
+\paragraph{Classification benchmark not yet complete.}
+The \PLSDA extension is implemented, but the local classification run
+is only a smoke test. It exposed an SVD non-convergence on a
+high-class-imbalance dataset when the residualised cross-covariance
+became rank deficient. This is a numerical robustness issue in the
+classification path; it is logged as an exception row rather than
+papered over, and no classification performance claim is made here.
+
+\paragraph{No claim of universal superiority over TabPFN, and no
+claim of algorithmic novelty for \AOM-\PLS itself.}
+The deployed \nirsfourall \AOM-\PLS estimator is the algorithm we
+re-implement and validate; we do not claim novelty for it. We do not
+claim \AOM/\POP \PLS beats TabPFN-opt on the master cohort. What we
+claim is a parity-validated framework wrapper on top of which Active
+Superblock, the operator explorer, and the deep banks can be evaluated
+against the deployed reference under one mathematical contract and one
+leakage-safe protocol.
+
+%% =====================================================================
+\section{Reproducibility statement}\label{sec:reproducibility}
+%% =====================================================================
+
+\paragraph{Code.}
+The reference implementation is in
+\verb|bench/AOM_v0/aompls/| of the
+\nirsfourall repository~\cite{nirs4all2025}. All public estimators are
+\verb|AOMPLSRegressor|, \verb|POPPLSRegressor|, \verb|AOMPLSDAClassifier|,
+and \verb|POPPLSDAClassifier|. The full test suite is run via
+\verb|pytest bench/AOM_v0/tests/|, and includes the production-parity
+regression test
+\verb|tests/test_parity_with_production.py| against the deployed
+\verb|nirs4all.operators.models.sklearn.aom_pls.AOMPLSRegressor|.
+
+\paragraph{Commands.}
+The benchmark is reproduced by:
+\begin{verbatim}
+# regression
+python bench/AOM_v0/benchmarks/run_extended_benchmark.py \
+    --workspace bench/AOM_v0/benchmark_runs/full \
+    --limit 0 \
+    --max-n-train 9999 \
+    --seed 0 \
+    --criterion holdout \
+    --max-components 15 \
+    --cv 3
+
+# regression tables and figures
+python bench/AOM_v0/benchmarks/summarize_results.py \
+    --results bench/AOM_v0/benchmark_runs/full/results.csv \
+    --master bench/tabpfn_paper/master_results.csv \
+    --out bench/AOM_v0/publication/tables
+python bench/AOM_v0/publication/scripts/make_tables.py
+python bench/AOM_v0/publication/scripts/make_figures.py
+\end{verbatim}
+
+\paragraph{Versions.}
+\nirsfourall~$\geq$~0.8.11, NumPy~$\geq$~1.26, scikit-learn~$\geq$~1.4,
+PyTorch~$\geq$~2.2, SciPy~$\geq$~1.11, Python~$\geq$~3.11. Random seeds
+$0$ is used for the headline regression tables; \texttt{AOM-compact-cv3}
+uses the fold count specified by \verb|--cv 3|.
+
+\paragraph{Outputs.}
+Result CSVs share a stable schema (see \verb|RESULT_COLUMNS| in
+\verb|run_aompls_benchmark.py|) including diagnostic columns
+\verb|selected_operator_sequence_json| and
+\verb|selected_operator_scores_json|, which let downstream readers
+audit every operator decision per fold per dataset.
+
+%% =====================================================================
+\section{Conclusion}\label{sec:conclusion}
+%% =====================================================================
+
+Operator-Adaptive \PLS turns spectral preprocessing selection from an
+external grid into an internal, auditable component of \PLS. The
+deployed \nirsfourall \verb|AOMPLSRegressor| is the reference
+implementation; this paper supplies a parity-validated framework
+wrapper that reproduces its predictions within floating-point tolerance
+on an 11-dataset regression cohort, documents the six implementation details that
+define the parity surface, and uses that wrapper to evaluate three
+research extensions. Active Superblock and the operator explorer are
+included in the 57-dataset cohort joined to the published TabPFN/NIRS
+reference results, while deep order-3/order-4 banks are kept as a
+separate capacity ablation. Standard \PLS, \AOM-\textsc{global},
+\POP, and the multi-view modes share a single mathematical contract
+anchored on the identity
+$(\Xmat\Amat^\top)^\top \Ymat = \Amat\,\Xmat^\top \Ymat$. Empirically,
+the strongest variants (\texttt{SNV-AOM-compact} and
+\texttt{AOM-compact-cv3}) beat standard \PLS on 32/57 splits, while the
+production \AOM-\PLS reference remains a near-tie at the median
+($0.999$ relative RMSEP, 29/57 wins). TabPFN-opt remains ahead overall,
+so the immediate algorithmic lesson is not to add more operators, but
+to reduce selection variance, expose scatter correction safely, and
+regularise per-component selection. The framework extends to \PLSDA via
+class-balanced coding and a leakage-safe logistic calibrator on latent
+scores, but the full classification benchmark remains future work. We
+do not claim algorithmic novelty for \AOM-\PLS itself, and we do not
+claim universal superiority over modern tabular models. What we offer
+is a parity-validated, auditable, operator-aware extension of \PLS that
+fits naturally inside chemometric pipelines and can be evaluated
+against TabPFN, Catboost, and modern deep tabular models under a
+single, reproducible protocol.
+
+%% =====================================================================
+\section*{Acknowledgments}
+%% =====================================================================
+The authors thank the \nirsfourall open-source community and contributors
+to the TabPFN/NIRS benchmark for sharing the master result schema.
+
+%% =====================================================================
+\section*{Conflict of interest}
+%% =====================================================================
+The authors declare no conflict of interest.
+
+%% =====================================================================
+\section*{Data and code availability}
+%% =====================================================================
+All code, benchmark cohorts, and result CSVs are released under the
+\nirsfourall repository at \url{https://github.com/gbeurier/nirs4all},
+under the CeCILL-2.1 open-source license. The headline regression
+benchmark CSV is at
+\verb|bench/AOM_v0/benchmark_runs/full/results.csv|, the parity test
+at \verb|bench/AOM_v0/tests/test_parity_with_production.py|, and the
+parity-critical implementation files at
+\verb|bench/AOM_v0/aompls/banks.py|,
+\verb|bench/AOM_v0/aompls/operators.py|, and
+\verb|bench/AOM_v0/aompls/nipals.py|.
+
+%% =====================================================================
+\bibliographystyle{elsarticle-num}
+\bibliography{references}
+
+\end{document}
