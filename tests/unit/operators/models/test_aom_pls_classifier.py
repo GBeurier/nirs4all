@@ -3,9 +3,8 @@
 Tests cover:
 - Binary classification: fit, predict, predict_proba
 - Multiclass classification: fit, predict, predict_proba
-- Probability calibration (softmax, clipping)
+- Probability calibration (logistic, softmax fallback)
 - sklearn compatibility (clone, get/set_params)
-- Validation data passthrough
 """
 
 import numpy as np
@@ -123,23 +122,23 @@ class TestMulticlassClassification:
 # =============================================================================
 
 class TestDelegatedMethods:
-    """Test methods delegated to underlying AOMPLSRegressor."""
+    """Test diagnostic methods on the classifier."""
 
-    def test_get_block_weights(self, binary_data):
+    def test_get_selected_operators(self, binary_data):
         X, y = binary_data
         model = AOMPLSClassifier(n_components=5)
         model.fit(X, y)
-        gamma = model.get_block_weights()
-        assert gamma.ndim == 2
-        assert gamma.shape[0] > 0
+        ops = model.get_selected_operators()
+        assert isinstance(ops, list)
+        assert len(ops) > 0
 
-    def test_get_preprocessing_report(self, binary_data):
+    def test_get_diagnostics(self, binary_data):
         X, y = binary_data
         model = AOMPLSClassifier(n_components=5)
         model.fit(X, y)
-        report = model.get_preprocessing_report()
-        assert isinstance(report, list)
-        assert len(report) > 0
+        diag = model.get_diagnostics()
+        assert isinstance(diag, dict)
+        assert "selected_operator_names" in diag
 
 # =============================================================================
 # sklearn Compatibility Tests
@@ -149,10 +148,10 @@ class TestSklearnCompat:
     """Test sklearn API compatibility."""
 
     def test_get_params(self):
-        model = AOMPLSClassifier(n_components=10, gate="sparsemax")
+        model = AOMPLSClassifier(n_components=10, max_components=15)
         params = model.get_params()
         assert params["n_components"] == 10
-        assert params["gate"] == "sparsemax"
+        assert params["max_components"] == 15
 
     def test_set_params(self):
         model = AOMPLSClassifier()
@@ -161,28 +160,17 @@ class TestSklearnCompat:
         assert model.n_components == 20
 
     def test_clone(self):
-        model = AOMPLSClassifier(n_components=10, gate="sparsemax", n_orth=2)
+        model = AOMPLSClassifier(n_components=10, max_components=15)
         cloned = clone(model)
         assert cloned.n_components == 10
-        assert cloned.gate == "sparsemax"
-        assert cloned.n_orth == 2
+        assert cloned.max_components == 15
         assert cloned is not model
 
     def test_repr(self):
         model = AOMPLSClassifier(n_components=10)
         r = repr(model)
-        assert "AOMPLSClassifier" in r
+        assert "AOMPLSClassifier" in r or "AOMPLSDAClassifier" in r
 
     def test_estimator_type(self):
         model = AOMPLSClassifier()
         assert model._estimator_type == "classifier"
-
-    def test_with_validation_data(self, binary_data):
-        X, y = binary_data
-        rng = np.random.RandomState(99)
-        X_val = rng.randn(20, 100)
-        y_val = np.array(["classA", "classB"])[rng.randint(0, 2, size=20)]
-        model = AOMPLSClassifier(n_components=5)
-        model.fit(X, y, X_val=X_val, y_val=y_val)
-        preds = model.predict(X)
-        assert preds.shape == y.shape
