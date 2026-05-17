@@ -1,9 +1,0 @@
-{
-  "wavelength_start": 740.0,
-  "wavelength_end": 1070.0,
-  "wavelength_step": 1.0,
-  "global_slope_mean": 0.8448773315210024,
-  "global_slope_std": 0.11334691968786242,
-  "noise_base": 0.0004884442725681798,
-  "noise_signal_dep": 0.004045406560688757,
-  "path_length_std": 

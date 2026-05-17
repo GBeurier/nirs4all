@@ -1,1 +1,0 @@
-synthesis/Synthesis_Objectives.md
