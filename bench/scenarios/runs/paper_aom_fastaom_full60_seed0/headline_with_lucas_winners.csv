@@ -1,0 +1,17 @@
+model,count
+FastAOM-sparse-mkr-supervised,10
+ASLS-AOM-compact-cv5-numpy,8
+nirs4all-AOM-PLS-default,7
+POP-nipals-adjoint-numpy,6
+FastAOM-hard-chain-supervised,4
+FastAOM-sparse-mkr-compact,3
+AOM-default-nipals-adjoint-numpy,3
+FastAOM-hard-chain-compact,3
+FastAOM-hard-chain-asls,3
+SPXY-AOM-compact-cv5-numpy,3
+nirs4all-POP-PLS-default,2
+FastAOM-single-chain-compact,2
+AOM-compact-cv5-numpy,2
+FastAOM-single-chain-supervised-cv5-numpy,2
+PLS-standard-numpy,2
+FastAOM-soft-chain-compact,1
