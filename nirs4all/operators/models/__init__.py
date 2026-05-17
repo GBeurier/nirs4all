@@ -31,21 +31,43 @@ from .sklearn.aom_pls import (
     AOMPLSRegressor,
     ComposedOperator,
     DetrendProjectionOperator,
-    FFTBandpassOperator,
     FiniteDifferenceOperator,
     IdentityOperator,
-    LinearOperator,
+    LinearSpectralOperator,
     NorrisWilliamsOperator,
+    POPPLSRegressor,
     SavitzkyGolayOperator,
-    WaveletProjectionOperator,
+    WhittakerOperator,
+    bank_by_name,
+    compact_bank,
+    default_bank,
     default_operator_bank,
-    extended_operator_bank,
+    extended_bank,
 )
 from .sklearn.aom_pls_classifier import AOMPLSClassifier
+from .sklearn.aom_ridge import (
+    AOMKernelizer,
+    AOMLocalRidge,
+    AOMMultiBranchMKL,
+    AOMMultiKernelRidge,
+    AOMRidgeAutoSelector,
+    AOMRidgeBlender,
+    AOMRidgeClassifier,
+    AOMRidgePLS,
+    AOMRidgePLSCV,
+    AOMRidgeRegressor,
+)
+from .sklearn.aom_fast import (
+    FastAOMConfig,
+    FastAOMPLSRidge,
+    HardAOMChainPLSRidge,
+    SingleChainPLSRidge,
+    SoftAOMChainPLSRidge,
+    SparseMultiKernelRidge,
+)
 from .sklearn.fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS
 from .sklearn.nlpls import KPLS, NLPLS, KernelPLS
 from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
-from .sklearn.pop_pls import POPPLSRegressor, pop_pls_operator_bank
 from .sklearn.pop_pls_classifier import POPPLSClassifier
 
 # Lazy loading for TensorFlow models
@@ -102,23 +124,41 @@ __all__ = [
     "FractionalConvFeaturizer",
     # AOM-PLS
     "AOMPLSRegressor",
-    "LinearOperator",
+    "POPPLSRegressor",
+    "LinearSpectralOperator",
     "IdentityOperator",
     "SavitzkyGolayOperator",
     "DetrendProjectionOperator",
     "ComposedOperator",
     "NorrisWilliamsOperator",
     "FiniteDifferenceOperator",
-    "WaveletProjectionOperator",
-    "FFTBandpassOperator",
+    "WhittakerOperator",
     "default_operator_bank",
-    "extended_operator_bank",
-    # POP-PLS
-    "POPPLSRegressor",
-    "pop_pls_operator_bank",
+    "default_bank",
+    "compact_bank",
+    "extended_bank",
+    "bank_by_name",
     # Classifiers
     "AOMPLSClassifier",
     "POPPLSClassifier",
+    # AOM-Ridge family
+    "AOMRidgeRegressor",
+    "AOMRidgeClassifier",
+    "AOMRidgeBlender",
+    "AOMRidgeAutoSelector",
+    "AOMRidgePLS",
+    "AOMRidgePLSCV",
+    "AOMMultiKernelRidge",
+    "AOMKernelizer",
+    "AOMMultiBranchMKL",
+    "AOMLocalRidge",
+    # FastAOM family
+    "FastAOMPLSRidge",
+    "FastAOMConfig",
+    "SingleChainPLSRidge",
+    "HardAOMChainPLSRidge",
+    "SoftAOMChainPLSRidge",
+    "SparseMultiKernelRidge",
     # Meta-model stacking
     "MetaModel",
     "StackingConfig",
