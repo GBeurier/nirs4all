@@ -386,7 +386,7 @@ Cette transparence est non-négociable : sans elle, l'absence de CNN-canon pourr
 
 ### 8.2 Reproductibilité
 
-- Le runtime exécute les baselines à chaque bump majeur, sur tous les `selected`, et stocke `pls_canon_score`, `ridge_canon_score`, `rf_canon_score` dans la DB.
+- Le runtime exécute les baselines à chaque bump majeur, sur tous les `selected`. Les scores primaires restent dans les workspaces `nirs4all` (`store.sqlite`) ; `arena.sqlite` stocke seulement le lien baseline/version/run_spec nécessaire au calcul des ratios.
 - Ces scores **sont le dénominateur** des ratios reportés ; si la baseline est modifiée, tous les ratios changent. Le bump majeur garantit que l'ancien jeu de ratios reste accessible (tag `v(N)-frozen`).
 - **Version pinning obligatoire** : chaque run baseline persiste `sklearn.__version__`, `numpy.__version__`, `scipy.__version__`, `nirs4all.__version__`, BLAS backend, et n_threads dans l'EnvCard. Sans ces champs, le run est invalide.
 
@@ -425,14 +425,14 @@ Le runtime exécute ce test à chaque release et compare la sortie au `rmse_expe
 
 ## 11. Livrables
 
-- Implémentations dans `nirs4all.benchmark.baselines` (à créer) : `pls_canon.py`, `ridge_canon.py`, `rf_canon.py`.
+- Implémentations dans `nirs4all_arena.baselines` (à créer) : `pls_canon.py`, `ridge_canon.py`, `rf_canon.py`.
 - Tests dans `tests/benchmark/test_baselines.py` :
   - Test de sanity sur synthétique (§9).
   - Test de drift (la valeur sanity est gelée).
   - Test d'audit fit-on-train-only.
   - Test de fold feasibility (n_train petit).
   - Test de version pinning (EnvCard non-vide).
-- Pour chaque dataset `selected`, calcul et persistance de `pls_canon_score`, `ridge_canon_score`, `rf_canon_score` avant ouverture des soumissions externes.
+- Pour chaque dataset `selected`, calcul et persistance des scores PLS/Ridge/RF-canon dans les workspaces, avec liens `arena.sqlite`, avant ouverture des soumissions externes.
 - Fichier `canon_sanity_v0.1b.yaml` gelant les valeurs attendues du sanity test.
 
 ## 12. Références

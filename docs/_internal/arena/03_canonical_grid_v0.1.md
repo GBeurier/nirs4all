@@ -109,7 +109,7 @@ Chaque bloc fixe un sous-ensemble de facteurs à leurs valeurs canoniques et fai
 ```
 score_obs = μ + α_D + β_S + γ_K + (αβ)_DS + (αγ)_DK + (βγ)_SK + ε
 ```
-Avec 1 réplique par cellule `(D, S, K)`, l'interaction de troisième ordre `D×S×K` est *confondue avec le résidu* et n'est pas estimable séparément. L'analyse exploratoire utilise un modèle mixte avec D, S, K comme effets aléatoires ; les interactions à 2 facteurs sont estimables. Pour M (la soumission), la comparaison se fait *vs* les autres soumissions déjà en DB sur le même `(D, S, K)`.
+Avec 1 réplique par cellule `(D, S, K)`, l'interaction de troisième ordre `D×S×K` est *confondue avec le résidu* et n'est pas estimable séparément. L'analyse exploratoire utilise un modèle mixte avec D, S, K comme effets aléatoires ; les interactions à 2 facteurs sont estimables. Pour M (la soumission), la comparaison se fait *vs* les autres soumissions déjà indexées dans l'arène sur le même `(D, S, K)`.
 
 **Recommandation de reporting** : pour comparer soumissions, suivre Demšar 2006 — Friedman + post-hoc Nemenyi par dataset, plutôt qu'ANOVA. Décomposition de variance reportée séparément comme diagnostic, pas comme test confirmatoire.
 
@@ -567,7 +567,7 @@ Avant freeze v0.1b :
 
 ## 11. Livrables
 
-- Code du générateur dans `nirs4all.benchmark.protocol.grid_v01b` (à créer).
+- Code du générateur dans `nirs4all_arena.protocol.grid_v01b` (à créer).
 - Tests dans `tests/benchmark/test_grid_v01b.py` (déterminisme, ordre canonique, cardinalité, couverture).
 - Fichier `grid_v0.1b.json` publié avec la release.
 - Document `aliasing_warnings_v0.1b.json` listant les effets non-identifiables.

@@ -5,7 +5,7 @@
 | Champ | Valeur |
 |---|---|
 | Référence amont | [systematic_benchmarking_protocol.md](../systematic_benchmarking_protocol.md) §3.3, §5 |
-| Liens | [grille v0.1b](03_canonical_grid_v0.1.md) ; [PLS-canon](02_pls_canon.md) |
+| Liens | [concept + stockage minimal](00_arena_concept_storage.md) ; [grille v0.1b](03_canonical_grid_v0.1.md) ; [PLS-canon](02_pls_canon.md) |
 | Version | v0.1 |
 | Statut | Sketch — à compléter avant l'implémentation effective |
 | Phase roadmap | sketch écrit en **Phase 0a** (Conception) ; runtime alpha (format A) implémenté en **Phase 2** ; extensions formats B/C en **Phase 3** ; scaling bêta en **Phase 5**. Voir [07_nirs4all_arena_roadmap.md](07_nirs4all_arena_roadmap.md). |
@@ -20,8 +20,8 @@
 4. Exécuter ≈ 3 660 runs atomiques en parallélisme contrôlé.
 5. Persister chaque résultat atomique (métriques + prédictions + résidus + EnvCard).
 6. Re-exécuter aléatoirement 1-2 runs pour vérifier la reproductibilité interne.
-7. Indexer les résultats dans la DB, calculer les vues dérivées de base.
-8. Notifier le contributeur et les auteurs de datasets/PP/augmenters concernés (cf §12 du manifeste).
+7. Indexer les résultats dans `arena.sqlite` en les liant aux workspaces `nirs4all`, puis générer les vues dérivées de base et les evidence cards internes.
+8. Notifier l'équipe/contributeur et les auteurs de datasets/PP/augmenters concernés (cf §12 du manifeste).
 
 **Hors v0.1** : interface web de soumission (la soumission v0.1 se fait par PR Git ou upload manuel) ; API REST complète ; système d'authentification ; hold-out server.
 
@@ -51,7 +51,7 @@
            │ run_atomic_result
            ▼
 ┌─────────────────────┐
-│  Persister          │  store atomic result : Parquet + DuckDB + .n4a bundles
+│  Persister          │  store result in nirs4all workspace + arena.sqlite links
 └──────────┬──────────┘
            │
            ▼
@@ -62,7 +62,7 @@
            │
            ▼
 ┌─────────────────────┐
-│  Indexer + Notifier │  invalide les vues dérivées, recalcule, notifie
+│  Evidence + Indexer │  recipe cards, anti-patterns, public JSON, notifs
 └─────────────────────┘
 ```
 
@@ -79,7 +79,7 @@
 - Valider contre le JSON Schema correspondant (`manifest_schema_A.json`, `_B.json`, ou `_C.json`).
 - **Sandbox setup** :
   - Format A : aucun (déjà nirs4all natif).
-  - Format B : créer un venv isolé ; `pip install <package_name><version_spec>` ; vérifier import + API sklearn.
+  - Format B : instancier le container `nirs4all-arena-py:v0.1` ; `pip install <package_name><version_spec>` dans le container ; vérifier import + API sklearn.
   - Format C : pull container Docker `nirs4all-arena-r:v0.1` ; vérifier disponibilité du paquet R via `Rscript -e 'requireNamespace(...)'` (installer dans `R_LIBS_USER` si absent).
 - Audit du pipeline :
   - Format A : `fit_on_train_only` automatique (audit du pipeline JSON).
@@ -102,7 +102,7 @@ SubmissionRejected(
 
 **Sortie** : un dossier `submissions/<submission_id>/` avec :
 - `manifest.json` (validé + métadonnées de réception + format)
-- `bundle.n4a` (format A) **ou** `venv_lockfile.txt` (format B, snapshot post-install) **ou** `r_session_info.txt` (format C, post-sanity)
+- `bundle.n4a` (format A) **ou** `python_env_lockfile.txt` (format B, snapshot post-install dans le container) **ou** `r_session_info.txt` (format C, post-sanity)
 - `audit_log.json`
 
 ### 3.2 Grid Expander
@@ -114,7 +114,9 @@ SubmissionRejected(
 - Appeler `generate_canonical_grid(...)` (cf §7 du doc grille).
 - Vérifier la compatibilité de chaque `RunSpec` avec les `input_constraints` du modèle déclarés dans `pipeline.json`. Marquer les incompatibles `skip_constraint` avant exécution.
 
-**Sortie** : `submissions/<submission_id>/run_specs.parquet` (liste des RunSpec avec colonne `status_pre = "ok" | "skip_constraint"`).
+**Sortie** :
+- lignes `run_specs` dans `arena.sqlite`, identifiées par `run_spec_hash`;
+- export optionnel `submissions/<submission_id>/run_specs.parquet` pour audit humain.
 
 ### 3.3 Scheduler
 
@@ -128,7 +130,7 @@ SubmissionRejected(
 - État persistant : si le runtime crashe, reprendre où il s'est arrêté (cf §3.5).
 
 **Choix technique v0.1 (proposition)** :
-- File CPU : `joblib.Parallel(backend="loky", n_jobs=N_cores)` au-dessus de la file SQLite des RunSpec en attente.
+- File CPU : `joblib.Parallel(backend="loky", n_jobs=N_cores)` au-dessus d'une file SQLite des `RunSpec` en attente dans `arena.sqlite`.
 - File GPU : queue Python simple (`asyncio.Queue` ou `multiprocessing.Queue`) avec workers GPU dédiés. Pas d'orchestrateur distribué (Airflow, Prefect, Celery) en v0.1 — ajouter en v0.2 si la traction l'exige.
 - Pas de Kubernetes en v0.1 : le runtime tourne sur une seule machine bien dotée.
 
@@ -138,17 +140,17 @@ SubmissionRejected(
 
 **Responsabilités :**
 - Pour chaque `RunSpec` :
-  1. Charger le dataset : `nirs4all.benchmark.datasets.load(dataset_alias)`.
+  1. Charger le dataset : `nirs4all_arena.datasets.load(dataset_alias)` (qui délègue aux loaders `nirs4all` existants).
   2. Appliquer le split : charger le masque pré-calculé `splits/<dataset_alias>/<scheme>_seed<n>.parquet`.
   3. Appliquer le sous-échantillonnage `N` si bloc B6 (sur train seulement ; test inchangé).
   4. Construire le pipeline de run = `[augmenter] + pp_chain + [outlier_filter] + [target_processing] + model`.
      - **Format A** : le `model` est instancié depuis le bundle `.n4a` via `BundleLoader`.
-     - **Format B** : le `model` est instancié depuis le venv via `from <import_path> import <class_name>` + `ClassName(**constructor_kwargs)` ; wrappé dans la chaîne nirs4all.
+     - **Format B** : le `model` est instancié dans le container Python via `from <import_path> import <class_name>` + `ClassName(**constructor_kwargs)` ; wrappé dans la chaîne nirs4all.
      - **Format C** : le `model` est représenté par une étape `{"format": "C", "manifest_path": ..., "r_bridge_script_path": ...}` qui sera routée vers `RModelController` (container Docker).
-  5. Fixer les seeds globales via `nirs4all.benchmark.seed_env.set_global_seed(seed)` ; pour format C, écriture de `seed.txt` lue par le bridge R.
+  5. Fixer les seeds globales via `nirs4all_arena.runtime.seed_env.set_global_seed(seed)` ; pour format C, écriture de `seed.txt` lue par le bridge R.
   6. Capturer `EnvCard` :
      - Format A : versions nirs4all + sklearn + BLAS + threads + GPU.
-     - Format B : + venv `pip freeze --all` post-install + package_index.
+     - Format B : + `pip freeze --all` post-install + package_index + container digest.
      - Format C : + R version + `sessionInfo()` + container digest.
   7. `fit` puis `predict` ; mesurer `fit_time_s`, `predict_time_s`, `peak_rss_mb`, `peak_gpu_mb`.
      - Format C : la mesure mémoire/temps inclut l'overhead Docker (déclaré dans `notes`).
@@ -163,7 +165,7 @@ SubmissionRejected(
 - `OMP_NUM_THREADS`, `MKL_NUM_THREADS`, `OPENBLAS_NUM_THREADS` *fixés* avant le run, logués dans EnvCard.
 - Timeout `runtime_tier_max` strict ; SIGTERM puis SIGKILL.
 
-**Sandboxing** : v0.1 = isolation par process (joblib `loky` + worker pool). v0.2 envisagée : containers Docker.
+**Sandboxing** : v0.1 = isolation par process pour le format A ; Docker obligatoire pour les formats B et C. v0.2 peut durcir A ou ajouter un format container complet fourni par le contributeur.
 
 ### 3.5 Persister
 
@@ -173,9 +175,31 @@ SubmissionRejected(
 - Bundles `.n4a` re-générés : un par `RunSpec` pour les `selected` ; un par dataset pour les autres (économie disque).
 
 **Choix technique v0.1** :
-- `WorkspaceStore` (SQLite WAL) déjà mature pour les métadonnées.
-- `ArrayStore` (Parquet) déjà mature pour les prédictions/résidus.
-- DB principale = DuckDB en lecture (analytics) ; SQLite WAL en écriture (concurrent runs).
+- `WorkspaceStore` (SQLite WAL) reste la source primaire pour les runs, pipelines, chains, scores, durées, prédictions, artefacts et logs.
+- `ArrayStore` (Parquet) reste la source primaire pour les prédictions/résidus denses.
+- `arena.sqlite` est une base annexe, maintenue par `nirs4all_arena`, qui stocke uniquement les informations absentes du workspace : soumission, fichiers/versioning, `recipe_id`, `run_spec_hash`, DatasetCard/splits, EnvCard, SeedCard, vérifications, evidence snapshots et snapshots publics.
+- Les exports publics sont générés par jointure entre `arena.sqlite` et les `store.sqlite` des workspaces référencés. Aucune table `arena_*` n'est ajoutée au schema coeur de `nirs4all`.
+
+**Mapping minimal** :
+
+```sql
+run_bindings(
+  submission_id TEXT,
+  recipe_id TEXT,
+  run_spec_hash TEXT,
+  workspace_uri TEXT,
+  workspace_run_id TEXT,
+  pipeline_id TEXT,
+  chain_id TEXT,
+  primary_prediction_id TEXT,
+  status TEXT,
+  error_class TEXT,
+  created_at TEXT,
+  UNIQUE(submission_id, run_spec_hash)
+)
+```
+
+Ce mapping est le point d'idempotence. À la reprise, le scheduler liste les couples `(submission_id, run_spec_hash)` déjà liés à un workspace avec statut terminal ; seuls les autres sont ré-enqueued.
 
 ### 3.6 Reproducibility Verifier
 
@@ -185,16 +209,22 @@ SubmissionRejected(
 - Tout écart : flagger la soumission `under_review`, alerter le mainteneur.
 - Si l'écart est imputable à un facteur connu non-déterministe (cuDNN, BLAS multi-thread), accepter mais documenter dans `reproducibility_caveats` du résultat.
 
-### 3.7 Indexer + Notifier
+### 3.7 Evidence Engine + Indexer + Notifier
 
 **Responsabilités :**
-- Invalider les vues dérivées (leaderboard, matrices) — implémentées comme requêtes DuckDB sur la base. Pas de précalcul lourd : la recompilation est rapide.
+- Construire les sorties internes de criblage :
+  - `recipe_cards/<recipe_id>.json` : score relatif vs baselines, n datasets, fragilité, cout, exceptions.
+  - `anti_patterns.json` : recettes qui échouent souvent ou n'apportent presque jamais de gain.
+  - `toolkit_recommendations.json` : defaults recommandés par contexte (`task`, domaine, taille, instrument, cible).
+  - `coverage_report.json` : cadence datasets/mois, méthodes testées, trous dans le corpus.
+- Invalider les vues dérivées (leaderboard, matrices) — implémentées comme requêtes SQLite/Polars sur `arena.sqlite` + les `store.sqlite` attachés. Pas de précalcul lourd dans le runtime ; les JSON publics sont des snapshots régénérables.
 - Recalculer les agrégations basiques :
   - Leaderboard global (B1 : médiane sur datasets `selected` × 2 splits × 10 seeds, IC bootstrap).
   - Matrice modèle × dataset (`score_ratio_vs_pls_canon`).
   - Décomposition de variance.
   - Matrice de fragilité.
 - Notifier :
+  - L'équipe interne quand une evidence card change de conclusion ("recommandé", "fragile", "à éviter", "insuffisant").
   - Le contributeur soumissionnaire (résumé + lien vers la soumission publiée).
   - Les auteurs des `selected` datasets, `selected` PP, `selected` augmenters dont la soumission utilise le module (rétro-notification §12 du manifeste).
 - Politique de notification : email + RSS feed du repository GitHub Pages.
@@ -204,17 +234,21 @@ SubmissionRejected(
 ```
 Submission disk
     ↓
-WorkspaceStore.submissions (SQLite WAL)  ← contributors, sanity_check, audit_log
+arena.sqlite.submissions + submission_files  ← contributors, sanity_check, audit_log, hashes
     ↓
-run_specs.parquet (Parquet, immutable)
+arena.sqlite.run_specs (immutable, export Parquet optionnel)
     ↓
 [ Executor pool ]
-    ├── per-run atomic result → WorkspaceStore.runs (SQLite WAL)
+    ├── per-run atomic result → workspace/store.sqlite (runs, pipelines, chains, predictions, logs)
     ├── per-run predictions → arrays/<dataset>/<run_id>.parquet
     ├── per-run residuals → arrays/<dataset>/<run_id>_res.parquet
     └── per-run bundle → artifacts/<bundle_hash>.n4a
     ↓
-DuckDB views (lecture-only, computed on demand)
+arena.sqlite.run_bindings + env_cards + seed_cards
+    ↓
+Evidence snapshots (recipe cards, anti-patterns, recommendations)
+    ↓
+Public JSON snapshots (computed on demand for Arena website)
     ↓
 Web pages (statiques générées par templating, voir [05_web_minimal_sketch.md])
 ```
@@ -261,8 +295,9 @@ received → validating → validated
 
 Le runtime peut crasher (machine, kernel panic, OOM). Politique :
 - Tout `RunSpec` est identifié par `run_spec_hash = blake2b(canonical_form(RunSpec))`.
-- À la reprise, le scheduler liste les `run_spec_hash` déjà persistés ; les autres sont ré-enqueued.
-- Pas de double-écriture : `WorkspaceStore.runs` a contrainte UNIQUE sur `run_spec_hash`.
+- À la reprise, le scheduler liste les couples `(submission_id, run_spec_hash)` déjà présents dans `arena.sqlite.run_bindings` avec statut terminal ; les autres sont ré-enqueued.
+- Pas de double-écriture côté arène : `run_bindings` a une contrainte `UNIQUE(submission_id, run_spec_hash)`.
+- Le workspace `nirs4all` n'a pas besoin de connaître `run_spec_hash`. Si un run a été écrit dans le workspace mais pas encore lié dans `run_bindings`, le resolver tente de le retrouver par `run.name`, `pipeline.name`, `created_at`, `dataset_hash` et config avant de relancer.
 
 ## 8. Failure handling — politique opérationnelle
 
@@ -282,7 +317,7 @@ Aucune re-tentative automatique pour les bugs non-classés. Mainteneur statue.
 V0.1 applique une politique de sandboxing **différenciée selon le format** (cf [06_submission_formats.md](06_submission_formats.md) §3.7 et §4.7) :
 
 - **Format A** (bundle nirs4all) : pas de sandbox dédié. Hypothèse : soumissions de contributeurs identifiés (PR Git). Le bundle `.n4a` peut contenir joblib/pickle ; risque de désérialisation arbitraire. *Mitigation* : audit du contenu joblib ; remplacement par un format sans exec (ONNX, TF SavedModel) reporté en v0.2.
-- **Format B** (Python lib externe) : **venv isolé obligatoire dès v0.1**. `pip install` exécute du code arbitraire (`setup.py`). *Mitigation* : venv séparé par soumission, pas d'accès réseau pendant l'exécution (uniquement pendant install), filesystem en lecture seule sauf `output_dir`, timeout strict global. v0.2 : container Docker.
+- **Format B** (Python lib externe) : **container Docker obligatoire dès v0.1**. `pip install` exécute du code arbitraire (`setup.py`). *Mitigation* : image dédiée `nirs4all-arena-py:v0.1`, environnement séparé par soumission, pas d'accès réseau pendant l'exécution (uniquement pendant install), filesystem en lecture seule sauf `output_dir`, timeout strict global.
 - **Format C** (R package) : **container Docker obligatoire dès v0.1**. `install.packages` télécharge et compile du code C/C++/Fortran (Makevars) — risque structurellement plus élevé que B. Image `nirs4all-arena-r:v0.1` ; bibliothèque R sandboxée via `R_LIBS_USER` ; accès réseau restreint à CRAN/Bioconductor whitelistés ; filesystem read-only sauf `output_dir`.
 
 ## 10. Coût estimé d'une soumission (à valider empiriquement)
@@ -302,14 +337,13 @@ Sur une machine 32 cores : ≈ 1-4 j calendaire pour un modèle léger. Acceptab
 - Python 3.11+
 - `nirs4all` (à jour)
 - `joblib`, `numpy`, `scipy`, `pandas`, `pyarrow`
-- `duckdb` (lecture analytique)
 - `sklearn`
 - `tqdm` (progress)
 - `cffconvert` (validation CITATION.cff)
 
 **Format B (Python lib externe)** :
-- `virtualenv` ou `venv` (Python stdlib) — création du sandbox.
-- `pip` — installation des paquets soumis.
+- Docker.
+- Image **`nirs4all-arena-py:v0.1`** (Python 3.11 + `pip` + outils build minimaux).
 
 **Format C (R package)** :
 - **Docker** (engine + daemon accessibles au runtime).
@@ -326,10 +360,11 @@ Avant le go-live v0.1, le runtime doit :
 1. **Recevoir et valider** la soumission PLS-canon en mode "auto-soumission" : le runtime soumet *à lui-même* PLS-canon comme première soumission. Doit passer toutes les étapes.
 2. **Exécuter B1 complet** sur les 26 datasets `selected` (PLS-canon) → ≈ 520 runs.
 3. **Reproduire** un run aléatoire avec écart < 1e-6.
-4. **Indexer** et publier la première page (leaderboard avec 1 modèle).
-5. **Re-soumettre** PLS-canon sans changement → le runtime détecte les `run_spec_hash` existants et ne ré-exécute *aucun* run (idempotence).
+4. **Générer une evidence card** pour au moins une recette baseline et vérifier que ses champs sont traçables aux runs sources.
+5. **Indexer** et publier la première page (leaderboard avec 1 modèle).
+6. **Re-soumettre** PLS-canon sans changement → le runtime détecte les couples `(submission_id, run_spec_hash)` existants dans `arena.sqlite.run_bindings` et ne ré-exécute *aucun* run (idempotence).
 
-Si ces 5 tests passent, v0.1 est utilisable pour des contributeurs invités.
+Si ces 6 tests passent, v0.1 est utilisable pour le criblage interne et des contributeurs invités.
 
 ## 13. Hors-périmètre v0.1, à planifier v0.2
 
@@ -344,7 +379,7 @@ Si ces 5 tests passent, v0.1 est utilisable pour des contributeurs invités.
 ## 14. Décisions à arbitrer (pour Codex/comité)
 
 - **Orchestrateur** : joblib pur, ou intégration légère Prefect/Dagster dès v0.1 ?
-- **DB primaire** : SQLite + Parquet (déjà mature dans nirs4all) ou DuckDB natif ?
+- **Organisation des workspaces** : un workspace par soumission, par campagne, ou par pool de compute ? Recommandation v0.1 : un workspace par campagne contrôlée, plus `arena.sqlite` comme index global.
 - **Web** : Hugo + JSON statique ? FastAPI + Vega-Lite ? Datasette ? (cf [05_web_minimal_sketch.md])
 - **GPU queue** : workers Python isolés ou intégration vLLM-style ?
 - **Politique des soumissions GPU lourdes** : limite x runs/jour ? file dédiée payante ?

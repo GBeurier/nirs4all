@@ -1,18 +1,18 @@
-# Web minimal v0.1 — sketch des 4 vues critiques
+# Arena Web minimal v0.1 — sketch des 4 vues critiques
 
-> Sketch UX/dataviz pour la page publique v0.1. Pas d'implémentation détaillée — fixe **les contrats de données** entre runtime et frontend et **les 4 vues minimales** qui doivent ouvrir le service public.
+> Sketch UX/dataviz pour la page publique v0.1. **Arena designe ici le website**, pas la base de preuves interne. Pas d'implémentation détaillée — ce document fixe les contrats de données entre les exports du runtime/evidence engine et le frontend, ainsi que les 4 vues minimales qui doivent ouvrir le service public.
 
 | Champ | Valeur |
 |---|---|
 | Référence amont | [systematic_benchmarking_protocol.md](../systematic_benchmarking_protocol.md) §6 (13 vues envisagées) |
-| Liens | [grille v0.1b](03_canonical_grid_v0.1.md) ; [runtime](04_runtime_sketch.md) |
+| Liens | [concept + stockage minimal](00_arena_concept_storage.md) ; [grille v0.1b](03_canonical_grid_v0.1.md) ; [runtime](04_runtime_sketch.md) |
 | Version | v0.1 |
 | Statut | Sketch |
 | Phase roadmap | sketch écrit en **Phase 0a** (Conception) ; implémenté en **Phase 4** (Web v0.1) ; ouvert publiquement en **Phase 5** (Bêta). Voir [07_nirs4all_arena_roadmap.md](07_nirs4all_arena_roadmap.md). |
 
 ## 1. Périmètre v0.1
 
-Quatre vues critiques. Une fois ces quatre vues fonctionnelles et alimentées par le runtime, le service public peut ouvrir.
+Quatre vues critiques. Une fois ces quatre vues fonctionnelles et alimentées par la base de preuves, le service public peut ouvrir.
 
 | # | Vue | Question primaire | Source de données |
 |---|---|---|---|
@@ -21,11 +21,13 @@ Quatre vues critiques. Une fois ces quatre vues fonctionnelles et alimentées pa
 | V3 | Décomposition de variance | "Quelle part de variation vient du modèle vs du split vs du dataset ?" | B1 + B2 |
 | V4 | Matrice de fragilité | "Quels modèles plantent et où ?" | tous blocs (status colonne) |
 
-Les autres vues du manifeste (PP ranking, augmentation effect, scaling laws, clusters, …) sont v0.2.
+Les autres vues du manifeste (PP ranking, augmentation effect, scaling laws, clusters, evidence cards détaillées, recommandations de trousse à outils, …) sont v0.2 ou internes en v0.1.
 
 ## 2. Contrats de données
 
-Le frontend ne sait *rien* du runtime. Il consomme une API ou des fichiers JSON statiques régénérés à chaque mise à jour. Quatre tables logiques exposées :
+Le frontend ne sait *rien* du runtime. Il consomme une API ou des fichiers JSON statiques régénérés à chaque mise à jour. Ces fichiers sont des **snapshots publiables**, reconstruits depuis `arena.sqlite` + les workspaces `nirs4all` référencés ; ils ne sont pas la source primaire d'audit.
+
+Cinq tables logiques publiques exposées :
 
 ### 2.1 `submissions.json`
 ```json
@@ -33,6 +35,11 @@ Le frontend ne sait *rien* du runtime. Il consomme une API ou des fichiers JSON 
   "schema_version": "1.0",
   "generated_at": "2026-05-13T14:00:00Z",
   "grid_version": "v0.1b",
+  "dataset_registry_version": "datasets-v0.1",
+  "source_snapshot": {
+    "arena_sqlite_hash": "blake2b:...",
+    "workspace_set_hash": "blake2b:..."
+  },
   "submissions": [
     {
       "submission_id": "pls-canon",
@@ -44,7 +51,11 @@ Le frontend ne sait *rien* du runtime. Il consomme une API ou des fichiers JSON 
       "is_baseline": true,
       "task_types": ["regression"],
       "runtime_tier": "fast",
-      "selected": true
+      "selected": true,
+      "lineage": {
+        "manifest_hash": "blake2b:...",
+        "citation_hash": "blake2b:..."
+      }
     },
     ...
   ]
@@ -56,6 +67,10 @@ Le frontend ne sait *rien* du runtime. Il consomme une API ou des fichiers JSON 
 {
   "schema_version": "1.0",
   "view": "leaderboard_global",
+  "source_snapshot": {
+    "arena_sqlite_hash": "blake2b:...",
+    "workspace_set_hash": "blake2b:..."
+  },
   "filters": {
     "task": "regression",
     "dataset_pool": "selected",
@@ -75,7 +90,8 @@ Le frontend ne sait *rien* du runtime. Il consomme une API ou des fichiers JSON 
       "fragility_pct": 3.8,
       "fit_time_median_s": 45.2,
       "fit_time_p90_s": 89.0,
-      "is_baseline": false
+      "is_baseline": false,
+      "detail_ref": "models/tabpfn-v2.5.json"
     },
     ...
   ]
@@ -149,7 +165,30 @@ Le frontend ne sait *rien* du runtime. Il consomme une API ou des fichiers JSON 
 }
 ```
 
-Ces 5 fichiers sont générés par le runtime à chaque indexation (cf [04_runtime_sketch.md](04_runtime_sketch.md) §3.7). Ils sont versionnés (champ `generated_at`, hash du résultat) pour debug et reproductibilité.
+Ces 5 fichiers sont générés par l'indexer à chaque publication (cf [04_runtime_sketch.md](04_runtime_sketch.md) §3.7). Ils sont versionnés (`generated_at`, `source_snapshot`, hash du résultat) pour debug et reproductibilité.
+
+## 2.6 Drill-down interne inspiré du studio
+
+Le studio/Inspector existant expose déjà de bons concepts pour une interface mainteneur :
+
+- workspaces liés et scannés automatiquement ;
+- runs groupés par dataset, pipeline, modèle, preprocessing et split ;
+- statuts `completed/failed/partial`, `completed_results`, `failed_results` ;
+- fiches dataset avec hash/version/statut ;
+- accès aux prédictions et aux artefacts via `WorkspaceStore`.
+
+Pour v0.1, ces concepts ne sont pas obligatoires dans le site public. Ils peuvent servir à une page interne `/ops/runs/<id>` ou à une CLI `arena inspect`, alimentée directement par `arena.sqlite` + `WorkspaceStore`, sans exposer tous les runs atomiques au public.
+
+## 2.7 Exports internes hors website
+
+Le website ne doit pas faire oublier les sorties les plus utiles a court terme :
+
+- `evidence/recipe_cards/*.json` : fiches actionnables par recette.
+- `evidence/anti_patterns.json` : combinaisons rarement utiles ou trop fragiles.
+- `evidence/toolkit_recommendations.json` : recommandations conditionnelles pour la trousse a outils.
+- `evidence/coverage_report.json` : cadence de criblage, domaines couverts, methodes restantes.
+
+Ces exports peuvent rester prives au debut. Une partie pourra devenir publique plus tard sous forme de pages `/recipes/`, `/recommendations/` ou de supplement scientifique.
 
 ## 3. Vues — spécifications
 
@@ -237,12 +276,12 @@ Trois options pour v0.1 :
 - **Inconvénients** : pas de drill-down dynamique sur les runs atomiques sans backend.
 
 ### Option B — Datasette + frontend léger
-- **Génération** : runtime persiste DuckDB ou SQLite ; Datasette sert l'API ; un frontend léger (Svelte, React, ou Vega-Lite + JS pur) consomme.
+- **Génération** : runtime persiste `arena.sqlite` + workspaces `store.sqlite` ; Datasette sert l'API SQLite ; un frontend léger (Svelte, React, ou Vega-Lite + JS pur) consomme.
 - **Avantages** : drill-down dynamique sur tous les runs ; queries SQL exposées.
 - **Inconvénients** : nécessite un hosting backend ; complexité de déploiement.
 
 ### Option C — FastAPI + frontend React/Vue
-- **Génération** : runtime persiste DuckDB ; FastAPI sert l'API ; React/Vue pour le frontend.
+- **Génération** : runtime persiste `arena.sqlite` + workspaces `store.sqlite`/Parquet ; FastAPI sert l'API ; React/Vue pour le frontend.
 - **Avantages** : flexibilité maximale, UI riche.
 - **Inconvénients** : plus de dev, plus de maintenance.
 

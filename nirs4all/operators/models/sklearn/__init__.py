@@ -4,6 +4,14 @@ This module provides wrappers and utilities for using scikit-learn models
 as operators in nirs4all pipelines.
 """
 
+from .aom_fast import (
+    FastAOMConfig,
+    FastAOMPLSRidge,
+    HardAOMChainPLSRidge,
+    SingleChainPLSRidge,
+    SoftAOMChainPLSRidge,
+    SparseMultiKernelRidge,
+)
 from .aom_pls import (
     AOMPLSRegressor,
     ComposedOperator,
@@ -35,14 +43,6 @@ from .aom_ridge import (
     AOMRidgePLSCV,
     AOMRidgeRegressor,
 )
-from .aom_fast import (
-    FastAOMConfig,
-    FastAOMPLSRidge,
-    HardAOMChainPLSRidge,
-    SingleChainPLSRidge,
-    SoftAOMChainPLSRidge,
-    SparseMultiKernelRidge,
-)
 from .dipls import DiPLS
 from .fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS
 from .ikpls import IKPLS
@@ -61,6 +61,7 @@ from .recursive_pls import RecursivePLS
 from .robust_pls import RobustPLS
 from .simpls import SIMPLS
 from .sparsepls import SparsePLS
+from .tabpfn_nirs import TabPFNNIRSRegressor
 
 __all__ = [
     "PLSDA",
@@ -123,4 +124,6 @@ __all__ = [
     "HardAOMChainPLSRidge",
     "SoftAOMChainPLSRidge",
     "SparseMultiKernelRidge",
+    # TabPFN NIRS-tuned regressor (fixed AGG preprocessing, no HPO)
+    "TabPFNNIRSRegressor",
 ]

@@ -21,7 +21,7 @@
 7. **Politique GPL opérationnelle** : tag `gpl_derived: true` héritée à tout artefact. **Export utilisateur d'un artefact `gpl_derived`** : autorisé mais le bundle inclut un fichier `LICENSE_OBLIGATIONS.md` listant les obligations (notice, copyleft, source disponibilité). Mode export `no_gpl` : exclut tous les artefacts taggués.
 8. **Multi-target régression reportée en v0.2** pour B et C. v0.1 = univariable uniquement.
 9. **R bridge versioning** : `bridge_template_version` dans le manifest C ; le runtime garde l'historique des templates ; une nouvelle version du template n'invalide pas les soumissions précédentes (elles continuent avec leur version).
-10. **Cache d'installation explicite** : `pip install` et `R install.packages` s'exécutent **une fois par soumission** (au début), pas par run atomique. Le venv/container R est conservé pour toute la grille de 3 660 runs.
+10. **Cache d'installation explicite** : `pip install` et `R install.packages` s'exécutent **une fois par soumission** (au début), pas par run atomique. Les containers Python/R initialisés sont conservés pour toute la grille de 3 660 runs.
 
 ## 1. Pourquoi trois formats
 
@@ -186,7 +186,7 @@ Les canaris ne sont **pas absolus** (un modèle adverse motivé peut les contour
 ### 3.6 EnvCard format-B
 
 Inclut :
-- `python_version`, `package_versions` (de `pip freeze --all` post-install — capturé comme `venv_lockfile.txt`), `blas_backend`, `thread_env`, `gpu_determinism`, `cuda_version` (si applicable).
+- `python_version`, `package_versions` (de `pip freeze --all` post-install — capturé comme `python_env_lockfile.txt`), `blas_backend`, `thread_env`, `gpu_determinism`, `cuda_version` (si applicable).
 - `submission_package_version_resolved` (peut différer du `package_version_spec` selon le résolveur).
 - `submission_package_index_url` (PyPI ou allowlistée).
 - `container_image_digest` (digest immuable de `nirs4all-arena-py:v0.1`).
@@ -199,7 +199,7 @@ Docker obligatoire dès v0.1. Politique :
 - Filesystem en lecture seule sauf `output_dir` (montage volume restreint).
 - Pas de secrets exposés (env vars, montage `/etc`, etc.).
 - Timeout strict global par run atomique (`runtime_tier_max`).
-- L'installation se fait **une fois par soumission**, pas par run. Le container du même état de venv exécute tous les runs de la soumission.
+- L'installation se fait **une fois par soumission**, pas par run. Le container Python initialisé pour la soumission exécute tous les runs de cette soumission.
 
 ## 4. Format C — paquet R
 
@@ -407,9 +407,9 @@ Docker obligatoire dès v0.1. Politique :
 | Sandbox v0.1 | aucun (nirs4all natif) | **Docker** | **Docker** |
 | Validation | bundle loadable + sanity + audit | pip install + sklearn API check + sanity + canary | R install + bridge + sanity + canary |
 | Exécution | direct via PipelineRunner | wrap dans pipeline minimal | controller `RModelController` |
-| Cache installation | n/a | venv conservé pour 3 660 runs | container R conservé pour 3 660 runs |
-| EnvCard | versions nirs4all, BLAS | + venv lockfile, package index, container digest | + R version, `sessionInfo()`, container digest |
-| Bundle archivé | `.n4a` original | `.n4a` régénéré + venv_lockfile | `.n4a` régénéré + `model.rds` + `r_bridge.R` |
+| Cache installation | n/a | container Python conservé pour 3 660 runs | container R conservé pour 3 660 runs |
+| EnvCard | versions nirs4all, BLAS | + `python_env_lockfile.txt`, package index, container digest | + R version, `sessionInfo()`, container digest |
+| Bundle archivé | `.n4a` original | `.n4a` régénéré + `python_env_lockfile.txt` | `.n4a` régénéré + `model.rds` + `r_bridge.R` |
 | Tolérance sanity | `1e-6` | `1e-6` | `1e-4` (resserrable à `1e-6`) |
 | Audit fit-on-train-only | automatique (AST) | déclaration + canary | déclaration + canary |
 | Multi-target régression | ✓ | reporté v0.2 | reporté v0.2 |
