@@ -8,6 +8,7 @@ This section covers model training, comparison, and optimization in NIRS4ALL.
 training
 hyperparameter_tuning
 deep_learning
+tabpfn_nirs
 ```
 
 ## Overview
@@ -45,6 +46,16 @@ Use TensorFlow, PyTorch, and JAX models in pipelines.
 
 +++
 {bdg-warning}`Neural Networks`
+:::
+
+:::{grid-item-card} 🤖 TabPFN for NIRS
+:link: tabpfn_nirs
+:link-type: doc
+
+Fixed-recipe TabPFN regressor that matches per-dataset HPO without it.
+
++++
+{bdg-info}`No HPO`
 :::
 
 ::::

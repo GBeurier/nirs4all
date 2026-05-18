@@ -27,6 +27,14 @@ from .selection import (
 
 # Import sklearn models (lightweight, always available)
 from .sklearn import IKPLS, KOPLS, LWPLS, MBPLS, OPLS, OPLSDA, PCR, PLSDA, SIMPLS, DiPLS, IntervalPLS, RecursivePLS, RobustPLS, SparsePLS
+from .sklearn.aom_fast import (
+    FastAOMConfig,
+    FastAOMPLSRidge,
+    HardAOMChainPLSRidge,
+    SingleChainPLSRidge,
+    SoftAOMChainPLSRidge,
+    SparseMultiKernelRidge,
+)
 from .sklearn.aom_pls import (
     AOMPLSRegressor,
     ComposedOperator,
@@ -57,18 +65,11 @@ from .sklearn.aom_ridge import (
     AOMRidgePLSCV,
     AOMRidgeRegressor,
 )
-from .sklearn.aom_fast import (
-    FastAOMConfig,
-    FastAOMPLSRidge,
-    HardAOMChainPLSRidge,
-    SingleChainPLSRidge,
-    SoftAOMChainPLSRidge,
-    SparseMultiKernelRidge,
-)
 from .sklearn.fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS
 from .sklearn.nlpls import KPLS, NLPLS, KernelPLS
 from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
 from .sklearn.pop_pls_classifier import POPPLSClassifier
+from .sklearn.tabpfn_nirs import TabPFNNIRSRegressor
 
 # Lazy loading for TensorFlow models
 _tensorflow_exports = None
@@ -159,6 +160,8 @@ __all__ = [
     "HardAOMChainPLSRidge",
     "SoftAOMChainPLSRidge",
     "SparseMultiKernelRidge",
+    # TabPFN NIRS-tuned regressor (fixed AGG preprocessing, no HPO)
+    "TabPFNNIRSRegressor",
     # Meta-model stacking
     "MetaModel",
     "StackingConfig",

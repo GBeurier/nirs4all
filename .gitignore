@@ -160,3 +160,4 @@ bench/synthesis/nirs_synthetic_pfn/reports/
 .claude/worktrees/
 *.Identifier
 bench/tabpfn_paper/article
+bench/tabpfn_paper/tabpfn3/

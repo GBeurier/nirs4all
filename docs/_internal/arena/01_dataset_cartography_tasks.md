@@ -1,13 +1,14 @@
 # Cartographie des datasets — plan de tâches
 
-> Document planificateur. **Ne pas exécuter** — l'utilisateur prépare une DB dédiée pour cette étape. Ce document fixe le périmètre, le schéma cible et les vérifications à faire pour que chaque dataset entre proprement dans l'arène.
+> Document planificateur. **Ne pas exécuter** — l'utilisateur prépare une registry datasets annexe pour cette étape. Ce document fixe le périmètre, le schéma cible et les vérifications à faire pour que chaque dataset entre proprement dans l'arène.
 
 | Champ | Valeur |
 |---|---|
 | Référence amont | [systematic_benchmarking_protocol.md](../systematic_benchmarking_protocol.md) §3.2, §4.2, §11.2, §13 |
+| Liens | [concept + stockage minimal](00_arena_concept_storage.md), [runtime](04_runtime_sketch.md) |
 | Version | v0.1 |
 | Statut | Plan |
-| Phase roadmap | rédigé en **Phase 0a** (Conception) ; exécuté en **Phase 1** (DB + cartographie). Voir [07_nirs4all_arena_roadmap.md](07_nirs4all_arena_roadmap.md). |
+| Phase roadmap | rédigé en **Phase 0a** (Conception) ; exécuté en **Phase 1** (registry + cartographie). Voir [07_nirs4all_arena_roadmap.md](07_nirs4all_arena_roadmap.md). |
 
 ## 1. Périmètre
 
@@ -22,6 +23,15 @@ Deux ensembles à couvrir :
   - `classification/` : 11 familles (ARABIDOPSIS_CEFE, BEEF_Impurity, COFFEE_orig, COFFEE_sp, Cassava, FUSARIUM, FruitPuree, MALARIA, MILK, PISTACIA, Wood_Sustainability).
   - Chaque famille peut contenir plusieurs *dataset_alias* (différentes cibles, différents splits, différents instruments — cf master CSV historique pour la nomenclature).
 - **Source de vérité métadonnées** : `bench/tabpfn_paper/data/DatabaseDetail.xlsx` (à exploiter ; format à confirmer).
+
+## 1.1 Principe de stockage
+
+La cartographie produit une registry versionnée lisible par `nirs4all_arena`, pas une extension du schema `WorkspaceStore`.
+
+- **Source primaire datasets** : `datasets_registry_v0.1.sqlite` ou tables équivalentes dans `arena.sqlite`.
+- **Masques de split** : fichiers Parquet immuables sous `splits/<dataset_alias>/<scheme>_seed<n>.parquet`.
+- **Dans `nirs4all`** : aucun changement requis. Les loaders existants chargent les données ; l'arène reference les versions et les split masks.
+- **Dans les workspaces** : les runs stockent `dataset_name` et `dataset_hash` comme aujourd'hui. L'arène relie ces champs à `dataset_versions` par hash.
 
 ## 2. Schéma cible : `DatasetCard`
 
@@ -82,7 +92,7 @@ class DatasetCard:
     notes: str
 ```
 
-## 3. Tâches (TODO pour l'opérateur de la DB)
+## 3. Tâches (TODO pour l'opérateur de la registry)
 
 ### T1 — Inventaire et dédoublonnage
 
@@ -120,8 +130,8 @@ class DatasetCard:
 
 ### T6 — Splits canoniques
 
-- T6.1 Pour chaque dataset, **pré-calculer les masques de split** pour les 8 schémas de v0 (KS_70_30, SPXY_70_30, Random_70_30, KS_5fold, SPXY_5fold, Random_5fold, et selon la tâche KBinsStratified_5fold ou Stratified_5fold).
-- T6.2 Pour chacun, sur seeds ∈ {0, 1, …, 9}. Cardinalité par dataset : 8 schémas × 10 seeds = 80 masques.
+- T6.1 Pour chaque dataset, **pré-calculer les masques de split** pour les 7 schémas de v0.1b (KS_70_30, SPXY_70_30, Random_70_30, KS_5fold, SPXY_5fold, Random_5fold, et selon la tâche KBinsStratified_5fold ou Stratified_5fold).
+- T6.2 Pour chacun, sur seeds ∈ {0, 1, …, 9}. Cardinalité par dataset : 7 schémas × 10 seeds = 70 masques.
 - T6.3 Persister sous `splits/<dataset_alias>/<scheme>_seed<n>.parquet` (colonnes `sample_id, fold_index ∈ {0..k-1}, role ∈ {train, test}`).
 - T6.4 Calculer le `split_hash` de chaque masque (hash canonicalisé) ; le stocker dans la DatasetCard.
 
@@ -140,14 +150,17 @@ class DatasetCard:
 - T8.2 Construire la `CITATION.cff` correspondante.
 - T8.3 Datasets sans licence claire ou propriétaires → exclus du pool `all` public ; conservés en `private` pour audits internes.
 
-### T9 — Persistance dans la DB
+### T9 — Persistance dans la registry annexe
 
-- T9.1 Schéma SQL/Parquet : table `datasets` avec colonnes correspondant à `DatasetCard`. Index sur `dataset_fingerprint`, `family`, `task`, `selected`.
+- T9.1 Schéma SQLite/Parquet : table `dataset_cards` avec colonnes correspondant à `DatasetCard`. Index sur `dataset_fingerprint`, `family`, `task`, `selected`.
 - T9.2 Tables auxiliaires :
-  - `splits(dataset_fingerprint, scheme, seed, mask_path, mask_hash)`
+  - `dataset_versions(dataset_fingerprint, registry_version, data_path, data_hash, created_at, status)`
+  - `split_masks(dataset_fingerprint, scheme, seed, mask_path, mask_hash)`
   - `cross_instrument_pairs(dataset_a, dataset_b, instrument_a, instrument_b)`
   - `leakage_findings(dataset_fingerprint, finding_type, severity, description, resolved)`
   - `citations(dataset_fingerprint, cff_path, doi, license)`
+- T9.3 Export optionnel : `dataset_cards_v0.1.parquet` et `split_masks_v0.1.parquet` pour revue humaine et publication Zenodo.
+- T9.4 Compatibilité runtime : `nirs4all_arena.datasets.load_registry()` lit cette registry et retourne des `DatasetCard` immuables. `nirs4all` n'a pas besoin de nouvelle API benchmark.
 
 ### T10 — Décisions d'arbitrage (humaines)
 
@@ -167,13 +180,13 @@ class DatasetCard:
 | Familles classification | 11 |
 | `dataset_alias` totaux estimés | ≈ 60-100 (à confirmer après T1) |
 | Datasets `selected` (fast12 ∪ audit20) | ≈ 26 |
-| Masques de splits par dataset | 80 |
-| Masques de splits totaux | ≈ 4 800 - 8 000 |
+| Masques de splits par dataset | 70 |
+| Masques de splits totaux | ≈ 4 200 - 7 000 |
 
 ## 5. Points ouverts (à arbitrer avec le comité éditorial v0.2)
 
 - **Politique pour les datasets propriétaires** : exclus du `all` public, conservés en `private` ? Ou rejetés purement ?
-- **Politique pour les splits historiques sous-spécifiés** : certains dataset_alias encodent un split (`*_KS`, `*_70_30`, `*_YbaseSplit`) qui devient redondant avec les 8 schémas v0. Doit-on respecter le split historique comme "canonical" pour ce dataset, ou écraser ? Recommandation v0.1 : **écraser systématiquement** par les 8 schémas standard pour assurer la comparabilité, et conserver le split historique uniquement comme métadonnée informative.
+- **Politique pour les splits historiques sous-spécifiés** : certains dataset_alias encodent un split (`*_KS`, `*_70_30`, `*_YbaseSplit`) qui devient redondant avec les 7 schémas v0.1b. Doit-on respecter le split historique comme "canonical" pour ce dataset, ou écraser ? Recommandation v0.1 : **écraser systématiquement** par les 7 schémas standard pour assurer la comparabilité, et conserver le split historique uniquement comme métadonnée informative.
 - **Multi-target** : `bench/tabpfn_paper/data/PHOSPHORUS/` ou similaires peuvent contenir plusieurs cibles. Décision : un `dataset_alias` par cible, pas de fusion multi-target en v0.1.
 - **Cross-instrument** : la formalisation des paires (T5.4) est-elle exhaustive à partir des nommages, ou faut-il consulter chaque détenteur de dataset ?
 
@@ -189,12 +202,12 @@ La cartographie v0.1 est considérée terminée quand :
 
 ## 7. Prérequis croisés avec le runtime
 
-- Le runtime central (cf [04_runtime_sketch.md](04_runtime_sketch.md)) attend que la DB datasets soit lisible par `nirs4all.benchmark.datasets.load_registry()` — interface à figer avant T9.
+- Le runtime central (cf [04_runtime_sketch.md](04_runtime_sketch.md)) attend que la registry datasets soit lisible par `nirs4all_arena.datasets.load_registry()` — interface à figer avant T9.
 - Le PLS-canon (cf [02_pls_canon.md](02_pls_canon.md)) doit pouvoir s'exécuter sur tout dataset cartographié *sans paramétrage manuel*. Si un dataset requiert un loader custom, le documenter dans `DatasetCard.notes`.
 
 ## 8. Livrables attendus à la fin de cette étape
 
-- `datasets_registry_v0.1.duckdb` (ou équivalent) — base structurée.
+- `datasets_registry_v0.1.sqlite` (ou tables `dataset_*` dans `arena.sqlite`) — base structurée.
 - `splits/<dataset_alias>/<scheme>_seed<n>.parquet` — masques.
 - `crosswalk_v0.1.csv` — mapping famille ↔ alias.
 - `decisions_log.md` — historique des arbitrages.
