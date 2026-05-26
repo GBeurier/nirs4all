@@ -167,8 +167,10 @@ class ParquetLoader(FileLoader):
                         "Filters are only supported with pyarrow engine. Ignoring."
                     )
 
-            # Add any extra params
-            read_kwargs.update(params)
+            # Add any extra params, dropping nirs4all loading-meta keys that the loader
+            # framework injects (e.g. categorical_mode) but pandas/pyarrow do not accept.
+            _meta_keys = {"categorical_mode", "delimiter", "decimal_separator", "has_header", "signal_type"}
+            read_kwargs.update({k: v for k, v in params.items() if k not in _meta_keys})
 
             # Load the data
             try:
