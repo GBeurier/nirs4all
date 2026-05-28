@@ -9,11 +9,39 @@ This module provides a single source of truth for:
 All visualization code should use these utilities instead of inline logic.
 """
 
+import re
 from typing import Optional, Union
 
 import numpy as np
 
 from nirs4all.data._features import HeaderUnit, normalize_header_unit
+
+# A numeric header, optionally carrying a known spectral unit suffix (e.g. "852.78_nm", "4000 cm-1").
+# Anchored to the whole string so arbitrary text like "feature_852.78_nm" is rejected, not mined.
+_NUMERIC_HEADER_RE = re.compile(
+    r"^\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?)"  # the number
+    r"(?:\s*[_\- ]?\s*(?:nm|µm|um|cm-?1|cm⁻¹))?\s*$",   # optional trailing unit suffix
+    re.IGNORECASE,
+)
+
+
+def parse_numeric_headers(headers: list[str] | None) -> np.ndarray | None:
+    """Parse headers into a float array, tolerating a trailing unit suffix (e.g. ``"852.78_nm"``).
+
+    Accepts plain numbers and numbers with a known unit suffix (``nm``/``µm``/``cm-1``), with an
+    optional ``_``/``-``/space separator. Returns ``None`` if *any* header is not such a value, so the
+    caller can fall back to indices or raise — rather than silently mining a number out of arbitrary
+    text like ``"feature_852.78_nm"``.
+    """
+    if not headers:
+        return None
+    values: list[float] = []
+    for header in headers:
+        match = _NUMERIC_HEADER_RE.match(str(header))
+        if match is None:
+            return None
+        values.append(float(match.group(1)))
+    return np.array(values, dtype=float)
 
 # Canonical axis labels - single source of truth
 AXIS_LABELS = {
@@ -93,14 +121,13 @@ def get_x_values_and_label(
     except ValueError:
         normalized = HeaderUnit.NONE
 
-    # For numeric unit types, try to parse headers as floats
+    # For numeric unit types, try to parse headers as floats (tolerating unit-suffixed headers)
     if normalized in (HeaderUnit.WAVENUMBER, HeaderUnit.WAVELENGTH, HeaderUnit.NONE, HeaderUnit.INDEX):
-        try:
-            x_values = np.array([float(h) for h in headers])
+        x_values = parse_numeric_headers(headers)
+        if x_values is not None:
             return x_values, AXIS_LABELS.get(normalized, DEFAULT_AXIS_LABEL)
-        except (ValueError, TypeError):
-            # Headers not numeric - fall back to indices
-            return np.arange(n_features), DEFAULT_AXIS_LABEL
+        # Headers not numeric - fall back to indices
+        return np.arange(n_features), DEFAULT_AXIS_LABEL
 
     # For TEXT unit - use indices but with TEXT label
     return np.arange(n_features), AXIS_LABELS.get(normalized, DEFAULT_AXIS_LABEL)

@@ -505,9 +505,9 @@ class FeatureAccessor:
         unit = self.header_unit(source)
 
         if unit == "cm-1":
-            return np.array([float(h) for h in headers])
+            return self._numeric_headers(headers, "cm⁻¹")
         elif unit == "nm":
-            nm_values = np.array([float(h) for h in headers])
+            nm_values = self._numeric_headers(headers, "nm")
             return 10_000_000.0 / nm_values
         elif unit in ["none", "index"]:
             return np.arange(len(headers), dtype=float)
@@ -545,9 +545,9 @@ class FeatureAccessor:
         unit = self.header_unit(source)
 
         if unit == "nm":
-            return np.array([float(h) for h in headers])
+            return self._numeric_headers(headers, "nm")
         elif unit == "cm-1":
-            cm1_values = np.array([float(h) for h in headers])
+            cm1_values = self._numeric_headers(headers, "cm⁻¹")
             return 10_000_000.0 / cm1_values
         elif unit in ["none", "index"]:
             return np.arange(len(headers), dtype=float)
@@ -556,6 +556,20 @@ class FeatureAccessor:
                 f"Cannot convert unit '{unit}' to wavelengths (nm). "
                 f"Expected 'cm-1', 'nm', 'none', or 'index'."
             )
+
+    @staticmethod
+    def _numeric_headers(headers: list[str], unit_name: str) -> np.ndarray:
+        """Parse spectral headers to floats, tolerating a unit suffix (e.g. ``"852.78_nm"``).
+
+        Raises ``ValueError`` for genuinely non-numeric headers under a spectral unit (preserving the
+        documented contract), rather than the bare ``float()`` ``ValueError`` on suffixed headers.
+        """
+        from nirs4all.utils.header_units import parse_numeric_headers
+
+        parsed = parse_numeric_headers(headers)
+        if parsed is None:
+            raise ValueError(f"Headers are not numeric (optionally unit-suffixed); cannot convert to wavelengths ({unit_name}).")
+        return parsed
 
     def float_headers(self, source: int = 0) -> np.ndarray:
         """

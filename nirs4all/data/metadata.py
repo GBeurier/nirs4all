@@ -47,7 +47,15 @@ class Metadata:
         elif isinstance(data, pl.DataFrame):
             new_df = data.clone()
         elif isinstance(data, pd.DataFrame):
-            new_df = pl.from_pandas(data)
+            # Coerce only *mixed* object columns to string before conversion: a column holding both
+            # strings and floats makes pyarrow infer utf8 then reject the floats ("Expected bytes,
+            # got a 'float' object"). Pure numeric/bool/datetime/string columns are left untouched,
+            # and nulls are preserved (pandas StringDtype, not a blanket astype(str)).
+            pandas_data = data.copy()
+            for col in pandas_data.select_dtypes(include=["object"]).columns:
+                if pd.api.types.infer_dtype(pandas_data[col], skipna=True) in {"mixed", "mixed-integer"}:
+                    pandas_data[col] = pandas_data[col].astype("string")
+            new_df = pl.from_pandas(pandas_data)
         else:
             raise ValueError(f"Unsupported data type: {type(data)}")
 
