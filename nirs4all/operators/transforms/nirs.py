@@ -275,8 +275,8 @@ class MultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
     def _reset(self):
         if hasattr(self, "scaler_"):
             del self.scaler_
-            del self.a_
-            del self.b_
+        if hasattr(self, "reference_"):
+            del self.reference_
 
     def fit(self, X, y=None):
         self._reset()
@@ -286,48 +286,39 @@ class MultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
         if scipy.sparse.issparse(X):
             raise TypeError("Normalization does not support scipy.sparse input")
 
-        first_pass = not hasattr(self, "mean_")
-        # X = self._validate_data(X, reset=first_pass, dtype=FLOAT_DTYPES, estimator=self)
-
-        tmp_x = X
-        if self.scale:
-            scaler = StandardScaler(with_std=False)
-            scaler.fit(X)
-            self.scaler_ = scaler
-            tmp_x = scaler.transform(X)
-
-        reference = np.mean(tmp_x, axis=1)
-
-        a = np.empty(X.shape[1], dtype=float)
-        b = np.empty(X.shape[1], dtype=float)
-
-        for col in range(X.shape[1]):
-            a[col], b[col] = np.polyfit(reference, tmp_x[:, col], deg=1)
-
-        self.a_ = a
-        self.b_ = b
+        # Standard MSC (Geladi, MacDougall & Martens, 1985) is computed on the
+        # RAW spectra: the reference is the MEAN SPECTRUM (mean over samples,
+        # axis=0; length n_features); each sample is then regressed against it
+        # at transform time and corrected by its own offset/slope.
+        #
+        # The previous implementation (a) used axis=1 — the per-sample mean —
+        # and regressed each wavelength column over samples, which transposed
+        # the operation and did NOT compute MSC; and (b) optionally column-
+        # centered X first (`scale=True`), which is not part of MSC and, with
+        # the correct axis=0 reference, makes the reference identically zero
+        # (centred columns have zero mean). So the centering is dropped. `scale`
+        # is kept for API compatibility but no longer alters the result. The
+        # sibling ExtendedMultiplicativeScatterCorrection already uses axis=0.
+        X = np.asarray(X, dtype=float)
+        self.reference_ = np.mean(X, axis=0)
 
         return self
 
     def transform(self, X):
         check_is_fitted(self)
 
-        # X = self._validate_data(
-        #     X, reset=False, copy=self.copy, dtype=FLOAT_DTYPES, estimator=self
-        # )
-
-        if X.shape[1] != len(self.a_) or X.shape[1] != len(self.b_):
+        if X.shape[1] != len(self.reference_):
             raise ValueError(
                 "Transform cannot be applied with provided X. Bad number of columns."
             )
 
-        if self.scale:
-            X = self.scaler_.transform(X)
+        X = np.array(X, dtype=float, copy=True) if self.copy else np.asarray(X, dtype=float)
 
-        for col in range(X.shape[1]):
-            a = self.a_[col]
-            b = self.b_[col]
-            X[:, col] = (X[:, col] - b) / a
+        # Regress each sample against the reference spectrum: x_i ~= b*ref + a,
+        # then correct x_i_corrected = (x_i - a) / b.
+        for i in range(X.shape[0]):
+            b, a = np.polyfit(self.reference_, X[i, :], deg=1)
+            X[i, :] = (X[i, :] - a) / b
 
         return X
 
@@ -364,16 +355,19 @@ def msc(spectra, scaled=True):
     Returns:
         numpy.ndarray: Scatter-corrected NIR spectra.
     """
-    if scaled:
-        spectra = scale(spectra, with_std=False, axis=0)  # StandardScaler / demean
+    # Standard MSC on the RAW spectra: reference = mean spectrum (axis=0); regress
+    # each sample against it and correct (x - a) / b. The previous code used
+    # axis=1 / per-column regression (transposed, not MSC); the `scaled` column-
+    # centering is not part of MSC and would zero the axis=0 reference, so it is
+    # dropped (`scaled` kept for signature compatibility).
+    spectra = np.array(spectra, dtype=float, copy=True)
+    reference = np.mean(spectra, axis=0)
+    corrected = np.empty_like(spectra)
+    for i in range(spectra.shape[0]):
+        b, a = np.polyfit(reference, spectra[i, :], deg=1)
+        corrected[i, :] = (spectra[i, :] - a) / b
 
-    reference = np.mean(spectra, axis=1)
-
-    for col in range(spectra.shape[1]):
-        a, b = np.polyfit(reference, spectra[:, col], deg=1)
-        spectra[:, col] = (spectra[:, col] - b) / a
-
-    return spectra
+    return corrected
 
 class ExtendedMultiplicativeScatterCorrection(TransformerMixin, BaseEstimator):
     """
