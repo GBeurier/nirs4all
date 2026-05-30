@@ -22,9 +22,11 @@ from typing import Any
 from .keywords import (
     ARRANGE_KEYWORD,
     COUNT_KEYWORD,
+    GENERATION_KEYWORDS,
     OR_KEYWORD,
     PICK_KEYWORD,
     RANGE_KEYWORD,
+    SEED_KEYWORD,
     THEN_ARRANGE_KEYWORD,
     THEN_PICK_KEYWORD,
     has_or_keyword,
@@ -38,6 +40,56 @@ GeneratorNode = dict[str, Any] | list[Any] | str | int | float | bool | None
 
 # Type for expansion with choices: list of (config, choices) tuples
 ExpandedWithChoices = list[tuple]  # List[Tuple[Any, List[Dict[str, Any]]]]
+
+# Sibling-form parameter sweep: {"param": "<name>"} alongside a single generation keyword.
+PARAM_KEYWORD: str = "param"
+# Step keywords whose value is the operator a sibling-form sweep targets.
+_OPERATOR_WRAPPER_KEYS: tuple[str, ...] = ("model", "y_processing")
+
+
+def _normalize_param_sweep(node: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite a sibling-form parameter sweep into the equivalent nested form.
+
+    The ergonomic step-level form
+
+        {"model": {"class": P}, "_range_": [2, 20, 2], "param": "n_components"}
+
+    is rewritten to the canonical nested form the strategies already expand
+
+        {"model": {"class": P, "params": {"n_components": {"_range_": [2, 20, 2]}}}}
+
+    so that the named ``param`` of the operator is swept over the generator. Applies to a top-level
+    class-dict (``{"class": ...}``) or an operator wrapped under ``model``/``y_processing``. Any
+    ``count``/``_seed_`` modifier travels with the generator. Nodes that do not match this exact shape
+    (no ``param`` key, no/many generation keywords, a non-string ``param``, or an operator that is a
+    constructed instance rather than a class-dict) are returned unchanged.
+    """
+    if PARAM_KEYWORD not in node:
+        return node
+    gen_kws = [k for k in node if k in GENERATION_KEYWORDS]
+    param_name = node[PARAM_KEYWORD]
+    if len(gen_kws) != 1 or not isinstance(param_name, str):
+        return node
+    kw = gen_kws[0]
+    gen_spec: dict[str, Any] = {kw: node[kw]}
+    for mod in (COUNT_KEYWORD, SEED_KEYWORD):
+        if mod in node:
+            gen_spec[mod] = node[mod]
+    base = {k: v for k, v in node.items()
+            if k not in (kw, PARAM_KEYWORD, COUNT_KEYWORD, SEED_KEYWORD)}
+
+    def _inject(operator: Mapping) -> dict[str, Any]:
+        params = dict(operator.get("params") or {})
+        params[param_name] = gen_spec
+        return {**operator, "params": params}
+
+    if "class" in base:  # operator is a class-dict at the top level
+        return _inject(base)
+    for opkw in _OPERATOR_WRAPPER_KEYS:  # operator wrapped under a step keyword
+        op = base.get(opkw)
+        if isinstance(op, Mapping) and "class" in op:
+            return {**base, opkw: _inject(op)}
+    return node  # unsupported shape (e.g. a constructed instance) -> leave unchanged
 
 def expand_spec(node: GeneratorNode, seed: int | None = None) -> ExpandedResult:
     """Expand a specification node to all possible combinations.
@@ -117,6 +169,9 @@ def _expand_internal(node: GeneratorNode, seed: int | None = None) -> ExpandedRe
     # Handle non-dict types: wrap as single-element list
     if not isinstance(node, Mapping):
         return [node]
+
+    # Normalize the sibling-form parameter sweep into the canonical nested form
+    node = _normalize_param_sweep(node)
 
     # Try strategy dispatch for pure generator nodes
     strategy = get_strategy(node)
@@ -299,6 +354,9 @@ def _expand_with_choices_internal(
     # Handle non-dict types: wrap as single-element list with no choices
     if not isinstance(node, Mapping):
         return [(node, [])]
+
+    # Normalize the sibling-form parameter sweep into the canonical nested form
+    node = _normalize_param_sweep(node)
 
     # Try strategy dispatch for pure generator nodes
     strategy = get_strategy(node)
@@ -553,6 +611,9 @@ def _count_internal(node: GeneratorNode) -> int:
     # Scalars return 1
     if not isinstance(node, Mapping):
         return 1
+
+    # Normalize the sibling-form parameter sweep into the canonical nested form
+    node = _normalize_param_sweep(node)
 
     # Try strategy dispatch for pure generator nodes
     strategy = get_strategy(node)

@@ -1,6 +1,8 @@
 # nirs4all — Python NIRS Analysis Library
 
-**Version**: 0.8.11 | **Python**: 3.11+ | **License**: CeCILL-2.1
+**Version**: 0.9.1 | **Python**: 3.11+ | **License**: CeCILL-2.1
+
+Since **0.9.0** the public API (`run/predict/explain/retrain/session/generate`), result objects (`RunResult/PredictResult/ExplainResult`), workspace SQLite/Parquet schemas, run manifest layout, and `.n4a` bundle format are **stable contracts** within the 0.9.x line (used by the nirs4all webapp). Avoid breaking those signatures or on-disk schemas without a major bump.
 
 ## Commands
 
@@ -20,6 +22,15 @@ pytest --cov=nirs4all             # With coverage
 # Code quality
 ruff check .                      # Lint
 mypy .                            # Type check
+
+# Installed CLI (entry point: nirs4all.cli.main:main)
+nirs4all --version
+nirs4all --test-install           # Verify dependencies
+nirs4all --test-integration       # Run integration smoke tests
+nirs4all workspace ...            # Workspace inspection / migration
+nirs4all dataset ...              # Dataset commands
+nirs4all artifacts ...            # Artifact inspection
+nirs4all config ...               # Config validation
 
 # Pre-publish validation (mirrors CI locally, runs all steps with -j nproc parallelism)
 ./scripts/pre-publish.sh                    # Full: ruff, mypy, tests, docs, examples, build
@@ -64,8 +75,12 @@ nirs4all/
 ├── sklearn/        # NIRSPipeline (SHAP-compatible sklearn wrapper)
 ├── visualization/  # PredictionAnalyzer, heatmaps, candlestick charts
 ├── synthesis/      # Synthetic data generation
-├── workspace/      # Workspace management
-└── analysis/       # Pipeline topology analysis
+├── workspace/      # WorkspaceManager — discovery/linking of on-disk workspaces
+├── analysis/       # Transfer-optimized preprocessing selection (presets, projections, results, selector)
+├── core/           # TaskType + detect_task_type, metric registry (`eval`, `eval_multi`), exceptions, logging
+├── utils/          # Backend detection (is_tensorflow_available, is_gpu_available, framework), hashing, memory, spinner, operator_formatting
+├── optimization/   # Optuna manager — drives `finetune_params` hyperparameter search
+└── cli/            # `nirs4all` CLI: workspace, dataset, artifacts, config subcommands + installation_test
 ```
 
 ## Execution Flow
@@ -111,6 +126,9 @@ pipeline = [
 | `concat_transform` | Concatenate transformed features |
 | `rep_to_sources` | Convert repetition groups to multi-source format |
 | `rep_to_pp` | Convert repetition groups to preprocessing pipelines |
+| `finetune_params` | Optuna hyperparameter search alongside `model` (driven by `nirs4all.optimization.optuna`) |
+| `train_params` | Per-model training kwargs (epochs, patience, batch size, etc.) |
+| `name` | Human-readable label for the step (appears in results) |
 
 ### Generator Syntax (Hyperparameter Sweeps)
 
