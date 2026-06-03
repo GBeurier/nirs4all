@@ -10,7 +10,7 @@ import re
 import numpy as np
 
 from nirs4all.core.logging import get_logger
-from nirs4all.core.task_type import TaskType
+from nirs4all.core.task_type import _TASK_TYPE_ALIASES, TaskType
 from nirs4all.data._dataset import FeatureAccessor, MetadataAccessor, TargetAccessor
 from nirs4all.data.features import Features
 from nirs4all.data.indexer import Indexer
@@ -1536,20 +1536,31 @@ class SpectroDataset:
         """Set the task type explicitly.
 
         Args:
-            task_type: Task type as string ('regression', 'binary_classification', 'multiclass_classification') or TaskType enum
+            task_type: Task type as a string or TaskType enum. Accepted strings (see
+                ``_TASK_TYPE_ALIASES``): 'regression'/'reg', 'binary'/'binary_classification',
+                'multiclass'/'multiclass_classification', and the generic
+                'classification'/'clf' (binary vs multiclass is resolved from the targets).
             forced: If True, prevents auto-detection from overriding this value
                    in subsequent y_processing steps (e.g., after MinMaxScaler). Default True.
+
+        Raises:
+            ValueError: If ``task_type`` is a string that is not a recognized alias.
         """
         if isinstance(task_type, str):
-            # Map common string values to TaskType enum
-            task_map = {
-                'regression': TaskType.REGRESSION,
-                'binary': TaskType.BINARY_CLASSIFICATION,
-                'binary_classification': TaskType.BINARY_CLASSIFICATION,
-                'multiclass': TaskType.MULTICLASS_CLASSIFICATION,
-                'multiclass_classification': TaskType.MULTICLASS_CLASSIFICATION,
-            }
-            task_type = task_map.get(task_type.lower(), TaskType.REGRESSION)
+            resolved = _TASK_TYPE_ALIASES.get(task_type.lower())
+            if resolved is None:
+                raise ValueError(
+                    f"Unknown task_type {task_type!r}. Valid values: 'regression', "
+                    f"'binary_classification', 'multiclass_classification', 'classification', "
+                    f"'binary', 'multiclass' (or a TaskType enum)."
+                )
+            if resolved == "_any_classification":
+                # 'classification' is ambiguous: keep the subtype already detected from the
+                # targets, falling back to multiclass when targets look continuous.
+                detected = self._targets.task_type
+                task_type = detected if detected is not None and detected.is_classification else TaskType.MULTICLASS_CLASSIFICATION
+            else:
+                task_type = TaskType(resolved)
         self._targets.set_task_type(task_type, forced)
 
     @property

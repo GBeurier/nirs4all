@@ -148,6 +148,47 @@ class TestTargetOperations:
         assert dataset.is_regression
         assert not dataset.is_classification
 
+    def test_set_task_type_classification_resolves_multiclass(self):
+        """Generic 'classification' must resolve to the detected subtype, not silently fall back to regression."""
+        dataset = SpectroDataset("test")
+        dataset.add_samples(np.random.rand(10, 50))
+        dataset.add_targets(np.array([0, 1, 2, 0, 1, 2, 0, 1, 2, 0]))
+
+        dataset.set_task_type("classification", forced=True)
+
+        assert dataset.task_type == TaskType.MULTICLASS_CLASSIFICATION
+        assert dataset.is_classification
+
+    def test_set_task_type_classification_resolves_binary(self):
+        """Generic 'classification' keeps a binary subtype when the targets are binary."""
+        dataset = SpectroDataset("test")
+        dataset.add_samples(np.random.rand(10, 50))
+        dataset.add_targets(np.array([0, 1, 0, 1, 0, 1, 0, 1, 0, 1]))
+
+        dataset.set_task_type("clf", forced=True)
+
+        assert dataset.task_type == TaskType.BINARY_CLASSIFICATION
+
+    def test_set_task_type_explicit_strings(self):
+        """Exact alias strings map to the matching TaskType."""
+        dataset = SpectroDataset("test")
+        dataset.add_samples(np.random.rand(6, 50))
+        dataset.add_targets(np.array([0, 1, 0, 1, 0, 1]))
+
+        dataset.set_task_type("regression", forced=True)
+        assert dataset.task_type == TaskType.REGRESSION
+        dataset.set_task_type("multiclass_classification", forced=True)
+        assert dataset.task_type == TaskType.MULTICLASS_CLASSIFICATION
+
+    def test_set_task_type_unknown_raises(self):
+        """An unrecognized string must raise instead of silently defaulting to regression."""
+        dataset = SpectroDataset("test")
+        dataset.add_samples(np.random.rand(6, 50))
+        dataset.add_targets(np.array([0, 1, 0, 1, 0, 1]))
+
+        with pytest.raises(ValueError, match="Unknown task_type"):
+            dataset.set_task_type("classifcation")  # typo
+
     def test_y_retrieval(self):
         """Test retrieving targets with y() method."""
         dataset = SpectroDataset("test")

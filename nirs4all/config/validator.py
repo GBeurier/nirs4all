@@ -395,7 +395,7 @@ def _basic_validate(config: dict[str, Any], config_type: str) -> list[str]:
 
         # Validate task_type if present
         if 'task_type' in config:
-            valid_task_types = ['regression', 'binary_classification', 'multiclass_classification', 'auto']
+            valid_task_types = ['regression', 'binary_classification', 'multiclass_classification', 'classification', 'binary', 'multiclass', 'clf', 'reg', 'auto']
             if config['task_type'] not in valid_task_types:
                 errors.append(
                     f"Invalid task_type: '{config['task_type']}'. "
