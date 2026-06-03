@@ -32,6 +32,7 @@ from .data.tag import TagController
 # Import flow control controllers
 from .flow.dummy import DummyController
 from .models.jax_model import JaxModelController
+from .models.residual_model import ResidualModelController
 
 # Import model controllers (higher priority for supervised models)
 from .models.sklearn_model import SklearnModelController

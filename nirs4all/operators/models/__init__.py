@@ -15,6 +15,7 @@ from .base import BaseModelOperator
 # Or access via __getattr__ below
 # Import meta-model stacking
 from .meta import BranchScope, CoverageStrategy, MetaModel, StackingConfig, StackingLevel, TestAggregation
+from .residual import ResidualModel
 from .selection import (
     AllPreviousModelsSelector,
     DiversitySelector,
@@ -164,6 +165,7 @@ __all__ = [
     "TabPFNNIRSRegressor",
     # Meta-model stacking
     "MetaModel",
+    "ResidualModel",
     "StackingConfig",
     "CoverageStrategy",
     "TestAggregation",
