@@ -9,7 +9,7 @@
 
 [![PyPI version](https://img.shields.io/pypi/v/nirs4all.svg)](https://pypi.org/project/nirs4all/)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![License: CeCILL-2.1](https://img.shields.io/badge/license-CeCILL--2.1-blue.svg)](LICENSE)
+[![License: AGPL-3.0-or-later](https://img.shields.io/badge/license-AGPL--3.0--or--later-blue.svg)](LICENSE)
 [![Code style: ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
 
 [Documentation](https://nirs4all.readthedocs.io) •
@@ -427,7 +427,9 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## License
 
-This project is licensed under the [CeCILL-2.1 License](LICENSE) — a French free software license compatible with GPL.
+This project is licensed under [AGPL-3.0-or-later](LICENSE) by default, with
+GPL-3.0-or-later and CeCILL-2.1 variants available under the same licence file.
+A separate commercial licence is available for closed-source use.
 
 ---
 
