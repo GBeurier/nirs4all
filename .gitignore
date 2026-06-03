@@ -75,6 +75,7 @@ fake_workspace/
 example_workspace/
 test_cli_workspace/
 test_experiment_manager/
+/ws/
 test_output*
 /tmp
 
