@@ -1212,9 +1212,70 @@ class MergeController(OperatorController):
             context=context,
         )
 
-        # Collect merged data
-        merged_parts = []
-        merge_info = {}
+        # Collect merged data (features + predictions + original)
+        merged_parts, merge_info = self._collect_branch_merge_parts(
+            dataset=dataset,
+            context=context,
+            branch_contexts=branch_contexts,
+            config=config,
+            n_branches=n_branches,
+            mode=mode,
+            prediction_store=prediction_store,
+        )
+
+        # Check if this is a source branch merge (branches came from source_branch)
+        is_source_branch_merge = context.custom.get("in_source_branch_mode", False)
+
+        # Handle output_as strategy (mutates dataset + merge_info)
+        self._apply_branch_merge_output(
+            dataset=dataset,
+            context=context,
+            config=config,
+            n_branches=n_branches,
+            branch_contexts=branch_contexts,
+            merged_parts=merged_parts,
+            merge_info=merge_info,
+            is_source_branch_merge=is_source_branch_merge,
+        )
+
+        # ALWAYS exit branch mode (both regular and source_branch) and
+        # re-sync context processing with the new dataset processing names
+        result_context = self._finalize_branch_merge_context(context, dataset)
+
+        # Build metadata with serialized config for prediction mode reproducibility
+        metadata = self._build_branch_merge_metadata(config, n_branches, merge_info)
+
+        logger.success(
+            f"Merge step completed: exited branch mode. "
+            f"Features={config.collect_features}, Predictions={config.collect_predictions}"
+            f"{' [UNSAFE]' if config.unsafe else ''}"
+        )
+
+        return result_context, StepOutput(metadata=metadata)
+
+    def _collect_branch_merge_parts(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        branch_contexts: list[dict[str, Any]],
+        config: MergeConfig,
+        n_branches: int,
+        mode: str,
+        prediction_store: Any | None,
+    ) -> tuple[list[Any], dict[str, Any]]:
+        """Collect the data parts that make up a (non-disjoint) branch merge.
+
+        Gathers, in order: per-branch features (Phase 3), merged predictions
+        (Phase 4), and the optional original pre-branch features. Mirrors the
+        original inline accumulation exactly, including ordering and logging.
+
+        Shared state in: ``dataset``, ``context``, ``branch_contexts``,
+        ``config``, ``n_branches``, ``mode``, ``prediction_store``.
+        Shared state out: ``(merged_parts, merge_info)`` consumed by
+        :meth:`_apply_branch_merge_output`.
+        """
+        merged_parts: list[Any] = []
+        merge_info: dict[str, Any] = {}
 
         # Phase 3: Feature merging
         if config.collect_features:
@@ -1274,9 +1335,31 @@ class MergeController(OperatorController):
                     f"  Prepended original features: shape={original_features.shape}"
                 )
 
-        # Check if this is a source branch merge (branches came from source_branch)
-        is_source_branch_merge = context.custom.get("in_source_branch_mode", False)
+        return merged_parts, merge_info
 
+    def _apply_branch_merge_output(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        config: MergeConfig,
+        n_branches: int,
+        branch_contexts: list[dict[str, Any]],
+        merged_parts: list[Any],
+        merge_info: dict[str, Any],
+        is_source_branch_merge: bool,
+    ) -> None:
+        """Apply the ``output_as`` strategy to the collected merge parts.
+
+        Dispatches on ``config.output_as`` ("sources"/"dict"/"features") when
+        ``merged_parts`` is non-empty, otherwise warns. Mutates ``dataset``
+        (adding merged features / consolidating sources) and ``merge_info``
+        (recording shapes/keys) in place; returns nothing.
+
+        Note: the ``output_as == "dict"`` branch builds a throwaway
+        ``result_context`` exactly as the original did. That value was already
+        discarded by the unconditional reassignment in the caller, so it stays
+        a local here and is intentionally not returned (behavior-preserving).
+        """
         # Handle output_as strategy
         if merged_parts:
             if config.output_as == "sources":
@@ -1348,6 +1431,17 @@ class MergeController(OperatorController):
                 "Dataset features unchanged."
             )
 
+    def _finalize_branch_merge_context(
+        self,
+        context: "ExecutionContext",
+        dataset: "SpectroDataset",
+    ) -> "ExecutionContext":
+        """Exit branch mode and re-sync context processing with the dataset.
+
+        Produces a fresh context copy with all branch/source-branch flags
+        cleared and ``with_processing`` rebuilt from the current dataset
+        processing names. Returns the new ``result_context``.
+        """
         # ALWAYS exit branch mode (both regular and source_branch)
         result_context = context.copy()
         result_context.custom["branch_contexts"] = []
@@ -1365,6 +1459,21 @@ class MergeController(OperatorController):
             new_processing.append(src_processings)
         result_context = result_context.with_processing(new_processing)
 
+        return result_context
+
+    def _build_branch_merge_metadata(
+        self,
+        config: MergeConfig,
+        n_branches: int,
+        merge_info: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Build the StepOutput metadata for a branch merge.
+
+        Serializes the merge config for prediction-mode reproducibility and
+        folds in the accumulated ``merge_info`` details. Emits the unsafe-merge
+        warning (and records ``unsafe_merge``) when ``config.unsafe`` is set,
+        identical to the original inline block.
+        """
         # Build metadata with serialized config for prediction mode reproducibility
         metadata = {
             "merge_mode": config.get_merge_mode().value,
@@ -1394,13 +1503,7 @@ class MergeController(OperatorController):
                 "[Error: MERGE-E025]"
             )
 
-        logger.success(
-            f"Merge step completed: exited branch mode. "
-            f"Features={config.collect_features}, Predictions={config.collect_predictions}"
-            f"{' [UNSAFE]' if config.unsafe else ''}"
-        )
-
-        return result_context, StepOutput(metadata=metadata)
+        return metadata
 
     def _execute_source_branch_merge(
         self,
