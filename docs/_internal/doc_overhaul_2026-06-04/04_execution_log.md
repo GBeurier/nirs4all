@@ -56,6 +56,39 @@
 | Front-door collapse, Explanation home, api/→reference, gallery, dataset-config pages | structural; needs the IA build | P3/P4 |
 | `persona_paths.md` / `getting_started/concepts.md` internal fixes | both are DELETE targets in P3 — not worth polishing doomed pages | P3 (delete) |
 
-## Suggested next step
+## Update — venv set up; P1, P0.1, P2 executed & validated
 
-Set up a `uv` venv (py3.11) with nirs4all installed, so P0.1 (notebook→R04) and P1/P2 example edits can be **executed and verified**, not just statically checked. Then convert the notebook and run the example subset.
+A `uv` venv (py3.11) with `nirs4all -e .[docs,dev]` was created, so everything below is **runtime-validated**, not just static. All P0 symbols re-confirmed against the installed package (`WavelengthShift(shift_range=)`, no `Predictions.load`, the 5 real chart methods, all transfer/synthesis imports).
+
+### P1 — inline-style sweep (non-tyrannical)
+- Built `scripts/lint_inline_pipeline.py` — **advisory, complexity-aware AST lint**: flags only *simple* (flat, ≤6 steps, no nested branch/merge) `pipeline`-named vars passed (positionally OR by keyword) to run/session/Session/PipelineRunner. Authoritative count: **149 simple-case sites in 59 files** (not the naive grep's 648 — the rest are complex/reuse/inline and correctly exempt).
+- Built `scripts/codemod_inline_pipeline.py` — semantics-preserving inliner (AST source-segment, re-indents the literal) for `.py` and `.md` fenced blocks.
+- Applied: **145/149 inlined (97%)** across examples + docs; 4–5 edge cases left (advisory). Fixed 6 codemod-induced `I001` import-sorts via `ruff --fix`; collapsed double-blank artifacts in 14 md files.
+- Validated: examples ruff-clean; `U01_hello_world` + `U01_preprocessing_basics` **run (EXIT 0)**; docs build clean.
+
+### P0.1 — predictions.ipynb → R04_visualization.py
+- Wrote `examples/reference/R04_visualization.py` — self-contained (synthetic data), plot-free by default, exercises the `Predictions` + `PredictionAnalyzer` API. **Runs end-to-end (EXIT 0)**; ruff clean.
+- Wired into `run.sh`, `run_ci_examples.sh`, README inventory. **Deleted the 1.8 MB stale notebook.**
+
+### P2 — safety-net gates + CI
+- `scripts/check_doc_metadata.py` (**blocking**, passes): version strings == `__version__`; no sole-CeCILL phrasing. 
+- `scripts/check_example_refs.py` (**blocking**, passes): every `examples/*.py` named in docs exists. Surfaced + fixed 16 dangling refs (persona_paths ×5 + its fake `load_dataset()`→`DatasetConfigs(repetition=,aggregate=)`; export_bundles U21/U22; metadata.md; cli.md; `01_branching/` dirs).
+- `.github/workflows/docs-quality.yml`: gates (blocking) + inline lint (advisory) + Sphinx build + **fast canonical example subset on every push/PR** (the weekly-only `examples.yml` gap).
+- `docs/source/developer/documentation_style.md`: the house style page, wired into the developer toctree.
+
+### Proposal refinements (user feedback, folded into 03 + memory)
+- Inline rule made non-tyrannical; dataset-config + repetitions/aggregation elevated to a first-class topic (§5b).
+
+### Commits on branch `docs/overhaul-p0-correctness`
+1. `docs(internal)` — trace + tooling
+2. `docs+examples` — P0 wrong-API/metadata + P1 inline sweep
+3. `fix(viz)` — source docstring
+4. `examples` — remove stale notebook
+5. `examples` — add R04 + wiring
+6. `ci(docs)` — P2 gates + style guide + workflow
+
+## Remaining: P3 (structural IA migration) + P4 (reference unification)
+
+These are the large, interconnected phases (the proposal estimates ~2–3 weeks): collapse the 4 front doors to 1, build the single Explanation concept home + the 13-lesson Tutorial rail, dissolve `onboarding/`, delete `getting_started/concepts.md` + `persona_paths.md`, re-home `user_guide/**`→How-to and `developer/**`→Contributing, dissolve `api/`→`reference/` (autosummary + `autodoc_mock_imports` for TF/Torch/JAX), author the new `repetitions-&-aggregation` Explanation page + curated `DatasetConfigs` reference, then flip nitpick/`-W` strict after the broken-ref backlog burns down.
+
+**Recommendation:** execute P3/P4 as a *reviewed, incremental* migration (each step build-validated) rather than one blind burst — it rewrites the whole navigation spine and changes the docs UX, so it benefits from the user's eye on the resulting structure. P0–P2 already make the docs materially more correct, consistent, and regression-protected.
