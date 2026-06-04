@@ -112,6 +112,14 @@ Commit: `docs: collapse competing front doors into one canonical entry (P3)`.
 - **Merged the duplicate `api/storage.md` + `api/workspace.md` into their `reference/` twins** (#18): confirmed `reference/workspace.md` is a strict superset (has the "no nested runs/" principle + Common Workflows) and `reference/storage.md` is canonical (has PipelineLibrary, no "Version 5.0" defect); preserved the one unique bit (the SQLite tables schema) into `reference/storage.md`; deleted both api copies and dropped them from `api/modules.rst`. `api/` now holds only the unique `module_api` + `sklearn_integration` pages beside the generated autodoc — no more reference/ duplication.
 - Build clean (1 warning), gates green, no dangling links.
 
+## Scale validation (P1 sweep safety)
+
+Ran a broad batch of the inlined examples against the installed package — **all pass (EXIT 0)**: `U02_basic_regression`, `U03_basic_classification`, `U01_flexible_inputs`, `U02_feature_augmentation`, `U04_signal_conversion`, `U01_multi_model`, `U03_stacking_ensembles`, `U01_cv_strategies`, `U06_exclusion_strategies`, `R01_pipeline_syntax` — plus the earlier `U01_hello_world`, `U01_preprocessing_basics`, `R04_visualization`. **13 distinct examples confirmed running** after the inline sweep, including the heaviest-edited files (U01_preprocessing = 9 inlinings, U01_cv_strategies = 8). The codemod is semantics-preserving at scale.
+
+## Tutorial-rail finding
+
+The existing `getting_started/tutorial.md` is already a solid **8-step progressive rail** (Hello World → Preprocessing → CV → `_or_` → `_range_` → Branch/Stack → Export/Predict → Next), each step runnable, and it correctly teaches **both** house styles (simple inline; complex generator/branching pipelines as named variables — the non-tyrannical rule in action). The proposal's "13-lesson" expansion is an enhancement, not a correctness gap — the core learning arc exists and is correct.
+
 ## Still remaining (large, next sessions)
 - **P4:** the lone autodoc warning (`POPPLSRegressor` re-exported via two module paths → wants `:no-index:`); then flip `-W`/`fail_on_warning` strict after the nitpick burn-down; doc-snippet `literalinclude` execution; optional fold of `module_api`/`sklearn_integration` into curated reference pages.
 - **P3 rest:** the 13-lesson progressive Tutorial rail (authoring); deeper concept dedup (`data_workflow` vs `datasets`).
