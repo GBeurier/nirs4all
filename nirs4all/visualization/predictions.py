@@ -73,7 +73,7 @@ class PredictionAnalyzer:
 
     Example:
         >>> from nirs4all.data.predictions import Predictions
-        >>> predictions = Predictions.load('predictions.json')
+        >>> predictions = Predictions.from_file('predictions.json')
         >>> analyzer = PredictionAnalyzer(predictions)
         >>>
         >>> # Plot top 5 models - first call computes aggregation
