@@ -398,6 +398,22 @@ Manages reusable pipeline templates with category and tag support. Templates are
 
 ---
 
+## SQLite Tables
+
+| Table | Purpose | Key Columns |
+|-------|---------|-------------|
+| `runs` | Experiment sessions | run_id, name, status, config, datasets, summary |
+| `pipelines` | Individual pipeline executions | pipeline_id, run_id, name, expanded_config, best_val |
+| `chains` | Preprocessing-to-model step sequences | chain_id, pipeline_id, steps, fold_artifacts, shared_artifacts |
+| `predictions` | Per-fold, per-partition scores | prediction_id, pipeline_id, chain_id, val_score, test_score |
+| `artifacts` | Content-addressed artifact registry | artifact_id, artifact_path, content_hash, ref_count |
+| `logs` | Structured execution logs per step | log_id, pipeline_id, step_idx, event, duration_ms |
+| `projects` | Project grouping for runs | project_id, name, description, color |
+
+Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet sidecar files under `arrays/`, managed by `ArrayStore`.
+
+---
+
 ## See Also
 
 - [Workspace Architecture](./workspace.md) - Workspace directory structure
