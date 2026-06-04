@@ -187,6 +187,7 @@ The Developer Path covers advanced features for power users and contributors.
 | R01_pipeline_syntax.py | Complete pipeline syntax reference |
 | R02_generator_reference.py | Generator syntax documentation |
 | R03_all_keywords.py | Test all pipeline keywords |
+| R04_visualization.py | Prediction analysis & visualization API reference |
 | R05_synthetic_environmental.py | Environmental & matrix effects (Phase 3) |
 | R06_synthetic_validation.py | Validation & quality assessment (Phase 4) |
 | R07_synthetic_fitter.py | Fitting generators to real data (Phase 4) |
