@@ -393,4 +393,4 @@ result = nirs4all.run(
 - {doc}`/reference/pipeline_syntax` - Complete pipeline syntax reference
 - {doc}`/reference/generator_keywords` - Generator syntax (`_or_`, `_range_`)
 - {doc}`/user_guide/data/loading_data` - Data loading guide
-- {doc}`/getting_started/concepts` - Core concepts overview
+- {doc}`/concepts/index` - Core concepts overview

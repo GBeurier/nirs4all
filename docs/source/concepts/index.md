@@ -84,6 +84,7 @@ RunResult, export, predict, explain, retrain, and the Session API.
 :maxdepth: 1
 :hidden:
 
+mental_models
 pipelines
 datasets
 cross_validation
@@ -91,4 +92,7 @@ branching_and_merging
 generators
 augmentation
 predictions_and_deployment
+data_workflow
+pipeline_workflow
+workspace_intro
 ```

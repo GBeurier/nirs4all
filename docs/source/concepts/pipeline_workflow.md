@@ -433,7 +433,7 @@ Key contracts that controllers and the execution engine must uphold:
 
 Now that you understand how pipelines execute, explore:
 
-- **[Controllers Intro](controllers_intro.md)** — Learn how to extend execution behavior
+- **[Controllers Intro](../developer/controllers_intro.md)** — Learn how to extend execution behavior
 - **[Workspace Intro](workspace_intro.md)** — See how results are persisted
 - **[Data Workflow](data_workflow.md)** — Review how data flows through execution
 

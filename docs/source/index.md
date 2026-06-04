@@ -67,7 +67,7 @@ Architecture, internals, and contribution guidelines.
 :::
 
 :::{grid-item-card} Architecture Deep Dive
-:link: onboarding/index
+:link: developer/index
 :link-type: doc
 :class-card: sd-bg-light
 
@@ -140,10 +140,8 @@ concepts/index
 user_guide/index
 reference/index
 developer/index
-onboarding/index
 examples/index
 api/modules
-ai_onboarding
 ```
 
 ## What is Near-Infrared Spectroscopy (NIRS)?

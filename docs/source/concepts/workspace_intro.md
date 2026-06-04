@@ -400,8 +400,7 @@ Useful for custom analytics and reporting.
 Now that you understand workspace persistence, explore:
 
 - **[Pipeline Workflow](pipeline_workflow.md)** — See how execution generates workspace data
-- **[Controllers Intro](controllers_intro.md)** — Learn how controllers emit artifacts
-- **[Persona Paths](persona_paths.md)** — Find your learning path based on your role
+- **[Controllers Intro](../developer/controllers_intro.md)** — Learn how controllers emit artifacts
 
 ```{seealso}
 **Related Examples:**

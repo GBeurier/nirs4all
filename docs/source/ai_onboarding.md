@@ -1,3 +1,7 @@
+---
+orphan: true
+---
+
 # AI Coding Assistant Onboarding
 
 **Short reference for writing nirs4all pipelines and outputting results.**

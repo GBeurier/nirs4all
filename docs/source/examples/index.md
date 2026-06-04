@@ -475,7 +475,8 @@ After exploring examples:
 
 - **User Guide**: {doc}`/user_guide/index` - Complete documentation with detailed explanations
 - **API Reference**: {doc}`/reference/api_reference` - Full API documentation
-- **Onboarding**: {doc}`/onboarding/index` - Deep dive into architecture and design patterns
+- **Concepts**: {doc}`/concepts/index` - The ideas behind pipelines, datasets, and workflows
+- **Developer Guide**: {doc}`/developer/index` - Deep dive into architecture and design patterns
 - **Getting Started**: {doc}`/getting_started/quickstart` - Installation and first steps
 
 **Questions?** Check the {doc}`/user_guide/troubleshooting/faq` or raise an issue on [GitHub](https://github.com/GBeurier/nirs4all/issues).

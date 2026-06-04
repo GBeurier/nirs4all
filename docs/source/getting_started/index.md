@@ -9,7 +9,6 @@ Welcome to NIRS4ALL! This section will help you get up and running quickly.
 installation
 quickstart
 tutorial
-concepts
 ```
 
 ## Overview

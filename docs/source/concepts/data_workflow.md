@@ -400,7 +400,7 @@ flowchart LR
 Now that you understand how data flows, learn about:
 
 - **[Pipeline Workflow](pipeline_workflow.md)** — How execution orchestrates steps
-- **[Controllers Intro](controllers_intro.md)** — How controllers interact with datasets
+- **[Controllers Intro](../developer/controllers_intro.md)** — How controllers interact with datasets
 - **[Workspace Intro](workspace_intro.md)** — How data and results are persisted
 
 ```{seealso}

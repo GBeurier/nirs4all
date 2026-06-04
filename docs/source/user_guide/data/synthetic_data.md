@@ -902,7 +902,7 @@ for preproc in [MinMaxScaler(), StandardScaler(), SNV(), MSC(), FirstDerivative(
 - {doc}`/api/nirs4all.api.generate` - API reference
 - {doc}`/api/nirs4all.synthesis` - Low-level classes reference
 - {doc}`loading_data` - Loading real datasets
-- {doc}`/getting_started/concepts` - Understanding SpectroDataset
+- {doc}`/concepts/datasets` - Understanding SpectroDataset
 
 ```{seealso}
 **Related Examples:**
