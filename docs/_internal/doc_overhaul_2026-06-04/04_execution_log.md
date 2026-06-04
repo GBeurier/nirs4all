@@ -92,3 +92,24 @@ A `uv` venv (py3.11) with `nirs4all -e .[docs,dev]` was created, so everything b
 These are the large, interconnected phases (the proposal estimates ~2–3 weeks): collapse the 4 front doors to 1, build the single Explanation concept home + the 13-lesson Tutorial rail, dissolve `onboarding/`, delete `getting_started/concepts.md` + `persona_paths.md`, re-home `user_guide/**`→How-to and `developer/**`→Contributing, dissolve `api/`→`reference/` (autosummary + `autodoc_mock_imports` for TF/Torch/JAX), author the new `repetitions-&-aggregation` Explanation page + curated `DatasetConfigs` reference, then flip nitpick/`-W` strict after the broken-ref backlog burns down.
 
 **Recommendation:** execute P3/P4 as a *reviewed, incremental* migration (each step build-validated) rather than one blind burst — it rewrites the whole navigation spine and changes the docs UX, so it benefits from the user's eye on the resulting structure. P0–P2 already make the docs materially more correct, consistent, and regression-protected.
+
+## P3 increment — front-door collapse (DONE, build-validated)
+
+Executed the defining structural fix (audit #6 → success metric "exactly one front door"):
+
+- **onboarding/ dissolved** as a competing front door: `mental_models`, `data_workflow`, `pipeline_workflow`, `workspace_intro` re-homed into `concepts/` (the single Explanation home); `controllers_intro` → `developer/`; `onboarding/index.md` deleted.
+- **Deleted** `persona_paths.md` (duplicate front door) and `getting_started/concepts.md` (duplicate of concepts/).
+- **Landing toctree** reduced to one path: `getting_started → concepts → user_guide → reference → developer → examples → api`. `ai_onboarding` dropped from nav (now `:orphan:`).
+- All inbound/cross links repointed (controllers_intro `../developer/`, concepts pages' `../developer/controllers_intro`, 3 stale `{doc}/getting_started/concepts` → `/concepts/*`). Bonus: wired 3 pre-existing toctree orphans (`migration/*`, `scoring_and_refit`).
+- **Result:** Sphinx warnings 4 → 1–2 (the lone remaining is a pre-existing autodoc duplicate, POPPLSRegressor exported via two module paths — a P4 `:no-index:`/autodoc-unification item). Metadata + broken-ref gates green; 0 refs to deleted pages.
+- NIRS dataset-config/repetitions topic: confirmed `aggregation.md` already comprehensive (covers `repetition`/`aggregate`/`aggregate_method`/`aggregate_exclude_outliers`, constructor + config-dict forms) and toctree-surfaced; made its `data/index` card NIRS-explicit.
+
+Commit: `docs: collapse competing front doors into one canonical entry (P3)`.
+
+## Still remaining (large, next sessions)
+- **P3 rest:** the 13-lesson progressive Tutorial rail (authoring); a formal How-to estate label (user_guide already *is* the how-to layer); deeper concept dedup (data_workflow vs datasets).
+- **P4:** merge the 4 hand-written `api/*.md` into their `reference/` twins + dissolve the 357-stub tree to autosummary with `autodoc_mock_imports` (fixes the duplicate-object warning), then flip `-W`/`fail_on_warning` strict; doc-snippet `literalinclude` execution.
+
+## Success-metric scorecard (proposal §11)
+- ✅ Exactly one front door · ✅ 0 stale versions (gate) · ✅ license correct (gate) · ✅ wrong-API copy-paste defects fixed · ✅ simple pipelines inline (advisory lint) · ✅ per-PR example execution + R04, notebook gone · ✅ example refs resolve (gate)
+- ⏳ One Reference home (api/ merge — P4) · ⏳ all doc snippets execute in CI (literalinclude — P4) · ⏳ nitpick strict (P4) · ⏳ mean health ≥4/5 (needs P3/P4 completion)

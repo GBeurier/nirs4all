@@ -49,14 +49,16 @@ Detect and convert between absorbance, reflectance, and other spectral represent
 {bdg-success}`Essential`
 :::
 
-:::{grid-item-card} 📊 Aggregation
+:::{grid-item-card} 🔁 Repetitions & Aggregation
 :link: aggregation
 :link-type: doc
 
-Combine predictions across multiple samples or replicates.
+Handle repeated scans of the same physical sample: group replicates with
+`DatasetConfigs(repetition=...)` and aggregate them (`aggregate`,
+`aggregate_method`, outlier exclusion). Core to NIRS.
 
 +++
-{bdg-success}`Post-processing`
+{bdg-success}`NIRS`
 :::
 
 :::{grid-item-card} 🔍 Sample Filtering
