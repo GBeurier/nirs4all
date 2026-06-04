@@ -150,6 +150,7 @@ reference_examples=(
   "reference/R01_pipeline_syntax.py"
   "reference/R02_generator_reference.py"
   "reference/R03_all_keywords.py"
+  "reference/R04_visualization.py"
   "reference/R05_synthetic_environmental.py"
   "reference/R06_synthetic_validation.py"
   "reference/R07_synthetic_fitter.py"
