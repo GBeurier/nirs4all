@@ -132,6 +132,11 @@ class PipelineOrchestrator:
         # Figure references to prevent garbage collection
         self._figure_refs: list[Any] = []
 
+        # Run counter, run-scoped across all datasets in a single execute()
+        # call. Kept as instance state so per-dataset failures don't reset or
+        # skip increments (subsequent datasets must not reuse run numbers).
+        self._current_run: int = 0
+
         # Legacy compatibility: runs_dir for predictor/explainer modes
         self.runs_dir = self.workspace_path
 
@@ -209,37 +214,19 @@ class PipelineOrchestrator:
         )
         logger.info("=" * 120)
 
-        datasets_predictions = {}
+        datasets_predictions: dict[str, Any] = {}
         run_predictions = Predictions()
-        current_run = 0
+        self._current_run = 0
 
         # Begin run in store (or join existing run)
-        run_id = store_run_id
-        if self.mode == "train" and run_id is None and manage_store_run:
-            dataset_meta = []
-            aggregates = getattr(dataset_configs, "_aggregates", [])
-            aggregate_methods = getattr(dataset_configs, "_aggregate_methods", [])
-            aggregate_exclude_outliers = getattr(dataset_configs, "_aggregate_exclude_outliers", [])
-            repetitions = getattr(dataset_configs, "repetitions", [])
-            for idx, (_config, name) in enumerate(dataset_configs.configs):
-                raw_aggregate = aggregates[idx] if idx < len(aggregates) else None
-                effective_aggregate = "y" if raw_aggregate is True else raw_aggregate
-                dataset_meta.append(
-                    {
-                        "name": name,
-                        "aggregate": effective_aggregate,
-                        "aggregate_method": aggregate_methods[idx] if idx < len(aggregate_methods) else None,
-                        "aggregate_exclude_outliers": bool(
-                            aggregate_exclude_outliers[idx] if idx < len(aggregate_exclude_outliers) else False
-                        ),
-                        "repetition": repetitions[idx] if idx < len(repetitions) else None,
-                    }
-                )
-            run_id = self.store.begin_run(
-                name=pipeline_name or "run",
-                config={"n_pipelines": n_pipelines, "n_datasets": n_datasets},
-                datasets=dataset_meta,
-            )
+        run_id = self._begin_store_run(
+            dataset_configs=dataset_configs,
+            pipeline_name=pipeline_name,
+            n_pipelines=n_pipelines,
+            n_datasets=n_datasets,
+            store_run_id=store_run_id,
+            manage_store_run=manage_store_run,
+        )
         if run_id:
             self.last_run_id = run_id
 
@@ -256,514 +243,25 @@ class PipelineOrchestrator:
         try:
             for _dataset_idx, (config, name) in enumerate(dataset_configs.configs):
               try:
-                # Create artifact registry for this dataset.
-                # Lifecycle: Registry is created once per dataset, shared by all
-                # pipeline variant (CV) executions, and will be available to the
-                # refit pass.  It is destroyed (end_run) at the end of the dataset
-                # loop iteration.
-                artifact_registry = None
-                if self.mode == "train":
-                    artifact_registry = ArtifactRegistry(
-                        workspace=self.workspace_path,
-                        dataset=name,
-                    )
-                    artifact_registry.start_run()
-
-                # Build executor using ExecutorBuilder
-                executor = (ExecutorBuilder()
-                    .with_workspace(self.workspace_path)
-                    .with_verbose(self.verbose)
-                    .with_mode(self.mode)
-                    .with_save_artifacts(self.save_artifacts)
-                    .with_save_charts(self.save_charts)
-                    .with_continue_on_error(self.continue_on_error)
-                    .with_show_spinner(self.show_spinner)
-                    .with_plots_visible(self.plots_visible)
-                    .with_figure_refs(self._figure_refs)
-                    .with_artifact_loader(artifact_loader)
-                    .with_artifact_registry(artifact_registry)
-                    .with_store(self.store)
-                    .build())
-
-                self.last_executor = executor
-
-                # Predictions accumulate in-memory; store-backed via flush()
-                run_dataset_predictions = Predictions()
-
-                # Accumulator for best preprocessing chain per model across all variants.
-                # Shared across pipeline variants via RuntimeContext (which returns
-                # self on deepcopy).
-                best_refit_chains: dict = {}
-
-                # Deferred artifact persistence: only write artifacts to
-                # disk for configs whose validation score beats the
-                # previous best.  Activated when there are multiple
-                # pipeline configs to compare.
-                use_deferred = (
-                    len(pipeline_configs.steps) > 1
-                    and self.mode == "train"
-                    and self.save_artifacts
+                self._execute_dataset(
+                    config=config,
+                    name=name,
+                    pipeline_configs=pipeline_configs,
+                    dataset_configs=dataset_configs,
+                    run_id=run_id,
+                    step_cache=step_cache,
+                    total_runs=total_runs,
+                    n_datasets=n_datasets,
+                    run_predictions=run_predictions,
+                    datasets_predictions=datasets_predictions,
+                    artifact_loader=artifact_loader,
+                    target_model=target_model,
+                    explainer=explainer,
+                    refit=refit,
                 )
-                best_deferred_val: float | None = None
-                best_deferred_ascending: bool | None = None
-
-                # Determine if parallel execution should be used
-                use_parallel = (
-                    self.n_jobs != 1
-                    and len(pipeline_configs.steps) > 1
-                    and self.mode == "train"  # Only train mode for now
-                )
-                authoring_template = pipeline_configs.get_template_dict()
-
-                # Parallel execution disables deferred artifacts (can't compare across workers)
-                if use_parallel:
-                    use_deferred = False
-                    logger.info(f"Executing {len(pipeline_configs.steps)} variants in parallel (n_jobs={self.n_jobs})")
-
-                # ===================================================================
-                # PARALLEL EXECUTION PATH
-                # ===================================================================
-                if use_parallel:
-                    # Determine number of workers
-                    n_workers = self.n_jobs
-                    if n_workers == -1:
-                        n_workers = multiprocessing.cpu_count()
-                    n_workers = min(n_workers, len(pipeline_configs.steps))
-
-                    # Create a pickle-safe copy of the executor for parallel workers.
-                    # PipelineExecutor.store holds a WorkspaceStore with a threading.RLock
-                    # which cannot be pickled by loky.  Workers never use executor.store
-                    # (they use runtime_context.store which is set to None), so we null it.
-                    parallel_executor = copy.copy(executor)
-                    parallel_executor.store = None
-
-                    # Prepare variant data for parallel execution
-                    variant_data_list = []
-                    for _i, (steps, config_name, gen_choices) in enumerate(zip(
-                        pipeline_configs.steps,
-                        pipeline_configs.names,
-                        pipeline_configs.generator_choices,
-                        strict=False,
-                    )):
-                        current_run += 1
-                        dataset_copy = dataset_configs.get_dataset(config, name)
-
-                        # Capture raw data (first variant only)
-                        if self.keep_datasets and name not in self.raw_data and _i == 0:
-                            raw_x = dataset_copy.x({}, layout="2d")
-                            if isinstance(raw_x, list):
-                                raw_x = np.concatenate(raw_x, axis=1)
-                            self.raw_data[name] = raw_x
-
-                        # Initialize context
-                        context = executor.initialize_context(dataset_copy)
-
-                        # Create runtime context for parallel workers.
-                        # Objects containing threading locks are set to None since they
-                        # can't be pickled by loky: store (WorkspaceStore._lock),
-                        # step_cache (StepCache._lock), and explainer (holds a reference
-                        # chain back to the runner/orchestrator/store).
-                        runtime_context_copy = RuntimeContext(
-                            store=None,
-                            artifact_loader=artifact_loader,
-                            artifact_registry=artifact_registry,
-                            step_runner=parallel_executor.step_runner,
-                            target_model=target_model,
-                            explainer=None,
-                            run_id=run_id,
-                            cache_config=self.cache_config,
-                            step_cache=None,
-                            best_refit_chains=best_refit_chains,
-                            random_state=self.random_state,
-                        )
-
-                        variant_data_list.append({
-                            "steps": steps,
-                            "config_name": config_name,
-                            "gen_choices": gen_choices,
-                            "dataset": dataset_copy,
-                            "executor": parallel_executor,
-                            "context": context,
-                            "runtime_context": runtime_context_copy,
-                            "run_number": current_run,
-                            "total_runs": total_runs,
-                            "verbose": self.verbose,
-                            "keep_datasets": self.keep_datasets,
-                        })
-
-                    # Execute variants in parallel using the module-level function
-                    # (not a bound method) to avoid pickling the orchestrator.
-                    results = Parallel(n_jobs=n_workers, backend='loky', verbose=0)(
-                        delayed(_execute_single_variant)(variant_data)
-                        for variant_data in variant_data_list
-                    )
-
-                    # CRITICAL FIX: Reconstruct store state after parallel execution
-                    # In parallel mode, store=None in workers to avoid concurrent writes.
-                    # This means pipeline records and predictions were never saved to the
-                    # store. We must reconstruct them here so refit pass and tab reports work.
-
-                    # Filter out failed variants
-                    failed_variants = [r for r in results if r.get("failed", False)]
-                    successful_results = [r for r in results if not r.get("failed", False)]
-
-                    if failed_variants:
-                        logger.warning(f"Skipped {len(failed_variants)} variant(s) due to incompatible hyperparameters:")
-                        for failed in failed_variants:
-                            logger.warning(f"  - {failed.get('config_name', 'unknown')}: {failed.get('failure_reason', 'unknown error')}")
-
-                    logger.info(f"Processing {len(successful_results)} successful parallel execution results ({len(failed_variants)} failed)")
-
-                    for idx, result in enumerate(successful_results):
-                        config_predictions = result["predictions"]
-                        config_name = result.get("config_name", "unknown")
-
-                        logger.debug(
-                            f"Result {idx+1}/{len(successful_results)}: config '{config_name}', "
-                            f"{config_predictions.num_predictions} predictions"
-                        )
-
-                        # Store reconstruction (non-fatal if it fails).
-                        store_available = (
-                            config_predictions.num_predictions > 0
-                            and self.store
-                            and run_id
-                        )
-                        if store_available:
-                            assert run_id is not None
-                            try:
-                                with self.store.transaction():
-                                    # Extract metadata from result
-                                    steps = result.get("steps", [])
-                                    gen_choices = result.get("generator_choices", [])
-                                    dataset_obj = result.get("dataset")
-
-                                    # Create pipeline record
-                                    pipeline_id = self.store.begin_pipeline(
-                                        run_id=run_id,
-                                        name=config_name,
-                                        expanded_config=steps,
-                                        generator_choices=gen_choices,
-                                        dataset_name=name,
-                                        dataset_hash=dataset_obj.content_hash() if dataset_obj else "",
-                                        original_template=authoring_template,
-                                    )
-
-                                    # Sync artifact records from parallel worker
-                                    for art_record in result.get("artifact_records", []):
-                                        self.store.register_existing_artifact(**art_record)
-
-                                    # Save chains from parallel worker (must precede
-                                    # prediction flush due to foreign key constraint)
-                                    for chain_data in result.get("chain_data_list", []):
-                                        self.store.save_chain(pipeline_id=pipeline_id, **chain_data)
-
-                                    # Flush predictions using chain-aware resolver
-                                    executor._flush_predictions_to_store(
-                                        self.store,
-                                        pipeline_id,
-                                        config_predictions,
-                                        runtime_context=None,
-                                    )
-
-                                    # Mirror PipelineExecutor semantics: persist best_val from
-                                    # the avg fold (true RMSECV), not the best individual fold.
-                                    avg_entry = config_predictions.get_best(
-                                        ascending=None,
-                                        fold_id="avg",
-                                        score_scope="folds",
-                                    )
-                                    if avg_entry:
-                                        best_val = float(avg_entry.get("val_score", 0.0) or 0.0)
-                                        best_test = float(avg_entry.get("test_score", 0.0) or 0.0)
-                                        metric = str(avg_entry.get("metric", "rmse") or "rmse")
-                                    else:
-                                        best = config_predictions.get_best(ascending=None, score_scope="all")
-                                        best_val = float(best.get("val_score", 0.0) or 0.0) if best else 0.0
-                                        best_test = float(best.get("test_score", 0.0) or 0.0) if best else 0.0
-                                        metric = str(best.get("metric", "rmse") or "rmse") if best else "rmse"
-                                    duration_ms = int(result.get("duration_ms", 0))
-
-                                    # Complete pipeline record
-                                    self.store.complete_pipeline(
-                                        pipeline_id=pipeline_id,
-                                        best_val=best_val,
-                                        best_test=best_test,
-                                        metric=metric,
-                                        duration_ms=duration_ms,
-                                    )
-
-                                # Capture last pipeline_uid for syncing
-                                self.last_pipeline_uid = pipeline_id
-
-                                logger.debug(f"  -> Store reconstruction completed (pipeline_id={pipeline_id})")
-                            except Exception as e:
-                                logger.warning(
-                                    f"[X] Store reconstruction failed for config '{config_name}': {e}. "
-                                    f"Predictions will still be merged in-memory for reporting."
-                                )
-
-                        # ALWAYS merge predictions into run-level stores (even if store ops failed)
-                        if config_predictions.num_predictions > 0:
-                            run_dataset_predictions.merge_predictions(config_predictions)
-                            run_predictions.merge_predictions(config_predictions)
-                            logger.debug(f"  -> Merged {config_predictions.num_predictions} predictions")
-
-                        # Merge best_refit_chains from this worker
-                        worker_refit_chains = result.get("best_refit_chains")
-                        if worker_refit_chains and best_refit_chains is not None:
-                            self._merge_refit_chains(best_refit_chains, worker_refit_chains)
-
-                        # Capture execution trace
-                        if result.get("execution_trace"):
-                            self.last_execution_trace = result["execution_trace"]
-
-                        # Capture preprocessed data
-                        if self.keep_datasets and "preprocessed_data" in result:
-                            if name not in self.pp_data:
-                                self.pp_data[name] = {}
-                            snapshot_key = result["preprocessing_key"]
-                            self.pp_data[name][snapshot_key] = result["preprocessed_data"]
-
-                    logger.info(
-                        f"Parallel results processed: {run_dataset_predictions.num_predictions} "
-                        f"total predictions merged"
-                    )
-
-                # ===================================================================
-                # SEQUENTIAL EXECUTION PATH (original code)
-                # ===================================================================
-                else:
-                    # Execute each pipeline configuration on this dataset
-                    for _i, (steps, config_name, gen_choices) in enumerate(zip(
-                        pipeline_configs.steps,
-                        pipeline_configs.names,
-                        pipeline_configs.generator_choices,
-                        strict=False,
-                    )):
-                        current_run += 1
-                        logger.info(f"Run {current_run}/{total_runs}: pipeline '{config_name}' on dataset '{name}'")
-
-                        dataset = dataset_configs.get_dataset(config, name)
-
-                        # Capture raw data BEFORE any preprocessing happens
-                        if self.keep_datasets and name not in self.raw_data:
-                            raw_x = dataset.x({}, layout="2d")
-                            if isinstance(raw_x, list):
-                                raw_x = np.concatenate(raw_x, axis=1)
-                            self.raw_data[name] = raw_x
-
-                        if self.verbose > 0:
-                            logger.info(str(dataset))
-
-                        # Initialize execution context via executor
-                        context = executor.initialize_context(dataset)
-
-                        # Create RuntimeContext with store
-                        runtime_context = RuntimeContext(
-                            store=self.store,
-                            artifact_loader=artifact_loader,
-                            artifact_registry=artifact_registry,
-                            step_runner=executor.step_runner,
-                            target_model=target_model,
-                            explainer=explainer,
-                            run_id=run_id,
-                            cache_config=self.cache_config,
-                            step_cache=step_cache,
-                            best_refit_chains=best_refit_chains,
-                            random_state=self.random_state,
-                        )
-
-                        # Execute pipeline with cleanup on failure
-                        config_predictions = Predictions()
-                        # Pass dataset repetition context for by_repetition=True resolution
-                        if dataset.repetition:
-                            config_predictions.set_repetition_column(dataset.repetition)
-                        config_predictions.set_aggregate_context(
-                            dataset.aggregate,
-                            dataset.aggregate_method,
-                            dataset.aggregate_exclude_outliers,
-                        )
-
-                        # Enter deferred mode before execution
-                        if use_deferred and artifact_registry is not None:
-                            artifact_registry.begin_deferred()
-
-                        try:
-                            executor.execute(
-                                steps=steps,
-                                config_name=config_name,
-                                dataset=dataset,
-                                context=context,
-                                runtime_context=runtime_context,
-                                prediction_store=config_predictions,
-                                generator_choices=gen_choices,
-                                original_template=authoring_template,
-                            )
-                        except Exception:
-                            # Rollback deferred artifacts before cleanup
-                            if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
-                                artifact_registry.rollback_deferred()
-                            # Cleanup artifacts from failed run
-                            if artifact_registry is not None:
-                                artifact_registry.cleanup_failed_run()
-                            raise
-
-                        # Capture last pipeline_uid for syncing back to runner
-                        if runtime_context.pipeline_uid:
-                            self.last_pipeline_uid = runtime_context.pipeline_uid
-
-                        # Capture execution trace for post-run visualization
-                        self.last_execution_trace = runtime_context.get_execution_trace()
-
-                        # Capture preprocessed data AFTER preprocessing
-                        if self.keep_datasets:
-                            if name not in self.pp_data:
-                                self.pp_data[name] = {}
-                            snapshot_key = dataset.short_preprocessings_str()
-                            dataset_snapshots = self.pp_data[name]
-                            can_store = (
-                                snapshot_key in dataset_snapshots
-                                or self.max_preprocessed_snapshots_per_dataset == 0
-                                or len(dataset_snapshots) < self.max_preprocessed_snapshots_per_dataset
-                            )
-                            if can_store:
-                                pp_x = dataset.x({}, layout="2d")
-                                if isinstance(pp_x, list):
-                                    pp_x = np.concatenate(pp_x, axis=1)
-                                dataset_snapshots[snapshot_key] = pp_x
-                            else:
-                                logger.debug(
-                                    "Skipping preprocessed snapshot for dataset '%s' "
-                                    "(limit=%d, key='%s')",
-                                    name,
-                                    self.max_preprocessed_snapshots_per_dataset,
-                                    snapshot_key,
-                                )
-
-                        # Deferred artifact persistence: commit if this config's
-                        # validation score beats the previous best, rollback otherwise.
-                        if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
-                            should_commit = True
-                            if config_predictions.num_predictions > 0:
-                                config_best = config_predictions.get_best(ascending=None)
-                                if config_best:
-                                    val_score = config_best.get("val_score")
-                                    if val_score is not None:
-                                        # Has folds — compare with best seen so far
-                                        if best_deferred_val is None:
-                                            best_deferred_val = val_score
-                                            best_deferred_ascending = _infer_ascending(
-                                                config_best.get("metric", "rmse")
-                                            )
-                                        else:
-                                            is_better = val_score < best_deferred_val if best_deferred_ascending else val_score > best_deferred_val
-                                            if is_better:
-                                                best_deferred_val = val_score
-                                            else:
-                                                should_commit = False
-                                    # val_score is None → no folds → always commit
-                            if should_commit:
-                                artifact_registry.commit_deferred()
-                            else:
-                                artifact_registry.rollback_deferred()
-
-                        # Merge new predictions into run-level stores
-                        if config_predictions.num_predictions > 0:
-                            run_dataset_predictions.merge_predictions(config_predictions)
-                            run_predictions.merge_predictions(config_predictions)
-
-                # --- Pass 2: Refit (optional) ---
-                # After all variants have been executed for this dataset,
-                # retrain the winning model on the full training set.
-                refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
-                if refit_enabled and self.mode == "train" and run_id and run_dataset_predictions.num_predictions > 0:
-                    # Re-load a pristine dataset for refit.
-                    # The per-variant training runs mutate dataset state
-                    # (added processings/folds/exclusions), so passing the
-                    # last trained instance into refit can cause duplicate
-                    # processing IDs and stale fold/index mappings.
-                    refit_dataset = dataset_configs.get_dataset(config, name)
-                    self._execute_refit_pass(
-                        run_id=run_id,
-                        dataset=refit_dataset,
-                        executor=executor,
-                        artifact_registry=artifact_registry,
-                        run_dataset_predictions=run_dataset_predictions,
-                        run_predictions=run_predictions,
-                        artifact_loader=artifact_loader,
-                        target_model=target_model,
-                        explainer=explainer,
-                        best_refit_chains=best_refit_chains,
-                        refit=refit,
-                    )
-
-                # Mark run as completed successfully
-                if artifact_registry is not None:
-                    artifact_registry.end_run()
-
-                # Log step cache statistics at end of dataset
-                if step_cache is not None and self.cache_config and self.cache_config.log_cache_stats:
-                    cache_stats: dict[str, Any] = dict(step_cache.stats())
-                    if cache_stats["hits"] + cache_stats["misses"] > 0:
-                        logger.info(
-                            f"Step cache: {cache_stats['hits']} hits, "
-                            f"{cache_stats['misses']} misses "
-                            f"({cache_stats['hit_rate']:.0%} hit rate), "
-                            f"{cache_stats['evictions']} evictions, "
-                            f"peak {cache_stats['peak_mb']:.1f} MB"
-                        )
-
-                # In parallel mode, 'dataset' still holds the raw input parameter;
-                # load a SpectroDataset for metadata access in common post-execution code.
-                if use_parallel:
-                    dataset = dataset_configs.get_dataset(config, name)
-
-                # Store last aggregate column for visualization integration
-                assert isinstance(dataset, SpectroDataset)
-                self.last_aggregate_column = dataset.aggregate
-                self.last_aggregate_method = dataset.aggregate_method
-                self.last_aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
-
-                # Persist repetition-aggregated twin predictions (fold_id="<orig>_agg")
-                # when the dataset defines an aggregation column. These expose the
-                # same aggregated scores that TabReport shows, through the webapp.
-                if self.mode == "train" and dataset.aggregate and dataset.aggregate != "y":
-                    self._save_aggregated_twins(
-                        dataset=dataset,
-                        run_dataset_predictions=run_dataset_predictions,
-                        run_predictions=run_predictions,
-                    )
-
-                # Print best results for this dataset
-                logger.info(
-                    f"Preparing to print results for dataset '{name}': "
-                    f"{run_dataset_predictions.num_predictions} predictions"
-                )
-                self._print_best_predictions(
-                    run_dataset_predictions,
-                    dataset,
-                    name,
-                )
-
-                # Store dataset prediction info
-                datasets_predictions[name] = {
-                    "run_predictions": run_dataset_predictions,
-                    "dataset": dataset,
-                    "dataset_name": name
-                }
-
-                # Cleanup between datasets to release memory (GPU, step cache, GC)
-                if n_datasets > 1:
-                    self._cleanup_between_datasets(step_cache, name)
-
               except Exception as e:
                 logger.error(f"Dataset '{name}' failed: {e}")
                 failed_datasets.append(name)
-                # Cleanup artifact registry from failed dataset
-                if artifact_registry is not None:
-                    with contextlib.suppress(Exception):
-                        artifact_registry.cleanup_failed_run()
                 # For single-dataset runs, propagate the exception immediately
                 # so callers can catch pipeline errors.
                 if n_datasets == 1:
@@ -808,6 +306,733 @@ class PipelineOrchestrator:
             raise
 
         return run_predictions, datasets_predictions
+
+    def _begin_store_run(
+        self,
+        dataset_configs: DatasetConfigs,
+        pipeline_name: str,
+        n_pipelines: int,
+        n_datasets: int,
+        store_run_id: str | None,
+        manage_store_run: bool,
+    ) -> str | None:
+        """Begin a run in the store, or join an existing one.
+
+        Returns the resolved store run ID (``store_run_id`` when provided,
+        a freshly created ID for managed train runs, otherwise ``None``).
+        """
+        run_id = store_run_id
+        if self.mode == "train" and run_id is None and manage_store_run:
+            dataset_meta = []
+            aggregates = getattr(dataset_configs, "_aggregates", [])
+            aggregate_methods = getattr(dataset_configs, "_aggregate_methods", [])
+            aggregate_exclude_outliers = getattr(dataset_configs, "_aggregate_exclude_outliers", [])
+            repetitions = getattr(dataset_configs, "repetitions", [])
+            for idx, (_config, name) in enumerate(dataset_configs.configs):
+                raw_aggregate = aggregates[idx] if idx < len(aggregates) else None
+                effective_aggregate = "y" if raw_aggregate is True else raw_aggregate
+                dataset_meta.append(
+                    {
+                        "name": name,
+                        "aggregate": effective_aggregate,
+                        "aggregate_method": aggregate_methods[idx] if idx < len(aggregate_methods) else None,
+                        "aggregate_exclude_outliers": bool(
+                            aggregate_exclude_outliers[idx] if idx < len(aggregate_exclude_outliers) else False
+                        ),
+                        "repetition": repetitions[idx] if idx < len(repetitions) else None,
+                    }
+                )
+            run_id = self.store.begin_run(
+                name=pipeline_name or "run",
+                config={"n_pipelines": n_pipelines, "n_datasets": n_datasets},
+                datasets=dataset_meta,
+            )
+        return run_id
+
+    def _execute_dataset(
+        self,
+        config: Any,
+        name: str,
+        pipeline_configs: PipelineConfigs,
+        dataset_configs: DatasetConfigs,
+        run_id: str | None,
+        step_cache: Any,
+        total_runs: int,
+        n_datasets: int,
+        run_predictions: Predictions,
+        datasets_predictions: dict[str, Any],
+        artifact_loader: Any,
+        target_model: dict[str, Any] | None,
+        explainer: Any,
+        refit: bool | dict[str, Any] | list[dict[str, Any]] | None,
+    ) -> None:
+        """Execute all pipeline variants (plus refit) for a single dataset.
+
+        Mutates ``run_predictions`` and ``datasets_predictions`` in place and
+        manages the per-dataset artifact registry lifecycle. On failure it
+        cleans up the failed run's artifacts before re-raising, so the caller's
+        per-dataset handler only needs to record/continue.
+        """
+        # Create artifact registry for this dataset.
+        # Lifecycle: Registry is created once per dataset, shared by all
+        # pipeline variant (CV) executions, and will be available to the
+        # refit pass.  It is destroyed (end_run) at the end of the dataset
+        # loop iteration.
+        artifact_registry = None
+        try:
+            if self.mode == "train":
+                artifact_registry = ArtifactRegistry(
+                    workspace=self.workspace_path,
+                    dataset=name,
+                )
+                artifact_registry.start_run()
+
+            self._execute_dataset_body(
+                config=config,
+                name=name,
+                pipeline_configs=pipeline_configs,
+                dataset_configs=dataset_configs,
+                run_id=run_id,
+                step_cache=step_cache,
+                total_runs=total_runs,
+                n_datasets=n_datasets,
+                run_predictions=run_predictions,
+                datasets_predictions=datasets_predictions,
+                artifact_loader=artifact_loader,
+                target_model=target_model,
+                explainer=explainer,
+                refit=refit,
+                artifact_registry=artifact_registry,
+            )
+        except Exception:
+            # Cleanup artifact registry from failed dataset
+            if artifact_registry is not None:
+                with contextlib.suppress(Exception):
+                    artifact_registry.cleanup_failed_run()
+            raise
+
+    def _execute_dataset_body(
+        self,
+        config: Any,
+        name: str,
+        pipeline_configs: PipelineConfigs,
+        dataset_configs: DatasetConfigs,
+        run_id: str | None,
+        step_cache: Any,
+        total_runs: int,
+        n_datasets: int,
+        run_predictions: Predictions,
+        datasets_predictions: dict[str, Any],
+        artifact_loader: Any,
+        target_model: dict[str, Any] | None,
+        explainer: Any,
+        refit: bool | dict[str, Any] | list[dict[str, Any]] | None,
+        artifact_registry: Any,
+    ) -> None:
+        """Variant execution + refit + reporting for one dataset (no registry create).
+
+        Mutates ``run_predictions`` and ``datasets_predictions`` in place.
+        """
+        # Build executor using ExecutorBuilder
+        executor = (ExecutorBuilder()
+            .with_workspace(self.workspace_path)
+            .with_verbose(self.verbose)
+            .with_mode(self.mode)
+            .with_save_artifacts(self.save_artifacts)
+            .with_save_charts(self.save_charts)
+            .with_continue_on_error(self.continue_on_error)
+            .with_show_spinner(self.show_spinner)
+            .with_plots_visible(self.plots_visible)
+            .with_figure_refs(self._figure_refs)
+            .with_artifact_loader(artifact_loader)
+            .with_artifact_registry(artifact_registry)
+            .with_store(self.store)
+            .build())
+
+        self.last_executor = executor
+
+        # Predictions accumulate in-memory; store-backed via flush()
+        run_dataset_predictions = Predictions()
+
+        # Accumulator for best preprocessing chain per model across all variants.
+        # Shared across pipeline variants via RuntimeContext (which returns
+        # self on deepcopy).
+        best_refit_chains: dict = {}
+
+        # Deferred artifact persistence: only write artifacts to
+        # disk for configs whose validation score beats the
+        # previous best.  Activated when there are multiple
+        # pipeline configs to compare.
+        use_deferred = (
+            len(pipeline_configs.steps) > 1
+            and self.mode == "train"
+            and self.save_artifacts
+        )
+
+        # Determine if parallel execution should be used
+        use_parallel = (
+            self.n_jobs != 1
+            and len(pipeline_configs.steps) > 1
+            and self.mode == "train"  # Only train mode for now
+        )
+        authoring_template = pipeline_configs.get_template_dict()
+
+        # Parallel execution disables deferred artifacts (can't compare across workers)
+        if use_parallel:
+            use_deferred = False
+            logger.info(f"Executing {len(pipeline_configs.steps)} variants in parallel (n_jobs={self.n_jobs})")
+
+        # ===================================================================
+        # VARIANT EXECUTION (parallel or sequential)
+        # ===================================================================
+        if use_parallel:
+            results = self._execute_variants_parallel(
+                config=config,
+                name=name,
+                pipeline_configs=pipeline_configs,
+                dataset_configs=dataset_configs,
+                executor=executor,
+                artifact_registry=artifact_registry,
+                best_refit_chains=best_refit_chains,
+                run_id=run_id,
+                total_runs=total_runs,
+                artifact_loader=artifact_loader,
+                target_model=target_model,
+            )
+            self._reconstruct_parallel_results(
+                results=results,
+                name=name,
+                executor=executor,
+                authoring_template=authoring_template,
+                run_id=run_id,
+                run_dataset_predictions=run_dataset_predictions,
+                run_predictions=run_predictions,
+                best_refit_chains=best_refit_chains,
+            )
+            dataset: Any = None
+        else:
+            dataset = self._execute_variants_sequential(
+                config=config,
+                name=name,
+                pipeline_configs=pipeline_configs,
+                dataset_configs=dataset_configs,
+                executor=executor,
+                artifact_registry=artifact_registry,
+                best_refit_chains=best_refit_chains,
+                use_deferred=use_deferred,
+                run_id=run_id,
+                step_cache=step_cache,
+                total_runs=total_runs,
+                run_dataset_predictions=run_dataset_predictions,
+                run_predictions=run_predictions,
+                authoring_template=authoring_template,
+                artifact_loader=artifact_loader,
+                target_model=target_model,
+                explainer=explainer,
+            )
+
+        # --- Pass 2: Refit (optional) ---
+        # After all variants have been executed for this dataset,
+        # retrain the winning model on the full training set.
+        refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
+        if refit_enabled and self.mode == "train" and run_id and run_dataset_predictions.num_predictions > 0:
+            # Re-load a pristine dataset for refit.
+            # The per-variant training runs mutate dataset state
+            # (added processings/folds/exclusions), so passing the
+            # last trained instance into refit can cause duplicate
+            # processing IDs and stale fold/index mappings.
+            refit_dataset = dataset_configs.get_dataset(config, name)
+            self._execute_refit_pass(
+                run_id=run_id,
+                dataset=refit_dataset,
+                executor=executor,
+                artifact_registry=artifact_registry,
+                run_dataset_predictions=run_dataset_predictions,
+                run_predictions=run_predictions,
+                artifact_loader=artifact_loader,
+                target_model=target_model,
+                explainer=explainer,
+                best_refit_chains=best_refit_chains,
+                refit=refit,
+            )
+
+        # Mark run as completed successfully
+        if artifact_registry is not None:
+            artifact_registry.end_run()
+
+        # Log step cache statistics at end of dataset
+        if step_cache is not None and self.cache_config and self.cache_config.log_cache_stats:
+            cache_stats: dict[str, Any] = dict(step_cache.stats())
+            if cache_stats["hits"] + cache_stats["misses"] > 0:
+                logger.info(
+                    f"Step cache: {cache_stats['hits']} hits, "
+                    f"{cache_stats['misses']} misses "
+                    f"({cache_stats['hit_rate']:.0%} hit rate), "
+                    f"{cache_stats['evictions']} evictions, "
+                    f"peak {cache_stats['peak_mb']:.1f} MB"
+                )
+
+        # In parallel mode, 'dataset' still holds the raw input parameter;
+        # load a SpectroDataset for metadata access in common post-execution code.
+        if use_parallel:
+            dataset = dataset_configs.get_dataset(config, name)
+
+        # Store last aggregate column for visualization integration
+        assert isinstance(dataset, SpectroDataset)
+        self.last_aggregate_column = dataset.aggregate
+        self.last_aggregate_method = dataset.aggregate_method
+        self.last_aggregate_exclude_outliers = dataset.aggregate_exclude_outliers
+
+        # Persist repetition-aggregated twin predictions (fold_id="<orig>_agg")
+        # when the dataset defines an aggregation column. These expose the
+        # same aggregated scores that TabReport shows, through the webapp.
+        if self.mode == "train" and dataset.aggregate and dataset.aggregate != "y":
+            self._save_aggregated_twins(
+                dataset=dataset,
+                run_dataset_predictions=run_dataset_predictions,
+                run_predictions=run_predictions,
+            )
+
+        # Print best results for this dataset
+        logger.info(
+            f"Preparing to print results for dataset '{name}': "
+            f"{run_dataset_predictions.num_predictions} predictions"
+        )
+        self._print_best_predictions(
+            run_dataset_predictions,
+            dataset,
+            name,
+        )
+
+        # Store dataset prediction info
+        datasets_predictions[name] = {
+            "run_predictions": run_dataset_predictions,
+            "dataset": dataset,
+            "dataset_name": name
+        }
+
+        # Cleanup between datasets to release memory (GPU, step cache, GC)
+        if n_datasets > 1:
+            self._cleanup_between_datasets(step_cache, name)
+
+    def _execute_variants_parallel(
+        self,
+        config: Any,
+        name: str,
+        pipeline_configs: PipelineConfigs,
+        dataset_configs: DatasetConfigs,
+        executor: Any,
+        artifact_registry: Any,
+        best_refit_chains: dict,
+        run_id: str | None,
+        total_runs: int,
+        artifact_loader: Any,
+        target_model: dict[str, Any] | None,
+    ) -> list[dict[str, Any]]:
+        """Run all pipeline variants in parallel worker processes.
+
+        Returns the raw per-variant result dicts produced by the worker
+        function (to be reconstructed into the store by
+        :meth:`_reconstruct_parallel_results`).
+        """
+        # Determine number of workers
+        n_workers = self.n_jobs
+        if n_workers == -1:
+            n_workers = multiprocessing.cpu_count()
+        n_workers = min(n_workers, len(pipeline_configs.steps))
+
+        # Create a pickle-safe copy of the executor for parallel workers.
+        # PipelineExecutor.store holds a WorkspaceStore with a threading.RLock
+        # which cannot be pickled by loky.  Workers never use executor.store
+        # (they use runtime_context.store which is set to None), so we null it.
+        parallel_executor = copy.copy(executor)
+        parallel_executor.store = None
+
+        # Prepare variant data for parallel execution
+        variant_data_list = []
+        for _i, (steps, config_name, gen_choices) in enumerate(zip(
+            pipeline_configs.steps,
+            pipeline_configs.names,
+            pipeline_configs.generator_choices,
+            strict=False,
+        )):
+            self._current_run += 1
+            dataset_copy = dataset_configs.get_dataset(config, name)
+
+            # Capture raw data (first variant only)
+            if self.keep_datasets and name not in self.raw_data and _i == 0:
+                raw_x = dataset_copy.x({}, layout="2d")
+                if isinstance(raw_x, list):
+                    raw_x = np.concatenate(raw_x, axis=1)
+                self.raw_data[name] = raw_x
+
+            # Initialize context
+            context = executor.initialize_context(dataset_copy)
+
+            # Create runtime context for parallel workers.
+            # Objects containing threading locks are set to None since they
+            # can't be pickled by loky: store (WorkspaceStore._lock),
+            # step_cache (StepCache._lock), and explainer (holds a reference
+            # chain back to the runner/orchestrator/store).
+            runtime_context_copy = RuntimeContext(
+                store=None,
+                artifact_loader=artifact_loader,
+                artifact_registry=artifact_registry,
+                step_runner=parallel_executor.step_runner,
+                target_model=target_model,
+                explainer=None,
+                run_id=run_id,
+                cache_config=self.cache_config,
+                step_cache=None,
+                best_refit_chains=best_refit_chains,
+                random_state=self.random_state,
+            )
+
+            variant_data_list.append({
+                "steps": steps,
+                "config_name": config_name,
+                "gen_choices": gen_choices,
+                "dataset": dataset_copy,
+                "executor": parallel_executor,
+                "context": context,
+                "runtime_context": runtime_context_copy,
+                "run_number": self._current_run,
+                "total_runs": total_runs,
+                "verbose": self.verbose,
+                "keep_datasets": self.keep_datasets,
+            })
+
+        # Execute variants in parallel using the module-level function
+        # (not a bound method) to avoid pickling the orchestrator.
+        results: list[dict[str, Any]] = Parallel(n_jobs=n_workers, backend='loky', verbose=0)(
+            delayed(_execute_single_variant)(variant_data)
+            for variant_data in variant_data_list
+        )
+
+        return results
+
+    def _reconstruct_parallel_results(
+        self,
+        results: list[dict[str, Any]],
+        name: str,
+        executor: Any,
+        authoring_template: Any,
+        run_id: str | None,
+        run_dataset_predictions: Predictions,
+        run_predictions: Predictions,
+        best_refit_chains: dict,
+    ) -> None:
+        """Reconstruct store state and merge predictions from parallel results.
+
+        In parallel mode, ``store=None`` in workers to avoid concurrent writes,
+        so pipeline records and predictions were never saved. This rebuilds them
+        in the store and merges predictions/chains into the in-memory run-level
+        stores (``run_dataset_predictions``/``run_predictions``/
+        ``best_refit_chains``, mutated in place).
+        """
+        # CRITICAL FIX: Reconstruct store state after parallel execution
+        # In parallel mode, store=None in workers to avoid concurrent writes.
+        # This means pipeline records and predictions were never saved to the
+        # store. We must reconstruct them here so refit pass and tab reports work.
+
+        # Filter out failed variants
+        failed_variants = [r for r in results if r.get("failed", False)]
+        successful_results = [r for r in results if not r.get("failed", False)]
+
+        if failed_variants:
+            logger.warning(f"Skipped {len(failed_variants)} variant(s) due to incompatible hyperparameters:")
+            for failed in failed_variants:
+                logger.warning(f"  - {failed.get('config_name', 'unknown')}: {failed.get('failure_reason', 'unknown error')}")
+
+        logger.info(f"Processing {len(successful_results)} successful parallel execution results ({len(failed_variants)} failed)")
+
+        for idx, result in enumerate(successful_results):
+            config_predictions = result["predictions"]
+            config_name = result.get("config_name", "unknown")
+
+            logger.debug(
+                f"Result {idx+1}/{len(successful_results)}: config '{config_name}', "
+                f"{config_predictions.num_predictions} predictions"
+            )
+
+            # Store reconstruction (non-fatal if it fails).
+            store_available = (
+                config_predictions.num_predictions > 0
+                and self.store
+                and run_id
+            )
+            if store_available:
+                assert run_id is not None
+                try:
+                    with self.store.transaction():
+                        # Extract metadata from result
+                        steps = result.get("steps", [])
+                        gen_choices = result.get("generator_choices", [])
+                        dataset_obj = result.get("dataset")
+
+                        # Create pipeline record
+                        pipeline_id = self.store.begin_pipeline(
+                            run_id=run_id,
+                            name=config_name,
+                            expanded_config=steps,
+                            generator_choices=gen_choices,
+                            dataset_name=name,
+                            dataset_hash=dataset_obj.content_hash() if dataset_obj else "",
+                            original_template=authoring_template,
+                        )
+
+                        # Sync artifact records from parallel worker
+                        for art_record in result.get("artifact_records", []):
+                            self.store.register_existing_artifact(**art_record)
+
+                        # Save chains from parallel worker (must precede
+                        # prediction flush due to foreign key constraint)
+                        for chain_data in result.get("chain_data_list", []):
+                            self.store.save_chain(pipeline_id=pipeline_id, **chain_data)
+
+                        # Flush predictions using chain-aware resolver
+                        executor._flush_predictions_to_store(
+                            self.store,
+                            pipeline_id,
+                            config_predictions,
+                            runtime_context=None,
+                        )
+
+                        # Mirror PipelineExecutor semantics: persist best_val from
+                        # the avg fold (true RMSECV), not the best individual fold.
+                        avg_entry = config_predictions.get_best(
+                            ascending=None,
+                            fold_id="avg",
+                            score_scope="folds",
+                        )
+                        if avg_entry:
+                            best_val = float(avg_entry.get("val_score", 0.0) or 0.0)
+                            best_test = float(avg_entry.get("test_score", 0.0) or 0.0)
+                            metric = str(avg_entry.get("metric", "rmse") or "rmse")
+                        else:
+                            best = config_predictions.get_best(ascending=None, score_scope="all")
+                            best_val = float(best.get("val_score", 0.0) or 0.0) if best else 0.0
+                            best_test = float(best.get("test_score", 0.0) or 0.0) if best else 0.0
+                            metric = str(best.get("metric", "rmse") or "rmse") if best else "rmse"
+                        duration_ms = int(result.get("duration_ms", 0))
+
+                        # Complete pipeline record
+                        self.store.complete_pipeline(
+                            pipeline_id=pipeline_id,
+                            best_val=best_val,
+                            best_test=best_test,
+                            metric=metric,
+                            duration_ms=duration_ms,
+                        )
+
+                    # Capture last pipeline_uid for syncing
+                    self.last_pipeline_uid = pipeline_id
+
+                    logger.debug(f"  -> Store reconstruction completed (pipeline_id={pipeline_id})")
+                except Exception as e:
+                    logger.warning(
+                        f"[X] Store reconstruction failed for config '{config_name}': {e}. "
+                        f"Predictions will still be merged in-memory for reporting."
+                    )
+
+            # ALWAYS merge predictions into run-level stores (even if store ops failed)
+            if config_predictions.num_predictions > 0:
+                run_dataset_predictions.merge_predictions(config_predictions)
+                run_predictions.merge_predictions(config_predictions)
+                logger.debug(f"  -> Merged {config_predictions.num_predictions} predictions")
+
+            # Merge best_refit_chains from this worker
+            worker_refit_chains = result.get("best_refit_chains")
+            if worker_refit_chains and best_refit_chains is not None:
+                self._merge_refit_chains(best_refit_chains, worker_refit_chains)
+
+            # Capture execution trace
+            if result.get("execution_trace"):
+                self.last_execution_trace = result["execution_trace"]
+
+            # Capture preprocessed data
+            if self.keep_datasets and "preprocessed_data" in result:
+                if name not in self.pp_data:
+                    self.pp_data[name] = {}
+                snapshot_key = result["preprocessing_key"]
+                self.pp_data[name][snapshot_key] = result["preprocessed_data"]
+
+        logger.info(
+            f"Parallel results processed: {run_dataset_predictions.num_predictions} "
+            f"total predictions merged"
+        )
+
+    def _execute_variants_sequential(
+        self,
+        config: Any,
+        name: str,
+        pipeline_configs: PipelineConfigs,
+        dataset_configs: DatasetConfigs,
+        executor: Any,
+        artifact_registry: Any,
+        best_refit_chains: dict,
+        use_deferred: bool,
+        run_id: str | None,
+        step_cache: Any,
+        total_runs: int,
+        run_dataset_predictions: Predictions,
+        run_predictions: Predictions,
+        authoring_template: Any,
+        artifact_loader: Any,
+        target_model: dict[str, Any] | None,
+        explainer: Any,
+    ) -> Any:
+        """Run all pipeline variants sequentially for one dataset.
+
+        Mutates ``run_dataset_predictions``/``run_predictions``/
+        ``best_refit_chains`` in place. Returns the last
+        :class:`SpectroDataset` executed (used by the common post-execution
+        code).
+        """
+        best_deferred_val: float | None = None
+        best_deferred_ascending: bool | None = None
+        dataset: Any = None
+
+        # Execute each pipeline configuration on this dataset
+        for _i, (steps, config_name, gen_choices) in enumerate(zip(
+            pipeline_configs.steps,
+            pipeline_configs.names,
+            pipeline_configs.generator_choices,
+            strict=False,
+        )):
+            self._current_run += 1
+            logger.info(f"Run {self._current_run}/{total_runs}: pipeline '{config_name}' on dataset '{name}'")
+
+            dataset = dataset_configs.get_dataset(config, name)
+
+            # Capture raw data BEFORE any preprocessing happens
+            if self.keep_datasets and name not in self.raw_data:
+                raw_x = dataset.x({}, layout="2d")
+                if isinstance(raw_x, list):
+                    raw_x = np.concatenate(raw_x, axis=1)
+                self.raw_data[name] = raw_x
+
+            if self.verbose > 0:
+                logger.info(str(dataset))
+
+            # Initialize execution context via executor
+            context = executor.initialize_context(dataset)
+
+            # Create RuntimeContext with store
+            runtime_context = RuntimeContext(
+                store=self.store,
+                artifact_loader=artifact_loader,
+                artifact_registry=artifact_registry,
+                step_runner=executor.step_runner,
+                target_model=target_model,
+                explainer=explainer,
+                run_id=run_id,
+                cache_config=self.cache_config,
+                step_cache=step_cache,
+                best_refit_chains=best_refit_chains,
+                random_state=self.random_state,
+            )
+
+            # Execute pipeline with cleanup on failure
+            config_predictions = Predictions()
+            # Pass dataset repetition context for by_repetition=True resolution
+            if dataset.repetition:
+                config_predictions.set_repetition_column(dataset.repetition)
+            config_predictions.set_aggregate_context(
+                dataset.aggregate,
+                dataset.aggregate_method,
+                dataset.aggregate_exclude_outliers,
+            )
+
+            # Enter deferred mode before execution
+            if use_deferred and artifact_registry is not None:
+                artifact_registry.begin_deferred()
+
+            try:
+                executor.execute(
+                    steps=steps,
+                    config_name=config_name,
+                    dataset=dataset,
+                    context=context,
+                    runtime_context=runtime_context,
+                    prediction_store=config_predictions,
+                    generator_choices=gen_choices,
+                    original_template=authoring_template,
+                )
+            except Exception:
+                # Rollback deferred artifacts before cleanup
+                if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
+                    artifact_registry.rollback_deferred()
+                # Cleanup artifacts from failed run
+                if artifact_registry is not None:
+                    artifact_registry.cleanup_failed_run()
+                raise
+
+            # Capture last pipeline_uid for syncing back to runner
+            if runtime_context.pipeline_uid:
+                self.last_pipeline_uid = runtime_context.pipeline_uid
+
+            # Capture execution trace for post-run visualization
+            self.last_execution_trace = runtime_context.get_execution_trace()
+
+            # Capture preprocessed data AFTER preprocessing
+            if self.keep_datasets:
+                if name not in self.pp_data:
+                    self.pp_data[name] = {}
+                snapshot_key = dataset.short_preprocessings_str()
+                dataset_snapshots = self.pp_data[name]
+                can_store = (
+                    snapshot_key in dataset_snapshots
+                    or self.max_preprocessed_snapshots_per_dataset == 0
+                    or len(dataset_snapshots) < self.max_preprocessed_snapshots_per_dataset
+                )
+                if can_store:
+                    pp_x = dataset.x({}, layout="2d")
+                    if isinstance(pp_x, list):
+                        pp_x = np.concatenate(pp_x, axis=1)
+                    dataset_snapshots[snapshot_key] = pp_x
+                else:
+                    logger.debug(
+                        "Skipping preprocessed snapshot for dataset '%s' "
+                        "(limit=%d, key='%s')",
+                        name,
+                        self.max_preprocessed_snapshots_per_dataset,
+                        snapshot_key,
+                    )
+
+            # Deferred artifact persistence: commit if this config's
+            # validation score beats the previous best, rollback otherwise.
+            if use_deferred and artifact_registry is not None and artifact_registry._deferred_mode:
+                should_commit = True
+                if config_predictions.num_predictions > 0:
+                    config_best = config_predictions.get_best(ascending=None)
+                    if config_best:
+                        val_score = config_best.get("val_score")
+                        if val_score is not None:
+                            # Has folds — compare with best seen so far
+                            if best_deferred_val is None:
+                                best_deferred_val = val_score
+                                best_deferred_ascending = _infer_ascending(
+                                    config_best.get("metric", "rmse")
+                                )
+                            else:
+                                is_better = val_score < best_deferred_val if best_deferred_ascending else val_score > best_deferred_val
+                                if is_better:
+                                    best_deferred_val = val_score
+                                else:
+                                    should_commit = False
+                        # val_score is None → no folds → always commit
+                if should_commit:
+                    artifact_registry.commit_deferred()
+                else:
+                    artifact_registry.rollback_deferred()
+
+            # Merge new predictions into run-level stores
+            if config_predictions.num_predictions > 0:
+                run_dataset_predictions.merge_predictions(config_predictions)
+                run_predictions.merge_predictions(config_predictions)
+
+        return dataset
 
     def _cleanup_between_datasets(self, step_cache: Any, dataset_name: str) -> None:
         """Release memory between dataset iterations.
