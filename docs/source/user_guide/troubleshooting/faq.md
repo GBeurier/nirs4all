@@ -50,10 +50,11 @@ See {doc}`/user_guide/data/loading_data` for details.
 ```python
 from nirs4all.data import DatasetConfigs
 
-dataset = DatasetConfigs(
-    "data.csv",
-    y_column="concentration",  # Target column name
-)
+# target_column goes inside global_params of the config dict
+dataset = DatasetConfigs({
+    "train_x": "data.csv",
+    "global_params": {"target_column": "concentration"},
+})
 ```
 
 ### How do I handle multiple data sources?
@@ -67,10 +68,13 @@ dataset = DatasetConfigs([
 
 ### Error: "Could not infer target column"
 
-Your dataset doesn't have a clear target column. Specify it explicitly:
+Your dataset doesn't have a clear target column. Specify it explicitly via `global_params`:
 
 ```python
-dataset = DatasetConfigs("data.csv", y_column="my_target")
+dataset = DatasetConfigs({
+    "train_x": "data.csv",
+    "global_params": {"target_column": "my_target"},
+})
 ```
 
 ### Error: "Sample count mismatch between X and y"
@@ -91,13 +95,11 @@ import nirs4all
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 
-pipeline = [
-    ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
-    PLSRegression(n_components=10),
-]
-
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
+        PLSRegression(n_components=10),
+    ],
     dataset="path/to/data.csv"
 )
 ```

@@ -33,23 +33,21 @@ from nirs4all.operators.transforms import SNV
 from nirs4all.operators.models.tensorflow.nicon import nicon
 import nirs4all
 
-pipeline = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    SNV(),
-    {
-        'model': nicon,
-        'train_params': {
-            'epochs': 50,
-            'batch_size': 16,
-            'learning_rate': 0.001,
-            'verbose': 1
-        }
-    }
-]
-
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        SNV(),
+        {
+            'model': nicon,
+            'train_params': {
+                'epochs': 50,
+                'batch_size': 16,
+                'learning_rate': 0.001,
+                'verbose': 1
+            }
+        }
+    ],
     dataset="sample_data/regression",
     name="DeepLearning"
 )

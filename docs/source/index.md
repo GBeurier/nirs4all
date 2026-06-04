@@ -274,11 +274,11 @@ If you use NIRS4ALL in your research, please cite:
   author = {Gregory Beurier and Denis Cornet and Camille Noûs and Lauriane Rouan},
   title = {nirs4all is all your nirs: Open spectroscopy for everyone},
   url = {https://github.com/gbeurier/nirs4all},
-  version = {0.2.1},
-  year = {2025},
+  version = {0.9.1},
+  year = {2026},
 }
 ```
 
 ## License
 
-This project is licensed under the CECILL-2.1 License - see the LICENSE file for details.
+nirs4all is distributed under a **dual license**: by default **AGPL-3.0-or-later** (with GPL-3.0-or-later and CeCILL-2.1 variants available), plus a separate **commercial license** for closed-source use. See the [`LICENSE`](https://github.com/gbeurier/nirs4all/blob/main/LICENSE) file for the full terms.

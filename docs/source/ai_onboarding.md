@@ -11,7 +11,7 @@ This guide is intentionally narrow. It covers:
 
 It does **not** cover SHAP, synthetic data generation, retraining, session internals, or architecture.
 
-**Version**: 0.8.6 | **Python**: 3.11+ | **License**: CeCILL-2.1
+**Version**: 0.9.1 | **Python**: 3.11+ | **License**: AGPL-3.0-or-later (dual; see LICENSE)
 
 ---
 
@@ -27,15 +27,13 @@ from nirs4all.visualization.predictions import PredictionAnalyzer
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 
-pipeline = [
-    SNV(),
-    FirstDerivative(),
-    ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
-    PLSRegression(n_components=10),
-]
-
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        SNV(),
+        FirstDerivative(),
+        ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
+        PLSRegression(n_components=10),
+    ],
     dataset="sample_data/regression",
     name="snv_d1_pls",
     random_state=42,

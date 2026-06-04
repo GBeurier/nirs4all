@@ -47,12 +47,6 @@ print("U01 - Hello World: Your First nirs4all Pipeline")
 print("=" * 60)
 
 # A pipeline is a simple list of processing steps
-pipeline = [
-    MinMaxScaler(),                              # Feature scaling
-    {"y_processing": MinMaxScaler()},            # Target scaling
-    ShuffleSplit(n_splits=3, test_size=0.25),    # Cross-validation
-    {"model": PLSRegression(n_components=10)}    # Model
-]
 
 print("\n📋 Pipeline defined:")
 print("   1. MinMaxScaler() - scale features to [0,1]")
@@ -69,7 +63,12 @@ print("-" * 60)
 
 # Run the pipeline with one simple call
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),                              # Feature scaling
+        {"y_processing": MinMaxScaler()},            # Target scaling
+        ShuffleSplit(n_splits=3, test_size=0.25),    # Cross-validation
+        {"model": PLSRegression(n_components=10)}    # Model
+    ],
     dataset="sample_data/regression",
     name="HelloWorld",
     verbose=1,

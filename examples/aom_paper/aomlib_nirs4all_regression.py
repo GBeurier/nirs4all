@@ -46,14 +46,13 @@ else:
 
 
 # nirs4all pipeline: a simple CV splitter feeding the AOM_lib backend.
-pipeline = [
-    ShuffleSplit(n_splits=3, test_size=0.25, random_state=0),
-    {"model": AOMPLSAomlibRegressor(n_components=10, cv=3, random_state=0)},
-]
 
 
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        ShuffleSplit(n_splits=3, test_size=0.25, random_state=0),
+        {"model": AOMPLSAomlibRegressor(n_components=10, cv=3, random_state=0)},
+    ],
     dataset=dataset,
     name="AOMLib-AOMPLS-Demo",
     verbose=1,

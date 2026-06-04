@@ -309,15 +309,14 @@ print("""
 The generator API works directly with nirs4all.run():
 """)
 
-pipeline = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    SNV(),
-    PLSRegression(n_components=5),
-]
 
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        SNV(),
+        PLSRegression(n_components=5),
+    ],
     dataset="sample_data/regression",
     name="IteratorDemo",
     verbose=1,

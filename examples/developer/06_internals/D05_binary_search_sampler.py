@@ -64,25 +64,6 @@ Efficiency:
   • Binary: ~10-15 trials for same range
 """)
 
-pipeline_binary = [
-    StandardNormalVariate(),
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
-    {
-        "model": PLSRegression(),
-        "name": "PLS-BinarySearch",
-        "finetune_params": {
-            "n_trials": 12,              # Much fewer trials needed!
-            "sampler": "binary",         # Binary search sampler
-            "verbose": 2,                # Show trial details
-            "seed": 42,
-            "approach": "single",
-            "model_params": {
-                "n_components": ('int', 1, 30),  # Unimodal parameter
-            },
-        }
-    },
-]
 
 print("\n" + "-" * 80)
 print("Running Binary Search Optimization (12 trials)...")
@@ -90,7 +71,25 @@ print("-" * 80)
 
 start_time = time.time()
 result_binary = nirs4all.run(
-    pipeline=pipeline_binary,
+    pipeline=[
+        StandardNormalVariate(),
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+        {
+            "model": PLSRegression(),
+            "name": "PLS-BinarySearch",
+            "finetune_params": {
+                "n_trials": 12,              # Much fewer trials needed!
+                "sampler": "binary",         # Binary search sampler
+                "verbose": 2,                # Show trial details
+                "seed": 42,
+                "approach": "single",
+                "model_params": {
+                    "n_components": ('int', 1, 30),  # Unimodal parameter
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="BinarySearch",
     verbose=1
@@ -114,25 +113,6 @@ if args.comparison:
     TPE typically needs 2-3x more trials for integer parameters.
     """)
 
-    pipeline_tpe = [
-        StandardNormalVariate(),
-        MinMaxScaler(),
-        ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
-        {
-            "model": PLSRegression(),
-            "name": "PLS-TPE",
-            "finetune_params": {
-                "n_trials": 12,          # Same number of trials
-                "sampler": "tpe",        # TPE for comparison
-                "verbose": 2,
-                "seed": 42,
-                "approach": "single",
-                "model_params": {
-                    "n_components": ('int', 1, 30),
-                },
-            }
-        },
-    ]
 
     print("\n" + "-" * 80)
     print("Running TPE Optimization (12 trials)...")
@@ -140,7 +120,25 @@ if args.comparison:
 
     start_time = time.time()
     result_tpe = nirs4all.run(
-        pipeline=pipeline_tpe,
+        pipeline=[
+            StandardNormalVariate(),
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+            {
+                "model": PLSRegression(),
+                "name": "PLS-TPE",
+                "finetune_params": {
+                    "n_trials": 12,          # Same number of trials
+                    "sampler": "tpe",        # TPE for comparison
+                    "verbose": 2,
+                    "seed": 42,
+                    "approach": "single",
+                    "model_params": {
+                        "n_components": ('int', 1, 30),
+                    },
+                }
+            },
+        ],
         dataset="sample_data/regression",
         name="TPE-Comparison",
         verbose=1
@@ -179,40 +177,39 @@ Combine binary search with multi-phase optimization:
   • Phase 2: TPE for fine-tuning around best value
 """)
 
-pipeline_multiphase = [
-    StandardNormalVariate(),
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
-    {
-        "model": PLSRegression(),
-        "name": "PLS-MultiPhase",
-        "finetune_params": {
-            "verbose": 2,
-            "seed": 42,
-            "approach": "single",
-            "phases": [
-                {
-                    "n_trials": 8,
-                    "sampler": "binary",  # Phase 1: Binary search
-                },
-                {
-                    "n_trials": 5,
-                    "sampler": "tpe",     # Phase 2: TPE refinement
-                },
-            ],
-            "model_params": {
-                "n_components": ('int', 1, 30),
-            },
-        }
-    },
-]
 
 print("\n" + "-" * 80)
 print("Running Multi-Phase Optimization (8 binary + 5 TPE = 13 trials)...")
 print("-" * 80)
 
 result_multiphase = nirs4all.run(
-    pipeline=pipeline_multiphase,
+    pipeline=[
+        StandardNormalVariate(),
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+        {
+            "model": PLSRegression(),
+            "name": "PLS-MultiPhase",
+            "finetune_params": {
+                "verbose": 2,
+                "seed": 42,
+                "approach": "single",
+                "phases": [
+                    {
+                        "n_trials": 8,
+                        "sampler": "binary",  # Phase 1: Binary search
+                    },
+                    {
+                        "n_trials": 5,
+                        "sampler": "tpe",     # Phase 2: TPE refinement
+                    },
+                ],
+                "model_params": {
+                    "n_components": ('int', 1, 30),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="MultiPhase",
     verbose=1

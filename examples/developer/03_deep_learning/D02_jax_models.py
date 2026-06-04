@@ -114,23 +114,21 @@ JaxMLPRegressor is a JIT-compiled MLP. Use it with the 'model' + 'train_params' 
 
 from nirs4all.operators.models.jax import JaxMLPRegressor
 
-pipeline_jax = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-    SNV(),
-    {
-        'model': JaxMLPRegressor(features=[64, 32]),
-        'train_params': {
-            'epochs': 20,
-            'batch_size': 16,
-            'learning_rate': 0.001,
-            'verbose': 0
-        }
-    },
-]
-
 result = nirs4all.run(
-    pipeline=pipeline_jax,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+        SNV(),
+        {
+            'model': JaxMLPRegressor(features=[64, 32]),
+            'train_params': {
+                'epochs': 20,
+                'batch_size': 16,
+                'learning_rate': 0.001,
+                'verbose': 0
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="JaxMLPRegressor",
     verbose=1,
@@ -220,23 +218,21 @@ nicon architecture implemented in JAX:
 
 from nirs4all.operators.models.jax.nicon import nicon as nicon_jax
 
-pipeline_nicon = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-    SNV(),
-    {
-        'model': nicon_jax,
-        'train_params': {
-            'epochs': 20,
-            'batch_size': 16,
-            'learning_rate': 0.001,
-            'verbose': 0
-        }
-    },
-]
-
 result = nirs4all.run(
-    pipeline=pipeline_nicon,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+        SNV(),
+        {
+            'model': nicon_jax,
+            'train_params': {
+                'epochs': 20,
+                'batch_size': 16,
+                'learning_rate': 0.001,
+                'verbose': 0
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="niconJAX",
     verbose=1,

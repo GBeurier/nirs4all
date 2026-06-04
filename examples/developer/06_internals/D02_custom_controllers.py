@@ -191,16 +191,15 @@ Use custom operators in pipelines:
 """)
 
 # Demonstrate a simple pipeline with custom controller
-pipeline = [
-    PrintDatasetInfo("Data info"),
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-    PLSRegression(n_components=5),
-]
 
 print("\nRunning pipeline with custom controller:")
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        PrintDatasetInfo("Data info"),
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+        PLSRegression(n_components=5),
+    ],
     dataset="sample_data/regression",
     verbose=0
 )

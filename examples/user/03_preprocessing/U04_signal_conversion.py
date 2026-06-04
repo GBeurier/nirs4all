@@ -258,45 +258,42 @@ Signal converters are sklearn-compatible and work in nirs4all pipelines.
 """)
 
 # Pipeline 1: Raw reflectance
-pipeline_r = [
-    StandardScaler(),
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=5)},
-]
 
 # Pipeline 2: Convert to absorbance first
-pipeline_a = [
-    ToAbsorbance(source_type="reflectance"),
-    StandardScaler(),
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=5)},
-]
 
 # Pipeline 3: Convert to Kubelka-Munk first
-pipeline_km = [
-    KubelkaMunk(source_type="reflectance"),
-    StandardScaler(),
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=5)},
-]
 
 # Run with synthetic data
 result_r = nirs4all.run(
-    pipeline=pipeline_r,
+    pipeline=[
+        StandardScaler(),
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset=(R, y),
     name="Reflectance",
     verbose=0
 )
 
 result_a = nirs4all.run(
-    pipeline=pipeline_a,
+    pipeline=[
+        ToAbsorbance(source_type="reflectance"),
+        StandardScaler(),
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset=(R, y),
     name="Absorbance",
     verbose=0
 )
 
 result_km = nirs4all.run(
-    pipeline=pipeline_km,
+    pipeline=[
+        KubelkaMunk(source_type="reflectance"),
+        StandardScaler(),
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset=(R, y),
     name="KubelkaMunk",
     verbose=0

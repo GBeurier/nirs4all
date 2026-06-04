@@ -112,23 +112,22 @@ the 'model' keyword and 'train_params' for configuration:
 if TORCH_AVAILABLE:
     from nirs4all.operators.models.pytorch.nicon import nicon
 
-    pipeline_nicon = [
-        MinMaxScaler(),
-        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-        SNV(),
-        {
-            'model': nicon,
-            'train_params': {
-                'epochs': 20,
-                'batch_size': 16,
-                'learning_rate': 0.001,
-                'verbose': 0
-            }
-        },
-    ]
 
     result = nirs4all.run(
-        pipeline=pipeline_nicon,
+        pipeline=[
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            SNV(),
+            {
+                'model': nicon,
+                'train_params': {
+                    'epochs': 20,
+                    'batch_size': 16,
+                    'learning_rate': 0.001,
+                    'verbose': 0
+                }
+            },
+        ],
         dataset="sample_data/regression",
         name="NICON",
         verbose=1,
@@ -216,23 +215,22 @@ if TORCH_AVAILABLE:
 Custom models work like any model, using 'model' + 'train_params':
 """)
 
-    pipeline_custom = [
-        MinMaxScaler(),
-        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-        SNV(),
-        {
-            'model': SimpleRegressor(hidden_dim=64),
-            'train_params': {
-                'epochs': 20,
-                'batch_size': 16,
-                'learning_rate': 0.001,
-                'verbose': 0
-            }
-        },
-    ]
 
     result = nirs4all.run(
-        pipeline=pipeline_custom,
+        pipeline=[
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            SNV(),
+            {
+                'model': SimpleRegressor(hidden_dim=64),
+                'train_params': {
+                    'epochs': 20,
+                    'batch_size': 16,
+                    'learning_rate': 0.001,
+                    'verbose': 0
+                }
+            },
+        ],
         dataset="sample_data/regression",
         name="CustomPyTorch",
         verbose=1,

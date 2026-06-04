@@ -27,15 +27,14 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 
 # Define your pipeline
-pipeline = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"model": PLSRegression(n_components=10)},
-]
 
 # Create a session
 session = nirs4all.Session(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ],
     name="WheatProteinModel",
     verbose=1,
     save_artifacts=True
@@ -214,17 +213,16 @@ from sklearn.model_selection import ShuffleSplit
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
 # 1. Define pipeline
-pipeline = [
-    MinMaxScaler(),                              # X scaling
-    ShuffleSplit(n_splits=5, test_size=0.2),    # 5-fold CV
-    SNV(),                                        # SNV preprocessing
-    {"y_processing": StandardScaler()},          # Target scaling
-    {"model": PLSRegression(n_components=15)},   # PLS model
-]
 
 # 2. Create and train session
 session = nirs4all.Session(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),                              # X scaling
+        ShuffleSplit(n_splits=5, test_size=0.2),    # 5-fold CV
+        SNV(),                                        # SNV preprocessing
+        {"y_processing": StandardScaler()},          # Target scaling
+        {"model": PLSRegression(n_components=15)},   # PLS model
+    ],
     name="WheatProtein_Production_v2",
     verbose=1,
     workspace_path="production_workspace/",
@@ -504,19 +502,18 @@ Save the trained session to a `.n4a` bundle file.
 
 ```python
 # config.py
-PRODUCTION_PIPELINE = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=10, test_size=0.15, random_state=42),
-    SNV(),
-    {"model": PLSRegression(n_components=20)},
-]
 
 # train.py
 import nirs4all
 from config import PRODUCTION_PIPELINE
 
 session = nirs4all.Session(
-    pipeline=PRODUCTION_PIPELINE,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=10, test_size=0.15, random_state=42),
+        SNV(),
+        {"model": PLSRegression(n_components=20)},
+    ],
     name="Production_Wheat_v3",
     workspace_path="/data/production_workspace/",
     random_state=42,

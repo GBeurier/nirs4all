@@ -166,19 +166,18 @@ voting_regressor = VotingRegressor(
     n_jobs=-1
 )
 
-pipeline_voting = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {"name": "PLS-10", "model": PLSRegression(n_components=10)},
-    {"name": "RF-50", "model": RandomForestRegressor(n_estimators=50, random_state=42)},
-    {"name": "Voting-Avg", "model": voting_regressor},
-]
 
 result_voting = nirs4all.run(
-    pipeline=pipeline_voting,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {"name": "PLS-10", "model": PLSRegression(n_components=10)},
+        {"name": "RF-50", "model": RandomForestRegressor(n_estimators=50, random_state=42)},
+        {"name": "Voting-Avg", "model": voting_regressor},
+    ],
     dataset="sample_data/regression",
     name="VotingReg",
     verbose=1
@@ -218,19 +217,18 @@ Stacking for classification with Logistic Regression meta-learner.
         n_jobs=-1
     )
 
-    pipeline_stacking_clf = [
-        StandardScaler(),
-        StandardNormalVariate(),
-
-        ShuffleSplit(n_splits=2, random_state=42),
-
-        {"name": "RF", "model": RandomForestClassifier(n_estimators=50, random_state=42)},
-        {"name": "LDA", "model": LinearDiscriminantAnalysis()},
-        {"name": "Stacking-LR", "model": stacking_classifier},
-    ]
 
     result_stacking_clf = nirs4all.run(
-        pipeline=pipeline_stacking_clf,
+        pipeline=[
+            StandardScaler(),
+            StandardNormalVariate(),
+    
+            ShuffleSplit(n_splits=2, random_state=42),
+    
+            {"name": "RF", "model": RandomForestClassifier(n_estimators=50, random_state=42)},
+            {"name": "LDA", "model": LinearDiscriminantAnalysis()},
+            {"name": "Stacking-LR", "model": stacking_classifier},
+        ],
         dataset="sample_data/classification",
         name="StackingClf",
         verbose=1
@@ -270,19 +268,18 @@ VotingClassifier supports:
         n_jobs=-1
     )
 
-    pipeline_voting_clf = [
-        StandardScaler(),
-        StandardNormalVariate(),
-
-        ShuffleSplit(n_splits=2, random_state=42),
-
-        {"name": "RF", "model": RandomForestClassifier(n_estimators=50, random_state=42)},
-        {"name": "Voting-Hard", "model": voting_hard},
-        {"name": "Voting-Soft", "model": voting_soft},
-    ]
 
     result_voting_clf = nirs4all.run(
-        pipeline=pipeline_voting_clf,
+        pipeline=[
+            StandardScaler(),
+            StandardNormalVariate(),
+    
+            ShuffleSplit(n_splits=2, random_state=42),
+    
+            {"name": "RF", "model": RandomForestClassifier(n_estimators=50, random_state=42)},
+            {"name": "Voting-Hard", "model": voting_hard},
+            {"name": "Voting-Soft", "model": voting_soft},
+        ],
         dataset="sample_data/classification",
         name="VotingClf",
         verbose=1
@@ -325,18 +322,17 @@ Customize ensemble parameters:
         n_jobs=-1
     )
 
-    pipeline_custom = [
-        MinMaxScaler(),
-        StandardNormalVariate(),
-
-        ShuffleSplit(n_splits=2, random_state=42),
-
-        {"name": "Voting-Weighted", "model": weighted_voting},
-        {"name": "Stacking-Passthrough", "model": stacking_passthrough},
-    ]
 
     result_custom = nirs4all.run(
-        pipeline=pipeline_custom,
+        pipeline=[
+            MinMaxScaler(),
+            StandardNormalVariate(),
+    
+            ShuffleSplit(n_splits=2, random_state=42),
+    
+            {"name": "Voting-Weighted", "model": weighted_voting},
+            {"name": "Stacking-Passthrough", "model": stacking_passthrough},
+        ],
         dataset="sample_data/regression",
         name="CustomEnsemble",
         verbose=1

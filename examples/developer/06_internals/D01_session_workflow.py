@@ -87,16 +87,15 @@ Create a session from a pipeline:
     )
 """)
 
-pipeline = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    SNV(),
-    {"y_processing": StandardScaler()},
-    PLSRegression(n_components=10),
-]
 
 session = nirs4all.Session(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        SNV(),
+        {"y_processing": StandardScaler()},
+        PLSRegression(n_components=10),
+    ],
     name="SessionDemo",
     verbose=1
 )

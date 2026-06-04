@@ -189,7 +189,8 @@ predictions = result.predictions
 result.export("exports/best_model.n4a")
 
 # Use for new predictions
-y_pred = result.predict(X_new)
+predictions = nirs4all.predict(model="exports/best_model.n4a", data=X_new)
+y_pred = predictions.y_pred
 ```
 
 ## Next Steps

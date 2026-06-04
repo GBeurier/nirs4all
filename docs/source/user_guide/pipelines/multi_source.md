@@ -192,7 +192,7 @@ dataset = DatasetConfigs([
     {"path": "chemical_markers.csv", "source_name": "markers"},
 ])
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     KFold(n_splits=5, shuffle=True, random_state=42),
 
     # Source-specific preprocessing
@@ -204,9 +204,7 @@ pipeline = [
     # Merge and model
     {"merge_sources": "concat"},
     PLSRegression(n_components=15),
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset=dataset)
+], dataset=dataset)
 print(f"Multi-source RMSE: {result.best_score:.4f}")
 ```
 

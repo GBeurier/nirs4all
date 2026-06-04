@@ -234,28 +234,26 @@ from nirs4all.operators.transforms import (
     SavitzkyGolay,
 )
 
-pipeline_combined = [
-    # Explore preprocessing options
-    {"feature_augmentation": [
-        StandardNormalVariate,
-        MultiplicativeScatterCorrection,
-        Detrend,
-    ], "action": "extend"},
-
-    # Add derivative option
-    {"feature_augmentation": [FirstDerivative], "action": "add"},
-
-    # Cross-validation
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    # Multiple models
-    {"model": PLSRegression(n_components=10)},
-    {"model": Ridge(alpha=1.0)},
-    {"model": RandomForestRegressor(n_estimators=50, random_state=42)},
-]
-
 result_combined = nirs4all.run(
-    pipeline=pipeline_combined,
+    pipeline=[
+        # Explore preprocessing options
+        {"feature_augmentation": [
+            StandardNormalVariate,
+            MultiplicativeScatterCorrection,
+            Detrend,
+        ], "action": "extend"},
+    
+        # Add derivative option
+        {"feature_augmentation": [FirstDerivative], "action": "add"},
+    
+        # Cross-validation
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        # Multiple models
+        {"model": PLSRegression(n_components=10)},
+        {"model": Ridge(alpha=1.0)},
+        {"model": RandomForestRegressor(n_estimators=50, random_state=42)},
+    ],
     dataset="sample_data/regression",
     name="Combined",
     verbose=1

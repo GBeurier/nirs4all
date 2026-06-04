@@ -140,23 +140,22 @@ The ``exclude`` keyword:
   - Does NOT apply during prediction (all prediction samples are used)
 """)
 
-pipeline_filtered = [
-    # Show Y distribution before exclusion
-    "chart_y",
-
-    # Apply exclusion - simple syntax with single filter
-    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
-
-    # Show Y distribution after exclusion
-    "chart_y",
-
-    StandardNormalVariate(),
-    KFold(n_splits=3),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_filtered = nirs4all.run(
-    pipeline=pipeline_filtered,
+    pipeline=[
+        # Show Y distribution before exclusion
+        "chart_y",
+    
+        # Apply exclusion - simple syntax with single filter
+        {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
+    
+        # Show Y distribution after exclusion
+        "chart_y",
+    
+        StandardNormalVariate(),
+        KFold(n_splits=3),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="Filtered",
     verbose=1,
@@ -287,29 +286,27 @@ Compare model performance with and without filtering.
 """)
 
 # Without filtering
-pipeline_no_filter = [
-    StandardNormalVariate(),
-    KFold(n_splits=3),
-    {"model": PLSRegression(n_components=10)},
-]
 
 # With exclusion
-pipeline_with_filter = [
-    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
-    StandardNormalVariate(),
-    KFold(n_splits=3),
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_no = nirs4all.run(
-    pipeline=pipeline_no_filter,
+    pipeline=[
+        StandardNormalVariate(),
+        KFold(n_splits=3),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="NoFilter",
     verbose=0
 )
 
 result_yes = nirs4all.run(
-    pipeline=pipeline_with_filter,
+    pipeline=[
+        {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
+        StandardNormalVariate(),
+        KFold(n_splits=3),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="WithFilter",
     verbose=0

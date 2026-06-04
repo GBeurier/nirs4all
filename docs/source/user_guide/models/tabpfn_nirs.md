@@ -86,11 +86,10 @@ import nirs4all
 from sklearn.model_selection import ShuffleSplit
 from nirs4all.operators.models import TabPFNNIRSRegressor
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
     {"model": TabPFNNIRSRegressor(n_estimators=16)},
-]
-result = nirs4all.run(pipeline=pipeline, dataset="path/to/data", verbose=1)
+], dataset="path/to/data", verbose=1)
 print(f"best RMSE: {result.best_rmse:.4f}")
 ```
 

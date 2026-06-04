@@ -402,7 +402,7 @@ complexity = "complex"
 
 ### Basic Usage
 ```python
-from examples.synthetic import SyntheticNIRSGenerator
+from nirs4all.synthesis import SyntheticNIRSGenerator
 
 generator = SyntheticNIRSGenerator(
     wavelength_start=1000,

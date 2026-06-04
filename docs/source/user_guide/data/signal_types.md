@@ -269,20 +269,17 @@ print(f"Detected: {signal_type.value} ({confidence:.1%})")
 print(f"Reason: {reason}")
 
 # Compare pipelines with different signal representations
-pipeline_r = [
+
+# Run both
+result_r = nirs4all.run(pipeline=[
     StandardScaler(),
     {"model": PLSRegression(n_components=10)}
-]
-
-pipeline_a = [
+], dataset=(R, y), name="Reflectance", verbose=0)
+result_a = nirs4all.run(pipeline=[
     ToAbsorbance(source_type="reflectance"),
     StandardScaler(),
     {"model": PLSRegression(n_components=10)}
-]
-
-# Run both
-result_r = nirs4all.run(pipeline=pipeline_r, dataset=(R, y), name="Reflectance", verbose=0)
-result_a = nirs4all.run(pipeline=pipeline_a, dataset=(R, y), name="Absorbance", verbose=0)
+], dataset=(R, y), name="Absorbance", verbose=0)
 
 print(f"\nResults:")
 print(f"Reflectance:  RMSE = {result_r.best_rmse:.4f}")

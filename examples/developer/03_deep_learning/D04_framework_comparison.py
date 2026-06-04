@@ -108,14 +108,13 @@ timings = {}
 # Baseline: PLS
 print("\n📊 Running PLS baseline...")
 t0 = time.time()
-pipeline_pls = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-    SNV(),
-    PLSRegression(n_components=10),
-]
 result_pls = nirs4all.run(
-    pipeline=pipeline_pls,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+        SNV(),
+        PLSRegression(n_components=10),
+    ],
     dataset="sample_data/regression",
     name="PLS_Baseline",
     verbose=0,
@@ -137,17 +136,16 @@ if TF_AVAILABLE:
 
     print("Running TensorFlow nicon...")
     t0 = time.time()
-    pipeline_tf = [
-        MinMaxScaler(),
-        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-        SNV(),
-        {
-            'model': nicon_tf,
-            'train_params': {'epochs': 15, 'verbose': 0}
-        },
-    ]
     result_tf = nirs4all.run(
-        pipeline=pipeline_tf,
+        pipeline=[
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            SNV(),
+            {
+                'model': nicon_tf,
+                'train_params': {'epochs': 15, 'verbose': 0}
+            },
+        ],
         dataset="sample_data/regression",
         name="nicon_TensorFlow",
         verbose=0,
@@ -171,17 +169,16 @@ if TORCH_AVAILABLE:
 
     print("Running PyTorch nicon...")
     t0 = time.time()
-    pipeline_pt = [
-        MinMaxScaler(),
-        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-        SNV(),
-        {
-            'model': nicon_pt,
-            'train_params': {'epochs': 15, 'verbose': 0}
-        },
-    ]
     result_pt = nirs4all.run(
-        pipeline=pipeline_pt,
+        pipeline=[
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            SNV(),
+            {
+                'model': nicon_pt,
+                'train_params': {'epochs': 15, 'verbose': 0}
+            },
+        ],
         dataset="sample_data/regression",
         name="nicon_PyTorch",
         verbose=0,
@@ -205,17 +202,16 @@ if JAX_AVAILABLE:
 
     print("Running JAX nicon...")
     t0 = time.time()
-    pipeline_jax = [
-        MinMaxScaler(),
-        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-        SNV(),
-        {
-            'model': nicon_jax,
-            'train_params': {'epochs': 15, 'verbose': 0}
-        },
-    ]
     result_jax = nirs4all.run(
-        pipeline=pipeline_jax,
+        pipeline=[
+            MinMaxScaler(),
+            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            SNV(),
+            {
+                'model': nicon_jax,
+                'train_params': {'epochs': 15, 'verbose': 0}
+            },
+        ],
         dataset="sample_data/regression",
         name="nicon_JAX",
         verbose=0,

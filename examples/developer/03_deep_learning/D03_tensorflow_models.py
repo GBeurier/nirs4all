@@ -109,23 +109,21 @@ nicon is a specialized CNN for NIRS data. Use it with 'model' + 'train_params':
 
 from nirs4all.operators.models.tensorflow.nicon import nicon
 
-pipeline_nicon = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-    SNV(),
-    {
-        'model': nicon,
-        'train_params': {
-            'epochs': 10,
-            'batch_size': 256,
-            'learning_rate': 0.001,
-            'verbose': 0
-        }
-    },
-]
-
 result = nirs4all.run(
-    pipeline=pipeline_nicon,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+        SNV(),
+        {
+            'model': nicon,
+            'train_params': {
+                'epochs': 10,
+                'batch_size': 256,
+                'learning_rate': 0.001,
+                'verbose': 0
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="NiconModel",
     verbose=1,
@@ -162,23 +160,21 @@ decon uses depthwise separable convolutions:
 
 from nirs4all.operators.models.tensorflow.nicon import decon
 
-pipeline_decon = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-    SNV(),
-    {
-        'model': decon,
-        'train_params': {
-            'epochs': 10,
-            'batch_size': 256,
-            'learning_rate': 0.001,
-            'verbose': 0
-        }
-    },
-]
-
 result = nirs4all.run(
-    pipeline=pipeline_decon,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+        SNV(),
+        {
+            'model': decon,
+            'train_params': {
+                'epochs': 10,
+                'batch_size': 256,
+                'learning_rate': 0.001,
+                'verbose': 0
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="DeconModel",
     verbose=1,

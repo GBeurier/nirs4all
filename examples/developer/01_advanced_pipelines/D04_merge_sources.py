@@ -88,15 +88,14 @@ a structured directory format. Each source has its own feature matrix.
 # For demonstration, we'll use the same data twice to simulate multi-source
 # In real use, you'd have: {"NIR": "path/to/nir", "Raman": "path/to/raman"}
 
-pipeline_simple = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    PLSRegression(n_components=5),
-]
 
 # Single source (baseline)
 result_single = nirs4all.run(
-    pipeline=pipeline_simple,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        PLSRegression(n_components=5),
+    ],
     dataset="sample_data/regression",
     name="SingleSource",
     verbose=1,

@@ -91,21 +91,20 @@ GroupKFold is sklearn's group-aware K-fold splitter.
 All samples from the same group stay together.
 """)
 
-pipeline_groupkfold = [
-    # Visualize samples by Sample_ID before split
-    "fold_Sample_ID",
-
-    # GroupKFold with group parameter
-    {"split": GroupKFold(n_splits=3), "group": "Sample_ID"},
-
-    # Visualize after split - groups respected!
-    "fold_Sample_ID",
-
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_groupkfold = nirs4all.run(
-    pipeline=pipeline_groupkfold,
+    pipeline=[
+        # Visualize samples by Sample_ID before split
+        "fold_Sample_ID",
+    
+        # GroupKFold with group parameter
+        {"split": GroupKFold(n_splits=3), "group": "Sample_ID"},
+    
+        # Visualize after split - groups respected!
+        "fold_Sample_ID",
+    
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset="sample_data/classification",
     name="GroupKFold",
     verbose=1,
@@ -130,18 +129,17 @@ StratifiedGroupKFold combines:
   - Stratification (class balance preserved)
 """)
 
-pipeline_strat_group = [
-    "fold_Sample_ID",
-
-    {"split": StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42),
-     "group": "Sample_ID"},
-
-    "fold_chart",
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_strat_group = nirs4all.run(
-    pipeline=pipeline_strat_group,
+    pipeline=[
+        "fold_Sample_ID",
+    
+        {"split": StratifiedGroupKFold(n_splits=3, shuffle=True, random_state=42),
+         "group": "Sample_ID"},
+    
+        "fold_chart",
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset="sample_data/classification",
     name="StratifiedGroupKFold",
     verbose=1,
@@ -171,18 +169,17 @@ How it works:
 """)
 
 # KFold with repetition - automatic group awareness
-pipeline_auto_group = [
-    "fold_Sample_ID",
-
-    # KFold automatically respects repetition groups!
-    KFold(n_splits=3, shuffle=True, random_state=42),
-
-    "fold_Sample_ID",
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_auto = nirs4all.run(
-    pipeline=pipeline_auto_group,
+    pipeline=[
+        "fold_Sample_ID",
+    
+        # KFold automatically respects repetition groups!
+        KFold(n_splits=3, shuffle=True, random_state=42),
+    
+        "fold_Sample_ID",
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
     name="AutoGroup_KFold",
     verbose=1,
@@ -205,15 +202,14 @@ ShuffleSplit explicitly ignores groups in sklearn.
 With repetition defined, nirs4all automatically makes it group-aware!
 """)
 
-pipeline_shuffle_group = [
-    ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
-
-    "fold_chart",
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_shuffle_group = nirs4all.run(
-    pipeline=pipeline_shuffle_group,
+    pipeline=[
+        ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
+    
+        "fold_chart",
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
     name="AutoGroup_Shuffle",
     verbose=1,
@@ -236,16 +232,15 @@ Combine stratification with group awareness using repetition.
 Use y_aggregation to specify how to aggregate targets within groups.
 """)
 
-pipeline_strat_auto = [
-    {"split": StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
-     "y_aggregation": "mode"},  # Use mode for classification targets
-
-    "fold_chart",
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_strat_auto = nirs4all.run(
-    pipeline=pipeline_strat_auto,
+    pipeline=[
+        {"split": StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
+         "y_aggregation": "mode"},  # Use mode for classification targets
+    
+        "fold_chart",
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
     name="AutoGroup_Stratified",
     verbose=1,
@@ -269,28 +264,26 @@ Without group splitting: often overly optimistic!
 """)
 
 # WITHOUT group splitting (leakage possible)
-pipeline_no_group = [
-    StandardNormalVariate(),
-    KFold(n_splits=3, shuffle=True, random_state=42),  # No group awareness
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_no_group = nirs4all.run(
-    pipeline=pipeline_no_group,
+    pipeline=[
+        StandardNormalVariate(),
+        KFold(n_splits=3, shuffle=True, random_state=42),  # No group awareness
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset="sample_data/classification",
     name="NoGroup",
     verbose=0
 )
 
 # WITH group splitting via repetition
-pipeline_with_group = [
-    StandardNormalVariate(),
-    KFold(n_splits=3, shuffle=True, random_state=42),
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_with_group = nirs4all.run(
-    pipeline=pipeline_with_group,
+    pipeline=[
+        StandardNormalVariate(),
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset=DatasetConfigs("sample_data/classification", repetition="Sample_ID"),
     name="WithGroup",
     verbose=0

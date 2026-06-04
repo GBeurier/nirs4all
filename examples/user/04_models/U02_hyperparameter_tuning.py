@@ -100,29 +100,28 @@ Grid search exhaustively tests all combinations.
 Good for small parameter spaces.
 """)
 
-pipeline_grid = [
-    StandardNormalVariate(),
-    MinMaxScaler(),
-
-    ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
-
-    {
-        "model": PLSRegression(),
-        "name": "PLS-GridSearch",
-        "finetune_params": {
-            "n_trials": 2,              # Number of trials
-            "sampler": "grid",            # Grid search
-            "verbose": 1,                # 0=silent, 1=basic, 2=detailed
-            "approach": "single",        # Global search
-            "model_params": {
-                "n_components": ('int', 1, 10),  # Search 1-10 components
-            },
-        }
-    },
-]
 
 result_grid = nirs4all.run(
-    pipeline=pipeline_grid,
+    pipeline=[
+        StandardNormalVariate(),
+        MinMaxScaler(),
+    
+        ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+    
+        {
+            "model": PLSRegression(),
+            "name": "PLS-GridSearch",
+            "finetune_params": {
+                "n_trials": 2,              # Number of trials
+                "sampler": "grid",            # Grid search
+                "verbose": 1,                # 0=silent, 1=basic, 2=detailed
+                "approach": "single",        # Global search
+                "model_params": {
+                    "n_components": ('int', 1, 10),  # Search 1-10 components
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="GridSearch",
     verbose=1
@@ -145,30 +144,29 @@ TPE (Tree-Parzen Estimator) learns from previous trials.
 More efficient than grid search for larger spaces.
 """)
 
-pipeline_tpe = [
-    StandardNormalVariate(),
-    FirstDerivative(),
-
-    ShuffleSplit(n_splits=3, random_state=42),
-
-    {
-        "model": RandomForestRegressor(n_jobs=-1, random_state=42),
-        "name": "RF-TPE",
-        "finetune_params": {
-            "n_trials": 2,              # Number of trials
-            "sampler": "tpe",             # Bayesian optimization
-            "verbose": 1,
-            "approach": "single",
-            "model_params": {
-                "n_estimators": [2, 5],           # Categorical (reduced)
-                "max_depth": ('int', 3, 6),          # Integer range
-            },
-        }
-    },
-]
 
 result_tpe = nirs4all.run(
-    pipeline=pipeline_tpe,
+    pipeline=[
+        StandardNormalVariate(),
+        FirstDerivative(),
+    
+        ShuffleSplit(n_splits=3, random_state=42),
+    
+        {
+            "model": RandomForestRegressor(n_jobs=-1, random_state=42),
+            "name": "RF-TPE",
+            "finetune_params": {
+                "n_trials": 2,              # Number of trials
+                "sampler": "tpe",             # Bayesian optimization
+                "verbose": 1,
+                "approach": "single",
+                "model_params": {
+                    "n_estimators": [2, 5],           # Categorical (reduced)
+                    "max_depth": ('int', 3, 6),          # Integer range
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="TPE",
     verbose=1
@@ -194,29 +192,27 @@ exploration probability:
 
 from sklearn.linear_model import Ridge
 
-pipeline_log = [
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=3, random_state=42),
-
-    {
-        "model": Ridge(),
-        "name": "Ridge-LogScale",
-        "finetune_params": {
-            "n_trials": 2,
-            "sampler": "tpe",
-            "verbose": 1,
-            "approach": "single",
-            "model_params": {
-                # Log-uniform: good for regularization spanning 1e-4 to 1e+2
-                "alpha": ('float_log', 1e-4, 1e2),
-            },
-        }
-    },
-]
-
 result_log = nirs4all.run(
-    pipeline=pipeline_log,
+    pipeline=[
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=3, random_state=42),
+    
+        {
+            "model": Ridge(),
+            "name": "Ridge-LogScale",
+            "finetune_params": {
+                "n_trials": 2,
+                "sampler": "tpe",
+                "verbose": 1,
+                "approach": "single",
+                "model_params": {
+                    # Log-uniform: good for regularization spanning 1e-4 to 1e+2
+                    "alpha": ('float_log', 1e-4, 1e2),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="LogScale",
     verbose=1
@@ -245,30 +241,29 @@ Seed ensures reproducible optimization results.
      seed: 42           - Same seed + data → same results
 """)
 
-pipeline_pruning = [
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {
-        "model": PLSRegression(),
-        "name": "PLS-Pruned",
-        "finetune_params": {
-            "n_trials": 2,
-            "sampler": "tpe",
-            "pruner": "median",     # Prune unpromising trials
-            "seed": 42,             # Reproducible results
-            "verbose": 1,
-            "approach": "grouped",
-            "model_params": {
-                "n_components": ('int', 1, 15),
-            },
-        }
-    },
-]
 
 result_pruning = nirs4all.run(
-    pipeline=pipeline_pruning,
+    pipeline=[
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {
+            "model": PLSRegression(),
+            "name": "PLS-Pruned",
+            "finetune_params": {
+                "n_trials": 2,
+                "sampler": "tpe",
+                "pruner": "median",     # Prune unpromising trials
+                "seed": 42,             # Reproducible results
+                "verbose": 1,
+                "approach": "grouped",
+                "model_params": {
+                    "n_components": ('int', 1, 15),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="Pruning",
     verbose=1
@@ -295,31 +290,30 @@ accuracy (classification). Use 'metric' and 'direction' to customize:
   Direction is auto-inferred from the metric name, but can be overridden.
 """)
 
-pipeline_metric = [
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {
-        "model": Ridge(),
-        "name": "Ridge-R2Metric",
-        "finetune_params": {
-            "n_trials": 2,
-            "sampler": "tpe",
-            "seed": 42,
-            "verbose": 1,
-            "approach": "single",
-            "metric": "r2",              # Optimize for R2 instead of MSE
-            # direction auto-inferred as "maximize" for r2
-            "model_params": {
-                "alpha": ('float_log', 1e-4, 1e2),
-            },
-        }
-    },
-]
 
 result_metric = nirs4all.run(
-    pipeline=pipeline_metric,
+    pipeline=[
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {
+            "model": Ridge(),
+            "name": "Ridge-R2Metric",
+            "finetune_params": {
+                "n_trials": 2,
+                "sampler": "tpe",
+                "seed": 42,
+                "verbose": 1,
+                "approach": "single",
+                "metric": "r2",              # Optimize for R2 instead of MSE
+                # direction auto-inferred as "maximize" for r2
+                "model_params": {
+                    "alpha": ('float_log', 1e-4, 1e2),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="CustomMetric",
     verbose=1
@@ -343,32 +337,31 @@ Different approaches for multi-preprocessing scenarios:
 """)
 
 # Generate preprocessing variants
-pipeline_grouped = [
-    {"feature_augmentation": [
-        StandardNormalVariate,
-        Detrend,
-    ], "action": "extend"},
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {
-        "model": PLSRegression(),
-        "name": "PLS-Grouped",
-        "finetune_params": {
-            "n_trials": 2,
-            "sampler": "grid",
-            "verbose": 1,
-            "approach": "grouped",       # Search per preprocessing
-            "eval_mode": "best",         # Use best trial per group
-            "model_params": {
-                "n_components": ('int', 2, 8),
-            },
-        }
-    },
-]
 
 result_grouped = nirs4all.run(
-    pipeline=pipeline_grouped,
+    pipeline=[
+        {"feature_augmentation": [
+            StandardNormalVariate,
+            Detrend,
+        ], "action": "extend"},
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {
+            "model": PLSRegression(),
+            "name": "PLS-Grouped",
+            "finetune_params": {
+                "n_trials": 2,
+                "sampler": "grid",
+                "verbose": 1,
+                "approach": "grouped",       # Search per preprocessing
+                "eval_mode": "best",         # Use best trial per group
+                "model_params": {
+                    "n_components": ('int', 2, 8),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="Grouped",
     verbose=1
@@ -389,35 +382,34 @@ Combine feature_augmentation with hyperparameter tuning
 to find the best preprocessing + hyperparameters together.
 """)
 
-pipeline_combined = [
-    MinMaxScaler(),
-
-    # Explore preprocessing
-    {"feature_augmentation": [
-        StandardNormalVariate,
-        Detrend,
-    ], "action": "extend"},
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    # Tune PLS only (faster for demonstration)
-    {
-        "model": PLSRegression(),
-        "name": "PLS-Combined",
-        "finetune_params": {
-            "n_trials": 2,
-            "sampler": "tpe",
-            "verbose": 1,
-            "approach": "single",
-            "model_params": {
-                "n_components": ('int', 1, 10),
-            },
-        }
-    },
-]
 
 result_combined = nirs4all.run(
-    pipeline=pipeline_combined,
+    pipeline=[
+        MinMaxScaler(),
+    
+        # Explore preprocessing
+        {"feature_augmentation": [
+            StandardNormalVariate,
+            Detrend,
+        ], "action": "extend"},
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        # Tune PLS only (faster for demonstration)
+        {
+            "model": PLSRegression(),
+            "name": "PLS-Combined",
+            "finetune_params": {
+                "n_trials": 2,
+                "sampler": "tpe",
+                "verbose": 1,
+                "approach": "single",
+                "model_params": {
+                    "n_components": ('int', 1, 10),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="Combined",
     verbose=1

@@ -187,14 +187,13 @@ print("-" * 60)
 runner6 = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
 
 # Pipeline with embedded cross-validation
-cv_pipeline = [
-    {"preprocessing": StandardScaler()},
-    KFold(n_splits=3, shuffle=True, random_state=42),
-    {"model": Ridge(alpha=1.0)}
-]
 
 result6, _ = runner6.run(
-    pipeline=cv_pipeline,
+    pipeline=[
+        {"preprocessing": StandardScaler()},
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": Ridge(alpha=1.0)}
+    ],
     dataset=(X, y, {"train": 160}),  # type: ignore[arg-type]
     pipeline_name="cv_pipeline"
 )

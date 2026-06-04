@@ -79,19 +79,18 @@ This creates a tag column (e.g., "y_outlier_iqr") in predictions.
 Tagged samples are STILL used for training.
 """)
 
-pipeline_tagged = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-
-    # Tag Y outliers without removing
-    {"tag": YOutlierFilter(method="iqr", threshold=1.5)},
-
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_tagged = nirs4all.run(
-    pipeline=pipeline_tagged,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    
+        # Tag Y outliers without removing
+        {"tag": YOutlierFilter(method="iqr", threshold=1.5)},
+    
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="TaggedPipeline",
     verbose=1,
@@ -117,22 +116,21 @@ Apply multiple tags to categorize samples:
 Each tag creates a separate column in predictions.
 """)
 
-pipeline_multi_tag = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-
-    # Tag Y outliers
-    {"tag": YOutlierFilter(method="iqr", threshold=1.5, tag_name="y_iqr_outlier")},
-
-    # Tag X outliers (PCA leverage-based)
-    {"tag": XOutlierFilter(method="pca_leverage", tag_name="x_pca_outlier")},
-
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_multi = nirs4all.run(
-    pipeline=pipeline_multi_tag,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    
+        # Tag Y outliers
+        {"tag": YOutlierFilter(method="iqr", threshold=1.5, tag_name="y_iqr_outlier")},
+    
+        # Tag X outliers (PCA leverage-based)
+        {"tag": XOutlierFilter(method="pca_leverage", tag_name="x_pca_outlier")},
+    
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="MultiTagged",
     verbose=1,
@@ -158,25 +156,17 @@ This helps determine if outliers negatively impact the model.
 """)
 
 # Pipeline with tagging only (outliers included)
-pipeline_with_outliers = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"tag": YOutlierFilter(method="iqr", threshold=1.5)},  # Tag but keep
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 # Pipeline with exclusion (outliers removed)
-pipeline_without_outliers = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},  # Remove
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_with = nirs4all.run(
-    pipeline=pipeline_with_outliers,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        {"tag": YOutlierFilter(method="iqr", threshold=1.5)},  # Tag but keep
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="WithOutliers",
     verbose=0,
@@ -185,7 +175,13 @@ result_with = nirs4all.run(
 )
 
 result_without = nirs4all.run(
-    pipeline=pipeline_without_outliers,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},  # Remove
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="WithoutOutliers",
     verbose=0,

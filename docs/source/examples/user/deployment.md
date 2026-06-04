@@ -43,17 +43,16 @@ from sklearn.cross_decomposition import PLSRegression
 from nirs4all.operators.transforms import SNV, FirstDerivative
 
 # Define pipeline
-pipeline = [
-    MinMaxScaler(),
-    SNV(),
-    FirstDerivative(),
-    ShuffleSplit(n_splits=3, random_state=42),
-    {"model": PLSRegression(n_components=10)}
-]
 
 # Run training
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        SNV(),
+        FirstDerivative(),
+        ShuffleSplit(n_splits=3, random_state=42),
+        {"model": PLSRegression(n_components=10)}
+    ],
     dataset="sample_data/regression",
     name="MyPipeline",
     verbose=1,

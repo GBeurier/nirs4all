@@ -97,15 +97,14 @@ print("Section 3: Train and Wrap Model")
 print("-" * 60)
 
 # Train a model
-pipeline = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-    ShuffleSplit(n_splits=3, test_size=0.25),
-    {"model": PLSRegression(n_components=10)}
-]
 
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+        ShuffleSplit(n_splits=3, test_size=0.25),
+        {"model": PLSRegression(n_components=10)}
+    ],
     dataset="sample_data/regression",
     name="shap_sklearn",
     verbose=1,
@@ -205,14 +204,13 @@ TreeExplainer for faster SHAP computation.
 """)
 
 # Train a tree model
-pipeline_tree = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.25),
-    {"model": GradientBoostingRegressor(n_estimators=50, max_depth=5, random_state=42)}
-]
 
 result_tree = nirs4all.run(
-    pipeline=pipeline_tree,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.25),
+        {"model": GradientBoostingRegressor(n_estimators=50, max_depth=5, random_state=42)}
+    ],
     dataset="sample_data/regression",
     name="shap_tree",
     verbose=1,

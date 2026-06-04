@@ -181,8 +181,7 @@ methods = {
 }
 
 for name, method in methods.items():
-    pipeline = [method, ShuffleSplit(n_splits=3), PLSRegression(n_components=10)]
-    result = nirs4all.run(pipeline=pipeline, dataset="sample_data/regression")
+    result = nirs4all.run(pipeline=[method, ShuffleSplit(n_splits=3), PLSRegression(n_components=10)], dataset="sample_data/regression")
     print(f"{name}: RMSE = {result.best_rmse:.4f}")
 ```
 

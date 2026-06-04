@@ -1769,8 +1769,3 @@ pipeline = [
 - {doc}`/user_guide/pipelines/merging` - Branch and source merging guide
 - {doc}`/user_guide/pipelines/multi_source` - Multi-source data handling
 - {doc}`/developer/architecture` - Pipeline architecture overview
-
----
-
-**Last Updated**: December 2025
-**Version**: 1.1 (Phase 3 Documentation Update)

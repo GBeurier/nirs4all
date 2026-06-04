@@ -10,6 +10,7 @@ Any sklearn estimator (`RandomForestRegressor`, `Ridge`, `SVR`, `GradientBoostin
 
 ```python
 from nirs4all.operators.models import AOMPLSRegressor, PLSDA
+from nirs4all.operators.transforms import SNV
 from sklearn.model_selection import ShuffleSplit
 
 pipeline = [

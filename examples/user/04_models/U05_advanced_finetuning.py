@@ -83,31 +83,30 @@ shared study. Phase 1 explores broadly (random), Phase 2
 exploits promising regions (TPE with prior knowledge).
 """)
 
-pipeline_multiphase = [
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {
-        "model": PLSRegression(),
-        "name": "PLS-MultiPhase",
-        "finetune_params": {
-            "verbose": 1,
-            "seed": 42,
-            "metric": "rmse",
-            "phases": [
-                {"n_trials": 2, "sampler": "random"},   # Phase 1: broad exploration
-                {"n_trials": 2, "sampler": "tpe"},       # Phase 2: focused exploitation
-            ],
-            "model_params": {
-                "n_components": ('int', 1, 15),
-            },
-        }
-    },
-]
 
 result_multiphase = nirs4all.run(
-    pipeline=pipeline_multiphase,
+    pipeline=[
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {
+            "model": PLSRegression(),
+            "name": "PLS-MultiPhase",
+            "finetune_params": {
+                "verbose": 1,
+                "seed": 42,
+                "metric": "rmse",
+                "phases": [
+                    {"n_trials": 2, "sampler": "random"},   # Phase 1: broad exploration
+                    {"n_trials": 2, "sampler": "tpe"},       # Phase 2: focused exploitation
+                ],
+                "model_params": {
+                    "n_components": ('int', 1, 15),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="MultiPhase",
     verbose=1
@@ -132,30 +131,29 @@ for a different objective:
   accuracy, f1           → auto direction: maximize
 """)
 
-pipeline_r2 = [
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {
-        "model": Ridge(),
-        "name": "Ridge-R2",
-        "finetune_params": {
-            "n_trials": 3,
-            "sampler": "tpe",
-            "seed": 42,
-            "verbose": 1,
-            "approach": "single",
-            "metric": "r2",          # Maximize R2 instead of minimizing MSE
-            "model_params": {
-                "alpha": ('float_log', 1e-4, 1e2),
-            },
-        }
-    },
-]
 
 result_r2 = nirs4all.run(
-    pipeline=pipeline_r2,
+    pipeline=[
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {
+            "model": Ridge(),
+            "name": "Ridge-R2",
+            "finetune_params": {
+                "n_trials": 3,
+                "sampler": "tpe",
+                "seed": 42,
+                "verbose": 1,
+                "approach": "single",
+                "metric": "r2",          # Maximize R2 instead of minimizing MSE
+                "model_params": {
+                    "alpha": ('float_log', 1e-4, 1e2),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="R2Metric",
     verbose=1
@@ -176,30 +174,29 @@ This ensures the optimizer always evaluates your baseline first,
 then improves upon it.
 """)
 
-pipeline_force = [
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {
-        "model": PLSRegression(),
-        "name": "PLS-Seeded",
-        "finetune_params": {
-            "n_trials": 3,
-            "sampler": "tpe",
-            "seed": 42,
-            "verbose": 1,
-            "approach": "single",
-            "force_params": {"n_components": 5},   # Known good baseline
-            "model_params": {
-                "n_components": ('int', 1, 15),
-            },
-        }
-    },
-]
 
 result_force = nirs4all.run(
-    pipeline=pipeline_force,
+    pipeline=[
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {
+            "model": PLSRegression(),
+            "name": "PLS-Seeded",
+            "finetune_params": {
+                "n_trials": 3,
+                "sampler": "tpe",
+                "seed": 42,
+                "verbose": 1,
+                "approach": "single",
+                "force_params": {"n_components": 5},   # Known good baseline
+                "model_params": {
+                    "n_components": ('int', 1, 15),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="ForceParams",
     verbose=1
@@ -222,33 +219,32 @@ Dict-format parameters offer the most control:
   {'type': 'categorical', 'choices': [v1, v2, v3]}
 """)
 
-pipeline_dict = [
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {
-        "model": GradientBoostingRegressor(random_state=42),
-        "name": "GBR-DictParams",
-        "finetune_params": {
-            "n_trials": 2,
-            "sampler": "tpe",
-            "seed": 42,
-            "verbose": 1,
-            "approach": "single",
-            "metric": "rmse",
-            "model_params": {
-                "n_estimators": {'type': 'int', 'min': 10, 'max': 50, 'step': 10},
-                "learning_rate": {'type': 'float', 'min': 0.01, 'max': 0.3, 'log': True},
-                "max_depth": {'type': 'categorical', 'choices': [3, 5, 7]},
-                "subsample": {'type': 'float', 'min': 0.6, 'max': 1.0},
-            },
-        }
-    },
-]
 
 result_dict = nirs4all.run(
-    pipeline=pipeline_dict,
+    pipeline=[
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {
+            "model": GradientBoostingRegressor(random_state=42),
+            "name": "GBR-DictParams",
+            "finetune_params": {
+                "n_trials": 2,
+                "sampler": "tpe",
+                "seed": 42,
+                "verbose": 1,
+                "approach": "single",
+                "metric": "rmse",
+                "model_params": {
+                    "n_estimators": {'type': 'int', 'min': 10, 'max': 50, 'step': 10},
+                    "learning_rate": {'type': 'float', 'min': 0.01, 'max': 0.3, 'log': True},
+                    "max_depth": {'type': 'categorical', 'choices': [3, 5, 7]},
+                    "subsample": {'type': 'float', 'min': 0.6, 'max': 1.0},
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="DictParams",
     verbose=1
@@ -282,41 +278,40 @@ useful for models that accept nested configuration dicts
 """)
 
 # GBR with nested subsample_config to demonstrate the pattern
-pipeline_nested = [
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    {
-        "model": GradientBoostingRegressor(random_state=42),
-        "name": "GBR-Nested",
-        "finetune_params": {
-            "n_trials": 2,
-            "sampler": "tpe",
-            "seed": 42,
-            "verbose": 1,
-            "approach": "single",
-            "metric": "rmse",
-            "model_params": {
-                # Flat params
-                "n_estimators": [50, 100],
-                # Nested config group — Optuna flattens to
-                # "tree_config__max_depth" and "tree_config__min_samples_leaf"
-                # then reconstructs the nested dict for the model.
-                # NOTE: GBR doesn't accept a "tree_config" dict natively,
-                # so we demonstrate the flatten/unflatten mechanism using
-                # real GBR params at the top level alongside a nested group.
-                # For real nested configs (TabPFN, custom models), the
-                # pattern works identically.
-                "max_depth": [3, 5, 7],
-                "learning_rate": ('float_log', 0.01, 0.3),
-            },
-        }
-    },
-]
 
 result_nested = nirs4all.run(
-    pipeline=pipeline_nested,
+    pipeline=[
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        {
+            "model": GradientBoostingRegressor(random_state=42),
+            "name": "GBR-Nested",
+            "finetune_params": {
+                "n_trials": 2,
+                "sampler": "tpe",
+                "seed": 42,
+                "verbose": 1,
+                "approach": "single",
+                "metric": "rmse",
+                "model_params": {
+                    # Flat params
+                    "n_estimators": [50, 100],
+                    # Nested config group — Optuna flattens to
+                    # "tree_config__max_depth" and "tree_config__min_samples_leaf"
+                    # then reconstructs the nested dict for the model.
+                    # NOTE: GBR doesn't accept a "tree_config" dict natively,
+                    # so we demonstrate the flatten/unflatten mechanism using
+                    # real GBR params at the top level alongside a nested group.
+                    # For real nested configs (TabPFN, custom models), the
+                    # pattern works identically.
+                    "max_depth": [3, 5, 7],
+                    "learning_rate": ('float_log', 0.01, 0.3),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="NestedParams",
     verbose=1
@@ -351,42 +346,41 @@ except ImportError:
     TORCH_AVAILABLE = False
 
 if TORCH_AVAILABLE:
-    pipeline_torch = [
-        MinMaxScaler(),
-
-        ShuffleSplit(n_splits=2, random_state=42),
-
-        {
-            "model": customizable_nicon,
-            "name": "NICON-Tuned",
-            "finetune_params": {
-                "n_trials": 2,
-                "sampler": "random",
-                "seed": 42,
-                "verbose": 1,
-                "approach": "single",
-                "metric": "rmse",
-                "model_params": {
-                    # Conv layer 1 architecture
-                    "filters1": [8, 16],
-                    "dropout_rate": ('float', 0.1, 0.4),
-                    # Conv layer 2 architecture
-                    "filters2": [32, 64],
-                },
-                "train_params": {
-                    # Sampled by Optuna
-                    "epochs": ('int', 5, 15),
-                    "batch_size": [16, 32],
-                    "learning_rate": ('float_log', 1e-4, 1e-2),
-                    # Static (not sampled)
-                    "verbose": 0,
-                },
-            }
-        },
-    ]
 
     result_torch = nirs4all.run(
-        pipeline=pipeline_torch,
+        pipeline=[
+            MinMaxScaler(),
+    
+            ShuffleSplit(n_splits=2, random_state=42),
+    
+            {
+                "model": customizable_nicon,
+                "name": "NICON-Tuned",
+                "finetune_params": {
+                    "n_trials": 2,
+                    "sampler": "random",
+                    "seed": 42,
+                    "verbose": 1,
+                    "approach": "single",
+                    "metric": "rmse",
+                    "model_params": {
+                        # Conv layer 1 architecture
+                        "filters1": [8, 16],
+                        "dropout_rate": ('float', 0.1, 0.4),
+                        # Conv layer 2 architecture
+                        "filters2": [32, 64],
+                    },
+                    "train_params": {
+                        # Sampled by Optuna
+                        "epochs": ('int', 5, 15),
+                        "batch_size": [16, 32],
+                        "learning_rate": ('float_log', 1e-4, 1e-2),
+                        # Static (not sampled)
+                        "verbose": 0,
+                    },
+                }
+            },
+        ],
         dataset="sample_data/regression",
         name="TorchTuning",
         verbose=1
@@ -475,71 +469,70 @@ with different finetuning strategies in a single pipeline.
 Each model can use its own approach, sampler, and metric.
 """)
 
-pipeline_complex = [
-    # Try multiple preprocessings
-    MinMaxScaler(),
-    {"feature_augmentation": [
-        StandardNormalVariate,
-        Detrend,
-    ], "action": "extend"},
-
-    ShuffleSplit(n_splits=2, random_state=42),
-
-    # PLS with grid search (small discrete space)
-    {
-        "model": PLSRegression(),
-        "name": "PLS-Grid",
-        "finetune_params": {
-            "n_trials": 3,
-            "sampler": "grid",
-            "seed": 42,
-            "verbose": 1,
-            "approach": "grouped",
-            "model_params": {
-                "n_components": [3, 5, 8],
-            },
-        }
-    },
-
-    # Ridge with TPE and R2 metric
-    {
-        "model": Ridge(),
-        "name": "Ridge-TPE",
-        "finetune_params": {
-            "n_trials": 2,
-            "sampler": "tpe",
-            "seed": 42,
-            "verbose": 1,
-            "approach": "single",
-            "metric": "r2",
-            "model_params": {
-                "alpha": ('float_log', 1e-4, 1e2),
-            },
-        }
-    },
-
-    # ElasticNet with multi-phase
-    {
-        "model": ElasticNet(max_iter=5000),
-        "name": "ElasticNet-MultiPhase",
-        "finetune_params": {
-            "seed": 42,
-            "verbose": 1,
-            "metric": "rmse",
-            "phases": [
-                {"n_trials": 2, "sampler": "random"},
-                {"n_trials": 2, "sampler": "tpe"},
-            ],
-            "model_params": {
-                "alpha": ('float_log', 1e-4, 1e1),
-                "l1_ratio": ('float', 0.0, 1.0),
-            },
-        }
-    },
-]
 
 result_complex = nirs4all.run(
-    pipeline=pipeline_complex,
+    pipeline=[
+        # Try multiple preprocessings
+        MinMaxScaler(),
+        {"feature_augmentation": [
+            StandardNormalVariate,
+            Detrend,
+        ], "action": "extend"},
+    
+        ShuffleSplit(n_splits=2, random_state=42),
+    
+        # PLS with grid search (small discrete space)
+        {
+            "model": PLSRegression(),
+            "name": "PLS-Grid",
+            "finetune_params": {
+                "n_trials": 3,
+                "sampler": "grid",
+                "seed": 42,
+                "verbose": 1,
+                "approach": "grouped",
+                "model_params": {
+                    "n_components": [3, 5, 8],
+                },
+            }
+        },
+    
+        # Ridge with TPE and R2 metric
+        {
+            "model": Ridge(),
+            "name": "Ridge-TPE",
+            "finetune_params": {
+                "n_trials": 2,
+                "sampler": "tpe",
+                "seed": 42,
+                "verbose": 1,
+                "approach": "single",
+                "metric": "r2",
+                "model_params": {
+                    "alpha": ('float_log', 1e-4, 1e2),
+                },
+            }
+        },
+    
+        # ElasticNet with multi-phase
+        {
+            "model": ElasticNet(max_iter=5000),
+            "name": "ElasticNet-MultiPhase",
+            "finetune_params": {
+                "seed": 42,
+                "verbose": 1,
+                "metric": "rmse",
+                "phases": [
+                    {"n_trials": 2, "sampler": "random"},
+                    {"n_trials": 2, "sampler": "tpe"},
+                ],
+                "model_params": {
+                    "alpha": ('float_log', 1e-4, 1e1),
+                    "l1_ratio": ('float', 0.0, 1.0),
+                },
+            }
+        },
+    ],
     dataset="sample_data/regression",
     name="ComplexFinetune",
     verbose=1

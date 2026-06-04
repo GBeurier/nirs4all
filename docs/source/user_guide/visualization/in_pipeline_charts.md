@@ -257,10 +257,10 @@ Visualize the effects of sample augmentation.
 ### Usage
 
 ```python
-from nirs4all.operators.augmentation import GaussianNoise, SpectrumShift
+from nirs4all.operators.augmentation import GaussianAdditiveNoise, WavelengthShift
 
 pipeline = [
-    {"sample_augmentation": [GaussianNoise(sigma=0.01), SpectrumShift(max_shift=5)]},
+    {"sample_augmentation": [GaussianAdditiveNoise(sigma=0.01), WavelengthShift(shift_range=(-2, 2))]},
     "augment_chart",             # Overlay view
     "augment_details_chart",     # Detailed grid view
     ShuffleSplit(n_splits=3),
@@ -331,7 +331,7 @@ Overlay of original spectra with multiple augmentation methods applied.
 :width: 90%
 :alt: Multiple Augmentation Details Chart
 
-Grid showing each augmentation method (GaussianNoise and WavelengthShift) separately.
+Grid showing each augmentation method (GaussianAdditiveNoise and WavelengthShift) separately.
 ```
 
 ---
@@ -348,7 +348,7 @@ Visualize included vs excluded samples using PCA projection.
 ### Usage
 
 ```python
-from nirs4all.operators.transforms import OutlierExclusion
+from nirs4all.operators.filters import XOutlierFilter
 
 pipeline = [
     StandardNormalVariate(),

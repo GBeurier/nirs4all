@@ -37,15 +37,12 @@ nirs4all workspace init my_workspace
 **Output:**
 ```
 ✓ Workspace initialized at: my_workspace
-  Created directories:
-    - runs/
-    - exports/full_pipelines/
-    - exports/best_predictions/
-    - library/templates/
-    - library/trained/filtered/
-    - library/trained/pipeline/
-    - library/trained/fullrun/
-    - catalog/
+  Created:
+    - store.sqlite (workspace database)
+    - arrays/
+    - artifacts/
+    - exports/
+    - library/
 ```
 
 ---
