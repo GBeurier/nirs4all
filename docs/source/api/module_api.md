@@ -421,5 +421,5 @@ All results are collected into a single `RunResult` for unified analysis.
 ## See Also
 
 - [sklearn Integration](sklearn_integration.md) - NIRSPipeline for sklearn/SHAP
-- [API Migration Guide](../../user_guide/api_migration.md) - Migrating from classic API
+- [Migration Guide](../user_guide/troubleshooting/migration.md) - Migrating from classic API
 - [Examples](https://github.com/gbeurier/nirs4all/tree/main/examples) - Example scripts

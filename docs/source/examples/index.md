@@ -1,6 +1,6 @@
 # Interactive Example Browser
 
-NIRS4ALL ships with **67 comprehensive examples** organized into three categories, each demonstrating real-world spectroscopy workflows. Browse by difficulty, topic, or learning path to find the perfect starting point for your use case.
+NIRS4ALL ships with **70+ comprehensive examples** organized into three categories, each demonstrating real-world spectroscopy workflows. Browse by difficulty, topic, or learning path to find the perfect starting point for your use case.
 
 ```{toctree}
 :maxdepth: 2
@@ -474,7 +474,7 @@ Comprehensive reference examples for advanced features.
 After exploring examples:
 
 - **User Guide**: {doc}`/user_guide/index` - Complete documentation with detailed explanations
-- **API Reference**: {doc}`/reference/api_reference` - Full API documentation
+- **API Reference**: {doc}`/api/modules` - Full API documentation
 - **Concepts**: {doc}`/concepts/index` - The ideas behind pipelines, datasets, and workflows
 - **Developer Guide**: {doc}`/developer/index` - Deep dive into architecture and design patterns
 - **Getting Started**: {doc}`/getting_started/quickstart` - Installation and first steps

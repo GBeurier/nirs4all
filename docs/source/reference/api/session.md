@@ -724,4 +724,4 @@ print(f"Std prediction: {predictions.values.std():.2f}")
 - {doc}`/user_guide/predictions/session_api` - Session API user guide
 - {doc}`/user_guide/predictions/making_predictions` - Prediction workflows
 - {doc}`/user_guide/deployment/export_bundles` - Bundle format details
-- {doc}`predictions_api` - PredictResult reference
+- {doc}`/reference/predictions_api` - PredictResult reference

@@ -8,6 +8,8 @@
 
 **NIRS4ALL** is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
 
+> 🚀 **New here? Start with {doc}`Getting Started <getting_started/index>`** — install, run your first pipeline, then follow the tutorial. The other sections below are for when you need them.
+
 ::::{grid} 3
 :gutter: 3
 
@@ -60,21 +62,10 @@ Complete API reference, pipeline syntax, and operator catalog by category.
 :link-type: doc
 :class-card: sd-bg-light
 
-Architecture, internals, and contribution guidelines.
+Architecture, internals, the controller pattern, and contribution guidelines.
 
 +++
 {bdg-danger}`Advanced` {bdg-info}`Contribute`
-:::
-
-:::{grid-item-card} Architecture Deep Dive
-:link: developer/index
-:link-type: doc
-:class-card: sd-bg-light
-
-Internal architecture, execution engine, controller pattern, and design philosophy.
-
-+++
-{bdg-info}`Architecture` {bdg-dark}`Internals`
 :::
 
 ::::

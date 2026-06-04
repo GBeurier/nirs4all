@@ -380,7 +380,7 @@ result = nirs4all.run(
 )
 ```
 
-See [Cache Optimization Guide](../advanced/cache_optimization.md) for details.
+See [Cache Optimization Guide](cache_optimization.md) for details.
 
 ### Counting Variants Before Execution
 
@@ -544,7 +544,7 @@ for i, pred in enumerate(result.top(3), 1):
 ## See Also
 
 - {doc}`../../reference/generator_keywords` - Complete keyword reference
-- {doc}`../advanced/cache_optimization` - Memory management for large searches
+- {doc}`/user_guide/pipelines/cache_optimization` - Memory management for large searches
 - {doc}`../../examples/developer` - Advanced generator examples (D01, D02)
 - [examples/developer/02_generators/](../../examples/developer/02_generators/) - Runnable examples
 

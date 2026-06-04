@@ -41,8 +41,36 @@ def run_apidoc(_):
         content = package_block.sub("\n", content)
         rst_file.write_text(content, encoding="utf-8")
 
+_documented_objects = set()
+
+
+def _skip_duplicate_members(app, what, name, obj, skip, options):
+    """Document each (module, qualname) object once to avoid duplicate-object warnings.
+
+    apidoc generates a page per module (``-e``). A class re-exported via ``__all__``
+    in several wrapper modules (e.g. POPPLSRegressor in both sklearn.aom_pls and
+    sklearn.pop_pls) would otherwise be documented on every page, producing
+    "duplicate object description" warnings. Skip only the *second+* occurrence
+    of the same object (keyed by its real module + qualname), so it is still
+    documented exactly once and never lost — unlike a blanket "skip imported
+    members" rule, which would drop objects whose defining module isn't paged.
+    """
+    if skip or what != 'module':
+        return None
+    member_mod = getattr(obj, '__module__', None)
+    if member_mod is None:
+        return None
+    key = (member_mod, getattr(obj, '__qualname__', name))
+    if key in _documented_objects:
+        return True
+    _documented_objects.add(key)
+    return None
+
+
 def setup(app):
+    _documented_objects.clear()
     app.connect('builder-inited', run_apidoc)
+    app.connect('autodoc-skip-member', _skip_duplicate_members)
 
 project = 'Nirs4all'
 copyright = '2026, Gregory Beurier'
@@ -51,6 +79,7 @@ author = 'Gregory Beurier'
 # (avoids triggering heavy lazy-loaded backends at docs-build time).
 import pathlib as _pathlib
 import re as _re
+
 _init_src = (_pathlib.Path(__file__).resolve().parents[2] / 'nirs4all' / '__init__.py').read_text(encoding='utf-8')
 release = _re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', _init_src).group(1)
 version = release
