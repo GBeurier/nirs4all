@@ -271,5 +271,5 @@ If you encounter issues not covered here:
 Once installed, continue to:
 
 - {doc}`quickstart` - Run your first pipeline in 5 minutes
-- {doc}`concepts` - Understand the core concepts
+- {doc}`/concepts/index` - Understand the core concepts
 - {doc}`/examples/index` - Explore working examples

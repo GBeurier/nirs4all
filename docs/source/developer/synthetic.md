@@ -2026,5 +2026,5 @@ The predefined spectral components are based on established NIR spectroscopy lit
 ## See Also
 
 - {doc}`/user_guide/data/synthetic_data` - User guide
-- {doc}`/api/nirs4all.synthesis` - API reference
+- {doc}`/api/modules` - API reference
 - {doc}`testing` - Testing guide with synthetic fixtures

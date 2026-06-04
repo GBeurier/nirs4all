@@ -899,8 +899,8 @@ for preproc in [MinMaxScaler(), StandardScaler(), SNV(), MSC(), FirstDerivative(
 ## See Also
 
 - {doc}`/developer/synthetic` - Developer guide for extending the generator
-- {doc}`/api/nirs4all.api.generate` - API reference
-- {doc}`/api/nirs4all.synthesis` - Low-level classes reference
+- {doc}`/api/modules` - API reference
+- {doc}`/api/modules` - Low-level classes reference
 - {doc}`loading_data` - Loading real datasets
 - {doc}`/concepts/datasets` - Understanding SpectroDataset
 

@@ -263,7 +263,7 @@ receives the exact same transformations that were applied during training.
 You now know the core workflow: generate or load data, build a pipeline, run it,
 inspect results, and export. Here are some directions to explore next.
 
-- {doc}`concepts` -- understand SpectroDataset, pipeline execution flow, and how
+- {doc}`/concepts/index` -- understand SpectroDataset, pipeline execution flow, and how
   results are structured
 - {doc}`/user_guide/preprocessing/overview` -- all available NIRS transforms
   (SNV, MSC, derivatives, smoothing, wavelength selection)
