@@ -1,0 +1,256 @@
+OpenAI Codex v0.136.0
+--------
+workdir: /home/delete/nirs4all/nirs4all
+model: gpt-5.5
+provider: openai
+approval: never
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: xhigh
+reasoning summaries: none
+session id: 019e922d-09ac-7390-8fd4-9b52101c7b35
+--------
+user
+You are an adversarial reviewer. Read the file docs/_internal/doc_overhaul_2026-06-04/01_repo_hygiene.md in the repo /home/delete/nirs4all/nirs4all (a Python library, git repo, origin=GBeurier/nirs4all).
+
+Independently re-verify its central claims using git, and report any error or overstatement. Specifically check:
+1. Is `main` actually 0 ahead / 0 behind origin/main? (git rev-list --left-right --count origin/main...HEAD)
+2. Is the working tree clean apart from the untracked doc_overhaul folder? (git status --porcelain)
+3. Are there really no stashes, no MERGE_HEAD/rebase state, single worktree?
+4. The doc lists 15 branches as "fully merged into main, safe to prune" and 7 as "carrying unmerged commits". Spot-check 3-4 of these claims with `git rev-list --count main..<branch>` — is the merged/unmerged classification correct?
+5. Is the recommendation (prune merged branches, leave dependabot) sound and non-destructive?
+
+Be concise. Output a short verdict (CORRECT / MINOR ISSUES / WRONG) followed by a bulleted list of any discrepancies with the exact git evidence. Do not modify any files.
+
+codex
+I’ll verify the report directly against the local git state and the document’s branch lists, without changing the worktree.
+exec
+/bin/bash -lc 'git stash list' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+exec
+/bin/bash -lc "sed -n '1,260p' docs/_internal/doc_overhaul_2026-06-04/01_repo_hygiene.md" in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+# Phase 1 — Repository Hygiene Check
+
+**Date:** 2026-06-04
+**Repo:** `nirs4all` (the Python library), `origin = https://github.com/GBeurier/nirs4all.git`
+
+## Verdict
+
+✅ **`main` is production-clean.** Nothing blocks the documentation work.
+⚠️ **Branch hygiene is messy** — 21 stale local branches and 2 leftover worktree branches. Recommended optional cleanup (not done without your approval; deleting branches is destructive).
+
+## Checks performed
+
+| Check | Result |
+|---|---|
+| Working tree | **clean** — nothing to commit |
+| `HEAD` vs `origin/main` | **0 ahead / 0 behind** — fully committed & pushed (`0f9e08cb`) |
+| Stashes | **none** |
+| Active worktrees | **1** (the main checkout only) — no dangling worktree dirs registered |
+| Merge in progress | **none** (no `MERGE_HEAD`, no rebase/cherry-pick state) |
+| Remote | single (`origin`); fetch OK |
+
+## Local branches
+
+**Fully merged into `main`** (0 commits ahead of `main` → safe to prune): `cache_refactoring`, `chore/bump-docker-metadata-action-v6`, `clean_legacy_deprec`, `duckdb_refactoring_2`, `fix/msc-standard-axis`, `fix/parquet-loader-categorical-mode`, `main2`, `parquets_refactoring`, `refactor_branching`, `sqlite_migration`, `tabpfn_pape`, `tabpfn_paper`, `worktree-2025-12-23T16-39-04`, `worktree-2025-12-23T17-21-13` *(15 branches)*.
+
+**Carrying unmerged commits** (work not in `main`):
+
+| Branch | Ahead of main | Behind main | Last commit | Note |
+|---|---|---|---|---|
+| `PP_Split_selectors` | +3 | 447 | 2025-11-29 | Very stale; far behind — likely abandoned/superseded. |
+| `fix/issue-24-branch-preprocessing-chain` | +1 | 146 | 2026-02-25 | Old fix branch; would need rebase. |
+| `dependabot/github_actions/actions/download-artifact-8` | +1 | 141 | 2026-02-26 | Automated dep bump. |
+| `dependabot/github_actions/actions/upload-artifact-7` | +1 | 141 | 2026-02-26 | Automated dep bump. |
+| `dependabot/github_actions/docker/build-push-action-7` | +1 | 141 | 2026-03-05 | Automated dep bump. |
+| `dependabot/github_actions/docker/login-action-4` | +1 | 141 | 2026-03-05 | Automated dep bump. |
+| `dependabot/github_actions/docker/setup-buildx-action-4` | +2 | 141 | 2026-03-10 | Automated dep bump. |
+
+`main2`, `tabpfn_pape` (typo of `tabpfn_paper`), and the two `worktree-*` branches look like leftovers.
+
+Remote-only branches include `0.4.1`, `0.4.2` (release branches), `branching`, `cli`, and several dependabot branches (17 total).
+
+## Recommendation (optional, needs your go-ahead)
+
+1. Prune the 15 fully-merged local branches: `git branch -d <name>` (safe; git refuses if not merged).
+2. Decide on the 2 stale feature branches (`PP_Split_selectors`, `fix/issue-24-branch-preprocessing-chain`) — rebase-and-PR or delete.
+3. Let dependabot branches be (GitHub manages them; they auto-close on merge/supersede).
+
+None of this is required for the doc overhaul — `main` is the single source of truth and is clean.
+
+exec
+/bin/bash -lc 'git worktree list --porcelain' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+worktree /home/delete/nirs4all/nirs4all
+HEAD 0f9e08cbba9aefda3d560ef071d18e4fc7ecaf5c
+branch refs/heads/main
+
+
+exec
+/bin/bash -lc 'git status --porcelain' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+?? docs/_internal/doc_overhaul_2026-06-04/
+
+exec
+/bin/bash -lc "git branch --format='%(refname:short)'" in /home/delete/nirs4all/nirs4all
+exec
+/bin/bash -lc 'git rev-list --left-right --count origin/main...HEAD' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+0	0
+
+ succeeded in 0ms:
+PP_Split_selectors
+cache_refactoring
+chore/bump-docker-metadata-action-v6
+clean_legacy_deprec
+dependabot/github_actions/actions/download-artifact-8
+dependabot/github_actions/actions/upload-artifact-7
+dependabot/github_actions/docker/build-push-action-7
+dependabot/github_actions/docker/login-action-4
+dependabot/github_actions/docker/setup-buildx-action-4
+duckdb_refactoring_2
+fix/issue-24-branch-preprocessing-chain
+fix/msc-standard-axis
+fix/parquet-loader-categorical-mode
+main
+main2
+parquets_refactoring
+refactor_branching
+sqlite_migration
+tabpfn_pape
+tabpfn_paper
+worktree-2025-12-23T16-39-04
+worktree-2025-12-23T17-21-13
+
+codex
+The first pass matches the headline sync and status claims. I also noticed the document’s merged-branch count may be internally inconsistent, so I’m checking the branch classifications and in-progress git state directly.
+exec
+/bin/bash -lc 'git rev-list --count main..cache_refactoring' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+0
+
+exec
+/bin/bash -lc 'git rev-list --count main..fix/parquet-loader-categorical-mode' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+0
+
+exec
+/bin/bash -lc 'git rev-list --count main..PP_Split_selectors' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+3
+
+exec
+/bin/bash -lc 'git status --porcelain=v1 --branch' in /home/delete/nirs4all/nirs4all
+exec
+/bin/bash -lc 'git rev-list --count main..worktree-2025-12-23T16-39-04' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+## main...origin/main
+?? docs/_internal/doc_overhaul_2026-06-04/
+
+ succeeded in 0ms:
+0
+
+exec
+/bin/bash -lc 'git rev-parse --git-path MERGE_HEAD' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+.git/MERGE_HEAD
+
+exec
+/bin/bash -lc 'git rev-list --count main..fix/issue-24-branch-preprocessing-chain' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+1
+
+exec
+/bin/bash -lc 'git rev-list --count main..dependabot/github_actions/docker/setup-buildx-action-4' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+2
+
+codex
+The sampled `main..<branch>` counts support the merged versus unmerged split. I’m doing one aggregate branch check now to separate a real discrepancy from a wording/counting issue.
+exec
+/bin/bash -lc "git branch --merged main --format='%(refname:short)'" in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+cache_refactoring
+chore/bump-docker-metadata-action-v6
+clean_legacy_deprec
+duckdb_refactoring_2
+fix/msc-standard-axis
+fix/parquet-loader-categorical-mode
+main
+main2
+parquets_refactoring
+refactor_branching
+sqlite_migration
+tabpfn_pape
+tabpfn_paper
+worktree-2025-12-23T16-39-04
+worktree-2025-12-23T17-21-13
+
+exec
+/bin/bash -lc "git branch --no-merged main --format='%(refname:short)'" in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+PP_Split_selectors
+dependabot/github_actions/actions/download-artifact-8
+dependabot/github_actions/actions/upload-artifact-7
+dependabot/github_actions/docker/build-push-action-7
+dependabot/github_actions/docker/login-action-4
+dependabot/github_actions/docker/setup-buildx-action-4
+fix/issue-24-branch-preprocessing-chain
+
+exec
+/bin/bash -lc 'git branch --show-current' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+main
+
+exec
+/bin/bash -lc 'find .git -maxdepth 1 ( -name MERGE_HEAD -o -name REBASE_HEAD -o -name CHERRY_PICK_HEAD -o -name REVERT_HEAD -o -name rebase-apply -o -name rebase-merge ) -print' in /home/delete/nirs4all/nirs4all
+ exited 2 in 0ms:
+/bin/bash: -c: line 1: syntax error near unexpected token `('
+/bin/bash: -c: line 1: `find .git -maxdepth 1 ( -name MERGE_HEAD -o -name REBASE_HEAD -o -name CHERRY_PICK_HEAD -o -name REVERT_HEAD -o -name rebase-apply -o -name rebase-merge ) -print'
+
+codex
+The aggregate output shows why the count is off: `git branch --merged main` returns 15 only because it includes `main` itself. I’m correcting the failed shell quoting on the in-progress-state check.
+exec
+/bin/bash -lc "find .git -maxdepth 1 \\( -name MERGE_HEAD -o -name REBASE_HEAD -o -name CHERRY_PICK_HEAD -o -name REVERT_HEAD -o -name rebase-apply -o -name rebase-merge \\) -print" in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+codex
+The git in-progress check is clean after fixing the quoting issue. I’m checking the remote claim as one last cross-check because the document names `origin` explicitly.
+exec
+/bin/bash -lc 'git remote -v' in /home/delete/nirs4all/nirs4all
+ succeeded in 0ms:
+origin	https://github.com/GBeurier/nirs4all.git (fetch)
+origin	https://github.com/GBeurier/nirs4all.git (push)
+
+codex
+**MINOR ISSUES**
+
+- The main sync claim is correct: `git rev-list --left-right --count origin/main...HEAD` returned `0	0`.
+
+- Working tree claim is correct: `git status --porcelain` returned only `?? docs/_internal/doc_overhaul_2026-06-04/`.
+
+- Stash/worktree/in-progress claims are correct: `git stash list` returned no output; `git worktree list --porcelain` showed only `/home/delete/nirs4all/nirs4all` on `refs/heads/main`; `find .git ... MERGE_HEAD/rebase-*` returned no output.
+
+- Branch classification spot checks are correct:
+  - Merged examples: `main..cache_refactoring = 0`, `main..fix/parquet-loader-categorical-mode = 0`, `main..worktree-2025-12-23T16-39-04 = 0`.
+  - Unmerged examples: `main..PP_Split_selectors = 3`, `main..fix/issue-24-branch-preprocessing-chain = 1`, `main..dependabot/github_actions/docker/setup-buildx-action-4 = 2`.
+
+- Discrepancy: the doc says **15** fully merged branches are “safe to prune,” but the listed prunable branch names are **14**. `git branch --merged main` returns 15 only because it includes `main` itself. So the recommendation is sound only if applied to the listed branch names, not to “15 branches” including `main`.
+
+- “Leave dependabot branches alone” is sound and non-destructive.
+tokens used
+20,226
+**MINOR ISSUES**
+
+- The main sync claim is correct: `git rev-list --left-right --count origin/main...HEAD` returned `0	0`.
+
+- Working tree claim is correct: `git status --porcelain` returned only `?? docs/_internal/doc_overhaul_2026-06-04/`.
+
+- Stash/worktree/in-progress claims are correct: `git stash list` returned no output; `git worktree list --porcelain` showed only `/home/delete/nirs4all/nirs4all` on `refs/heads/main`; `find .git ... MERGE_HEAD/rebase-*` returned no output.
+
+- Branch classification spot checks are correct:
+  - Merged examples: `main..cache_refactoring = 0`, `main..fix/parquet-loader-categorical-mode = 0`, `main..worktree-2025-12-23T16-39-04 = 0`.
+  - Unmerged examples: `main..PP_Split_selectors = 3`, `main..fix/issue-24-branch-preprocessing-chain = 1`, `main..dependabot/github_actions/docker/setup-buildx-action-4 = 2`.
+
+- Discrepancy: the doc says **15** fully merged branches are “safe to prune,” but the listed prunable branch names are **14**. `git branch --merged main` returns 15 only because it includes `main` itself. So the recommendation is sound only if applied to the listed branch names, not to “15 branches” including `main`.
+
+- “Leave dependabot branches alone” is sound and non-destructive.
