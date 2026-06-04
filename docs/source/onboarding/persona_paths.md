@@ -62,9 +62,9 @@ I want to contribute to the library, fix bugs, and understand the internals.
    - Use prediction ranking (`result.top()`)
 
 4. **Explore advanced patterns** (ongoing)
-   - Multi-source data (`examples/user/02_data_handling/U02_multi_source.py`)
-   - Branching workflows (`examples/developer/01_branching/`)
-   - Stacking (`examples/developer/01_branching/D04_stacking.py`)
+   - Multi-source data (`examples/user/02_data_handling/U03_multi_source.py`)
+   - Branching workflows (`examples/developer/01_advanced_pipelines/`)
+   - Stacking (`examples/developer/01_advanced_pipelines/D05_meta_stacking.py`)
 
 ### Key Resources
 
@@ -77,13 +77,15 @@ I want to contribute to the library, fix bugs, and understand the internals.
 <details>
 <summary><strong>How do I handle repeated measurements?</strong></summary>
 
-Set `repetition_column` in your dataset config:
+Set `repetition` (and optionally `aggregate`) on your `DatasetConfigs`:
 
 ```python
-dataset = nirs4all.load_dataset(
+from nirs4all.data import DatasetConfigs
+
+dataset = DatasetConfigs(
     "my_data.csv",
-    repetition_column="sample_id",  # Group by this column
-    aggregate_predictions="mean",   # Average predictions across repetitions
+    repetition="sample_id",  # group repeated scans of the same physical sample
+    aggregate="mean",        # average within each repetition group
 )
 ```
 
@@ -139,7 +141,7 @@ predictions = nirs4all.predict("best_model.n4a", new_data)
 
 2. **Study branching and merging** (2-3 hours)
    - Read: [Pipeline Workflow - Branching Section](pipeline_workflow.md#branching-workflow)
-   - Examples: `examples/developer/01_branching/`
+   - Examples: `examples/developer/01_advanced_pipelines/`
    - Try: Duplication vs separation branches
 
 3. **Implement custom operator** (2-4 hours)
@@ -206,7 +208,7 @@ pipeline = [
 ]
 ```
 
-See `examples/developer/01_branching/D04_stacking.py` for details.
+See `examples/developer/01_advanced_pipelines/D05_meta_stacking.py` for details.
 
 </details>
 
@@ -462,7 +464,7 @@ A structured plan for your first week contributing to NIRS4ALL:
 - [ ] Run installation verification: `nirs4all --test-install`
 
 **Afternoon:**
-- [ ] Run a simple example: `examples/user/01_getting_started/U01_minimal.py`
+- [ ] Run a simple example: `examples/user/01_getting_started/U01_hello_world.py`
 - [ ] Read [Mental Models](mental_models.md)
 - [ ] Browse `nirs4all/api/` — module-level entry points
 
@@ -502,7 +504,7 @@ A structured plan for your first week contributing to NIRS4ALL:
 ### Day 4: Inspect Workspace
 
 **Morning:**
-- [ ] Run example with workspace: `examples/user/01_getting_started/U02_workspace.py`
+- [ ] Run example with workspace: `examples/user/06_deployment/U03_workspace_management.py`
 - [ ] Inspect `workspace/store.sqlite` with SQLite CLI:
   ```bash
   sqlite3 workspace/store.sqlite

@@ -251,7 +251,7 @@ store = WorkspaceStore("my_workspace")
 top = store.top_predictions(n=10, metric="test_score")
 ```
 
-See `examples/workspace_integration_example.py` for a complete example.
+See `examples/user/06_deployment/U03_workspace_management.py` for a complete example.
 
 ---
 

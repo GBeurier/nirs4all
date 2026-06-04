@@ -1,0 +1,76 @@
+# Documentation & examples quality gates.
+#
+# Runs on every push / PR (unlike examples.yml, which is weekly). Keeps docs and
+# examples from drifting from the package: metadata + dangling-example-ref gates
+# are BLOCKING; the inline-pipeline style lint is ADVISORY; a fast canonical
+# example subset is executed so a broken on-ramp example fails within the PR
+# rather than waiting up to 7 days for the weekly full run.
+name: Docs Quality
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "docs/**"
+      - "examples/**"
+      - "nirs4all/**"
+      - "scripts/*.py"
+      - ".github/workflows/docs-quality.yml"
+  workflow_dispatch:
+
+jobs:
+  gates:
+    name: Metadata + reference gates (blocking)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Metadata gate (version + license)
+        run: python scripts/check_doc_metadata.py
+      - name: Broken-example-reference gate
+        run: python scripts/check_example_refs.py --strict
+      - name: Inline-pipeline style lint (advisory)
+        run: python scripts/lint_inline_pipeline.py || true
+
+  docs-build:
+    name: Sphinx build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install (with docs extra)
+        run: pip install -e ".[docs]"
+      - name: Build HTML
+        run: python -m sphinx -b html docs/source docs/_build/html
+
+  fast-examples:
+    name: Fast example subset (per-PR)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install
+        run: pip install -e .
+      - name: Run canonical on-ramp + reference examples
+        working-directory: examples
+        run: |
+          set -e
+          for ex in \
+            user/01_getting_started/U01_hello_world.py \
+            user/01_getting_started/U02_basic_regression.py \
+            user/01_getting_started/U03_basic_classification.py \
+            user/03_preprocessing/U01_preprocessing_basics.py \
+            user/04_models/U01_multi_model.py \
+            reference/R04_visualization.py
+          do
+            echo "::group::$ex"
+            python "$ex"
+            echo "::endgroup::"
+          done

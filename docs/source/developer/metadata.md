@@ -509,7 +509,7 @@ print(dataset.metadata_columns)  # See what's available
 
 ## Examples
 
-See `examples/metadata_usage.py` for complete working examples including:
+See `examples/developer/05_advanced_features/D01_metadata_branching.py` for complete working examples including:
 - Loading datasets with metadata
 - Filtering and accessing metadata
 - Numeric encoding
