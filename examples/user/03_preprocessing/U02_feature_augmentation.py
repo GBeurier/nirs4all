@@ -88,20 +88,19 @@ EXTEND adds each preprocessing independently, no chaining.
 Good for exploring different preprocessing approaches.
 """)
 
-pipeline_extend = [
-    # Start with scaling
-    MinMaxScaler(),
-
-    # Add SNV, FirstDerivative as independent alternatives
-    {"feature_augmentation": [StandardNormalVariate, FirstDerivative], "action": "extend"},
-
-    # Cross-validation and model
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_extend = nirs4all.run(
-    pipeline=pipeline_extend,
+    pipeline=[
+        # Start with scaling
+        MinMaxScaler(),
+    
+        # Add SNV, FirstDerivative as independent alternatives
+        {"feature_augmentation": [StandardNormalVariate, FirstDerivative], "action": "extend"},
+    
+        # Cross-validation and model
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="ExtendMode",
     verbose=1
@@ -127,20 +126,19 @@ ADD chains each operation on existing processings AND keeps originals.
 Good for ablation studies where you need baselines for comparison.
 """)
 
-pipeline_add = [
-    # Base preprocessing
-    StandardNormalVariate(),
-
-    # Chain derivative AND keep original SNV for comparison
-    {"feature_augmentation": [FirstDerivative], "action": "add"},
-
-    # Cross-validation and model
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_add = nirs4all.run(
-    pipeline=pipeline_add,
+    pipeline=[
+        # Base preprocessing
+        StandardNormalVariate(),
+    
+        # Chain derivative AND keep original SNV for comparison
+        {"feature_augmentation": [FirstDerivative], "action": "add"},
+    
+        # Cross-validation and model
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="AddMode",
     verbose=1
@@ -164,23 +162,22 @@ REPLACE chains operations on existing processings, discarding originals.
 Good for multi-stage preprocessing pipelines without intermediate bloat.
 """)
 
-pipeline_replace = [
-    # Stage 1: Smoothing (extend to explore options)
-    {"feature_augmentation": [Gaussian(sigma=2), SavitzkyGolay(deriv=0)], "action": "extend"},
-
-    # Stage 2: Force derivative on all (replace - no smoothing-only variants)
-    {"feature_augmentation": [FirstDerivative], "action": "replace"},
-
-    # Stage 3: Force SNV on all (replace - clean final chain)
-    {"feature_augmentation": [StandardNormalVariate], "action": "replace"},
-
-    # Cross-validation and model
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_replace = nirs4all.run(
-    pipeline=pipeline_replace,
+    pipeline=[
+        # Stage 1: Smoothing (extend to explore options)
+        {"feature_augmentation": [Gaussian(sigma=2), SavitzkyGolay(deriv=0)], "action": "extend"},
+    
+        # Stage 2: Force derivative on all (replace - no smoothing-only variants)
+        {"feature_augmentation": [FirstDerivative], "action": "replace"},
+    
+        # Stage 3: Force SNV on all (replace - clean final chain)
+        {"feature_augmentation": [StandardNormalVariate], "action": "replace"},
+    
+        # Cross-validation and model
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="ReplaceMode",
     verbose=1
@@ -203,27 +200,26 @@ print("""
 Combine extend and add to explore a large preprocessing space efficiently.
 """)
 
-pipeline_search = [
-    # Stage 1: Scatter correction options (extend)
-    {"feature_augmentation": [
-        StandardNormalVariate,
-        MultiplicativeScatterCorrection,
-        Detrend,
-    ], "action": "extend"},
-
-    # Stage 2: Add derivative options (add - keep scatter-only as baseline)
-    {"feature_augmentation": [
-        FirstDerivative,
-        SecondDerivative,
-    ], "action": "add"},
-
-    # Cross-validation and model
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_search = nirs4all.run(
-    pipeline=pipeline_search,
+    pipeline=[
+        # Stage 1: Scatter correction options (extend)
+        {"feature_augmentation": [
+            StandardNormalVariate,
+            MultiplicativeScatterCorrection,
+            Detrend,
+        ], "action": "extend"},
+    
+        # Stage 2: Add derivative options (add - keep scatter-only as baseline)
+        {"feature_augmentation": [
+            FirstDerivative,
+            SecondDerivative,
+        ], "action": "add"},
+    
+        # Cross-validation and model
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="Search",
     verbose=1
@@ -300,32 +296,29 @@ print("-" * 60)
 transforms = [FirstDerivative, SecondDerivative]
 
 # EXTEND: Independent alternatives
-pipeline_demo_extend = [
+
+# ADD: Chain + keep original
+
+# REPLACE: Chain, discard original
+
+res_ext = nirs4all.run(pipeline=[
     MinMaxScaler(),
     {"feature_augmentation": transforms, "action": "extend"},
     ShuffleSplit(n_splits=1),
     {"model": PLSRegression(n_components=5)},
-]
-
-# ADD: Chain + keep original
-pipeline_demo_add = [
+], dataset="sample_data/regression", name="ext", verbose=0)
+res_add = nirs4all.run(pipeline=[
     MinMaxScaler(),
     {"feature_augmentation": transforms, "action": "add"},
     ShuffleSplit(n_splits=1),
     {"model": PLSRegression(n_components=5)},
-]
-
-# REPLACE: Chain, discard original
-pipeline_demo_replace = [
+], dataset="sample_data/regression", name="add", verbose=0)
+res_rep = nirs4all.run(pipeline=[
     MinMaxScaler(),
     {"feature_augmentation": transforms, "action": "replace"},
     ShuffleSplit(n_splits=1),
     {"model": PLSRegression(n_components=5)},
-]
-
-res_ext = nirs4all.run(pipeline=pipeline_demo_extend, dataset="sample_data/regression", name="ext", verbose=0)
-res_add = nirs4all.run(pipeline=pipeline_demo_add, dataset="sample_data/regression", name="add", verbose=0)
-res_rep = nirs4all.run(pipeline=pipeline_demo_replace, dataset="sample_data/regression", name="rep", verbose=0)
+], dataset="sample_data/regression", name="rep", verbose=0)
 
 print(f"""
 Given: MinMaxScaler → [FirstDerivative, SecondDerivative]

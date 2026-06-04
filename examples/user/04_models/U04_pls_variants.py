@@ -241,24 +241,23 @@ Modes:
   forward - Forward selection of intervals
 """)
 
-pipeline_ipls = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=3, random_state=42),
-
-    # Standard PLS
-    {"model": PLSRegression(n_components=5), "name": "PLS-5"},
-
-    # IntervalPLS
-    {"model": IntervalPLS(n_components=5, n_intervals=10, mode='single', backend='numpy'),
-     "name": "iPLS-single"},
-    {"model": IntervalPLS(n_components=5, n_intervals=10, mode='forward', backend='numpy'),
-     "name": "iPLS-forward"},
-]
 
 result_ipls = nirs4all.run(
-    pipeline=pipeline_ipls,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=3, random_state=42),
+    
+        # Standard PLS
+        {"model": PLSRegression(n_components=5), "name": "PLS-5"},
+    
+        # IntervalPLS
+        {"model": IntervalPLS(n_components=5, n_intervals=10, mode='single', backend='numpy'),
+         "name": "iPLS-single"},
+        {"model": IntervalPLS(n_components=5, n_intervals=10, mode='forward', backend='numpy'),
+         "name": "iPLS-forward"},
+    ],
     dataset="sample_data/regression",
     name="IntervalPLS",
     verbose=1
@@ -283,21 +282,20 @@ Weighting schemes:
   tukey - Tukey's biweight (aggressive outlier rejection)
 """)
 
-pipeline_robust = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=3, random_state=42),
-
-    {"model": PLSRegression(n_components=5), "name": "PLS-5"},
-    {"model": RobustPLS(n_components=5, weighting='huber', max_iter=50, backend='numpy'),
-     "name": "RobustPLS-huber"},
-    {"model": RobustPLS(n_components=5, weighting='tukey', max_iter=50, backend='numpy'),
-     "name": "RobustPLS-tukey"},
-]
 
 result_robust = nirs4all.run(
-    pipeline=pipeline_robust,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=3, random_state=42),
+    
+        {"model": PLSRegression(n_components=5), "name": "PLS-5"},
+        {"model": RobustPLS(n_components=5, weighting='huber', max_iter=50, backend='numpy'),
+         "name": "RobustPLS-huber"},
+        {"model": RobustPLS(n_components=5, weighting='tukey', max_iter=50, backend='numpy'),
+         "name": "RobustPLS-tukey"},
+    ],
     dataset="sample_data/regression",
     name="RobustPLS",
     verbose=1
@@ -323,19 +321,18 @@ Kernels:
   poly   - Polynomial kernel
 """)
 
-pipeline_kernel = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    ShuffleSplit(n_splits=3, random_state=42),
-
-    {"model": PLSRegression(n_components=5), "name": "PLS-5"},
-    {"model": KernelPLS(n_components=5, kernel='linear', backend='numpy'), "name": "KernelPLS-linear"},
-    {"model": KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='numpy'), "name": "KernelPLS-rbf"},
-]
 
 result_kernel = nirs4all.run(
-    pipeline=pipeline_kernel,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        ShuffleSplit(n_splits=3, random_state=42),
+    
+        {"model": PLSRegression(n_components=5), "name": "PLS-5"},
+        {"model": KernelPLS(n_components=5, kernel='linear', backend='numpy'), "name": "KernelPLS-linear"},
+        {"model": KernelPLS(n_components=5, kernel='rbf', gamma=0.1, backend='numpy'), "name": "KernelPLS-rbf"},
+    ],
     dataset="sample_data/regression",
     name="KernelPLS",
     verbose=1

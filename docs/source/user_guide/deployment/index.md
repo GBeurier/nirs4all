@@ -82,7 +82,7 @@ import nirs4all
 
 # Load and predict
 predictions = nirs4all.predict(
-    bundle="exports/best_model.n4a",
+    model="exports/best_model.n4a",
     data="new_samples/"
 )
 ```

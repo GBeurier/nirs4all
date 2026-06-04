@@ -1,6 +1,6 @@
 # nirs4all — Python NIRS Analysis Library
 
-**Version**: 0.9.1 | **Python**: 3.11+ | **License**: CeCILL-2.1
+**Version**: 0.9.1 | **Python**: 3.11+ | **License**: AGPL-3.0-or-later (dual; GPL-3.0/CeCILL-2.1 variants + commercial — see LICENSE)
 
 Since **0.9.0** the public API (`run/predict/explain/retrain/session/generate`), result objects (`RunResult/PredictResult/ExplainResult`), workspace SQLite/Parquet schemas, run manifest layout, and `.n4a` bundle format are **stable contracts** within the 0.9.x line (used by the nirs4all webapp). Avoid breaking those signatures or on-disk schemas without a major bump.
 

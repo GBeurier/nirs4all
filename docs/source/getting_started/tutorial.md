@@ -46,13 +46,11 @@ from nirs4all.operators.transforms import SNV
 
 dataset = nirs4all.generate(n_samples=200, random_state=42)
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     MinMaxScaler(),
     SNV(),
     PLSRegression(n_components=10),
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=1)
+], dataset=dataset, verbose=1)
 print(f"RMSE: {result.best_rmse:.4f}")
 ```
 
@@ -77,14 +75,12 @@ from nirs4all.operators.transforms import SNV
 
 dataset = nirs4all.generate(n_samples=200, random_state=42)
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     MinMaxScaler(),
     SNV(),
     ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
     {"model": PLSRegression(n_components=10)},
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=1)
+], dataset=dataset, verbose=1)
 print(f"RMSE: {result.best_rmse:.4f}")
 print(f"R2:   {result.best_r2:.4f}")
 ```
@@ -156,13 +152,11 @@ from nirs4all.operators.transforms import SNV
 
 dataset = nirs4all.generate(n_samples=200, random_state=42)
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     SNV(),
     ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
     {"n_components": {"_range_": [2, 20, 3]}, "model": PLSRegression},
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=1)
+], dataset=dataset, verbose=1)
 
 print("Top 3 component counts:")
 for pred in result.top(n=3, display_metrics=["rmse"]):
@@ -241,13 +235,12 @@ from nirs4all.operators.transforms import SNV
 
 # Train
 dataset = nirs4all.generate(n_samples=200, random_state=42)
-pipeline = [
+result = nirs4all.run(pipeline=[
     MinMaxScaler(),
     SNV(),
     ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
     {"model": PLSRegression(n_components=10)},
-]
-result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=1)
+], dataset=dataset, verbose=1)
 
 # Export the best model
 result.export("my_model.n4a")

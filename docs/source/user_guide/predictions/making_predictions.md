@@ -243,15 +243,14 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 
 # Define pipeline with cross-validation
-pipeline = [
-    MinMaxScaler(),
-    KFold(n_splits=5, shuffle=True, random_state=42),
-    {"model": PLSRegression(n_components=10)},
-]
 
 # Train
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        KFold(n_splits=5, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     verbose=1,
 )

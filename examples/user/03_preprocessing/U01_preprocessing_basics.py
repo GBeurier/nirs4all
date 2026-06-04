@@ -97,16 +97,15 @@ print("Section 2: Scatter Correction")
 print("-" * 60)
 
 # Pipeline with SNV
-pipeline_snv = [
-    "chart_2d",
-    StandardNormalVariate(),
-    "chart_2d",
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_snv = nirs4all.run(
-    pipeline=pipeline_snv,
+    pipeline=[
+        "chart_2d",
+        StandardNormalVariate(),
+        "chart_2d",
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="SNV",
     verbose=0,
@@ -116,16 +115,15 @@ result_snv = nirs4all.run(
 print(f"   SNV - RMSE: {result_snv.best_rmse:.4f}")
 
 # Pipeline with MSC
-pipeline_msc = [
-    "chart_2d",
-    MultiplicativeScatterCorrection(),
-    "chart_2d",
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_msc = nirs4all.run(
-    pipeline=pipeline_msc,
+    pipeline=[
+        "chart_2d",
+        MultiplicativeScatterCorrection(),
+        "chart_2d",
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="MSC",
     verbose=0,
@@ -142,13 +140,12 @@ print("Section 3: Derivatives")
 print("-" * 60)
 
 # First derivative
-pipeline_d1 = [
-    FirstDerivative(),
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 result_d1 = nirs4all.run(
-    pipeline=pipeline_d1,
+    pipeline=[
+        FirstDerivative(),
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="FirstDeriv",
     verbose=0
@@ -156,13 +153,12 @@ result_d1 = nirs4all.run(
 print(f"   FirstDerivative - RMSE: {result_d1.best_rmse:.4f}")
 
 # Second derivative
-pipeline_d2 = [
-    SecondDerivative(),
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 result_d2 = nirs4all.run(
-    pipeline=pipeline_d2,
+    pipeline=[
+        SecondDerivative(),
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="SecondDeriv",
     verbose=0
@@ -170,13 +166,12 @@ result_d2 = nirs4all.run(
 print(f"   SecondDerivative - RMSE: {result_d2.best_rmse:.4f}")
 
 # Savitzky-Golay derivative
-pipeline_sg = [
-    SavitzkyGolay(window_length=11, polyorder=2, deriv=1),
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 result_sg = nirs4all.run(
-    pipeline=pipeline_sg,
+    pipeline=[
+        SavitzkyGolay(window_length=11, polyorder=2, deriv=1),
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="SavGol",
     verbose=0
@@ -191,13 +186,12 @@ print("Section 4: Smoothing")
 print("-" * 60)
 
 # Gaussian smoothing
-pipeline_gauss = [
-    Gaussian(sigma=2),
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 result_gauss = nirs4all.run(
-    pipeline=pipeline_gauss,
+    pipeline=[
+        Gaussian(sigma=2),
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="Gaussian",
     verbose=0
@@ -205,13 +199,12 @@ result_gauss = nirs4all.run(
 print(f"   Gaussian (sigma=2) - RMSE: {result_gauss.best_rmse:.4f}")
 
 # Savitzky-Golay smoothing (deriv=0)
-pipeline_sg_smooth = [
-    SavitzkyGolay(window_length=11, polyorder=2, deriv=0),
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 result_sg_smooth = nirs4all.run(
-    pipeline=pipeline_sg_smooth,
+    pipeline=[
+        SavitzkyGolay(window_length=11, polyorder=2, deriv=0),
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="SG_Smooth",
     verbose=0
@@ -226,16 +219,15 @@ print("Section 5: Combining Preprocessing Steps")
 print("-" * 60)
 
 # Common combination: SNV + First Derivative
-pipeline_combined = [
-    "chart_2d",
-    StandardNormalVariate(),
-    FirstDerivative(),
-    "chart_2d",
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 result_combined = nirs4all.run(
-    pipeline=pipeline_combined,
+    pipeline=[
+        "chart_2d",
+        StandardNormalVariate(),
+        FirstDerivative(),
+        "chart_2d",
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="SNV_D1",
     verbose=0,
@@ -245,15 +237,14 @@ result_combined = nirs4all.run(
 print(f"   SNV + FirstDerivative - RMSE: {result_combined.best_rmse:.4f}")
 
 # Detrend + MSC + Savitzky-Golay
-pipeline_chain = [
-    Detrend(),
-    MultiplicativeScatterCorrection(),
-    SavitzkyGolay(window_length=11, polyorder=2, deriv=1),
-    ShuffleSplit(n_splits=2),
-    {"model": PLSRegression(n_components=10)},
-]
 result_chain = nirs4all.run(
-    pipeline=pipeline_chain,
+    pipeline=[
+        Detrend(),
+        MultiplicativeScatterCorrection(),
+        SavitzkyGolay(window_length=11, polyorder=2, deriv=1),
+        ShuffleSplit(n_splits=2),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="Chain",
     verbose=0

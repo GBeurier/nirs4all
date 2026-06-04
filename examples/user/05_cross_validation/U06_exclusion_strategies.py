@@ -75,19 +75,18 @@ Simplest exclusion: one filter, one criterion.
     {"exclude": YOutlierFilter(method="iqr", threshold=1.5)}
 """)
 
-pipeline_single = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-
-    # Single filter exclusion
-    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
-
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_single = nirs4all.run(
-    pipeline=pipeline_single,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    
+        # Single filter exclusion
+        {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
+    
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="SingleFilter",
     verbose=1,
@@ -112,25 +111,24 @@ print("""
 Use when you want to remove samples with ANY outlier characteristic.
 """)
 
-pipeline_any = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-
-    # Exclude if ANY filter flags the sample
-    {
-        "exclude": [
-            YOutlierFilter(method="iqr", threshold=1.5),
-            XOutlierFilter(method="pca_leverage"),
-        ],
-        "mode": "any",  # Exclude if Y OR X is outlier
-    },
-
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_any = nirs4all.run(
-    pipeline=pipeline_any,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    
+        # Exclude if ANY filter flags the sample
+        {
+            "exclude": [
+                YOutlierFilter(method="iqr", threshold=1.5),
+                XOutlierFilter(method="pca_leverage"),
+            ],
+            "mode": "any",  # Exclude if Y OR X is outlier
+        },
+    
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="AnyMode",
     verbose=1,
@@ -156,25 +154,24 @@ Use when you want to remove only samples that are outliers
 by MULTIPLE criteria (high confidence outliers).
 """)
 
-pipeline_all = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-
-    # Exclude only if ALL filters flag the sample
-    {
-        "exclude": [
-            YOutlierFilter(method="iqr", threshold=1.5),
-            XOutlierFilter(method="pca_leverage"),
-        ],
-        "mode": "all",  # Exclude only if Y AND X are outliers
-    },
-
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_all = nirs4all.run(
-    pipeline=pipeline_all,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+    
+        # Exclude only if ALL filters flag the sample
+        {
+            "exclude": [
+                YOutlierFilter(method="iqr", threshold=1.5),
+                XOutlierFilter(method="pca_leverage"),
+            ],
+            "mode": "all",  # Exclude only if Y AND X are outliers
+        },
+    
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="AllMode",
     verbose=1,
@@ -199,25 +196,17 @@ Compare Y-based (target outliers) vs X-based (spectral outliers):
 """)
 
 # Y-based exclusion only
-pipeline_y = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 # X-based exclusion only
-pipeline_x = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"exclude": XOutlierFilter(method="pca_leverage")},
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_y = nirs4all.run(
-    pipeline=pipeline_y,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="YExclusion",
     verbose=0,
@@ -226,7 +215,13 @@ result_y = nirs4all.run(
 )
 
 result_x = nirs4all.run(
-    pipeline=pipeline_x,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        {"exclude": XOutlierFilter(method="pca_leverage")},
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="XExclusion",
     verbose=0,
@@ -289,15 +284,14 @@ print("Example 6: Strategy Comparison Summary")
 print("-" * 60)
 
 # No exclusion baseline
-pipeline_none = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    SNV(),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_none = nirs4all.run(
-    pipeline=pipeline_none,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        SNV(),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="NoExclusion",
     verbose=0,

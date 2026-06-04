@@ -190,16 +190,14 @@ from sklearn.model_selection import GroupKFold
 # Requires group labels
 groups = [0]*5 + [1]*5 + [2]*5 + [3]*5 + [4]*5  # 5 groups of 5
 
-pipeline = [
-    MinMaxScaler(),
-    SNV(),
-    GroupKFold(n_splits=5),
-    PLSRegression(n_components=10)
-]
-
 # Pass groups in dataset
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        SNV(),
+        GroupKFold(n_splits=5),
+        PLSRegression(n_components=10)
+    ],
     dataset=(X, y, {"groups": groups})
 )
 ```

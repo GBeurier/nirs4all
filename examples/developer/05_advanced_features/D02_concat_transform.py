@@ -244,21 +244,20 @@ Result:
   - New "concat_PCA_SVD" processing: 50 features
 """)
 
-pipeline_augment = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    {"feature_augmentation": [
-        SNV(),
-        {"concat_transform": [
-            PCA(n_components=30),
-            TruncatedSVD(n_components=20)
-        ]}
-    ]},
-    PLSRegression(n_components=10),
-]
 
 result_augment = nirs4all.run(
-    pipeline=pipeline_augment,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        {"feature_augmentation": [
+            SNV(),
+            {"concat_transform": [
+                PCA(n_components=30),
+                TruncatedSVD(n_components=20)
+            ]}
+        ]},
+        PLSRegression(n_components=10),
+    ],
     dataset="sample_data/regression",
     name="AugmentConcat",
     verbose=1,

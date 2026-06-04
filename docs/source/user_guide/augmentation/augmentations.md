@@ -703,14 +703,13 @@ from sklearn.cross_decomposition import PLSRegression
 import nirs4all
 
 # Robust field deployment pipeline
-pipeline = [
+
+result = nirs4all.run(pipeline=[
     TemperatureAugmenter(temperature_range=(-10, 20)),
     MoistureAugmenter(water_activity_range=(0.3, 0.9)),
     ParticleSizeAugmenter(size_range_um=(20, 100)),
     PLSRegression(n_components=10),
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="field_samples")
+], dataset="field_samples")
 ```
 
 ### 3.4 Edge Artifacts
@@ -775,12 +774,11 @@ from sklearn.cross_decomposition import PLSRegression
 import nirs4all
 
 # Simulate InGaAs detector edge effects
-pipeline = [
+
+result = nirs4all.run(pipeline=[
     DetectorRollOffAugmenter(detector_model="ingaas_standard", effect_strength=1.2),
     PLSRegression(n_components=10),
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="my_dataset")
+], dataset="my_dataset")
 ```
 
 #### 3.4.2 StrayLightAugmenter
@@ -906,7 +904,8 @@ from sklearn.cross_decomposition import PLSRegression
 import nirs4all
 
 # Comprehensive augmentation for field robustness
-pipeline = [
+
+result = nirs4all.run(pipeline=[
     TemperatureAugmenter(temperature_range=(-5, 15)),
     ParticleSizeAugmenter(size_range_um=(30, 80)),
     EdgeArtifactsAugmenter(
@@ -914,9 +913,7 @@ pipeline = [
         overall_strength=0.8,
     ),
     PLSRegression(n_components=10),
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="field_samples")
+], dataset="field_samples")
 ```
 
 ### 3.5 Edge Artifacts in Synthetic Data Generation

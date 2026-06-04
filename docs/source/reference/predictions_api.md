@@ -44,6 +44,10 @@ nirs4all.run(
     save_charts=True,
     plots_visible=False,
     random_state=None,
+    refit=True,           # Refit winning variant(s) on full train set (bool/dict/list/None)
+    cache=None,           # Optional CacheConfig for step-level caching
+    project=None,         # Optional project name to tag the run with
+    report_naming="nirs", # Metric naming in reports: "nirs", "ml", or "auto"
     **runner_kwargs,
 ) -> RunResult
 ```

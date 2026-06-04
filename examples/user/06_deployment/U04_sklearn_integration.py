@@ -84,16 +84,15 @@ Train with nirs4all.run(), wrap with NIRSPipeline.from_result().
 """)
 
 # Define pipeline
-pipeline = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-    ShuffleSplit(n_splits=3, test_size=0.25),
-    {"model": PLSRegression(n_components=10)}
-]
 
 # Train
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+        ShuffleSplit(n_splits=3, test_size=0.25),
+        {"model": PLSRegression(n_components=10)}
+    ],
     dataset="sample_data/regression",
     name="sklearn_wrapper",
     verbose=1,

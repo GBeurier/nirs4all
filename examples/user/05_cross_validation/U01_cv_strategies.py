@@ -90,18 +90,17 @@ KFold divides data into K non-overlapping folds.
 Each fold is used once as validation.
 """)
 
-pipeline_kfold = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    # 5-fold cross-validation
-    KFold(n_splits=5, shuffle=True, random_state=42),
-
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_kfold = nirs4all.run(
-    pipeline=pipeline_kfold,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        # 5-fold cross-validation
+        KFold(n_splits=5, shuffle=True, random_state=42),
+    
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="KFold",
     verbose=1
@@ -121,18 +120,17 @@ ShuffleSplit creates random train/test splits.
 Flexible: control test_size and number of splits independently.
 """)
 
-pipeline_shuffle = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    # 10 random splits with 25% test
-    ShuffleSplit(n_splits=10, test_size=0.25, random_state=42),
-
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_shuffle = nirs4all.run(
-    pipeline=pipeline_shuffle,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        # 10 random splits with 25% test
+        ShuffleSplit(n_splits=10, test_size=0.25, random_state=42),
+    
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="ShuffleSplit",
     verbose=1
@@ -152,18 +150,17 @@ RepeatedKFold repeats K-fold CV multiple times with different shuffles.
 More robust estimates, especially for small datasets.
 """)
 
-pipeline_repeated = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    # 5-fold repeated 3 times = 15 total folds
-    RepeatedKFold(n_splits=5, n_repeats=3, random_state=42),
-
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_repeated = nirs4all.run(
-    pipeline=pipeline_repeated,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        # 5-fold repeated 3 times = 15 total folds
+        RepeatedKFold(n_splits=5, n_repeats=3, random_state=42),
+    
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="RepeatedKFold",
     verbose=1
@@ -188,18 +185,17 @@ np.random.seed(42)
 X_classif = np.random.randn(60, 100)  # 60 samples, 100 features
 y_classif = np.array([0]*20 + [1]*20 + [2]*20)  # 3 classes, 20 each
 
-pipeline_stratified = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    # Stratified 3-fold
-    StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
-
-    {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
-]
 
 result_stratified = nirs4all.run(
-    pipeline=pipeline_stratified,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        # Stratified 3-fold
+        StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
+    
+        {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
+    ],
     dataset=(X_classif, y_classif),
     name="StratifiedKFold",
     verbose=1
@@ -221,18 +217,17 @@ Flexible test_size while preserving class balance.
 """)
 
 # Reuse balanced synthetic data from Section 5
-pipeline_strat_shuffle = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    # Stratified random splits
-    StratifiedShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
-
-    {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
-]
 
 result_strat_shuffle = nirs4all.run(
-    pipeline=pipeline_strat_shuffle,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        # Stratified random splits
+        StratifiedShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
+    
+        {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
+    ],
     dataset=(X_classif, y_classif),
     name="StratShuffleSplit",
     verbose=1
@@ -254,18 +249,17 @@ Uses expanding window: train on past, test on future.
 Prevents data leakage from future to past.
 """)
 
-pipeline_timeseries = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    # Time series 5-fold
-    TimeSeriesSplit(n_splits=5),
-
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_timeseries = nirs4all.run(
-    pipeline=pipeline_timeseries,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        # Time series 5-fold
+        TimeSeriesSplit(n_splits=5),
+    
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="TimeSeriesSplit",
     verbose=1
@@ -293,17 +287,16 @@ np.random.seed(42)
 X_small = np.random.randn(30, 100)
 y_small = np.random.randn(30)
 
-pipeline_loo = [
-    MinMaxScaler(),
-
-    # Leave-one-out
-    LeaveOneOut(),
-
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_loo = nirs4all.run(
-    pipeline=pipeline_loo,
+    pipeline=[
+        MinMaxScaler(),
+    
+        # Leave-one-out
+        LeaveOneOut(),
+    
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset=(X_small, y_small),
     name="LeaveOneOut",
     verbose=1
@@ -329,14 +322,13 @@ cv_strategies = [
 
 print("\nComparing CV strategies on same data:")
 for name, cv in cv_strategies:
-    pipeline = [
-        MinMaxScaler(),
-        StandardNormalVariate(),
-        cv,
-        {"model": PLSRegression(n_components=10)},
-    ]
     result = nirs4all.run(
-        pipeline=pipeline,
+        pipeline=[
+            MinMaxScaler(),
+            StandardNormalVariate(),
+            cv,
+            {"model": PLSRegression(n_components=10)},
+        ],
         dataset="sample_data/regression",
         name=name,
         verbose=0

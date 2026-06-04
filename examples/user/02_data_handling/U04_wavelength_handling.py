@@ -147,23 +147,22 @@ target_wl_model = np.linspace(11012, 5966, 50)  # 50 evenly spaced
 # Pipeline configs serialize numpy arrays to plain Python lists.
 # Wrap the single-source wavelength grid so the controller keeps the
 # per-source structure when the pipeline is reconstructed.
-pipeline_full = [
-    # Downsample
-    Resampler(target_wavelengths=[target_wl_model], method='linear'),
-
-    # Standard preprocessing
-    MinMaxScaler(),
-    StandardNormalVariate(),
-
-    # Cross-validation
-    ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
-
-    # Model
-    {"model": PLSRegression(n_components=10), "name": "PLS-10"},
-]
 
 result4 = nirs4all.run(
-    pipeline=pipeline_full,
+    pipeline=[
+        # Downsample
+        Resampler(target_wavelengths=[target_wl_model], method='linear'),
+    
+        # Standard preprocessing
+        MinMaxScaler(),
+        StandardNormalVariate(),
+    
+        # Cross-validation
+        ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+    
+        # Model
+        {"model": PLSRegression(n_components=10), "name": "PLS-10"},
+    ],
     dataset="sample_data/regression_3",
     name="ResampledModel",
     verbose=1,

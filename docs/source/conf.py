@@ -45,9 +45,15 @@ def setup(app):
     app.connect('builder-inited', run_apidoc)
 
 project = 'Nirs4all'
-copyright = '2025, Gregory Beurier'
+copyright = '2026, Gregory Beurier'
 author = 'Gregory Beurier'
-release = '0.7.1'
+# Single source of truth: parse __version__ from the package without importing it
+# (avoids triggering heavy lazy-loaded backends at docs-build time).
+import pathlib as _pathlib
+import re as _re
+_init_src = (_pathlib.Path(__file__).resolve().parents[2] / 'nirs4all' / '__init__.py').read_text(encoding='utf-8')
+release = _re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', _init_src).group(1)
+version = release
 
 # -- General configuration ---------------------------------------------------
 

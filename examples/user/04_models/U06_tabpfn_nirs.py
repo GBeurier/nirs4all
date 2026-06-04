@@ -109,13 +109,12 @@ print("-" * 60)
 print("Section 3: Pipeline integration")
 print("-" * 60)
 
-pipeline = [
-    ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-    {"model": TabPFNNIRSRegressor(n_estimators=8)},  # n_est=8 for example speed
-]
 
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+        {"model": TabPFNNIRSRegressor(n_estimators=8)},  # n_est=8 for example speed
+    ],
     dataset="examples/sample_data/regression",
     verbose=0,
     random_state=42,

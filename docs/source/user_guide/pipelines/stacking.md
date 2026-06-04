@@ -27,15 +27,14 @@ import nirs4all
 from nirs4all.operators.models import MetaModel
 
 # Pipeline with base models and meta-learner
-pipeline = [
+
+result = nirs4all.run(pipeline=[
     MinMaxScaler(),
     KFold(n_splits=5, shuffle=True, random_state=42),  # Required for OOF
     PLSRegression(n_components=5),                      # Base model 1
     RandomForestRegressor(n_estimators=50),             # Base model 2
     {"model": MetaModel(model=Ridge(alpha=1.0))},       # Meta-learner
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="path/to/data/", name="Stacking")
+], dataset="path/to/data/", name="Stacking")
 ```
 
 ## Core Concepts

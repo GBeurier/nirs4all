@@ -18,13 +18,11 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     MinMaxScaler(),
     ShuffleSplit(n_splits=3),
     {"model": PLSRegression(n_components=10)}
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="data/", name="MyPipeline")
+], dataset="data/", name="MyPipeline")
 ```
 
 #### Dictionary with Pipeline Key
@@ -307,13 +305,6 @@ from sklearn.model_selection import ShuffleSplit
 from nirs4all.operators.transforms import StandardNormalVariate
 
 # Pipeline definition
-pipeline = [
-    MinMaxScaler(),
-    StandardNormalVariate(),
-    {"y_processing": MinMaxScaler()},
-    ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
-    {"model": PLSRegression(n_components=10)}
-]
 
 # Dataset configuration
 dataset = DatasetConfigs({
@@ -329,7 +320,13 @@ dataset = DatasetConfigs({
 
 # Run
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        StandardNormalVariate(),
+        {"y_processing": MinMaxScaler()},
+        ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
+        {"model": PLSRegression(n_components=10)}
+    ],
     dataset=dataset,
     name="ProductionPipeline",
     verbose=1,

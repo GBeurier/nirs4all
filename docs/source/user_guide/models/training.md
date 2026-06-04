@@ -29,13 +29,11 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 import nirs4all
 
-pipeline = [
-    ShuffleSplit(n_splits=3, test_size=0.25),
-    {"model": PLSRegression(n_components=10)}
-]
-
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        ShuffleSplit(n_splits=3, test_size=0.25),
+        {"model": PLSRegression(n_components=10)}
+    ],
     dataset="sample_data/regression",
     verbose=1
 )
@@ -51,7 +49,7 @@ Compare multiple models in one run:
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.linear_model import Ridge
 
-pipeline = [
+result = nirs4all.run([
     ShuffleSplit(n_splits=3),
 
     # Each model is trained and evaluated
@@ -60,9 +58,7 @@ pipeline = [
     {"model": PLSRegression(n_components=15)},
     {"model": Ridge(alpha=1.0)},
     {"model": RandomForestRegressor(n_estimators=100)},
-]
-
-result = nirs4all.run(pipeline, "sample_data/regression", verbose=1)
+], "sample_data/regression", verbose=1)
 
 # Compare results
 for pred in result.top(n=5, display_metrics=['rmse', 'r2']):
@@ -264,13 +260,11 @@ pipeline = [
 from sklearn.linear_model import LogisticRegression
 from sklearn.model_selection import StratifiedKFold
 
-pipeline = [
-    StratifiedKFold(n_splits=5),
-    {"model": LogisticRegression(max_iter=1000)}
-]
-
 result = nirs4all.run(
-    pipeline,
+    [
+        StratifiedKFold(n_splits=5),
+        {"model": LogisticRegression(max_iter=1000)}
+    ],
     "sample_data/classification",
     verbose=1
 )
@@ -347,15 +341,14 @@ y_pred = bundle.predict(X_new)
 
 ```python
 # Try a range of components
-pipeline = [
+
+result = nirs4all.run([
     ShuffleSplit(n_splits=5),
     {"model": PLSRegression(n_components=5)},
     {"model": PLSRegression(n_components=10)},
     {"model": PLSRegression(n_components=15)},
     {"model": PLSRegression(n_components=20)},
-]
-
-result = nirs4all.run(pipeline, dataset)
+], dataset)
 
 # Find optimal
 for pred in result.top(n=5, display_metrics=['rmse']):

@@ -18,7 +18,7 @@ from nirs4all.operators.filters import YOutlierFilter
 from sklearn.model_selection import KFold
 from sklearn.cross_decomposition import PLSRegression
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     "chart_y",  # Visualize y distribution before filtering
     {
         "sample_filter": {
@@ -30,9 +30,7 @@ pipeline = [
     "snv",
     {"split": KFold(n_splits=5)},
     {"model": PLSRegression(n_components=5)},
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="my_dataset", name="filtered_pipeline")
+], dataset="my_dataset", name="filtered_pipeline")
 ```
 
 ### Programmatic Usage

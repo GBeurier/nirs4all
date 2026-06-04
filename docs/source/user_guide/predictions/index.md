@@ -123,5 +123,5 @@ Transfer learning, retraining, SHAP explanations, batch prediction patterns
 
 ## See Also
 
-- {doc}`/reference/predictions_api` -- API reference for PredictionResultsList and PredictionResult
+- {doc}`/reference/predictions_api` -- API reference for PredictResult and RunResult
 - {doc}`/reference/pipeline_syntax` -- Pipeline syntax reference

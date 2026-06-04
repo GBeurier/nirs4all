@@ -25,22 +25,20 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 import nirs4all
 
-pipeline = [
-    ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
-    {
-        "model": PLSRegression(),
-        "finetune_params": {
-            "n_trials": 20,
-            "sampler": "tpe",
-            "model_params": {
-                "n_components": ('int', 1, 20),
+result = nirs4all.run(
+    pipeline=[
+        ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
+        {
+            "model": PLSRegression(),
+            "finetune_params": {
+                "n_trials": 20,
+                "sampler": "tpe",
+                "model_params": {
+                    "n_components": ('int', 1, 20),
+                }
             }
         }
-    }
-]
-
-result = nirs4all.run(
-    pipeline=pipeline,
+    ],
     dataset="path/to/data",
     name="HyperparameterTuning"
 )
@@ -282,7 +280,7 @@ base_estimators = [
     ("ridge", Ridge(alpha=1.0)),
 ]
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     ShuffleSplit(n_splits=3, random_state=42),
     {
         "model": StackingRegressor(
@@ -302,9 +300,7 @@ pipeline = [
             ),
         }
     }
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="data/")
+], dataset="data/")
 ```
 
 The `stack_params()` helper automatically namespaces final estimator parameters with the `final_estimator__` prefix required by sklearn. This works seamlessly with the existing nested parameter system.
@@ -316,7 +312,7 @@ Combine `feature_augmentation` with hyperparameter tuning to find the best prepr
 ```python
 from nirs4all.operators.transforms import StandardNormalVariate, Detrend, FirstDerivative
 
-pipeline = [
+result = nirs4all.run(pipeline=[
     # Generate preprocessing variants
     {"feature_augmentation": [StandardNormalVariate, Detrend, FirstDerivative], "action": "extend"},
 
@@ -333,9 +329,7 @@ pipeline = [
             }
         }
     }
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="data/")
+], dataset="data/")
 ```
 
 ## Pipeline Generators vs Optuna Tuning

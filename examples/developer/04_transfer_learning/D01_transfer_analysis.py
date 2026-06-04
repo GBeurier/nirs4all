@@ -115,7 +115,7 @@ print("-" * 60)
 print("""
 TransferPreprocessingSelector evaluates preprocessing options:
 
-    from nirs4all.operators.transfer import TransferPreprocessingSelector
+    from nirs4all.analysis import TransferPreprocessingSelector
 
     selector = TransferPreprocessingSelector(
         preprocessings=[SNV, MSC, Detrend, FirstDerivative],
@@ -128,7 +128,7 @@ TransferPreprocessingSelector evaluates preprocessing options:
 """)
 
 try:
-    from nirs4all.operators.transfer import TransferPreprocessingSelector
+    from nirs4all.analysis import TransferPreprocessingSelector
 
     selector = TransferPreprocessingSelector(
         preprocessings=[

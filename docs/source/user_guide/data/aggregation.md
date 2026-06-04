@@ -32,14 +32,13 @@ dataset = DatasetConfigs(
 )
 
 # Define pipeline
-pipeline = [
+
+# Run pipeline — folds are grouped by sample_id, aggregated metrics are reported
+result = nirs4all.run(pipeline=[
     MinMaxScaler(),
     ShuffleSplit(n_splits=3, test_size=0.25),
     {"model": PLSRegression(n_components=10)}
-]
-
-# Run pipeline — folds are grouped by sample_id, aggregated metrics are reported
-result = nirs4all.run(pipeline=pipeline, dataset=dataset, name="PLS", verbose=1)
+], dataset=dataset, name="PLS", verbose=1)
 
 # Create analyzer with same aggregate setting
 analyzer = PredictionAnalyzer(result.predictions, default_aggregate=result.last_aggregate)

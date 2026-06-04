@@ -146,10 +146,8 @@ Session(
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 
-pipeline = [MinMaxScaler(), {"model": PLSRegression(10)}]
-
 session = nirs4all.Session(
-    pipeline=pipeline,
+    pipeline=[MinMaxScaler(), {"model": PLSRegression(10)}],
     name="WheatProtein",
     verbose=1,
     workspace_path="my_workspace/",
@@ -639,8 +637,7 @@ from sklearn.preprocessing import MinMaxScaler
 from sklearn.cross_decomposition import PLSRegression
 
 # Create session
-pipeline = [MinMaxScaler(), {"model": PLSRegression(10)}]
-session = nirs4all.Session(pipeline=pipeline, name="BasicDemo", verbose=1)
+session = nirs4all.Session(pipeline=[MinMaxScaler(), {"model": PLSRegression(10)}], name="BasicDemo", verbose=1)
 
 # Train
 result = session.run("sample_data/regression")

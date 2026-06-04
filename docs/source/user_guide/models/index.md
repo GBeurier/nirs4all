@@ -75,13 +75,11 @@ Fixed-recipe TabPFN regressor that matches per-dataset HPO without it.
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 
-pipeline = [
+result = nirs4all.run([
     MinMaxScaler(),
     KFold(n_splits=5),
     {"model": PLSRegression(n_components=10)}
-]
-
-result = nirs4all.run(pipeline, dataset="data/")
+], dataset="data/")
 print(f"RMSE: {result.best_rmse:.4f}")
 ```
 

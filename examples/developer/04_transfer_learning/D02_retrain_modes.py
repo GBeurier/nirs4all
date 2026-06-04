@@ -69,17 +69,16 @@ print("\n" + "-" * 60)
 print("Example 1: Initial Training (Create Base Model)")
 print("-" * 60)
 
-pipeline = [
-    MinMaxScaler(),
-    ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
-    SNV(),
-    {"y_processing": StandardScaler()},
-    PLSRegression(n_components=10),
-]
 
 # Train and save
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),
+        ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
+        SNV(),
+        {"y_processing": StandardScaler()},
+        PLSRegression(n_components=10),
+    ],
     dataset="sample_data/regression",
     name="BaseModel",
     verbose=1,

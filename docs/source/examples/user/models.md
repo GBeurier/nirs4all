@@ -270,25 +270,24 @@ pipeline = [
 For smarter search (Bayesian optimization):
 
 ```python
-pipeline = [
-    SNV(),
-    ShuffleSplit(n_splits=3),
-    {
-        "model": Ridge(),
-        "finetune_params": {
-            "n_trials": 50,
-            "sample": "tpe",          # Bayesian optimization
-            "verbose": 1,
-            "approach": "single",
-            "model_params": {
-                "alpha": ('float_log', 1e-4, 1e2),  # Log-uniform sampling
-            }
-        }
-    }
-]
 
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        SNV(),
+        ShuffleSplit(n_splits=3),
+        {
+            "model": Ridge(),
+            "finetune_params": {
+                "n_trials": 50,
+                "sample": "tpe",          # Bayesian optimization
+                "verbose": 1,
+                "approach": "single",
+                "model_params": {
+                    "alpha": ('float_log', 1e-4, 1e2),  # Log-uniform sampling
+                }
+            }
+        }
+    ],
     dataset="sample_data/regression"
 )
 ```
@@ -418,7 +417,8 @@ CCA(n_components=10)
 ### Comparing PLS Components
 
 ```python
-pipeline = [
+
+result = nirs4all.run(pipeline=[
     SNV(),
     ShuffleSplit(n_splits=5),
 
@@ -427,9 +427,7 @@ pipeline = [
     {"model": PLSRegression(n_components=10), "name": "PLS-10"},
     {"model": PLSRegression(n_components=15), "name": "PLS-15"},
     {"model": PLSRegression(n_components=20), "name": "PLS-20"},
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="sample_data/regression")
+], dataset="sample_data/regression")
 
 # Analyze component selection
 analyzer = PredictionAnalyzer(result.predictions)
@@ -475,7 +473,8 @@ pipeline = [
 
 ```python
 # Quick multi-model comparison
-pipeline = [
+
+result = nirs4all.run(pipeline=[
     SNV(),
     ShuffleSplit(n_splits=3),
 
@@ -483,9 +482,7 @@ pipeline = [
     {"model": Ridge(alpha=1.0), "name": "Ridge"},
     {"model": RandomForestRegressor(n_estimators=100), "name": "RF"},
     {"model": GradientBoostingRegressor(n_estimators=50), "name": "GBR"},
-]
-
-result = nirs4all.run(pipeline=pipeline, dataset="sample_data/regression")
+], dataset="sample_data/regression")
 
 # Visualize comparison
 analyzer = PredictionAnalyzer(result.predictions)

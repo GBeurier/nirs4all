@@ -69,23 +69,24 @@ from nirs4all.visualization import PredictionAnalyzer
 # Run pipeline and get results
 result = nirs4all.run(pipeline, dataset="data/")
 
-# Create analyzer
-analyzer = PredictionAnalyzer(result)
+# Create analyzer from the Predictions object
+analyzer = PredictionAnalyzer(result.predictions)
 
 # Generate charts
-analyzer.plot_predictions()      # Predicted vs actual
-analyzer.plot_residuals()        # Residual analysis
-analyzer.plot_calibration()      # Calibration curve
+analyzer.plot_top_k(k=5)            # Top-K model comparison
+analyzer.plot_histogram()           # Score distribution
+analyzer.plot_candlestick(variable='model_name')  # Score ranges
 ```
 
 ## Available Charts
 
-| Chart Type | Description | Use Case |
-|------------|-------------|----------|
-| **Predictions** | Scatter plot of predicted vs actual | Model accuracy |
-| **Residuals** | Residual distribution and patterns | Bias detection |
-| **Calibration** | Reliability diagram | Probability calibration |
-| **Learning Curves** | Performance vs training size | Data sufficiency |
+| Chart Type | Method | Use Case |
+|------------|--------|----------|
+| **Top-K Comparison** | `plot_top_k` | Compare best models |
+| **Confusion Matrix** | `plot_confusion_matrix` | Classification accuracy |
+| **Score Histogram** | `plot_histogram` | Score distribution |
+| **Candlestick** | `plot_candlestick` | Score ranges per group |
+| **Heatmap** | `plot_heatmap` | Performance across factors |
 
 ## See Also
 

@@ -113,31 +113,30 @@ Use sample_augmentation with a list of transformers.
 Each original sample generates 'count' augmented samples.
 """)
 
-pipeline_basic = [
-    # Show original data
-    "fold_chart",
-
-    # Augment: each sample generates 2 augmented versions
-    {"sample_augmentation": {
-        "transformers": [
-            Rotate_Translate(p_range=2, y_factor=3),
-            GaussianAdditiveNoise(sigma=0.01),
-        ],
-        "count": 2,
-        "selection": "random",
-        "random_state": 42,
-    }},
-
-    # Show augmented data
-    "fold_chart",
-
-    # Simple model
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_basic = nirs4all.run(
-    pipeline=pipeline_basic,
+    pipeline=[
+        # Show original data
+        "fold_chart",
+    
+        # Augment: each sample generates 2 augmented versions
+        {"sample_augmentation": {
+            "transformers": [
+                Rotate_Translate(p_range=2, y_factor=3),
+                GaussianAdditiveNoise(sigma=0.01),
+            ],
+            "count": 2,
+            "selection": "random",
+            "random_state": 42,
+        }},
+    
+        # Show augmented data
+        "fold_chart",
+    
+        # Simple model
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="BasicAug",
     verbose=1,
@@ -160,30 +159,29 @@ Use special chart keywords to visualize augmentation:
   augment_details_chart - Show each transformer separately
 """)
 
-pipeline_visual = [
-    {"sample_augmentation": {
-        "transformers": [
-            Rotate_Translate(p_range=2, y_factor=3),
-            GaussianAdditiveNoise(sigma=0.01),
-            WavelengthShift(),
-        ],
-        "count": 2,
-        "selection": "random",
-        "random_state": 42,
-    }},
-
-    # Overlay: original (blue) vs augmented (orange)
-    "augment_chart",
-
-    # Details: each transformer shown separately
-    "augment_details_chart",
-
-    ShuffleSplit(n_splits=1),
-    {"model": PLSRegression(n_components=5)},
-]
 
 result_visual = nirs4all.run(
-    pipeline=pipeline_visual,
+    pipeline=[
+        {"sample_augmentation": {
+            "transformers": [
+                Rotate_Translate(p_range=2, y_factor=3),
+                GaussianAdditiveNoise(sigma=0.01),
+                WavelengthShift(),
+            ],
+            "count": 2,
+            "selection": "random",
+            "random_state": 42,
+        }},
+    
+        # Overlay: original (blue) vs augmented (orange)
+        "augment_chart",
+    
+        # Details: each transformer shown separately
+        "augment_details_chart",
+    
+        ShuffleSplit(n_splits=1),
+        {"model": PLSRegression(n_components=5)},
+    ],
     dataset="sample_data/regression",
     name="VisualAug",
     verbose=0,
@@ -208,25 +206,24 @@ The minority class is augmented to match the majority class.
 # Split configuration for classification
 split_step = {"split": GroupKFold(n_splits=2), "group": "Sample_ID"}
 
-pipeline_balanced = [
-    "fold_chart",
-
-    # Balanced augmentation: augment to match majority class
-    {"sample_augmentation": {
-        "transformers": [Rotate_Translate(p_range=2, y_factor=3)],
-        "balance": "y",           # Balance by target
-        "ref_percentage": 1.0,    # Match 100% of majority class
-        "selection": "random",
-        "random_state": 42,
-    }},
-
-    "fold_chart",
-    split_step,
-    {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
-]
 
 result_balanced = nirs4all.run(
-    pipeline=pipeline_balanced,
+    pipeline=[
+        "fold_chart",
+    
+        # Balanced augmentation: augment to match majority class
+        {"sample_augmentation": {
+            "transformers": [Rotate_Translate(p_range=2, y_factor=3)],
+            "balance": "y",           # Balance by target
+            "ref_percentage": 1.0,    # Match 100% of majority class
+            "selection": "random",
+            "random_state": 42,
+        }},
+    
+        "fold_chart",
+        split_step,
+        {"model": RandomForestClassifier(n_estimators=5, random_state=42)},
+    ],
     dataset="sample_data/classification",
     name="BalancedAug",
     verbose=1,
@@ -249,19 +246,18 @@ Control augmentation intensity with:
 """)
 
 # Option 1: Fixed target size
-pipeline_fixed = [
-    {"sample_augmentation": {
-        "transformers": [Rotate_Translate],
-        "balance": "y",
-        "target_size": 30,  # Each class gets exactly 30 samples
-        "random_state": 42,
-    }},
-    split_step,
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_fixed = nirs4all.run(
-    pipeline=pipeline_fixed,
+    pipeline=[
+        {"sample_augmentation": {
+            "transformers": [Rotate_Translate],
+            "balance": "y",
+            "target_size": 30,  # Each class gets exactly 30 samples
+            "random_state": 42,
+        }},
+        split_step,
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset="sample_data/classification",
     name="FixedSize",
     verbose=0
@@ -270,19 +266,18 @@ accuracy_fixed = result_fixed.best_accuracy if hasattr(result_fixed, 'best_accur
 print(f"   target_size=30 → Result: Accuracy = {100*accuracy_fixed:.1f}%" if not np.isnan(accuracy_fixed) else "   target_size=30 → Result: (see detailed metrics)")
 
 # Option 2: Max factor
-pipeline_maxfactor = [
-    {"sample_augmentation": {
-        "transformers": [Rotate_Translate],
-        "balance": "y",
-        "max_factor": 2.0,  # Max 2x augmentation
-        "random_state": 42,
-    }},
-    split_step,
-    {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
-]
 
 result_maxfactor = nirs4all.run(
-    pipeline=pipeline_maxfactor,
+    pipeline=[
+        {"sample_augmentation": {
+            "transformers": [Rotate_Translate],
+            "balance": "y",
+            "max_factor": 2.0,  # Max 2x augmentation
+            "random_state": 42,
+        }},
+        split_step,
+        {"model": RandomForestClassifier(n_estimators=50, random_state=42)},
+    ],
     dataset="sample_data/classification",
     name="MaxFactor",
     verbose=0
@@ -303,28 +298,27 @@ For regression, use bins to create pseudo-classes for balancing.
   binning_strategy - 'equal_width' or 'quantile'
 """)
 
-pipeline_regression_balanced = [
-    "fold_chart",
-
-    {"sample_augmentation": {
-        "transformers": [
-            Rotate_Translate(p_range=2, y_factor=3),
-            GaussianAdditiveNoise(sigma=0.01),
-        ],
-        "balance": "y",
-        "bins": 5,                    # Create 5 bins from Y values
-        "binning_strategy": "quantile",  # Equal population bins
-        "ref_percentage": 0.8,        # Target 80% of largest bin
-        "random_state": 42,
-    }},
-
-    "fold_chart",
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_reg_balanced = nirs4all.run(
-    pipeline=pipeline_regression_balanced,
+    pipeline=[
+        "fold_chart",
+    
+        {"sample_augmentation": {
+            "transformers": [
+                Rotate_Translate(p_range=2, y_factor=3),
+                GaussianAdditiveNoise(sigma=0.01),
+            ],
+            "balance": "y",
+            "bins": 5,                    # Create 5 bins from Y values
+            "binning_strategy": "quantile",  # Equal population bins
+            "ref_percentage": 0.8,        # Target 80% of largest bin
+            "random_state": 42,
+        }},
+    
+        "fold_chart",
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="RegBalanced",
     verbose=1,
@@ -341,39 +335,38 @@ print("\n" + "-" * 60)
 print("Section 7: Comprehensive Augmentation Pipeline")
 print("-" * 60)
 
-pipeline_comprehensive = [
-    {"sample_augmentation": {
-        "transformers": [
-            # Geometric transforms
-            Rotate_Translate(p_range=2, y_factor=3),
-            WavelengthShift(),
-            SmoothMagnitudeWarp(),
-
-            # Noise
-            GaussianAdditiveNoise(sigma=0.005),
-            MultiplicativeNoise(sigma_gain=0.02),
-
-            # Baseline
-            LinearBaselineDrift(),
-
-            # Spline
-            Spline_Y_Perturbations(perturbation_intensity=0.003),
-
-            # Mixing
-            MixupAugmenter(),
-        ],
-        "count": 4,
-        "selection": "random",
-        "random_state": 42,
-    }},
-
-    "augment_chart",
-    ShuffleSplit(n_splits=2, random_state=42),
-    {"model": PLSRegression(n_components=10)},
-]
 
 result_comprehensive = nirs4all.run(
-    pipeline=pipeline_comprehensive,
+    pipeline=[
+        {"sample_augmentation": {
+            "transformers": [
+                # Geometric transforms
+                Rotate_Translate(p_range=2, y_factor=3),
+                WavelengthShift(),
+                SmoothMagnitudeWarp(),
+    
+                # Noise
+                GaussianAdditiveNoise(sigma=0.005),
+                MultiplicativeNoise(sigma_gain=0.02),
+    
+                # Baseline
+                LinearBaselineDrift(),
+    
+                # Spline
+                Spline_Y_Perturbations(perturbation_intensity=0.003),
+    
+                # Mixing
+                MixupAugmenter(),
+            ],
+            "count": 4,
+            "selection": "random",
+            "random_state": 42,
+        }},
+    
+        "augment_chart",
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ],
     dataset="sample_data/regression",
     name="Comprehensive",
     verbose=1,

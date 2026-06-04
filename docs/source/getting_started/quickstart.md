@@ -124,16 +124,15 @@ dataset = nirs4all.generate.regression(
 )
 
 # Define pipeline
-pipeline = [
-    MinMaxScaler(),                              # Scale features
-    {"y_processing": MinMaxScaler()},            # Scale targets
-    ShuffleSplit(n_splits=3, test_size=0.25),    # Cross-validation
-    {"model": PLSRegression(n_components=10)}    # Model
-]
 
 # Run pipeline
 result = nirs4all.run(
-    pipeline=pipeline,
+    pipeline=[
+        MinMaxScaler(),                              # Scale features
+        {"y_processing": MinMaxScaler()},            # Scale targets
+        ShuffleSplit(n_splits=3, test_size=0.25),    # Cross-validation
+        {"model": PLSRegression(n_components=10)}    # Model
+    ],
     dataset=dataset,
     name="MyFirstPipeline",
     verbose=1

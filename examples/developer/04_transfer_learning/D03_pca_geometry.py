@@ -74,7 +74,7 @@ print("-" * 60)
 print("""
 PreprocPCAEvaluator compares preprocessing effects:
 
-    from nirs4all.operators.analysis import PreprocPCAEvaluator
+    from nirs4all.visualization.analysis import PreprocPCAEvaluator
 
     evaluator = PreprocPCAEvaluator(
         preprocessings=[SNV(), MSC(), FirstDerivative()],
@@ -85,7 +85,7 @@ PreprocPCAEvaluator compares preprocessing effects:
 """)
 
 try:
-    from nirs4all.operators.analysis import PreprocPCAEvaluator
+    from nirs4all.visualization.analysis import PreprocPCAEvaluator
 
     evaluator = PreprocPCAEvaluator(
         n_components=10

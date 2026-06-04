@@ -188,7 +188,6 @@ tests/
 import pytest
 from nirs4all.my_module import MyClass
 
-
 class TestMyClass:
     """Test suite for MyClass."""
 
@@ -216,18 +215,15 @@ class TestMyClass:
 import pytest
 import numpy as np
 
-
 @pytest.fixture
 def sample_spectra():
     """Create sample spectral data."""
     return np.random.randn(100, 500)
 
-
 @pytest.fixture
 def sample_targets():
     """Create sample target values."""
     return np.random.randn(100)
-
 
 def test_with_fixtures(sample_spectra, sample_targets):
     """Test using fixtures."""
@@ -241,7 +237,6 @@ def test_with_fixtures(sample_spectra, sample_targets):
 import pytest
 from nirs4all.utils.backend import TF_AVAILABLE, TORCH_AVAILABLE
 
-
 @pytest.mark.tensorflow
 @pytest.mark.skipif(not TF_AVAILABLE, reason="TensorFlow not installed")
 def test_tensorflow_model():
@@ -249,7 +244,6 @@ def test_tensorflow_model():
     from nirs4all.operators.models.tensorflow.nicon import nicon
     model = nicon((100,))
     assert model is not None
-
 
 @pytest.mark.torch
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch not installed")
@@ -268,16 +262,14 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import ShuffleSplit
 import nirs4all
 
-
 def test_basic_pipeline():
     """Test basic pipeline execution."""
-    pipeline = [
-        ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
-        PLSRegression(n_components=5),
-    ]
 
     result = nirs4all.run(
-        pipeline=pipeline,
+        pipeline=[
+            ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
+            PLSRegression(n_components=5),
+        ],
         dataset="sample_data/regression",
         verbose=0
     )
@@ -291,7 +283,6 @@ def test_basic_pipeline():
 ```python
 import pytest
 
-
 @pytest.mark.parametrize("n_components", [1, 5, 10, 20])
 def test_pls_components(n_components):
     """Test PLS with various component counts."""
@@ -299,7 +290,6 @@ def test_pls_components(n_components):
 
     model = PLSRegression(n_components=n_components)
     assert model.n_components == n_components
-
 
 @pytest.mark.parametrize("transform,expected", [
     ("SNV", "StandardNormalVariate"),
