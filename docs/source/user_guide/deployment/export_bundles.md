@@ -370,8 +370,8 @@ result = nirs4all.retrain("exports/wheat_model.n4a", new_data, mode="transfer")
 - {doc}`/getting_started/index` - Quick start guide
 
 **Example files:**
-- `examples/user/06_deployment/U22_export_bundle.py` - Complete export examples
-- `examples/user/06_deployment/U21_save_load_predict.py` - Basic prediction workflows
+- `examples/user/06_deployment/U02_export_bundle.py` - Complete export examples
+- `examples/user/06_deployment/U01_save_load_predict.py` - Basic prediction workflows
 
 ```{seealso}
 **Related Examples:**
