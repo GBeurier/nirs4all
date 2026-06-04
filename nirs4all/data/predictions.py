@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 from uuid import uuid4
 
 import numpy as np
@@ -1089,11 +1089,99 @@ class Predictions:
         Returns:
             ``PredictionResultsList`` or grouped dict.
         """
-        # Resolve by_repetition=True from dataset context
-        effective_by_repetition = by_repetition
-        effective_repetition_method = repetition_method
-        effective_repetition_exclude_outliers = repetition_exclude_outliers
+        # Phase 1: resolve repetition options from caller args + dataset context.
+        effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers = self._resolve_repetition_options(
+            by_repetition, repetition_method, repetition_exclude_outliers
+        )
 
+        # Phase 2: strip non-filter kwargs and normalise the score_scope alias.
+        self._strip_non_filter_kwargs(filters)
+        _scope_aliases = {"auto": "all", "mix": "all", "final": "refit", "cv": "folds"}
+        effective_scope = _scope_aliases.get(score_scope, score_scope)
+
+        # Phase 3: filter the in-memory buffer into matching candidate copies.
+        candidates = self._collect_candidates(filters, effective_scope, rank_partition, task_type)
+
+        # Phase 4: deduplicate refit (final) entries by model identity.
+        candidates = self._dedupe_final_candidates(candidates, display_partition)
+
+        if not candidates:
+            if return_grouped:
+                return {}
+            return PredictionResultsList([])
+
+        # Phase 5: warn on mixed task types and resolve the effective metric.
+        self._warn_on_mixed_task_types(candidates, task_type, rank_metric)
+        effective_metric = self._resolve_effective_metric(candidates, rank_metric)
+
+        # Determine sort direction
+        if ascending is None:
+            ascending = _infer_ascending(effective_metric)
+
+        # Phase 6: compute rank scores, drop invalid ones, sort by score.
+        candidates = self._rank_candidates(
+            candidates,
+            effective_metric,
+            rank_partition,
+            ascending,
+            effective_by_repetition,
+            effective_repetition_method,
+            effective_repetition_exclude_outliers,
+        )
+
+        # Phase 7: apply group-by (top N per group) or plain top-N truncation.
+        effective_group_by: list[str] | None = None
+        if group_by is not None:
+            effective_group_by = [group_by] if isinstance(group_by, str) else list(group_by)
+        candidates = self._select_top_n(candidates, n, effective_group_by)
+
+        # Phase 8: enrich the selected candidates into PredictionResult objects.
+        by_rep_enrich = effective_by_repetition if isinstance(effective_by_repetition, str) else None
+        enriched_results = [
+            PredictionResult(
+                self._enrich_result(
+                    r,
+                    display_metrics,
+                    display_partition,
+                    aggregate_partitions,
+                    by_rep_enrich,
+                    effective_repetition_method,
+                    effective_repetition_exclude_outliers,
+                )
+            )
+            for r in candidates
+        ]
+
+        # Phase 9: re-sort by display metric so displayed values are ordered.
+        self._resort_by_display_metric(enriched_results, display_metrics, effective_metric, ascending)
+
+        # Phase 10: return grouped dict or flat results list.
+        if return_grouped and effective_group_by:
+            grouped_out: dict[tuple[Any, ...], PredictionResultsList] = {}
+            for res in enriched_results:
+                group_key: tuple[Any, ...] | None = res.get("group_key")
+                if group_key is not None:
+                    if group_key not in grouped_out:
+                        grouped_out[group_key] = PredictionResultsList([])
+                    grouped_out[group_key].append(res)
+            return grouped_out
+
+        return PredictionResultsList(enriched_results)  # type: ignore[arg-type]
+
+    def _resolve_repetition_options(
+        self,
+        by_repetition: bool | str | None,
+        repetition_method: str | None,
+        repetition_exclude_outliers: bool,
+    ) -> tuple[bool | str | None, str | None, bool]:
+        """Resolve ``by_repetition=True`` against the dataset context.
+
+        Returns the effective ``(by_repetition, repetition_method,
+        repetition_exclude_outliers)`` triple.  ``by_repetition=True`` resolves
+        to the dataset's repetition column, or to ``None`` (with a warning) when
+        no column is available.  The other two are passed through unchanged.
+        """
+        effective_by_repetition: bool | str | None = by_repetition
         if effective_by_repetition is True:
             if self._dataset_repetition is None:
                 warnings.warn(
@@ -1101,12 +1189,16 @@ class Predictions:
                     "Use set_repetition_column() or pass an explicit column name. "
                     "Skipping aggregation.",
                     UserWarning,
-                    stacklevel=2,
+                    stacklevel=3,  # +1 frame: warning emitted from this helper, attribute to top()'s caller
                 )
                 effective_by_repetition = None
             else:
                 effective_by_repetition = self._dataset_repetition
-        # Strip non-filter kwargs that callers may pass
+        return effective_by_repetition, repetition_method, repetition_exclude_outliers
+
+    @staticmethod
+    def _strip_non_filter_kwargs(filters: dict[str, Any]) -> None:
+        """Remove known non-filter kwargs from ``filters`` in place."""
         _ = filters.pop("partition", None)
         _ = filters.pop("load_arrays", None)
         _ = filters.pop("higher_is_better", None)
@@ -1120,10 +1212,19 @@ class Predictions:
         _ = filters.pop("aggregate_method", None)
         _ = filters.pop("aggregate_exclude_outliers", None)
 
-        # Normalise score_scope aliases
-        _scope_aliases = {"auto": "all", "mix": "all", "final": "refit", "cv": "folds"}
-        effective_scope = _scope_aliases.get(score_scope, score_scope)
+    def _collect_candidates(
+        self,
+        filters: dict[str, Any],
+        effective_scope: str,
+        rank_partition: str,
+        task_type: str | None,
+    ) -> list[dict[str, Any]]:
+        """Filter the in-memory buffer into matching candidate copies.
 
+        Each surviving buffer row is shallow-copied and tagged with
+        ``is_final``.  Filtering covers ``_agg`` twins, score_scope,
+        rank_partition, task_type, and the custom ``filters`` dict.
+        """
         # Filter the in-memory buffer first, then copy only matching entries.
         # This avoids creating ~N shallow dict copies when only a fraction
         # of the buffer matches the filters.
@@ -1161,9 +1262,21 @@ class Predictions:
             c = dict(r)
             c["is_final"] = is_final
             candidates.append(c)
+        return candidates
 
-        # Deduplicate final entries: finals store separate train/test records;
-        # keep one per model identity, preferring display_partition.
+    @staticmethod
+    def _dedupe_final_candidates(
+        candidates: list[dict[str, Any]],
+        display_partition: str,
+    ) -> list[dict[str, Any]]:
+        """Deduplicate refit (final) entries by model identity.
+
+        Finals store separate train/test records; keep one per
+        ``(model_name, pipeline_id, preprocessings)`` identity, preferring the
+        one whose partition matches ``display_partition``.  Non-final
+        candidates pass through unchanged.  Returns ``deduped_finals +
+        non_final_candidates`` (finals first), preserving the original order.
+        """
         final_groups: dict[tuple, list[dict[str, Any]]] = {}
         non_final_candidates: list[dict[str, Any]] = []
         for c in candidates:
@@ -1179,14 +1292,19 @@ class Predictions:
                 entries[0],
             )
             deduped_finals.append(preferred)
-        candidates = deduped_finals + non_final_candidates
+        return deduped_finals + non_final_candidates
 
-        if not candidates:
-            if return_grouped:
-                return {}
-            return PredictionResultsList([])
+    @staticmethod
+    def _warn_on_mixed_task_types(
+        candidates: list[dict[str, Any]],
+        task_type: str | None,
+        rank_metric: str,
+    ) -> None:
+        """Warn when candidates mix classification and regression task types.
 
-        # Warn on mixed task types when no explicit task_type or rank_metric
+        Only fires when neither ``task_type`` nor ``rank_metric`` was given,
+        so the implicit metric default would otherwise compare across tasks.
+        """
         if task_type is None and not rank_metric:
             task_types_in_candidates = {c.get("task_type") for c in candidates} - {None}
             has_clf = any("classification" in str(t) for t in task_types_in_candidates)
@@ -1196,36 +1314,57 @@ class Predictions:
                     f"Mixed task types found ({task_types_in_candidates}). "
                     "Specify task_type or rank_metric to avoid cross-task comparison.",
                     UserWarning,
-                    stacklevel=2,
+                    stacklevel=3,  # +1 frame: warning emitted from this helper, attribute to top()'s caller
                 )
 
-        # Resolve effective metric — task-type-aware default
+    @staticmethod
+    def _resolve_effective_metric(
+        candidates: list[dict[str, Any]],
+        rank_metric: str,
+    ) -> str:
+        """Resolve the ranking metric, task-type-aware when not explicit.
+
+        Uses ``rank_metric`` verbatim when provided.  Otherwise defaults to
+        ``balanced_accuracy`` for a classification first candidate, else the
+        first candidate's stored ``metric`` (falling back to ``rmse``).
+        ``candidates`` must be non-empty.
+        """
         if rank_metric:
-            effective_metric = rank_metric
-        else:
-            first_task = str(candidates[0].get("task_type", "regression"))
-            if "classification" in first_task:
-                effective_metric = "balanced_accuracy"
-            else:
-                effective_metric = candidates[0].get("metric", "rmse")
+            return rank_metric
+        first_task = str(candidates[0].get("task_type", "regression"))
+        if "classification" in first_task:
+            return "balanced_accuracy"
+        return cast(str, candidates[0].get("metric", "rmse"))
 
-        # Determine sort direction
-        if ascending is None:
-            ascending = _infer_ascending(effective_metric)
+    def _rank_candidates(
+        self,
+        candidates: list[dict[str, Any]],
+        effective_metric: str,
+        rank_partition: str,
+        ascending: bool,
+        effective_by_repetition: bool | str | None,
+        effective_repetition_method: str | None,
+        effective_repetition_exclude_outliers: bool,
+    ) -> list[dict[str, Any]]:
+        """Compute ``rank_score`` per candidate, drop invalid, sort by score.
 
-        # Compute rank_score for each candidate
+        Finals score on their own partition (falling back to
+        ``selection_score``); non-finals score on ``rank_partition``.
+        Candidates with ``None``/``NaN`` scores are dropped, then the survivors
+        are sorted by ``rank_score`` (descending when ``not ascending``).
+        Returns the filtered, sorted list.
+        """
         partition_key = f"{rank_partition}_score" if rank_partition in ("val", "test", "train") else "val_score"
+        by_rep_str = effective_by_repetition if isinstance(effective_by_repetition, str) else None
         for r in candidates:
             if r["is_final"]:
                 # For finals, compute from arrays using the entry's own partition
                 # so ranking matches displayed values. Fall back to selection_score.
                 entry_part = r.get("partition", "test")
                 entry_part_key = f"{entry_part}_score" if entry_part in ("val", "test", "train") else "test_score"
-                by_rep_str = effective_by_repetition if isinstance(effective_by_repetition, str) else None
                 score = self._get_rank_score(r, effective_metric, entry_part, entry_part_key, by_rep_str, effective_repetition_method, effective_repetition_exclude_outliers)
                 r["rank_score"] = score if score is not None else r.get("selection_score")
             else:
-                by_rep_str = effective_by_repetition if isinstance(effective_by_repetition, str) else None
                 score = self._get_rank_score(r, effective_metric, rank_partition, partition_key, by_rep_str, effective_repetition_method, effective_repetition_exclude_outliers)
                 r["rank_score"] = score
 
@@ -1242,12 +1381,20 @@ class Predictions:
 
         # Sort by rank_score (uniform sort for all scopes)
         candidates.sort(key=lambda r: r["rank_score"], reverse=not ascending)
+        return candidates
 
-        effective_group_by: list[str] | None = None
-        if group_by is not None:
-            effective_group_by = [group_by] if isinstance(group_by, str) else list(group_by)
+    @staticmethod
+    def _select_top_n(
+        candidates: list[dict[str, Any]],
+        n: int,
+        effective_group_by: list[str] | None,
+    ) -> list[dict[str, Any]]:
+        """Truncate to top *n* overall, or top *n* per group when grouping.
 
-        # Apply group-by filtering (top N per group)
+        When ``effective_group_by`` is set, keeps the first ``n`` candidates per
+        group key (tagging each kept row with ``group_key``); the input order
+        (already rank-sorted) is preserved.  Otherwise returns ``candidates[:n]``.
+        """
         if effective_group_by:
             group_counts: dict[tuple, int] = {}
             filtered_candidates: list[dict[str, Any]] = []
@@ -1258,30 +1405,23 @@ class Predictions:
                     r["group_key"] = gk
                     filtered_candidates.append(r)
                     group_counts[gk] = cnt + 1
-            candidates = filtered_candidates
-        else:
-            candidates = candidates[:n]
+            return filtered_candidates
+        return candidates[:n]
 
-        # Enrich results
-        by_rep_enrich = effective_by_repetition if isinstance(effective_by_repetition, str) else None
-        enriched_results = [
-            PredictionResult(
-                self._enrich_result(
-                    r,
-                    display_metrics,
-                    display_partition,
-                    aggregate_partitions,
-                    by_rep_enrich,
-                    effective_repetition_method,
-                    effective_repetition_exclude_outliers,
-                )
-            )
-            for r in candidates
-        ]
+    @staticmethod
+    def _resort_by_display_metric(
+        enriched_results: list[PredictionResult],
+        display_metrics: list[str] | None,
+        effective_metric: str,
+        ascending: bool,
+    ) -> None:
+        """Re-sort enriched results by the displayed metric value, in place.
 
-        # Re-sort by display metric when it was computed, so displayed
-        # values are in the expected order (rank_partition and
-        # display_partition may differ, causing order mismatches).
+        Only runs when the ranking metric was among the computed
+        ``display_metrics`` (rank_partition and display_partition may differ,
+        causing order mismatches).  Missing/non-numeric values sort to the end
+        via a direction-aware sentinel.
+        """
         if display_metrics and effective_metric in display_metrics:
             _sentinel = float("inf") if ascending else float("-inf")
 
@@ -1295,18 +1435,6 @@ class Predictions:
                     return _sentinel
 
             enriched_results.sort(key=_display_sort_key, reverse=not ascending)
-
-        if return_grouped and effective_group_by:
-            grouped_out: dict[tuple[Any, ...], PredictionResultsList] = {}
-            for res in enriched_results:
-                group_key: tuple[Any, ...] | None = res.get("group_key")
-                if group_key is not None:
-                    if group_key not in grouped_out:
-                        grouped_out[group_key] = PredictionResultsList([])
-                    grouped_out[group_key].append(res)
-            return grouped_out
-
-        return PredictionResultsList(enriched_results)  # type: ignore[arg-type]
 
     def _get_rank_score(
         self,
