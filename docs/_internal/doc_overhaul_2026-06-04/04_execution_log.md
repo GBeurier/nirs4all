@@ -106,10 +106,17 @@ Executed the defining structural fix (audit #6 → success metric "exactly one f
 
 Commit: `docs: collapse competing front doors into one canonical entry (P3)`.
 
+## P4 increment — reference de-duplication (DONE, build-validated)
+
+- **Deleted 356 stale `api/nirs4all.*.rst` stubs** (−3525 lines): a committed apidoc dump explicitly excluded from the build (`conf.py exclude_patterns`) and superseded by the gitignored, regenerated `_generated_api/`. Removed the dead exclude pattern too. Zero build impact.
+- **Merged the duplicate `api/storage.md` + `api/workspace.md` into their `reference/` twins** (#18): confirmed `reference/workspace.md` is a strict superset (has the "no nested runs/" principle + Common Workflows) and `reference/storage.md` is canonical (has PipelineLibrary, no "Version 5.0" defect); preserved the one unique bit (the SQLite tables schema) into `reference/storage.md`; deleted both api copies and dropped them from `api/modules.rst`. `api/` now holds only the unique `module_api` + `sklearn_integration` pages beside the generated autodoc — no more reference/ duplication.
+- Build clean (1 warning), gates green, no dangling links.
+
 ## Still remaining (large, next sessions)
-- **P3 rest:** the 13-lesson progressive Tutorial rail (authoring); a formal How-to estate label (user_guide already *is* the how-to layer); deeper concept dedup (data_workflow vs datasets).
-- **P4:** merge the 4 hand-written `api/*.md` into their `reference/` twins + dissolve the 357-stub tree to autosummary with `autodoc_mock_imports` (fixes the duplicate-object warning), then flip `-W`/`fail_on_warning` strict; doc-snippet `literalinclude` execution.
+- **P4:** the lone autodoc warning (`POPPLSRegressor` re-exported via two module paths → wants `:no-index:`); then flip `-W`/`fail_on_warning` strict after the nitpick burn-down; doc-snippet `literalinclude` execution; optional fold of `module_api`/`sklearn_integration` into curated reference pages.
+- **P3 rest:** the 13-lesson progressive Tutorial rail (authoring); deeper concept dedup (`data_workflow` vs `datasets`).
 
 ## Success-metric scorecard (proposal §11)
 - ✅ Exactly one front door · ✅ 0 stale versions (gate) · ✅ license correct (gate) · ✅ wrong-API copy-paste defects fixed · ✅ simple pipelines inline (advisory lint) · ✅ per-PR example execution + R04, notebook gone · ✅ example refs resolve (gate)
-- ⏳ One Reference home (api/ merge — P4) · ⏳ all doc snippets execute in CI (literalinclude — P4) · ⏳ nitpick strict (P4) · ⏳ mean health ≥4/5 (needs P3/P4 completion)
+- ✅ **One Reference home** — `api/` storage/workspace duplicates merged into `reference/`; 356 stale stubs gone (#18 resolved for the duplicated surface)
+- ⏳ all doc snippets execute in CI (literalinclude — P4) · ⏳ nitpick strict + the lone autodoc re-export warning (P4) · ⏳ mean health ≥4/5 (needs the Tutorial rail + remaining P4)
