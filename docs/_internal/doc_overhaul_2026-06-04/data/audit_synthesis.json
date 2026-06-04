@@ -1,0 +1,519 @@
+{
+  "executive_summary": "The nirs4all documentation and examples corpus is broad, well-organized, and pedagogically strong in its conceptual prose, but it is NOT publication-ready. Across 20 audited segments the mean health score is ~2.85/5, dragged down by three systemic failures that compound to mislead newcomers: (1) a near-universal style-mandate violation \u2014 18 of 20 segments contain the forbidden \"external pipeline variable\" anti-pattern, totaling on the order of 250+ individual code blocks, with the example suite the worst offender (e.g. 39/41 pipeline definitions in user/03+04, ~42 blocks in developer/01+02); (2) license/version drift in ~7 root/config/landing files where the very first thing a reader sees is wrong (license stated as CeCILL-2.1 instead of AGPL-3.0, version pinned at 0.2.1/0.7.1/0.8.6/0.9.0 instead of 0.9.1); and (3) a cluster of wrong-API and broken-reference defects that will throw ImportError/AttributeError if copy-pasted (result.predict(), nirs4all.load_dataset(), y_column=, bundle=, GaussianNoise/SpectrumShift/OutlierExclusion, SklearnWrapper, uninstantiated transform classes, two broken imports in developer transfer-learning examples).\n\nStructurally, the docs suffer from competing front doors \u2014 getting_started/, concepts/, and onboarding/ all teach the same foundational concepts with overlapping scope and no single \"start here\", a problem flagged independently by at least four readers and confirmed in the ground-truth card. The reference and concepts segments are technically accurate and content-complete; the failures are overwhelmingly mechanical (stale metadata, copy-paste style, dangling file references) rather than conceptual, which is good news: most defects are low-effort, high-reach fixes. The highest-leverage work is a single sweep to inline all pipelines, a one-commit metadata correction across root/config files, and a triage of the ~15 copy-paste-fatal API/ref errors. Until those land, a newcomer following the canonical on-ramp (index.md to getting_started to first example) hits a wrong license, a wrong version, a non-existent method, and an anti-pattern the docs elsewhere forbid \u2014 within the first ten minutes.",
+  "cross_cutting_themes": [
+    {
+      "theme": "External-pipeline-variable style mandate violated almost everywhere",
+      "severity": "high",
+      "segments_affected": [
+        "Landing+getting_started",
+        "concepts/",
+        "onboarding/",
+        "user_guide/pipelines",
+        "user_guide/data+troubleshooting",
+        "user_guide/preprocessing+augmentation",
+        "user_guide/models+visualization",
+        "reference/ (pipeline-centric)",
+        "reference/ (operators/storage)",
+        "developer+migration",
+        "docs examples/ pages",
+        "examples user/01+02",
+        "examples user/03+04",
+        "examples user/05+06+07",
+        "examples developer/01+02",
+        "examples developer/03-06",
+        "examples reference/+infra",
+        "README+root meta"
+      ],
+      "description": "GROUND_TRUTH \u00a7Canonical-form mandates pipelines be written INLINE in run(pipeline=[...], dataset=...) with NO external variable. 18 of 20 segments violate this. The example suite is the epicenter: user/03_preprocessing+04_models has 39/41 (95%) pipeline definitions as external variables; developer/01+02 has ~42 violating blocks; developer/03-06 has 13/15 files violating; user/05+06+07 every file violates; visualization/in_pipeline_charts + models/training alone account for 44 blocks. Only predictions/deployment and the build-config/RTD segments are clean. Total violating code blocks are conservatively 250+. This is a copy-paste-propagated template defect, not isolated lapses.",
+      "recommendation": "Run one mechanical sweep that rewrites every `pipeline = [...]` + `nirs4all.run(pipeline=pipeline, ...)` (and `runner.run(pipeline=var)`, `PipelineConfigs(var)`, `Session(pipeline=var)`) into inline `result = nirs4all.run(pipeline=[...], dataset=...)`. Carve an explicit, documented exception for synthesis/utility examples (developer/02_generators D05-D09) and the deliberate PipelineRunner/Session deep-dives, and state that exception in a CONTRIBUTING/style note so the pattern stops regenerating."
+    },
+    {
+      "theme": "License + version metadata drift in first-contact surfaces",
+      "severity": "critical",
+      "segments_affected": [
+        "Landing+getting_started",
+        "README+root meta",
+        "docs build config + RTD"
+      ],
+      "description": "The files a newcomer sees first carry wrong legal and version metadata. License stated as CeCILL-2.1/CECILL-2.1 instead of AGPL-3.0 in: docs/source/index.md:284, ai_onboarding.md:14, root CLAUDE.md:3 (4 files). Version pinned wrong in: index.md:277 citation (0.2.1), ai_onboarding.md:14 (0.8.6), README.md:411 citation (0.9.0), docs/source/conf.py:50 release (0.7.1), reference/pipeline_syntax.md footer (Dec 2025/Phase 3); plus conf.py:48 copyright stale at 2025. Ground truth fixes the value: 0.9.1 / AGPL-3.0 / 2026. A wrong license on the landing page is a legal/compliance issue, not cosmetic.",
+      "recommendation": "Single commit correcting all license strings to AGPL-3.0 and all versions to 0.9.1 across index.md, ai_onboarding.md, root CLAUDE.md, README.md, conf.py, and pipeline_syntax.md footer; bump conf.py copyright to 2026. Add a CI grep/version-sync check that fails on any 'CeCILL'/'CECILL' or version token != the value in nirs4all/__init__.py so the drift cannot recur."
+    },
+    {
+      "theme": "Competing front doors / concept duplication across layers",
+      "severity": "high",
+      "segments_affected": [
+        "Landing+getting_started",
+        "concepts/",
+        "onboarding/",
+        "developer+migration",
+        "docs examples/ pages"
+      ],
+      "description": "Pipeline/dataset/concept basics are taught redundantly in getting_started/index.md, getting_started/concepts.md, concepts/index.md+pipelines.md, onboarding/ (mental_models, pipeline_workflow), and ai_onboarding.md \u2014 with no canonical source and no single 'start here'. The landing toctree exposes 8 top-level paths (getting_started/, concepts/, onboarding/, developer/, user_guide/, reference/, examples/, ai_onboarding.md). developer/index.md overlaps onboarding/ (Controllers Intro, Pipeline/Data Workflow appear in both). Within developer/, architecture.md and pipeline_architecture.md duplicate orchestrator/executor/step-runner content. Confirmed independently by ground-truth card item #4.",
+      "recommendation": "Pick a single canonical entry path (recommend getting_started -> concepts -> user_guide; demote ai_onboarding.md and onboarding/ to clearly-labelled audience-specific tracks or merge into concepts/). Add an explicit 'Start here' banner on index.md, and make each overlapping page defer to the canonical one with a one-line pointer instead of re-teaching. Merge or sharply demarcate architecture.md vs pipeline_architecture.md."
+    },
+    {
+      "theme": "Copy-paste-fatal wrong-API references",
+      "severity": "critical",
+      "segments_affected": [
+        "Landing+getting_started",
+        "onboarding/",
+        "user_guide/data+troubleshooting",
+        "user_guide/models+visualization",
+        "user_guide/predictions+deployment",
+        "reference/ (operators/storage)",
+        "docs examples/ pages",
+        "examples user/05+06+07"
+      ],
+      "description": "Numerous documented API calls/symbols do not exist and will error at runtime: result.predict() on RunResult (index.md getting_started/index.md:192); nirs4all.load_dataset() documented as public (onboarding/persona_paths.md:83-87); y_column= instead of target_column= (faq.md:55,73); bundle= instead of model= in predict() (deployment/index.md:85); plot_predictions/plot_residuals/plot_calibration on PredictionAnalyzer (visualization/index.md:76-88); GaussianNoise/SpectrumShift/OutlierExclusion (in_pipeline_charts.md:260,304,351 \u2014 real: GaussianAdditiveNoise/WavelengthShift/XOutlierFilter); SklearnWrapper (examples/user/explainability.md:189 \u2014 real: NIRSPipeline); uninstantiated transform classes passed as types (examples/user/07_explainability/U01_shap_basics.py:81-86; U03_feature_selection.py:87,152); PredictionResultsList (predictions/index.md:126); run() signature missing refit/cache/project/report_naming (predictions_api.md:35-48); browse_folder from fictional module (developer/metadata.md:482).",
+      "recommendation": "Treat as a release blocker. Fix each against GROUND_TRUTH signatures. The uninstantiated-class bug in U01_shap_basics.py is a runtime crash in an example that doubles as a test \u2014 fix first. Add an example-as-test CI gate (examples already run in CI) that imports/executes the doc snippet sources where feasible."
+    },
+    {
+      "theme": "Broken references to example files/paths/sections",
+      "severity": "high",
+      "segments_affected": [
+        "onboarding/",
+        "user_guide/models+visualization",
+        "user_guide/predictions+deployment",
+        "docs examples/ pages",
+        "examples user/01+02",
+        "examples user/03+04",
+        "examples developer/01+02",
+        "examples developer/03-06",
+        "examples reference/+infra"
+      ],
+      "description": "Dangling cross-references that break navigation and doc builds: persona_paths.md references 5 nonexistent files (U01_minimal, U02_workspace, examples/developer/01_branching/, D04_stacking, U02_multi_source); U04_visualization.py:21 -> U05_flexible_inputs (real U01_flexible_inputs); deployment/export_bundles.md:373-374 -> U21/U22 (only U01-U04 exist); developer/04 examples have two CRITICAL broken imports (TransferPreprocessingSelector from operators.transfer; PreprocPCAEvaluator from operators.analysis \u2014 both wrong modules); dev D05_meta_stacking:441, D07_value_mapping:22, D04_nested_generators:19 point at wrong dirs; U04_signal_conversion:21 and U04_pls_variants:21,500 inconsistent cross-section refs; examples/reference R04 missing with no explanation; run.sh lists D04/D05 internals that README omits.",
+      "recommendation": "Sweep all :ref:/path references and validate against the on-disk tree (a simple script can do this since file names are canonical U##/D##/R##). Fix the two CRITICAL developer transfer-learning imports first (ImportError at runtime). Document why R04 is absent or renumber."
+    },
+    {
+      "theme": "Examples-as-tests: documentation/coverage gaps and non-executed examples",
+      "severity": "medium",
+      "segments_affected": [
+        "docs examples/ pages",
+        "examples user/03+04",
+        "examples developer/03-06",
+        "examples reference/+infra"
+      ],
+      "description": "Examples double as integration tests (GROUND_TRUTH \u00a7Examples), so doc/coverage skew is a test-coverage hole. docs/examples/user/models.md and cross_validation.md document only U01-U04 while U05/U06 exist (4 undocumented files); developer count claims (30) and reference count (67/66/72) are inconsistent and unverified. Two developer/05 files (D01_metadata_branching, D03_repetition_transform) define pipelines but never call run(), so they validate nothing. U05_orthogonalization (pure sklearn, no nirs4all.run) and U06_wavelet_denoise (run buried in functions) break the section's tutorial contract. example_utils.py emoji output ignores DISABLE_EMOJI set by run.sh.",
+      "recommendation": "Add the 4 missing U05/U06 doc sections; reconcile a single authoritative example count (derive it programmatically) and use it everywhere; add run() execution to the two non-executing developer/05 demos or relabel them as syntax-only; make example_utils respect DISABLE_EMOJI."
+    },
+    {
+      "theme": "RTD/build-config correctness and autodoc/orphan hygiene",
+      "severity": "high",
+      "segments_affected": [
+        "docs build config + RTD",
+        "Landing+getting_started",
+        "reference/ (pipeline-centric)"
+      ],
+      "description": "conf.py release is 0.7.1 (lib is 0.9.1) and copyright is 2025 (now 2026); these feed version-stamped builds and can fail version-consistency CI. 357 api/*.rst autodoc stubs are generated and conf.py de-dupes re-exports, so orphan risk is real if the public surface shifts. pipeline_syntax.md footer self-reports 'December 2025 / Phase 3' which contradicts 0.9.1. Build scripts themselves (Makefile, build_docs.sh, .readthedocs.yaml, requirements) are sound.",
+      "recommendation": "Source the Sphinx release/version directly from nirs4all.__version__ in conf.py rather than hardcoding; bump copyright; strip phase/date footers from reference pages. Add a docs build to CI with -W/--strict on at least the landing + reference trees to surface autodoc orphans."
+    },
+    {
+      "theme": "Internal-roadmap leakage and WIP-flavored prose in user-facing docs",
+      "severity": "low",
+      "segments_affected": [
+        "developer+migration",
+        "examples developer/01+02",
+        "user_guide/data+troubleshooting"
+      ],
+      "description": "Phase markers and internal planning bleed into published material: developer/caching.md and synthetic.md read as 'Phase 1/2/3' implementation notes; example files D07/D08/D09 carry inline 'Phase 1/2 Feature' roadmap comments; artifacts_internals.md shows a topological_sort() that does not match the real DependencyGraph; data/index.md retains a stale 'Coming Soon' for already-written content; Roadmap.md is an informal brain-dump exposed publicly.",
+      "recommendation": "Move Phase/roadmap content to docs/_internal or a ROADMAP.md, rewrite caching.md/synthetic.md with a problem-statement-first user narrative, reconcile artifacts_internals.md code with artifact_registry.py, and delete the stale 'Coming Soon'."
+    }
+  ],
+  "prioritized_register": [
+    {
+      "rank": 1,
+      "severity": "critical",
+      "title": "License stated as CeCILL-2.1 instead of AGPL-3.0 on first-contact pages",
+      "where": "docs/source/index.md:284; docs/source/ai_onboarding.md:14; /home/delete/nirs4all/nirs4all/CLAUDE.md:3 (root)",
+      "why": "A wrong license on the landing page and onboarding files is a legal/compliance defect and the first thing a newcomer reads. Reported by 3 readers; confirmed by GROUND_TRUTH item #2.",
+      "fix": "Replace every 'CeCILL-2.1'/'CECILL-2.1' with 'AGPL-3.0' (root CLAUDE.md: 'AGPL-3.0-or-later'). Add a CI grep gate failing on any CeCILL token."
+    },
+    {
+      "rank": 2,
+      "severity": "critical",
+      "title": "Stale library version (0.2.1 / 0.7.1 / 0.8.6 / 0.9.0) across landing, citations, and Sphinx config",
+      "where": "docs/source/index.md:277 (0.2.1); docs/source/conf.py:50 (release 0.7.1); docs/source/ai_onboarding.md:14 (0.8.6); README.md:411 (0.9.0)",
+      "why": "Misdirects citation/downloads and can fail version-consistency CI; conf.py value stamps every built page. Real version is 0.9.1 (GROUND_TRUTH item #1, init.py:45).",
+      "fix": "Set all to 0.9.1; source conf.py release from nirs4all.__version__. Also bump conf.py:48 copyright 2025->2026 and remove the 'December 2025/Phase 3' footer in reference/pipeline_syntax.md."
+    },
+    {
+      "rank": 3,
+      "severity": "critical",
+      "title": "Uninstantiated transform classes passed into pipeline (runtime crash in a test-example)",
+      "where": "examples/user/07_explainability/U01_shap_basics.py:81-86; examples/user/07_explainability/U03_feature_selection.py:87,152",
+      "why": "MinMaxScaler/Gaussian/SavitzkyGolay/StandardNormalVariate/FirstDerivative passed as bare classes (no ()) will error; this file doubles as an integration test, so CI/example coverage is compromised.",
+      "fix": "Instantiate each: MinMaxScaler(), Gaussian(), SavitzkyGolay(), StandardNormalVariate(), FirstDerivative(). Then inline the pipeline into run()."
+    },
+    {
+      "rank": 4,
+      "severity": "critical",
+      "title": "Two broken imports in developer transfer-learning examples (ImportError)",
+      "where": "examples/developer/04_transfer_learning/D01_transfer_analysis.py:131 (operators.transfer); examples/developer/04_transfer_learning/D03_pca_geometry.py:88 (operators.analysis)",
+      "why": "Both modules do not exist; examples are integration tests so these fail at import time. Real homes: nirs4all.analysis.TransferPreprocessingSelector and nirs4all.visualization.analysis.PreprocPCAEvaluator.",
+      "fix": "Change imports to `from nirs4all.analysis import TransferPreprocessingSelector` and `from nirs4all.visualization.analysis import PreprocPCAEvaluator`."
+    },
+    {
+      "rank": 5,
+      "severity": "critical",
+      "title": "nirs4all.predict() documented with wrong parameter name bundle= instead of model=",
+      "where": "docs/source/user_guide/deployment/index.md:85",
+      "why": "Verified signature is predict(model=..., data=...); bundle= raises TypeError on the primary deployment workflow newcomers copy.",
+      "fix": "Change bundle=\"exports/best_model.n4a\" to model=\"exports/best_model.n4a\"."
+    },
+    {
+      "rank": 6,
+      "severity": "critical",
+      "title": "result.predict() shown on RunResult, which has no such method",
+      "where": "docs/source/getting_started/index.md:192",
+      "why": "RunResult has no predict(); correct path is nirs4all.predict(model=..., data=...). Appears on the core getting-started on-ramp, guaranteeing an early failure.",
+      "fix": "Replace with predictions = nirs4all.predict(model=\"exports/best_model.n4a\", data=X_new); y_pred = predictions.y_pred."
+    },
+    {
+      "rank": 7,
+      "severity": "high",
+      "title": "External pipeline variable anti-pattern pervasive across 18/20 segments (~250+ code blocks)",
+      "where": "All segments except user_guide/predictions+deployment and docs build-config/RTD. Worst: examples/user/03_preprocessing+04_models (39/41 blocks); examples/developer/01+02 (~42 blocks); user_guide/models+visualization (44 blocks: training.md 20, in_pipeline_charts.md 11, hyperparameter_tuning.md 5, deep_learning.md 4, models/index.md 4); reference/* (61 in pipeline-centric + 5 operator files); concepts/* (11); onboarding/* (6)",
+      "why": "Direct, repeated violation of the GROUND_TRUTH canonical-form mandate; teaches users the forbidden pattern at scale and is the single largest reach defect in the corpus.",
+      "fix": "Mechanical sweep converting `pipeline = [...]` + run(pipeline=pipeline,...) to inline run(pipeline=[...],...). Document the synthesis/PipelineRunner/Session exceptions in a style note to stop regeneration."
+    },
+    {
+      "rank": 8,
+      "severity": "high",
+      "title": "nirs4all.load_dataset() documented as a public API (does not exist)",
+      "where": "docs/source/onboarding/persona_paths.md:83-87",
+      "why": "Confirmed non-existent in GROUND_TRUTH item #3; teaches a function that will raise AttributeError.",
+      "fix": "Remove the block or replace with the supported path-string/DatasetConfigs form."
+    },
+    {
+      "rank": 9,
+      "severity": "high",
+      "title": "Five broken example-file references in persona_paths",
+      "where": "docs/source/onboarding/persona_paths.md:66,65,209,465,505",
+      "why": "U01_minimal->U01_hello_world, U02_workspace->U02_basic_regression, 01_branching/->01_advanced_pipelines/, D04_stacking->D05_meta_stacking, U02_multi_source->U02_multi_datasets. Sends new users to files that do not exist (GROUND_TRUTH item #3).",
+      "fix": "Correct each path to the verified on-disk filename."
+    },
+    {
+      "rank": 10,
+      "severity": "high",
+      "title": "PredictionAnalyzer methods plot_predictions/plot_residuals/plot_calibration do not exist",
+      "where": "docs/source/user_guide/visualization/index.md:76-88",
+      "why": "Real methods are plot_top_k/plot_confusion_matrix/plot_histogram/plot_candlestick/plot_heatmap (per prediction_charts.md). The visualization landing 'Available Charts' table lists 4 nonexistent charts, contradicting its own reference page.",
+      "fix": "Replace the quick-start calls and the Available Charts table with the 5 real methods; show a complete runnable example."
+    },
+    {
+      "rank": 11,
+      "severity": "high",
+      "title": "Augmentation/transform/filter class names that do not exist (import errors)",
+      "where": "docs/source/user_guide/visualization/in_pipeline_charts.md:260 (GaussianNoise),304 (SpectrumShift),351 (OutlierExclusion)",
+      "why": "Real classes are GaussianAdditiveNoise, WavelengthShift, XOutlierFilter; imports fail as written.",
+      "fix": "Rename to the actual exported classes."
+    },
+    {
+      "rank": 12,
+      "severity": "high",
+      "title": "FAQ uses non-existent DatasetConfigs parameter y_column instead of target_column",
+      "where": "docs/source/user_guide/troubleshooting/faq.md:55,73",
+      "why": "DatasetConfigs has no y_column; the FAQ is exactly where users go when stuck, so a wrong param compounds confusion.",
+      "fix": "Replace y_column= with target_column= in both snippets."
+    },
+    {
+      "rank": 13,
+      "severity": "high",
+      "title": "SklearnWrapper referenced in examples docs but class is NIRSPipeline",
+      "where": "docs/source/examples/user/explainability.md:189,192",
+      "why": "nirs4all.sklearn exposes NIRSPipeline, not SklearnWrapper; example will not import.",
+      "fix": "Replace SklearnWrapper(...) with NIRSPipeline.from_bundle(...) / correct wrapper usage."
+    },
+    {
+      "rank": 14,
+      "severity": "high",
+      "title": "synthetic_nirs_generator import path uses examples.synthetic instead of nirs4all.synthesis",
+      "where": "docs/source/user_guide/augmentation/synthetic_nirs_generator.md:405",
+      "why": "SyntheticNIRSGenerator lives in nirs4all.synthesis; the documented import fails.",
+      "fix": "Change to `from nirs4all.synthesis import SyntheticNIRSGenerator`."
+    },
+    {
+      "rank": 15,
+      "severity": "high",
+      "title": "Competing front doors with no single canonical entry path",
+      "where": "docs/source/index.md toctree (8 paths); overlap among getting_started/index.md, getting_started/concepts.md, concepts/index.md, onboarding/*, ai_onboarding.md; developer/index.md overlaps onboarding/",
+      "why": "No 'start here'; foundational concepts taught 3-4 times with no canonical source. Flagged by 4 readers and GROUND_TRUTH item #4. Directly harms newcomer orientation.",
+      "fix": "Choose getting_started -> concepts -> user_guide as canonical; add a 'Start here' banner; make overlapping pages defer with one-line pointers; demote/merge ai_onboarding.md and onboarding/."
+    },
+    {
+      "rank": 16,
+      "severity": "high",
+      "title": "Broken refs to nonexistent example bundles U21/U22",
+      "where": "docs/source/user_guide/deployment/export_bundles.md:373-374",
+      "why": "Only U01-U04 exist in 06_deployment; the seealso points users to missing files.",
+      "fix": "Repoint to U01_save_load_predict.py / U02_export_bundle.py."
+    },
+    {
+      "rank": 17,
+      "severity": "high",
+      "title": "Example-count claims inconsistent and unverified (50+/60+/66/67/72/30)",
+      "where": "docs/source/index.md:131 (50+); getting_started/quickstart.md:178 (60+); examples docs index.md:3 (67) and :338 (30 developer); README/examples README; actual on-disk ~72",
+      "why": "Conflicting counts undermine trust and signal staleness across the most-visited pages.",
+      "fix": "Derive the count programmatically and use one authoritative number everywhere."
+    },
+    {
+      "rank": 18,
+      "severity": "high",
+      "title": "Undocumented example files break 'complete coverage' contract (U05/U06 missing from models & CV docs)",
+      "where": "docs/source/examples/user/models.md:10-17 (U05,U06); docs/source/examples/user/cross_validation.md:10-17 (U05,U06)",
+      "why": "Four existing, CI-tested example files are absent from their doc pages, leaving real features undocumented.",
+      "fix": "Add overview rows / sections for U05_advanced_finetuning, U06_tabpfn_nirs, U05_tagging_analysis, U06_exclusion_strategies."
+    },
+    {
+      "rank": 19,
+      "severity": "high",
+      "title": "Two developer/05 examples define pipelines but never execute run() (validate nothing)",
+      "where": "examples/developer/05_advanced_features/D01_metadata_branching.py; examples/developer/05_advanced_features/D03_repetition_transform.py",
+      "why": "Examples are integration tests; syntax-only files give false coverage confidence for metadata branching and repetition transforms.",
+      "fix": "Add run() execution to each pipeline variant, or relabel as syntax-only with rationale."
+    },
+    {
+      "rank": 20,
+      "severity": "medium",
+      "title": "run() signature documentation omits four real parameters",
+      "where": "docs/source/reference/predictions_api.md:35-48",
+      "why": "refit, cache, project, report_naming are part of the verified signature but absent from the reference, making the API doc incomplete.",
+      "fix": "Add the four parameters with defaults (refit=True, cache=None, project=None, report_naming=\"nirs\")."
+    },
+    {
+      "rank": 21,
+      "severity": "medium",
+      "title": "CLI init output and workspace-architecture doc disagree on runs/ directory",
+      "where": "docs/source/reference/cli.md:40-48 vs docs/source/reference/workspace.md:16",
+      "why": "cli.md shows init creating runs/, but workspace design principle is 'No nested runs/ directories' (only exports/ and library/ per source).",
+      "fix": "Remove '- runs/' from the cli.md init example (and any unsupported catalog/)."
+    },
+    {
+      "rank": 22,
+      "severity": "medium",
+      "title": "PredictionResultsList referenced as an API class that does not exist",
+      "where": "docs/source/user_guide/predictions/index.md:126",
+      "why": "Only RunResult/PredictResult/ExplainResult exist; the dangling class confuses the predictions reference.",
+      "fix": "Remove 'PredictionResultsList and'; reference PredictResult and RunResult."
+    },
+    {
+      "rank": 23,
+      "severity": "medium",
+      "title": "models.md reference example uses SNV() without importing it",
+      "where": "docs/source/reference/models.md:12-18",
+      "why": "NameError if copied; small but in canonical reference material.",
+      "fix": "Add `from nirs4all.operators.transforms import SNV`."
+    },
+    {
+      "rank": 24,
+      "severity": "medium",
+      "title": "DependencyGraph.topological_sort() example does not match real implementation",
+      "where": "docs/source/developer/artifacts_internals.md:136-175",
+      "why": "Real DependencyGraph has add_dependency/get_dependencies/check_cycle, no public topological_sort; misleads contributors about internals.",
+      "fix": "Replace with the actual public surface or label as illustrative-only."
+    },
+    {
+      "rank": 25,
+      "severity": "medium",
+      "title": "metadata.md troubleshooting imports a fictional module/function",
+      "where": "docs/source/developer/metadata.md:467-517 (browse_folder from nirs4all.data.dataset_config_parser)",
+      "why": "Module/function does not exist; copy-paste fails.",
+      "fix": "Replace with the real config-parsing entry point or remove."
+    },
+    {
+      "rank": 26,
+      "severity": "medium",
+      "title": "Stale 'Coming Soon' for already-written content",
+      "where": "docs/source/user_guide/data/index.md:74-76",
+      "why": "Signals incompleteness for content that is fully documented in loading_data.md.",
+      "fix": "Delete the 'Coming Soon' block."
+    },
+    {
+      "rank": 27,
+      "severity": "medium",
+      "title": "aggregation.md title/scope conflates repetition with aggregation",
+      "where": "docs/source/user_guide/data/aggregation.md:1-2",
+      "why": "File is primarily about repetition (grouping repeated measurements) but titled/filed as aggregation, creating conceptual ambiguity for newcomers.",
+      "fix": "Rename to repetition.md or retitle 'Sample Repetition (with Aggregation)' and separate the two concepts."
+    },
+    {
+      "rank": 28,
+      "severity": "medium",
+      "title": "Internal Phase markers and WIP framing in user-facing docs/examples",
+      "where": "docs/source/developer/caching.md:1-50; docs/source/developer/synthetic.md:1-100; examples/developer/02_generators/D07:26-30,D08:25-27,D09:42",
+      "why": "'Phase 1/2/3' planning language exposes internal roadmap and makes published docs read as unfinished.",
+      "fix": "Move roadmap to docs/_internal or ROADMAP.md; rewrite caching/synthetic intros problem-statement-first."
+    },
+    {
+      "rank": 29,
+      "severity": "medium",
+      "title": "Inconsistent / cross-section broken example cross-references",
+      "where": "examples/user/03_preprocessing/U04_signal_conversion.py:21; examples/user/04_models/U04_pls_variants.py:21,500; examples/developer/01_advanced_pipelines/D05_meta_stacking.py:441,D07_value_mapping.py:22; examples/developer/02_generators/D04_nested_generators.py:19",
+      "why": "Wrong directory/section targets break the sequential learning path and :ref resolution.",
+      "fix": "Correct each to the verified path; standardize next-step ref conventions."
+    },
+    {
+      "rank": 30,
+      "severity": "medium",
+      "title": "R04 reference example missing with no explanation; inventory split across runners/README",
+      "where": "examples/reference/ (R04 absent); examples/README.md:86; examples/run.sh:147 vs README 06_internals D01-D03 only",
+      "why": "Unexplained gap plus three out-of-sync inventories (run.sh, run_ci_examples.sh, README) create maintenance skew and reader confusion.",
+      "fix": "Document/renumber R04; derive a single example inventory consumed by all runners and the README."
+    },
+    {
+      "rank": 31,
+      "severity": "medium",
+      "title": "augmentations.md header mislabels audience ('Developer guidelines') inside user_guide",
+      "where": "docs/source/user_guide/augmentation/augmentations.md:1-10",
+      "why": "Audience confusion: developer-framed header sits in the user guide.",
+      "fix": "Retitle to a user-facing implementation reference."
+    },
+    {
+      "rank": 32,
+      "severity": "low",
+      "title": "example_utils emoji output ignores DISABLE_EMOJI set by run.sh",
+      "where": "examples/example_utils.py:134 vs examples/run.sh:304",
+      "why": "Causes emoji/encoding noise in CI logs despite the documented no-emoji requirement.",
+      "fix": "Guard the \ud83d\udcc1 print on os.environ.get('DISABLE_EMOJI')."
+    },
+    {
+      "rank": 33,
+      "severity": "low",
+      "title": "SNV naming inconsistency (StandardNormalVariate vs SNV alias) across preprocessing docs",
+      "where": "docs/source/user_guide/preprocessing/snv.md vs overview.md:35/index.md",
+      "why": "Same operator under two names without a note creates minor confusion.",
+      "fix": "Add a one-line equivalence note or standardize to one name per section."
+    },
+    {
+      "rank": 34,
+      "severity": "low",
+      "title": "Dataset path inconsistency in tabpfn example",
+      "where": "examples/user/04_models/U06_tabpfn_nirs.py:119 ('examples/sample_data/regression' vs 'sample_data/regression')",
+      "why": "Different working-directory assumption than all sibling examples; can break when run from examples/.",
+      "fix": "Standardize to 'sample_data/regression'."
+    },
+    {
+      "rank": 35,
+      "severity": "low",
+      "title": "Generator documentation duplicated across 3 reference files",
+      "where": "docs/source/reference/generator_keywords.md, combination_generator.md, reference/pipeline_syntax.md (Generator Syntaxes)",
+      "why": "_or_/_range_/grid explained 2-3 times with slight variation; unclear canonical source.",
+      "fix": "Designate one canonical generator page; have the others link/defer."
+    }
+  ],
+  "style_mandate_rollup": "The inline-pipeline mandate (GROUND_TRUTH canonical form: pipelines written inline inside run(pipeline=[...], dataset=...), never as an external variable) is violated in 18 of 20 segments (90%). Only two segments are fully clean: user_guide/predictions+deployment and the docs build-config/RTD segment. Conservatively the corpus contains 250+ violating code blocks. Worst offenders, by raw count: examples/user/03_preprocessing+04_models at 39 of 41 pipeline definitions (95% violation rate, e.g. U04_pls_variants.py with 8, U02_hyperparameter_tuning.py with 7, U02_feature_augmentation.py with 7); examples/developer/01_advanced_pipelines+02_generators at ~42 violating blocks (D01_branching_basics 6, D03_merge_basics 7, D04_merge_sources 8, D06_separation_branches 7, D07_value_mapping 6); user_guide/models+visualization at 44 blocks (models/training.md alone has 20; in_pipeline_charts.md 11); reference/ pipeline-centric at 61 grep-counted instances (pipeline_syntax.md the bulk); examples/user/05_cv+06_deployment+07_explainability where every file violates; examples/developer/03-06 at 13 of 15 files. Documentation prose segments are lighter but still non-compliant: concepts/ (11 blocks across 5 files), onboarding/ (6), user_guide/pipelines (5 files), user_guide/data (5 files), README+root meta (3). The violation is clearly a propagated template/copy-paste habit rather than isolated authoring errors, which means a single mechanical sweep plus a documented style exception (for synthesis/utility examples in developer/02_generators D05-D09, and the deliberate PipelineRunner/Session deep-dives in 06_deployment/06_internals) can clear the overwhelming majority. Without a CONTRIBUTING style note and ideally a lint check, the pattern will regenerate as new examples are added.",
+  "health_table": [
+    {
+      "segment": "Landing + getting_started (index.md, ai_onboarding.md, getting_started/*)",
+      "score": 2,
+      "headline": "Wrong license+version on the front page, a non-existent result.predict(), and pervasive external-pipeline style across the core on-ramp."
+    },
+    {
+      "segment": "concepts/",
+      "score": 4,
+      "headline": "Technically accurate and well-sequenced; only defect is 11 external-pipeline-variable code blocks across 5 files."
+    },
+    {
+      "segment": "onboarding/",
+      "score": 2,
+      "headline": "Strong architecture prose undercut by 5 broken example refs, a documented-but-nonexistent load_dataset(), and 6 style violations."
+    },
+    {
+      "segment": "user_guide/pipelines + ug root",
+      "score": 4,
+      "headline": "Comprehensive and API-accurate; 5 style violations and minor redundancy/navigation gaps."
+    },
+    {
+      "segment": "user_guide/data + troubleshooting",
+      "score": 3,
+      "headline": "Feature-complete but FAQ uses wrong y_column param, repetition/aggregation naming is conflated, and several files break inline style."
+    },
+    {
+      "segment": "user_guide/preprocessing + augmentation",
+      "score": 4,
+      "headline": "Scientifically grounded and import-verified; 4-5 style blocks, one wrong synthesis import path, minor SNV naming drift."
+    },
+    {
+      "segment": "user_guide/models + visualization",
+      "score": 2,
+      "headline": "44 style violations, 3 nonexistent class imports, and visualization landing documents methods that do not exist."
+    },
+    {
+      "segment": "user_guide/predictions + deployment",
+      "score": 4,
+      "headline": "Clean inline style; only a bundle= vs model= bug, U21/U22 dangling refs, and a phantom PredictionResultsList."
+    },
+    {
+      "segment": "reference/ (pipeline-centric)",
+      "score": 3,
+      "headline": "Gold-standard coverage but 61 external-pipeline instances and a stale Dec-2025/Phase-3 footer."
+    },
+    {
+      "segment": "reference/ (operators/storage)",
+      "score": 3,
+      "headline": "Accurate API tables; 5 operator files carry style violations, run() doc omits 4 params, CLI/workspace disagree on runs/."
+    },
+    {
+      "segment": "developer + migration",
+      "score": 3,
+      "headline": "Solid internals coverage; 7 style blocks, duplicated architecture docs, and a topological_sort example that mismatches source."
+    },
+    {
+      "segment": "docs examples/ pages",
+      "score": 3,
+      "headline": "Well-organized learning paths but stale counts, 4 undocumented U05/U06 files, and a SklearnWrapper that does not exist."
+    },
+    {
+      "segment": "examples user/01_getting_started + 02_data_handling",
+      "score": 2,
+      "headline": "API-correct and pedagogically clean, but all 7 pipeline-building files violate inline style plus one broken cross-ref."
+    },
+    {
+      "segment": "examples user/03_preprocessing + 04_models",
+      "score": 2,
+      "headline": "95% style violation (39/41 pipelines external); imports correct but cross-refs and section structure inconsistent."
+    },
+    {
+      "segment": "examples user/05_cv + 06_deployment + 07_explainability",
+      "score": 2,
+      "headline": "Every file uses external pipelines plus a runtime-fatal uninstantiated-class bug in U01_shap_basics."
+    },
+    {
+      "segment": "examples developer/01_advanced_pipelines + 02_generators",
+      "score": 2,
+      "headline": "Functionally sound and comprehensive but ~42 style-violating blocks and several wrong-directory cross-refs."
+    },
+    {
+      "segment": "examples developer/03_deep_learning..06_internals",
+      "score": 2,
+      "headline": "Two critical broken imports (ImportError), 13/15 files violate inline style, and two demos never execute run()."
+    },
+    {
+      "segment": "examples reference/ + infra + README",
+      "score": 4,
+      "headline": "Robust CI-tested infra; R01 reference violates inline style, R04 missing, and inventory is split across 3 files."
+    },
+    {
+      "segment": "README + root meta (CLAUDE/AGENTS/CONTRIBUTING/Roadmap/CHANGELOG)",
+      "score": 3,
+      "headline": "Stale CeCILL license in CLAUDE.md and 0.9.0 citation; 3 style violations and competing Quick Start examples."
+    },
+    {
+      "segment": "docs build config + RTD (conf.py, Makefile, RTD)",
+      "score": 2,
+      "headline": "Build scripts are sound but conf.py release (0.7.1), copyright (2025), and landing license/version are all stale."
+    }
+  ],
+  "top_quick_wins": [
+    "One-commit metadata fix: set license to AGPL-3.0 in index.md:284, ai_onboarding.md:14, root CLAUDE.md:3; set version to 0.9.1 in index.md:277, ai_onboarding.md:14, README.md:411, conf.py:50; bump conf.py:48 copyright to 2026 and drop the Dec-2025/Phase-3 footer in pipeline_syntax.md.",
+    "Fix the five copy-paste-fatal API bugs in one pass: result.predict() (getting_started/index.md:192), bundle=->model= (deployment/index.md:85), y_column->target_column (faq.md:55,73), GaussianNoise/SpectrumShift/OutlierExclusion -> GaussianAdditiveNoise/WavelengthShift/XOutlierFilter (in_pipeline_charts.md:260,304,351), and instantiate the bare classes in U01_shap_basics.py:81-86 (also U03_feature_selection.py:87,152).",
+    "Repoint the two CRITICAL broken developer imports: D01_transfer_analysis.py:131 -> nirs4all.analysis.TransferPreprocessingSelector; D03_pca_geometry.py:88 -> nirs4all.visualization.analysis.PreprocPCAEvaluator (turns two ImportError-crashing examples green).",
+    "Correct the 5 dangling example refs in onboarding/persona_paths.md and remove the nonexistent load_dataset() block; fix U04_visualization.py:21 (U05_->U01_flexible_inputs) and U21/U22 in deployment/export_bundles.md.",
+    "Add a version/license CI grep gate (fail on any 'CeCILL'/'CECILL' token or version string != nirs4all.__version__) so drift can never silently return.",
+    "Run the mechanical inline-pipeline sweep on the highest-density, mostly-templated files first (models/training.md, in_pipeline_charts.md, reference/pipeline_syntax.md, examples/user/03+04, examples/developer/01+02) to clear the bulk of 250+ style violations cheaply.",
+    "Replace the visualization/index.md Available Charts table and quick-start with the 5 real PredictionAnalyzer methods, and fix SklearnWrapper->NIRSPipeline in examples/user/explainability.md and synthetic import path in synthetic_nirs_generator.md:405.",
+    "Reconcile the example count programmatically and stamp one number into index.md, quickstart.md, examples/index.md, and README; add the 4 missing U05/U06 doc sections in models.md and cross_validation.md.",
+    "Delete the stale 'Coming Soon' in data/index.md:74-76 and move all 'Phase 1/2/3' roadmap markers out of caching.md, synthetic.md, and developer example files into docs/_internal.",
+    "Add an explicit 'Start here' banner to index.md pointing at the single canonical path (getting_started -> concepts -> user_guide) and convert the most blatant duplicate concept pages to one-line deferrals."
+  ]
+}

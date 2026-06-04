@@ -1,0 +1,888 @@
+{
+  "dispositions": [
+    {
+      "current_path": "docs/source/index.md",
+      "disposition": "REWRITE",
+      "target": "Start here (index.md \u2014 thin router)",
+      "note": "Strip the 6-card grid + 8-path toctree; becomes thin router: one 'Start here' CTA, 4 Di\u00e1taxis mode cards + Examples card, small 'I already have a goal \u2192' nav block. Fix license #1, version #2, example-count #16. Teaches nothing."
+    },
+    {
+      "current_path": "docs/source/ai_onboarding.md",
+      "disposition": "MOVE_TO_INTERNAL",
+      "target": "Non-nav machine file \u2192 llms.txt (regenerated from canonical anchors, metadata-from-source)",
+      "note": "Remove from human toctree (kills 4th front door #6). Fix license #1, version #2 in the source it regenerates from. Holds 16 inline violations the sweep clears (#5)."
+    },
+    {
+      "current_path": "docs/source/getting_started/index.md",
+      "disposition": "REWRITE",
+      "target": "Get Started / first run (under Start here)",
+      "note": "Becomes the single on-ramp page: install + zero-data generate.regression() inline run(); only forward link is 'Continue to the Tutorial \u2192'. FIX result.predict() #3 \u2192 nirs4all.predict(); strip inline violations (12 in getting_started #5)."
+    },
+    {
+      "current_path": "docs/source/getting_started/installation.md",
+      "disposition": "MOVE",
+      "target": "Get Started / first run \u2192 Install section (folded into the on-ramp page)",
+      "note": "Install content absorbed into the single Get-Started page so the on-ramp is one page with one CTA; keep INSTALLATION root file as canonical, doc page references it."
+    },
+    {
+      "current_path": "docs/source/getting_started/quickstart.md",
+      "disposition": "MERGE",
+      "target": "Tutorial L1 'Your first model' + Get Started page",
+      "note": "Competing quickstart collapses into the one Get-Started + Tutorial L1 rail. Fix example-count #16 (quickstart.md:178). Delete after content folded \u2014 no second quickstart front door."
+    },
+    {
+      "current_path": "docs/source/getting_started/tutorial.md",
+      "disposition": "MERGE",
+      "target": "Tutorial (L1\u2013L6 spine)",
+      "note": "Seed content for the linear FastAPI rail; split across early lessons (first model / preprocessing / datasets / CV / models / results). One concept per lesson; mode badges; sideways 'Why it works \u2192' links."
+    },
+    {
+      "current_path": "docs/source/getting_started/concepts.md",
+      "disposition": "DELETE",
+      "target": "Residue \u2192 Explanation/pipelines + Explanation/overview",
+      "note": "#6 competing front door. DELETE outright (Candidate 1 law: delete not re-link); any unique conceptual residue migrates into Explanation. Removes a drift source permanently."
+    },
+    {
+      "current_path": "docs/source/concepts/index.md",
+      "disposition": "REWRITE",
+      "target": "Explanation/index (the single concept home landing)",
+      "note": "Becomes the Explanation estate landing. concepts/ is promoted to the SOLE conceptual home; absorbs onboarding/* and scoring_and_refit. SSOT law: owns 'why', links down to Reference, never restates signatures."
+    },
+    {
+      "current_path": "docs/source/concepts/pipelines.md",
+      "disposition": "REWRITE",
+      "target": "Explanation/pipelines",
+      "note": "Canonical 'why pipelines' page. Absorbs onboarding/pipeline_workflow + getting_started/concepts residue. Strip 12 concepts/ inline violations #5. Links down to reference/pipeline_syntax."
+    },
+    {
+      "current_path": "docs/source/concepts/datasets.md",
+      "disposition": "REWRITE",
+      "target": "Explanation/datasets",
+      "note": "Canonical 'why datasets/SpectroDataset'. Absorbs onboarding/data_workflow. Read-not-run; links to How-to/Data + Reference."
+    },
+    {
+      "current_path": "docs/source/concepts/cross_validation.md",
+      "disposition": "KEEP",
+      "target": "Explanation/cross_validation",
+      "note": "Already a strong concept page (segment health 4). Stays in Explanation; strip style violations; add mode badge + sideways links to Tutorial L4 and How-to/CV."
+    },
+    {
+      "current_path": "docs/source/concepts/branching_and_merging.md",
+      "disposition": "KEEP",
+      "target": "Explanation/branching_and_merging",
+      "note": "Keeps the inherently-unified branch/merge mechanism WHOLE in one explanation page (the fit-lens argument against fracturing). Links to How-to/Pipelines branching+merging."
+    },
+    {
+      "current_path": "docs/source/concepts/generators.md",
+      "disposition": "KEEP",
+      "target": "Explanation/generators",
+      "note": "Canonical generator concept; links DOWN to the ONE reference/generator_keywords page (#38 collapse). Keeps generators whole."
+    },
+    {
+      "current_path": "docs/source/concepts/augmentation.md",
+      "disposition": "KEEP",
+      "target": "Explanation/augmentation",
+      "note": "Concept home for augmentation; links to How-to/Augmentation recipes and Reference/augmentations."
+    },
+    {
+      "current_path": "docs/source/concepts/predictions_and_deployment.md",
+      "disposition": "REWRITE",
+      "target": "Explanation/predictions_and_deployment",
+      "note": "Absorbs the conceptual half of user_guide/predictions/understanding_predictions + scoring_and_refit. Owns 'why' of scoring/refit/deploy; links to How-to/Predictions+Deployment and Reference."
+    },
+    {
+      "current_path": "docs/source/onboarding/index.md",
+      "disposition": "DELETE",
+      "target": "Dissolved (front door #6 removed)",
+      "note": "onboarding/ is a competing front door; the landing is deleted, its children re-homed (below). No re-link \u2014 deletion per Candidate 1 law."
+    },
+    {
+      "current_path": "docs/source/onboarding/mental_models.md",
+      "disposition": "MOVE",
+      "target": "Explanation/mental_models (overview)",
+      "note": "Strong prose \u2192 becomes the Explanation 'overview/mental models' page. Strip 7 onboarding inline violations #5."
+    },
+    {
+      "current_path": "docs/source/onboarding/data_workflow.md",
+      "disposition": "MERGE",
+      "target": "Explanation/datasets",
+      "note": "Conceptual data-workflow narrative merges into the single datasets explanation page (kills the concept-taught-3\u00d7-problem)."
+    },
+    {
+      "current_path": "docs/source/onboarding/pipeline_workflow.md",
+      "disposition": "MERGE",
+      "target": "Explanation/pipelines",
+      "note": "Merges into the single pipelines explanation page \u2014 one canonical pipeline-concept home."
+    },
+    {
+      "current_path": "docs/source/onboarding/workspace_intro.md",
+      "disposition": "MOVE",
+      "target": "Explanation/workspace_and_reproducibility",
+      "note": "Becomes the workspace/reproducibility EXPLANATION (the 'why', NOT the schema \u2014 schema stays in Reference/storage). Pairs with storage rationale."
+    },
+    {
+      "current_path": "docs/source/onboarding/controllers_intro.md",
+      "disposition": "MOVE",
+      "target": "Contributing & internals \u2192 Extending: controllers",
+      "note": "Developer-audience content; moves into Contributing estate alongside developer/controllers.md. Off the user front door."
+    },
+    {
+      "current_path": "docs/source/onboarding/persona_paths.md",
+      "disposition": "DELETE",
+      "target": "Deleted \u2014 its broken refs die with it",
+      "note": "#7 fake load_dataset() + #8 five broken example refs + #6 competing front door. DELETE; verb/goal routing survives only as nav cards on Start-here + bottom-of-page 'Next goals \u2192' links."
+    },
+    {
+      "current_path": "docs/source/user_guide/index.md",
+      "disposition": "REWRITE",
+      "target": "How-to guides/index",
+      "note": "user_guide becomes the How-to (task-oriented) estate landing. Strip embedded concept-teaching (push to Explanation). Goal-titled recipe index; mode badge."
+    },
+    {
+      "current_path": "docs/source/user_guide/pipelines/writing_pipelines.md",
+      "disposition": "SPLIT",
+      "target": "How-to/Pipelines (recipe slices) + Tutorial L10 + Reference/pipeline_syntax",
+      "note": "Worst style file (51 violations) \u2014 but :1242 run(pipeline=[a,b,c]) list-of-pipelines is the VERIFIED false positive (allowlist it). Conceptual half \u2192 Explanation/pipelines; task recipes \u2192 How-to; canonical syntax \u2192 Reference. Sweep the real violations."
+    },
+    {
+      "current_path": "docs/source/user_guide/pipelines/branching.md",
+      "disposition": "MOVE",
+      "target": "How-to/Pipelines: branching",
+      "note": "Task recipe; strip concept-teaching to Explanation/branching_and_merging; link sideways. Sweep inline violations."
+    },
+    {
+      "current_path": "docs/source/user_guide/pipelines/merging.md",
+      "disposition": "MOVE",
+      "target": "How-to/Pipelines: merging",
+      "note": "Task recipe; concept \u2192 Explanation/branching_and_merging."
+    },
+    {
+      "current_path": "docs/source/user_guide/pipelines/stacking.md",
+      "disposition": "MOVE",
+      "target": "How-to/Pipelines: stacking",
+      "note": "Task recipe; links to backing example U03_stacking_ensembles / D05_meta_stacking."
+    },
+    {
+      "current_path": "docs/source/user_guide/pipelines/multi_source.md",
+      "disposition": "MOVE",
+      "target": "How-to/Pipelines: multi_source",
+      "note": "Task recipe; links to U03_multi_source / D04_merge_sources examples."
+    },
+    {
+      "current_path": "docs/source/user_guide/pipelines/cache_optimization.md",
+      "disposition": "MOVE",
+      "target": "How-to/Pipelines: cache_optimization",
+      "note": "Task recipe; concept of caching \u2192 Explanation only if needed; links Reference/cache_config + D03_cache_performance."
+    },
+    {
+      "current_path": "docs/source/user_guide/pipelines/generators.md",
+      "disposition": "MOVE",
+      "target": "How-to/Pipelines: generators (how-to slice)",
+      "note": "23 violations \u2014 sweep. Concept \u2192 Explanation/generators; canonical syntax \u2192 ONE reference/generator_keywords page (#38). Task recipe links to D01\u2013D04 generator examples."
+    },
+    {
+      "current_path": "docs/source/user_guide/pipelines/index.md",
+      "disposition": "MERGE",
+      "target": "How-to guides/index (Pipelines group header)",
+      "note": "Section landing folds into the How-to estate index as the Pipelines recipe group."
+    },
+    {
+      "current_path": "docs/source/user_guide/models/training.md",
+      "disposition": "MOVE",
+      "target": "How-to/Models: training",
+      "note": "20 violations \u2014 sweep. Task recipe; concept of scoring/refit \u2192 Explanation/predictions_and_deployment; links U01_multi_model."
+    },
+    {
+      "current_path": "docs/source/user_guide/models/hyperparameter_tuning.md",
+      "disposition": "MOVE",
+      "target": "How-to/Models: hyperparameter_tuning",
+      "note": "Task recipe; concept \u2192 Explanation/generators; links U02_hyperparameter_tuning / U05_advanced_finetuning."
+    },
+    {
+      "current_path": "docs/source/user_guide/models/deep_learning.md",
+      "disposition": "MOVE",
+      "target": "How-to/Models: deep_learning",
+      "note": "Task recipe; links developer 03_deep_learning gallery (D track under Contributing) + backend notes."
+    },
+    {
+      "current_path": "docs/source/user_guide/models/tabpfn_nirs.md",
+      "disposition": "MOVE",
+      "target": "How-to/Models: tabpfn_nirs",
+      "note": "Task recipe; links U06_tabpfn_nirs; fix dataset-path drift #37."
+    },
+    {
+      "current_path": "docs/source/user_guide/models/index.md",
+      "disposition": "MERGE",
+      "target": "How-to guides/index (Models group header)",
+      "note": "Section landing folds into How-to index Models group."
+    },
+    {
+      "current_path": "docs/source/user_guide/preprocessing/index.md",
+      "disposition": "MERGE",
+      "target": "How-to guides/index (Preprocessing group header)",
+      "note": "Overlaps overview.md; collapse the two landings into one How-to group header. Concept content \u2192 Explanation if any."
+    },
+    {
+      "current_path": "docs/source/user_guide/preprocessing/overview.md",
+      "disposition": "REWRITE",
+      "target": "How-to/Preprocessing: handbook (merge) OR Explanation residue",
+      "note": "Duplicates index.md framing. Conceptual 'why preprocess' \u2192 Explanation; the technique catalog merges into handbook.md. Eliminate the index/overview duplication."
+    },
+    {
+      "current_path": "docs/source/user_guide/preprocessing/handbook.md",
+      "disposition": "KEEP",
+      "target": "How-to/Preprocessing: handbook",
+      "note": "Scientifically-grounded technique catalog (segment health 4). Absorbs overview.md technique residue; add SNV alias note #36. Sweep style."
+    },
+    {
+      "current_path": "docs/source/user_guide/preprocessing/cheatsheet.md",
+      "disposition": "KEEP",
+      "target": "How-to/Preprocessing: cheatsheet",
+      "note": "Quick-lookup recipe; keep as How-to cheatsheet; mode badge."
+    },
+    {
+      "current_path": "docs/source/user_guide/preprocessing/snv.md",
+      "disposition": "KEEP",
+      "target": "How-to/Preprocessing: snv",
+      "note": "Single-technique how-to; backs Tutorial L2. Add StandardNormalVariate/SNV equivalence note #36."
+    },
+    {
+      "current_path": "docs/source/user_guide/preprocessing/resampler.md",
+      "disposition": "KEEP",
+      "target": "How-to/Preprocessing: resampler",
+      "note": "Single-technique how-to recipe; keep."
+    },
+    {
+      "current_path": "docs/source/user_guide/preprocessing/transfer_preprocessing_selector_cheatsheet.md",
+      "disposition": "KEEP",
+      "target": "How-to/Preprocessing: transfer_preprocessing_selector_cheatsheet",
+      "note": "Keep as How-to cheatsheet; links the transfer-preprocessing analysis feature + D01/D03 (once import paths fixed #20)."
+    },
+    {
+      "current_path": "docs/source/user_guide/data/index.md",
+      "disposition": "MERGE",
+      "target": "How-to guides/index (Data group header)",
+      "note": "Delete stale 'Coming Soon' #30. Folds into How-to index Data group."
+    },
+    {
+      "current_path": "docs/source/user_guide/data/loading_data.md",
+      "disposition": "KEEP",
+      "target": "How-to/Data: loading_data",
+      "note": "Canonical correct target_column-in-global_params usage (the FAQ #11 fix references this). Keep; sweep style; links U01_flexible_inputs."
+    },
+    {
+      "current_path": "docs/source/user_guide/data/sample_filtering.md",
+      "disposition": "KEEP",
+      "target": "How-to/Data: sample_filtering",
+      "note": "Task recipe; links U03_sample_filtering / U06_exclusion_strategies."
+    },
+    {
+      "current_path": "docs/source/user_guide/data/signal_types.md",
+      "disposition": "KEEP",
+      "target": "How-to/Data: signal_types",
+      "note": "Task recipe; links U04_signal_conversion (U04 in 03_preprocessing)."
+    },
+    {
+      "current_path": "docs/source/user_guide/data/aggregation.md",
+      "disposition": "REWRITE",
+      "target": "How-to/Data: aggregation (retitled)",
+      "note": "#31 conflates repetition with aggregation \u2014 retitle/refocus to repetition+aggregation; links U04_aggregation / D03_repetition_transform."
+    },
+    {
+      "current_path": "docs/source/user_guide/data/synthetic_data.md",
+      "disposition": "KEEP",
+      "target": "How-to/Data: synthetic_data",
+      "note": "Task recipe on generate.* ; links U05_synthetic_data/U06_synthetic_advanced. Useful as the zero-data on-ramp backing."
+    },
+    {
+      "current_path": "docs/source/user_guide/augmentation/index.md",
+      "disposition": "MERGE",
+      "target": "How-to guides/index (Augmentation group header)",
+      "note": "Folds into How-to index Augmentation group."
+    },
+    {
+      "current_path": "docs/source/user_guide/augmentation/augmentations.md",
+      "disposition": "REWRITE",
+      "target": "How-to/Augmentation: sample_augmentation_guide (merge) OR Reference/augmentations",
+      "note": "#40 'Developer guidelines' header is an audience mislabel inside user_guide. Strip dev framing; catalog of augmenters \u2192 Reference/augmentations; how-to half \u2192 the augmentation guide."
+    },
+    {
+      "current_path": "docs/source/user_guide/augmentation/sample_augmentation_guide.md",
+      "disposition": "KEEP",
+      "target": "How-to/Augmentation: sample_augmentation_guide",
+      "note": "Task recipe; backs Tutorial L11; links U02_feature_augmentation/U03_sample_augmentation."
+    },
+    {
+      "current_path": "docs/source/user_guide/augmentation/synthetic_nirs_generator.md",
+      "disposition": "REWRITE",
+      "target": "How-to/Augmentation: synthetic_nirs_generator",
+      "note": "FIX #13 import examples.synthetic \u2192 nirs4all.synthesis. Task recipe; links synthesis examples."
+    },
+    {
+      "current_path": "docs/source/user_guide/predictions/index.md",
+      "disposition": "MERGE",
+      "target": "How-to guides/index (Predictions group header)",
+      "note": "Remove phantom PredictionResultsList #25. Folds into How-to index Predictions group."
+    },
+    {
+      "current_path": "docs/source/user_guide/predictions/making_predictions.md",
+      "disposition": "REWRITE",
+      "target": "How-to/Predictions: making_predictions",
+      "note": "Sweep style (making_predictions.md:246 violation). Task recipe; literalinclude-tie to U01_save_load_predict so predict() usage can't drift."
+    },
+    {
+      "current_path": "docs/source/user_guide/predictions/advanced_predictions.md",
+      "disposition": "KEEP",
+      "target": "How-to/Predictions: advanced_predictions",
+      "note": "Task recipe (all_predictions, chain_id); links Reference/run+predict contract pages."
+    },
+    {
+      "current_path": "docs/source/user_guide/predictions/analyzing_results.md",
+      "disposition": "KEEP",
+      "target": "How-to/Predictions: analyzing_results",
+      "note": "Task recipe; pass result.predictions to PredictionAnalyzer (#9 fix); links new R04_visualization."
+    },
+    {
+      "current_path": "docs/source/user_guide/predictions/exporting_models.md",
+      "disposition": "MOVE",
+      "target": "How-to/Deployment: exporting_models (export_bundles)",
+      "note": "Deployment recipe; merge overlap with deployment/export_bundles; fix U21/U22 dead refs #15."
+    },
+    {
+      "current_path": "docs/source/user_guide/predictions/session_api.md",
+      "disposition": "MOVE",
+      "target": "How-to/Predictions: session_api",
+      "note": "Sweep style (session_api.md:30,217). Task recipe for session(); links Reference/session + D01_session_workflow."
+    },
+    {
+      "current_path": "docs/source/user_guide/predictions/understanding_predictions.md",
+      "disposition": "SPLIT",
+      "target": "Explanation/predictions_and_deployment (concept half) + How-to/Predictions (task half)",
+      "note": "Conceptual page misfiled under how-to. 'Why' \u2192 Explanation/predictions_and_deployment; any task steps \u2192 How-to. Removes concept duplication."
+    },
+    {
+      "current_path": "docs/source/user_guide/scoring_and_refit.md",
+      "disposition": "MOVE",
+      "target": "Explanation/predictions_and_deployment",
+      "note": "Conceptual scoring/refit content \u2192 the single predictions Explanation page (SSOT). Task slices \u2192 How-to/Models training if any."
+    },
+    {
+      "current_path": "docs/source/user_guide/deployment/index.md",
+      "disposition": "REWRITE",
+      "target": "How-to guides/index (Deployment group header)",
+      "note": "FIX #4 predict(bundle=) \u2192 model=. Folds into How-to index Deployment group."
+    },
+    {
+      "current_path": "docs/source/user_guide/deployment/export_bundles.md",
+      "disposition": "MOVE",
+      "target": "How-to/Deployment: export_bundles",
+      "note": "FIX U21/U22 dead refs #15. Task recipe for .n4a; backs Tutorial L12; links U02_export_bundle."
+    },
+    {
+      "current_path": "docs/source/user_guide/deployment/prediction_model_reuse.md",
+      "disposition": "MOVE",
+      "target": "How-to/Deployment: prediction_model_reuse",
+      "note": "Task recipe; links U01_save_load_predict; literalinclude-tie for predict() reuse."
+    },
+    {
+      "current_path": "docs/source/user_guide/deployment/retrain_transfer.md",
+      "disposition": "MOVE",
+      "target": "How-to/Deployment: retrain_transfer",
+      "note": "Task recipe for retrain mode=full|transfer|finetune; backs Tutorial L13; links D02_retrain_modes."
+    },
+    {
+      "current_path": "docs/source/user_guide/visualization/index.md",
+      "disposition": "REWRITE",
+      "target": "How-to guides/index (Visualization group header)",
+      "note": "#9 visualization landing documents non-existent methods + phantom 'Available Charts' table + PredictionAnalyzer(result). Replace with real plot_* methods, pass result.predictions. Folds into How-to index."
+    },
+    {
+      "current_path": "docs/source/user_guide/visualization/shap.md",
+      "disposition": "MOVE",
+      "target": "How-to/Visualization: shap",
+      "note": "Task recipe for explain(); links U01_shap_basics/U02_shap_sklearn; ties to explain() contract page."
+    },
+    {
+      "current_path": "docs/source/user_guide/visualization/prediction_charts.md",
+      "disposition": "MOVE",
+      "target": "How-to/Visualization: prediction_charts",
+      "note": "Fix phantom plot_predictions/plot_residuals/plot_calibration #9 \u2192 real plot_top_k/plot_confusion_matrix/etc. Links new R04_visualization."
+    },
+    {
+      "current_path": "docs/source/user_guide/visualization/in_pipeline_charts.md",
+      "disposition": "MOVE",
+      "target": "How-to/Visualization: in_pipeline_charts",
+      "note": "FIX phantom operator classes #10 (GaussianNoise\u2192GaussianAdditiveNoise, SpectrumShift\u2192WavelengthShift, OutlierExclusion\u2192XOutlierFilter)."
+    },
+    {
+      "current_path": "docs/source/user_guide/visualization/pipeline_diagram.md",
+      "disposition": "MOVE",
+      "target": "How-to/Visualization: pipeline_diagram",
+      "note": "Task recipe; keep; mode badge."
+    },
+    {
+      "current_path": "docs/source/user_guide/logging.md",
+      "disposition": "MOVE",
+      "target": "How-to/Operations: logging",
+      "note": "Operational task recipe; moves under How-to Operations group."
+    },
+    {
+      "current_path": "docs/source/user_guide/troubleshooting/index.md",
+      "disposition": "MERGE",
+      "target": "How-to guides/index (Troubleshooting group header)",
+      "note": "Folds into How-to index Troubleshooting group."
+    },
+    {
+      "current_path": "docs/source/user_guide/troubleshooting/faq.md",
+      "disposition": "REWRITE",
+      "target": "How-to/Troubleshooting: faq",
+      "note": "FIX #11 y_column \u2192 target_column inside global_params (NOT a simple rename). The page stuck users land on; literalinclude-tie key snippets."
+    },
+    {
+      "current_path": "docs/source/user_guide/troubleshooting/dataset_troubleshooting.md",
+      "disposition": "KEEP",
+      "target": "How-to/Troubleshooting: dataset_troubleshooting",
+      "note": "Task-oriented troubleshooting recipe; keep; sweep style."
+    },
+    {
+      "current_path": "docs/source/user_guide/troubleshooting/migration.md",
+      "disposition": "MOVE",
+      "target": "Contributing & internals \u2192 Migration: troubleshooting/migration",
+      "note": "490-LOC version-migration guide; belongs in the walled-off Contributing/Migration estate with the other migration pages, not the user how-to front."
+    },
+    {
+      "current_path": "docs/source/reference/index.md",
+      "disposition": "REWRITE",
+      "target": "Reference/index (the ONE reference home)",
+      "note": "Single Reference estate landing; wire in session.md #26; mount autosummary-recursive api/ tree under it; api/ tree dissolved into this one home (#18 acceptance criterion)."
+    },
+    {
+      "current_path": "docs/source/reference/pipeline_syntax.md",
+      "disposition": "REWRITE",
+      "target": "Reference/Syntax: pipeline_syntax",
+      "note": "47 violations \u2014 sweep. Drop 'Dec 2025/Phase 3' footer #2. Param tables generated/validated against source. Backed by R01_pipeline_syntax. Links (not duplicates) generator keywords."
+    },
+    {
+      "current_path": "docs/source/reference/pipeline_keywords.md",
+      "disposition": "KEEP",
+      "target": "Reference/Syntax: pipeline_keywords",
+      "note": "Canonical keyword reference; backed by R03_all_keywords. Keep; sweep style."
+    },
+    {
+      "current_path": "docs/source/reference/generator_keywords.md",
+      "disposition": "KEEP",
+      "target": "Reference/Syntax: generator_keywords (THE canonical generator page)",
+      "note": "#38 generator syntax triplicated \u2014 make THIS the one canonical page; pipeline_syntax + combination_generator link here. Backed by R02_generator_reference."
+    },
+    {
+      "current_path": "docs/source/reference/combination_generator.md",
+      "disposition": "MERGE",
+      "target": "Reference/Syntax: generator_keywords",
+      "note": "#38 \u2014 merge into the canonical generator_keywords page (drift source). Delete after merge; leave a link/anchor."
+    },
+    {
+      "current_path": "docs/source/reference/operator_catalog.md",
+      "disposition": "KEEP",
+      "target": "Reference/Operator catalog: operator_catalog",
+      "note": "Catalog index of operators; keep as Reference operator-catalog landing."
+    },
+    {
+      "current_path": "docs/source/reference/transforms.md",
+      "disposition": "KEEP",
+      "target": "Reference/Operator catalog: transforms",
+      "note": "Operator reference table; keep. Fix any phantom class names if present (cross-check #10)."
+    },
+    {
+      "current_path": "docs/source/reference/models.md",
+      "disposition": "KEEP",
+      "target": "Reference/Operator catalog: models",
+      "note": "FIX #27 SNV() un-imported in example. Operator reference; keep."
+    },
+    {
+      "current_path": "docs/source/reference/splitters.md",
+      "disposition": "KEEP",
+      "target": "Reference/Operator catalog: splitters",
+      "note": "Operator reference table; keep; sweep style."
+    },
+    {
+      "current_path": "docs/source/reference/filters.md",
+      "disposition": "KEEP",
+      "target": "Reference/Operator catalog: filters",
+      "note": "Operator reference table; keep."
+    },
+    {
+      "current_path": "docs/source/reference/augmentations.md",
+      "disposition": "KEEP",
+      "target": "Reference/Operator catalog: augmentations",
+      "note": "Operator reference; absorbs the catalog half of user_guide augmentations.md #40. Keep."
+    },
+    {
+      "current_path": "docs/source/reference/predictions_api.md",
+      "disposition": "REWRITE",
+      "target": "Reference/Public API: curated run/predict contract pages",
+      "note": "#23 run() reference omits refit/cache/project/report_naming \u2014 add with defaults. Becomes/feeds the curated public-API contract pages for run+predict. Owns signatures (SSOT)."
+    },
+    {
+      "current_path": "docs/source/reference/configuration.md",
+      "disposition": "MERGE",
+      "target": "Reference/Configuration: configuration/index",
+      "note": "392-LOC duplicate of the configuration/ subtree. Merge into reference/configuration/index.md (one Configuration home); delete the flat duplicate."
+    },
+    {
+      "current_path": "docs/source/reference/configuration/index.md",
+      "disposition": "KEEP",
+      "target": "Reference/Configuration: index",
+      "note": "Canonical Configuration landing; absorbs the flat configuration.md. Keep."
+    },
+    {
+      "current_path": "docs/source/reference/configuration/cache_config.md",
+      "disposition": "KEEP",
+      "target": "Reference/Configuration: cache_config",
+      "note": "CacheConfig reference; keep; linked from How-to/Pipelines cache_optimization."
+    },
+    {
+      "current_path": "docs/source/reference/storage.md",
+      "disposition": "REWRITE",
+      "target": "Reference/Storage & workspace: storage (canonical, merged)",
+      "note": "#18 \u2014 absorb api/storage.md then delete the api twin; drop the 'Version 5.0'/legacy runs/ duplication. Single storage schema home (~404 LOC canonical)."
+    },
+    {
+      "current_path": "docs/source/reference/workspace.md",
+      "disposition": "REWRITE",
+      "target": "Reference/Storage & workspace: workspace (canonical, merged)",
+      "note": "#18 \u2014 absorb api/workspace.md (drop the 100%-duplicate PipelineLibrary section); keep the 'no runs/' principle (208 LOC canonical)."
+    },
+    {
+      "current_path": "docs/source/reference/metrics.md",
+      "disposition": "KEEP",
+      "target": "Reference/Metrics",
+      "note": "Metric-registry reference; keep; mode badge."
+    },
+    {
+      "current_path": "docs/source/reference/cli.md",
+      "disposition": "REWRITE",
+      "target": "Reference/CLI",
+      "note": "FIX #24 remove the '- runs/' line that contradicts workspace 'no runs/' design. Keep as CLI reference."
+    },
+    {
+      "current_path": "docs/source/reference/api/session.md",
+      "disposition": "MOVE",
+      "target": "Reference/Session reference (wired into reference/index)",
+      "note": "#26 orphaned \u2014 wire into reference/index. Part of the curated public-API contract (session/load_session/Session)."
+    },
+    {
+      "current_path": "docs/source/api/module_api.md",
+      "disposition": "MERGE",
+      "target": "Reference/Public API: curated contract pages",
+      "note": "#18/#22 \u2014 fold into the curated public-API pages; FIX predict() first param doc 'source' \u2192 'model'. Then DELETE the api/ twin."
+    },
+    {
+      "current_path": "docs/source/api/sklearn_integration.md",
+      "disposition": "MOVE",
+      "target": "Reference/Public API: sklearn page",
+      "note": "#18 \u2014 clean (health 4); move into reference/ as the sklearn integration reference (NIRSPipeline/NIRSPipelineClassifier). Delete api/ original."
+    },
+    {
+      "current_path": "docs/source/api/storage.md",
+      "disposition": "DELETE",
+      "target": "Merged \u2192 reference/storage.md, then deleted",
+      "note": "#18 \u2014 794-LOC duplicate carrying 'Version 5.0' + legacy runs/ framing. Content merged into reference/storage; api twin deleted. 'two trees document one surface' becomes impossible."
+    },
+    {
+      "current_path": "docs/source/api/workspace.md",
+      "disposition": "DELETE",
+      "target": "Merged \u2192 reference/workspace.md, then deleted",
+      "note": "#18 \u2014 125-LOC, PipelineLibrary section 100% duplicate. Merged into reference/workspace; api twin deleted."
+    },
+    {
+      "current_path": "docs/source/api/*.rst (357 autodoc stubs)",
+      "disposition": "REWRITE",
+      "target": "Reference/reference/api/ (autosummary-recursive, mounted UNDER reference)",
+      "note": "Replace 357 hand-touched stubs with one autosummary-recursive root under reference/api/ (Candidate 3 zero-drift). New public symbols self-heal; no manual edits. One tree only."
+    },
+    {
+      "current_path": "docs/source/developer/index.md",
+      "disposition": "REWRITE",
+      "target": "Contributing & internals/index",
+      "note": "#6 developer/ overlapped onboarding/. Becomes the walled-off Contributing estate landing \u2014 separate audience, never a user front door; internally split by the four modes."
+    },
+    {
+      "current_path": "docs/source/developer/architecture.md",
+      "disposition": "KEEP",
+      "target": "Contributing/Architecture: architecture",
+      "note": "Internals architecture page; keep in Contributing; de-duplicate against pipeline_architecture."
+    },
+    {
+      "current_path": "docs/source/developer/pipeline_architecture.md",
+      "disposition": "KEEP",
+      "target": "Contributing/Architecture: pipeline_architecture",
+      "note": "Keep; resolve the duplicated-architecture overlap with architecture.md (segment note)."
+    },
+    {
+      "current_path": "docs/source/developer/outputs_vs_artifacts.md",
+      "disposition": "KEEP",
+      "target": "Contributing/Architecture: outputs_vs_artifacts",
+      "note": "Internals concept; keep in Contributing."
+    },
+    {
+      "current_path": "docs/source/developer/controllers.md",
+      "disposition": "KEEP",
+      "target": "Contributing/Extending: controllers (+ onboarding/controllers_intro)",
+      "note": "Absorbs onboarding/controllers_intro. The @register_controller extension guide; keep in Contributing/Extending."
+    },
+    {
+      "current_path": "docs/source/developer/caching.md",
+      "disposition": "REWRITE",
+      "target": "Contributing/Internals: caching",
+      "note": "#33 internal Phase/roadmap leakage \u2014 strip roadmap, rewrite intro problem-statement-first. Keep in Contributing/Internals."
+    },
+    {
+      "current_path": "docs/source/developer/artifacts.md",
+      "disposition": "KEEP",
+      "target": "Contributing/Internals: artifacts",
+      "note": "Internals; keep in Contributing."
+    },
+    {
+      "current_path": "docs/source/developer/artifacts_internals.md",
+      "disposition": "REWRITE",
+      "target": "Contributing/Internals: artifacts_internals",
+      "note": "#28 DependencyGraph.topological_sort() example mismatches source (real: add_dependency/get_dependencies/check_cycle) \u2014 relabel illustrative or fix."
+    },
+    {
+      "current_path": "docs/source/developer/metadata.md",
+      "disposition": "REWRITE",
+      "target": "Contributing/Internals: metadata",
+      "note": "#29 imports fictional browse_folder \u2014 replace with real config entry point. Keep in Contributing/Internals."
+    },
+    {
+      "current_path": "docs/source/developer/synthetic.md",
+      "disposition": "REWRITE",
+      "target": "Contributing/Internals: synthetic",
+      "note": "#33 Phase/roadmap leakage \u2014 strip; problem-statement-first intro. Keep in Contributing/Internals."
+    },
+    {
+      "current_path": "docs/source/developer/testing.md",
+      "disposition": "KEEP",
+      "target": "Contributing/Testing & dev gallery",
+      "note": "Testing/dev guide; keep in Contributing; links the D-track example gallery."
+    },
+    {
+      "current_path": "docs/source/migration/duckdb_to_sqlite.md",
+      "disposition": "MOVE",
+      "target": "Contributing & internals \u2192 Migration: duckdb_to_sqlite",
+      "note": "Storage-migration internals; moves into the walled-off Contributing/Migration group."
+    },
+    {
+      "current_path": "docs/source/migration/storage_migration_webapp.md",
+      "disposition": "MOVE",
+      "target": "Contributing & internals \u2192 Migration: storage_migration_webapp",
+      "note": "Webapp/storage migration internals; moves into Contributing/Migration."
+    },
+    {
+      "current_path": "docs/source/examples/index.md",
+      "disposition": "REWRITE",
+      "target": "Examples gallery/index (sphinx-gallery generated)",
+      "note": "#16 stale example counts \u2014 derive count programmatically from disk. Becomes the generated gallery landing; tagged by Tutorial lesson / How-to recipe. Hand-written wrapper deleted/regenerated."
+    },
+    {
+      "current_path": "docs/source/examples/user/getting_started.md",
+      "disposition": "DELETE",
+      "target": "Regenerated \u2192 Examples gallery (U track, 01_getting_started)",
+      "note": "Drifted hand-written wrapper; replaced by sphinx-gallery render of examples/user/01_getting_started/*.py. Surfaced under Tutorial mapping."
+    },
+    {
+      "current_path": "docs/source/examples/user/data_handling.md",
+      "disposition": "DELETE",
+      "target": "Regenerated \u2192 Examples gallery (U track, 02_data_handling)",
+      "note": "Wrapper deleted; gallery generated from 02_data_handling/*.py; mapped to How-to/Data."
+    },
+    {
+      "current_path": "docs/source/examples/user/preprocessing.md",
+      "disposition": "DELETE",
+      "target": "Regenerated \u2192 Examples gallery (U track, 03_preprocessing)",
+      "note": "Wrapper deleted; gallery from 03_preprocessing/*.py; mapped to How-to/Preprocessing+Augmentation."
+    },
+    {
+      "current_path": "docs/source/examples/user/models.md",
+      "disposition": "DELETE",
+      "target": "Regenerated \u2192 Examples gallery (U track, 04_models)",
+      "note": "#17 U05_advanced_finetuning/U06_tabpfn_nirs undocumented \u2014 generation self-surfaces them. Wrapper deleted; gallery from 04_models/*.py."
+    },
+    {
+      "current_path": "docs/source/examples/user/cross_validation.md",
+      "disposition": "DELETE",
+      "target": "Regenerated \u2192 Examples gallery (U track, 05_cross_validation)",
+      "note": "#17 U05_tagging_analysis/U06_exclusion_strategies undocumented \u2014 generation self-surfaces. Wrapper deleted; gallery from 05_cross_validation/*.py."
+    },
+    {
+      "current_path": "docs/source/examples/user/deployment.md",
+      "disposition": "DELETE",
+      "target": "Regenerated \u2192 Examples gallery (U track, 06_deployment)",
+      "note": "#15 U21/U22 dead refs die with the wrapper. Gallery from 06_deployment/*.py; mapped to How-to/Deployment."
+    },
+    {
+      "current_path": "docs/source/examples/user/explainability.md",
+      "disposition": "DELETE",
+      "target": "Regenerated \u2192 Examples gallery (U track, 07_explainability)",
+      "note": "#12 SklearnWrapper\u2192NIRSPipeline drift dies with the wrapper. Gallery from 07_explainability/*.py; mapped to How-to/Visualization."
+    },
+    {
+      "current_path": "docs/source/examples/developer.md",
+      "disposition": "DELETE",
+      "target": "Regenerated \u2192 Examples gallery (D track, under Contributing)",
+      "note": "522-LOC hand-written dev wrapper; replaced by sphinx-gallery render of examples/developer/**/*.py under Contributing testing/dev gallery."
+    },
+    {
+      "current_path": "examples/user/01_getting_started/*.py (U01\u2013U04)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (U) \u2192 Tutorial L1/L8 backing + per-PR CI subset",
+      "note": "Literal gallery source AND integration tests. U01_hello_world backs Tutorial L1; U04_visualization backs L8. In the fast per-PR subset #19."
+    },
+    {
+      "current_path": "examples/user/02_data_handling/*.py (U01\u2013U06)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (U) \u2192 How-to/Data backing",
+      "note": "U05/U06 synthetic now surfaced via generation #17. must-call-run() gate applies. Backs How-to/Data + Tutorial L3."
+    },
+    {
+      "current_path": "examples/user/03_preprocessing/*.py (U01\u2013U06)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (U) \u2192 How-to/Preprocessing+Augmentation backing",
+      "note": "Highest violation density (U01:9) \u2014 sweep to inline. Backs Tutorial L2/L11 + How-to/Preprocessing. In CI subset."
+    },
+    {
+      "current_path": "examples/user/04_models/*.py (U01\u2013U06)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (U) \u2192 How-to/Models backing",
+      "note": "U05_advanced_finetuning/U06_tabpfn_nirs now surfaced #17. Fix tabpfn path #37. Backs Tutorial L5/L9."
+    },
+    {
+      "current_path": "examples/user/05_cross_validation/*.py (U01\u2013U06)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (U) \u2192 How-to/CV + Data backing",
+      "note": "U03_sample_filtering/U05_tagging_analysis/U06_exclusion_strategies back How-to/Data filtering; U01/U02 back Tutorial L4. Sweep style."
+    },
+    {
+      "current_path": "examples/user/06_deployment/*.py (U01\u2013U04)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (U) \u2192 How-to/Deployment backing + Tutorial L12",
+      "note": "Only U01\u2013U04 exist (kills U21/U22 myth #15). U01_save_load_predict backs predict() reuse; U02_export_bundle backs L12. Reuse-comparison style exception may apply (allowlist)."
+    },
+    {
+      "current_path": "examples/user/07_explainability/*.py (U01\u2013U03)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (U) \u2192 How-to/Visualization (shap) backing + Tutorial residue",
+      "note": "Bare-class style is VALID #21 (not a bug). U02_shap_sklearn uses NIRSPipeline (fixes #12 drift at source). Backs explain() how-to."
+    },
+    {
+      "current_path": "examples/developer/01_advanced_pipelines/*.py (D01\u2013D07)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (D, under Contributing) \u2192 branching/merging proofs",
+      "note": "D05_meta_stacking is the real stacking example (#8 D04_stacking was a phantom ref). Heavy style \u2014 sweep. Mapped to Explanation/branching_and_merging + How-to."
+    },
+    {
+      "current_path": "examples/developer/02_generators/*.py (D01\u2013D09)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (D) \u2192 generator + synthesis proofs",
+      "note": "D05\u2013D09 are synthesis/utility scripts \u2014 the documented STYLE.md exception class (b). D01\u2013D04 back generator reference/how-to."
+    },
+    {
+      "current_path": "examples/developer/03_deep_learning/*.py (D01\u2013D04)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (D) \u2192 How-to/Models deep_learning backing",
+      "note": "PyTorch/JAX/TF/comparison; backs How-to/Models deep_learning. Lazy-loaded backends; nightly full-suite CI."
+    },
+    {
+      "current_path": "examples/developer/04_transfer_learning/*.py (D01\u2013D03)",
+      "disposition": "REWRITE",
+      "target": "Examples gallery (D) \u2192 How-to/Deployment retrain_transfer backing",
+      "note": "#20 FIX wrong import paths (TransferPreprocessingSelector / PreprocPCAEvaluator) so the feature actually demos. D02_retrain_modes backs L13."
+    },
+    {
+      "current_path": "examples/developer/05_advanced_features/*.py (D01\u2013D03)",
+      "disposition": "REWRITE",
+      "target": "Examples gallery (D) \u2192 must-call-run() gate targets",
+      "note": "#32 D01_metadata_branching + D03_repetition_transform have 0 run() calls \u2014 add execution or mark '# syntax-only'. D02_concat_transform backs concat_transform how-to."
+    },
+    {
+      "current_path": "examples/developer/06_internals/*.py (D01\u2013D05)",
+      "disposition": "KEEP",
+      "target": "Examples gallery (D) \u2192 Contributing internals backing",
+      "note": "D01_session_workflow backs session_api; D03_cache_performance backs cache_optimization. Reuse/comparison style exception may apply (allowlist)."
+    },
+    {
+      "current_path": "examples/reference/R01,R02,R03,R05,R06,R07.py",
+      "disposition": "KEEP",
+      "target": "Examples gallery (R) \u2192 wired to Reference pages",
+      "note": "R01\u2192pipeline_syntax, R02\u2192generator_keywords, R03\u2192pipeline_keywords; R05\u2013R07 synthetic validation. Canonical-syntax proofs; literalinclude source for Reference."
+    },
+    {
+      "current_path": "examples/predictions.ipynb",
+      "disposition": "DELETE",
+      "target": "Converted \u2192 examples/reference/R04_visualization.py, then notebook deleted",
+      "note": "#14/#34 \u2014 1.8MB health-1/5 notebook, un-CI'd, broken Predictions.load()/_storage._df. Convert to runnable R04 on public PredictionAnalyzer API (fills R04 gap), delete the notebook."
+    },
+    {
+      "current_path": "examples/aom_paper/, pipeline_samples/, sample_data/, scripts/, _internal/, ci_example_launcher.py, example_utils.py",
+      "disposition": "MOVE_TO_INTERNAL",
+      "target": "Contributing tooling / not in gallery",
+      "note": "Non-user-facing tooling. #35 example_utils.py:134 emoji ignores DISABLE_EMOJI \u2014 fix. Fed by the one disk-derived manifest #16; not surfaced as gallery pages."
+    },
+    {
+      "current_path": "Roadmap.md (repo root)",
+      "disposition": "MOVE_TO_INTERNAL",
+      "target": "docs/_internal/ + About \u2192 roadmap pointer",
+      "note": "#33 public brain-dump roadmap. Move to docs/_internal (or ROADMAP.md); About page carries only a pointer. Keep Phase/roadmap leakage out of user docs."
+    },
+    {
+      "current_path": "README.md / CLAUDE.md / INSTALLATION (root meta)",
+      "disposition": "REWRITE",
+      "target": "Root meta (license/version source-of-truth) + About estate",
+      "note": "#1 root CLAUDE.md:3 CeCILL-only \u2192 dual AGPL-3.0-or-later; #2 README citation 0.9.0\u21920.9.1. README is correct on license (430-431) \u2014 make it the templated source for About/license + citation."
+    }
+  ],
+  "deletions": [
+    "docs/source/getting_started/concepts.md \u2014 competing front door (#6); residue \u2192 Explanation; deletion removes a drift source permanently (Candidate 1 law).",
+    "docs/source/onboarding/persona_paths.md \u2014 fake load_dataset() (#7) + 5 broken example refs (#8) + 4th-front-door overlap (#6); verb/goal routing survives only as nav cards.",
+    "docs/source/onboarding/index.md \u2014 competing front-door landing (#6); children re-homed to Explanation/Contributing, no re-link.",
+    "docs/source/api/storage.md \u2014 794-LOC duplicate of reference/storage.md carrying 'Version 5.0'/legacy runs/ (#18); merged then deleted.",
+    "docs/source/api/workspace.md \u2014 PipelineLibrary section 100% duplicate of reference/workspace.md (#18); merged then deleted.",
+    "docs/source/api/module_api.md \u2014 folds into curated reference public-API pages (#18/#22); api twin deleted.",
+    "docs/source/api/sklearn_integration.md \u2014 moved to reference/ sklearn page; api original deleted (one Reference home, #18).",
+    "docs/source/reference/combination_generator.md \u2014 merged into the ONE canonical generator_keywords page (#38 generator-syntax drift); deleted after merge.",
+    "docs/source/reference/configuration.md \u2014 392-LOC duplicate of the configuration/ subtree; merged into configuration/index.md then deleted.",
+    "docs/source/examples/user/getting_started.md, data_handling.md, preprocessing.md, models.md, cross_validation.md, deployment.md, explainability.md \u2014 7 drifted hand-written wrappers (#16/#17/#12/#15); replaced by sphinx-gallery generated from examples/*.py.",
+    "docs/source/examples/developer.md \u2014 522-LOC hand-written dev wrapper; replaced by generated D-track gallery under Contributing.",
+    "examples/predictions.ipynb \u2014 1.8MB health-1/5 un-CI'd notebook with broken Predictions.load()/_storage._df (#14/#34); converted to R04_visualization.py then deleted.",
+    "ai_onboarding.md removed from the HUMAN toctree (not file-deleted) \u2014 becomes non-nav llms.txt machine file (#6).",
+    "Roadmap.md removed from any user-facing surface \u2014 relocated to docs/_internal (#33)."
+  ],
+  "merges": [
+    "getting_started/quickstart.md + getting_started/tutorial.md + getting_started/index.md \u2192 ONE on-ramp (Get Started page) + the linear Tutorial rail (single canonical learning path, kills competing quickstarts #6).",
+    "onboarding/data_workflow.md + onboarding/pipeline_workflow.md + getting_started/concepts.md residue \u2192 Explanation/datasets and Explanation/pipelines (concept taught ONCE, #6).",
+    "user_guide/scoring_and_refit.md + user_guide/predictions/understanding_predictions.md (concept half) \u2192 Explanation/predictions_and_deployment (single predictions-concept home).",
+    "onboarding/controllers_intro.md + developer/controllers.md \u2192 Contributing/Extending: controllers (one controller-extension guide).",
+    "api/storage.md \u2192 reference/storage.md ; api/workspace.md \u2192 reference/workspace.md ; api/module_api.md + api/sklearn_integration.md \u2192 curated Reference public-API pages (api/ tree dissolved, #18).",
+    "reference/combination_generator.md + generator-syntax bits of pipeline_syntax.md \u2192 the ONE canonical reference/generator_keywords.md (#38).",
+    "reference/configuration.md \u2192 reference/configuration/index.md (single Configuration home).",
+    "user_guide/preprocessing/index.md + overview.md \u2192 one Preprocessing How-to group header + technique residue folded into handbook.md.",
+    "user_guide/predictions/exporting_models.md + user_guide/deployment/export_bundles.md \u2192 How-to/Deployment export recipe (one export home, fixes U21/U22 #15).",
+    "All user_guide/*/index.md section landings \u2192 folded into the single How-to guides/index (goal-titled groups)."
+  ],
+  "new_pages": [
+    "Start here / index.md (thin router) \u2014 ONE 'Start here \u2192 first run' CTA + 4 Di\u00e1taxis mode cards + Examples card + small 'I already have a goal \u2192' nav block; teaches nothing.",
+    "Get Started / first run \u2014 install + zero-data generate.regression() inline run() + print(result.best_rmse); single forward link 'Continue to the Tutorial \u2192' (the GROUND_TRUTH-verified canonical snippet, literalinclude-tied to a CI-run example).",
+    "Tutorial rail, 13 lessons (L1 first model/swap synthetic\u2192own folder, L2 preprocessing/SNV, L3 datasets, L4 CV, L5 models+scoring/refit, L6 results+predict(), L7 classification, L8 visualization, L9 hyperparameter tuning, L10 branching+merging, L11 augmentation, L12 export+deploy, L13 retrain+transfer) \u2014 one new concept each, runnable inline run() each, mode badges, prev/next rail, sideways 'Why it works \u2192'/'Run this yourself \u2192' links.",
+    "Explanation/index + Explanation/overview (mental_models) + Explanation/workspace_and_reproducibility \u2014 assembled from onboarding residue; the SINGLE concept home.",
+    "Reference/Public API curated contract pages: run, predict, explain, retrain, session/load_session/Session, generate + RunResult/PredictResult/ExplainResult \u2014 narrative+signatures, SSOT; run() completed with refit/cache/project/report_naming #23.",
+    "Reference/api/ autosummary-recursive root (replaces the 357 hand stubs; zero-drift, self-heals on new public symbols).",
+    "examples/reference/R04_visualization.py \u2014 runnable PredictionAnalyzer example converted from predictions.ipynb (fills R04 gap #34, wired to How-to/Visualization + analyzing_results).",
+    "Examples gallery/index \u2014 sphinx-gallery generated from examples/*.py, tagged by Tutorial lesson / How-to recipe, counts derived from disk (#16).",
+    "Contributing & internals/index \u2014 walled-off estate landing (separate audience, never a user front door), internally split by the four modes.",
+    "Contributing/Documentation style \u2192 STYLE.md \u2014 the inline-pipeline mandate + the 3-class machine-readable allowlist the CI lint consumes (auditable, cannot silently widen).",
+    "About estate \u2014 changelog, license (dual AGPL-3.0-or-later default, source-templated from LICENSE), citation (source-templated, 0.9.1), roadmap pointer; all metadata-from-source.",
+    "llms.txt \u2014 non-nav machine file regenerated from canonical anchors (ex ai_onboarding.md), metadata-from-source.",
+    "Explanation/index 'placement rule' contributing checklist (mechanical: 'which mode is the reader's posture?') \u2014 governs where any NEW page goes, embedded in Contributing."
+  ],
+  "summary": "Page-by-page migration map from today's 119 narrative md pages + 5 hand-written api/ pages + ~80 examples + predictions.ipynb + root meta to the chosen HYBRID IA (strict-Di\u00e1taxis SSOT backbone + FastAPI Tutorial spine + generated Reference/gallery + walled-off Contributing). Borrowed patterns are named per estate: Di\u00e1taxis four-mode split and the structural SSOT law ('Explanation owns why, Reference owns signatures, they only link') as the backbone; FastAPI's tutorial-first single linear rail with one-CTA-per-on-ramp and one-concept-per-page as the Tutorials arm; scikit-learn's User-Guide(How-to)+API-Reference+executable-gallery separation; Polars/Pydantic mkdocs-material clarity + mode badges; and scikit-learn/Candidate-3's generate-from-source (autosummary-recursive + sphinx-gallery) for the drift-prone Reference and Examples estates. The four competing front doors collapse to ONE thin router: getting_started/concepts.md, persona_paths.md, onboarding/index.md are DELETED; ai_onboarding.md and Roadmap.md leave the human toctree (\u2192 llms.txt / docs/_internal). The api/ tree is DISSOLVED into reference/ (storage/workspace merged then api twins deleted; module_api+sklearn folded into curated public-API pages; 357 stubs replaced by an autosummary-recursive root; combination_generator + the flat configuration.md merged away), making 'two trees document one surface' structurally impossible (#18). All user_guide/* re-homed into How-to with embedded concepts stripped up to a single Explanation home (concepts/ promoted + onboarding/* + scoring_and_refit absorbed). All 8 hand-written examples wrapper pages are deleted and regenerated as a gallery from the real examples/*.py; predictions.ipynb converts to R04_visualization.py. Every audit defect #1\u2013#40 is folded into a specific page's disposition note, and the audit's four \u00a78 mandates (one learning path/one SSOT, style-as-infrastructure, docs-in-the-safety-net, metadata-from-source) are carried by the new STYLE.md, the generated estates, and the About/llms.txt source-templating. Every existing top-level area is covered: getting_started, concepts, onboarding, ai_onboarding, user_guide/*, reference/*, api/*, developer/*, migration/*, examples/* (incl. predictions.ipynb), and root meta."
+}
