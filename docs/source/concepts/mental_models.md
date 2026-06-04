@@ -262,10 +262,8 @@ Now that you have the big picture, you can dive deeper:
 
 - **[Data Workflow](data_workflow.md)** — Learn how `SpectroDataset` works
 - **[Pipeline Workflow](pipeline_workflow.md)** — Understand execution flow
-- **[Controllers Intro](controllers_intro.md)** — See how to extend the system
+- **[Controllers Intro](../developer/controllers_intro.md)** — See how to extend the system
 - **[Workspace Intro](workspace_intro.md)** — Explore persistence and replay
-
-Or jump to [Persona Paths](persona_paths.md) for a tailored learning path based on your role.
 
 ```{seealso}
 **Related Examples:**

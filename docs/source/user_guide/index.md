@@ -15,6 +15,7 @@ deployment/index
 visualization/index
 troubleshooting/index
 logging
+scoring_and_refit
 ```
 
 ## Overview

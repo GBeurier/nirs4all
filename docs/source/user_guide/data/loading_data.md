@@ -395,7 +395,7 @@ dataset = DatasetConfigs({
 
 ## See Also
 
-- {doc}`/getting_started/concepts` - Understanding SpectroDataset
+- {doc}`/concepts/datasets` - Understanding SpectroDataset
 - {doc}`/reference/configuration` - Full DatasetConfigs specification
 - {doc}`sample_filtering` - Filter samples during loading
 - {doc}`aggregation` - Aggregate multiple measurements

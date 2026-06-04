@@ -415,11 +415,10 @@ artifact_id = runtime_context.artifact_registry.register(
 
 Now that you understand controllers, explore:
 
-- **[Pipeline Workflow](pipeline_workflow.md)** — See how controllers fit into execution
-- **[Data Workflow](data_workflow.md)** — Learn how controllers interact with datasets
-- **[Persona Paths](persona_paths.md)** — Find your tailored learning path
+- **[Pipeline Workflow](../concepts/pipeline_workflow.md)** — See how controllers fit into execution
+- **[Data Workflow](../concepts/data_workflow.md)** — Learn how controllers interact with datasets
 
-Or dive into the [Developer Guide](../developer/index.md) for controller implementation details.
+Or dive into the [Developer Guide](index.md) for controller implementation details.
 
 ```{seealso}
 **Related Examples:**

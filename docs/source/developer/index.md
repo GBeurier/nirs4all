@@ -8,6 +8,7 @@ Documentation for developers who want to understand NIRS4ALL internals or contri
 architecture
 pipeline_architecture
 controllers
+controllers_intro
 caching
 artifacts
 artifacts_internals
@@ -16,6 +17,8 @@ outputs_vs_artifacts
 synthetic
 testing
 documentation_style
+../migration/duckdb_to_sqlite
+../migration/storage_migration_webapp
 ```
 
 ## Overview
