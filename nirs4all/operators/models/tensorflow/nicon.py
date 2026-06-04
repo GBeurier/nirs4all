@@ -886,24 +886,6 @@ def customizable_decon_classification(input_shape, num_classes=2, params=None):
 
     return model
 
-@framework('tensorflow')
-def decon_layer_classification(input_shape, num_classes=2, params=None):
-    """
-    Builds a model using depthwise separable convolutions and layer normalization for classification.
-    Alias for customizable_decon_classification for backward compatibility.
-
-    Parameters:
-        input_shape (tuple): Shape of the input data.
-        num_classes (int): Number of classes for classification.
-        params (dict): Dictionary of parameters for model configuration.
-
-    Returns:
-        keras.Model: Compiled classification model.
-    """
-    if params is None:
-        params = {}
-    return customizable_decon_classification(input_shape, num_classes, params)
-
 def transformer_model_classification(input_shape, num_classes=2, params=None):
     """
     Builds a transformer model for 1D data classification.

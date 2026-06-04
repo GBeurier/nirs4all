@@ -89,7 +89,7 @@ AOM-PLS provides `default_operator_bank()` and `extended_operator_bank()` helper
 
 Available featurizers for `OKLMPLS`: `IdentityFeaturizer`, `PolynomialFeaturizer`, `RBFFeaturizer`.
 
-Available featurizers for `FCKPLS`: `FractionalConvFeaturizer`, `FractionalPLS`.
+Available featurizers for `FCKPLS`: `FractionalConvFeaturizer`.
 
 ---
 

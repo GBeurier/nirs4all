@@ -186,7 +186,7 @@ class StepRunner:
                 prediction_store=prediction_store
             )
 
-            # Handle both legacy (context, artifacts) and new (context, StepOutput) returns
+            # Controllers return either (context, artifacts) or (context, StepOutput)
             if not isinstance(controller_result, tuple) or len(controller_result) != 2:
                 raise RuntimeError(
                     "Controller returned an invalid result format. "
@@ -211,7 +211,7 @@ class StepRunner:
                     outputs=output_data.outputs
                 )
 
-            # Legacy format: output_data is list of artifacts
+            # output_data is a list of artifacts
             return StepResult(
                 updated_context=updated_context,
                 artifacts=output_data or [],

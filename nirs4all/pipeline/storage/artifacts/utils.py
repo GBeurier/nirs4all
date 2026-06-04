@@ -206,16 +206,14 @@ def get_short_hash(content_hash: str, length: int = 12) -> str:
         hash_value = hash_value[7:]
     return hash_value[:length]
 
-def get_binaries_path(workspace: Path, dataset: str) -> Path:
+def get_binaries_path(workspace: Path) -> Path:
     """Get the centralized artifacts directory.
 
     All artifacts are stored at workspace/artifacts/ using content-addressed
-    filenames for deduplication.  The *dataset* parameter is accepted for
-    backward-compatible call-sites but is no longer used in the path.
+    filenames for deduplication.
 
     Args:
         workspace: Workspace root path
-        dataset: Dataset name (unused — kept for API compatibility)
 
     Returns:
         Path to artifacts directory

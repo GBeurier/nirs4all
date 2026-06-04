@@ -242,10 +242,6 @@ def is_disjoint_branch(branch_context: dict[str, Any]) -> bool:
     if "sample_partition" in custom:
         return True
 
-    # Check for metadata_partition key (from MetadataPartitionerController)
-    if "metadata_partition" in custom:
-        return True
-
     # Check for partition_info key (from both partitioners)
     partition_info = branch_context.get("partition_info")
     return bool(partition_info and "sample_indices" in partition_info)
@@ -296,13 +292,6 @@ def detect_disjoint_branches(
             has_disjoint = True
             branch_type = BranchType.SAMPLE_PARTITIONER
             sample_indices = custom["sample_partition"].get("sample_indices", [])
-
-        # Check for metadata_partition (MetadataPartitionerController)
-        elif "metadata_partition" in custom:
-            has_disjoint = True
-            branch_type = BranchType.METADATA_PARTITIONER
-            sample_indices = custom["metadata_partition"].get("sample_indices", [])
-            partition_column = custom["metadata_partition"].get("column")
 
         # Check partition_info (fallback, from both controllers)
         elif "sample_indices" in partition_info:
@@ -1714,7 +1703,6 @@ class MergeController(OperatorController):
         result_context = context.copy()
         result_context.custom["branch_contexts"] = []
         result_context.custom["in_branch_mode"] = False
-        result_context.custom["metadata_partitioner_active"] = False
         result_context.custom["sample_partitioner_active"] = False
 
         # Update context processing
@@ -1868,7 +1856,6 @@ class MergeController(OperatorController):
         result_context = context.copy()
         result_context.custom["branch_contexts"] = []
         result_context.custom["in_branch_mode"] = False
-        result_context.custom["metadata_partitioner_active"] = False
         result_context.custom["sample_partitioner_active"] = False
 
         # Update context processing

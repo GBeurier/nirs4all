@@ -17,6 +17,12 @@ dropped in favour of the canonical AOM-PLS / POP-PLS family.
 
 from __future__ import annotations
 
+from nirs4all.operators.models._aom_nirs.pls.banks import (
+    bank_by_name,
+    compact_bank,
+    default_bank,
+    extended_bank,
+)
 from nirs4all.operators.models._aom_nirs.pls.estimators import (
     AOMPLSRegressor,
     POPPLSRegressor,
@@ -31,12 +37,6 @@ from nirs4all.operators.models._aom_nirs.pls.operators import (
     NorrisWilliamsOperator,
     SavitzkyGolayOperator,
     WhittakerOperator,
-)
-from nirs4all.operators.models._aom_nirs.pls.banks import (
-    bank_by_name,
-    compact_bank,
-    default_bank,
-    extended_bank,
 )
 
 

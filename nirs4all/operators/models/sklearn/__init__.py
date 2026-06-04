@@ -44,7 +44,7 @@ from .aom_ridge import (
     AOMRidgeRegressor,
 )
 from .dipls import DiPLS
-from .fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS
+from .fckpls import FCKPLS, FractionalConvFeaturizer
 from .ikpls import IKPLS
 from .ipls import IntervalPLS
 from .kopls import KOPLS
@@ -86,7 +86,6 @@ __all__ = [
     "PolynomialFeaturizer",
     "RBFFeaturizer",
     "FCKPLS",
-    "FractionalPLS",
     "FractionalConvFeaturizer",
     "AOMPLSRegressor",
     "POPPLSRegressor",

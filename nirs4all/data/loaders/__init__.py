@@ -70,11 +70,9 @@ from .base import (
 from .csv_loader_new import CSVLoader, load_csv
 from .excel_loader import ExcelLoader, load_excel
 from .matlab_loader import MatlabLoader, load_matlab
-from .numpy_loader import NumpyLoader, load_numpy
+from .numpy_loader import NumpyLoader
 from .parquet_loader import ParquetLoader, load_parquet
 
-# Backward-compatible alias kept for callers using the old symbol name.
-load_csv_new = load_csv
 
 def load_file(
     path: str | Path,
@@ -182,8 +180,6 @@ __all__ = [
     # Convenience functions
     "load_file",
     "load_csv",
-    "load_csv_new",
-    "load_numpy",
     "load_parquet",
     "load_excel",
     "load_matlab",

@@ -329,7 +329,7 @@ class Retrainer:
         self.runner = runner
         self.resolver = PredictionResolver(
             workspace_path=runner.workspace_path,
-            runs_dir=runner.runs_dir,
+            runs_dir=runner.workspace_path,
             store=runner.store,
         )
         self._resolved: ResolvedPrediction | None = None

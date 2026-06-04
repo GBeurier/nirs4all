@@ -104,8 +104,6 @@ class TestDatasetConfigSchema:
         config = DatasetConfigSchema(train_x="path/to/X.csv")
 
         assert config.train_x == "path/to/X.csv"
-        assert config.is_legacy_format() is True
-        assert config.is_files_format() is False
 
     def test_full_legacy_config(self):
         """Test full legacy format configuration."""

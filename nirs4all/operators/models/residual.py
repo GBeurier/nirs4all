@@ -83,7 +83,7 @@ class ResidualModel(BaseModelOperator):
         return params
 
     def set_params(self, **params) -> "ResidualModel":
-        nested = {"base": {}, "learner": {}}
+        nested: dict[str, dict[str, Any]] = {"base": {}, "learner": {}}
         for key, value in params.items():
             stage, _, sub = key.partition("__")
             if sub and stage in nested:
@@ -94,10 +94,10 @@ class ResidualModel(BaseModelOperator):
                 setattr(self, key, value)
             else:
                 raise ValueError(f"Unknown parameter: {key}")
-        for stage, sub in nested.items():
+        for stage, substage in nested.items():
             obj = getattr(self, stage)
-            if sub and hasattr(obj, "set_params"):
-                obj.set_params(**sub)
+            if substage and hasattr(obj, "set_params"):
+                obj.set_params(**substage)
         return self
 
     @property

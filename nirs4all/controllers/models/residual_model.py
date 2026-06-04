@@ -48,8 +48,9 @@ class ResidualModelController(OperatorController):
         if isinstance(operator, ResidualModel):
             return operator
         if isinstance(operator, dict):
-            if isinstance(operator.get("model"), ResidualModel):
-                return operator["model"]
+            model = operator.get("model")
+            if isinstance(model, ResidualModel):
+                return model
             if keyword == "residual" or {"base", "learner"} <= set(operator):
                 return ResidualModel(**operator)
         raise ValueError(f"ResidualModelController: could not resolve a ResidualModel "

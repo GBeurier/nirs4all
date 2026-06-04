@@ -18,7 +18,6 @@ from .backend import (
     TF_AVAILABLE,
     TORCH_AVAILABLE,
     BackendNotAvailableError,
-    check_backend_available,
     # Cache management
     clear_availability_cache,
     # Framework decorator
@@ -59,7 +58,6 @@ __all__ = [
 
     # Requirements
     'require_backend',
-    'check_backend_available',
     'BackendNotAvailableError',
 
     # Framework decorator

@@ -114,16 +114,11 @@ def show_figures(
             close_figures(figs)
 
 
-def figure_list(figures: Figure | list[Figure] | tuple[Figure, ...] | None) -> list[Figure]:
-    """Backward-compatible alias for normalize_figures()."""
-    return normalize_figures(figures)
-
-
 def keep_or_close_figures(
     figures: Figure | list[Figure] | tuple[Figure, ...] | None,
     *,
     visible: bool,
     figure_refs: list[Any] | None = None,
 ) -> list[Figure]:
-    """Backward-compatible alias for finalize_figures()."""
+    """Keep figures alive when visible, otherwise close them (wraps finalize_figures())."""
     return finalize_figures(figures, plots_visible=visible, figure_refs=figure_refs)

@@ -23,13 +23,6 @@ from .parsers import (
     ConfigNormalizer,
     normalize_config,
 )
-
-# Partition utilities (Phase 4)
-from .partition import (
-    PartitionAssigner,
-    PartitionError,
-    PartitionResult,
-)
 from .predictions import MergeReport, PredictionResult, PredictionResultsList, Predictions
 
 # Schema types (Phase 1 - new in refactoring)
@@ -44,18 +37,6 @@ from .schema import (
     ValidationError,
     ValidationResult,
     ValidationWarning,
-)
-
-# Selection utilities (Phase 3)
-from .selection import (
-    ColumnSelectionError,
-    ColumnSelector,
-    LinkingError,
-    RoleAssigner,
-    RoleAssignmentError,
-    RowSelectionError,
-    RowSelector,
-    SampleLinker,
 )
 
 # Signal type management
@@ -100,17 +81,4 @@ __all__ = [
     # Parsers (new)
     "ConfigNormalizer",
     "normalize_config",
-    # Selection (Phase 3)
-    "ColumnSelector",
-    "ColumnSelectionError",
-    "RowSelector",
-    "RowSelectionError",
-    "RoleAssigner",
-    "RoleAssignmentError",
-    "SampleLinker",
-    "LinkingError",
-    # Partition (Phase 4)
-    "PartitionAssigner",
-    "PartitionError",
-    "PartitionResult",
 ]

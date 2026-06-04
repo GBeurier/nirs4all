@@ -439,15 +439,6 @@ class PipelineRunner:
         return show_registered_figures(self._figure_refs, block=block, close=close)
 
     @property
-    def runs_dir(self) -> Path:
-        """Get runs directory (legacy compatibility).
-
-        Returns:
-            Path to workspace root (runs are now in SQLite, not filesystem)
-        """
-        return self.workspace_path
-
-    @property
     def last_aggregate(self) -> str | None:
         """Get aggregate column from the last executed dataset.
 
@@ -626,7 +617,7 @@ class PipelineRunner:
         # Resolve the prediction source
         resolver = PredictionResolver(
             workspace_path=self.workspace_path,
-            runs_dir=self.runs_dir,
+            runs_dir=self.workspace_path,
             store=self.store,
         )
         resolved = resolver.resolve(source, verbose=self.verbose)

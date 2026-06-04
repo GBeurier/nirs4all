@@ -176,7 +176,7 @@ nirs4all = ["py.typed"]
 [tool.ruff]
 line-length = 220
 target-version = "py311"
-extend-exclude = ["bench", "examples/exports", "examples/workspace"]
+extend-exclude = ["bench", "examples/exports", "examples/workspace", "nirs4all/operators/models/_aom_nirs"]  # _aom_nirs: vendored AOM paper code pending replacement — carved out of the gate (debt audit 2026-06-04)
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM"]
@@ -223,7 +223,13 @@ python_version = "3.11"
 warn_return_any = true
 warn_unused_ignores = true
 ignore_missing_imports = true
-exclude = ["bench", "build", "\\.venv", "docs/_build"]
+exclude = ["bench", "build", "\\.venv", "docs/_build", "nirs4all/operators/models/_aom_nirs/"]  # vendored AOM paper code pending replacement (debt audit 2026-06-04)
+
+# Vendored AOM paper code pending replacement — not type-checked to library standard (debt audit 2026-06-04).
+# `exclude` alone is insufficient because non-aom modules import from it; ignore_errors stops mypy following those imports into aom.
+[[tool.mypy.overrides]]
+module = "nirs4all.operators.models._aom_nirs.*"
+ignore_errors = true
 
 # Legacy tool configuration (for compatibility)
 [tool.pylint.'MESSAGES CONTROL']

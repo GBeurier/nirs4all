@@ -307,35 +307,6 @@ DELETE_CHAIN = "DELETE FROM chains WHERE chain_id = ?"
 
 QUERY_CHAIN_SUMMARY_BASE = "SELECT * FROM v_chain_summary"
 
-def build_aggregated_query(
-    *,
-    run_id: str | None = None,
-    pipeline_id: str | None = None,
-    chain_id: str | None = None,
-    dataset_name: str | None = None,
-    model_class: str | None = None,
-    metric: str | None = None,
-    score_scope: str = "cv",
-) -> tuple[str, list[object]]:
-    """Build a query against ``v_chain_summary``.
-
-    .. deprecated::
-        Use :func:`build_chain_summary_query` instead.  The *score_scope*
-        parameter is ignored — the chain summary view contains both CV
-        and final scores in each row.
-
-    Returns:
-        ``(sql, params)`` ready for ``conn.execute(sql, params)``.
-    """
-    return build_chain_summary_query(
-        run_id=run_id,
-        pipeline_id=pipeline_id,
-        chain_id=chain_id,
-        dataset_name=dataset_name,
-        model_class=model_class,
-        metric=metric,
-    )
-
 def build_chain_predictions_query(
     *,
     chain_id: str,
@@ -366,42 +337,6 @@ def build_chain_predictions_query(
     where = " WHERE " + " AND ".join(conditions)
     sql = f"SELECT * FROM predictions{where} ORDER BY partition, fold_id"
     return sql, params
-
-def build_top_aggregated_query(
-    *,
-    metric: str,
-    n: int = 10,
-    score_column: str = "avg_val_score",
-    ascending: bool = True,
-    run_id: str | None = None,
-    pipeline_id: str | None = None,
-    dataset_name: str | None = None,
-    model_class: str | None = None,
-    score_scope: str = "cv",
-) -> tuple[str, list[object]]:
-    """Build a ranking query on ``v_chain_summary``.
-
-    .. deprecated::
-        Use :func:`build_top_chains_query` instead.  The *score_scope*
-        parameter is ignored — the chain summary view contains both CV
-        and final scores in each row.
-
-    Returns:
-        ``(sql, params)`` ready for ``conn.execute(sql, params)``.
-
-    Raises:
-        ValueError: If *score_column* is not a valid aggregation column.
-    """
-    return build_top_chains_query(
-        metric=metric,
-        n=n,
-        score_column=score_column,
-        ascending=ascending,
-        run_id=run_id,
-        pipeline_id=pipeline_id,
-        dataset_name=dataset_name,
-        model_class=model_class,
-    )
 
 def build_prediction_query(
     *,

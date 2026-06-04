@@ -464,16 +464,7 @@ from .wavenumber import (
     # Core conversion functions
     wavenumber_to_wavelength,
 )
-from .wavenumber import (
-    classify_wavelength_zone as get_nir_zone,  # Alias for backward compatibility
-)
 
-
-# Backward-compatible alias for predefined components
-# Note: This is a function call, not a constant, to avoid circular imports
-def _get_predefined_components():
-    """Get predefined components (lazy loading to avoid circular imports)."""
-    return get_predefined_components()
 
 # Make PREDEFINED_COMPONENTS available as a module-level name for backward compat
 # Users should prefer get_predefined_components() for explicit behavior
@@ -621,7 +612,6 @@ __all__ = [
     "convert_bandwidth_to_wavelength",
     "NIR_ZONES_WAVENUMBER",
     "classify_wavelength_zone",
-    "get_nir_zone",  # Alias for classify_wavelength_zone
     "get_zone_wavelength_range",
     "get_all_zones_wavelength",
     # Visible-NIR extended zones (Phase 2)

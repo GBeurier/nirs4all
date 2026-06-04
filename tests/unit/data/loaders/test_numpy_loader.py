@@ -8,10 +8,9 @@ import tempfile
 from pathlib import Path
 
 import numpy as np
-import pandas as pd
 import pytest
 
-from nirs4all.data.loaders.numpy_loader import NumpyLoader, load_numpy
+from nirs4all.data.loaders.numpy_loader import NumpyLoader
 
 
 class TestNumpyLoader:
@@ -142,20 +141,3 @@ class TestNumpyLoader:
 
         assert result.report["format"] == "npy"
         assert "format_details" in result.report
-
-class TestLoadNumpyFunction:
-    """Tests for the load_numpy convenience function."""
-
-    def test_load_numpy_returns_tuple(self):
-        """Test that load_numpy returns the expected tuple."""
-        with tempfile.NamedTemporaryFile(suffix=".npy", delete=False) as f:
-            arr = np.array([[1.0, 2.0], [3.0, 4.0]])
-            np.save(f.name, arr)
-
-            data, report, na_mask, headers, header_unit = load_numpy(f.name)
-
-            assert isinstance(data, pd.DataFrame)
-            assert isinstance(report, dict)
-            assert data.shape == (2, 2)
-
-        Path(f.name).unlink()

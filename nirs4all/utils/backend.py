@@ -187,20 +187,6 @@ def require_backend(backend: str, feature: str | None = None) -> None:
     if not is_available(backend):
         raise BackendNotAvailableError(backend, feature)
 
-def check_backend_available(backend_name: str) -> None:
-    """Check if a backend is available, raising ImportError if not.
-
-    This is a legacy compatibility wrapper for require_backend.
-    Use require_backend() for new code.
-
-    Args:
-        backend_name: Name of the backend ('tensorflow', 'torch', 'jax').
-
-    Raises:
-        BackendNotAvailableError: If the backend is not installed.
-    """
-    require_backend(backend_name)
-
 # =============================================================================
 # Framework Decorator
 # =============================================================================

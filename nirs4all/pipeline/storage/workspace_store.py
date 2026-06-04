@@ -103,11 +103,9 @@ from nirs4all.pipeline.storage.store_queries import (
     UPDATE_ARTIFACT_CACHE_KEY,
     UPDATE_CHAIN_SUMMARY,
     UPDATE_PROJECT,
-    build_aggregated_query,
     build_chain_predictions_query,
     build_chain_summary_query,
     build_prediction_query,
-    build_top_aggregated_query,
     build_top_chains_query,
     build_top_predictions_query,
 )
@@ -1847,14 +1845,13 @@ class WorkspaceStore:
             A :class:`polars.DataFrame` with one row per aggregated
             prediction entry.
         """
-        sql, params = build_aggregated_query(
+        sql, params = build_chain_summary_query(
             run_id=run_id,
             pipeline_id=pipeline_id,
             chain_id=chain_id,
             dataset_name=dataset_name,
             model_class=model_class,
             metric=metric,
-            score_scope=score_scope,
         )
         return self._fetch_pl(sql, params)
 
@@ -1923,7 +1920,7 @@ class WorkspaceStore:
         if ascending is None:
             ascending = _infer_metric_ascending(metric)
 
-        sql, params = build_top_aggregated_query(
+        sql, params = build_top_chains_query(
             metric=metric,
             n=n,
             score_column=score_column,
@@ -1932,7 +1929,6 @@ class WorkspaceStore:
             pipeline_id=filters.get("pipeline_id"),
             dataset_name=filters.get("dataset_name"),
             model_class=filters.get("model_class"),
-            score_scope=score_scope,
         )
         return self._fetch_pl(sql, params)
 

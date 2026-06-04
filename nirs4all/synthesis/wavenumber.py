@@ -65,8 +65,9 @@ EXTENDED_SPECTRAL_ZONES: list[tuple[float, float, str, str]] = [
     (4000, 4545, "combination_CH", "C-H combination bands"),                    # 2200-2500 nm
 ]
 
-# Backward-compatible NIR zones (3-tuple format for existing code)
-# These zones correspond to specific molecular vibration types
+# NIR zone table (wavenumber bounds + zone name) backing the live zone lookups:
+# classify_wavelength_zone, get_zone_wavelength_range, and get_all_zones_wavelength.
+# Each entry maps a molecular-vibration region to its wavenumber range.
 NIR_ZONES_WAVENUMBER: list[tuple[float, float, str]] = [
     # Short-wave NIR: Electronic transitions and 3rd overtones
     (9000, 12500, "3rd_overtones"),  # ~800-1111 nm

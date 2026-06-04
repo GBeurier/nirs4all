@@ -29,7 +29,6 @@ class HeaderUnit(StrEnum):
 
 # Type aliases for backward compatibility
 LayoutType = str | FeatureLayout
-HeaderUnitType = str | HeaderUnit
 
 def normalize_layout(layout: LayoutType) -> FeatureLayout:
     """Convert string layout to enum for backward compatibility.
@@ -52,7 +51,7 @@ def normalize_layout(layout: LayoutType) -> FeatureLayout:
         valid = [e.value for e in FeatureLayout]
         raise ValueError(f"Invalid layout '{layout}'. Valid options: {valid}") from None
 
-def normalize_header_unit(unit: HeaderUnitType) -> HeaderUnit:
+def normalize_header_unit(unit: str | HeaderUnit) -> HeaderUnit:
     """Convert string header unit to enum.
 
     Args:

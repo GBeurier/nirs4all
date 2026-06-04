@@ -22,7 +22,7 @@ Supports two export paths:
 1. **Store-based** (preferred): ``export_from_chain(chain_id, output_path)``
    loads the chain from ``WorkspaceStore`` and packages it into a bundle.
 
-2. **Resolver-based** (legacy): ``export(source, output_path)``
+2. **Resolver-based**: ``export(source, output_path)``
    resolves from a prediction dict / folder / bundle and packages artifacts.
 
 Example:
@@ -32,7 +32,7 @@ Example:
     >>> generator = BundleGenerator(workspace_path)
     >>> bundle_path = generator.export_from_chain("abc123", "exports/model.n4a")
     >>>
-    >>> # Legacy resolver-based export
+    >>> # Resolver-based export
     >>> bundle_path = generator.export(best_prediction, "exports/model.n4a")
 """
 
@@ -251,7 +251,7 @@ class BundleGenerator:
         return base64.b64encode(buf.getvalue()).decode("ascii")
 
     # -----------------------------------------------------------------
-    # Resolver-based export (legacy path)
+    # Resolver-based export
     # -----------------------------------------------------------------
 
     def export(

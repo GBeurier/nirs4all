@@ -515,11 +515,3 @@ class TestEdgeCases:
         A = transformer.fit_transform(R)
 
         assert A.shape == (3,)
-
-class TestSignalTransforms:
-    """Test suite for signal processing transforms (placeholder for future)."""
-
-    def test_placeholder(self):
-        """Placeholder test."""
-        # TODO: Add tests for baseline correction, derivatives, filters, wavelets
-        pass

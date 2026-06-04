@@ -5259,7 +5259,7 @@ class TestOKLMPLSBackendParity:
 # FCKPLS Tests
 # =============================================================================
 
-from nirs4all.operators.models.sklearn.fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS, fractional_kernel_1d, fractional_kernel_grrunwald_letnikov
+from nirs4all.operators.models.sklearn.fckpls import FCKPLS, FractionalConvFeaturizer, fractional_kernel_1d, fractional_kernel_grrunwald_letnikov
 
 
 class TestFractionalKernels:
@@ -5632,17 +5632,6 @@ class TestFCKPLS:
         assert 'FCKPLS' in repr_str
         assert 'n_components=5' in repr_str
         assert '0.0' in repr_str
-
-    def test_alias_fractional_pls(self, regression_data):
-        """Test that FractionalPLS is an alias for FCKPLS."""
-        X, y = regression_data
-
-        model = FractionalPLS(n_components=5, alphas=(0.0, 1.0), backend='numpy')
-        model.fit(X, y)
-
-        predictions = model.predict(X)
-
-        assert predictions.shape == y.shape
 
 @pytest.mark.xdist_group("gpu")
 class TestFCKPLSBackendParity:

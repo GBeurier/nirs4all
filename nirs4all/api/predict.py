@@ -9,7 +9,7 @@ Two prediction paths are supported:
 1. **Store-based** (preferred): ``nirs4all.predict(chain_id="abc", data=X)``
    replays a stored chain directly from the workspace store.
 
-2. **Model-based** (legacy): ``nirs4all.predict(model="model.n4a", data=X)``
+2. **Model-based**: ``nirs4all.predict(model="model.n4a", data=X)``
    resolves via PredictionResolver / BundleLoader.
 
 Example:
@@ -77,7 +77,7 @@ def predict(
 
     >>> result = nirs4all.predict(chain_id="abc123", data=X_new)
 
-    **Model-based** (legacy) -- pass ``model`` together with ``data``:
+    **Model-based** -- pass ``model`` together with ``data``:
 
     >>> result = nirs4all.predict(model="exports/model.n4a", data=X_new)
 
@@ -177,7 +177,7 @@ def predict(
             **runner_kwargs,
         )
 
-    # ---- Model-based path (legacy) ----
+    # ---- Model-based path ----
     assert model is not None
     return _predict_from_model(
         model=model,
@@ -243,7 +243,7 @@ def _predict_from_model(
     workspace_path: str | Path | None = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
-    """Predict via the legacy model/resolver path."""
+    """Predict via the model/resolver path."""
     # Use session runner if provided, otherwise create new
     owns_runner = session is None
     if session is not None:

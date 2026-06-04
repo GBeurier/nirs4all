@@ -371,7 +371,7 @@ class PyTorchModelController(BaseModelController):
             else:
                 # Multiclass: apply softmax to get probabilities
                 probs = F.softmax(logits, dim=1)
-                return probs.numpy()
+                return np.asarray(probs.numpy())
 
     def _prepare_data(
         self,

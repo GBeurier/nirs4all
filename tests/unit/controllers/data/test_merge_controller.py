@@ -1250,21 +1250,6 @@ class TestIsDisjointBranchFunction:
         }
         assert is_disjoint_branch(branch_context) is True
 
-    def test_disjoint_branch_metadata_partition(self):
-        """Test branch with metadata_partition is disjoint."""
-        branch_context = {
-            "branch_id": 0,
-            "name": "branch_0",
-            "context": self._make_mock_context({
-                "metadata_partition": {
-                    "sample_indices": [0, 1, 2],
-                    "column": "region",
-                    "value": "North",
-                }
-            }),
-        }
-        assert is_disjoint_branch(branch_context) is True
-
     def test_disjoint_branch_partition_info(self):
         """Test branch with partition_info is disjoint."""
         branch_context = {
@@ -1314,41 +1299,6 @@ class TestDetectDisjointBranchesFunction:
 
         assert analysis.is_disjoint is False
         assert analysis.branch_type == BranchType.COPY
-
-    def test_metadata_partitioner_detected(self):
-        """Test metadata_partitioner branches are detected."""
-        branch_contexts = [
-            {
-                "branch_id": 0,
-                "name": "North",
-                "context": self._make_mock_context({
-                    "metadata_partition": {
-                        "sample_indices": [0, 1, 2, 3, 4],
-                        "column": "region",
-                        "value": "North",
-                    }
-                }),
-            },
-            {
-                "branch_id": 1,
-                "name": "South",
-                "context": self._make_mock_context({
-                    "metadata_partition": {
-                        "sample_indices": [5, 6, 7, 8, 9],
-                        "column": "region",
-                        "value": "South",
-                    }
-                }),
-            },
-        ]
-
-        analysis = detect_disjoint_branches(branch_contexts)
-
-        assert analysis.is_disjoint is True
-        assert analysis.branch_type == BranchType.METADATA_PARTITIONER
-        assert analysis.partition_column == "region"
-        assert analysis.branch_sample_counts == {0: 5, 1: 5}
-        assert analysis.total_samples == 10
 
     def test_sample_partitioner_detected(self):
         """Test sample_partitioner branches are detected."""
@@ -1420,10 +1370,9 @@ class TestDetectDisjointBranchesFunction:
                 "branch_id": 0,
                 "name": "A",
                 "context": self._make_mock_context({
-                    "metadata_partition": {
+                    "sample_partition": {
                         "sample_indices": [0, 1, 2],
-                        "column": "group",
-                        "value": "A",
+                        "type": "A",
                     }
                 }),
             },
@@ -1431,10 +1380,9 @@ class TestDetectDisjointBranchesFunction:
                 "branch_id": 1,
                 "name": "B",
                 "context": self._make_mock_context({
-                    "metadata_partition": {
+                    "sample_partition": {
                         "sample_indices": [3, 4, 5],
-                        "column": "group",
-                        "value": "B",
+                        "type": "B",
                     }
                 }),
             },
@@ -1442,10 +1390,9 @@ class TestDetectDisjointBranchesFunction:
                 "branch_id": 2,
                 "name": "C",
                 "context": self._make_mock_context({
-                    "metadata_partition": {
+                    "sample_partition": {
                         "sample_indices": [6, 7, 8],
-                        "column": "group",
-                        "value": "C",
+                        "type": "C",
                     }
                 }),
             },
@@ -1569,10 +1516,9 @@ class TestMergeControllerDisjointDetection:
         class MockInnerContext:
             def __init__(self, sample_indices, branch_name):
                 self.custom = {
-                    "metadata_partition": {
+                    "sample_partition": {
                         "sample_indices": sample_indices,
-                        "column": "region",
-                        "value": branch_name,
+                        "type": branch_name,
                     }
                 }
 
@@ -1618,7 +1564,7 @@ class TestMergeControllerDisjointDetection:
 
         # Check that disjoint merge was detected
         assert output.metadata.get("disjoint_merge") is True
-        assert output.metadata.get("branch_type") == "metadata_partitioner"
+        assert output.metadata.get("branch_type") == "sample_partitioner"
 
     def test_non_disjoint_branches_use_standard_merge(self):
         """Test that non-disjoint branches use standard merge path."""
@@ -2009,9 +1955,9 @@ class TestDisjointMergeMetadataIntegration:
         class MockInnerContext:
             def __init__(self, sample_indices, branch_name):
                 self.custom = {
-                    "metadata_partition": {
+                    "sample_partition": {
                         "sample_indices": sample_indices,
-                        "column": "region",
+                        "type": branch_name,
                     }
                 }
 

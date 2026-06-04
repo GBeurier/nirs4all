@@ -131,39 +131,6 @@ class ModelControllerUtils:
         return ModelControllerUtils.SKLEARN_SCORING[task_type]
 
     @staticmethod
-    def validate_loss_compatibility(loss: str, task_type: TaskType, framework: str = "sklearn") -> bool:
-        """
-        Validate if loss function is compatible with task type.
-
-        Args:
-            loss: Loss function name
-            task_type: Task type
-            framework: ML framework
-
-        Returns:
-            bool: True if compatible, False otherwise
-        """
-        # Regression losses
-        regression_losses = {
-            "mse", "mean_squared_error", "squared_error",
-            "mae", "mean_absolute_error",
-            "huber", "huber_loss",
-            "quantile", "quantile_loss"
-        }
-
-        # Classification losses
-        classification_losses = {
-            "binary_crossentropy", "log_loss", "logistic",
-            "categorical_crossentropy", "sparse_categorical_crossentropy",
-            "hinge", "squared_hinge"
-        }
-
-        if task_type == TaskType.REGRESSION:
-            return loss.lower() in regression_losses
-        else:  # Binary or multi-class classification
-            return loss.lower() in classification_losses
-
-    @staticmethod
     def get_best_score_metric(task_type: TaskType) -> tuple[str, bool]:
         """
         Get the primary metric for determining "best" score.
@@ -199,6 +166,3 @@ class ModelControllerUtils:
             formatted_items.append(f"{metric}: {score:.{precision}f}")
 
         return ", ".join(formatted_items)
-
-# Backward compatibility - keep ModelUtils as alias
-ModelUtils = ModelControllerUtils

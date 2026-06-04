@@ -72,7 +72,6 @@ class DataSelector(MutableMapping):
         include_augmented: Whether to include augmented samples
         y: Optional target processing version (e.g. "numeric", "scaled")
         branch_id: Optional branch identifier for pipeline branching (0-indexed)
-            DEPRECATED: Use branch_path instead for nested branch support.
         branch_path: List of branch indices for nested branching (e.g., [0, 2] for
             branch 2 inside branch 0). Empty list means pre-branch/shared artifacts.
         branch_name: Optional human-readable branch name for tracking
@@ -242,7 +241,7 @@ class DataSelector(MutableMapping):
         Create new selector with updated branch information.
 
         Args:
-            branch_id: Branch identifier (0-indexed). DEPRECATED: Use branch_path.
+            branch_id: Branch identifier (0-indexed).
             branch_name: Human-readable branch name
             branch_path: List of branch indices for nested branching
 

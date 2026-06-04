@@ -66,7 +66,7 @@ from .sklearn.aom_ridge import (
     AOMRidgePLSCV,
     AOMRidgeRegressor,
 )
-from .sklearn.fckpls import FCKPLS, FractionalConvFeaturizer, FractionalPLS
+from .sklearn.fckpls import FCKPLS, FractionalConvFeaturizer
 from .sklearn.nlpls import KPLS, NLPLS, KernelPLS
 from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
 from .sklearn.pop_pls_classifier import POPPLSClassifier
@@ -122,7 +122,6 @@ __all__ = [
     "PolynomialFeaturizer",
     "RBFFeaturizer",
     "FCKPLS",
-    "FractionalPLS",
     "FractionalConvFeaturizer",
     # AOM-PLS
     "AOMPLSRegressor",

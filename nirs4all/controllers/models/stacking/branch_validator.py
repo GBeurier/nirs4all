@@ -220,24 +220,6 @@ class BranchValidator:
             )
 
         # Detect LEGACY branch type from custom context (for backward compatibility)
-        if custom.get('metadata_partitioner_active'):
-            branch_type = BranchType.METADATA_PARTITIONER
-            partition_info = custom.get('metadata_partition', {})
-            sample_indices = partition_info.get('sample_indices', [])
-            n_samples = partition_info.get('n_samples', len(sample_indices))
-
-            return BranchInfo(
-                branch_type=branch_type,
-                branch_id=branch_id,
-                branch_name=branch_name,
-                branch_path=list(branch_path),
-                partition_info=partition_info,
-                sample_indices=sample_indices,
-                n_samples=n_samples,
-                is_nested=len(branch_path) > 1,
-                nesting_depth=len(branch_path)
-            )
-
         if custom.get('sample_partitioner_active'):
             branch_type = BranchType.SAMPLE_PARTITIONER
             partition_info = custom.get('sample_partition', {})
@@ -858,8 +840,6 @@ def detect_branch_type(context: 'ExecutionContext') -> BranchType:
         return BranchType.SAMPLE_PARTITIONER
 
     # LEGACY: Detect old controller patterns (for backward compatibility)
-    if custom.get('metadata_partitioner_active'):
-        return BranchType.METADATA_PARTITIONER
     if custom.get('sample_partitioner_active'):
         return BranchType.SAMPLE_PARTITIONER
     if custom.get('outlier_excluder_active'):
@@ -948,10 +928,6 @@ def is_disjoint_branch(context: 'ExecutionContext') -> bool:
         return True
 
     # Check for explicit markers in context.custom (legacy)
-    # metadata_partition indicates disjoint samples by metadata column
-    if custom.get('metadata_partition') is not None:
-        return True
-
     # sample_partition indicates disjoint samples by filter/tag
     return custom.get('sample_partition') is not None
 
@@ -1011,20 +987,6 @@ def get_disjoint_branch_info(context: 'ExecutionContext') -> dict[str, Any] | No
                 'sample_indices': sample_partition.get('sample_indices', []),
                 'n_samples': sample_partition.get('n_samples', 0),
             }
-
-    # LEGACY: Check for metadata_partition (old metadata_partitioner controller)
-    metadata_partition = custom.get('metadata_partition')
-    if metadata_partition is not None:
-        return {
-            'partition_type': 'metadata',
-            'column': metadata_partition.get('column'),
-            'partition_value': metadata_partition.get('partition_value'),
-            'partition_values': metadata_partition.get('partition_values'),
-            'sample_indices': metadata_partition.get('sample_indices', []),
-            'train_sample_indices': metadata_partition.get('train_sample_indices', []),
-            'n_samples': metadata_partition.get('n_samples', 0),
-            'n_train_samples': metadata_partition.get('n_train_samples', 0),
-        }
 
     # LEGACY: Check for sample_partition (old sample_partitioner/outlier_excluder)
     sample_partition = custom.get('sample_partition')

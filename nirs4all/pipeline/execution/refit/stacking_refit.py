@@ -1215,13 +1215,6 @@ def _execute_per_model_competing_refit(
 ) -> RefitResult:
     """Per-model refit for named competing branches with generators.
 
-    .. deprecated::
-        Superseded by the accumulator-based approach in
-        ``Orchestrator._execute_accumulated_refit``.  The accumulator
-        (``RuntimeContext.best_refit_chains``) captures the best chain
-        per model during CV execution, making store queries unnecessary.
-        Remove in 1.0.0.
-
     Expands generators within each named branch (mirroring the
     ``BranchController`` expansion logic), identifies the best
     preprocessing chain per unique model from CV predictions, and
@@ -1366,12 +1359,6 @@ def _execute_per_model_competing_refit(
 def _expand_branch_steps(steps: list[Any]) -> list[list[Any]]:
     """Expand generator nodes within a branch step list.
 
-    .. deprecated::
-        Superseded by the accumulator-based approach.  The
-        ``BranchController`` now captures expanded steps during CV
-        execution, eliminating the need to re-expand at refit time.
-        Remove in 1.0.0.
-
     Mirrors ``BranchController._expand_list_with_generators``: each
     generator node is expanded independently, then a Cartesian product
     is taken across all items.  Generator results that are lists are
@@ -1407,10 +1394,7 @@ def _expand_branch_steps(steps: list[Any]) -> list[list[Any]]:
     return result if result else [steps]
 
 def _model_class_name(model: Any) -> str:
-    """Get a short class name for a model.
-
-    .. deprecated:: Remove in 1.0.0.
-    """
+    """Get a short class name for a model."""
     if model is None:
         return "unknown"
     if isinstance(model, type):
@@ -1423,12 +1407,6 @@ def _select_best_per_model(
     model_candidates: dict[str, list[dict[str, Any]]],
 ) -> dict[str, dict[str, Any]]:
     """Select the best branch variant per model using CV predictions.
-
-    .. deprecated::
-        Superseded by the accumulator-based approach in
-        ``BranchController._update_best_refit_chains``.  The accumulator
-        tracks the best chain per model during CV execution, making
-        post-hoc store queries unnecessary.  Remove in 1.0.0.
 
     Queries the store for validation predictions, groups by
     ``(model_name, branch_id)``, computes average val_score, and

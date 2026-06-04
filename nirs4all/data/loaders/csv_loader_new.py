@@ -526,7 +526,7 @@ class CSVLoader(FileLoader):
                 with open(path, encoding="latin-1", newline="") as f:
                     return f.read()
 
-# Backward compatibility function
+# Module-level convenience wrapper around CSVLoader; the sole CSV load entry point.
 def load_csv(
     path,
     na_policy: str = "auto",
@@ -538,7 +538,7 @@ def load_csv(
 ):
     """Load a CSV file using the CSVLoader.
 
-    This function maintains backward compatibility with the original load_csv API.
+    This is the library's single CSV loading entry point.
 
     Args:
         path: Path to the CSV file.

@@ -1163,13 +1163,6 @@ class OptunaManager:
         # Get model parameters - support both nested and flat structure
         model_params_spec = finetune_params.get('model_params', {})
 
-        # Legacy support: look for parameters directly in finetune_params
-        if not model_params_spec:
-            model_params_spec = {k: v for k, v in finetune_params.items()
-                          if k not in ['n_trials', 'approach', 'eval_mode', 'sampler', 'train_params',
-                                       'verbose', 'pruner', 'seed', 'storage', 'study_name', 'resume',
-                                       'direction', 'force_params', 'model_params', 'phases']}
-
         # Flatten nested parameter dicts (e.g. inference_config: {PARAM: [True, False]})
         flat_params_spec = self._flatten_nested_params(model_params_spec)
 
@@ -1552,15 +1545,6 @@ class OptunaManager:
         """
         model_params = finetune_params.get('model_params', {})
 
-        # Legacy support
-        if not model_params:
-            model_params = {
-                k: v for k, v in finetune_params.items()
-                if k not in ['n_trials', 'approach', 'eval_mode', 'sampler', 'train_params',
-                             'verbose', 'pruner', 'seed', 'storage', 'study_name', 'resume',
-                             'direction', 'force_params', 'model_params']
-            }
-
         for _, param_config in model_params.items():
             # Check if this is a range specification disguised as a list (from tuple-to-list conversion)
             is_list = isinstance(param_config, list)
@@ -1594,15 +1578,6 @@ class OptunaManager:
         Returns search space suitable for GridSampler.
         """
         model_params = finetune_params.get('model_params', {})
-
-        # Legacy support
-        if not model_params:
-            model_params = {
-                k: v for k, v in finetune_params.items()
-                if k not in ['n_trials', 'approach', 'eval_mode', 'sampler', 'train_params',
-                             'verbose', 'pruner', 'seed', 'storage', 'study_name', 'resume',
-                             'direction', 'force_params', 'model_params']
-            }
 
         search_space = {}
         for param_name, param_config in model_params.items():

@@ -419,7 +419,7 @@ class SpectroDataset:
 
     def float_headers(self, src: int = 0) -> np.ndarray:
         """
-        Get headers as float array (legacy method).
+        Get headers as float array.
 
         WARNING: This method assumes headers are numeric and doesn't handle unit conversion.
         Use wavelengths_cm1() or wavelengths_nm() for wavelength data.

@@ -349,7 +349,7 @@ class RunResult:
         if 'rmse' in best and best['rmse'] is not None:
             return float(best['rmse'])
 
-        # Try nested scores dict (legacy format)
+        # Try nested per-partition scores dict
         scores = best.get('scores', {})
         if isinstance(scores, dict):
             test_scores = scores.get('test', {})
@@ -383,7 +383,7 @@ class RunResult:
         if 'r2' in best and best['r2'] is not None:
             return float(best['r2'])
 
-        # Try nested scores dict (legacy format)
+        # Try nested per-partition scores dict
         scores = best.get('scores', {})
         if isinstance(scores, dict):
             test_scores = scores.get('test', {})
@@ -410,7 +410,7 @@ class RunResult:
         if 'accuracy' in best and best['accuracy'] is not None:
             return float(best['accuracy'])
 
-        # Try nested scores dict (legacy format)
+        # Try nested per-partition scores dict
         scores = best.get('scores', {})
         if isinstance(scores, dict):
             test_scores = scores.get('test', {})
@@ -463,7 +463,7 @@ class RunResult:
             for entry in entries:
                 if str(entry.get("fold_id")) == "final":
                     return dict(entry)
-        # Fallback: check global predictions (for backward compatibility)
+        # Fallback: check global predictions (when refit entries were merged there)
         entries = self.predictions.filter_predictions(fold_id="final")
         for entry in entries:
             if str(entry.get("fold_id")) == "final":

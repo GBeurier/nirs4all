@@ -179,7 +179,7 @@ class ArtifactLoader:
         self.results_dir = results_dir or self.workspace / "runs"
 
         # Centralized binaries directory
-        self.binaries_dir = get_binaries_path(self.workspace, dataset)
+        self.binaries_dir = get_binaries_path(self.workspace)
 
         # Artifact index by artifact_id
         self._artifacts: dict[str, ArtifactRecord] = {}
@@ -642,10 +642,7 @@ class ArtifactLoader:
         branch_id: int | None = None,
         branch_path: list[int] | None = None
     ) -> list[tuple[str, Any]]:
-        """Legacy-compatible method for loading step binaries.
-
-        This method provides backward compatibility with the BinaryLoader API.
-        Prefer using load_for_step() for new code.
+        """Load step binaries for controller lookup.
 
         Returns names in a format compatible with controller lookup patterns:
         - For models with fold_id: "ClassName_<op_num>" where op_num = step*100 + fold

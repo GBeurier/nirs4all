@@ -862,7 +862,6 @@ class PredictionAnalyzer:
         aggregate_method: str | None = None,
         score_scope: str = 'refit',
         top_k: int | None = None,
-        sort_by_value: bool = False,
         sort_by: str | None = None,
         task_type: str | None = None,
         config: ChartConfig | None = None,
@@ -900,9 +899,6 @@ class PredictionAnalyzer:
                         See :meth:`Predictions.top` for details. Default ``"final"``.
             top_k: If provided, show only top K models. Selection uses Borda count:
                    first keeps top-1 per column, then ranks by Borda count.
-            sort_by_value: If True, sort Y-axis by ranking score (best first) instead
-                          of alphabetically. Uses rank_metric on rank_partition.
-                          Deprecated: use sort_by='value' instead.
             sort_by: Sorting method for Y-axis (rows). Options:
                 - None: Alphabetical sorting (default).
                 - 'value': Sort by ranking score on rank_partition column.
@@ -978,7 +974,6 @@ class PredictionAnalyzer:
                 aggregate_method=aggregate_method,
                 score_scope=score_scope,
                 top_k=top_k,
-                sort_by_value=sort_by_value,
                 sort_by=sort_by,
                 **render_kwargs
             )

@@ -243,7 +243,7 @@ class ArtifactRegistry:
         self.pipeline_id = pipeline_id
 
         # Centralized binaries directory - created lazily when artifacts are saved
-        self.binaries_dir = get_binaries_path(self.workspace, dataset)
+        self.binaries_dir = get_binaries_path(self.workspace)
         # Note: Directory is created in _ensure_binaries_dir() when first artifact is saved
 
         # In-memory registries
@@ -974,9 +974,6 @@ class ArtifactRegistry:
         # Handle v2/v3 format with "items" list
         if isinstance(artifacts_section, dict) and "items" in artifacts_section:
             items = artifacts_section.get("items", [])
-        elif isinstance(artifacts_section, list):
-            # Legacy v1 format - list directly
-            items = artifacts_section
         else:
             items = []
 

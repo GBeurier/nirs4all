@@ -490,7 +490,7 @@ class DatasetConfigs:
         return dataset
 
     def get_dataset(self, config, name) -> SpectroDataset:
-        """Get dataset by config and name (backward compatible).
+        """Get dataset by config and name.
 
         Note: When called directly, uses the first task_type (or 'auto' if single dataset).
         For proper per-dataset task_type handling, use iter_datasets() or get_dataset_at().

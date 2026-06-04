@@ -355,7 +355,6 @@ class HeatmapChart(BaseChart):
         aggregate_exclude_outliers: bool | None = None,
         score_scope: str = 'refit',
         top_k: int | None = None,
-        sort_by_value: bool = False,
         sort_by: str | None = None,
         task_type: str | None = None,
         **filters
@@ -387,9 +386,6 @@ class HeatmapChart(BaseChart):
                 outliers before reducing each group.
             top_k: If provided, show only top K models. Selection uses Borda count:
                    first keeps top-1 per column, then ranks by Borda count.
-            sort_by_value: If True, sort Y-axis by ranking score (best first) instead
-                          of alphabetically. Uses rank_metric on rank_partition.
-                          Deprecated: use sort_by='value' instead.
             sort_by: Sorting method for Y-axis (rows). Options:
                 - None: Alphabetical sorting (default).
                 - 'value': Sort by ranking score on rank_partition column.
@@ -431,7 +427,7 @@ class HeatmapChart(BaseChart):
                         aggregate_method=aggregate_method,
                         aggregate_exclude_outliers=aggregate_exclude_outliers,
                         score_scope=score_scope, top_k=top_k,
-                        sort_by_value=sort_by_value, sort_by=sort_by, task_type=tt,
+                        sort_by=sort_by, task_type=tt,
                         **filters,
                     )
                     if isinstance(fig, list):
@@ -451,11 +447,6 @@ class HeatmapChart(BaseChart):
 
         if not display_metric:
             display_metric = rank_metric
-
-        # Handle sort_by_value deprecation (backward compatibility)
-        effective_sort_by = sort_by
-        if sort_by_value and sort_by is None:
-            effective_sort_by = 'value'
 
         effective_aggregate = self._normalize_aggregate(aggregate)
 
@@ -480,7 +471,7 @@ class HeatmapChart(BaseChart):
                 aggregate_exclude_outliers=aggregate_exclude_outliers,
                 score_scope=score_scope,
                 top_k=top_k,
-                sort_by=effective_sort_by,
+                sort_by=sort_by,
                 task_type=task_type,
                 **filters
             )
@@ -682,10 +673,10 @@ class HeatmapChart(BaseChart):
         rank_higher_better = self._is_higher_better(rank_metric)
 
         # Sort by specified method if requested (before top_k filtering)
-        if effective_sort_by:
+        if sort_by:
             matrix, count_matrix, y_labels = self._sort_by_method(
                 matrix, count_matrix, y_labels, x_labels,
-                rank_partition, rank_higher_better, effective_sort_by
+                rank_partition, rank_higher_better, sort_by
             )
 
         # Apply top_k filtering if requested
@@ -719,7 +710,7 @@ class HeatmapChart(BaseChart):
             rank_metric, rank_partition, rank_agg,
             display_metric, display_partition, display_agg,
             figsize, normalize, show_counts, local_scale, display_higher_better,
-            column_scale, top_k, effective_sort_by
+            column_scale, top_k, sort_by
         )
 
         t2 = time.time()

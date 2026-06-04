@@ -5,7 +5,7 @@ import pywt
 import scipy
 from scipy import signal
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.preprocessing import StandardScaler, scale
+from sklearn.preprocessing import StandardScaler
 from sklearn.utils import check_array
 from sklearn.utils.validation import FLOAT_DTYPES, check_is_fitted
 
@@ -2158,31 +2158,6 @@ class BEADS(_BaselineMethodAlias):
     def __init__(self, lam_0: float = 1.0, lam_1: float = 1.0, lam_2: float = 1.0,
                  max_iter: int = 50, tol: float = 1e-2, *, copy: bool = True):
         super().__init__(copy=copy, lam_0=lam_0, lam_1=lam_1, lam_2=lam_2, max_iter=max_iter, tol=tol)
-
-# Keep asls_baseline function for backward compatibility
-def asls_baseline(
-    spectra: np.ndarray,
-    lam: float = 1e6,
-    p: float = 0.01,
-    max_iter: int = 50,
-    tol: float = 1e-3,
-) -> np.ndarray:
-    """
-    Compute baseline using Asymmetric Least Squares Smoothing.
-
-    This is a convenience wrapper around pybaseline_correction with method='asls'.
-
-    Args:
-        spectra (numpy.ndarray): NIRS data matrix (n_samples, n_features).
-        lam (float): Smoothness parameter (lambda). Default is 1e6.
-        p (float): Asymmetry parameter (0 < p < 1). Default is 0.01.
-        max_iter (int): Maximum number of iterations. Default is 50.
-        tol (float): Convergence tolerance. Default is 1e-3.
-
-    Returns:
-        numpy.ndarray: Baseline-corrected spectra with same shape as input.
-    """
-    return pybaseline_correction(spectra, method='asls', lam=lam, p=p, max_iter=max_iter, tol=tol)
 
 class ASLSBaseline(_BaselineMethodAlias):
     """

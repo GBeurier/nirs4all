@@ -172,13 +172,6 @@ def test_integration() -> bool:
     logger.info("NIRS4ALL Integration Test...")
     logger.info("=" * 50)
 
-    # # First check if basic installation is working
-    # basic_ok = test_installation()
-    # if not basic_ok:
-    #     logger.error("Integration test FAILED!")
-    #     logger.info("Please fix installation issues first.")
-    #     return False
-
     logger.info("\n" + "=" * 50)
     logger.info("Running Pipeline Integration Tests...")
     logger.info("=" * 50)

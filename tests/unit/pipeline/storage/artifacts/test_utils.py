@@ -318,10 +318,9 @@ class TestGetBinariesPath:
         """Test binaries path construction.
 
         V3 uses content-addressed storage at workspace/artifacts (shared).
-        The dataset parameter is accepted for backward compatibility but unused.
         """
         workspace = Path("/home/user/workspace")
-        path = get_binaries_path(workspace, "corn_m5")
+        path = get_binaries_path(workspace)
         assert path == Path("/home/user/workspace/artifacts")
 
 class TestValidateArtifactId:

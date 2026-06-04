@@ -446,59 +446,6 @@ class PartitionConfig(BaseModel):
         # For now, just validate that we have at least one method if any fields are set
         return self
 
-    def to_assigner_spec(self) -> str | dict[str, Any] | None:
-        """Convert this config to a spec for PartitionAssigner.
-
-        Returns:
-            Partition specification for PartitionAssigner.assign().
-        """
-        # Static partition
-        if self.type is not None:
-            return self.type.value
-
-        # Column-based partition
-        if self.column is not None:
-            spec: dict[str, Any] = {"column": self.column}
-            if self.train_values:
-                spec["train_values"] = self.train_values
-            if self.test_values:
-                spec["test_values"] = self.test_values
-            if self.predict_values:
-                spec["predict_values"] = self.predict_values
-            if self.unknown_policy:
-                spec["unknown_policy"] = self.unknown_policy
-            return spec
-
-        # File-based partition
-        if self.train_file or self.test_file or self.predict_file:
-            file_spec: dict[str, Any] = {}
-            if self.train_file:
-                file_spec["train_file"] = self.train_file
-            if self.test_file:
-                file_spec["test_file"] = self.test_file
-            if self.predict_file:
-                file_spec["predict_file"] = self.predict_file
-            return file_spec
-
-        # Percentage/index partition
-        if self.train is not None or self.test is not None or self.predict is not None:
-            pct_spec: dict[str, Any] = {}
-            if self.train is not None:
-                pct_spec["train"] = self.train
-            if self.test is not None:
-                pct_spec["test"] = self.test
-            if self.predict is not None:
-                pct_spec["predict"] = self.predict
-            if self.shuffle is not None:
-                pct_spec["shuffle"] = self.shuffle
-            if self.random_state is not None:
-                pct_spec["random_state"] = self.random_state
-            if self.stratify is not None:
-                pct_spec["stratify"] = self.stratify
-            return pct_spec
-
-        return None
-
 # =============================================================================
 # Fold configuration schema
 # =============================================================================
@@ -1538,19 +1485,6 @@ class DatasetConfigSchema(BaseModel):
             result = file_params.merge_with(result)
 
         return result
-
-    def is_legacy_format(self) -> bool:
-        """Check if this config uses legacy format (train_x/test_x)."""
-        return (
-            self.train_x is not None or
-            self.test_x is not None or
-            self.train_y is not None or
-            self.test_y is not None
-        )
-
-    def is_files_format(self) -> bool:
-        """Check if this config uses new files format."""
-        return self.files is not None and len(self.files) > 0
 
     def is_multi_source(self) -> bool:
         """Check if this config has multiple feature sources."""

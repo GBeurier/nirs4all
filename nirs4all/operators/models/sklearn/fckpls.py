@@ -858,6 +858,3 @@ class FCKPLS(BaseEstimator, RegressorMixin):
             f"kernel_type='{self.kernel_type}', "
             f"backend='{self.backend}')"
         )
-
-# Aliases
-FractionalPLS = FCKPLS
