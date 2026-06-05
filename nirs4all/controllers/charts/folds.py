@@ -5,16 +5,20 @@ import io
 from collections import Counter
 from typing import TYPE_CHECKING, Any, Union
 
-import matplotlib.cm as cm
-import matplotlib.colors as mcolors
-import matplotlib.pyplot as plt
 import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.config.context import ExecutionContext
+from nirs4all.utils.lazy import lazy_module
 from nirs4all.visualization.display import keep_or_close_figures
+
+# matplotlib is imported lazily (deferred to first render) so the controller
+# registry can import this module at `import nirs4all` without loading matplotlib.
+cm = lazy_module("matplotlib.cm")
+mcolors = lazy_module("matplotlib.colors")
+plt = lazy_module("matplotlib.pyplot")
 
 logger = get_logger(__name__)
 

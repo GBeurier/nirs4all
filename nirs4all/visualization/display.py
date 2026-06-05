@@ -5,11 +5,12 @@ from __future__ import annotations
 import os
 import sys
 from contextlib import suppress
-from typing import Any
-
-from matplotlib.figure import Figure
+from typing import TYPE_CHECKING, Any
 
 from nirs4all.core.logging import get_logger
+
+if TYPE_CHECKING:
+    from matplotlib.figure import Figure
 
 logger = get_logger(__name__)
 _HEADLESS_WARNING_CONTEXTS: set[str] = set()

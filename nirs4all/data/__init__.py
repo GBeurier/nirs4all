@@ -5,8 +5,6 @@ This module provides zero-copy, multi-source aware dataset management
 with transparent versioning and fine-grained indexing capabilities.
 """
 
-from ..visualization.predictions import PredictionAnalyzer
-
 # Provide backward-compatible imports for feature components
 from ._features import (
     FeatureLayout,
@@ -82,3 +80,16 @@ __all__ = [
     "ConfigNormalizer",
     "normalize_config",
 ]
+
+
+def __getattr__(name: str):
+    """Lazily expose PredictionAnalyzer (PEP 562).
+
+    PredictionAnalyzer lives in the visualization layer, which imports matplotlib
+    at module load. Importing it lazily keeps ``import nirs4all`` from pulling
+    matplotlib in through the data layer; it loads on first attribute access.
+    """
+    if name == "PredictionAnalyzer":
+        from ..visualization.predictions import PredictionAnalyzer
+        return PredictionAnalyzer
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,21 +1,27 @@
 """AugmentationChartController - Visualizes augmentation effects on spectra."""
+from __future__ import annotations
 
 import io
 from typing import TYPE_CHECKING, Any
 
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.figure import Figure
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.utils.header_units import apply_x_axis_limits, get_x_values_and_label
+from nirs4all.utils.lazy import lazy_module
 from nirs4all.visualization.display import keep_or_close_figures
+
+# matplotlib is imported lazily (deferred to first render) so the controller
+# registry can import this module at `import nirs4all` without loading matplotlib.
+plt = lazy_module("matplotlib.pyplot")
 
 logger = get_logger(__name__)
 
 if TYPE_CHECKING:
+    from matplotlib.figure import Figure
+
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.pipeline.config.context import ExecutionContext
     from nirs4all.pipeline.steps.parser import ParsedStep
@@ -47,15 +53,15 @@ class AugmentationChartController(OperatorController):
 
     def execute(
         self,
-        step_info: 'ParsedStep',
-        dataset: 'SpectroDataset',
-        context: 'ExecutionContext',
+        step_info: ParsedStep,
+        dataset: SpectroDataset,
+        context: ExecutionContext,
         runtime_context: Any,
         source: int = -1,
         mode: str = "train",
         loaded_binaries: Any = None,
         prediction_store: Any = None
-    ) -> tuple['ExecutionContext', Any]:
+    ) -> tuple[ExecutionContext, Any]:
         """
         Execute augmentation visualization.
 
@@ -156,7 +162,7 @@ class AugmentationChartController(OperatorController):
         augmented_indices: list[int],
         all_indices: np.ndarray,
         processing_ids: list[str],
-        dataset: 'SpectroDataset',
+        dataset: SpectroDataset,
         source_idx: int,
         alpha_original: float,
         alpha_augmented: float,
@@ -173,7 +179,7 @@ class AugmentationChartController(OperatorController):
 
         fig_width = 6 * n_cols
         fig_height = 5 * n_rows
-        fig = plt.figure(figsize=(fig_width, fig_height))
+        fig: Figure = plt.figure(figsize=(fig_width, fig_height))
 
         main_title = f"{dataset.name} - Augmentation Overlay"
         if dataset.is_multi_source():
@@ -263,7 +269,7 @@ class AugmentationChartController(OperatorController):
         augmented_indices: list[int],
         all_indices: np.ndarray,
         processing_ids: list[str],
-        dataset: 'SpectroDataset',
+        dataset: SpectroDataset,
         source_idx: int,
         alpha_original: float,
         alpha_augmented: float,
@@ -290,7 +296,7 @@ class AugmentationChartController(OperatorController):
 
         fig_width = 6 * n_cols
         fig_height = 5 * n_rows
-        fig = plt.figure(figsize=(fig_width, fig_height))
+        fig: Figure = plt.figure(figsize=(fig_width, fig_height))
 
         main_title = f"{dataset.name} - Augmentation Details"
         if dataset.is_multi_source():
@@ -372,7 +378,7 @@ class AugmentationChartController(OperatorController):
 
     def _group_augmented_by_transformer(
         self,
-        dataset: 'SpectroDataset',
+        dataset: SpectroDataset,
         augmented_indices: list[int]
     ) -> dict[str, list[int]]:
         """

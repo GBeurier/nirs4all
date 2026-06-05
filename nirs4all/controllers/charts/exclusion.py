@@ -9,17 +9,21 @@ filtering decisions and identifying patterns in excluded data.
 import io
 from typing import TYPE_CHECKING, Any, Optional
 
-import matplotlib.cm as cm
-import matplotlib.patches as mpatches
-import matplotlib.pyplot as plt
 import numpy as np
-from matplotlib.lines import Line2D
 from sklearn.decomposition import PCA
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
+from nirs4all.utils.lazy import lazy_module
 from nirs4all.visualization.display import keep_or_close_figures
+
+# matplotlib is imported lazily (deferred to first render) so the controller
+# registry can import this module at `import nirs4all` without loading matplotlib.
+cm = lazy_module("matplotlib.cm")
+mpatches = lazy_module("matplotlib.patches")
+mlines = lazy_module("matplotlib.lines")
+plt = lazy_module("matplotlib.pyplot")
 
 logger = get_logger(__name__)
 
@@ -411,7 +415,7 @@ class ExclusionChartController(OperatorController):
 
         # Add legend for markers
         included_patch = mpatches.Patch(color='gray', alpha=0.6, label=f'Included ({included_mask.sum()})')
-        excluded_marker = Line2D(
+        excluded_marker = mlines.Line2D(
             [0], [0], marker='X', color='w', markerfacecolor='gray',
             markersize=10, markeredgecolor='black', markeredgewidth=2,
             label=f'Excluded ({excluded_mask.sum()})', linestyle='None'

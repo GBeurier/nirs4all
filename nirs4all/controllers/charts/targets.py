@@ -3,13 +3,17 @@
 import io
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
-import matplotlib.cm as cm
-import matplotlib.pyplot as plt
 import numpy as np
 
 from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
+from nirs4all.utils.lazy import lazy_module
 from nirs4all.visualization.display import keep_or_close_figures
+
+# matplotlib is imported lazily (deferred to first render) so the controller
+# registry can import this module at `import nirs4all` without loading matplotlib.
+cm = lazy_module("matplotlib.cm")
+plt = lazy_module("matplotlib.pyplot")
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
