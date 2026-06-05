@@ -7,6 +7,22 @@
 
 ---
 
+## ✅ RESOLUTION — executed 2026-06-05 (branch `chore/debt-campaign-followup-2026-06-05`)
+
+13 commits, each Codex-gated and suite-green. Per-item outcomes (the analysis below is kept as the rationale record):
+
+| Item | Outcome |
+|---|---|
+| **1. Cross-store transactionality** | **DONE — all 4 steps + hardening.** SQLite-first deletes + 5 crash-injection tests (`f1b9d19e`); SQLite-validated compaction — stale tombstones can never remove a live row's arrays, `WorkspaceStore.compact_arrays()` with in-transaction guard and live-snapshot-under-lock (`209df311`); atomic `flush()` in one re-entrant `transaction()` + `clean_dead_links` now physically reclaims orphans (`2782332c`); inter-process ArrayStore lock (fcntl/msvcrt — users build on Windows) + tombstone-gated startup reconciliation (`78170aba`); threshold auto-compaction, properly rebuilt on the validated path (`86994a89`). **Invariant achieved: a crash can only ever orphan arrays — never strand live metadata pointing at removable arrays.** Codex caught 2 real bugs during review (facade compact bypass; compact_arrays snapshot/lock TOCTOU) — both fixed + regression-tested. |
+| **2. Dependency slimming** | **Lazy-import phase only, by user decision** (`27bc69be`): matplotlib+shap lazy via PEP 562 package inits + `LazyModule` proxies in the chart controllers; `import nirs4all` now pulls only optuna from the heavy set (was matplotlib/pyplot/shap/numba/llvmlite too). Guarded by `tests/regression/test_lazy_imports.py`. **optuna stays eager; umap-learn/seaborn KEPT (the studio imports umap directly); nothing moved to extras; no version bump.** The extras split (§2 below, → 0.10.0) stays open if ever wanted. |
+| **3. Layering inversion** | **DONE via IoC registration** (`f338dc7d`): `Predictions.register_store_backend()` + registration in `pipeline/storage/__init__.py`. The data layer has zero runtime pipeline imports (TYPE_CHECKING only); public 0.9.x surface intact — physical relocation was rejected as a needless contract break, and instance-DI was a trap (the three sites are path-based factories). |
+| **4. God-classes** | **Deliberately skipped (user decision):** `pipeline_diagram.py`'s DAG model will be replaced by **dag-ml** — documented in its module docstring (`3dad0f99`); do not decompose or deep-test it. `synthesis/fitter.py` characterization-tests-then-split remains future work, as does the `test_refit_p2c.py:374` getsource-guard modernization (only needed before an orchestrator decomposition). |
+| **5. Smaller items** | Registry/router deterministic `(priority, __name__)` tie-break (`a676a6f1`); version single-sourced from `__init__.py` via `dynamic`/`attr:` + conda recipe fixed 0.8.11→0.9.1 (`a3d83a10`); setuptools-scm queued in `Roadmap.md` under "[publish] auto release on tag" (`911458eb`). **Still open:** mypy tightening (deferred — would surface an unbounded error set); `_aom_nirs` carve-out (owner-blocked on the nirs4all-methods replacement). |
+
+Branch is **not pushed**; `origin/main` also predates the June campaign (31 commits behind its base at the time). Side finding, audited the same day: `D:\nirs4all\nirs4all` (Windows build clone) was 109 commits stale with pure-CRLF working-tree churn — resync it before any release build.
+
+---
+
 ## 1. Cross-store transactionality (audit HIGH #3) — the flagship remaining item
 
 ### The problem
