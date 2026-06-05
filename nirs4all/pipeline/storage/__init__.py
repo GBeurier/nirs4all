@@ -25,3 +25,12 @@ __all__ = [
     'verify_migrated_store',
     'PipelineLibrary',
 ]
+
+# Inversion of control: register WorkspaceStore as the data layer's store backend so
+# nirs4all.data.predictions can open stores from a path without importing the pipeline
+# layer. This keeps the dependency direction correct (pipeline -> data); the data layer
+# only holds a TYPE_CHECKING reference to WorkspaceStore. See Predictions.register_store_backend.
+from nirs4all.data.predictions import Predictions as _Predictions
+
+_Predictions.register_store_backend(WorkspaceStore)
+del _Predictions

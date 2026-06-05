@@ -25,7 +25,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import uuid4
 
 import numpy as np
@@ -225,6 +225,11 @@ class Predictions:
         >>> pred.flush(pipeline_id="abc")
     """
 
+    # Concrete store class (WorkspaceStore) injected by the pipeline layer at import
+    # time via register_store_backend(). Lets the data layer open a store from a path
+    # without importing pipeline, so the data -> pipeline runtime dependency is gone.
+    _store_backend: ClassVar[type[WorkspaceStore] | None] = None
+
     def __init__(
         self,
         db_path: str | Path | None = None,
@@ -283,9 +288,8 @@ class Predictions:
         The workspace path is stored for operations that need to
         re-open the store (e.g. ``store_stats``).
         """
-        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
-
-        store = WorkspaceStore(workspace_path)
+        backend = self._require_store_backend()
+        store = backend(workspace_path)
         self._workspace_path = workspace_path
         try:
             df = store.query_predictions(dataset_name=dataset_name)
@@ -488,6 +492,26 @@ class Predictions:
         if self._store is None:
             raise RuntimeError("This operation requires a workspace store (not available in portable/in-memory mode).")
         return self._store
+
+    @classmethod
+    def register_store_backend(cls, backend: type[WorkspaceStore]) -> None:
+        """Register the concrete WorkspaceStore class used to open stores from a path.
+
+        Called by the pipeline storage layer at import time. This inverts the
+        data -> pipeline dependency: the data layer never imports WorkspaceStore at
+        runtime; the pipeline layer (which legitimately sits above data) injects it.
+        """
+        cls._store_backend = backend
+
+    @classmethod
+    def _require_store_backend(cls) -> type[WorkspaceStore]:
+        """Return the registered WorkspaceStore class, or raise if it is unavailable."""
+        if cls._store_backend is None:
+            raise RuntimeError(
+                "WorkspaceStore backend is not registered. Import nirs4all (or "
+                "nirs4all.pipeline) before opening a store from a path."
+            )
+        return cls._store_backend
 
     # =========================================================================
     # LOADING FROM WORKSPACE
@@ -2700,10 +2724,9 @@ class Predictions:
         Returns:
             A :class:`MergeReport` summarising the operation.
         """
-        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
-
+        backend = cls._require_store_backend()
         report = MergeReport(total_sources=len(sources))
-        target_store = WorkspaceStore(Path(target))
+        target_store = backend(Path(target))
         all_datasets: set[str] = set()
         # Cache for merge run/pipeline/chain per source to satisfy FK constraints
         _merge_pipelines: dict[str, tuple[str, str]] = {}  # source_path -> (pipeline_id, chain_id)
@@ -2712,7 +2735,7 @@ class Predictions:
             for source_path in sources:
                 src_key = str(source_path)
                 try:
-                    source_store = WorkspaceStore(Path(source_path))
+                    source_store = backend(Path(source_path))
                 except Exception as exc:
                     report.errors.append(f"Failed to open {source_path}: {exc}")
                     continue
@@ -2936,12 +2959,11 @@ class Predictions:
         if self._workspace_path is None:
             raise RuntimeError("This operation requires a workspace store (not available in portable/in-memory mode).")
 
-        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
-
+        backend = self._require_store_backend()
         db_path = self._find_store_db_path(self._workspace_path)
         db_bytes = db_path.stat().st_size if db_path is not None and db_path.exists() else 0
 
-        store = WorkspaceStore(self._workspace_path)
+        store = backend(self._workspace_path)
         try:
             tables = {}
             for table_name in ("runs", "pipelines", "chains", "predictions", "artifacts", "logs"):
