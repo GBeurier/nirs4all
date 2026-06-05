@@ -123,6 +123,45 @@ class SklearnModelController(BaseModelController):
         # 4. Accept generic objects with fit/predict methods (Duck Typing)
         return bool(hasattr(model, 'fit') and hasattr(model, 'predict'))
 
+    def _instantiate_from_model_instance(self, dataset: 'SpectroDataset', model: Any, force_params: dict[str, Any] | None) -> BaseEstimator:
+        """Instantiate a model from a ``model_instance`` config entry.
+
+        Returns a live estimator directly only when no ``force_params`` override
+        is requested; otherwise (and for class/function/config entries) routes
+        through ``ModelFactory`` so raw config dicts never reach ``clone()``.
+
+        Args:
+            dataset (SpectroDataset): Dataset for context-aware parameter building.
+            model (Any): The ``model_config['model_instance']`` value (live estimator,
+                class reference, function, or serialized config dict).
+            force_params (Optional[Dict[str, Any]]): Parameters to override/merge.
+
+        Returns:
+            BaseEstimator: Instantiated sklearn model.
+
+        Raises:
+            ValueError: If the model cannot be built via ``ModelFactory``.
+        """
+        is_live_model_instance = (
+            not isinstance(model, (dict, str))
+            and not inspect.isclass(model)
+            and not inspect.isfunction(model)
+            and not inspect.isbuiltin(model)
+            and hasattr(model, 'fit')
+            and hasattr(model, 'predict')
+        )
+
+        if is_live_model_instance and not force_params:
+            return model
+
+        try:
+            return ModelFactory.build_single_model(model, dataset, force_params)
+        except Exception as e:
+            raise ValueError(
+                "Could not instantiate sklearn model from 'model_instance' "
+                f"configuration: {model!r}"
+            ) from e
+
     def _get_model_instance(self, dataset: 'SpectroDataset', model_config: dict[str, Any], force_params: dict[str, Any] | None = None) -> BaseEstimator:
         """Create sklearn model instance from configuration.
 
@@ -152,27 +191,7 @@ class SklearnModelController(BaseModelController):
         # Only return live estimator instances directly. Everything else should go
         # back through ModelFactory so we never hand raw config dicts to clone().
         if 'model_instance' in model_config:
-            model = model_config['model_instance']
-
-            is_live_model_instance = (
-                not isinstance(model, (dict, str))
-                and not inspect.isclass(model)
-                and not inspect.isfunction(model)
-                and not inspect.isbuiltin(model)
-                and hasattr(model, 'fit')
-                and hasattr(model, 'predict')
-            )
-
-            if is_live_model_instance and not force_params:
-                return model
-
-            try:
-                return ModelFactory.build_single_model(model, dataset, force_params)
-            except Exception as e:
-                raise ValueError(
-                    "Could not instantiate sklearn model from 'model_instance' "
-                    f"configuration: {model!r}"
-                ) from e
+            return self._instantiate_from_model_instance(dataset, model_config['model_instance'], force_params)
 
         # Handle new serialization formats: {'function': ..., 'params': ...} or {'class': ..., 'params': ...}
         if any(key in model_config for key in ('function', 'class', 'import')):
@@ -264,6 +283,34 @@ class SklearnModelController(BaseModelController):
         trained_model = model
 
         # Set additional parameters if provided
+        self._apply_train_params(trained_model, train_params)
+
+        # Fit the model
+        self._fit_sklearn_model(trained_model, X_train, y_train, X_val, y_val)
+
+        # Reset GPU memory AFTER training as well to free model's training buffers
+        if reset_gpu:
+            _reset_gpu_memory()
+
+        # Always calculate and display final test scores, regardless of verbose level
+        # But control the detail level based on verbose
+        if verbose > 1:
+            self._display_training_scores(trained_model, X_train, y_train, X_val, y_val, kwargs)
+
+        return trained_model
+
+    def _apply_train_params(self, trained_model: BaseEstimator, train_params: dict[str, Any]) -> None:
+        """Apply training kwargs that map to valid model parameters, in place.
+
+        Filters ``train_params`` to keys present in the model's ``get_params()``
+        and calls ``set_params`` only when at least one valid parameter remains.
+        Parameters not recognized by the model are silently ignored.
+
+        Args:
+            trained_model (BaseEstimator): Model whose params are updated in place.
+            train_params (Dict[str, Any]): Candidate parameters (controller-only
+                keys such as ``task_type``/``verbose``/``reset_gpu`` already popped).
+        """
         if train_params:
             # Filter out parameters that don't exist in the model
             valid_params = {}
@@ -277,7 +324,32 @@ class SklearnModelController(BaseModelController):
             if valid_params:
                 trained_model.set_params(**valid_params)
 
-        # Fit the model
+    def _fit_sklearn_model(
+        self,
+        trained_model: BaseEstimator,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: np.ndarray | None,
+        y_val: np.ndarray | None,
+    ) -> None:
+        """Fit the model, passing validation data to estimators that accept it.
+
+        Ravels single-column targets to 1D and routes validation data into ``fit``
+        only when the estimator's signature exposes ``X_val``/``y_val`` and both
+        validation arrays are provided. Annotates invalid-hyperparameter
+        ``ValueError`` messages (n_components / upper bound) before re-raising.
+
+        Args:
+            trained_model (BaseEstimator): Model to fit in place.
+            X_train (np.ndarray): Training features.
+            y_train (np.ndarray): Training targets.
+            X_val (Optional[np.ndarray]): Validation features (forwarded only when
+                the estimator accepts them).
+            y_val (Optional[np.ndarray]): Validation targets.
+
+        Raises:
+            ValueError: Re-raised (annotated when hyperparameter-related).
+        """
         # Handle y shape: sklearn expects (n_samples,) for single-output, (n_samples, n_outputs) for multi-output
         y_fit = y_train.ravel() if y_train.ndim == 2 and y_train.shape[1] == 1 else y_train
 
@@ -300,53 +372,70 @@ class SklearnModelController(BaseModelController):
             else:
                 raise
 
-        # Reset GPU memory AFTER training as well to free model's training buffers
-        if reset_gpu:
-            _reset_gpu_memory()
+    def _display_training_scores(
+        self,
+        trained_model: BaseEstimator,
+        X_train: np.ndarray,
+        y_train: np.ndarray,
+        X_val: np.ndarray | None,
+        y_val: np.ndarray | None,
+        kwargs: dict[str, Any],
+    ) -> None:
+        """Compute and display train/validation scores (verbose > 1 path).
 
-        # Always calculate and display final test scores, regardless of verbose level
-        # But control the detail level based on verbose
+        Reads ``task_type`` from the original ``kwargs`` (not the popped copy) and
+        raises if it is missing. Computes training scores and, when validation data
+        is present, validation scores via ``_calculate_and_print_scores``.
 
-        if verbose > 1:
-            # Get task_type from train_params (passed by base controller)
-            task_type = kwargs.get('task_type')
-            if task_type is None:
-                raise ValueError("task_type must be provided in train_params")
+        Args:
+            trained_model (BaseEstimator): Fitted model to score.
+            X_train (np.ndarray): Training features.
+            y_train (np.ndarray): Training targets.
+            X_val (Optional[np.ndarray]): Validation features.
+            y_val (Optional[np.ndarray]): Validation targets.
+            kwargs (Dict[str, Any]): Original training kwargs; ``task_type`` is read
+                from here.
 
-            # Show detailed training scores at verbose > 1
-            y_train_pred = self._predict_model(trained_model, X_train)
-            train_scores = self._calculate_and_print_scores(
-                y_train, y_train_pred, task_type, "train",
+        Raises:
+            ValueError: If ``task_type`` is not present in ``kwargs``.
+        """
+        # Get task_type from train_params (passed by base controller)
+        task_type = kwargs.get('task_type')
+        if task_type is None:
+            raise ValueError("task_type must be provided in train_params")
+
+        # Show detailed training scores at verbose > 1
+        y_train_pred = self._predict_model(trained_model, X_train)
+        train_scores = self._calculate_and_print_scores(
+            y_train, y_train_pred, task_type, "train",
+            trained_model.__class__.__name__, show_detailed_scores=False
+        )
+        # Display concise training summary
+        if train_scores:
+            best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
+            best_score = train_scores.get(best_metric)
+            if best_score is not None:
+                from nirs4all.core.logging.formatters import get_symbols
+                direction = get_symbols().direction(higher_is_better)
+                all_scores_str = ModelUtils.format_scores(train_scores)
+                # Commented out - using logger instead when needed
+
+        # Validation scores if available
+        if X_val is not None and y_val is not None:
+            y_val_pred = self._predict_model(trained_model, X_val)
+            val_scores = self._calculate_and_print_scores(
+                y_val, y_val_pred, task_type, "validation",
                 trained_model.__class__.__name__, show_detailed_scores=False
             )
-            # Display concise training summary
-            if train_scores:
+            # Display concise validation summary
+            if val_scores:
                 best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
-                best_score = train_scores.get(best_metric)
+                best_score = val_scores.get(best_metric)
                 if best_score is not None:
                     from nirs4all.core.logging.formatters import get_symbols
                     direction = get_symbols().direction(higher_is_better)
-                    all_scores_str = ModelUtils.format_scores(train_scores)
+                    all_scores_str = ModelUtils.format_scores(val_scores)
                     # Commented out - using logger instead when needed
-
-            # Validation scores if available
-            if X_val is not None and y_val is not None:
-                y_val_pred = self._predict_model(trained_model, X_val)
-                val_scores = self._calculate_and_print_scores(
-                    y_val, y_val_pred, task_type, "validation",
-                    trained_model.__class__.__name__, show_detailed_scores=False
-                )
-                # Display concise validation summary
-                if val_scores:
-                    best_metric, higher_is_better = ModelUtils.get_best_score_metric(task_type)
-                    best_score = val_scores.get(best_metric)
-                    if best_score is not None:
-                        from nirs4all.core.logging.formatters import get_symbols
-                        direction = get_symbols().direction(higher_is_better)
-                        all_scores_str = ModelUtils.format_scores(val_scores)
-                        # Commented out - using logger instead when needed
-
-        return trained_model
 
     def _predict_model(self, model: BaseEstimator, X: np.ndarray) -> np.ndarray:
         """Generate predictions with sklearn model.

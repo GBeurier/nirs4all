@@ -1320,10 +1320,48 @@ class SpectroDataset:
         n_samples = len(sample_keys)
         n_sources = len(sources_data)
 
+        new_features = self._build_rebuilt_features(sources_data, processing_ids)
+        new_indexer = self._build_rebuilt_indexer(processing_ids, first_indices, n_samples)
+        self._rebuild_metadata_from_indices(old_metadata, first_indices, new_indexer)
+        self._rebuild_targets_from_indices(first_indices, new_indexer)
+
+        # Replace internal storage
+        self._features = new_features
+        self._indexer = new_indexer
+        self._feature_accessor = self._feature_accessor.__class__(
+            new_indexer, new_features
+        )
+
+        # Reset signal types for new sources
+        self._signal_types = [SignalType.AUTO] * n_sources
+        self._signal_type_forced = [False] * n_sources
+
+        # Preserve repetition setting
+        # (self._repetition remains unchanged as it refers to a metadata column)
+
+        # Clear folds (CV needs to be re-run on new sample count)
+        self._folds = []
+
+        # Invalidate content hash since features were rebuilt
+        self._invalidate_content_hash()
+
+    @staticmethod
+    def _build_rebuilt_features(
+        sources_data: list[np.ndarray],
+        processing_ids: list[list[str]],
+    ) -> "Features":
+        """Create a fresh ``Features`` block from per-source 3D arrays.
+
+        Args:
+            sources_data: List of 3D arrays, one per new source.
+            processing_ids: List of processing ID lists, one per new source.
+
+        Returns:
+            Newly built ``Features`` block with one ``FeatureSource`` per input source.
+        """
         # Reset feature storage
         from nirs4all.data._features import FeatureSource
         from nirs4all.data.features import Features
-        from nirs4all.data.indexer import Indexer
 
         # Create new features block
         new_features = Features()
@@ -1334,6 +1372,30 @@ class SpectroDataset:
             # Add samples as 2D (first pp), then reset with full 3D
             source.reset_features(data_3d, pp_ids)
             new_features.sources.append(source)
+
+        return new_features
+
+    def _build_rebuilt_indexer(
+        self,
+        processing_ids: list[list[str]],
+        first_indices: list[int],
+        n_samples: int,
+    ) -> "Indexer":
+        """Create a fresh ``Indexer`` with reduced sample count after a repetition transform.
+
+        Reads partition/group columns from ``self._indexer`` at ``first_indices`` and
+        replays them into a new indexer, adding samples partition-by-partition to respect
+        the single-value partition constraint.
+
+        Args:
+            processing_ids: List of processing ID lists, one per new source.
+            first_indices: Row indices (first per group) into the old indexer.
+            n_samples: Total number of samples in the rebuilt dataset.
+
+        Returns:
+            Newly built ``Indexer``.
+        """
+        from nirs4all.data.indexer import Indexer
 
         # Create new indexer with reduced sample count
         new_indexer = Indexer()
@@ -1373,6 +1435,24 @@ class SpectroDataset:
                 processings=processing_ids[0] if processing_ids else ["raw"]
             )
 
+        return new_indexer
+
+    def _rebuild_metadata_from_indices(
+        self,
+        old_metadata: Any | None,
+        first_indices: list[int],
+        new_indexer: "Indexer",
+    ) -> None:
+        """Rebuild the metadata block from selected rows, if metadata exists.
+
+        Extracts rows at ``first_indices`` from ``old_metadata`` and replaces
+        ``self._metadata`` / ``self._metadata_accessor``. No-op when there is no metadata.
+
+        Args:
+            old_metadata: Original metadata DataFrame (or None).
+            first_indices: Row indices to extract (first per group).
+            new_indexer: The rebuilt indexer the new accessor is bound to.
+        """
         # Rebuild metadata if exists
         if old_metadata is not None and len(old_metadata) > 0:
             import polars as pl
@@ -1393,6 +1473,21 @@ class SpectroDataset:
                 new_indexer, new_metadata
             )
 
+    def _rebuild_targets_from_indices(
+        self,
+        first_indices: list[int],
+        new_indexer: "Indexer",
+    ) -> None:
+        """Rebuild the targets block from selected rows, if targets exist.
+
+        Selects ``self._targets`` numeric values at ``first_indices``, preserves the
+        task type, and replaces ``self._targets`` / ``self._target_accessor``. No-op
+        when there are no targets (or no numeric values).
+
+        Args:
+            first_indices: Row indices to extract (first per group).
+            new_indexer: The rebuilt indexer the new accessor is bound to.
+        """
         # Rebuild targets if exists (use first_indices)
         if self._targets.num_samples > 0:
             old_y = self._targets.get_targets("numeric")
@@ -1411,26 +1506,6 @@ class SpectroDataset:
                 self._target_accessor = self._target_accessor.__class__(
                     new_indexer, new_targets
                 )
-
-        # Replace internal storage
-        self._features = new_features
-        self._indexer = new_indexer
-        self._feature_accessor = self._feature_accessor.__class__(
-            new_indexer, new_features
-        )
-
-        # Reset signal types for new sources
-        self._signal_types = [SignalType.AUTO] * n_sources
-        self._signal_type_forced = [False] * n_sources
-
-        # Preserve repetition setting
-        # (self._repetition remains unchanged as it refers to a metadata column)
-
-        # Clear folds (CV needs to be re-run on new sample count)
-        self._folds = []
-
-        # Invalidate content hash since features were rebuilt
-        self._invalidate_content_hash()
 
     def short_preprocessings_str(self) -> str:
         """Get shortened processing string for display."""
@@ -1928,14 +2003,32 @@ class SpectroDataset:
             >>> meta = dataset.get_dataset_metadata()
             >>> print(meta["n_samples"], meta["y_stats"])
         """
-        from pathlib import Path
-
         meta: dict[str, Any] = {
             "name": self.name,
             "n_samples": self._feature_accessor.num_samples if self._features.sources else 0,
             "n_features": self._feature_accessor.num_features if self._features.sources else 0,
             "n_sources": self._feature_accessor.num_sources if self._features.sources else 0,
         }
+
+        self._add_path_metadata(meta)
+        self._add_hash_metadata(meta)
+        self._add_task_type_metadata(meta)
+        self._add_y_stats_metadata(meta, include_y_stats)
+
+        # Wavelength info
+        if self._features.sources:
+            self._add_wavelength_metadata(meta)
+            self._add_signal_types_metadata(meta)
+
+        # Metadata columns
+        if self._metadata.num_rows > 0:
+            meta["metadata_columns"] = self._metadata.columns
+
+        return meta
+
+    def _add_path_metadata(self, meta: dict[str, Any]) -> None:
+        """Add ``path`` / ``file_size`` to ``meta`` when loaded from a file (in place)."""
+        from pathlib import Path
 
         # Path and file info (if loaded from file)
         source_path = getattr(self, '_source_path', None)
@@ -1945,6 +2038,11 @@ class SpectroDataset:
             if path_obj.exists():
                 meta["file_size"] = path_obj.stat().st_size
 
+    def _add_hash_metadata(self, meta: dict[str, Any]) -> None:
+        """Add content ``hash`` to ``meta`` via the non-materializing path (in place).
+
+        Reads ``meta["n_samples"]``; falls back to the cached hash if recomputation raises.
+        """
         # Content hash (non-materializing feature path).
         if self._features.sources and meta["n_samples"] > 0:
             try:
@@ -1953,6 +2051,8 @@ class SpectroDataset:
                 if self._content_hash_cache:
                     meta["hash"] = self._content_hash_cache
 
+    def _add_task_type_metadata(self, meta: dict[str, Any]) -> None:
+        """Add ``task_type`` (and ``num_classes`` for classification) to ``meta`` (in place)."""
         # Task type
         task_type = self._target_accessor.task_type
         if task_type:
@@ -1962,6 +2062,12 @@ class SpectroDataset:
             if self.is_classification:
                 meta["num_classes"] = self.num_classes
 
+    def _add_y_stats_metadata(self, meta: dict[str, Any], include_y_stats: bool) -> None:
+        """Add target ``y_stats`` to ``meta`` when requested and targets exist (in place).
+
+        Emits a class-distribution dict for classification or min/max/mean/std for
+        regression; swallows any error (leaving ``meta`` untouched).
+        """
         # Target statistics
         if include_y_stats and self._targets.num_samples > 0:
             try:
@@ -1985,35 +2091,37 @@ class SpectroDataset:
             except Exception:
                 pass
 
-        # Wavelength info
-        if self._features.sources:
-            try:
-                # Get wavelength range from first source
-                wavelengths = self.float_headers(0)
-                if wavelengths is not None and len(wavelengths) > 0:
-                    meta["wavelength_range"] = [float(wavelengths.min()), float(wavelengths.max())]
+    def _add_wavelength_metadata(self, meta: dict[str, Any]) -> None:
+        """Add ``wavelength_range`` / ``wavelength_unit`` from the first source (in place).
 
-                    # Detect unit
-                    header_unit = self.header_unit(0)
-                    if header_unit:
-                        meta["wavelength_unit"] = header_unit
-                    elif wavelengths.max() > 100:
-                        meta["wavelength_unit"] = "nm" if wavelengths.max() < 3000 else "cm-1"
-            except Exception:
-                pass
+        Swallows any error (leaving ``meta`` untouched). Caller guards on ``self._features.sources``.
+        """
+        try:
+            # Get wavelength range from first source
+            wavelengths = self.float_headers(0)
+            if wavelengths is not None and len(wavelengths) > 0:
+                meta["wavelength_range"] = [float(wavelengths.min()), float(wavelengths.max())]
 
-            # Signal types
-            with contextlib.suppress(Exception):
-                meta["signal_types"] = [
-                    self.signal_type(src).value if hasattr(self.signal_type(src), 'value') else str(self.signal_type(src))
-                    for src in range(meta["n_sources"])
-                ]
+                # Detect unit
+                header_unit = self.header_unit(0)
+                if header_unit:
+                    meta["wavelength_unit"] = header_unit
+                elif wavelengths.max() > 100:
+                    meta["wavelength_unit"] = "nm" if wavelengths.max() < 3000 else "cm-1"
+        except Exception:
+            pass
 
-        # Metadata columns
-        if self._metadata.num_rows > 0:
-            meta["metadata_columns"] = self._metadata.columns
+    def _add_signal_types_metadata(self, meta: dict[str, Any]) -> None:
+        """Add per-source ``signal_types`` to ``meta`` (in place).
 
-        return meta
+        Reads ``meta["n_sources"]``; swallows any error. Caller guards on ``self._features.sources``.
+        """
+        # Signal types
+        with contextlib.suppress(Exception):
+            meta["signal_types"] = [
+                self.signal_type(src).value if hasattr(self.signal_type(src), 'value') else str(self.signal_type(src))
+                for src in range(meta["n_sources"])
+            ]
 
     def set_source_path(self, path: str) -> None:
         """
