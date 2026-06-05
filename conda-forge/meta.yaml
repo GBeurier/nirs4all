@@ -10,7 +10,7 @@ source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
   # SHA256 must be updated when publishing a new version to PyPI.
   # Run: python scripts/sync_conda_recipe.py --update
-  sha256: PLACEHOLDER_UPDATE_ON_RELEASE
+  sha256: 5344e0b39346afd0bbca6c830cdc98760cc1765d9760213cbf3e53f36ed09e0c
 
 build:
   noarch: python
