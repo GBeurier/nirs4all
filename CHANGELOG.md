@@ -7,6 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.9.2] - Storage Crash Safety, Lighter Imports & Debt Cleanup - 2026-06-05
+
+### 🎯 Highlights
+
+Internal-quality release — **no public-API change** (the 0.9.x stable contracts hold). The workspace storage layer is now crash-safe across its three stores (SQLite / Parquet arrays / artifacts), `import nirs4all` is dramatically lighter, and a large technical-debt campaign removed ~17k LOC of dead code with zero behavior regression.
+
+### 🛡️ Storage crash safety (workspace)
+
+- **Delete ordering**: SQLite metadata is deleted before array tombstones are written — a crash mid-delete can only orphan arrays (harmless, reclaimable), never leave live metadata pointing at removable arrays
+- **Validated compaction**: tombstones are checked against live SQLite ids before physical removal; a stale tombstone (crash/rollback leftover) can never delete a live prediction's arrays and is dropped instead
+- **Atomic flush**: `Predictions.flush()` writes its SQLite rows and Parquet batch inside one transaction (re-entrant `WorkspaceStore.transaction()`); a crash mid-flush rolls the metadata back instead of leaving rows without arrays
+- **Inter-process lock**: ArrayStore mutations serialize on an advisory file lock (POSIX `flock` / Windows `msvcrt`), fixing silent last-writer-wins between concurrent processes writing the same workspace
+- **Self-healing**: pending tombstones are reconciled on workspace open (gated, validated), and threshold-gated auto-compaction reclaims space after deletes
+- `Predictions.clean_dead_links()` now physically reclaims orphaned arrays (previously it only counted them)
+
+### ⚡ Performance
+
+- `import nirs4all` no longer eagerly loads matplotlib, shap, numba or llvmlite — chart and explainability modules import lazily on first use (pinned by a regression test)
+
+### 🐛 Fixes
+
+- Generator: `{"_grid_": {...}, "model": ...}` dict steps were silently dropped — now expanded correctly
+- `explain()` on loaded `.n4a` bundles: fixed `step_idx` KeyError
+- AOM estimators: scikit-learn ≥ 1.9 compatibility (estimator-type detection via mixin MRO)
+- `reset_registry()` clears the controller registry in place (stale-reference bug)
+- Same-priority controllers route deterministically (tie-break by class name instead of import order)
+- Conda recipe version drift fixed; the recipe now syncs from the single-sourced package version
+
+### 🧹 Internal
+
+- −17,245 LOC of dead/legacy code removed (64 files) with zero behavior regression
+- ~30 god-methods decomposed across orchestrator, predictions, merge/branch controllers, executor and storage
+- Contract snapshot tests freeze the public API signatures, SQLite schema DDL and `.n4a` manifest format
+- SQLite schema version stamped via `PRAGMA user_version` with a forward-incompatibility guard
+- Layering fixed: the data layer no longer imports the pipeline layer at runtime (store backend injected at import time)
+- Version single-sourced from `nirs4all.__version__` (pyproject reads it dynamically)
+
+### 🧪 Tests
+
+- New crash-injection, validated-compaction, flush-transactionality, process-lock and lazy-import regression suites; full suite green (7171 passed / 0 failed)
+
+---
+
 ## [0.9.1] - Pipeline Definition Ergonomics - 2026-04-17
 
 ### ✨ Improvements
