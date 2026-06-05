@@ -1192,10 +1192,13 @@ class WorkspaceStore:
                 ).fetchone()
 
             if existing is not None:
-                # Upsert: delete old row and re-insert.
+                # Upsert: delete old row and re-insert. SQLite delete first, then
+                # tombstone — a crash in between can only orphan arrays (harmless:
+                # reads resolve through SQLite), never leave a live row whose arrays
+                # a later compaction would remove.
                 prediction_id = str(existing[0])
-                self._array_store.delete_batch({prediction_id})
                 conn.execute(DELETE_PREDICTION, [prediction_id])
+                self._array_store.delete_batch({prediction_id})
             elif prediction_id is not None:
                 # Explicit prediction_id provided — guard against PK collision
                 # from a different natural key (e.g. different chain/branch).
@@ -1204,8 +1207,8 @@ class WorkspaceStore:
                     [prediction_id],
                 ).fetchone()
                 if pk_existing is not None:
-                    self._array_store.delete_batch({prediction_id})
                     conn.execute(DELETE_PREDICTION, [prediction_id])
+                    self._array_store.delete_batch({prediction_id})
 
             if prediction_id is None:
                 prediction_id = str(uuid4())
@@ -2425,16 +2428,19 @@ class WorkspaceStore:
             if delete_artifacts:
                 self._decrement_artifact_refs_for_run(run_id)
 
-            # Delete arrays from Parquet store
-            if pred_ids:
-                self._array_store.delete_batch(pred_ids)
-
-            # Manual cascade: delete in reverse dependency order.
+            # Manual cascade: delete in reverse dependency order. SQLite first, then
+            # tombstone the arrays — a crash in between can only orphan arrays
+            # (harmless: reads resolve through SQLite), never leave live rows whose
+            # arrays a later compaction would remove.
             conn.execute(CASCADE_DELETE_RUN_LOGS, [run_id])
             conn.execute(CASCADE_DELETE_RUN_PREDICTIONS, [run_id])
             conn.execute(CASCADE_DELETE_RUN_CHAINS, [run_id])
             conn.execute(CASCADE_DELETE_RUN_PIPELINES, [run_id])
             conn.execute(DELETE_RUN, [run_id])
+
+            # Tombstone arrays in the Parquet store (physical removal at compaction)
+            if pred_ids:
+                self._array_store.delete_batch(pred_ids)
 
             if delete_artifacts:
                 self.gc_artifacts()
@@ -2579,8 +2585,10 @@ class WorkspaceStore:
                     "updated_chains": 0,
                 }
 
-            self._array_store.delete_batch(pred_ids)
+            # SQLite delete first, then tombstone — a crash in between can only
+            # orphan arrays, never leave live rows pointing at removable arrays.
             conn.execute(f"DELETE FROM predictions WHERE {where_sql}", params)
+            self._array_store.delete_batch(pred_ids)
 
             deleted_chains, updated_chains, pruned_pipeline_ids = self._prune_empty_chains(
                 conn,
