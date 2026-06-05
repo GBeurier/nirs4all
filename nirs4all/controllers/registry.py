@@ -24,7 +24,9 @@ def register_controller(operator_cls: type[OperatorController]):
 
     # print(f"Registering controller: {operator_cls.__name__}")
     CONTROLLER_REGISTRY.append(operator_cls)
-    CONTROLLER_REGISTRY.sort(key=lambda c: c.priority)
+    # Secondary sort by class name makes same-priority ordering deterministic
+    # (independent of controller import order), so routing is reproducible.
+    CONTROLLER_REGISTRY.sort(key=lambda c: (c.priority, c.__name__))
     # print(f"Registry now has {len(CONTROLLER_REGISTRY)} controllers: {[c.__name__ for c in CONTROLLER_REGISTRY]}")
     return operator_cls
 

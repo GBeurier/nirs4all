@@ -66,8 +66,9 @@ class ControllerRouter:
                 f"Available controllers: {[cls.__name__ for cls in self.registry]}"
             )
 
-        # Sort by priority (lower number = higher priority)
-        matches.sort(key=lambda c: c.priority)
+        # Sort by priority (lower number = higher priority); break ties by class
+        # name so same-priority matches resolve deterministically, not by import order.
+        matches.sort(key=lambda c: (c.priority, c.__name__))
 
         if self.verbose:
             print(f"[Router] Selected: {matches[0].__name__} (priority={matches[0].priority})")

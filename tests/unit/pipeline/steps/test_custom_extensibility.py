@@ -712,3 +712,64 @@ class TestRealWorldCustomControllerScenarios:
         parsed_b = parser.parse(step_b)
         controller_b = router.route(parsed_b, step_b)
         assert isinstance(controller_b, CustomB)
+
+class TestSamePriorityTieBreak:
+    """Same-priority controllers must resolve deterministically by class name.
+
+    Real controllers collide on priority (e.g. 11 share priority 10), so without a
+    secondary key the winner depended on import order. The registry and router both
+    sort by ``(priority, __name__)`` to make routing reproducible.
+    """
+
+    def setup_method(self):
+        self.original_registry = CONTROLLER_REGISTRY.copy()
+
+    def teardown_method(self):
+        CONTROLLER_REGISTRY.clear()
+        CONTROLLER_REGISTRY.extend(self.original_registry)
+
+    @staticmethod
+    def _make(name):
+        """Build a controller class named ``name`` at priority 7 matching 'tiebreak'."""
+        def matches(cls, step, operator, keyword):
+            return keyword == "tiebreak"
+
+        def use_multi_source(cls):
+            return False
+
+        def execute(self, step_info, dataset, context, runtime_context,
+                    source=-1, mode="train", loaded_binaries=None, prediction_store=None):
+            return context, []
+
+        return type(name, (OperatorController,), {
+            "priority": 7,
+            "matches": classmethod(matches),
+            "use_multi_source": classmethod(use_multi_source),
+            "execute": execute,
+        })
+
+    def test_router_picks_alphabetically_first_on_tie(self):
+        """When two equal-priority controllers match, the lower class name wins,
+        regardless of which registered first."""
+        zebra = self._make("ZebraTieController")
+        alpha = self._make("AlphaTieController")
+        # Register zebra FIRST so import order would have favoured it pre-fix.
+        register_controller(zebra)
+        register_controller(alpha)
+
+        parser = StepParser()
+        router = ControllerRouter()
+        step = {"tiebreak": lambda x: x}
+        parsed = parser.parse(step)
+
+        controller = router.route(parsed, step)
+        assert isinstance(controller, alpha)
+
+    def test_registry_sorted_by_name_within_priority(self):
+        """Equal-priority controllers are ordered by class name in the registry."""
+        zebra = self._make("ZebraTieController")
+        alpha = self._make("AlphaTieController")
+        register_controller(zebra)
+        register_controller(alpha)
+
+        assert CONTROLLER_REGISTRY.index(alpha) < CONTROLLER_REGISTRY.index(zebra)
