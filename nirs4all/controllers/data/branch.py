@@ -749,33 +749,8 @@ class BranchController(OperatorController):
         """
         steps = raw_def.get("steps", {})
 
-        # Validate multi-source dataset
-        n_sources = dataset.n_sources
-        if n_sources == 0:
-            raise ValueError(
-                "by_source requires a dataset with feature sources. "
-                "No sources found in dataset."
-            )
-
-        if n_sources == 1:
-            logger.warning(
-                "by_source called on single-source dataset. "
-                "This is effectively a no-op. Consider removing this step."
-            )
-
-        # Get source names
-        source_names = self._get_source_names(dataset, n_sources)
-        logger.info(f"Creating separation branches by source: {n_sources} sources")
-
-        # Parse steps configuration
-        if isinstance(steps, dict):
-            # Per-source steps: {"NIR": [...], "markers": [...]}
-            source_steps = steps
-        elif isinstance(steps, list):
-            # Shared steps for all sources
-            source_steps = dict.fromkeys(source_names, steps)
-        else:
-            source_steps = {name: [] for name in source_names}
+        # Validate dataset, resolve source names, and parse step configuration.
+        n_sources, source_names, source_steps = self._parse_by_source_steps(steps, dataset)
 
         # V3: Start branch step recording in trace
         recorder = runtime_context.trace_recorder
@@ -804,86 +779,224 @@ class BranchController(OperatorController):
         all_artifacts = []
 
         for src_idx, src_name in enumerate(source_names):
-            branch_steps = source_steps.get(src_name, [])
-
-            logger.info(f"  Source '{src_name}' (index {src_idx}): {self._get_step_names(branch_steps) or '[passthrough]'}")
-
-            # V3: Enter source context in trace recorder
-            if recorder is not None:
-                recorder.enter_branch(src_idx)
-
-            # Create context with processing for only this source
-            source_specific_processing = []
-            for i in range(n_sources):
-                if i == src_idx:
-                    source_specific_processing.append(list(current_processing[i]))
-                else:
-                    source_specific_processing.append([])  # Empty = skip this source
-
-            source_context = initial_context.copy()
-            source_context = source_context.with_processing(source_specific_processing)
-            source_context.custom["_current_source_idx"] = src_idx
-            source_context.custom["_current_source_name"] = src_name
-
-            # Set branch info
-            parent_branch_path = context.selector.branch_path or []
-            new_branch_path = parent_branch_path + [src_idx]
-            source_context.selector = source_context.selector.with_branch(
-                branch_id=src_idx,
-                branch_name=src_name,
-                branch_path=new_branch_path
+            source_entry, source_artifacts, updated_processing = self._execute_single_source(
+                src_idx=src_idx,
+                src_name=src_name,
+                source_steps=source_steps,
+                n_sources=n_sources,
+                current_processing=current_processing,
+                initial_context=initial_context,
+                context=context,
+                recorder=recorder,
+                dataset=dataset,
+                runtime_context=runtime_context,
+                mode=mode,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
             )
-
-            # Get source-specific binaries for prediction mode
-            source_binaries = loaded_binaries
-            if mode in ("predict", "explain") and runtime_context.artifact_loader:
-                source_binaries = runtime_context.artifact_loader.get_step_binaries(
-                    runtime_context.step_number, branch_id=src_idx
-                )
-                if not source_binaries:
-                    source_binaries = loaded_binaries
-
-            # Execute source pipeline steps
-            for substep_idx, substep in enumerate(branch_steps):
-                if runtime_context.step_runner:
-                    runtime_context.substep_number = substep_idx
-                    result = runtime_context.step_runner.execute(
-                        step=substep,
-                        dataset=dataset,
-                        context=source_context,
-                        runtime_context=runtime_context,
-                        loaded_binaries=source_binaries,
-                        prediction_store=prediction_store
-                    )
-                    source_context = result.updated_context
-                    all_artifacts.extend(result.artifacts)
-
-            # V3: Exit source context in trace recorder
-            if recorder is not None:
-                recorder.exit_branch()
-
-            # Update new processing for this source from the context
-            if source_context.selector.processing and len(source_context.selector.processing) > src_idx:
-                new_processing_per_source[src_idx] = list(source_context.selector.processing[src_idx])
-
-            # Store the source context
-            source_contexts.append({
-                "branch_id": src_idx,
-                "source_id": src_idx,
-                "name": src_name,
-                "source_name": src_name,
-                "context": source_context,
-                "features_snapshot": None,
-                "pipeline_steps": branch_steps,
-                "branch_mode": "separation",
-            })
-
-            logger.success(f"  Source '{src_name}' processing completed")
+            all_artifacts.extend(source_artifacts)
+            if updated_processing is not None:
+                new_processing_per_source[src_idx] = updated_processing
+            source_contexts.append(source_entry)
 
         # V3: End branch step in trace
         if recorder is not None:
             recorder.end_step()
 
+        return self._build_by_source_result(
+            context=context,
+            new_processing_per_source=new_processing_per_source,
+            source_contexts=source_contexts,
+            n_sources=n_sources,
+            source_names=source_names,
+            all_artifacts=all_artifacts,
+        )
+
+    def _parse_by_source_steps(
+        self,
+        steps: Any,
+        dataset: "SpectroDataset",
+    ) -> tuple[int, list[str], dict[str, Any]]:
+        """Validate the dataset and resolve per-source step configuration.
+
+        Args:
+            steps: Raw ``steps`` value from the branch definition.
+            dataset: Target multi-source dataset.
+
+        Returns:
+            ``(n_sources, source_names, source_steps)`` where ``source_steps``
+            maps each source name to its list of pipeline steps.
+        """
+        # Validate multi-source dataset
+        n_sources = dataset.n_sources
+        if n_sources == 0:
+            raise ValueError(
+                "by_source requires a dataset with feature sources. "
+                "No sources found in dataset."
+            )
+
+        if n_sources == 1:
+            logger.warning(
+                "by_source called on single-source dataset. "
+                "This is effectively a no-op. Consider removing this step."
+            )
+
+        # Get source names
+        source_names = self._get_source_names(dataset, n_sources)
+        logger.info(f"Creating separation branches by source: {n_sources} sources")
+
+        # Parse steps configuration
+        if isinstance(steps, dict):
+            # Per-source steps: {"NIR": [...], "markers": [...]}
+            source_steps = steps
+        elif isinstance(steps, list):
+            # Shared steps for all sources
+            source_steps = dict.fromkeys(source_names, steps)
+        else:
+            source_steps = {name: [] for name in source_names}
+
+        return n_sources, source_names, source_steps
+
+    def _execute_single_source(
+        self,
+        src_idx: int,
+        src_name: str,
+        source_steps: dict[str, Any],
+        n_sources: int,
+        current_processing: list,
+        initial_context: "ExecutionContext",
+        context: "ExecutionContext",
+        recorder: Any,
+        dataset: "SpectroDataset",
+        runtime_context: "RuntimeContext",
+        mode: str,
+        loaded_binaries: list[tuple[str, Any]] | None,
+        prediction_store: Any | None,
+    ) -> tuple[dict[str, Any], list, list[str] | None]:
+        """Execute the pipeline steps for a single source branch.
+
+        Args:
+            src_idx: Index of this source.
+            src_name: Name of this source.
+            source_steps: Mapping of source name to step list.
+            n_sources: Total number of sources.
+            current_processing: Current processing chains for all sources.
+            initial_context: Snapshot of the context before any source ran.
+            context: Original execution context (for branch path lookup).
+            recorder: Trace recorder (may be ``None``).
+            dataset: Target dataset.
+            runtime_context: Active runtime context.
+            mode: Execution mode ("train"/"predict"/"explain").
+            loaded_binaries: Default binaries for this step.
+            prediction_store: Prediction store for sub-step execution.
+
+        Returns:
+            ``(source_entry, source_artifacts, updated_processing)`` where
+            ``updated_processing`` is the new processing chain for this source
+            or ``None`` when it should be left unchanged.
+        """
+        branch_steps = source_steps.get(src_name, [])
+
+        logger.info(f"  Source '{src_name}' (index {src_idx}): {self._get_step_names(branch_steps) or '[passthrough]'}")
+
+        # V3: Enter source context in trace recorder
+        if recorder is not None:
+            recorder.enter_branch(src_idx)
+
+        # Create context with processing for only this source
+        source_specific_processing = []
+        for i in range(n_sources):
+            if i == src_idx:
+                source_specific_processing.append(list(current_processing[i]))
+            else:
+                source_specific_processing.append([])  # Empty = skip this source
+
+        source_context = initial_context.copy()
+        source_context = source_context.with_processing(source_specific_processing)
+        source_context.custom["_current_source_idx"] = src_idx
+        source_context.custom["_current_source_name"] = src_name
+
+        # Set branch info
+        parent_branch_path = context.selector.branch_path or []
+        new_branch_path = parent_branch_path + [src_idx]
+        source_context.selector = source_context.selector.with_branch(
+            branch_id=src_idx,
+            branch_name=src_name,
+            branch_path=new_branch_path
+        )
+
+        # Get source-specific binaries for prediction mode
+        source_binaries = loaded_binaries
+        if mode in ("predict", "explain") and runtime_context.artifact_loader:
+            source_binaries = runtime_context.artifact_loader.get_step_binaries(
+                runtime_context.step_number, branch_id=src_idx
+            )
+            if not source_binaries:
+                source_binaries = loaded_binaries
+
+        # Execute source pipeline steps
+        source_artifacts: list = []
+        for substep_idx, substep in enumerate(branch_steps):
+            if runtime_context.step_runner:
+                runtime_context.substep_number = substep_idx
+                result = runtime_context.step_runner.execute(
+                    step=substep,
+                    dataset=dataset,
+                    context=source_context,
+                    runtime_context=runtime_context,
+                    loaded_binaries=source_binaries,
+                    prediction_store=prediction_store
+                )
+                source_context = result.updated_context
+                source_artifacts.extend(result.artifacts)
+
+        # V3: Exit source context in trace recorder
+        if recorder is not None:
+            recorder.exit_branch()
+
+        # Update new processing for this source from the context
+        updated_processing: list[str] | None = None
+        if source_context.selector.processing and len(source_context.selector.processing) > src_idx:
+            updated_processing = list(source_context.selector.processing[src_idx])
+
+        # Store the source context
+        source_entry = {
+            "branch_id": src_idx,
+            "source_id": src_idx,
+            "name": src_name,
+            "source_name": src_name,
+            "context": source_context,
+            "features_snapshot": None,
+            "pipeline_steps": branch_steps,
+            "branch_mode": "separation",
+        }
+
+        logger.success(f"  Source '{src_name}' processing completed")
+
+        return source_entry, source_artifacts, updated_processing
+
+    def _build_by_source_result(
+        self,
+        context: "ExecutionContext",
+        new_processing_per_source: list[list[str]],
+        source_contexts: list[dict[str, Any]],
+        n_sources: int,
+        source_names: list[str],
+        all_artifacts: list,
+    ) -> tuple["ExecutionContext", StepOutput]:
+        """Assemble the result context and step output for by-source branching.
+
+        Args:
+            context: Original execution context.
+            new_processing_per_source: Combined processing chains per source.
+            source_contexts: Per-source context records for later merges.
+            n_sources: Total number of sources.
+            source_names: Resolved source names.
+            all_artifacts: Artifacts accumulated across all sources.
+
+        Returns:
+            ``(result_context, StepOutput)``.
+        """
         # Build updated context with combined processing from all sources
         result_context = context.copy()
         result_context = result_context.with_processing(new_processing_per_source)
@@ -1462,11 +1575,6 @@ class BranchController(OperatorController):
             pipeline_id: Source CV pipeline ID for this branch variant.
             config_name: Source CV config name for this branch variant.
         """
-        import copy
-
-        from nirs4all.core.metrics import infer_ascending as _infer_ascending
-        from nirs4all.pipeline.config.context import BestChainEntry
-
         n_pred_after = prediction_store.num_predictions
         if n_pred_after <= n_pred_before:
             return
@@ -1474,7 +1582,79 @@ class BranchController(OperatorController):
         new_entries = prediction_store.slice_after(n_pred_before).iter_entries()
 
         # Separate branch_steps into preprocessing and model steps.
-        # Model steps are dicts with "model" key.
+        preprocessing_steps, model_steps_by_name = BranchController._split_branch_steps(branch_steps)
+
+        # Track candidate variants per model. A single branch variant can emit
+        # multiple candidate chains for the same model (for example from
+        # finetuning). Refit must keep the best candidate chain, not the mean
+        # across all candidates under the model identity.
+        candidate_data = BranchController._collect_refit_candidates(new_entries)
+
+        # Pick the best candidate chain per model identity within this branch.
+        best_candidate_by_model = BranchController._select_best_refit_candidates(candidate_data)
+
+        # Update accumulator for each model
+        BranchController._apply_best_refit_candidates(
+            best_chains=best_chains,
+            best_candidate_by_model=best_candidate_by_model,
+            preprocessing_steps=preprocessing_steps,
+            model_steps_by_name=model_steps_by_name,
+            branch_steps=branch_steps,
+            pipeline_id=pipeline_id,
+            config_name=config_name,
+        )
+
+    @staticmethod
+    def _load_best_params(raw: Any) -> dict:
+        """Normalize serialized best_params for candidate matching."""
+        if isinstance(raw, str):
+            import json
+            with contextlib.suppress(json.JSONDecodeError, TypeError):
+                parsed = json.loads(raw)
+                if isinstance(parsed, dict):
+                    return parsed
+            return {}
+        if isinstance(raw, dict):
+            return raw
+        return {}
+
+    @staticmethod
+    def _stable_serialize(raw: Any) -> str:
+        """Build a stable key for grouping candidate chains."""
+        import json
+
+        params = BranchController._load_best_params(raw)
+        try:
+            return json.dumps(params, sort_keys=True, default=str)
+        except Exception:
+            return str(params)
+
+    @staticmethod
+    def _normalize_model_identity(raw_class: Any, raw_name: Any) -> str:
+        """Use model class identity for refit grouping.
+
+        Refit should happen once per model type, even when generator-expanded
+        branches assign different user-facing names to the same class.
+        """
+        if isinstance(raw_class, str) and raw_class:
+            return raw_class.rsplit(".", 1)[-1]
+        if raw_class is not None:
+            return type(raw_class).__name__
+        if isinstance(raw_name, str) and raw_name:
+            return raw_name
+        return "unknown_model"
+
+    @staticmethod
+    def _split_branch_steps(branch_steps: list) -> tuple[list, dict[str, dict]]:
+        """Split branch steps into preprocessing and named model steps.
+
+        Args:
+            branch_steps: Expanded steps for a branch variant.
+
+        Returns:
+            ``(preprocessing_steps, model_steps_by_name)`` where model steps are
+            dicts carrying a ``"model"`` key, keyed by their resolved name.
+        """
         preprocessing_steps: list = []
         model_steps_by_name: dict[str, dict] = {}
         for step in branch_steps:
@@ -1483,48 +1663,21 @@ class BranchController(OperatorController):
                 model_steps_by_name[name] = step
             else:
                 preprocessing_steps.append(step)
+        return preprocessing_steps, model_steps_by_name
 
-        def _load_best_params(raw: Any) -> dict:
-            """Normalize serialized best_params for candidate matching."""
-            if isinstance(raw, str):
-                import json
-                with contextlib.suppress(json.JSONDecodeError, TypeError):
-                    parsed = json.loads(raw)
-                    if isinstance(parsed, dict):
-                        return parsed
-                return {}
-            if isinstance(raw, dict):
-                return raw
-            return {}
+    @staticmethod
+    def _collect_refit_candidates(new_entries: Any) -> dict[tuple[str, str, str], dict[str, Any]]:
+        """Group new prediction entries into per-model candidate chains.
 
-        def _stable_serialize(raw: Any) -> str:
-            """Build a stable key for grouping candidate chains."""
-            import json
+        Args:
+            new_entries: Iterable of prediction entries appended during the
+                branch variant.
 
-            params = _load_best_params(raw)
-            try:
-                return json.dumps(params, sort_keys=True, default=str)
-            except Exception:
-                return str(params)
-
-        def _normalize_model_identity(raw_class: Any, raw_name: Any) -> str:
-            """Use model class identity for refit grouping.
-
-            Refit should happen once per model type, even when generator-expanded
-            branches assign different user-facing names to the same class.
-            """
-            if isinstance(raw_class, str) and raw_class:
-                return raw_class.rsplit(".", 1)[-1]
-            if raw_class is not None:
-                return type(raw_class).__name__
-            if isinstance(raw_name, str) and raw_name:
-                return raw_name
-            return "unknown_model"
-
-        # Track candidate variants per model. A single branch variant can emit
-        # multiple candidate chains for the same model (for example from
-        # finetuning). Refit must keep the best candidate chain, not the mean
-        # across all candidates under the model identity.
+        Returns:
+            Mapping of ``(model_identity, preprocessings, params_key)`` to the
+            candidate record (model identity/name, metric, best_params, avg and
+            per-fold scores).
+        """
         candidate_data: dict[tuple[str, str, str], dict[str, Any]] = {}
 
         for entry in new_entries:
@@ -1538,15 +1691,15 @@ class BranchController(OperatorController):
                 continue
 
             model_name = str(model_name)
-            model_identity = _normalize_model_identity(
+            model_identity = BranchController._normalize_model_identity(
                 entry.get("model_classname") or entry.get("model_class"),
                 model_name,
             )
-            best_params = _load_best_params(entry.get("best_params"))
+            best_params = BranchController._load_best_params(entry.get("best_params"))
             candidate_key = (
                 model_identity,
                 str(entry.get("preprocessings") or ""),
-                _stable_serialize(best_params),
+                BranchController._stable_serialize(best_params),
             )
             candidate = candidate_data.setdefault(
                 candidate_key,
@@ -1571,7 +1724,23 @@ class BranchController(OperatorController):
             # fold should not change the candidate's CV ranking.
             candidate["fold_scores"].setdefault(fold_id, float(val_score))
 
-        # Pick the best candidate chain per model identity within this branch.
+        return candidate_data
+
+    @staticmethod
+    def _select_best_refit_candidates(
+        candidate_data: dict[tuple[str, str, str], dict[str, Any]],
+    ) -> dict[str, dict[str, Any]]:
+        """Reduce candidate chains to the best one per model identity.
+
+        Args:
+            candidate_data: Output of :meth:`_collect_refit_candidates`.
+
+        Returns:
+            Mapping of model identity to the winning candidate record (model
+            name, average val score, best_params, metric).
+        """
+        from nirs4all.core.metrics import infer_ascending as _infer_ascending
+
         best_candidate_by_model: dict[str, dict[str, Any]] = {}
         for candidate in candidate_data.values():
             if candidate["avg_score"] is not None:
@@ -1601,7 +1770,39 @@ class BranchController(OperatorController):
                 "metric": metric,
             }
 
-        # Update accumulator for each model
+        return best_candidate_by_model
+
+    @staticmethod
+    def _apply_best_refit_candidates(
+        best_chains: dict,
+        best_candidate_by_model: dict[str, dict[str, Any]],
+        preprocessing_steps: list,
+        model_steps_by_name: dict[str, dict],
+        branch_steps: list,
+        pipeline_id: str | None,
+        config_name: str | None,
+    ) -> None:
+        """Update the accumulator with winning candidates that beat existing ones.
+
+        Mutates ``best_chains`` in place: for each model identity, replaces the
+        stored entry only when the candidate's average val score improves on the
+        existing entry (or no entry exists yet).
+
+        Args:
+            best_chains: Accumulator dict (model identity -> BestChainEntry).
+            best_candidate_by_model: Winning candidates from
+                :meth:`_select_best_refit_candidates`.
+            preprocessing_steps: Preprocessing steps shared by the branch.
+            model_steps_by_name: Model steps keyed by resolved name.
+            branch_steps: Full expanded steps (fallback for missing model step).
+            pipeline_id: Source CV pipeline ID for this branch variant.
+            config_name: Source CV config name for this branch variant.
+        """
+        import copy
+
+        from nirs4all.core.metrics import infer_ascending as _infer_ascending
+        from nirs4all.pipeline.config.context import BestChainEntry
+
         for model_identity, candidate in best_candidate_by_model.items():
             avg_score = float(candidate["avg_val_score"])
             metric = str(candidate["metric"])

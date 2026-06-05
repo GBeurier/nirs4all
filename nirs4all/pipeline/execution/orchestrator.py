@@ -1477,6 +1477,37 @@ class PipelineOrchestrator:
 
         pre_count = run_dataset_predictions.num_predictions
         source_entries = list(run_dataset_predictions.iter_entries())
+
+        added = self._build_aggregated_twins(
+            run_dataset_predictions, source_entries, agg_col, method, exclude_outliers,
+        )
+
+        if added == 0:
+            return
+
+        self._persist_aggregated_twins(
+            run_dataset_predictions, run_predictions, source_entries, pre_count,
+        )
+
+        logger.info(
+            f"Saved {added} repetition-aggregated prediction twin(s) "
+            f"(column='{agg_col}', method='{method}')"
+        )
+
+    def _build_aggregated_twins(
+        self,
+        run_dataset_predictions: Predictions,
+        source_entries: list[dict[str, Any]],
+        agg_col: str,
+        method: str,
+        exclude_outliers: bool,
+    ) -> int:
+        """Append repetition-aggregated twin entries to ``run_dataset_predictions``.
+
+        Iterates the source entries, computes group-mean predictions/scores and
+        adds a ``"<orig>_agg"`` twin for each that aggregates. Returns the number
+        of twins added.
+        """
         added = 0
 
         for entry in source_entries:
@@ -1593,9 +1624,21 @@ class PipelineOrchestrator:
             )
             added += 1
 
-        if added == 0:
-            return
+        return added
 
+    def _persist_aggregated_twins(
+        self,
+        run_dataset_predictions: Predictions,
+        run_predictions: Predictions,
+        source_entries: list[dict[str, Any]],
+        pre_count: int,
+    ) -> None:
+        """Merge aggregated twins into ``run_predictions`` and persist to stores.
+
+        Slices the freshly added twins (after ``pre_count``), merges them into
+        the run-level predictions, then writes each twin to the SQLite store and
+        batches its arrays, updating affected chain summaries.
+        """
         twins = run_dataset_predictions.slice_after(pre_count)
         run_predictions.merge_predictions(twins)
 
@@ -1685,11 +1728,6 @@ class PipelineOrchestrator:
             self.store.array_store.save_batch(array_records)
         if affected_chain_ids:
             self.store.bulk_update_chain_summaries(list(affected_chain_ids))
-
-        logger.info(
-            f"Saved {added} repetition-aggregated prediction twin(s) "
-            f"(column='{agg_col}', method='{method}')"
-        )
 
     def _execute_single_refit(
         self,
@@ -2090,9 +2128,39 @@ class PipelineOrchestrator:
 
         rankable.sort(key=lambda e: e["test_score"], reverse=not asc)
 
-        # Enrich each refit entry with the CV test score from its w_avg fold.
-        # This is the test score computed from the weighted-average of fold
-        # predictions (before refit) — useful for comparing CV vs refit performance.
+        self._enrich_refit_cv_test_scores(predictions, rankable, pred_index)
+
+        best_refit = rankable[0]
+
+        self._print_refit_headline(
+            predictions, rankable, best_refit, name,
+            aggregate_column, aggregate_method, aggregate_exclude_outliers,
+            pred_index,
+        )
+        self._print_refit_per_model_table(
+            predictions, rankable, name, metric, asc,
+            aggregate_column, aggregate_method, aggregate_exclude_outliers,
+            pred_index,
+        )
+        self._print_top_cv_chains(predictions, name, asc)
+        self._print_cv_selection_summary(
+            predictions, name,
+            aggregate_column, aggregate_method, aggregate_exclude_outliers,
+        )
+
+    def _enrich_refit_cv_test_scores(
+        self,
+        predictions: Predictions,
+        rankable: list,
+        pred_index: dict | None,
+    ) -> None:
+        """Enrich each refit entry with the CV test score from its w_avg fold.
+
+        This is the test score computed from the weighted-average of fold
+        predictions (before refit) — useful for comparing CV vs refit
+        performance. Mutates ``rankable`` entries in place by setting
+        ``cv_test_score``.
+        """
         if pred_index is not None:
             w_avg_index = pred_index.get("w_avg", {})
             for entry in rankable:
@@ -2115,8 +2183,18 @@ class PipelineOrchestrator:
                 if w_avg_matches:
                     entry["cv_test_score"] = w_avg_matches[0].get("test_score")
 
-        best_refit = rankable[0]
-
+    def _print_refit_headline(
+        self,
+        predictions: Predictions,
+        rankable: list,
+        best_refit: dict,
+        name: str,
+        aggregate_column: str | None,
+        aggregate_method: str | None,
+        aggregate_exclude_outliers: bool,
+        pred_index: dict | None,
+    ) -> None:
+        """Log the final-model headline plus per-model tab reports (refit)."""
         # --- Headline: Final model performance ---
         cv_test_str = ""
         if best_refit.get("cv_test_score") is not None:
@@ -2162,6 +2240,19 @@ class PipelineOrchestrator:
                         f"({Predictions.pred_long_string(entry)}):\n{entry_tab}"
                     )
 
+    def _print_refit_per_model_table(
+        self,
+        predictions: Predictions,
+        rankable: list,
+        name: str,
+        metric: str,
+        asc: bool,
+        aggregate_column: str | None,
+        aggregate_method: str | None,
+        aggregate_exclude_outliers: bool,
+        pred_index: dict | None,
+    ) -> None:
+        """Log the per-model final-scores summary table for this dataset."""
         # --- Per-model table for this dataset (always show, even with 1 model) ---
         if len(rankable) > 0:
             summary = TabReportManager.generate_per_model_summary(
@@ -2184,6 +2275,13 @@ class PipelineOrchestrator:
 
             logger.info("%s:\n%s", header, summary)
 
+    def _print_top_cv_chains(
+        self,
+        predictions: Predictions,
+        name: str,
+        asc: bool,
+    ) -> None:
+        """Log the Top 30 CV chains table (averaged across folds)."""
         # --- Top 30 CV chains (averaged across folds) ---
         avg_entries_raw = predictions.top(
             n=30,
@@ -2283,6 +2381,15 @@ class PipelineOrchestrator:
                 )
             logger.info(sep)
 
+    def _print_cv_selection_summary(
+        self,
+        predictions: Predictions,
+        name: str,
+        aggregate_column: str | None,
+        aggregate_method: str | None,
+        aggregate_exclude_outliers: bool,
+    ) -> None:
+        """Log the CV selection summary (best averaged-fold entry)."""
         # --- Detail: CV selection summary (always visible) ---
         cv_best = predictions.get_best(
             ascending=None,

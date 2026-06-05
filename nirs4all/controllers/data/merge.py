@@ -3601,163 +3601,33 @@ class MergeController(OperatorController):
         selection_info: list[dict[str, Any]] = []
 
         for branch_config in prediction_configs:
-            branch_ref = branch_config.branch
-            actual_idx = self._resolve_branch_index(branch_contexts, branch_ref)
-            branch_ctx = self._get_branch_context(branch_contexts, actual_idx)
-
-            if branch_ctx is None:
-                if config.on_missing == "error":
-                    raise ValueError(
-                        f"Branch {branch_ref} not found for prediction collection. "
-                        f"[Error: MERGE-E021]"
-                    )
-                logger.warning(f"Branch {branch_ref} not found, skipping predictions.")
-                continue
-
-            branch_id = branch_ctx["branch_id"]
-
-            # Discover all models in this branch
-            available_models = self._discover_branch_models(
-                prediction_store=prediction_store,
-                branch_id=branch_id,
-                context=context,
-                model_filter=None,  # Don't pre-filter; selection does that
-            )
-
-            if not available_models:
-                if config.on_missing == "error":
-                    # Phase 6: Provide detailed error with asymmetric branch analysis
-                    analyzer = AsymmetricBranchAnalyzer(
-                        branch_contexts=branch_contexts,
-                        prediction_store=prediction_store,
-                        context=context,
-                    )
-                    report = analyzer.analyze_all()
-
-                    if report.has_model_asymmetry and branch_id in report.branches_without_models:
-                        suggestion = analyzer.suggest_mixed_merge()
-                        raise ValueError(
-                            f"No model predictions found in branch {branch_ref}. "
-                            f"This branch has only features (no trained models). "
-                            f"{report.summary}. "
-                            f"\n\n{suggestion}\n"
-                            f"[Error: MERGE-E011]"
-                        )
-                    else:
-                        raise ValueError(
-                            f"No model predictions found in branch {branch_ref}. "
-                            f"Ensure models were trained in this branch before merge. "
-                            f"[Error: MERGE-E010]"
-                        )
-                logger.warning(f"No models found in branch {branch_ref}, skipping.")
-                continue
-
-            # Phase 5: Apply model selection
-            selected_models = model_selector.select_models(
-                available_models=available_models,
-                config=branch_config,
-                branch_id=branch_id,
-            )
-
-            if not selected_models:
-                logger.warning(
-                    f"No models selected from branch {branch_ref} after applying "
-                    f"selection strategy: {branch_config.select}. Skipping."
-                )
-                continue
-
-            logger.info(
-                f"  Branch {branch_id}: selected {len(selected_models)}/{len(available_models)} models "
-                f"using strategy '{branch_config.get_selection_strategy().value}'"
-            )
-
-            # Collect OOF predictions for selected models
-            branch_predictions = self._collect_branch_predictions(
+            branch_result = self._process_branch_prediction_collection(
                 dataset=dataset,
                 context=context,
-                prediction_store=prediction_store,
-                model_names=selected_models,
-                branch_id=branch_id,
+                branch_contexts=branch_contexts,
                 config=config,
+                prediction_store=prediction_store,
+                model_selector=model_selector,
+                branch_config=branch_config,
                 mode=mode,
             )
 
-            if branch_predictions is None or len(branch_predictions) == 0:
-                logger.warning(f"No predictions collected from branch {branch_id}")
+            if branch_result is None:
                 continue
 
-            # Phase 5: Apply aggregation strategy
-            aggregation_strategy = branch_config.get_aggregation_strategy()
-
-            if aggregation_strategy != AggregationStrategy.SEPARATE:
-                # Get model scores for weighted aggregation
-                model_scores = None
-                if aggregation_strategy == AggregationStrategy.WEIGHTED_MEAN:
-                    metric = branch_config.weight_metric or branch_config.metric or "rmse"
-                    model_scores = model_selector.get_model_scores(
-                        model_names=selected_models,
-                        metric=metric,
-                        branch_id=branch_id,
-                    )
-
-                # Aggregate predictions
-                aggregated = PredictionAggregator.aggregate(
-                    predictions=branch_predictions,
-                    strategy=aggregation_strategy,
-                    model_scores=model_scores,
-                    proba=branch_config.proba,
-                    metric=branch_config.weight_metric or branch_config.metric,
-                )
-
-                logger.info(
-                    f"  Branch {branch_id}: aggregated {len(selected_models)} models "
-                    f"using '{aggregation_strategy.value}' → shape {aggregated.shape}"
-                )
-
-                all_branch_predictions.append(aggregated)
-            else:
-                # Keep predictions separate (each model = 1 feature)
-                separate = PredictionAggregator.aggregate(
-                    predictions=branch_predictions,
-                    strategy=AggregationStrategy.SEPARATE,
-                )
-                all_branch_predictions.append(separate)
-
+            branch_prediction, actual_idx, selected_models, selection_entry = branch_result
+            all_branch_predictions.append(branch_prediction)
             all_models_used.extend(selected_models)
             branches_used.append(actual_idx)
-            selection_info.append({
-                "branch": actual_idx,
-                "available_models": len(available_models),
-                "selected_models": selected_models,
-                "selection_strategy": branch_config.get_selection_strategy().value,
-                "aggregation_strategy": aggregation_strategy.value,
-            })
+            selection_info.append(selection_entry)
 
         if not all_branch_predictions:
             if config.on_missing == "error":
-                # Phase 6: Use asymmetric analyzer for better error messages
-                analyzer = AsymmetricBranchAnalyzer(
+                self._raise_no_predictions_collected(
                     branch_contexts=branch_contexts,
                     prediction_store=prediction_store,
                     context=context,
                 )
-                report = analyzer.analyze_all()
-
-                if report.has_model_asymmetry:
-                    # Provide resolution suggestion for asymmetric branches
-                    suggestion = analyzer.suggest_mixed_merge()
-                    raise ValueError(
-                        f"No model predictions found in any specified branch. "
-                        f"Asymmetric branches detected: {report.summary}. "
-                        f"\n\n{suggestion}\n"
-                        f"[Error: MERGE-E011]"
-                    )
-                else:
-                    raise ValueError(
-                        "No model predictions found in any specified branch. "
-                        "Ensure models were trained in the specified branches before merge. "
-                        "[Error: MERGE-E010]"
-                    )
             logger.warning("No predictions collected from any branch.")
             return None, {"models_used": [], "branches_used": []}
 
@@ -3773,6 +3643,246 @@ class MergeController(OperatorController):
         }
 
         return predictions, info
+
+    def _process_branch_prediction_collection(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        branch_contexts: list[dict[str, Any]],
+        config: MergeConfig,
+        prediction_store: "Predictions",
+        model_selector: ModelSelector,
+        branch_config: BranchPredictionConfig,
+        mode: str,
+    ) -> tuple[np.ndarray, int, list[str], dict[str, Any]] | None:
+        """Process a single branch's prediction config for ``_collect_predictions``.
+
+        Discovers models, applies Phase 5 selection and aggregation for one
+        branch, and returns the per-branch contribution to the accumulators.
+
+        Args:
+            dataset: Dataset for sample information.
+            context: Execution context with branch/fold info.
+            branch_contexts: List of branch context dictionaries.
+            config: Merge configuration.
+            prediction_store: Prediction storage containing model predictions.
+            model_selector: Model selector for Phase 5 selection/scoring.
+            branch_config: Per-branch prediction configuration.
+            mode: Execution mode ("train" or "predict").
+
+        Returns:
+            ``None`` when the branch should be skipped (caller continues), or a
+            tuple ``(branch_predictions, actual_idx, selected_models, selection_entry)``
+            for the success path.
+
+        Raises:
+            ValueError: When ``config.on_missing == "error"`` and the branch is
+                missing or has no model predictions.
+        """
+        branch_ref = branch_config.branch
+        actual_idx = self._resolve_branch_index(branch_contexts, branch_ref)
+        branch_ctx = self._get_branch_context(branch_contexts, actual_idx)
+
+        if branch_ctx is None:
+            if config.on_missing == "error":
+                raise ValueError(
+                    f"Branch {branch_ref} not found for prediction collection. "
+                    f"[Error: MERGE-E021]"
+                )
+            logger.warning(f"Branch {branch_ref} not found, skipping predictions.")
+            return None
+
+        branch_id = branch_ctx["branch_id"]
+
+        # Discover all models in this branch
+        available_models = self._discover_branch_models(
+            prediction_store=prediction_store,
+            branch_id=branch_id,
+            context=context,
+            model_filter=None,  # Don't pre-filter; selection does that
+        )
+
+        if not available_models:
+            if config.on_missing == "error":
+                self._raise_no_models_in_branch(
+                    branch_contexts=branch_contexts,
+                    prediction_store=prediction_store,
+                    context=context,
+                    branch_id=branch_id,
+                    branch_ref=branch_ref,
+                )
+            logger.warning(f"No models found in branch {branch_ref}, skipping.")
+            return None
+
+        # Phase 5: Apply model selection
+        selected_models = model_selector.select_models(
+            available_models=available_models,
+            config=branch_config,
+            branch_id=branch_id,
+        )
+
+        if not selected_models:
+            logger.warning(
+                f"No models selected from branch {branch_ref} after applying "
+                f"selection strategy: {branch_config.select}. Skipping."
+            )
+            return None
+
+        logger.info(
+            f"  Branch {branch_id}: selected {len(selected_models)}/{len(available_models)} models "
+            f"using strategy '{branch_config.get_selection_strategy().value}'"
+        )
+
+        # Collect OOF predictions for selected models
+        branch_predictions = self._collect_branch_predictions(
+            dataset=dataset,
+            context=context,
+            prediction_store=prediction_store,
+            model_names=selected_models,
+            branch_id=branch_id,
+            config=config,
+            mode=mode,
+        )
+
+        if branch_predictions is None or len(branch_predictions) == 0:
+            logger.warning(f"No predictions collected from branch {branch_id}")
+            return None
+
+        # Phase 5: Apply aggregation strategy
+        aggregation_strategy = branch_config.get_aggregation_strategy()
+
+        if aggregation_strategy != AggregationStrategy.SEPARATE:
+            # Get model scores for weighted aggregation
+            model_scores = None
+            if aggregation_strategy == AggregationStrategy.WEIGHTED_MEAN:
+                metric = branch_config.weight_metric or branch_config.metric or "rmse"
+                model_scores = model_selector.get_model_scores(
+                    model_names=selected_models,
+                    metric=metric,
+                    branch_id=branch_id,
+                )
+
+            # Aggregate predictions
+            aggregated = PredictionAggregator.aggregate(
+                predictions=branch_predictions,
+                strategy=aggregation_strategy,
+                model_scores=model_scores,
+                proba=branch_config.proba,
+                metric=branch_config.weight_metric or branch_config.metric,
+            )
+
+            logger.info(
+                f"  Branch {branch_id}: aggregated {len(selected_models)} models "
+                f"using '{aggregation_strategy.value}' → shape {aggregated.shape}"
+            )
+
+            branch_prediction = aggregated
+        else:
+            # Keep predictions separate (each model = 1 feature)
+            separate = PredictionAggregator.aggregate(
+                predictions=branch_predictions,
+                strategy=AggregationStrategy.SEPARATE,
+            )
+            branch_prediction = separate
+
+        selection_entry = {
+            "branch": actual_idx,
+            "available_models": len(available_models),
+            "selected_models": selected_models,
+            "selection_strategy": branch_config.get_selection_strategy().value,
+            "aggregation_strategy": aggregation_strategy.value,
+        }
+
+        return branch_prediction, actual_idx, selected_models, selection_entry
+
+    def _raise_no_models_in_branch(
+        self,
+        branch_contexts: list[dict[str, Any]],
+        prediction_store: "Predictions",
+        context: "ExecutionContext",
+        branch_id: Any,
+        branch_ref: Any,
+    ) -> None:
+        """Raise the detailed "no models in branch" error for ``_collect_predictions``.
+
+        Uses :class:`AsymmetricBranchAnalyzer` (Phase 6) to distinguish a
+        feature-only branch from a genuinely empty one.
+
+        Args:
+            branch_contexts: List of branch context dictionaries.
+            prediction_store: Prediction storage containing model predictions.
+            context: Execution context with branch/fold info.
+            branch_id: Identifier of the branch being reported.
+            branch_ref: Original branch reference from the config (for messages).
+
+        Raises:
+            ValueError: Always — with MERGE-E011 for asymmetric feature-only
+                branches or MERGE-E010 otherwise.
+        """
+        # Phase 6: Provide detailed error with asymmetric branch analysis
+        analyzer = AsymmetricBranchAnalyzer(
+            branch_contexts=branch_contexts,
+            prediction_store=prediction_store,
+            context=context,
+        )
+        report = analyzer.analyze_all()
+
+        if report.has_model_asymmetry and branch_id in report.branches_without_models:
+            suggestion = analyzer.suggest_mixed_merge()
+            raise ValueError(
+                f"No model predictions found in branch {branch_ref}. "
+                f"This branch has only features (no trained models). "
+                f"{report.summary}. "
+                f"\n\n{suggestion}\n"
+                f"[Error: MERGE-E011]"
+            )
+        else:
+            raise ValueError(
+                f"No model predictions found in branch {branch_ref}. "
+                f"Ensure models were trained in this branch before merge. "
+                f"[Error: MERGE-E010]"
+            )
+
+    def _raise_no_predictions_collected(
+        self,
+        branch_contexts: list[dict[str, Any]],
+        prediction_store: "Predictions",
+        context: "ExecutionContext",
+    ) -> None:
+        """Raise the terminal "no predictions in any branch" error for ``_collect_predictions``.
+
+        Args:
+            branch_contexts: List of branch context dictionaries.
+            prediction_store: Prediction storage containing model predictions.
+            context: Execution context with branch/fold info.
+
+        Raises:
+            ValueError: Always — with MERGE-E011 when asymmetric branches are
+                detected or MERGE-E010 otherwise.
+        """
+        # Phase 6: Use asymmetric analyzer for better error messages
+        analyzer = AsymmetricBranchAnalyzer(
+            branch_contexts=branch_contexts,
+            prediction_store=prediction_store,
+            context=context,
+        )
+        report = analyzer.analyze_all()
+
+        if report.has_model_asymmetry:
+            # Provide resolution suggestion for asymmetric branches
+            suggestion = analyzer.suggest_mixed_merge()
+            raise ValueError(
+                f"No model predictions found in any specified branch. "
+                f"Asymmetric branches detected: {report.summary}. "
+                f"\n\n{suggestion}\n"
+                f"[Error: MERGE-E011]"
+            )
+        else:
+            raise ValueError(
+                "No model predictions found in any specified branch. "
+                "Ensure models were trained in the specified branches before merge. "
+                "[Error: MERGE-E010]"
+            )
 
     def _collect_branch_predictions(
         self,
@@ -4501,6 +4611,61 @@ class MergeController(OperatorController):
         # Apply merge strategy
         strategy = config.get_strategy()
 
+        merged_features, merge_info = self._apply_source_merge_strategy(
+            config=config,
+            strategy=strategy,
+            source_features=source_features,
+            source_indices=source_indices,
+            source_names=source_names,
+        )
+
+        # Store merged features in dataset (strategy-specific) and update context
+        result_context = self._store_source_merge_result(
+            dataset=dataset,
+            context=context,
+            config=config,
+            strategy=strategy,
+            merged_features=merged_features,
+        )
+
+        # Build metadata
+        metadata = {
+            "merge_sources_strategy": config.strategy,
+            "sources_used": [source_names[i] for i in source_indices],
+            "source_indices": source_indices,
+            "n_sources_merged": len(source_indices),
+            "output_name": config.output_name,
+            # Store config for prediction mode
+            "source_merge_config": config.to_dict(),
+            **merge_info,
+        }
+
+        return result_context, StepOutput(metadata=metadata)
+
+    def _apply_source_merge_strategy(
+        self,
+        config: SourceMergeConfig,
+        strategy: SourceMergeStrategy,
+        source_features: dict[int, np.ndarray],
+        source_indices: list[int],
+        source_names: list[str],
+    ) -> tuple["np.ndarray | dict[str, np.ndarray]", dict[str, Any]]:
+        """Dispatch source-merge to the strategy-specific combiner for ``_execute_source_merge``.
+
+        Args:
+            config: Parsed source-merge configuration.
+            strategy: Resolved merge strategy (``config.get_strategy()`` value).
+            source_features: Collected feature arrays, one per selected source.
+            source_indices: Resolved source indices.
+            source_names: Source names aligned with ``source_indices``.
+
+        Returns:
+            Tuple of ``(merged_features, merge_info)`` where ``merged_features`` is
+            an array (concat/stack) or a dict (dict strategy).
+
+        Raises:
+            ValueError: If ``strategy`` is not a recognized merge strategy.
+        """
         merged_features: np.ndarray | dict[str, np.ndarray]
         if strategy == SourceMergeStrategy.CONCAT:
             merged_features, merge_info = self._merge_sources_concat(
@@ -4524,6 +4689,32 @@ class MergeController(OperatorController):
         else:
             raise ValueError(f"Unknown merge strategy: {strategy}")
 
+        return merged_features, merge_info
+
+    def _store_source_merge_result(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        config: SourceMergeConfig,
+        strategy: SourceMergeStrategy,
+        merged_features: "np.ndarray | dict[str, np.ndarray]",
+    ) -> "ExecutionContext":
+        """Persist source-merge output and produce the updated context for ``_execute_source_merge``.
+
+        For the dict strategy the merged sources are stored on the context for
+        downstream use; for array strategies the merged features are written into
+        the dataset and the context is flagged as merged.
+
+        Args:
+            dataset: Dataset to receive merged array features.
+            context: Pipeline execution context to copy and update.
+            config: Parsed source-merge configuration.
+            strategy: Resolved merge strategy (``config.get_strategy()`` value).
+            merged_features: Strategy output (array or dict of arrays).
+
+        Returns:
+            The updated (copied) execution context.
+        """
         # Store merged features in dataset
         # For dict strategy, we need special handling
         if strategy == SourceMergeStrategy.DICT:
@@ -4556,19 +4747,7 @@ class MergeController(OperatorController):
                     f"Source merge ({config.strategy}) completed: shape={shape_str}"
                 )
 
-        # Build metadata
-        metadata = {
-            "merge_sources_strategy": config.strategy,
-            "sources_used": [source_names[i] for i in source_indices],
-            "source_indices": source_indices,
-            "n_sources_merged": len(source_indices),
-            "output_name": config.output_name,
-            # Store config for prediction mode
-            "source_merge_config": config.to_dict(),
-            **merge_info,
-        }
-
-        return result_context, StepOutput(metadata=metadata)
+        return result_context
 
     def _parse_source_merge_config(
         self,
