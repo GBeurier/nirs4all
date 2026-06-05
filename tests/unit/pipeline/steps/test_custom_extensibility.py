@@ -147,6 +147,41 @@ class TestCustomControllerRegistration:
         # Should be in registry
         assert TestCustomController in CONTROLLER_REGISTRY
 
+    def test_reset_registry_clears_in_place(self):
+        """reset_registry() clears the shared list IN PLACE so reference-holders stay valid.
+
+        Regression for the rebind bug: reset_registry used to do
+        ``CONTROLLER_REGISTRY = []`` (new list), leaving the StepRouter and the
+        module-level re-exports pointing at the stale old list.
+        """
+        from nirs4all.controllers import registry as _reg_mod
+        captured = _reg_mod.CONTROLLER_REGISTRY  # simulate a holder (StepRouter / re-export)
+        reset_registry()
+        # Same object, cleared in place -- NOT rebound to a fresh list. Compare against the
+        # LIVE module attribute (not the test's import-time alias): the old buggy reset
+        # rebound the module global, so this identity check would have been False then.
+        assert captured is _reg_mod.CONTROLLER_REGISTRY
+        assert len(captured) == 0
+
+        @register_controller
+        class PostResetController(OperatorController):
+            priority = 42
+
+            @classmethod
+            def matches(cls, step, operator, keyword):
+                return keyword == "post_reset"
+
+            @classmethod
+            def use_multi_source(cls):
+                return False
+
+            def execute(self, step_info, dataset, context, runtime_context,
+                        source=-1, mode="train", loaded_binaries=None, prediction_store=None):
+                return context, []
+
+        # A re-registration after reset is visible through the previously-captured reference.
+        assert PostResetController in captured
+
     def test_custom_controller_priority_respected(self):
         """Controllers should be sorted by priority in registry."""
 
