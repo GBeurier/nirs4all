@@ -21,6 +21,11 @@ Example:
     >>> diagram = PipelineDiagram(pipeline_steps, predictions)
     >>> fig = diagram.render()
     >>> fig.savefig('pipeline_diagram.png')
+
+.. note:: Maintenance status (debt campaign 2026-06-05)
+    The internal DAG model in this module is slated to be replaced by the
+    ``dag-ml`` engine (separate repository). Do not invest in decomposing or
+    deep-testing this file; keep changes to bug fixes until the replacement lands.
 """
 
 from collections import defaultdict
