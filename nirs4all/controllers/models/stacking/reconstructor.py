@@ -491,14 +491,7 @@ class TrainingSetReconstructor:
             raise ValueError("No source model names provided for reconstruction")
 
         # Get branch context - for ALL_BRANCHES scope, don't filter by branch
-        branch_scope = self.stacking_config.branch_scope
-        if branch_scope == BranchScope.ALL_BRANCHES:
-            # ALL_BRANCHES: Collect predictions from all branches
-            branch_id = None
-        else:
-            # CURRENT_ONLY or SPECIFIED: Filter by current branch
-            branch_id = getattr(context.selector, 'branch_id', None)
-        current_step = context.state.step_number
+        branch_scope, branch_id, current_step = self._resolve_reconstruction_branch_context(context)
 
         # Validate fold alignment if configured
         validation_result = ValidationResult()
@@ -529,6 +522,129 @@ class TrainingSetReconstructor:
         train_id_to_pos = {int(sid): pos for pos, sid in enumerate(train_sample_ids)}
         test_id_to_pos = {int(sid): pos for pos, sid in enumerate(test_sample_ids)}
 
+        # Collect per-model OOF/test predictions into feature matrices
+        X_train_meta, X_test_meta, n_folds, feat_col = self._collect_meta_features(
+            branch_id=branch_id,
+            current_step=current_step,
+            train_id_to_pos=train_id_to_pos,
+            test_id_to_pos=test_id_to_pos,
+            n_train=n_train,
+            n_test=n_test,
+            n_total_features=n_total_features,
+            use_proba=use_proba,
+            classification_info=classification_info,
+        )
+
+        # Trim, compute coverage, and apply coverage strategy / test NaN handling
+        (
+            X_train_meta,
+            X_test_meta,
+            valid_train_mask,
+            valid_test_mask,
+            coverage_ratio,
+        ) = self._finalize_meta_matrices(
+            X_train_meta, X_test_meta, feat_col, n_total_features, n_train
+        )
+
+        # Generate feature names with classification support
+        feature_names = self._generate_feature_names_with_classification(
+            classification_info, use_proba
+        )
+        # Trim feature names to match actual columns
+        feature_names = feature_names[:feat_col]
+
+        # Build meta feature info for feature importance tracking
+        meta_feature_info = self._build_meta_feature_info(
+            classification_info, use_proba, feature_names
+        )
+
+        # CRITICAL: Always get UNSCALED y values for meta-model training.
+        # The OOF predictions (X_train_meta) are stored in unscaled (original y) space,
+        # so the meta-model must train on unscaled y to avoid scale mismatch.
+        # If y_processing was applied, the passed-in y_train/y_test are scaled,
+        # but we need unscaled values to match the prediction space.
+        #
+        # Additionally handle sample_augmentation: predictions are stored with
+        # original sample indices only, so we need to match sample counts.
+        y_train = self._get_y_values_for_samples(dataset, context, train_sample_ids)
+        y_test = self._get_y_values_for_samples(dataset, context, test_sample_ids)
+
+        return ReconstructionResult(
+            X_train_meta=X_train_meta,
+            X_test_meta=X_test_meta,
+            y_train=y_train,
+            y_test=y_test,
+            feature_names=feature_names,
+            source_models=self.source_model_names.copy(),
+            valid_train_mask=valid_train_mask,
+            valid_test_mask=valid_test_mask,
+            validation_result=validation_result,
+            n_folds=n_folds,
+            coverage_ratio=coverage_ratio,
+            meta_feature_info=meta_feature_info,
+            classification_info=classification_info,
+        )
+
+    def _resolve_reconstruction_branch_context(
+        self,
+        context: 'ExecutionContext'
+    ) -> tuple[BranchScope, int | None, int]:
+        """Resolve branch scope, branch_id filter, and current step for reconstruction.
+
+        For ALL_BRANCHES scope predictions are collected from every branch
+        (no branch filter); otherwise predictions are filtered by the current
+        branch from the context selector.
+
+        Args:
+            context: Execution context with partition and branch info.
+
+        Returns:
+            Tuple of (branch_scope, branch_id, current_step).
+        """
+        # Get branch context - for ALL_BRANCHES scope, don't filter by branch
+        branch_scope = self.stacking_config.branch_scope
+        if branch_scope == BranchScope.ALL_BRANCHES:
+            # ALL_BRANCHES: Collect predictions from all branches
+            branch_id = None
+        else:
+            # CURRENT_ONLY or SPECIFIED: Filter by current branch
+            branch_id = getattr(context.selector, 'branch_id', None)
+        current_step = context.state.step_number
+        return branch_scope, branch_id, current_step
+
+    def _collect_meta_features(
+        self,
+        branch_id: int | None,
+        current_step: int,
+        train_id_to_pos: dict[int, int],
+        test_id_to_pos: dict[int, int],
+        n_train: int,
+        n_test: int,
+        n_total_features: int,
+        use_proba: bool,
+        classification_info: 'ClassificationInfo'
+    ) -> tuple[np.ndarray, np.ndarray, int, int]:
+        """Build train/test meta-feature matrices from per-model predictions.
+
+        Iterates over source models, collecting OOF predictions for training
+        samples and aggregated predictions for test samples, assigning each
+        model's features to consecutive columns.
+
+        Args:
+            branch_id: Default branch_id filter from context.
+            current_step: Maximum step index (exclusive) for prediction lookup.
+            train_id_to_pos: Mapping from train sample ID to array position.
+            test_id_to_pos: Mapping from test sample ID to array position.
+            n_train: Number of training samples.
+            n_test: Number of test samples.
+            n_total_features: Total number of allocated feature columns.
+            use_proba: Whether to extract probability features.
+            classification_info: Classification metadata.
+
+        Returns:
+            Tuple of (X_train_meta, X_test_meta, n_folds, feat_col) where
+            feat_col is the number of columns actually populated.
+        """
         # Initialize feature matrices with NaN
         X_train_meta = np.full((n_train, n_total_features), np.nan)
         X_test_meta = np.full((n_test, n_total_features), np.nan)
@@ -577,6 +693,33 @@ class TrainingSetReconstructor:
 
             feat_col += n_cols
 
+        return X_train_meta, X_test_meta, n_folds, feat_col
+
+    def _finalize_meta_matrices(
+        self,
+        X_train_meta: np.ndarray,
+        X_test_meta: np.ndarray,
+        feat_col: int,
+        n_total_features: int,
+        n_train: int
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, float]:
+        """Trim, compute coverage, and finalize meta-feature matrices.
+
+        Trims unused feature columns, computes the training coverage ratio,
+        applies the configured coverage strategy to the training matrix, and
+        fills test NaNs with zeros.
+
+        Args:
+            X_train_meta: Training meta-features (with NaNs for missing OOF).
+            X_test_meta: Test meta-features (with NaNs for missing predictions).
+            feat_col: Number of feature columns actually populated.
+            n_total_features: Total number of allocated feature columns.
+            n_train: Number of training samples.
+
+        Returns:
+            Tuple of (X_train_meta, X_test_meta, valid_train_mask,
+            valid_test_mask, coverage_ratio).
+        """
         # Trim to actual features used (in case of inconsistent feature counts)
         if feat_col < n_total_features:
             X_train_meta = X_train_meta[:, :feat_col]
@@ -596,44 +739,7 @@ class TrainingSetReconstructor:
         X_test_meta = np.nan_to_num(X_test_meta, nan=0.0)
         valid_test_mask = ~nan_mask_test.any(axis=1)
 
-        # Generate feature names with classification support
-        feature_names = self._generate_feature_names_with_classification(
-            classification_info, use_proba
-        )
-        # Trim feature names to match actual columns
-        feature_names = feature_names[:feat_col]
-
-        # Build meta feature info for feature importance tracking
-        meta_feature_info = self._build_meta_feature_info(
-            classification_info, use_proba, feature_names
-        )
-
-        # CRITICAL: Always get UNSCALED y values for meta-model training.
-        # The OOF predictions (X_train_meta) are stored in unscaled (original y) space,
-        # so the meta-model must train on unscaled y to avoid scale mismatch.
-        # If y_processing was applied, the passed-in y_train/y_test are scaled,
-        # but we need unscaled values to match the prediction space.
-        #
-        # Additionally handle sample_augmentation: predictions are stored with
-        # original sample indices only, so we need to match sample counts.
-        y_train = self._get_y_values_for_samples(dataset, context, train_sample_ids)
-        y_test = self._get_y_values_for_samples(dataset, context, test_sample_ids)
-
-        return ReconstructionResult(
-            X_train_meta=X_train_meta,
-            X_test_meta=X_test_meta,
-            y_train=y_train,
-            y_test=y_test,
-            feature_names=feature_names,
-            source_models=self.source_model_names.copy(),
-            valid_train_mask=valid_train_mask,
-            valid_test_mask=valid_test_mask,
-            validation_result=validation_result,
-            n_folds=n_folds,
-            coverage_ratio=coverage_ratio,
-            meta_feature_info=meta_feature_info,
-            classification_info=classification_info,
-        )
+        return X_train_meta, X_test_meta, valid_train_mask, valid_test_mask, coverage_ratio
 
     def _get_sample_indices(
         self,
@@ -1284,10 +1390,7 @@ class TrainingSetReconstructor:
             test_predictions = [p for p in test_predictions if p.get('branch_id') is None]
 
         if not test_predictions:
-            if n_features == 1:
-                return np.zeros(n_samples)
-            else:
-                return np.zeros((n_samples, n_features))
+            return self._empty_test_features(n_features, n_samples)
 
         aggregation = self.stacking_config.test_aggregation
 
@@ -1309,10 +1412,7 @@ class TrainingSetReconstructor:
         ]
 
         if not fold_predictions:
-            if n_features == 1:
-                return np.zeros(n_samples)
-            else:
-                return np.zeros((n_samples, n_features))
+            return self._empty_test_features(n_features, n_samples)
 
         # Create feature extractor
         extractor = ClassificationFeatureExtractor(
@@ -1320,7 +1420,58 @@ class TrainingSetReconstructor:
             use_proba=use_proba
         )
 
-        # Collect all fold predictions
+        # Collect all fold predictions (aligned to positions)
+        all_preds_list, all_scores = self._collect_test_fold_features(
+            fold_predictions, extractor, id_to_pos, n_samples, n_features
+        )
+
+        # Apply aggregation strategy (or empty fallback)
+        return self._aggregate_test_fold_features(
+            all_preds_list, all_scores, aggregation, n_features, n_samples
+        )
+
+    def _empty_test_features(self, n_features: int, n_samples: int) -> np.ndarray:
+        """Return the zero-filled test feature array for an empty result.
+
+        Args:
+            n_features: Number of features per model (1 for single-feature).
+            n_samples: Total number of test samples.
+
+        Returns:
+            Zero array shaped (n_samples,) when single-feature, else
+            (n_samples, n_features).
+        """
+        if n_features == 1:
+            return np.zeros(n_samples)
+        else:
+            return np.zeros((n_samples, n_features))
+
+    def _collect_test_fold_features(
+        self,
+        fold_predictions: list[dict[str, Any]],
+        extractor: Any,
+        id_to_pos: dict[int, int],
+        n_samples: int,
+        n_features: int
+    ) -> tuple[list[np.ndarray], list[float]]:
+        """Extract and align per-fold test features to array positions.
+
+        Single-feature folds are aligned via ``_align_predictions_to_positions``;
+        multiclass folds are aligned column-by-column. Folds whose alignment
+        fails (single-feature) or that have no sample indices (multiclass) are
+        skipped, mirroring the original loop exactly.
+
+        Args:
+            fold_predictions: Individual-fold prediction dicts.
+            extractor: ClassificationFeatureExtractor instance.
+            id_to_pos: Mapping from sample ID to array position.
+            n_samples: Total number of test samples.
+            n_features: Number of features per model.
+
+        Returns:
+            Tuple of (all_preds_list, all_scores), parallel lists of aligned
+            fold arrays and their validation scores.
+        """
         all_preds_list = []
         all_scores = []
 
@@ -1355,11 +1506,34 @@ class TrainingSetReconstructor:
                     all_preds_list.append(aligned)
                     all_scores.append(pred.get('val_score', 0.0) or 0.0)
 
+        return all_preds_list, all_scores
+
+    def _aggregate_test_fold_features(
+        self,
+        all_preds_list: list[np.ndarray],
+        all_scores: list[float],
+        aggregation: TestAggregation,
+        n_features: int,
+        n_samples: int
+    ) -> np.ndarray:
+        """Aggregate aligned per-fold test features into a single array.
+
+        Returns the empty zero-array fallback when no folds were collected;
+        otherwise applies BEST_FOLD / WEIGHTED_MEAN / MEAN (default) exactly as
+        the original method.
+
+        Args:
+            all_preds_list: Aligned per-fold feature arrays.
+            all_scores: Per-fold validation scores.
+            aggregation: Configured test aggregation strategy.
+            n_features: Number of features per model.
+            n_samples: Total number of test samples.
+
+        Returns:
+            Aggregated test features array.
+        """
         if not all_preds_list:
-            if n_features == 1:
-                return np.zeros(n_samples)
-            else:
-                return np.zeros((n_samples, n_features))
+            return self._empty_test_features(n_features, n_samples)
 
         all_preds = np.array(all_preds_list)
         scores_arr = np.array(all_scores)

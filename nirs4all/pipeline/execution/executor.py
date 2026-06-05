@@ -151,6 +151,93 @@ class PipelineExecutor:
         pipeline_hash = self._compute_pipeline_hash(steps)
         start_time = time.monotonic()
 
+        # Begin pipeline in store and wire runtime context
+        store, pipeline_id, pipeline_uid = self._begin_pipeline(
+            steps,
+            config_name,
+            dataset,
+            runtime_context,
+            generator_choices,
+            original_template,
+            pipeline_hash,
+        )
+
+        # Initialize prediction store if not provided
+        if prediction_store is None:
+            prediction_store = Predictions()
+
+        # Initialize trace recorder for execution trace recording
+        trace_recorder = None
+        if self.mode == "train" and runtime_context:
+            trace_recorder = TraceRecorder(
+                pipeline_uid=pipeline_uid or "",
+                metadata={"dataset": dataset.name, "config_name": config_name}
+            )
+            runtime_context.trace_recorder = trace_recorder
+
+        # Execute all steps
+        all_artifacts: list[Any] = []
+        try:
+            context = self._execute_steps(
+                steps,
+                dataset,
+                context,
+                runtime_context,
+                prediction_store,
+                all_artifacts
+            )
+
+            self._finalize_pipeline(
+                steps,
+                config_name,
+                dataset,
+                runtime_context,
+                prediction_store,
+                all_artifacts,
+                trace_recorder,
+                store,
+                pipeline_id,
+                start_time,
+            )
+
+        except Exception as e:
+            # Fail pipeline in store.  Use try/except to prevent store
+            # errors from masking the original pipeline error (e.g. SQLite
+            # lock conflicts from concurrent processes).
+            if self.mode == "train" and store and pipeline_id:
+                with contextlib.suppress(Exception):
+                    store.fail_pipeline(pipeline_id, str(e))
+            logger.error(
+                f"Pipeline {config_name} on dataset {dataset.name} "
+                f"failed: {str(e)}"
+            )
+            import traceback
+            traceback.print_exc()
+            raise
+
+    def _begin_pipeline(
+        self,
+        steps: list[Any],
+        config_name: str,
+        dataset: SpectroDataset,
+        runtime_context: Any,
+        generator_choices: list[dict[str, Any]] | None,
+        original_template: Any | None,
+        pipeline_hash: str,
+    ) -> tuple[Any, Any, Any]:
+        """Begin the pipeline in the store and wire the runtime context.
+
+        Resolves the active store, opens a pipeline row in train mode (or builds a
+        temporary UID otherwise), and propagates pipeline identifiers and persistence
+        flags onto the runtime context.
+
+        Shared state in: pipeline configuration and identifying inputs.
+        Shared state out: ``(store, pipeline_id, pipeline_uid)`` consumed by the
+        trace recorder, finalization, and failure handling in :meth:`execute`.
+
+        Returns:
+            Tuple of (store, pipeline_id, pipeline_uid).
+        """
         # Begin pipeline in store (if in train mode)
         pipeline_id = None
         pipeline_uid = None
@@ -187,125 +274,112 @@ class PipelineExecutor:
             runtime_context.save_artifacts = self.save_artifacts
             runtime_context.save_charts = self.save_charts
 
-        # Initialize prediction store if not provided
-        if prediction_store is None:
-            prediction_store = Predictions()
+        return store, pipeline_id, pipeline_uid
 
-        # Initialize trace recorder for execution trace recording
-        trace_recorder = None
-        if self.mode == "train" and runtime_context:
-            trace_recorder = TraceRecorder(
-                pipeline_uid=pipeline_uid or "",
-                metadata={"dataset": dataset.name, "config_name": config_name}
+    def _finalize_pipeline(
+        self,
+        steps: list[Any],
+        config_name: str,
+        dataset: SpectroDataset,
+        runtime_context: Any,
+        prediction_store: Predictions,
+        all_artifacts: list[Any],
+        trace_recorder: Any,
+        store: Any,
+        pipeline_id: Any,
+        start_time: float,
+    ) -> None:
+        """Persist chains, predictions, and completion for a successful pipeline.
+
+        Runs the post-execution success path: build chains from the trace, flush
+        artifact-registry records, flush predictions, complete the pipeline row, and
+        log the best result. Intended to run inside the ``try`` block of
+        :meth:`execute` so any failure propagates to the shared failure handler.
+
+        Shared state in: the artifacts, trace recorder, store handles, and timing
+        produced earlier in :meth:`execute`.
+        Shared state out: none returned; side effects on ``store``,
+        ``self._synced_artifact_ids``, and logging.
+        """
+        # Build chain from trace and save to store
+        if trace_recorder is not None and store and pipeline_id:
+            from nirs4all.pipeline.storage.chain_builder import ChainBuilder
+            trace = trace_recorder.finalize(
+                preprocessing_chain=dataset.short_preprocessings_str(),
+                metadata={"n_steps": len(steps), "n_artifacts": len(all_artifacts)}
             )
-            runtime_context.trace_recorder = trace_recorder
+            chain_builder = ChainBuilder(trace, self.artifact_registry)
+            for chain_data in chain_builder.build_all():
+                store.save_chain(pipeline_id=pipeline_id, **chain_data)
 
-        # Execute all steps
-        all_artifacts: list[Any] = []
-        try:
-            context = self._execute_steps(
-                steps,
-                dataset,
-                context,
-                runtime_context,
+            # Flush ArtifactRegistry records to WorkspaceStore so that
+            # chain replay and export can load artifacts via the store.
+            # Only register artifacts not yet synced (tracked via _synced_artifact_ids).
+            if self.artifact_registry is not None:
+                for record in self.artifact_registry.get_all_records():
+                    if record.artifact_id in self._synced_artifact_ids:
+                        continue
+                    store.register_existing_artifact(
+                        artifact_id=record.artifact_id,
+                        path=record.path,
+                        content_hash=record.content_hash,
+                        operator_class=record.class_name,
+                        artifact_type=record.artifact_type.value,
+                        format=record.format,
+                        size_bytes=record.size_bytes,
+                    )
+                    self._synced_artifact_ids.add(record.artifact_id)
+
+        # Flush predictions to store so they can be looked up by ID
+        if self.mode == "train" and store and pipeline_id and prediction_store.num_predictions > 0:
+            self._flush_predictions_to_store(
+                store,
+                pipeline_id,
                 prediction_store,
-                all_artifacts
+                runtime_context=runtime_context,
             )
 
-            # Build chain from trace and save to store
-            if trace_recorder is not None and store and pipeline_id:
-                from nirs4all.pipeline.storage.chain_builder import ChainBuilder
-                trace = trace_recorder.finalize(
-                    preprocessing_chain=dataset.short_preprocessings_str(),
-                    metadata={"n_steps": len(steps), "n_artifacts": len(all_artifacts)}
-                )
-                chain_builder = ChainBuilder(trace, self.artifact_registry)
-                for chain_data in chain_builder.build_all():
-                    store.save_chain(pipeline_id=pipeline_id, **chain_data)
-
-                # Flush ArtifactRegistry records to WorkspaceStore so that
-                # chain replay and export can load artifacts via the store.
-                # Only register artifacts not yet synced (tracked via _synced_artifact_ids).
-                if self.artifact_registry is not None:
-                    for record in self.artifact_registry.get_all_records():
-                        if record.artifact_id in self._synced_artifact_ids:
-                            continue
-                        store.register_existing_artifact(
-                            artifact_id=record.artifact_id,
-                            path=record.path,
-                            content_hash=record.content_hash,
-                            operator_class=record.class_name,
-                            artifact_type=record.artifact_type.value,
-                            format=record.format,
-                            size_bytes=record.size_bytes,
-                        )
-                        self._synced_artifact_ids.add(record.artifact_id)
-
-            # Flush predictions to store so they can be looked up by ID
-            if self.mode == "train" and store and pipeline_id and prediction_store.num_predictions > 0:
-                self._flush_predictions_to_store(
-                    store,
-                    pipeline_id,
-                    prediction_store,
-                    runtime_context=runtime_context,
-                )
-
-            # Complete pipeline in store
-            if self.mode == "train" and store and pipeline_id:
-                duration_ms = int((time.monotonic() - start_time) * 1000)
-                best_val = 0.0
-                best_test = 0.0
-                metric = ""
-                if prediction_store.num_predictions > 0:
-                    # Get the avg fold entry (RMSECV) instead of best single fold
-                    avg_entry = prediction_store.get_best(ascending=None, fold_id="avg")
-                    if avg_entry:
-                        best_val = avg_entry.get("val_score", 0.0) or 0.0
-                        best_test = avg_entry.get("test_score", 0.0) or 0.0
-                        metric = avg_entry.get("metric", "") or ""
-                    else:
-                        # Fallback to best entry if no avg fold exists
-                        pipeline_best = prediction_store.get_best(ascending=None, score_scope="all")
-                        if pipeline_best:
-                            best_val = pipeline_best.get("val_score", 0.0) or 0.0
-                            best_test = pipeline_best.get("test_score", 0.0) or 0.0
-                            metric = pipeline_best.get("metric", "") or ""
-                store.complete_pipeline(
-                    pipeline_id=pipeline_id,
-                    best_val=best_val,
-                    best_test=best_test,
-                    metric=metric,
-                    duration_ms=duration_ms,
-                )
-
-            # Print best result if predictions were generated
+        # Complete pipeline in store
+        if self.mode == "train" and store and pipeline_id:
+            duration_ms = int((time.monotonic() - start_time) * 1000)
+            best_val = 0.0
+            best_test = 0.0
+            metric = ""
             if prediction_store.num_predictions > 0:
-                # Use None for ascending to let ranker infer from metric
-                pipeline_best = prediction_store.get_best(
-                    ascending=None, score_scope="all"
-                )
-                if pipeline_best:
-                    logger.success(f"Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
-
-                logger.debug(
-                    f"Pipeline {config_name} completed successfully "
-                    f"on dataset {dataset.name}"
-                )
-
-        except Exception as e:
-            # Fail pipeline in store.  Use try/except to prevent store
-            # errors from masking the original pipeline error (e.g. SQLite
-            # lock conflicts from concurrent processes).
-            if self.mode == "train" and store and pipeline_id:
-                with contextlib.suppress(Exception):
-                    store.fail_pipeline(pipeline_id, str(e))
-            logger.error(
-                f"Pipeline {config_name} on dataset {dataset.name} "
-                f"failed: {str(e)}"
+                # Get the avg fold entry (RMSECV) instead of best single fold
+                avg_entry = prediction_store.get_best(ascending=None, fold_id="avg")
+                if avg_entry:
+                    best_val = avg_entry.get("val_score", 0.0) or 0.0
+                    best_test = avg_entry.get("test_score", 0.0) or 0.0
+                    metric = avg_entry.get("metric", "") or ""
+                else:
+                    # Fallback to best entry if no avg fold exists
+                    pipeline_best = prediction_store.get_best(ascending=None, score_scope="all")
+                    if pipeline_best:
+                        best_val = pipeline_best.get("val_score", 0.0) or 0.0
+                        best_test = pipeline_best.get("test_score", 0.0) or 0.0
+                        metric = pipeline_best.get("metric", "") or ""
+            store.complete_pipeline(
+                pipeline_id=pipeline_id,
+                best_val=best_val,
+                best_test=best_test,
+                metric=metric,
+                duration_ms=duration_ms,
             )
-            import traceback
-            traceback.print_exc()
-            raise
+
+        # Print best result if predictions were generated
+        if prediction_store.num_predictions > 0:
+            # Use None for ascending to let ranker infer from metric
+            pipeline_best = prediction_store.get_best(
+                ascending=None, score_scope="all"
+            )
+            if pipeline_best:
+                logger.success(f"Pipeline Best: {Predictions.pred_short_string(pipeline_best)}")
+
+            logger.debug(
+                f"Pipeline {config_name} completed successfully "
+                f"on dataset {dataset.name}"
+            )
 
     def _flush_predictions_to_store(
         self,
@@ -598,159 +672,19 @@ class PipelineExecutor:
 
         logger.debug(f"Executing step on {len(branch_contexts)} branch(es)")
 
-        updated_branch_contexts = []
+        updated_branch_contexts: list[Any] = []
 
         for branch_info in branch_contexts:
-            branch_id = branch_info["branch_id"]
-            branch_name = branch_info["name"]
-            branch_context = branch_info["context"]
-
-            # Restore dataset features from branch snapshot if available
-            # This ensures each branch's post-branch steps (like model) use the correct
-            # feature data that was produced by that branch's preprocessing steps
-            features_snapshot = branch_info.get("features_snapshot")
-            if features_snapshot is not None:
-                use_cow = branch_info.get("use_cow", False)
-                if use_cow:
-                    # CoW restore: acquire shared references (zero-copy for read-only steps)
-                    for source, (shared, proc_ids, headers, header_unit) in zip(
-                        dataset._features.sources, features_snapshot, strict=False
-                    ):
-                        source._storage.restore_from_shared(shared.acquire())
-                        source._processing_mgr.reset_processings(proc_ids)
-                        source._header_mgr.set_headers(headers, unit=header_unit)
-                else:
-                    import copy
-                    dataset._features.sources = copy.deepcopy(features_snapshot)
-
-            # V3: Restore chain state from branch snapshot if available
-            # This ensures each branch's post-branch steps use the correct operator chain
-            # for artifact ID generation (fixes MetaModel chain_path issues across branches)
-            chain_snapshot = branch_info.get("chain_snapshot")
-            if chain_snapshot is not None and runtime_context and runtime_context.trace_recorder:
-                runtime_context.trace_recorder.reset_chain_to(chain_snapshot)
-
-            logger.debug(f"Branch {branch_id} ({branch_name})")
-
-            # Update step number on branch context
-            branch_context = branch_context.with_step_number(self.step_number)
-
-            # For predict mode, load binaries specifically for this branch
-            branch_binaries = None
-            if self.mode in ("predict", "explain"):
-                # Get the full branch_path from context (handles nested branches)
-                branch_path = getattr(branch_context.selector, 'branch_path', None)
-
-                # First try artifact_provider (for minimal pipeline)
-                if runtime_context and hasattr(runtime_context, 'artifact_provider') and runtime_context.artifact_provider:
-                    # Use artifact_provider for minimal pipeline prediction
-                    # Try to get branch-specific artifacts
-                    branch_binaries = runtime_context.artifact_provider.get_artifacts_for_step(
-                        self.step_number, branch_path=branch_path, branch_id=branch_id
-                    )
-                    if not branch_binaries:
-                        # Try without branch qualifier (may be a non-branch step artifact)
-                        branch_binaries = runtime_context.artifact_provider.get_artifacts_for_step(self.step_number)
-                elif self.artifact_loader:
-                    # Fallback to artifact_loader for traditional prediction
-                    if branch_path:
-                        # Use full branch_path for proper nested branch matching
-                        branch_binaries = self.artifact_loader.get_step_binaries(
-                            self.step_number, branch_path=branch_path
-                        )
-                    else:
-                        # Fallback to simple branch_id
-                        branch_binaries = self.artifact_loader.get_step_binaries(
-                            self.step_number, branch_id=branch_id
-                        )
-
-                if not branch_binaries:
-                    # Fallback to non-branch binaries if no branch-specific ones exist
-                    branch_binaries = loaded_binaries
-
-            # Extract operator info for trace recording
-            operator_type, operator_class, operator_config = self._extract_step_info(step)
-
-            # Get branch_path from context
-            branch_path = getattr(branch_context.selector, 'branch_path', [])
-            branch_name_ctx = getattr(branch_context.selector, 'branch_name', '') or ''
-
-            # Record step start in execution trace for this branch
-            if runtime_context:
-                runtime_context.record_step_start(
-                    step_index=self.step_number,
-                    operator_type=operator_type,
-                    operator_class=operator_class,
-                    operator_config=operator_config,
-                    branch_path=branch_path,
-                    branch_name=branch_name_ctx or branch_name,
-                    mode=self.mode
-                )
-                # Record input shapes for branch step (parity with non-branch execution)
-                self._record_dataset_shapes(
-                    dataset,
-                    branch_context,
-                    runtime_context,
-                    is_input=True,
-                )
-
-            # Execute step on this branch
-            try:
-                step_result = self.step_runner.execute(
-                    step=step,
-                    dataset=dataset,
-                    context=branch_context,
-                    runtime_context=runtime_context,
-                    loaded_binaries=branch_binaries,
-                    prediction_store=prediction_store
-                )
-
-                # Record output shapes after execution for branch steps
-                if runtime_context:
-                    self._record_dataset_shapes(
-                        dataset,
-                        step_result.updated_context,
-                        runtime_context,
-                        is_input=False,
-                    )
-
-                # Record step end in execution trace
-                if runtime_context:
-                    is_model = operator_type in ("model", "meta_model")
-                    runtime_context.record_step_end(is_model=is_model)
-
-                # Process artifacts
-                processed_artifacts = self._process_step_artifacts(
-                    step_result.artifacts,
-                    runtime_context=runtime_context,
-                    branch_id=branch_id,
-                    branch_name=branch_name
-                )
-                if all_artifacts is not None:
-                    all_artifacts.extend(processed_artifacts)
-
-                # Update branch context
-                updated_branch_contexts.append({
-                    "branch_id": branch_id,
-                    "name": branch_name,
-                    "context": step_result.updated_context,
-                    # Preserve any additional metadata
-                    **{k: v for k, v in branch_info.items()
-                       if k not in ("branch_id", "name", "context")}
-                })
-
-            except Exception as e:
-                # Record step end even on failure
-                if runtime_context:
-                    runtime_context.record_step_end(skip_trace=True)
-                if self.continue_on_error:
-                    logger.warning(f"Branch {branch_id} step {self.step_number} failed: {str(e)}")
-                    # Keep original context on failure
-                    updated_branch_contexts.append(branch_info)
-                else:
-                    raise RuntimeError(
-                        f"Pipeline step {self.step_number} failed on branch {branch_id}: {str(e)}"
-                    ) from e
+            self._execute_step_on_single_branch(
+                step=step,
+                dataset=dataset,
+                runtime_context=runtime_context,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
+                all_artifacts=all_artifacts,
+                branch_info=branch_info,
+                updated_branch_contexts=updated_branch_contexts,
+            )
 
         # Update context with new branch contexts
         result_context = context.copy()
@@ -761,6 +695,221 @@ class PipelineExecutor:
             self.operation_count = runtime_context.operation_count
 
         return result_context
+
+    def _restore_branch_snapshot(
+        self,
+        dataset: SpectroDataset,
+        branch_info: dict,
+        runtime_context: Any,
+    ) -> None:
+        """Restore dataset features and trace chain from a branch snapshot.
+
+        Reinstates the per-branch feature sources (CoW or deep-copy) and, when
+        present, the trace recorder's operator chain so that this branch's
+        post-branch steps see the data and chain produced by that branch.
+
+        Shared state in/out: mutates ``dataset._features`` and, when a chain
+        snapshot exists, ``runtime_context.trace_recorder``.
+        """
+        # Restore dataset features from branch snapshot if available
+        # This ensures each branch's post-branch steps (like model) use the correct
+        # feature data that was produced by that branch's preprocessing steps
+        features_snapshot = branch_info.get("features_snapshot")
+        if features_snapshot is not None:
+            use_cow = branch_info.get("use_cow", False)
+            if use_cow:
+                # CoW restore: acquire shared references (zero-copy for read-only steps)
+                for source, (shared, proc_ids, headers, header_unit) in zip(
+                    dataset._features.sources, features_snapshot, strict=False
+                ):
+                    source._storage.restore_from_shared(shared.acquire())
+                    source._processing_mgr.reset_processings(proc_ids)
+                    source._header_mgr.set_headers(headers, unit=header_unit)
+            else:
+                import copy
+                dataset._features.sources = copy.deepcopy(features_snapshot)
+
+        # V3: Restore chain state from branch snapshot if available
+        # This ensures each branch's post-branch steps use the correct operator chain
+        # for artifact ID generation (fixes MetaModel chain_path issues across branches)
+        chain_snapshot = branch_info.get("chain_snapshot")
+        if chain_snapshot is not None and runtime_context and runtime_context.trace_recorder:
+            runtime_context.trace_recorder.reset_chain_to(chain_snapshot)
+
+    def _resolve_branch_binaries(
+        self,
+        branch_context: ExecutionContext,
+        branch_id: Any,
+        runtime_context: Any,
+        loaded_binaries: list | None,
+    ) -> list | None:
+        """Resolve the binaries to inject for a branch step in predict/explain mode.
+
+        Returns ``None`` in train mode. Otherwise tries the artifact provider
+        (minimal pipeline) then the artifact loader, with the full ``branch_path``
+        preferred over a bare ``branch_id``, and finally falls back to the
+        non-branch ``loaded_binaries``.
+
+        Shared state in: ``branch_context`` selector, ``loaded_binaries``.
+        Shared state out: returns ``branch_binaries`` for this branch.
+        """
+        # For predict mode, load binaries specifically for this branch
+        branch_binaries = None
+        if self.mode in ("predict", "explain"):
+            # Get the full branch_path from context (handles nested branches)
+            branch_path = getattr(branch_context.selector, 'branch_path', None)
+
+            # First try artifact_provider (for minimal pipeline)
+            if runtime_context and hasattr(runtime_context, 'artifact_provider') and runtime_context.artifact_provider:
+                # Use artifact_provider for minimal pipeline prediction
+                # Try to get branch-specific artifacts
+                branch_binaries = runtime_context.artifact_provider.get_artifacts_for_step(
+                    self.step_number, branch_path=branch_path, branch_id=branch_id
+                )
+                if not branch_binaries:
+                    # Try without branch qualifier (may be a non-branch step artifact)
+                    branch_binaries = runtime_context.artifact_provider.get_artifacts_for_step(self.step_number)
+            elif self.artifact_loader:
+                # Fallback to artifact_loader for traditional prediction
+                if branch_path:
+                    # Use full branch_path for proper nested branch matching
+                    branch_binaries = self.artifact_loader.get_step_binaries(
+                        self.step_number, branch_path=branch_path
+                    )
+                else:
+                    # Fallback to simple branch_id
+                    branch_binaries = self.artifact_loader.get_step_binaries(
+                        self.step_number, branch_id=branch_id
+                    )
+
+            if not branch_binaries:
+                # Fallback to non-branch binaries if no branch-specific ones exist
+                branch_binaries = loaded_binaries
+
+        return branch_binaries
+
+    def _execute_step_on_single_branch(
+        self,
+        step: Any,
+        dataset: SpectroDataset,
+        runtime_context: Any,
+        loaded_binaries: list | None,
+        prediction_store: Predictions | None,
+        all_artifacts: list | None,
+        branch_info: dict,
+        updated_branch_contexts: list[Any],
+    ) -> None:
+        """Execute a step on one branch and record the resulting branch context.
+
+        Runs the body of the per-branch loop for a single ``branch_info``: restore
+        snapshot, resolve binaries, record trace start/shapes, execute the step,
+        record end/output/artifacts, and append the updated branch context to
+        ``updated_branch_contexts``. On failure with ``continue_on_error`` the
+        original ``branch_info`` is appended and a warning logged; otherwise a
+        ``RuntimeError`` is raised, propagating out of the loop exactly as before.
+
+        Shared state in/out: appends to ``updated_branch_contexts`` and extends
+        ``all_artifacts``; mutates ``dataset`` and ``runtime_context`` via the
+        snapshot restore, trace recording, and step execution.
+        """
+        branch_id = branch_info["branch_id"]
+        branch_name = branch_info["name"]
+        branch_context = branch_info["context"]
+
+        self._restore_branch_snapshot(dataset, branch_info, runtime_context)
+
+        logger.debug(f"Branch {branch_id} ({branch_name})")
+
+        # Update step number on branch context
+        branch_context = branch_context.with_step_number(self.step_number)
+
+        branch_binaries = self._resolve_branch_binaries(
+            branch_context, branch_id, runtime_context, loaded_binaries
+        )
+
+        # Extract operator info for trace recording
+        operator_type, operator_class, operator_config = self._extract_step_info(step)
+
+        # Get branch_path from context
+        branch_path = getattr(branch_context.selector, 'branch_path', [])
+        branch_name_ctx = getattr(branch_context.selector, 'branch_name', '') or ''
+
+        # Record step start in execution trace for this branch
+        if runtime_context:
+            runtime_context.record_step_start(
+                step_index=self.step_number,
+                operator_type=operator_type,
+                operator_class=operator_class,
+                operator_config=operator_config,
+                branch_path=branch_path,
+                branch_name=branch_name_ctx or branch_name,
+                mode=self.mode
+            )
+            # Record input shapes for branch step (parity with non-branch execution)
+            self._record_dataset_shapes(
+                dataset,
+                branch_context,
+                runtime_context,
+                is_input=True,
+            )
+
+        # Execute step on this branch
+        try:
+            step_result = self.step_runner.execute(
+                step=step,
+                dataset=dataset,
+                context=branch_context,
+                runtime_context=runtime_context,
+                loaded_binaries=branch_binaries,
+                prediction_store=prediction_store
+            )
+
+            # Record output shapes after execution for branch steps
+            if runtime_context:
+                self._record_dataset_shapes(
+                    dataset,
+                    step_result.updated_context,
+                    runtime_context,
+                    is_input=False,
+                )
+
+            # Record step end in execution trace
+            if runtime_context:
+                is_model = operator_type in ("model", "meta_model")
+                runtime_context.record_step_end(is_model=is_model)
+
+            # Process artifacts
+            processed_artifacts = self._process_step_artifacts(
+                step_result.artifacts,
+                runtime_context=runtime_context,
+                branch_id=branch_id,
+                branch_name=branch_name
+            )
+            if all_artifacts is not None:
+                all_artifacts.extend(processed_artifacts)
+
+            # Update branch context
+            updated_branch_contexts.append({
+                "branch_id": branch_id,
+                "name": branch_name,
+                "context": step_result.updated_context,
+                # Preserve any additional metadata
+                **{k: v for k, v in branch_info.items()
+                   if k not in ("branch_id", "name", "context")}
+            })
+
+        except Exception as e:
+            # Record step end even on failure
+            if runtime_context:
+                runtime_context.record_step_end(skip_trace=True)
+            if self.continue_on_error:
+                logger.warning(f"Branch {branch_id} step {self.step_number} failed: {str(e)}")
+                # Keep original context on failure
+                updated_branch_contexts.append(branch_info)
+            else:
+                raise RuntimeError(
+                    f"Pipeline step {self.step_number} failed on branch {branch_id}: {str(e)}"
+                ) from e
 
     def _execute_single_step(
         self,
