@@ -254,11 +254,13 @@ class WorkspaceStore:
             isolation_level=None,  # autocommit mode
         )
         self._conn.row_factory = sqlite3.Row
-        self._conn.execute("PRAGMA journal_mode=WAL")
-        self._conn.execute("PRAGMA foreign_keys=ON")
+        # NB: journal_mode=WAL is intentionally NOT set here -- create_schema()
+        # sets it only AFTER its forward-incompatibility version check, so a
+        # too-new workspace is never mutated (WAL writes -wal/-shm sidecars).
         self._conn.execute("PRAGMA busy_timeout=5000")
 
-        # Create schema (auto-migrates legacy prediction_arrays if present)
+        # Create schema (checks schema version, then sets WAL/foreign_keys and
+        # auto-migrates legacy prediction_arrays if present)
         create_schema(self._conn, workspace_path=self._workspace_path)
 
         # Ensure artifacts directory exists

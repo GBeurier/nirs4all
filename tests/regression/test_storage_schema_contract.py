@@ -24,11 +24,10 @@ indexes, not table-level ``UNIQUE`` constraints), so every row in
 ``sqlite_master`` carries a non-NULL ``sql`` value and no SQLite auto-index
 needs special handling.
 
-``PRAGMA user_version`` is currently 0 (no explicit SCHEMA_VERSION is stamped
-into the database yet). That fact is itself snapshotted in
-``test_user_version_is_zero``: when a real ``SCHEMA_VERSION`` is later
-introduced, this test will fail and must be updated to the new value — making
-the version bump a deliberate, reviewed event.
+``PRAGMA user_version`` is stamped with ``SCHEMA_VERSION``. That fact is itself
+snapshotted in ``test_user_version_stamped``: when ``SCHEMA_VERSION`` is bumped,
+this test fails and must be updated to the new value — making the version bump a
+deliberate, reviewed event.
 
 Snapshot captured from nirs4all 0.9.1.
 """
@@ -38,6 +37,7 @@ from __future__ import annotations
 import sqlite3
 from pathlib import Path
 
+from nirs4all.pipeline.storage.store_schema import SCHEMA_VERSION
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 # ---------------------------------------------------------------------------
@@ -195,10 +195,17 @@ EXPECTED_INDEXES: dict[str, str] = {
     "idx_runs_project_id": "CREATE INDEX idx_runs_project_id ON runs(project_id)",
 }
 
-# ``PRAGMA user_version`` value stamped into a fresh workspace. Currently 0:
-# no explicit SCHEMA_VERSION is written yet. A later commit may set a real
-# version — at which point this snapshot (and the test below) must be updated.
-EXPECTED_USER_VERSION = 0
+# ``PRAGMA user_version`` value stamped into a fresh workspace. FROZEN as a literal
+# (not ``SCHEMA_VERSION``) so that bumping ``SCHEMA_VERSION`` makes this test FAIL,
+# flagging the schema-version change for deliberate review (a self-referential
+# ``= SCHEMA_VERSION`` would silently pass through any bump).
+EXPECTED_USER_VERSION = 1
+# Cross-check that the library constant still matches the frozen contract value;
+# this is the loud reminder when SCHEMA_VERSION is bumped.
+assert SCHEMA_VERSION == EXPECTED_USER_VERSION, (
+    f"SCHEMA_VERSION ({SCHEMA_VERSION}) changed from the frozen contract value "
+    f"({EXPECTED_USER_VERSION}); update this contract snapshot deliberately."
+)
 
 
 def _introspect_schema(db_path: Path) -> tuple[dict[str, list[tuple[str, str]]], dict[str, str], int]:
@@ -267,11 +274,11 @@ def test_fresh_store_indexes_frozen(tmp_path: Path) -> None:
     assert index_ddl == EXPECTED_INDEXES
 
 
-def test_user_version_is_zero(tmp_path: Path) -> None:
-    """A fresh workspace stamps ``PRAGMA user_version`` = 0 (no SCHEMA_VERSION yet).
+def test_user_version_stamped(tmp_path: Path) -> None:
+    """A fresh workspace stamps ``PRAGMA user_version`` = SCHEMA_VERSION.
 
-    If a real schema version is introduced later, update EXPECTED_USER_VERSION;
-    the failure is intentional and flags the version bump for review.
+    When SCHEMA_VERSION is bumped, update EXPECTED_USER_VERSION; the failure is
+    intentional and flags the version bump for review.
     """
     store = WorkspaceStore(tmp_path / "workspace")
     try:

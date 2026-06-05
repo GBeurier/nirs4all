@@ -20,6 +20,14 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # =========================================================================
+# Schema version
+# =========================================================================
+
+# Bump when the schema changes in a non-additive or otherwise
+# version-significant way. Stamped into the database via PRAGMA user_version.
+SCHEMA_VERSION: int = 1
+
+# =========================================================================
 # Refit context constants
 # =========================================================================
 
@@ -564,6 +572,19 @@ def create_schema(conn: sqlite3.Connection, workspace_path: Path | None = None) 
             any legacy ``prediction_arrays`` table is automatically migrated
             to Parquet sidecar files and dropped.
     """
+    # Forward-incompatibility guard: refuse to touch a workspace stamped with a
+    # newer schema version than this library understands. Checked FIRST, before
+    # ANY mutation -- including ``PRAGMA journal_mode=WAL`` (persistent; writes
+    # -wal/-shm sidecars) -- so a too-new DB is never modified. Reading
+    # ``PRAGMA user_version`` is a pure read and does not mutate the file.
+    existing_version = conn.execute("PRAGMA user_version").fetchone()[0]
+    if existing_version > SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Workspace SQLite schema version {existing_version} is newer than "
+            f"this nirs4all supports (max {SCHEMA_VERSION}). "
+            f"Upgrade nirs4all to open this workspace."
+        )
+
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
 
@@ -587,6 +608,10 @@ def create_schema(conn: sqlite3.Connection, workspace_path: Path | None = None) 
         statement = statement.strip()
         if statement:
             conn.execute(statement)
+
+    # Stamp the current schema version (integer literal; SCHEMA_VERSION is an
+    # int constant, so f-string interpolation here carries no user input).
+    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
 def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
     """Return the set of column names for a table using PRAGMA table_info.
