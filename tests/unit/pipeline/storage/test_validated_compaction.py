@@ -90,6 +90,114 @@ class TestWorkspaceStoreCompactArrays:
         # After commit it runs fine.
         assert store.compact_arrays() == {}
 
+    def test_live_snapshot_taken_under_process_lock(self, tmp_path, monkeypatch):
+        """Regression for the snapshot/lock race: a delete-then-tombstone landing
+        just before compaction acquires the process lock must be RECLAIMED — with a
+        pre-lock snapshot the fresh tombstone looked stale, got cleared, and the
+        arrays leaked as permanent orphans."""
+        import contextlib as _ctx
+
+        from nirs4all.pipeline.storage.array_store import ArrayStore
+
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+
+        real_lock = ArrayStore._process_lock
+        fired = {"done": False}
+
+        @_ctx.contextmanager
+        def racing_lock(array_store_self):
+            with real_lock(array_store_self):
+                if not fired["done"]:
+                    fired["done"] = True
+                    # Simulate a concurrent process completing delete-then-tombstone
+                    # (SQLite-first per Step 1) immediately before our acquisition.
+                    store._conn.execute(
+                        "DELETE FROM predictions WHERE prediction_id = ?", [ids["pred_id"]]
+                    )
+                    tombs = array_store_self._read_tombstones()
+                    tombs[ids["pred_id"]] = "race"
+                    array_store_self._write_tombstones(tombs)
+                yield
+
+        monkeypatch.setattr(ArrayStore, "_process_lock", racing_lock)
+        stats = store.compact_arrays()
+
+        # The freshly-dead row is reclaimed; its tombstone is applied, not cleared.
+        assert stats["wheat"]["rows_removed"] == 1
+        assert store._array_store.load_batch([ids["pred_id"]]) == {}
+        assert store._array_store._read_tombstones() == {}
+
+# =========================================================================
+# Startup reconciliation (WorkspaceStore.__init__, gated on pending tombstones)
+# =========================================================================
+
+class TestStartupReconciliation:
+    def test_reopen_applies_pending_tombstones(self, tmp_path):
+        """Tombstones left behind by a session that never compacted are applied on
+        the next open: dead arrays reclaimed, tombstone file cleared."""
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+        assert store.delete_prediction(ids["pred_id"]) is True
+        assert store._array_store.has_pending_tombstones()
+        store.close()
+
+        reopened = _make_store(tmp_path)
+        assert not reopened._array_store.has_pending_tombstones()
+        assert reopened._array_store.load_batch([ids["pred_id"]]) == {}
+        reopened.close()
+
+    def test_reopen_protects_live_rows_with_stale_tombstone(self, tmp_path):
+        """A stale tombstone (crash/rollback leftover) covering a live row is dropped
+        on reopen and the arrays survive."""
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+        store._array_store.delete_batch({ids["pred_id"]})  # stale: row is live
+        store.close()
+
+        reopened = _make_store(tmp_path)
+        assert not reopened._array_store.has_pending_tombstones()
+        assert ids["pred_id"] in reopened._array_store.load_batch([ids["pred_id"]])
+        reopened.close()
+
+    def test_clean_open_skips_reconciliation(self, tmp_path, monkeypatch):
+        """No pending tombstones -> the gate never calls compact_arrays."""
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        calls: list[str] = []
+        original = WorkspaceStore.compact_arrays
+        monkeypatch.setattr(
+            WorkspaceStore, "compact_arrays",
+            lambda self, dataset_name=None: calls.append("called") or original(self, dataset_name),
+        )
+        store = _make_store(tmp_path)
+        assert calls == []
+        store.close()
+
+    def test_failed_reconciliation_never_blocks_opening(self, tmp_path, monkeypatch):
+        """A broken reconciliation logs and the workspace still opens."""
+        from nirs4all.pipeline.storage.array_store import ArrayStore
+
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+        store.delete_prediction(ids["pred_id"])  # leaves a pending tombstone
+        store.close()
+
+        def boom(self, dataset_name=None, live_ids=None):
+            raise RuntimeError("simulated reconciliation failure")
+
+        monkeypatch.setattr(ArrayStore, "_compact_unlocked", boom)
+        reopened = _make_store(tmp_path)  # must not raise
+        # Store is functional (the run row survives; only the prediction was deleted)
+        assert reopened.get_run(ids["run_id"]) is not None
+        # Reconciliation failed, so the tombstone is still pending for the next open.
+        assert reopened._array_store.has_pending_tombstones()
+        reopened.close()
+
 # =========================================================================
 # Predictions facade level
 # =========================================================================

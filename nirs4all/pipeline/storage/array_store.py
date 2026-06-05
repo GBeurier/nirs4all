@@ -21,19 +21,47 @@ Workspace layout::
 from __future__ import annotations
 
 import contextlib
+import errno
+import functools
 import json
 import logging
 import os
 import re
+from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Concatenate, ParamSpec, TypeVar
 
 import numpy as np
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 
+try:  # POSIX advisory locking
+    import fcntl
+except ImportError:  # pragma: no cover - Windows
+    fcntl = None  # type: ignore[assignment]
+try:  # Windows byte-range locking
+    import msvcrt
+except ImportError:  # pragma: no cover - POSIX
+    msvcrt = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
+
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _locked(method: Callable[Concatenate[ArrayStore, _P], _R]) -> Callable[Concatenate[ArrayStore, _P], _R]:
+    """Serialize an ArrayStore mutation against other processes (and threads).
+
+    See :meth:`ArrayStore._process_lock` for the locking semantics.
+    """
+    @functools.wraps(method)
+    def wrapper(self: ArrayStore, *args: _P.args, **kwargs: _P.kwargs) -> _R:
+        with self._process_lock():
+            return method(self, *args, **kwargs)
+    return wrapper
 
 # Zstd level 3: good compression ratio, fast decompression
 _COMPRESSION = "zstd"
@@ -171,6 +199,49 @@ class ArrayStore:
             json.dump(tombstones, f)
         tmp.replace(path)
 
+    @contextlib.contextmanager
+    def _process_lock(self):
+        """Advisory inter-process lock serializing Parquet/tombstone mutations.
+
+        Every mutation is a whole-file read-modify-write (``save_batch``,
+        ``compact``) or a read-modify-write of the tombstone JSON
+        (``delete_batch``); two processes mutating the same workspace concurrently
+        would silently lose one side's writes (last-writer-wins). An exclusive lock
+        on ``arrays/.lock`` serializes them: ``fcntl.flock`` on POSIX,
+        ``msvcrt.locking`` on Windows, no-op where neither exists (behaviour is then
+        unchanged from before). Each acquisition opens its own descriptor, so
+        concurrent mutations from two threads of one process serialize too.
+        Mutations never nest, so the non-reentrant lock cannot self-deadlock.
+        Readers stay lock-free: ``_atomic_write_parquet`` publishes via temp +
+        ``os.replace``, so they see old-or-new files, never torn ones.
+        """
+        fd = os.open(str(self._arrays_dir / ".lock"), os.O_CREAT | os.O_RDWR, 0o644)
+        try:
+            if fcntl is not None:
+                fcntl.flock(fd, fcntl.LOCK_EX)
+            elif msvcrt is not None:  # pragma: no cover - Windows only
+                while True:
+                    try:
+                        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+                        break
+                    except OSError as exc:
+                        # LK_LOCK sleeps 1s between its 10 attempts, then raises
+                        # EDEADLOCK/EACCES on pure contention — keep waiting. Any
+                        # other errno is a real filesystem fault: surface it.
+                        if exc.errno not in (errno.EACCES, errno.EDEADLOCK):
+                            raise
+                        continue
+            try:
+                yield
+            finally:
+                if fcntl is not None:
+                    fcntl.flock(fd, fcntl.LOCK_UN)
+                elif msvcrt is not None:  # pragma: no cover - Windows only
+                    os.lseek(fd, 0, os.SEEK_SET)
+                    msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        finally:
+            os.close(fd)
+
     def _records_to_table(self, records: list[dict]) -> pa.Table:
         """Convert a list of record dicts to a PyArrow Table."""
         columns: dict[str, list] = {field.name: [] for field in _PARQUET_SCHEMA}
@@ -235,6 +306,7 @@ class ArrayStore:
     # Write
     # ------------------------------------------------------------------
 
+    @_locked
     def save_batch(self, records: list[dict]) -> int:
         """Write prediction arrays to Parquet.
 
@@ -415,6 +487,7 @@ class ArrayStore:
     # Delete
     # ------------------------------------------------------------------
 
+    @_locked
     def delete_batch(
         self,
         prediction_ids: set[str],
@@ -446,6 +519,7 @@ class ArrayStore:
         self._write_tombstones(tombstones)
         return count
 
+    @_locked
     def delete_dataset(self, dataset_name: str) -> bool:
         """Delete the entire Parquet file for a dataset.
 
@@ -473,6 +547,7 @@ class ArrayStore:
         """
         return bool(self._read_tombstones())
 
+    @_locked
     def compact(self, dataset_name: str | None = None, live_ids: set[str] | None = None) -> dict[str, dict[str, Any]]:
         """Rewrite Parquet file(s): apply tombstones, deduplicate, re-sort.
 
@@ -485,7 +560,8 @@ class ArrayStore:
                 a crash or rollback between a SQLite write and the matching
                 tombstone write (e.g. the ``save_prediction`` upsert window).
                 When ``None``, tombstones are applied as-is; callers with access to
-                the SQLite metadata should prefer ``WorkspaceStore.compact_arrays``.
+                the SQLite metadata should prefer ``WorkspaceStore.compact_arrays``,
+                which also snapshots the live ids under the process lock.
 
         Returns:
             Stats per dataset::
@@ -493,6 +569,14 @@ class ArrayStore:
                 {dataset: {rows_before, rows_after, rows_removed,
                            bytes_before, bytes_after}}
         """
+        return self._compact_unlocked(dataset_name, live_ids)
+
+    def _compact_unlocked(self, dataset_name: str | None = None, live_ids: set[str] | None = None) -> dict[str, dict[str, Any]]:
+        """:meth:`compact` body. The caller MUST hold :meth:`_process_lock` — either
+        via the decorated :meth:`compact`, or explicitly like
+        ``WorkspaceStore.compact_arrays``, which takes the lock BEFORE snapshotting
+        the live SQLite ids so a concurrent delete-then-tombstone cannot make a
+        fresh tombstone look stale (it would be cleared and the arrays leaked)."""
         tombstones = self._read_tombstones()
         tombstone_ids = set(tombstones.keys())
         stale_ids: set[str] = set()

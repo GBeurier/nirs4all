@@ -273,6 +273,21 @@ class WorkspaceStore:
         # Parquet-backed array storage
         self._array_store = ArrayStore(self._workspace_path)
 
+        # Startup reconciliation (gated): pending tombstones signal that a previous
+        # session deleted predictions without compacting — or crashed/rolled back
+        # between a SQLite write and its tombstone. Apply them through the
+        # SQLite-validated path: dead rows' arrays are reclaimed, stale tombstones
+        # covering live rows are dropped. The gate is one small JSON read, so opening
+        # a clean workspace (the common case) never touches Parquet; the ArrayStore
+        # process lock makes the compaction safe against concurrent writers.
+        if self._array_store.has_pending_tombstones():
+            try:
+                self.compact_arrays()
+            except Exception as exc:
+                # On-disk state from a crashed session is untrusted input; never
+                # block opening the workspace on a failed reconciliation.
+                logger.warning("Startup array reconciliation failed (will retry on next open): %s", exc)
+
     @property
     def workspace_path(self) -> Path:
         """Root directory of the workspace."""
@@ -2994,9 +3009,14 @@ class WorkspaceStore:
                     "compact_arrays() must not run inside an open transaction(); "
                     "call it after the transaction commits."
                 )
-            rows = conn.execute("SELECT prediction_id FROM predictions").fetchall()
-            live_ids = {str(row[0]) for row in rows}
-            return self._array_store.compact(dataset_name=dataset_name, live_ids=live_ids)
+            # Snapshot the live ids UNDER the array-store process lock: otherwise a
+            # concurrent process could delete a row (SQLite-first) and tombstone it
+            # between our snapshot and the compaction — the fresh tombstone would
+            # look stale, get cleared, and the arrays would leak as orphans.
+            with self._array_store._process_lock():
+                rows = conn.execute("SELECT prediction_id FROM predictions").fetchall()
+                live_ids = {str(row[0]) for row in rows}
+                return self._array_store._compact_unlocked(dataset_name=dataset_name, live_ids=live_ids)
 
     # =====================================================================
     # Chain replay
