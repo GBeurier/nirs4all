@@ -838,6 +838,239 @@ class WorkspaceStore:
                 chain_id,
             ])
 
+    def _bulk_chain_setup_temp_table(self, conn: sqlite3.Connection, chain_ids: list[str]) -> None:
+        """Create/clear the ``_bulk_chain_ids`` temp table and load *chain_ids*.
+
+        Runs on the caller-provided connection inside the caller's lock; does
+        not open a new connection.
+        """
+        # Create a temp table with the chain IDs to update
+        conn.execute("CREATE TEMP TABLE IF NOT EXISTS _bulk_chain_ids (chain_id TEXT)")
+        conn.execute("DELETE FROM _bulk_chain_ids")
+        conn.executemany(
+            "INSERT INTO _bulk_chain_ids VALUES (?)",
+            [(cid,) for cid in chain_ids],
+        )
+
+    def _bulk_chain_update_scalar_fields(self, conn: sqlite3.Connection) -> None:
+        """Issue the bulk scalar summary ``UPDATE chains`` for the temp table set.
+
+        Runs on the caller-provided connection inside the caller's lock; does
+        not open a new connection.
+        """
+        # --- Bulk scalar summary fields ---
+        conn.execute("""
+            UPDATE chains SET
+                model_name = COALESCE(
+                    chains.model_name,
+                    (
+                        SELECT p.model_name
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NULL
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT p.model_name
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    )
+                ),
+                metric = COALESCE(
+                    chains.metric,
+                    (
+                        SELECT p.metric
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NULL
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT p.metric
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    )
+                ),
+                task_type = COALESCE(
+                    chains.task_type,
+                    (
+                        SELECT p.task_type
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NULL
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT p.task_type
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    )
+                ),
+                best_params = COALESCE(
+                    chains.best_params,
+                    (
+                        SELECT p.best_params
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.refit_context IS NULL
+                          AND p.best_params IS NOT NULL
+                          AND p.best_params != '{}'
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    ),
+                    (
+                        SELECT p.best_params
+                        FROM predictions p
+                        WHERE p.chain_id = chains.chain_id
+                          AND p.best_params IS NOT NULL
+                          AND p.best_params != '{}'
+                        ORDER BY p.created_at ASC, p.prediction_id ASC
+                        LIMIT 1
+                    )
+                ),
+                cv_val_score = (
+                    SELECT AVG(p.val_score)
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.refit_context IS NULL
+                      AND SUBSTR(p.fold_id, -4) != '_agg'
+                ),
+                cv_test_score = (
+                    SELECT AVG(p.test_score)
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.refit_context IS NULL
+                      AND SUBSTR(p.fold_id, -4) != '_agg'
+                ),
+                cv_train_score = (
+                    SELECT AVG(p.train_score)
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.refit_context IS NULL
+                      AND SUBSTR(p.fold_id, -4) != '_agg'
+                ),
+                cv_fold_count = COALESCE((
+                    SELECT COUNT(DISTINCT p.fold_id)
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.refit_context IS NULL
+                      AND SUBSTR(p.fold_id, -4) != '_agg'
+                ), 0),
+                final_test_score = (
+                    SELECT p.test_score
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.refit_context IS NOT NULL
+                      AND p.fold_id = 'final'
+                      AND p.partition = 'test'
+                    ORDER BY p.created_at ASC, p.prediction_id ASC
+                    LIMIT 1
+                ),
+                final_train_score = (
+                    SELECT p.train_score
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.refit_context IS NOT NULL
+                      AND p.fold_id = 'final'
+                      AND p.partition = 'test'
+                    ORDER BY p.created_at ASC, p.prediction_id ASC
+                    LIMIT 1
+                ),
+                final_scores = (
+                    SELECT p.scores
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.refit_context IS NOT NULL
+                      AND p.fold_id = 'final'
+                      AND p.partition = 'test'
+                    ORDER BY p.created_at ASC, p.prediction_id ASC
+                    LIMIT 1
+                ),
+                final_agg_test_score = (
+                    SELECT p.test_score
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.fold_id = 'final_agg'
+                      AND p.partition = 'test'
+                    ORDER BY p.created_at ASC, p.prediction_id ASC
+                    LIMIT 1
+                ),
+                final_agg_train_score = (
+                    SELECT p.train_score
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.fold_id = 'final_agg'
+                      AND p.partition = 'test'
+                    ORDER BY p.created_at ASC, p.prediction_id ASC
+                    LIMIT 1
+                ),
+                final_agg_scores = (
+                    SELECT p.scores
+                    FROM predictions p
+                    WHERE p.chain_id = chains.chain_id
+                      AND p.fold_id = 'final_agg'
+                      AND p.partition = 'test'
+                    ORDER BY p.created_at ASC, p.prediction_id ASC
+                    LIMIT 1
+                )
+            WHERE chains.chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
+        """)
+
+    def _bulk_chain_update_cv_scores(self, conn: sqlite3.Connection) -> None:
+        """Compute averaged multi-metric ``cv_scores`` JSON and update each chain.
+
+        Runs on the caller-provided connection inside the caller's lock; does
+        not open a new connection.
+        """
+        # --- Bulk cv_scores (averaged multi-metric JSON) ---
+        # SQLite JSON aggregation is limited, so we use a single
+        # query to fetch all rows and compute in Python once.
+        import json as _json
+
+        rows = conn.execute(
+            "SELECT chain_id, partition, scores FROM predictions "
+            "WHERE refit_context IS NULL "
+            "AND partition IN ('val', 'test') "
+            "AND SUBSTR(fold_id, -4) != '_agg' "
+            "AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
+        ).fetchall()
+
+        if rows:
+            per_chain: dict[str, dict[str, dict[str, list[float]]]] = {}
+            for chain_id, partition, scores_raw in rows:
+                if not scores_raw:
+                    continue
+                scores = _json.loads(scores_raw) if isinstance(scores_raw, str) else scores_raw
+                if not isinstance(scores, dict):
+                    continue
+                inner = scores.get(partition, scores)
+                if not isinstance(inner, dict):
+                    continue
+                chain_data = per_chain.setdefault(chain_id, {})
+                part_data = chain_data.setdefault(partition, {})
+                for metric_name, val in inner.items():
+                    if isinstance(val, (int, float)):
+                        part_data.setdefault(metric_name, []).append(float(val))
+
+            for chain_id, partition_scores in per_chain.items():
+                averaged: dict[str, dict[str, float]] = {}
+                for part, metrics in partition_scores.items():
+                    averaged[part] = {m: round(sum(vs) / len(vs), 6) for m, vs in metrics.items() if vs}
+                if averaged:
+                    conn.execute(
+                        "UPDATE chains SET cv_scores = ? WHERE chain_id = ?",
+                        [_json.dumps(averaged), chain_id],
+                    )
+
     @_retry_on_lock
     def bulk_update_chain_summaries(self, chain_ids: list[str]) -> None:
         """Recompute CV/final summary for multiple chains in bulk SQL.
@@ -854,220 +1087,9 @@ class WorkspaceStore:
         with self._lock:
             conn = self._ensure_open()
 
-            # Create a temp table with the chain IDs to update
-            conn.execute("CREATE TEMP TABLE IF NOT EXISTS _bulk_chain_ids (chain_id TEXT)")
-            conn.execute("DELETE FROM _bulk_chain_ids")
-            conn.executemany(
-                "INSERT INTO _bulk_chain_ids VALUES (?)",
-                [(cid,) for cid in chain_ids],
-            )
-
-            # --- Bulk scalar summary fields ---
-            conn.execute("""
-                UPDATE chains SET
-                    model_name = COALESCE(
-                        chains.model_name,
-                        (
-                            SELECT p.model_name
-                            FROM predictions p
-                            WHERE p.chain_id = chains.chain_id
-                              AND p.refit_context IS NULL
-                            ORDER BY p.created_at ASC, p.prediction_id ASC
-                            LIMIT 1
-                        ),
-                        (
-                            SELECT p.model_name
-                            FROM predictions p
-                            WHERE p.chain_id = chains.chain_id
-                            ORDER BY p.created_at ASC, p.prediction_id ASC
-                            LIMIT 1
-                        )
-                    ),
-                    metric = COALESCE(
-                        chains.metric,
-                        (
-                            SELECT p.metric
-                            FROM predictions p
-                            WHERE p.chain_id = chains.chain_id
-                              AND p.refit_context IS NULL
-                            ORDER BY p.created_at ASC, p.prediction_id ASC
-                            LIMIT 1
-                        ),
-                        (
-                            SELECT p.metric
-                            FROM predictions p
-                            WHERE p.chain_id = chains.chain_id
-                            ORDER BY p.created_at ASC, p.prediction_id ASC
-                            LIMIT 1
-                        )
-                    ),
-                    task_type = COALESCE(
-                        chains.task_type,
-                        (
-                            SELECT p.task_type
-                            FROM predictions p
-                            WHERE p.chain_id = chains.chain_id
-                              AND p.refit_context IS NULL
-                            ORDER BY p.created_at ASC, p.prediction_id ASC
-                            LIMIT 1
-                        ),
-                        (
-                            SELECT p.task_type
-                            FROM predictions p
-                            WHERE p.chain_id = chains.chain_id
-                            ORDER BY p.created_at ASC, p.prediction_id ASC
-                            LIMIT 1
-                        )
-                    ),
-                    best_params = COALESCE(
-                        chains.best_params,
-                        (
-                            SELECT p.best_params
-                            FROM predictions p
-                            WHERE p.chain_id = chains.chain_id
-                              AND p.refit_context IS NULL
-                              AND p.best_params IS NOT NULL
-                              AND p.best_params != '{}'
-                            ORDER BY p.created_at ASC, p.prediction_id ASC
-                            LIMIT 1
-                        ),
-                        (
-                            SELECT p.best_params
-                            FROM predictions p
-                            WHERE p.chain_id = chains.chain_id
-                              AND p.best_params IS NOT NULL
-                              AND p.best_params != '{}'
-                            ORDER BY p.created_at ASC, p.prediction_id ASC
-                            LIMIT 1
-                        )
-                    ),
-                    cv_val_score = (
-                        SELECT AVG(p.val_score)
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.refit_context IS NULL
-                          AND SUBSTR(p.fold_id, -4) != '_agg'
-                    ),
-                    cv_test_score = (
-                        SELECT AVG(p.test_score)
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.refit_context IS NULL
-                          AND SUBSTR(p.fold_id, -4) != '_agg'
-                    ),
-                    cv_train_score = (
-                        SELECT AVG(p.train_score)
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.refit_context IS NULL
-                          AND SUBSTR(p.fold_id, -4) != '_agg'
-                    ),
-                    cv_fold_count = COALESCE((
-                        SELECT COUNT(DISTINCT p.fold_id)
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.refit_context IS NULL
-                          AND SUBSTR(p.fold_id, -4) != '_agg'
-                    ), 0),
-                    final_test_score = (
-                        SELECT p.test_score
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.refit_context IS NOT NULL
-                          AND p.fold_id = 'final'
-                          AND p.partition = 'test'
-                        ORDER BY p.created_at ASC, p.prediction_id ASC
-                        LIMIT 1
-                    ),
-                    final_train_score = (
-                        SELECT p.train_score
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.refit_context IS NOT NULL
-                          AND p.fold_id = 'final'
-                          AND p.partition = 'test'
-                        ORDER BY p.created_at ASC, p.prediction_id ASC
-                        LIMIT 1
-                    ),
-                    final_scores = (
-                        SELECT p.scores
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.refit_context IS NOT NULL
-                          AND p.fold_id = 'final'
-                          AND p.partition = 'test'
-                        ORDER BY p.created_at ASC, p.prediction_id ASC
-                        LIMIT 1
-                    ),
-                    final_agg_test_score = (
-                        SELECT p.test_score
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.fold_id = 'final_agg'
-                          AND p.partition = 'test'
-                        ORDER BY p.created_at ASC, p.prediction_id ASC
-                        LIMIT 1
-                    ),
-                    final_agg_train_score = (
-                        SELECT p.train_score
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.fold_id = 'final_agg'
-                          AND p.partition = 'test'
-                        ORDER BY p.created_at ASC, p.prediction_id ASC
-                        LIMIT 1
-                    ),
-                    final_agg_scores = (
-                        SELECT p.scores
-                        FROM predictions p
-                        WHERE p.chain_id = chains.chain_id
-                          AND p.fold_id = 'final_agg'
-                          AND p.partition = 'test'
-                        ORDER BY p.created_at ASC, p.prediction_id ASC
-                        LIMIT 1
-                    )
-                WHERE chains.chain_id IN (SELECT chain_id FROM _bulk_chain_ids)
-            """)
-
-            # --- Bulk cv_scores (averaged multi-metric JSON) ---
-            # SQLite JSON aggregation is limited, so we use a single
-            # query to fetch all rows and compute in Python once.
-            import json as _json
-
-            rows = conn.execute(
-                "SELECT chain_id, partition, scores FROM predictions "
-                "WHERE refit_context IS NULL "
-                "AND partition IN ('val', 'test') "
-                "AND SUBSTR(fold_id, -4) != '_agg' "
-                "AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
-            ).fetchall()
-
-            if rows:
-                per_chain: dict[str, dict[str, dict[str, list[float]]]] = {}
-                for chain_id, partition, scores_raw in rows:
-                    if not scores_raw:
-                        continue
-                    scores = _json.loads(scores_raw) if isinstance(scores_raw, str) else scores_raw
-                    if not isinstance(scores, dict):
-                        continue
-                    inner = scores.get(partition, scores)
-                    if not isinstance(inner, dict):
-                        continue
-                    chain_data = per_chain.setdefault(chain_id, {})
-                    part_data = chain_data.setdefault(partition, {})
-                    for metric_name, val in inner.items():
-                        if isinstance(val, (int, float)):
-                            part_data.setdefault(metric_name, []).append(float(val))
-
-                for chain_id, partition_scores in per_chain.items():
-                    averaged: dict[str, dict[str, float]] = {}
-                    for part, metrics in partition_scores.items():
-                        averaged[part] = {m: round(sum(vs) / len(vs), 6) for m, vs in metrics.items() if vs}
-                    if averaged:
-                        conn.execute(
-                            "UPDATE chains SET cv_scores = ? WHERE chain_id = ?",
-                            [_json.dumps(averaged), chain_id],
-                        )
+            self._bulk_chain_setup_temp_table(conn, chain_ids)
+            self._bulk_chain_update_scalar_fields(conn)
+            self._bulk_chain_update_cv_scores(conn)
 
             conn.execute("DROP TABLE IF EXISTS _bulk_chain_ids")
 
@@ -2624,37 +2646,6 @@ class WorkspaceStore:
         Returns:
             Number of artifact files removed from disk.
         """
-        def _iter_shared_artifact_refs(shared_artifacts: dict | None):
-            """Yield concrete shared artifact IDs (skip metadata keys)."""
-            if not isinstance(shared_artifacts, dict):
-                return
-            for key, value in shared_artifacts.items():
-                if str(key).startswith("_"):
-                    # Metadata key, e.g. "_source_map"
-                    continue
-                if isinstance(value, list):
-                    for artifact_id in value:
-                        if artifact_id:
-                            yield artifact_id
-                elif isinstance(value, str) and value:
-                    yield value
-
-        def _fold_is_protected(
-            fold_key: str,
-            protected_fold_ids: set[str],
-        ) -> bool:
-            """Check whether a fold key is required for prediction replay."""
-            if "__all_folds__" in protected_fold_ids:
-                return True
-
-            if fold_key in protected_fold_ids:
-                return True
-
-            # Accept both "0"/"final" and "fold_0"/"fold_final" styles.
-            if fold_key.startswith("fold_"):
-                return fold_key[5:] in protected_fold_ids
-            return f"fold_{fold_key}" in protected_fold_ids
-
         with self._lock:
             conn = self._ensure_open()
 
@@ -2672,133 +2663,237 @@ class WorkspaceStore:
 
             winning_set = set(winning_pipeline_ids)
 
-            # Bulk-load ALL chains for these pipelines in a single query
-            # instead of one query per pipeline.
             all_pipeline_ids = [pid for (pid,) in all_pipelines]
-            chains_by_pipeline: dict[str, list[tuple[str, Any, Any]]] = {pid: [] for pid in all_pipeline_ids}
-            chain_lookup: dict[str, tuple[dict, dict]] = {}
+            chains_by_pipeline, chain_lookup = self._cleanup_load_chains(
+                conn, run_id, dataset_name, all_pipeline_ids
+            )
 
-            if all_pipeline_ids:
-                all_chain_rows = conn.execute(
-                    "SELECT pipeline_id, chain_id, fold_artifacts, shared_artifacts "
-                    "FROM chains WHERE pipeline_id IN ("
-                    "  SELECT pipeline_id FROM pipelines WHERE run_id = ? AND dataset_name = ?"
-                    ")",
-                    [run_id, dataset_name],
-                ).fetchall()
+            protected_folds_by_chain = self._cleanup_build_protected_folds(
+                conn, run_id, dataset_name, chain_lookup
+            )
 
-                for pipeline_id, chain_id, fold_artifacts_raw, shared_artifacts_raw in all_chain_rows:
-                    row_tuple = (chain_id, fold_artifacts_raw, shared_artifacts_raw)
-                    chains_by_pipeline.setdefault(pipeline_id, []).append(row_tuple)
+            artifacts_to_decrement = self._cleanup_collect_decrements(
+                all_pipelines,
+                chains_by_pipeline,
+                winning_set,
+                protected_folds_by_chain,
+                permanent_fold_ids,
+            )
 
-                    fold_artifacts = (
-                        _from_json(fold_artifacts_raw)
-                        if isinstance(fold_artifacts_raw, str)
-                        else fold_artifacts_raw
-                    ) or {}
-                    shared_artifacts = (
-                        _from_json(shared_artifacts_raw)
-                        if isinstance(shared_artifacts_raw, str)
-                        else shared_artifacts_raw
-                    ) or {}
-                    chain_lookup[chain_id] = (fold_artifacts, shared_artifacts)
-
-            # Build replay-protection map from persisted predictions:
-            # chain_id -> set of fold identifiers required for replay.
-            protected_folds_by_chain: dict[str, set[str]] = {}
-            prediction_refs = conn.execute(
-                """
-                SELECT p.chain_id, p.fold_id
-                FROM predictions p
-                JOIN pipelines pl ON p.pipeline_id = pl.pipeline_id
-                WHERE pl.run_id = ?
-                  AND p.dataset_name = ?
-                  AND p.chain_id IS NOT NULL
-                """,
-                [run_id, dataset_name],
-            ).fetchall()
-
-            for chain_id, fold_id in prediction_refs:
-                if chain_id not in chain_lookup:
-                    continue
-
-                requested = protected_folds_by_chain.setdefault(chain_id, set())
-                fold_value = "" if fold_id is None else str(fold_id)
-
-                # Averaged/empty fold IDs depend on CV fold artifacts.
-                if fold_value in {"", "None", "avg", "w_avg"}:
-                    requested.add("__all_folds__")
-                else:
-                    requested.add(fold_value)
-
-            # Collect all artifact IDs to decrement, then batch-update once.
-            artifacts_to_decrement: list[str] = []
-
-            for (pipeline_id,) in all_pipelines:
-                chains = chains_by_pipeline.get(pipeline_id, [])
-
-                is_winner = pipeline_id in winning_set
-
-                for chain_id, fold_artifacts_raw, shared_artifacts_raw in chains:
-                    fold_artifacts = (
-                        _from_json(fold_artifacts_raw)
-                        if isinstance(fold_artifacts_raw, str)
-                        else fold_artifacts_raw
-                    ) or {}
-                    shared_artifacts = (
-                        _from_json(shared_artifacts_raw)
-                        if isinstance(shared_artifacts_raw, str)
-                        else shared_artifacts_raw
-                    ) or {}
-
-                    protected_fold_ids = protected_folds_by_chain.get(chain_id, set())
-                    protect_shared = chain_id in protected_folds_by_chain
-
-                    if is_winner:
-                        # Winning pipeline: only decrement CV fold model artifacts
-                        if fold_artifacts:
-                            for fold_key, artifact_id in fold_artifacts.items():
-                                if not artifact_id:
-                                    continue
-                                if fold_key in permanent_fold_ids:
-                                    continue
-                                if _fold_is_protected(str(fold_key), protected_fold_ids):
-                                    continue
-                                artifacts_to_decrement.append(artifact_id)
-                        # Keep shared artifacts (preprocessing) -- needed by refit chain
-                    else:
-                        # Losing pipeline: decrement artifacts unless replay-protected
-                        if fold_artifacts:
-                            for fold_key, artifact_id in fold_artifacts.items():
-                                if not artifact_id:
-                                    continue
-                                if _fold_is_protected(str(fold_key), protected_fold_ids):
-                                    continue
-                                artifacts_to_decrement.append(artifact_id)
-
-                        if shared_artifacts:
-                            for artifact_id in _iter_shared_artifact_refs(shared_artifacts):
-                                if protect_shared:
-                                    continue
-                                artifacts_to_decrement.append(artifact_id)
-
-            # Batch decrement: count how many times each artifact should be
-            # decremented, then issue one UPDATE per distinct decrement count.
-            if artifacts_to_decrement:
-                from collections import Counter
-                decrement_counts: dict[int, list[str]] = {}
-                for aid, cnt in Counter(artifacts_to_decrement).items():
-                    decrement_counts.setdefault(cnt, []).append(aid)
-                for delta, ids in decrement_counts.items():
-                    placeholders = ", ".join("?" for _ in ids)
-                    conn.execute(
-                        f"UPDATE artifacts SET ref_count = ref_count - ? "
-                        f"WHERE artifact_id IN ({placeholders})",
-                        [delta, *ids],
-                    )
+            self._cleanup_apply_decrements(conn, artifacts_to_decrement)
 
         # Run garbage collection to remove orphaned files
         return self.gc_artifacts()
+
+    @staticmethod
+    def _cleanup_iter_shared_artifact_refs(shared_artifacts: dict | None):
+        """Yield concrete shared artifact IDs (skip metadata keys)."""
+        if not isinstance(shared_artifacts, dict):
+            return
+        for key, value in shared_artifacts.items():
+            if str(key).startswith("_"):
+                # Metadata key, e.g. "_source_map"
+                continue
+            if isinstance(value, list):
+                for artifact_id in value:
+                    if artifact_id:
+                        yield artifact_id
+            elif isinstance(value, str) and value:
+                yield value
+
+    @staticmethod
+    def _cleanup_fold_is_protected(
+        fold_key: str,
+        protected_fold_ids: set[str],
+    ) -> bool:
+        """Check whether a fold key is required for prediction replay."""
+        if "__all_folds__" in protected_fold_ids:
+            return True
+
+        if fold_key in protected_fold_ids:
+            return True
+
+        # Accept both "0"/"final" and "fold_0"/"fold_final" styles.
+        if fold_key.startswith("fold_"):
+            return fold_key[5:] in protected_fold_ids
+        return f"fold_{fold_key}" in protected_fold_ids
+
+    def _cleanup_load_chains(
+        self,
+        conn: sqlite3.Connection,
+        run_id: str,
+        dataset_name: str,
+        all_pipeline_ids: list[str],
+    ) -> tuple[dict[str, list[tuple[str, Any, Any]]], dict[str, tuple[dict, dict]]]:
+        """Bulk-load all chains for *all_pipeline_ids* in a single query.
+
+        Returns ``(chains_by_pipeline, chain_lookup)``.  Runs on the
+        caller-provided connection inside the caller's lock; does not open a
+        new connection.
+        """
+        # Bulk-load ALL chains for these pipelines in a single query
+        # instead of one query per pipeline.
+        chains_by_pipeline: dict[str, list[tuple[str, Any, Any]]] = {pid: [] for pid in all_pipeline_ids}
+        chain_lookup: dict[str, tuple[dict, dict]] = {}
+
+        if all_pipeline_ids:
+            all_chain_rows = conn.execute(
+                "SELECT pipeline_id, chain_id, fold_artifacts, shared_artifacts "
+                "FROM chains WHERE pipeline_id IN ("
+                "  SELECT pipeline_id FROM pipelines WHERE run_id = ? AND dataset_name = ?"
+                ")",
+                [run_id, dataset_name],
+            ).fetchall()
+
+            for pipeline_id, chain_id, fold_artifacts_raw, shared_artifacts_raw in all_chain_rows:
+                row_tuple = (chain_id, fold_artifacts_raw, shared_artifacts_raw)
+                chains_by_pipeline.setdefault(pipeline_id, []).append(row_tuple)
+
+                fold_artifacts = (
+                    _from_json(fold_artifacts_raw)
+                    if isinstance(fold_artifacts_raw, str)
+                    else fold_artifacts_raw
+                ) or {}
+                shared_artifacts = (
+                    _from_json(shared_artifacts_raw)
+                    if isinstance(shared_artifacts_raw, str)
+                    else shared_artifacts_raw
+                ) or {}
+                chain_lookup[chain_id] = (fold_artifacts, shared_artifacts)
+
+        return chains_by_pipeline, chain_lookup
+
+    def _cleanup_build_protected_folds(
+        self,
+        conn: sqlite3.Connection,
+        run_id: str,
+        dataset_name: str,
+        chain_lookup: dict[str, tuple[dict, dict]],
+    ) -> dict[str, set[str]]:
+        """Build the replay-protection map ``chain_id -> required fold ids``.
+
+        Runs on the caller-provided connection inside the caller's lock; does
+        not open a new connection.
+        """
+        # Build replay-protection map from persisted predictions:
+        # chain_id -> set of fold identifiers required for replay.
+        protected_folds_by_chain: dict[str, set[str]] = {}
+        prediction_refs = conn.execute(
+            """
+            SELECT p.chain_id, p.fold_id
+            FROM predictions p
+            JOIN pipelines pl ON p.pipeline_id = pl.pipeline_id
+            WHERE pl.run_id = ?
+              AND p.dataset_name = ?
+              AND p.chain_id IS NOT NULL
+            """,
+            [run_id, dataset_name],
+        ).fetchall()
+
+        for chain_id, fold_id in prediction_refs:
+            if chain_id not in chain_lookup:
+                continue
+
+            requested = protected_folds_by_chain.setdefault(chain_id, set())
+            fold_value = "" if fold_id is None else str(fold_id)
+
+            # Averaged/empty fold IDs depend on CV fold artifacts.
+            if fold_value in {"", "None", "avg", "w_avg"}:
+                requested.add("__all_folds__")
+            else:
+                requested.add(fold_value)
+
+        return protected_folds_by_chain
+
+    def _cleanup_collect_decrements(
+        self,
+        all_pipelines: list,
+        chains_by_pipeline: dict[str, list[tuple[str, Any, Any]]],
+        winning_set: set[str],
+        protected_folds_by_chain: dict[str, set[str]],
+        permanent_fold_ids: frozenset[str],
+    ) -> list[str]:
+        """Collect every artifact ID whose ref count must be decremented.
+
+        Pure in-memory traversal; performs no DB access.
+        """
+        # Collect all artifact IDs to decrement, then batch-update once.
+        artifacts_to_decrement: list[str] = []
+
+        for (pipeline_id,) in all_pipelines:
+            chains = chains_by_pipeline.get(pipeline_id, [])
+
+            is_winner = pipeline_id in winning_set
+
+            for chain_id, fold_artifacts_raw, shared_artifacts_raw in chains:
+                fold_artifacts = (
+                    _from_json(fold_artifacts_raw)
+                    if isinstance(fold_artifacts_raw, str)
+                    else fold_artifacts_raw
+                ) or {}
+                shared_artifacts = (
+                    _from_json(shared_artifacts_raw)
+                    if isinstance(shared_artifacts_raw, str)
+                    else shared_artifacts_raw
+                ) or {}
+
+                protected_fold_ids = protected_folds_by_chain.get(chain_id, set())
+                protect_shared = chain_id in protected_folds_by_chain
+
+                if is_winner:
+                    # Winning pipeline: only decrement CV fold model artifacts
+                    if fold_artifacts:
+                        for fold_key, artifact_id in fold_artifacts.items():
+                            if not artifact_id:
+                                continue
+                            if fold_key in permanent_fold_ids:
+                                continue
+                            if self._cleanup_fold_is_protected(str(fold_key), protected_fold_ids):
+                                continue
+                            artifacts_to_decrement.append(artifact_id)
+                    # Keep shared artifacts (preprocessing) -- needed by refit chain
+                else:
+                    # Losing pipeline: decrement artifacts unless replay-protected
+                    if fold_artifacts:
+                        for fold_key, artifact_id in fold_artifacts.items():
+                            if not artifact_id:
+                                continue
+                            if self._cleanup_fold_is_protected(str(fold_key), protected_fold_ids):
+                                continue
+                            artifacts_to_decrement.append(artifact_id)
+
+                    if shared_artifacts:
+                        for artifact_id in self._cleanup_iter_shared_artifact_refs(shared_artifacts):
+                            if protect_shared:
+                                continue
+                            artifacts_to_decrement.append(artifact_id)
+
+        return artifacts_to_decrement
+
+    def _cleanup_apply_decrements(
+        self,
+        conn: sqlite3.Connection,
+        artifacts_to_decrement: list[str],
+    ) -> None:
+        """Batch-decrement ref counts for the collected artifact IDs.
+
+        Runs on the caller-provided connection inside the caller's lock; does
+        not open a new connection.
+        """
+        # Batch decrement: count how many times each artifact should be
+        # decremented, then issue one UPDATE per distinct decrement count.
+        if artifacts_to_decrement:
+            from collections import Counter
+            decrement_counts: dict[int, list[str]] = {}
+            for aid, cnt in Counter(artifacts_to_decrement).items():
+                decrement_counts.setdefault(cnt, []).append(aid)
+            for delta, ids in decrement_counts.items():
+                placeholders = ", ".join("?" for _ in ids)
+                conn.execute(
+                    f"UPDATE artifacts SET ref_count = ref_count - ? "
+                    f"WHERE artifact_id IN ({placeholders})",
+                    [delta, *ids],
+                )
 
     def gc_artifacts(self) -> int:
         """Garbage-collect unreferenced artifacts.

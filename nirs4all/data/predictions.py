@@ -2317,6 +2317,137 @@ class Predictions:
     # INTERNAL ENRICHMENT
     # =========================================================================
 
+    def _enrich_apply_aggregation(
+        self,
+        row: dict[str, Any],
+        enriched: dict[str, Any],
+        y_true: Any,
+        y_pred: Any,
+        y_proba: Any,
+        by_repetition: str,
+        repetition_method: str | None,
+        repetition_exclude_outliers: bool,
+    ) -> tuple[Any, Any, bool]:
+        """Aggregate repetition arrays for the entry partition and patch *enriched*.
+
+        Mirrors the in-place mutation of *enriched* (``y_true``/``y_pred``/
+        ``y_proba``/``aggregated`` keys, the ``<partition>_score`` key, and the
+        ``scores`` dict) performed by the original inline block. Returns the
+        possibly-aggregated ``(y_true, y_pred, was_aggregated)`` so the caller
+        can thread them into the display-metrics computation.
+        """
+        metadata = row.get("metadata", {})
+        agg_y_true, agg_y_pred, agg_y_proba, was_aggregated = self._apply_aggregation(
+            y_true, y_pred, y_proba, metadata, by_repetition, row.get("model_name", ""),
+            repetition_method, repetition_exclude_outliers,
+        )
+        if was_aggregated:
+            enriched["y_true"] = agg_y_true
+            enriched["y_pred"] = agg_y_pred
+            enriched["y_proba"] = agg_y_proba
+            enriched["aggregated"] = True
+            y_true, y_pred = agg_y_true, agg_y_pred
+
+            # Recompute partition score from aggregated arrays
+            entry_partition = row.get("partition", "")
+            stored_metric = row.get("metric", "")
+            if stored_metric and agg_y_true is not None and agg_y_pred is not None:
+                try:
+                    raw_score = evaluator.eval(agg_y_true, agg_y_pred, stored_metric)
+                    agg_score = raw_score if isinstance(raw_score, float) else float(next(iter(raw_score.values())))
+                    score_key = f"{entry_partition}_score"
+                    if score_key in enriched:
+                        enriched[score_key] = agg_score
+                    # Update scores dict so display metrics also read aggregated values
+                    sc = enriched.get("scores")
+                    if isinstance(sc, str):
+                        try:
+                            sc = json.loads(sc)
+                        except (json.JSONDecodeError, TypeError):
+                            sc = {}
+                    if isinstance(sc, dict):
+                        if entry_partition not in sc:
+                            sc[entry_partition] = {}
+                        sc[entry_partition][stored_metric] = agg_score
+                        enriched["scores"] = sc
+                except Exception:
+                    pass
+
+        return y_true, y_pred, was_aggregated
+
+    def _enrich_display_metrics(
+        self,
+        row: dict[str, Any],
+        enriched: dict[str, Any],
+        display_metrics: list[str],
+        display_partition: str,
+        y_true: Any,
+        y_pred: Any,
+        was_aggregated: bool,
+        by_repetition: str | None,
+        repetition_method: str | None,
+        repetition_exclude_outliers: bool,
+    ) -> None:
+        """Compute each display metric and write it into *enriched* in place.
+
+        Reads the entry-partition arrays threaded in via *y_true*/*y_pred*/
+        *was_aggregated*; when the entry partition differs from
+        *display_partition* it fetches and (if requested) re-aggregates the
+        display partition's arrays, exactly as the original inline block did.
+        Mutates *enriched* only (one key per requested metric).
+        """
+        scores_dict = row.get("scores", {})
+        if isinstance(scores_dict, str):
+            try:
+                scores_dict = json.loads(scores_dict)
+            except (json.JSONDecodeError, TypeError):
+                scores_dict = {}
+
+        # When the entry's partition differs from display_partition and we
+        # need to fall back to array computation, fetch the correct
+        # partition's arrays so we don't compute metrics on the wrong data.
+        entry_partition = row.get("partition", "")
+        display_y_true = y_true
+        display_y_pred = y_pred
+        display_was_aggregated = was_aggregated
+        if entry_partition != display_partition:
+            display_part = self.get_entry_partitions(row).get(display_partition)
+            if display_part is not None:
+                display_y_true = display_part.get("y_true")
+                display_y_pred = display_part.get("y_pred")
+                display_y_proba = display_part.get("y_proba")
+                if by_repetition and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
+                    display_metadata = display_part.get("metadata", {})
+                    display_y_true, display_y_pred, display_y_proba, display_was_aggregated = self._apply_aggregation(
+                        display_y_true,
+                        display_y_pred,
+                        display_y_proba,
+                        display_metadata,
+                        by_repetition,
+                        row.get("model_name", ""),
+                        repetition_method,
+                        repetition_exclude_outliers,
+                    )
+
+        for m in display_metrics:
+            # If aggregation changed the display arrays, always recalculate.
+            if display_was_aggregated and display_y_true is not None and isinstance(display_y_true, np.ndarray) and display_y_true.size > 0 and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
+                try:
+                    enriched[m] = evaluator.eval(display_y_true, display_y_pred, m)
+                except Exception:
+                    enriched[m] = None
+            # Try pre-computed scores
+            elif isinstance(scores_dict, dict) and display_partition in scores_dict and m in scores_dict[display_partition]:
+                enriched[m] = scores_dict[display_partition][m]
+            # Compute from arrays (use display_partition arrays)
+            elif display_y_true is not None and isinstance(display_y_true, np.ndarray) and display_y_true.size > 0 and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
+                try:
+                    enriched[m] = evaluator.eval(display_y_true, display_y_pred, m)
+                except Exception:
+                    enriched[m] = None
+            else:
+                enriched[m] = None
+
     def _enrich_result(
         self,
         row: dict[str, Any],
@@ -2342,96 +2473,18 @@ class Predictions:
         was_aggregated = False
 
         if by_repetition and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
-            metadata = row.get("metadata", {})
-            agg_y_true, agg_y_pred, agg_y_proba, was_aggregated = self._apply_aggregation(
-                y_true, y_pred, y_proba, metadata, by_repetition, row.get("model_name", ""),
-                repetition_method, repetition_exclude_outliers,
+            y_true, y_pred, was_aggregated = self._enrich_apply_aggregation(
+                row, enriched, y_true, y_pred, y_proba,
+                by_repetition, repetition_method, repetition_exclude_outliers,
             )
-            if was_aggregated:
-                enriched["y_true"] = agg_y_true
-                enriched["y_pred"] = agg_y_pred
-                enriched["y_proba"] = agg_y_proba
-                enriched["aggregated"] = True
-                y_true, y_pred = agg_y_true, agg_y_pred
-
-                # Recompute partition score from aggregated arrays
-                entry_partition = row.get("partition", "")
-                stored_metric = row.get("metric", "")
-                if stored_metric and agg_y_true is not None and agg_y_pred is not None:
-                    try:
-                        raw_score = evaluator.eval(agg_y_true, agg_y_pred, stored_metric)
-                        agg_score = raw_score if isinstance(raw_score, float) else float(next(iter(raw_score.values())))
-                        score_key = f"{entry_partition}_score"
-                        if score_key in enriched:
-                            enriched[score_key] = agg_score
-                        # Update scores dict so display metrics also read aggregated values
-                        sc = enriched.get("scores")
-                        if isinstance(sc, str):
-                            try:
-                                sc = json.loads(sc)
-                            except (json.JSONDecodeError, TypeError):
-                                sc = {}
-                        if isinstance(sc, dict):
-                            if entry_partition not in sc:
-                                sc[entry_partition] = {}
-                            sc[entry_partition][stored_metric] = agg_score
-                            enriched["scores"] = sc
-                    except Exception:
-                        pass
 
         # Compute display metrics on the fly
         if display_metrics:
-            scores_dict = row.get("scores", {})
-            if isinstance(scores_dict, str):
-                try:
-                    scores_dict = json.loads(scores_dict)
-                except (json.JSONDecodeError, TypeError):
-                    scores_dict = {}
-
-            # When the entry's partition differs from display_partition and we
-            # need to fall back to array computation, fetch the correct
-            # partition's arrays so we don't compute metrics on the wrong data.
-            entry_partition = row.get("partition", "")
-            display_y_true = y_true
-            display_y_pred = y_pred
-            display_was_aggregated = was_aggregated
-            if entry_partition != display_partition:
-                display_part = self.get_entry_partitions(row).get(display_partition)
-                if display_part is not None:
-                    display_y_true = display_part.get("y_true")
-                    display_y_pred = display_part.get("y_pred")
-                    display_y_proba = display_part.get("y_proba")
-                    if by_repetition and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
-                        display_metadata = display_part.get("metadata", {})
-                        display_y_true, display_y_pred, display_y_proba, display_was_aggregated = self._apply_aggregation(
-                            display_y_true,
-                            display_y_pred,
-                            display_y_proba,
-                            display_metadata,
-                            by_repetition,
-                            row.get("model_name", ""),
-                            repetition_method,
-                            repetition_exclude_outliers,
-                        )
-
-            for m in display_metrics:
-                # If aggregation changed the display arrays, always recalculate.
-                if display_was_aggregated and display_y_true is not None and isinstance(display_y_true, np.ndarray) and display_y_true.size > 0 and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
-                    try:
-                        enriched[m] = evaluator.eval(display_y_true, display_y_pred, m)
-                    except Exception:
-                        enriched[m] = None
-                # Try pre-computed scores
-                elif isinstance(scores_dict, dict) and display_partition in scores_dict and m in scores_dict[display_partition]:
-                    enriched[m] = scores_dict[display_partition][m]
-                # Compute from arrays (use display_partition arrays)
-                elif display_y_true is not None and isinstance(display_y_true, np.ndarray) and display_y_true.size > 0 and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
-                    try:
-                        enriched[m] = evaluator.eval(display_y_true, display_y_pred, m)
-                    except Exception:
-                        enriched[m] = None
-                else:
-                    enriched[m] = None
+            self._enrich_display_metrics(
+                row, enriched, display_metrics, display_partition,
+                y_true, y_pred, was_aggregated,
+                by_repetition, repetition_method, repetition_exclude_outliers,
+            )
 
         # Aggregate partitions if requested
         if aggregate_partitions:
@@ -2454,6 +2507,173 @@ class Predictions:
     # =========================================================================
     # STORE-BACKED OPERATIONS (maintenance, merge, query)
     # =========================================================================
+
+    @staticmethod
+    def _merge_ensure_target_context(
+        target_store: WorkspaceStore,
+        merge_pipelines: dict[str, tuple[str, str]],
+        src_key: str,
+        source_path: str | Path,
+        relevant_datasets: set[str],
+    ) -> tuple[str, str]:
+        """Return the target ``(pipeline_id, chain_id)`` for *src_key*.
+
+        Creates a merge run/pipeline/chain in *target_store* on first use of a
+        source and caches it in *merge_pipelines* (mutated in place), exactly as
+        the original inline block. On subsequent calls for the same *src_key*
+        the cached pair is returned without any new store writes.
+        """
+        if src_key not in merge_pipelines:
+            merge_run_id = target_store.begin_run(
+                f"merge_{Path(source_path).name}",
+                config={"source": src_key},
+                datasets=[{"name": ds} for ds in sorted(relevant_datasets)],
+            )
+            merge_pipeline_id = target_store.begin_pipeline(
+                run_id=merge_run_id,
+                name=f"merge_{Path(source_path).name}",
+                expanded_config=[],
+                generator_choices=[],
+                dataset_name=sorted(relevant_datasets)[0],
+                dataset_hash="merged",
+            )
+            merge_chain_id = target_store.save_chain(
+                pipeline_id=merge_pipeline_id,
+                steps=[],
+                model_step_idx=0,
+                model_class="merged",
+                preprocessings="",
+                fold_strategy="merged",
+                fold_artifacts={},
+                shared_artifacts={},
+            )
+            merge_pipelines[src_key] = (merge_pipeline_id, merge_chain_id)
+
+        return merge_pipelines[src_key]
+
+    @staticmethod
+    def _merge_resolve_conflict(
+        target_store: WorkspaceStore,
+        report: MergeReport,
+        row: dict[str, Any],
+        ds: str,
+        on_conflict: str,
+    ) -> bool:
+        """Resolve a natural-key conflict for *row* in *target_store*.
+
+        Applies the *on_conflict* strategy against existing target predictions
+        for dataset *ds*, deleting target rows where the strategy dictates and
+        incrementing ``report.conflicts_resolved`` exactly as the original
+        inline block. Returns ``True`` when the source row should be skipped
+        (the original ``continue``) and ``False`` otherwise.
+        """
+        existing = target_store.query_predictions(dataset_name=ds)
+        conflict = False
+        if not existing.is_empty():
+            for ex_row in existing.iter_rows(named=True):
+                if (
+                    ex_row.get("model_name") == row.get("model_name")
+                    and ex_row.get("fold_id") == row.get("fold_id")
+                    and ex_row.get("partition") == row.get("partition")
+                ):
+                    conflict = True
+                    if on_conflict == "keep_existing":
+                        break
+                    if on_conflict == "keep_best":
+                        src_score = row.get("val_score")
+                        ex_score = ex_row.get("val_score")
+                        if src_score is not None and ex_score is not None and src_score >= ex_score:
+                            break
+                        target_store.delete_prediction(ex_row["prediction_id"])
+                    elif on_conflict == "overwrite":
+                        target_store.delete_prediction(ex_row["prediction_id"])
+                    break
+
+            if conflict and on_conflict == "keep_existing":
+                report.conflicts_resolved += 1
+                return True
+            if conflict:
+                report.conflicts_resolved += 1
+
+        return False
+
+    @staticmethod
+    def _merge_save_row(
+        target_store: WorkspaceStore,
+        source_store: WorkspaceStore,
+        row: dict[str, Any],
+        ds: str,
+        pred_id: Any,
+        target_pipeline_id: str,
+        target_chain_id: str,
+    ) -> None:
+        """Save *row* into *target_store* and copy its arrays from *source_store*.
+
+        Performs the JSON normalisation of ``scores``/``best_params``, the
+        ``save_prediction`` call, and the conditional ``save_batch`` of arrays
+        exactly as the original inline block, in the same order and with the
+        same side effects.
+        """
+        scores = row.get("scores")
+        if isinstance(scores, str):
+            try:
+                scores = json.loads(scores)
+            except (json.JSONDecodeError, TypeError):
+                scores = {}
+        best_params = row.get("best_params")
+        if isinstance(best_params, str):
+            try:
+                best_params = json.loads(best_params)
+            except (json.JSONDecodeError, TypeError):
+                best_params = {}
+
+        new_pred_id = target_store.save_prediction(
+            pipeline_id=target_pipeline_id,
+            chain_id=target_chain_id,
+            dataset_name=ds,
+            model_name=row.get("model_name", ""),
+            model_class=row.get("model_class", ""),
+            fold_id=row.get("fold_id", ""),
+            partition=row.get("partition", ""),
+            val_score=row.get("val_score"),
+            test_score=row.get("test_score"),
+            train_score=row.get("train_score"),
+            metric=row.get("metric", "rmse"),
+            task_type=row.get("task_type", "regression"),
+            n_samples=row.get("n_samples") or 0,
+            n_features=row.get("n_features") or 0,
+            scores=scores or {},
+            best_params=best_params or {},
+            preprocessings=row.get("preprocessings", ""),
+            branch_id=row.get("branch_id"),
+            branch_name=row.get("branch_name"),
+            exclusion_count=row.get("exclusion_count") or 0,
+            exclusion_rate=row.get("exclusion_rate") or 0.0,
+            refit_context=row.get("refit_context"),
+        )
+
+        # Copy arrays
+        arrays = source_store.array_store.load_single(pred_id, dataset_name=ds)
+        if arrays:
+            y_true = arrays.get("y_true")
+            y_pred = arrays.get("y_pred")
+            has_arrays = (y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0) or (y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0)
+            if has_arrays:
+                target_store.array_store.save_batch([{
+                    "prediction_id": new_pred_id,
+                    "dataset_name": ds,
+                    "model_name": row.get("model_name", ""),
+                    "fold_id": row.get("fold_id", ""),
+                    "partition": row.get("partition", ""),
+                    "metric": row.get("metric", ""),
+                    "val_score": row.get("val_score"),
+                    "task_type": row.get("task_type", ""),
+                    "y_true": y_true,
+                    "y_pred": y_pred,
+                    "y_proba": arrays.get("y_proba"),
+                    "sample_indices": arrays.get("sample_indices"),
+                    "weights": arrays.get("weights"),
+                }])
 
     @classmethod
     def merge_stores(
@@ -2510,33 +2730,9 @@ class Predictions:
                         continue
 
                     # Create a merge run/pipeline/chain in the target for this source
-                    if src_key not in _merge_pipelines:
-                        merge_run_id = target_store.begin_run(
-                            f"merge_{Path(source_path).name}",
-                            config={"source": src_key},
-                            datasets=[{"name": ds} for ds in sorted(relevant_datasets)],
-                        )
-                        merge_pipeline_id = target_store.begin_pipeline(
-                            run_id=merge_run_id,
-                            name=f"merge_{Path(source_path).name}",
-                            expanded_config=[],
-                            generator_choices=[],
-                            dataset_name=sorted(relevant_datasets)[0],
-                            dataset_hash="merged",
-                        )
-                        merge_chain_id = target_store.save_chain(
-                            pipeline_id=merge_pipeline_id,
-                            steps=[],
-                            model_step_idx=0,
-                            model_class="merged",
-                            preprocessings="",
-                            fold_strategy="merged",
-                            fold_artifacts={},
-                            shared_artifacts={},
-                        )
-                        _merge_pipelines[src_key] = (merge_pipeline_id, merge_chain_id)
-
-                    target_pipeline_id, target_chain_id = _merge_pipelines[src_key]
+                    target_pipeline_id, target_chain_id = cls._merge_ensure_target_context(
+                        target_store, _merge_pipelines, src_key, source_path, relevant_datasets,
+                    )
 
                     for row in src_df.iter_rows(named=True):
                         ds = row.get("dataset_name", "")
@@ -2547,94 +2743,13 @@ class Predictions:
                         pred_id = row["prediction_id"]
 
                         # Check for natural key conflict in target
-                        existing = target_store.query_predictions(dataset_name=ds)
-                        conflict = False
-                        if not existing.is_empty():
-                            for ex_row in existing.iter_rows(named=True):
-                                if (
-                                    ex_row.get("model_name") == row.get("model_name")
-                                    and ex_row.get("fold_id") == row.get("fold_id")
-                                    and ex_row.get("partition") == row.get("partition")
-                                ):
-                                    conflict = True
-                                    if on_conflict == "keep_existing":
-                                        break
-                                    if on_conflict == "keep_best":
-                                        src_score = row.get("val_score")
-                                        ex_score = ex_row.get("val_score")
-                                        if src_score is not None and ex_score is not None and src_score >= ex_score:
-                                            break
-                                        target_store.delete_prediction(ex_row["prediction_id"])
-                                    elif on_conflict == "overwrite":
-                                        target_store.delete_prediction(ex_row["prediction_id"])
-                                    break
+                        if cls._merge_resolve_conflict(target_store, report, row, ds, on_conflict):
+                            continue
 
-                            if conflict and on_conflict == "keep_existing":
-                                report.conflicts_resolved += 1
-                                continue
-                            if conflict:
-                                report.conflicts_resolved += 1
-
-                        scores = row.get("scores")
-                        if isinstance(scores, str):
-                            try:
-                                scores = json.loads(scores)
-                            except (json.JSONDecodeError, TypeError):
-                                scores = {}
-                        best_params = row.get("best_params")
-                        if isinstance(best_params, str):
-                            try:
-                                best_params = json.loads(best_params)
-                            except (json.JSONDecodeError, TypeError):
-                                best_params = {}
-
-                        new_pred_id = target_store.save_prediction(
-                            pipeline_id=target_pipeline_id,
-                            chain_id=target_chain_id,
-                            dataset_name=ds,
-                            model_name=row.get("model_name", ""),
-                            model_class=row.get("model_class", ""),
-                            fold_id=row.get("fold_id", ""),
-                            partition=row.get("partition", ""),
-                            val_score=row.get("val_score"),
-                            test_score=row.get("test_score"),
-                            train_score=row.get("train_score"),
-                            metric=row.get("metric", "rmse"),
-                            task_type=row.get("task_type", "regression"),
-                            n_samples=row.get("n_samples") or 0,
-                            n_features=row.get("n_features") or 0,
-                            scores=scores or {},
-                            best_params=best_params or {},
-                            preprocessings=row.get("preprocessings", ""),
-                            branch_id=row.get("branch_id"),
-                            branch_name=row.get("branch_name"),
-                            exclusion_count=row.get("exclusion_count") or 0,
-                            exclusion_rate=row.get("exclusion_rate") or 0.0,
-                            refit_context=row.get("refit_context"),
+                        cls._merge_save_row(
+                            target_store, source_store, row, ds, pred_id,
+                            target_pipeline_id, target_chain_id,
                         )
-
-                        # Copy arrays
-                        arrays = source_store.array_store.load_single(pred_id, dataset_name=ds)
-                        if arrays:
-                            y_true = arrays.get("y_true")
-                            y_pred = arrays.get("y_pred")
-                            has_arrays = (y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0) or (y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0)
-                            if has_arrays:
-                                target_store.array_store.save_batch([{
-                                    "prediction_id": new_pred_id,
-                                    "dataset_name": ds,
-                                    "model_name": row.get("model_name", ""),
-                                    "fold_id": row.get("fold_id", ""),
-                                    "partition": row.get("partition", ""),
-                                    "metric": row.get("metric", ""),
-                                    "val_score": row.get("val_score"),
-                                    "task_type": row.get("task_type", ""),
-                                    "y_true": y_true,
-                                    "y_pred": y_pred,
-                                    "y_proba": arrays.get("y_proba"),
-                                    "sample_indices": arrays.get("sample_indices"),
-                                    "weights": arrays.get("weights"),
-                                }])
 
                         report.predictions_merged += 1
                 finally:

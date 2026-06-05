@@ -139,33 +139,19 @@ class TransformerMixinController(OperatorController):
         """Preprocessing transforms benefit from cross-variant step caching."""
         return True
 
-    def execute(
-        self,
-        step_info: 'ParsedStep',
-        dataset: 'SpectroDataset',
-        context: ExecutionContext,
-        runtime_context: 'RuntimeContext',
-        source: int = -1,
-        mode: str = "train",
-        loaded_binaries: list[tuple[str, Any]] | None = None,
-        prediction_store: Any | None = None
-    ):
-        """Execute transformer - handles normal, feature augmentation, and sample augmentation modes.
+    @staticmethod
+    def _resolve_transform_options(step_info: 'ParsedStep') -> tuple[bool, Any, Any]:
+        """Extract step-level transform options from the step configuration.
 
-        Supports optional `fit_on_all` parameter in step configuration to fit the transformer
-        on all data instead of just training data. This is useful for unsupervised preprocessing
-        where you want the transformation to capture the full data distribution.
+        Reads ``fit_on_all``, ``na_policy`` and ``fill_value`` from the original
+        step dict when present, otherwise returns the defaults.
 
-        Step format:
-            # Standard (fit on train, transform all):
-            StandardScaler()
+        Args:
+            step_info: The parsed step whose ``original_step`` is inspected.
 
-            # Fit on ALL data (unsupervised preprocessing):
-            {"preprocessing": StandardScaler(), "fit_on_all": True}
+        Returns:
+            Tuple of ``(fit_on_all, na_policy, fill_value)``.
         """
-        op = step_info.operator
-
-        # Extract step-level options from step configuration
         fit_on_all = False
         na_policy = None
         fill_value = 0
@@ -173,21 +159,32 @@ class TransformerMixinController(OperatorController):
             fit_on_all = step_info.original_step.get("fit_on_all", False)
             na_policy = step_info.original_step.get("na_policy")
             fill_value = step_info.original_step.get("fill_value", 0)
+        return fit_on_all, na_policy, fill_value
 
-        # Check if we're in sample augmentation mode
-        if context.metadata.augment_sample and mode not in ["predict", "explain"]:
-            return self._execute_for_sample_augmentation(
-                op, dataset, context, runtime_context, mode, loaded_binaries, prediction_store,
-                fit_on_all=fit_on_all
-            )
+    def _prepare_transform_data(
+        self,
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        fit_on_all: bool,
+        operator_name: str,
+    ) -> tuple[list, list]:
+        """Fetch transform (`all_data`) and fitting (`fit_data`) arrays, list-normalized.
 
-        # Normal or feature augmentation execution (existing code)
-        operator_name = op.__class__.__name__
+        Mirrors the original inline behaviour exactly: ``all_data`` includes
+        excluded samples (to keep array shapes consistent when replacing
+        features); ``fit_data`` excludes filtered samples and, depending on
+        ``fit_on_all``, is taken from the full selector or the train partition.
+        Emits the same >1GB inflight-memory warning.
 
-        # Generate operator name with parameters for preprocessing chain display
-        from nirs4all.utils.operator_formatting import format_operator_with_params
-        operator_name_with_params = format_operator_with_params(op)
+        Args:
+            dataset: Source dataset.
+            context: Execution context providing the selector.
+            fit_on_all: Whether to fit on all data rather than train only.
+            operator_name: Operator class name (used in the warning message).
 
+        Returns:
+            Tuple of ``(all_data, fit_data)`` as lists of 3D arrays.
+        """
         # Get all data (always needed for transform)
         # IMPORTANT: Include excluded samples to maintain consistent array shapes
         # when replacing features. Excluded samples are filtered at query time, not transform time.
@@ -218,6 +215,133 @@ class TransformerMixinController(OperatorController):
                 f"(all_data + fit_data). Consider reducing dataset size or processings."
             )
 
+        return all_data, fit_data
+
+    @staticmethod
+    def _compute_y_fit(
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        fit_on_all: bool,
+    ) -> np.ndarray:
+        """Fetch and flatten target values used to fit a supervised transformer.
+
+        Selects targets from the full selector or the train partition depending
+        on ``fit_on_all``, collapses multi-target arrays to the first column,
+        and ravels the result.
+
+        Args:
+            dataset: Source dataset.
+            context: Execution context providing the selector.
+            fit_on_all: Whether to fit on all data rather than train only.
+
+        Returns:
+            1D array of target values for fitting.
+        """
+        if fit_on_all:
+            y_fit = dataset.y(context.selector, include_excluded=False)
+        else:
+            train_context = context.with_partition("train")
+            y_fit = dataset.y(train_context.selector, include_excluded=False)
+        # Handle multi-target datasets: use first target column
+        if y_fit.ndim > 1:
+            y_fit = y_fit[:, 0]
+        return np.asarray(y_fit.ravel())
+
+    @staticmethod
+    def _apply_transformed_features(
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        transformed_features_list: list,
+        new_processing_names: list,
+        processing_names: list,
+    ) -> ExecutionContext:
+        """Write transformed features back to the dataset and update the context.
+
+        For each source, either adds the transformed features (when
+        ``add_feature`` metadata is set) or replaces the existing features, then
+        updates the context processing list. Finally clears the ``add_feature``
+        flag. Returns the updated context (the input context is not mutated).
+
+        Args:
+            dataset: Target dataset to mutate.
+            context: Current execution context.
+            transformed_features_list: Per-source lists of transformed feature arrays.
+            new_processing_names: Per-source new processing names.
+            processing_names: Per-source original processing names (for replace).
+
+        Returns:
+            The updated execution context.
+        """
+        for sd_idx, (source_features, src_new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names, strict=False)):
+            if context.metadata.add_feature:
+                dataset.add_features(source_features, src_new_processing_names, source=sd_idx)
+                # Update processing in context (requires creating new list)
+                new_processing = list(context.selector.processing)
+                new_processing[sd_idx] = src_new_processing_names
+                context = context.with_processing(new_processing)
+            else:
+                dataset.replace_features(
+                    source_processings=processing_names[sd_idx],
+                    features=source_features,
+                    processings=src_new_processing_names,
+                    source=sd_idx
+                )
+                # Update processing in context (requires creating new list)
+                new_processing = list(context.selector.processing)
+                new_processing[sd_idx] = src_new_processing_names
+                context = context.with_processing(new_processing)
+        context = context.with_metadata(add_feature=False)
+        return context
+
+    def execute(
+        self,
+        step_info: 'ParsedStep',
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        runtime_context: 'RuntimeContext',
+        source: int = -1,
+        mode: str = "train",
+        loaded_binaries: list[tuple[str, Any]] | None = None,
+        prediction_store: Any | None = None
+    ):
+        """Execute transformer - handles normal, feature augmentation, and sample augmentation modes.
+
+        Supports optional `fit_on_all` parameter in step configuration to fit the transformer
+        on all data instead of just training data. This is useful for unsupervised preprocessing
+        where you want the transformation to capture the full data distribution.
+
+        Step format:
+            # Standard (fit on train, transform all):
+            StandardScaler()
+
+            # Fit on ALL data (unsupervised preprocessing):
+            {"preprocessing": StandardScaler(), "fit_on_all": True}
+        """
+        op = step_info.operator
+
+        # Extract step-level options from step configuration
+        fit_on_all, na_policy, fill_value = self._resolve_transform_options(step_info)
+
+        # Check if we're in sample augmentation mode
+        if context.metadata.augment_sample and mode not in ["predict", "explain"]:
+            return self._execute_for_sample_augmentation(
+                op, dataset, context, runtime_context, mode, loaded_binaries, prediction_store,
+                fit_on_all=fit_on_all
+            )
+
+        # Normal or feature augmentation execution (existing code)
+        operator_name = op.__class__.__name__
+
+        # Generate operator name with parameters for preprocessing chain display
+        from nirs4all.utils.operator_formatting import format_operator_with_params
+        operator_name_with_params = format_operator_with_params(op)
+
+        # Get all data (for transform) and fit data (for fitting), list-normalized,
+        # with an inflight memory warning for large transient peaks.
+        all_data, fit_data = self._prepare_transform_data(
+            dataset, context, fit_on_all, operator_name
+        )
+
         fitted_transformers = []
         transformed_features_list = []
         new_processing_names = []
@@ -235,15 +359,7 @@ class TransformerMixinController(OperatorController):
         y_fit = None
         if requires_y:
             # Get target values for fitting
-            if fit_on_all:
-                y_fit = dataset.y(context.selector, include_excluded=False)
-            else:
-                train_context = context.with_partition("train")
-                y_fit = dataset.y(train_context.selector, include_excluded=False)
-            # Handle multi-target datasets: use first target column
-            if y_fit.ndim > 1:
-                y_fit = y_fit[:, 0]
-            y_fit = y_fit.ravel()
+            y_fit = self._compute_y_fit(dataset, context, fit_on_all)
 
         # Loop through each data source
         for sd_idx, (fit_x, all_x) in enumerate(zip(fit_data, all_data, strict=False)):
@@ -415,79 +531,40 @@ class TransformerMixinController(OperatorController):
             new_processing_names.append(source_new_processing_names)
             processing_names.append(source_processing_names)
 
-        for sd_idx, (source_features, src_new_processing_names) in enumerate(zip(transformed_features_list, new_processing_names, strict=False)):
-            if context.metadata.add_feature:
-                dataset.add_features(source_features, src_new_processing_names, source=sd_idx)
-                # Update processing in context (requires creating new list)
-                new_processing = list(context.selector.processing)
-                new_processing[sd_idx] = src_new_processing_names
-                context = context.with_processing(new_processing)
-            else:
-                dataset.replace_features(
-                    source_processings=processing_names[sd_idx],
-                    features=source_features,
-                    processings=src_new_processing_names,
-                    source=sd_idx
-                )
-                # Update processing in context (requires creating new list)
-                new_processing = list(context.selector.processing)
-                new_processing[sd_idx] = src_new_processing_names
-                context = context.with_processing(new_processing)
-        context = context.with_metadata(add_feature=False)
+        context = self._apply_transformed_features(
+            dataset, context, transformed_features_list, new_processing_names, processing_names
+        )
 
         # print(dataset)
         return context, fitted_transformers
 
-    def _execute_for_sample_augmentation(
-        self,
-        operator: Any,
+    @staticmethod
+    def _prepare_sample_aug_fit_data(
         dataset: 'SpectroDataset',
         context: ExecutionContext,
-        runtime_context: 'RuntimeContext',
         mode: str,
-        loaded_binaries: list[tuple[str, Any]] | None,
-        prediction_store: Any | None,
-        fit_on_all: bool = False
-    ) -> tuple[ExecutionContext, list]:
-        """
-        Apply transformer to origin samples and add augmented samples.
+        fit_on_all: bool,
+        requires_y: bool,
+    ) -> tuple[Any, Any]:
+        """Fetch fitting data and targets for sample-augmentation transformers.
 
-        Optimized implementation:
-        - Batch data fetching: fetches all target samples in one call
-        - Single transformer fit: fits transformer once on train/all data, reuses for all samples
-        - Batch transform: transforms all samples at once per processing
-        - Bulk insert: adds all augmented samples in a loop but with pre-fitted transformer
+        In predict/explain mode no fitting data is needed, so ``(None, None)`` is
+        returned. Otherwise builds the (non-augmented) fit selector from the full
+        or train partition, fetches list-normalized ``fit_data`` and, if
+        ``requires_y``, the flattened first-column targets.
 
         Args:
-            operator: The transformer operator to apply
-            dataset: The dataset to operate on
-            context: Execution context
-            runtime_context: Runtime context with saver, step info, etc.
-            mode: Execution mode ("train", "predict", "explain")
-            loaded_binaries: Pre-loaded binaries for predict/explain mode
-            prediction_store: Not used
-            fit_on_all: If True, fit transformer on all data instead of train only
+            dataset: Source dataset.
+            context: Execution context providing the selector.
+            mode: Execution mode ("train", "predict", "explain").
+            fit_on_all: Whether to fit on all data rather than train only.
+            requires_y: Whether the operator needs target values for fitting.
+
+        Returns:
+            Tuple of ``(fit_data, y_fit)``; either may be ``None``.
         """
-        target_sample_ids = context.metadata.target_samples
-        if not target_sample_ids:
-            return context, []
-
-        operator_name = operator.__class__.__name__
-        fitted_transformers = []
-        n_targets = len(target_sample_ids)
-
-        # Check if operator needs wavelengths
-        needs_wavelengths = self._needs_wavelengths(operator)
-        wavelengths_cache = {}  # Cache wavelengths per source
-
-        # Check if operator requires y (supervised transform)
-        requires_y = self._requires_y(operator)
-
-        # Get data for fitting (if not in predict/explain mode) - once for all samples
         fit_data = None
         y_fit = None
-        fitted_transformers_cache = {}  # Cache fitted transformers per source/processing
-
         if mode not in ["predict", "explain"]:
             if fit_on_all:
                 # Fit on all data (unsupervised preprocessing)
@@ -507,67 +584,123 @@ class TransformerMixinController(OperatorController):
                 if y_fit.ndim > 1:
                     y_fit = y_fit[:, 0]
                 y_fit = y_fit.ravel()
+        return fit_data, y_fit
 
-        # Batch fetch all target samples at once
-        batch_selector = {"sample": list(target_sample_ids)}
-        all_origin_data = dataset.x(batch_selector, "3d", concat_source=False, include_augmented=False)
+    def _prefit_sample_aug_transformers(
+        self,
+        operator: Any,
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        runtime_context: 'RuntimeContext',
+        mode: str,
+        operator_name: str,
+        n_sources: int,
+        n_processings: int,
+        fit_data: Any,
+        y_fit: Any,
+        needs_wavelengths: bool,
+        requires_y: bool,
+        wavelengths_cache: dict,
+        fitted_transformers_cache: dict,
+        fitted_transformers: list,
+    ) -> None:
+        """Pre-fit one transformer per (source, processing) and persist on train.
 
-        if not isinstance(all_origin_data, list):
-            all_origin_data = [all_origin_data]
+        Mutates ``fitted_transformers_cache`` (keyed by ``(source_idx, proc_idx)``),
+        ``wavelengths_cache`` (per-source lazy fill) and appends persisted
+        artifacts to ``fitted_transformers`` — all in place, preserving the
+        original cross-block sharing of those accumulators.
 
-        # Determine dimensions - use actual data shape, not target_sample_ids length
-        n_sources = len(all_origin_data)
-        n_actual_samples = all_origin_data[0].shape[0] if n_sources > 0 else 0
-        n_processings = all_origin_data[0].shape[1] if n_sources > 0 else 0
+        Args:
+            operator: Transformer operator to clone and fit.
+            dataset: Source dataset (for wavelength extraction).
+            context: Execution context (for persistence).
+            runtime_context: Runtime context (for persistence).
+            mode: Execution mode; artifacts are persisted only when "train".
+            operator_name: Operator class name (for artifact naming / wavelengths).
+            n_sources: Number of data sources.
+            n_processings: Number of processings per source.
+            fit_data: List of per-source 3D fit arrays.
+            y_fit: Optional target values for supervised fitting.
+            needs_wavelengths: Whether the operator needs wavelengths.
+            requires_y: Whether the operator needs targets to fit.
+            wavelengths_cache: Per-source wavelength cache (mutated).
+            fitted_transformers_cache: Per-(source, processing) transformer cache (mutated).
+            fitted_transformers: Accumulator of persisted artifacts (mutated).
+        """
+        for source_idx in range(n_sources):
+            # Extract wavelengths for this source if needed
+            wavelengths = None
+            if needs_wavelengths:
+                if source_idx not in wavelengths_cache:
+                    wavelengths_cache[source_idx] = self._extract_wavelengths(
+                        dataset, source_idx, operator_name
+                    )
+                wavelengths = wavelengths_cache[source_idx]
 
-        # Ensure we have the expected number of samples
-        if n_actual_samples != n_targets:
-            # If mismatch, fallback to original sample-by-sample approach
-            # This can happen if some target_sample_ids don't exist or are filtered out
-            return self._execute_for_sample_augmentation_sequential(
-                operator, dataset, context, runtime_context, mode, loaded_binaries, prediction_store,
-                fit_on_all=fit_on_all
-            )
+            for proc_idx in range(n_processings):
+                cache_key = (source_idx, proc_idx)
+                transformer = clone(operator)
+                fit_proc_data = fit_data[source_idx][:, proc_idx, :]
+                if needs_wavelengths and requires_y:
+                    transformer.fit(fit_proc_data, y_fit, wavelengths=wavelengths)
+                elif needs_wavelengths:
+                    transformer.fit(fit_proc_data, wavelengths=wavelengths)
+                elif requires_y:
+                    transformer.fit(fit_proc_data, y_fit)
+                else:
+                    transformer.fit(fit_proc_data)
+                fitted_transformers_cache[cache_key] = transformer
 
-        # Pre-fit and cache transformers for each source/processing combination (once!)
-        if mode not in ["predict", "explain"] and fit_data:
-            for source_idx in range(n_sources):
-                # Extract wavelengths for this source if needed
-                wavelengths = None
-                if needs_wavelengths:
-                    if source_idx not in wavelengths_cache:
-                        wavelengths_cache[source_idx] = self._extract_wavelengths(
-                            dataset, source_idx, operator_name
-                        )
-                    wavelengths = wavelengths_cache[source_idx]
+                # Save a single transformer binary per source/processing (not per sample)
+                if mode == "train":
+                    artifact = self._persist_transformer(
+                        runtime_context=runtime_context,
+                        transformer=transformer,
+                        name=f"{operator_name}_{source_idx}_{proc_idx}",
+                        context=context,
+                        source_index=source_idx
+                    )
+                    fitted_transformers.append(artifact)
 
-                for proc_idx in range(n_processings):
-                    cache_key = (source_idx, proc_idx)
-                    transformer = clone(operator)
-                    fit_proc_data = fit_data[source_idx][:, proc_idx, :]
-                    if needs_wavelengths and requires_y:
-                        transformer.fit(fit_proc_data, y_fit, wavelengths=wavelengths)
-                    elif needs_wavelengths:
-                        transformer.fit(fit_proc_data, wavelengths=wavelengths)
-                    elif requires_y:
-                        transformer.fit(fit_proc_data, y_fit)
-                    else:
-                        transformer.fit(fit_proc_data)
-                    fitted_transformers_cache[cache_key] = transformer
+    def _transform_sample_aug_batches(
+        self,
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        runtime_context: 'RuntimeContext',
+        mode: str,
+        operator_name: str,
+        n_sources: int,
+        n_processings: int,
+        all_origin_data: list,
+        needs_wavelengths: bool,
+        wavelengths_cache: dict,
+        fitted_transformers_cache: dict,
+    ) -> list:
+        """Batch-transform every (source, processing) of the origin samples.
 
-                    # Save a single transformer binary per source/processing (not per sample)
-                    if mode == "train":
-                        artifact = self._persist_transformer(
-                            runtime_context=runtime_context,
-                            transformer=transformer,
-                            name=f"{operator_name}_{source_idx}_{proc_idx}",
-                            context=context,
-                            source_index=source_idx
-                        )
-                        fitted_transformers.append(artifact)
+        In predict/explain mode the transformer is loaded from the artifact
+        provider (by name, then by ``proc_idx`` position) and a missing one
+        raises ``ValueError``. Otherwise the pre-fitted transformer is taken from
+        ``fitted_transformers_cache``. ``wavelengths_cache`` is filled lazily and
+        mutated in place (shared with the pre-fit pass).
 
-        # Batch transform all samples per source/processing
-        # all_origin_data[source_idx] shape: (n_samples, n_processings, n_features)
+        Args:
+            dataset: Source dataset (for wavelength extraction).
+            context: Execution context (for artifact branch path).
+            runtime_context: Runtime context (artifact provider / step number).
+            mode: Execution mode.
+            operator_name: Operator class name (for artifact key / wavelengths).
+            n_sources: Number of data sources.
+            n_processings: Number of processings per source.
+            all_origin_data: Per-source 3D origin arrays.
+            needs_wavelengths: Whether the operator needs wavelengths.
+            wavelengths_cache: Per-source wavelength cache (mutated).
+            fitted_transformers_cache: Per-(source, processing) transformer cache.
+
+        Returns:
+            ``all_transformed`` as ``[source][processing] -> (n_samples, n_features)``.
+        """
         all_transformed = []  # List[List[ndarray]]: [source][processing] -> (n_samples, n_features)
 
         for source_idx in range(n_sources):
@@ -620,7 +753,30 @@ class TransformerMixinController(OperatorController):
 
             all_transformed.append(source_transformed)
 
-        # OPTIMIZED: Collect all augmented samples, then batch insert
+        return all_transformed
+
+    @staticmethod
+    def _insert_augmented_samples(
+        dataset: 'SpectroDataset',
+        all_transformed: list,
+        n_sources: int,
+        target_sample_ids: Any,
+        operator_name: str,
+    ) -> None:
+        """Stack transformed batches into 3D arrays and batch-insert augmented samples.
+
+        Single source produces one 3D array; multi-source produces a list of 3D
+        arrays. One index dict per target sample (partition "train", the origin
+        sample id, and the augmentation operator name) is built, then a single
+        ``add_samples_batch`` insert is performed (O(N) instead of O(N²)).
+
+        Args:
+            dataset: Target dataset to mutate.
+            all_transformed: ``[source][processing] -> (n_samples, n_features)``.
+            n_sources: Number of data sources.
+            target_sample_ids: Ordered ids of the origin samples.
+            operator_name: Operator class name (recorded as augmentation tag).
+        """
         # Build 3D arrays for batch insertion: (n_samples, n_processings, n_features)
         batch_data: np.ndarray | list[np.ndarray]
         if n_sources == 1:
@@ -647,6 +803,119 @@ class TransformerMixinController(OperatorController):
 
         # Single batch insert - O(N) instead of O(N²)
         dataset.add_samples_batch(data=batch_data, indexes_list=indexes_list)
+
+    def _execute_for_sample_augmentation(
+        self,
+        operator: Any,
+        dataset: 'SpectroDataset',
+        context: ExecutionContext,
+        runtime_context: 'RuntimeContext',
+        mode: str,
+        loaded_binaries: list[tuple[str, Any]] | None,
+        prediction_store: Any | None,
+        fit_on_all: bool = False
+    ) -> tuple[ExecutionContext, list]:
+        """
+        Apply transformer to origin samples and add augmented samples.
+
+        Optimized implementation:
+        - Batch data fetching: fetches all target samples in one call
+        - Single transformer fit: fits transformer once on train/all data, reuses for all samples
+        - Batch transform: transforms all samples at once per processing
+        - Bulk insert: adds all augmented samples in a loop but with pre-fitted transformer
+
+        Args:
+            operator: The transformer operator to apply
+            dataset: The dataset to operate on
+            context: Execution context
+            runtime_context: Runtime context with saver, step info, etc.
+            mode: Execution mode ("train", "predict", "explain")
+            loaded_binaries: Pre-loaded binaries for predict/explain mode
+            prediction_store: Not used
+            fit_on_all: If True, fit transformer on all data instead of train only
+        """
+        target_sample_ids = context.metadata.target_samples
+        if not target_sample_ids:
+            return context, []
+
+        operator_name = operator.__class__.__name__
+        fitted_transformers: list[Any] = []
+        n_targets = len(target_sample_ids)
+
+        # Check if operator needs wavelengths
+        needs_wavelengths = self._needs_wavelengths(operator)
+        wavelengths_cache: dict[int, Any] = {}  # Cache wavelengths per source
+
+        # Check if operator requires y (supervised transform)
+        requires_y = self._requires_y(operator)
+
+        # Get data for fitting (if not in predict/explain mode) - once for all samples
+        fitted_transformers_cache: dict[tuple[int, int], Any] = {}  # Cache fitted transformers per source/processing
+        fit_data, y_fit = self._prepare_sample_aug_fit_data(
+            dataset, context, mode, fit_on_all, requires_y
+        )
+
+        # Batch fetch all target samples at once
+        batch_selector = {"sample": list(target_sample_ids)}
+        all_origin_data = dataset.x(batch_selector, "3d", concat_source=False, include_augmented=False)
+
+        if not isinstance(all_origin_data, list):
+            all_origin_data = [all_origin_data]
+
+        # Determine dimensions - use actual data shape, not target_sample_ids length
+        n_sources = len(all_origin_data)
+        n_actual_samples = all_origin_data[0].shape[0] if n_sources > 0 else 0
+        n_processings = all_origin_data[0].shape[1] if n_sources > 0 else 0
+
+        # Ensure we have the expected number of samples
+        if n_actual_samples != n_targets:
+            # If mismatch, fallback to original sample-by-sample approach
+            # This can happen if some target_sample_ids don't exist or are filtered out
+            return self._execute_for_sample_augmentation_sequential(
+                operator, dataset, context, runtime_context, mode, loaded_binaries, prediction_store,
+                fit_on_all=fit_on_all
+            )
+
+        # Pre-fit and cache transformers for each source/processing combination (once!)
+        if mode not in ["predict", "explain"] and fit_data:
+            self._prefit_sample_aug_transformers(
+                operator=operator,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                mode=mode,
+                operator_name=operator_name,
+                n_sources=n_sources,
+                n_processings=n_processings,
+                fit_data=fit_data,
+                y_fit=y_fit,
+                needs_wavelengths=needs_wavelengths,
+                requires_y=requires_y,
+                wavelengths_cache=wavelengths_cache,
+                fitted_transformers_cache=fitted_transformers_cache,
+                fitted_transformers=fitted_transformers,
+            )
+
+        # Batch transform all samples per source/processing
+        # all_origin_data[source_idx] shape: (n_samples, n_processings, n_features)
+        all_transformed = self._transform_sample_aug_batches(
+            dataset=dataset,
+            context=context,
+            runtime_context=runtime_context,
+            mode=mode,
+            operator_name=operator_name,
+            n_sources=n_sources,
+            n_processings=n_processings,
+            all_origin_data=all_origin_data,
+            needs_wavelengths=needs_wavelengths,
+            wavelengths_cache=wavelengths_cache,
+            fitted_transformers_cache=fitted_transformers_cache,
+        )
+
+        # OPTIMIZED: Collect all augmented samples, then batch insert
+        self._insert_augmented_samples(
+            dataset, all_transformed, n_sources, target_sample_ids, operator_name
+        )
 
         return context, fitted_transformers
 
