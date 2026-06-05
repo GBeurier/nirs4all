@@ -937,9 +937,11 @@ class Predictions:
         """Persist buffered predictions to the workspace store.
 
         Metadata is written row-by-row to SQLite via
-        :meth:`WorkspaceStore.save_prediction`.  Arrays are accumulated
-        and written in a single batch to Parquet via
-        :meth:`ArrayStore.save_batch` at the end of the flush cycle.
+        :meth:`WorkspaceStore.save_prediction`; arrays are accumulated and written
+        in a single Parquet batch via :meth:`ArrayStore.save_batch`. Both happen
+        inside one :meth:`WorkspaceStore.transaction` (joining an enclosing one when
+        open), so a crash mid-flush rolls the SQLite metadata back and at worst
+        leaves orphan Parquet arrays — never committed rows without arrays.
 
         Args:
             pipeline_id: Pipeline ID to associate predictions with.
@@ -961,79 +963,85 @@ class Predictions:
         # Accumulate array records for batch Parquet write
         array_records: list[dict] = []
 
-        for row in self._buffer:
-            resolved_chain_id = chain_id or ""
-            if chain_id_resolver is not None:
-                resolved = chain_id_resolver(row)
-                resolved_chain_id = "" if resolved is None else str(resolved)
+        # One transaction covers the row-by-row SQLite writes AND the Parquet batch:
+        # a crash anywhere before COMMIT rolls the metadata back, so at worst the
+        # Parquet write leaves orphan arrays (harmless: reads resolve through
+        # SQLite) — never committed rows without arrays. Joins the orchestrator's
+        # enclosing transaction when one is open.
+        with target_store.transaction():
+            for row in self._buffer:
+                resolved_chain_id = chain_id or ""
+                if chain_id_resolver is not None:
+                    resolved = chain_id_resolver(row)
+                    resolved_chain_id = "" if resolved is None else str(resolved)
 
-            # Write chain_id back into the buffer row for downstream lookups
-            row["chain_id"] = resolved_chain_id
+                # Write chain_id back into the buffer row for downstream lookups
+                row["chain_id"] = resolved_chain_id
 
-            fold_id = fold_id_override if fold_id_override is not None else row["fold_id"]
-            refit_context = (
-                refit_context_override
-                if refit_context_override is not None
-                else row.get("refit_context")
-            )
+                fold_id = fold_id_override if fold_id_override is not None else row["fold_id"]
+                refit_context = (
+                    refit_context_override
+                    if refit_context_override is not None
+                    else row.get("refit_context")
+                )
 
-            pred_id = target_store.save_prediction(
-                pipeline_id=pipeline_id or "",
-                chain_id=resolved_chain_id,
-                dataset_name=row["dataset_name"],
-                model_name=row["model_name"],
-                model_class=row["model_classname"],
-                fold_id=str(fold_id),
-                partition=row["partition"],
-                val_score=row.get("val_score"),
-                test_score=row.get("test_score"),
-                train_score=row.get("train_score"),
-                metric=row["metric"],
-                task_type=row["task_type"],
-                n_samples=row["n_samples"],
-                n_features=row["n_features"],
-                scores=row.get("scores", {}),
-                best_params=row.get("best_params", {}),
-                branch_id=row.get("branch_id"),
-                branch_name=row.get("branch_name") or None,
-                exclusion_count=row.get("exclusion_count") or 0,
-                exclusion_rate=row.get("exclusion_rate") or 0.0,
-                preprocessings=row.get("preprocessings", ""),
-                prediction_id=row.get("id"),
-                refit_context=refit_context,
-            )
+                pred_id = target_store.save_prediction(
+                    pipeline_id=pipeline_id or "",
+                    chain_id=resolved_chain_id,
+                    dataset_name=row["dataset_name"],
+                    model_name=row["model_name"],
+                    model_class=row["model_classname"],
+                    fold_id=str(fold_id),
+                    partition=row["partition"],
+                    val_score=row.get("val_score"),
+                    test_score=row.get("test_score"),
+                    train_score=row.get("train_score"),
+                    metric=row["metric"],
+                    task_type=row["task_type"],
+                    n_samples=row["n_samples"],
+                    n_features=row["n_features"],
+                    scores=row.get("scores", {}),
+                    best_params=row.get("best_params", {}),
+                    branch_id=row.get("branch_id"),
+                    branch_name=row.get("branch_name") or None,
+                    exclusion_count=row.get("exclusion_count") or 0,
+                    exclusion_rate=row.get("exclusion_rate") or 0.0,
+                    preprocessings=row.get("preprocessings", ""),
+                    prediction_id=row.get("id"),
+                    refit_context=refit_context,
+                )
 
-            # Accumulate arrays for batch write
-            y_true = row.get("y_true")
-            y_pred = row.get("y_pred")
-            y_proba = row.get("y_proba")
-            sample_indices = row.get("sample_indices")
-            weights = row.get("weights")
+                # Accumulate arrays for batch write
+                y_true = row.get("y_true")
+                y_pred = row.get("y_pred")
+                y_proba = row.get("y_proba")
+                sample_indices = row.get("sample_indices")
+                weights = row.get("weights")
 
-            has_y_true = y_true is not None and (isinstance(y_true, np.ndarray) and y_true.size > 0)
-            has_y_pred = y_pred is not None and (isinstance(y_pred, np.ndarray) and y_pred.size > 0)
+                has_y_true = y_true is not None and (isinstance(y_true, np.ndarray) and y_true.size > 0)
+                has_y_pred = y_pred is not None and (isinstance(y_pred, np.ndarray) and y_pred.size > 0)
 
-            if has_y_true or has_y_pred:
-                array_records.append({
-                    "prediction_id": pred_id,
-                    "dataset_name": row["dataset_name"],
-                    "model_name": row["model_name"],
-                    "fold_id": str(fold_id),
-                    "partition": row["partition"],
-                    "metric": row["metric"],
-                    "val_score": row.get("val_score"),
-                    "task_type": row["task_type"],
-                    "y_true": y_true if has_y_true else None,
-                    "y_pred": y_pred if has_y_pred else None,
-                    "y_proba": y_proba if (y_proba is not None and isinstance(y_proba, np.ndarray) and y_proba.size > 0) else None,
-                    "sample_indices": np.array(sample_indices, dtype=np.int64) if sample_indices and len(sample_indices) > 0 else None,
-                    "weights": np.array(weights, dtype=np.float64) if weights and len(weights) > 0 else None,
-                    "sample_metadata": row.get("metadata") or None,
-                })
+                if has_y_true or has_y_pred:
+                    array_records.append({
+                        "prediction_id": pred_id,
+                        "dataset_name": row["dataset_name"],
+                        "model_name": row["model_name"],
+                        "fold_id": str(fold_id),
+                        "partition": row["partition"],
+                        "metric": row["metric"],
+                        "val_score": row.get("val_score"),
+                        "task_type": row["task_type"],
+                        "y_true": y_true if has_y_true else None,
+                        "y_pred": y_pred if has_y_pred else None,
+                        "y_proba": y_proba if (y_proba is not None and isinstance(y_proba, np.ndarray) and y_proba.size > 0) else None,
+                        "sample_indices": np.array(sample_indices, dtype=np.int64) if sample_indices and len(sample_indices) > 0 else None,
+                        "weights": np.array(weights, dtype=np.float64) if weights and len(weights) > 0 else None,
+                        "sample_metadata": row.get("metadata") or None,
+                    })
 
-        # Batch write all arrays to Parquet (one write per dataset)
-        if array_records:
-            target_store.array_store.save_batch(array_records)
+            # Batch write all arrays to Parquet (one write per dataset)
+            if array_records:
+                target_store.array_store.save_batch(array_records)
 
     # =========================================================================
     # RANKING OPERATIONS
@@ -2814,6 +2822,10 @@ class Predictions:
                 store.delete_prediction(pid)
                 removed_meta += 1
             if array_orphans:
+                # Tombstone the orphans first — compaction only removes tombstoned
+                # rows — then compact through the validated path, which protects any
+                # id that is (or has become) live again by dropping its tombstone.
+                store.array_store.delete_batch(set(array_orphans))
                 store.compact_arrays()
 
         return {

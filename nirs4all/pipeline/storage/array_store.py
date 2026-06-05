@@ -465,6 +465,14 @@ class ArrayStore:
     # Maintenance
     # ------------------------------------------------------------------
 
+    def has_pending_tombstones(self) -> bool:
+        """Return True when deletes are pending physical removal.
+
+        Cheap (single small JSON read, no Parquet access) — used to gate the
+        startup reconciliation in ``WorkspaceStore``.
+        """
+        return bool(self._read_tombstones())
+
     def compact(self, dataset_name: str | None = None, live_ids: set[str] | None = None) -> dict[str, dict[str, Any]]:
         """Rewrite Parquet file(s): apply tombstones, deduplicate, re-sort.
 

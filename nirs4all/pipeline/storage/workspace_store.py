@@ -381,9 +381,18 @@ class WorkspaceStore:
 
         Batches multiple writes into one ``BEGIN … COMMIT`` to reduce
         lock-contention windows.  Rolls back on any exception.
+
+        Re-entrant: when a transaction is already open (e.g. ``Predictions.flush``
+        running inside the orchestrator's ``transaction()`` block), the inner block
+        simply joins the enclosing transaction — commit/rollback stay owned by the
+        outermost block, and an inner exception propagates so the outer block rolls
+        everything back.
         """
         with self._lock:
             conn = self._ensure_open()
+            if conn.in_transaction:
+                yield
+                return
             conn.execute("BEGIN TRANSACTION")
             try:
                 yield
