@@ -24,7 +24,7 @@ from .scorers import CriterionConfig
 from .selection import SelectionResult, select
 
 
-class _AOMPLSBase(BaseEstimator, RegressorMixin):
+class _AOMPLSBase(RegressorMixin, BaseEstimator):
     """Base class shared by AOMPLSRegressor and POPPLSRegressor."""
 
     def __init__(

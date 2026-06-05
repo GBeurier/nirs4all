@@ -65,7 +65,7 @@ def _class_balanced_encode(y: np.ndarray, classes: np.ndarray) -> np.ndarray:
     return Y
 
 
-class _AOMPLSDABase(BaseEstimator, ClassifierMixin):
+class _AOMPLSDABase(ClassifierMixin, BaseEstimator):
     """Common backbone for AOM/POP PLS-DA classifiers."""
 
     def __init__(

@@ -1340,11 +1340,17 @@ class BaseModelController(OperatorController, ABC):
             True if model should be captured for explanation, False otherwise.
         """
         target = runtime_context.target_model
-        # Convert both to string for comparison to handle int/string mismatch
-        target_step = str(target["step_idx"])
-        ident_step = str(identifiers.step_id)
-        return (target["model_name"] == identifiers.name and
-                target_step == ident_step)
+        # Match on whatever identity the target carries. Dict/store sources
+        # provide both step_idx and model_name; bundle sources identify the
+        # target solely by its model step index (no model_name). Use .get()
+        # consistently with the predict-mode skip logic above and require at
+        # least one available identity field to match.
+        target_step = target.get("step_idx")
+        target_name = target.get("model_name")
+        step_matches = target_step is None or str(target_step) == str(identifiers.step_id)
+        name_matches = target_name is None or target_name == identifiers.name
+        has_identity = target_step is not None or target_name is not None
+        return has_identity and step_matches and name_matches
 
     def _print_prediction_summary(self, prediction_data, pred_id, mode):
         """Print formatted summary for a single prediction.

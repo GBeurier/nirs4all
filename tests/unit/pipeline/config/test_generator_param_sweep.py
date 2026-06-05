@@ -76,3 +76,89 @@ def test_nested_form_unaffected():
 
 def test_or_unaffected():
     assert expand_spec({"_or_": ["A", "B", "C"]}) == ["A", "B", "C"]
+
+
+# ---------------------------------------------------------------------------
+# Param-map form: {<_grid_|_zip_>: {param: values, ...}, model: {class}}
+# The generator's value *is* the operator's parameter set (no separate `param`).
+# ---------------------------------------------------------------------------
+
+
+def test_grid_over_model_expands_to_cartesian_product():
+    spec = {"_grid_": {"n_components": [5, 10, 15], "scale": [True, False]},
+            "model": {"class": P}}
+    out = expand_spec(spec)
+    assert len(out) == 6
+    assert count_combinations(spec) == 6
+    assert out[0] == {"model": {"class": P, "params": {"n_components": 5, "scale": True}}}
+    assert out[-1] == {"model": {"class": P, "params": {"n_components": 15, "scale": False}}}
+
+
+def test_grid_over_model_equivalent_to_nested():
+    sibling = {"_grid_": {"n_components": [5, 10], "scale": [True, False]},
+               "model": {"class": P}}
+    nested = {"model": {"class": P,
+                        "params": {"_grid_": {"n_components": [5, 10], "scale": [True, False]}}}}
+    assert expand_spec(sibling) == expand_spec(nested)
+
+
+def test_zip_over_model_pairs_by_position():
+    spec = {"_zip_": {"n_components": [5, 10, 15], "scale": [True, False, True]},
+            "model": {"class": P}}
+    out = expand_spec(spec)
+    assert len(out) == 3
+    assert count_combinations(spec) == 3
+    assert [(v["model"]["params"]["n_components"], v["model"]["params"]["scale"]) for v in out] == [
+        (5, True), (10, False), (15, True)
+    ]
+
+
+def test_grid_over_model_count_matches_expand():
+    spec = {"_grid_": {"a": [1, 2], "b": ["x", "y", "z"]}, "model": {"class": P}}
+    assert count_combinations(spec) == len(expand_spec(spec)) == 6
+
+
+def test_grid_over_top_level_class_dict():
+    spec = {"_grid_": {"n_components": [3, 6]}, "class": P}
+    out = expand_spec(spec)
+    assert out == [{"class": P, "params": {"n_components": v}} for v in (3, 6)]
+
+
+def test_grid_over_model_tracks_choices():
+    spec = {"_grid_": {"n_components": [5, 10]}, "model": {"class": P}}
+    choices = [c for _, c in expand_spec_with_choices(spec)]
+    assert choices == [
+        [{"_grid_": {"n_components": 5}}],
+        [{"_grid_": {"n_components": 10}}],
+    ]
+
+
+def test_grid_with_static_params_left_unchanged():
+    # Static params alongside a param-map is an unsupported shape -> returned as-is.
+    spec = {"_grid_": {"n_components": [5, 10]},
+            "model": {"class": P, "params": {"scale": False}}}
+    assert expand_spec(spec) == [spec]
+    assert count_combinations(spec) == 1
+
+
+def test_pure_grid_node_unaffected():
+    # A bare _grid_ node (no operator) still expands to param dicts as before.
+    assert expand_spec({"_grid_": {"x": [1, 2], "y": ["A", "B"]}}) == [
+        {"x": 1, "y": "A"}, {"x": 1, "y": "B"}, {"x": 2, "y": "A"}, {"x": 2, "y": "B"},
+    ]
+
+
+def test_grid_over_raw_model_class_via_pipelineconfigs():
+    # The DOCUMENTED step-level form uses a RAW class object (not a {"class": ...} dict):
+    #     {"_grid_": {...}, "model": PLSRegression}
+    # PipelineConfigs normalizes the raw class to a {"class": ...} dict *before* generator
+    # expansion runs, so _normalize_param_grid still fires and the grid expands to one model
+    # per combination. This pins the documented end-to-end path (raw class -> 6 variants),
+    # complementing the {"class": ...}-dict unit cases above.
+    from sklearn.cross_decomposition import PLSRegression
+
+    from nirs4all.pipeline.config import PipelineConfigs
+
+    spec = [{"_grid_": {"n_components": [5, 10, 15], "scale": [True, False]}, "model": PLSRegression}]
+    pc = PipelineConfigs(spec, "grid_raw_class")
+    assert len(pc.steps) == 6

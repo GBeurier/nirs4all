@@ -9,7 +9,7 @@ Tests cover:
 
 import numpy as np
 import pytest
-from sklearn.base import clone
+from sklearn.base import clone, is_classifier
 
 from nirs4all.operators.models.sklearn.aom_pls import IdentityOperator
 from nirs4all.operators.models.sklearn.aom_pls_classifier import AOMPLSClassifier
@@ -173,4 +173,4 @@ class TestSklearnCompat:
 
     def test_estimator_type(self):
         model = AOMPLSClassifier()
-        assert model._estimator_type == "classifier"
+        assert is_classifier(model)

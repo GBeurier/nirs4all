@@ -10,7 +10,7 @@ Tests cover:
 
 import numpy as np
 import pytest
-from sklearn.base import clone
+from sklearn.base import clone, is_classifier, is_regressor
 
 from nirs4all.operators.models.sklearn.aom_pls import (
     DetrendProjectionOperator,
@@ -245,7 +245,7 @@ class TestSklearnCompat:
 
     def test_estimator_type(self):
         model = POPPLSRegressor()
-        assert model._estimator_type == "regressor"
+        assert is_regressor(model)
 
 # =============================================================================
 # Determinism Tests
@@ -373,7 +373,7 @@ class TestPOPPLSClassifier:
 
     def test_estimator_type(self):
         model = POPPLSClassifier()
-        assert model._estimator_type == "classifier"
+        assert is_classifier(model)
 
     def test_clone(self):
         model = POPPLSClassifier(n_components=10, max_components=15)

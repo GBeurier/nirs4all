@@ -23,12 +23,14 @@ from .keywords import (
     ARRANGE_KEYWORD,
     COUNT_KEYWORD,
     GENERATION_KEYWORDS,
+    GRID_KEYWORD,
     OR_KEYWORD,
     PICK_KEYWORD,
     RANGE_KEYWORD,
     SEED_KEYWORD,
     THEN_ARRANGE_KEYWORD,
     THEN_PICK_KEYWORD,
+    ZIP_KEYWORD,
     has_or_keyword,
 )
 from .strategies import get_strategy
@@ -45,6 +47,9 @@ ExpandedWithChoices = list[tuple]  # List[Tuple[Any, List[Dict[str, Any]]]]
 PARAM_KEYWORD: str = "param"
 # Step keywords whose value is the operator a sibling-form sweep targets.
 _OPERATOR_WRAPPER_KEYS: tuple[str, ...] = ("model", "y_processing")
+# Generation keywords whose value is itself a {param: values} mapping, so the
+# keyword *is* the parameter set for the operator (no separate ``param`` key).
+_PARAM_MAP_KEYWORDS: frozenset[str] = frozenset({GRID_KEYWORD, ZIP_KEYWORD})
 
 
 def _normalize_param_sweep(node: dict[str, Any]) -> dict[str, Any]:
@@ -89,6 +94,55 @@ def _normalize_param_sweep(node: dict[str, Any]) -> dict[str, Any]:
         op = base.get(opkw)
         if isinstance(op, Mapping) and "class" in op:
             return {**base, opkw: _inject(op)}
+    return node  # unsupported shape (e.g. a constructed instance) -> leave unchanged
+
+def _normalize_param_grid(node: dict[str, Any]) -> dict[str, Any]:
+    """Rewrite a ``_grid_``/``_zip_`` parameter map over an operator into nested form.
+
+    The ergonomic step-level form, where the generator's value *is* the operator's
+    parameter set (the keys are the parameter names, no separate ``param`` key)
+
+        {"_grid_": {"n_components": [5, 10], "scale": [True, False]}, "model": {"class": P}}
+
+    is rewritten to the canonical nested form the strategies already expand
+
+        {"model": {"class": P, "params": {"_grid_": {"n_components": [5, 10], "scale": [True, False]}}}}
+
+    so the operator is instantiated once per grid/zip combination. Applies to a top-level
+    class-dict (``{"class": ...}``) or an operator wrapped under ``model``/``y_processing``
+    that carries no static ``params`` yet. Any ``count``/``_seed_`` modifier travels with the
+    generator. Nodes that do not match this exact shape (no/many generation keywords, a
+    generator that is not a ``{param: values}`` mapping, an operator with pre-existing params,
+    or a constructed instance rather than a class-dict) are returned unchanged.
+    """
+    gen_kws = [k for k in node if k in GENERATION_KEYWORDS]
+    if len(gen_kws) != 1:
+        return node
+    kw = gen_kws[0]
+    if kw not in _PARAM_MAP_KEYWORDS or not isinstance(node[kw], Mapping):
+        return node
+    gen_spec: dict[str, Any] = {kw: node[kw]}
+    for mod in (COUNT_KEYWORD, SEED_KEYWORD):
+        if mod in node:
+            gen_spec[mod] = node[mod]
+    base = {k: v for k, v in node.items()
+            if k not in (kw, COUNT_KEYWORD, SEED_KEYWORD)}
+
+    def _inject(operator: Mapping) -> dict[str, Any] | None:
+        if operator.get("params"):  # static params alongside the map -> unsupported, skip
+            return None
+        return {**operator, "params": gen_spec}
+
+    if "class" in base:  # operator is a class-dict at the top level
+        injected = _inject(base)
+        return injected if injected is not None else node
+    for opkw in _OPERATOR_WRAPPER_KEYS:  # operator wrapped under a step keyword
+        op = base.get(opkw)
+        if isinstance(op, Mapping) and "class" in op:
+            injected = _inject(op)
+            if injected is not None:
+                return {**base, opkw: injected}
+            return node
     return node  # unsupported shape (e.g. a constructed instance) -> leave unchanged
 
 def expand_spec(node: GeneratorNode, seed: int | None = None) -> ExpandedResult:
@@ -170,8 +224,9 @@ def _expand_internal(node: GeneratorNode, seed: int | None = None) -> ExpandedRe
     if not isinstance(node, Mapping):
         return [node]
 
-    # Normalize the sibling-form parameter sweep into the canonical nested form
+    # Normalize the sibling-form parameter sweep / grid into the canonical nested form
     node = _normalize_param_sweep(node)
+    node = _normalize_param_grid(node)
 
     # Try strategy dispatch for pure generator nodes
     strategy = get_strategy(node)
@@ -355,8 +410,9 @@ def _expand_with_choices_internal(
     if not isinstance(node, Mapping):
         return [(node, [])]
 
-    # Normalize the sibling-form parameter sweep into the canonical nested form
+    # Normalize the sibling-form parameter sweep / grid into the canonical nested form
     node = _normalize_param_sweep(node)
+    node = _normalize_param_grid(node)
 
     # Try strategy dispatch for pure generator nodes
     strategy = get_strategy(node)
@@ -612,8 +668,9 @@ def _count_internal(node: GeneratorNode) -> int:
     if not isinstance(node, Mapping):
         return 1
 
-    # Normalize the sibling-form parameter sweep into the canonical nested form
+    # Normalize the sibling-form parameter sweep / grid into the canonical nested form
     node = _normalize_param_sweep(node)
+    node = _normalize_param_grid(node)
 
     # Try strategy dispatch for pure generator nodes
     strategy = get_strategy(node)

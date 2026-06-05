@@ -13,7 +13,7 @@ Regression tests:
 
 import numpy as np
 import pytest
-from sklearn.base import clone
+from sklearn.base import clone, is_regressor
 
 from nirs4all.operators.models.sklearn.aom_pls import (
     AOMPLSRegressor,
@@ -358,7 +358,7 @@ class TestSklearnCompat:
 
     def test_estimator_type(self):
         model = AOMPLSRegressor()
-        assert model._estimator_type == "regressor"
+        assert is_regressor(model)
 
 # =============================================================================
 # Deterministic Output Tests

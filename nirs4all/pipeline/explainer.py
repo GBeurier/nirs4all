@@ -264,6 +264,12 @@ class Explainer:
         # Extract target model metadata
         target_model = {k: v for k, v in selection_obj.items() if k not in ("y_pred", "y_true", "X")} if isinstance(selection_obj, dict) else dict(resolved.target_model) if resolved.target_model else {}
 
+        # Bundle/store sources expose the model step on the resolved prediction
+        # but may not carry it inside target_model. Surface it so the model
+        # controller can identify which step to capture for SHAP.
+        if "step_idx" not in target_model and resolved.model_step_index is not None:
+            target_model["step_idx"] = resolved.model_step_index
+
         self.target_model = target_model
         self.runner.target_model = target_model
 
