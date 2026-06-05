@@ -2,7 +2,7 @@
 # Fetch SHA256 from PyPI for a given nirs4all version and update meta.yaml.
 #
 # Usage:
-#   ./scripts/update_conda_sha.sh          # Uses version from pyproject.toml
+#   ./scripts/update_conda_sha.sh          # Uses version from nirs4all/__init__.py
 #   ./scripts/update_conda_sha.sh 0.8.0    # Explicit version
 
 set -euo pipefail
@@ -10,7 +10,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 
-VERSION="${1:-$(python3 -c "import tomllib; print(tomllib.load(open('$ROOT_DIR/pyproject.toml','rb'))['project']['version'])")}"
+# Version is single-sourced from nirs4all/__init__.py (pyproject declares it dynamically).
+VERSION="${1:-$(grep -E '^__version__' "$ROOT_DIR/nirs4all/__init__.py" | cut -d'"' -f2)}"
 
 echo "Fetching SHA256 for nirs4all $VERSION from PyPI..."
 

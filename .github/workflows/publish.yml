@@ -141,18 +141,16 @@ jobs:
         if: github.event_name == 'release'
         shell: bash
         run: |
-          PYPROJECT_VERSION=$(python -c "
-          import tomllib
-          with open('pyproject.toml', 'rb') as f:
-              print(tomllib.load(f)['project']['version'])
-          ")
+          # Version is single-sourced from nirs4all/__init__.py (pyproject declares it
+          # dynamically via attr:), so read __version__ directly rather than pyproject.
+          PKG_VERSION=$(grep -E '^__version__' nirs4all/__init__.py | cut -d'"' -f2)
           TAG_VERSION="${{ github.event.release.tag_name }}"
           TAG_VERSION="${TAG_VERSION#v}"
-          if [[ "$PYPROJECT_VERSION" != "$TAG_VERSION" ]]; then
-            echo "::error::Version mismatch: pyproject.toml=$PYPROJECT_VERSION tag=$TAG_VERSION"
+          if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
+            echo "::error::Version mismatch: nirs4all.__version__=$PKG_VERSION tag=$TAG_VERSION"
             exit 1
           fi
-          echo "Version verified: $PYPROJECT_VERSION"
+          echo "Version verified: $PKG_VERSION"
 
       - name: Build dists
         run: |
