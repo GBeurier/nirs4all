@@ -603,6 +603,53 @@ class PredictionResolver:
             ResolvedPrediction with components for replay
         """
         # Store-first or store-only modes
+        store_resolved = self._try_store_first_resolution(prediction, verbose, resolution_mode)
+        if store_resolved is not None:
+            return store_resolved
+
+        result = ResolvedPrediction(source_type=SourceType.PREDICTION)
+
+        # Extract target model metadata
+        result.target_model = {
+            k: v for k, v in prediction.items()
+            if k not in ("y_pred", "y_true", "X")
+        }
+
+        # Get pipeline_uid
+        pipeline_uid = self._resolve_pipeline_uid(prediction)
+        result.pipeline_uid = pipeline_uid
+
+        self._populate_filesystem_resolution(result, prediction, pipeline_uid)
+
+        return result
+
+    def _try_store_first_resolution(
+        self,
+        prediction: dict[str, Any],
+        verbose: int,
+        resolution_mode: str,
+    ) -> ResolvedPrediction | None:
+        """Attempt store-first / store-only resolution.
+
+        Implements the store dispatch policy for ``_resolve_from_prediction``:
+        in ``auto``/``store`` modes (with a store present) try the store path;
+        in ``store`` mode raise if the store has no match; in ``auto`` mode log
+        the fallback and let the caller continue with the filesystem path.
+
+        Args:
+            prediction: Prediction dictionary with metadata.
+            verbose: Verbosity level.
+            resolution_mode: Resolution policy (auto/store/filesystem).
+
+        Returns:
+            The store-backed :class:`ResolvedPrediction` if resolution succeeded,
+            or ``None`` to signal the caller should fall through to the
+            filesystem path.
+
+        Raises:
+            FileNotFoundError: In ``store`` mode when no store-backed match found.
+            ValueError: In ``store`` mode when the resolver has no store instance.
+        """
         if resolution_mode in (RESOLUTION_MODE_AUTO, RESOLUTION_MODE_STORE) and self.store is not None:
             resolved = self._resolve_from_store(prediction, verbose)
             if resolved is not None:
@@ -621,16 +668,23 @@ class PredictionResolver:
             raise ValueError(
                 "Store-only resolution requested but resolver has no store instance."
             )
+        return None
 
-        result = ResolvedPrediction(source_type=SourceType.PREDICTION)
+    def _resolve_pipeline_uid(self, prediction: dict[str, Any]) -> str:
+        """Derive the pipeline_uid for filesystem-based resolution.
 
-        # Extract target model metadata
-        result.target_model = {
-            k: v for k, v in prediction.items()
-            if k not in ("y_pred", "y_true", "X")
-        }
+        Uses ``pipeline_uid`` directly when present; otherwise falls back to
+        ``config_path`` (taking the basename when it looks like a path).
 
-        # Get pipeline_uid
+        Args:
+            prediction: Prediction dictionary with metadata.
+
+        Returns:
+            The resolved non-empty pipeline_uid.
+
+        Raises:
+            ValueError: If neither pipeline_uid nor config_path is available.
+        """
         pipeline_uid = prediction.get("pipeline_uid")
         if not pipeline_uid:
             # Try config_path as fallback
@@ -643,8 +697,30 @@ class PredictionResolver:
                 "Cannot resolve to a pipeline for replay."
             )
 
-        result.pipeline_uid = pipeline_uid
+        return pipeline_uid
 
+    def _populate_filesystem_resolution(
+        self,
+        result: ResolvedPrediction,
+        prediction: dict[str, Any],
+        pipeline_uid: str,
+    ) -> None:
+        """Populate a :class:`ResolvedPrediction` from filesystem artifacts.
+
+        Mutates ``result`` in place: locates the run directory, loads the
+        manifest, optionally loads an execution trace, attaches the artifact
+        provider (trace-based or manifest-map-based), loads the minimal
+        pipeline, and derives fold weights from the prediction when not already
+        set by a trace.
+
+        Args:
+            result: ResolvedPrediction to populate (mutated in place).
+            prediction: Prediction dictionary with metadata.
+            pipeline_uid: Pre-resolved pipeline_uid (already stored on ``result``).
+
+        Raises:
+            FileNotFoundError: If the run directory or manifest cannot be found.
+        """
         # Find run directory
         run_dir = self._find_run_dir_for_prediction(prediction)
         if run_dir is None:
@@ -702,8 +778,6 @@ class PredictionResolver:
             if fold_weights:
                 result.fold_weights = {int(k): v for k, v in fold_weights.items()}
                 result.fold_strategy = FoldStrategy.WEIGHTED_AVERAGE
-
-        return result
 
     def _resolve_from_folder(
         self,
@@ -1135,6 +1209,77 @@ class PredictionResolver:
             store, or ``None`` if resolution should fall through to the
             filesystem path.
         """
+        lookup = self._lookup_store_chain(prediction, verbose)
+        if lookup is None:
+            return None
+        pipeline_uid, pipeline, chains_df, chain_id, chain = lookup
+
+        result = ResolvedPrediction(source_type=SourceType.PREDICTION)
+        result.pipeline_uid = pipeline_uid
+        result.model_step_index = chain["model_step_idx"]
+
+        # Build artifact map from the target chain, plus source model chains
+        # (chains with a lower model_step_idx) needed for meta-model stacking.
+        # Chains at the same model_step_idx but different branch_path are NOT
+        # loaded to avoid mixing branch-specific preprocessing artifacts.
+        target_step_idx = chain["model_step_idx"]
+        artifact_map, source_artifact_map = self._build_artifact_map_from_chain(chain)
+        self._merge_source_chain_artifacts(
+            chains_df, chain_id, target_step_idx, artifact_map, source_artifact_map
+        )
+
+        # Derive fold weights from the target chain
+        fold_artifacts = chain.get("fold_artifacts") or {}
+        fold_weights = dict.fromkeys(range(len(fold_artifacts)), 1.0)
+        result.fold_weights = fold_weights
+        if len(fold_weights) > 1:
+            result.fold_strategy = FoldStrategy.WEIGHTED_AVERAGE
+
+        result.artifact_provider = MapArtifactProvider(
+            artifact_map=artifact_map,
+            fold_weights=fold_weights,
+            source_artifact_map=source_artifact_map,
+        )
+
+        result.minimal_pipeline = self._minimal_pipeline_from_store(pipeline, chain["model_step_idx"])
+
+        # Target model metadata
+        result.target_model = {
+            k: v for k, v in prediction.items()
+            if k not in ("y_pred", "y_true", "X")
+        }
+
+        # Extract fold weights from prediction if available
+        pred_fold_weights = prediction.get("fold_weights")
+        if pred_fold_weights:
+            result.fold_weights = {int(k): v for k, v in pred_fold_weights.items()}
+            result.fold_strategy = FoldStrategy.WEIGHTED_AVERAGE
+
+        return result
+
+    def _lookup_store_chain(
+        self,
+        prediction: dict[str, Any],
+        verbose: int,
+    ) -> tuple[str, dict[str, Any], Any, str | None, dict[str, Any]] | None:
+        """Look up the store pipeline and matching chain for a prediction.
+
+        Performs the guarded chain of store lookups used by
+        :meth:`_resolve_from_store`: pipeline_uid presence, store presence,
+        ``get_pipeline``, ``get_chains_for_pipeline`` (non-empty), chain
+        selection, and ``get_chain``. Any failed guard short-circuits to
+        ``None`` exactly as in the inline version. Emits the ``verbose`` resolve
+        log once the chain is found.
+
+        Args:
+            prediction: Prediction dictionary with pipeline_uid.
+            verbose: Verbosity level.
+
+        Returns:
+            Tuple ``(pipeline_uid, pipeline, chains_df, chain_id, chain)`` on
+            success, or ``None`` if any lookup/guard fails (resolution should
+            fall through to the filesystem path).
+        """
         pipeline_uid = prediction.get("pipeline_uid")
         if not pipeline_uid or self.store is None:
             return None
@@ -1158,16 +1303,34 @@ class PredictionResolver:
         if verbose > 0:
             logger.info(f"Resolved pipeline {pipeline_uid} via store (chain {chain_id})")
 
-        result = ResolvedPrediction(source_type=SourceType.PREDICTION)
-        result.pipeline_uid = pipeline_uid
-        result.model_step_index = chain["model_step_idx"]
+        return pipeline_uid, pipeline, chains_df, chain_id, chain
 
-        # Build artifact map from the target chain, plus source model chains
-        # (chains with a lower model_step_idx) needed for meta-model stacking.
-        # Chains at the same model_step_idx but different branch_path are NOT
-        # loaded to avoid mixing branch-specific preprocessing artifacts.
-        target_step_idx = chain["model_step_idx"]
-        artifact_map, source_artifact_map = self._build_artifact_map_from_chain(chain)
+    def _merge_source_chain_artifacts(
+        self,
+        chains_df: Any,
+        chain_id: str | None,
+        target_step_idx: int,
+        artifact_map: dict[int, list[tuple[str, Any]]],
+        source_artifact_map: dict[tuple[int, int], list[tuple[str, Any]]],
+    ) -> None:
+        """Merge source-model chain artifacts into the target maps in place.
+
+        Iterates the other chains of the pipeline and, for each chain with a
+        ``model_step_idx`` strictly lower than ``target_step_idx`` (the source
+        models needed for meta-model stacking), appends its artifacts into
+        ``artifact_map`` and ``source_artifact_map``. The target chain
+        (``chain_id``) and same/higher-step chains are skipped, preserving the
+        branch-isolation behaviour of the inline loop.
+
+        Args:
+            chains_df: Chains dataframe for the pipeline.
+            chain_id: The target chain id to skip.
+            target_step_idx: The target chain's ``model_step_idx``.
+            artifact_map: Step-index → artifact entries map (mutated in place).
+            source_artifact_map: (step, source) → artifact entries map (mutated
+                in place).
+        """
+        assert self.store is not None
         for cid in chains_df["chain_id"].to_list():
             if cid == chain_id:
                 continue
@@ -1183,45 +1346,32 @@ class PredictionResolver:
                         source_artifact_map[key] = []
                     source_artifact_map[key].extend(entries)
 
-        # Derive fold weights from the target chain
-        fold_artifacts = chain.get("fold_artifacts") or {}
-        fold_weights = dict.fromkeys(range(len(fold_artifacts)), 1.0)
-        result.fold_weights = fold_weights
-        if len(fold_weights) > 1:
-            result.fold_strategy = FoldStrategy.WEIGHTED_AVERAGE
+    def _minimal_pipeline_from_store(
+        self,
+        pipeline: dict[str, Any],
+        model_step_idx: int,
+    ) -> list[Any]:
+        """Build the minimal pipeline from a store pipeline's expanded config.
 
-        result.artifact_provider = MapArtifactProvider(
-            artifact_map=artifact_map,
-            fold_weights=fold_weights,
-            source_artifact_map=source_artifact_map,
-        )
+        Reads ``expanded_config`` (coercing a non-list to a single-element list)
+        and trims it to the target model step. ``model_step_idx`` is 1-based and
+        ``expanded_config`` is 0-based; all steps up to and including the model
+        step are kept so step numbering matches the artifact map keys. When the
+        index is falsy or exceeds the config length, the full config is returned.
 
-        # Minimal pipeline from expanded_config, trimmed to the target model step.
-        # model_step_idx is 1-based; expanded_config is a 0-based list.
-        # Include all steps up to and including the model step so that
-        # step numbering matches artifact_map keys.
+        Args:
+            pipeline: Pipeline dictionary from ``store.get_pipeline()``.
+            model_step_idx: The target chain's ``model_step_idx`` (1-based).
+
+        Returns:
+            The trimmed (or full) list of expanded-config steps.
+        """
         expanded_config = pipeline.get("expanded_config", [])
         if not isinstance(expanded_config, list):
             expanded_config = [expanded_config]
-        model_step_idx = chain["model_step_idx"]
         if model_step_idx and model_step_idx <= len(expanded_config):
-            result.minimal_pipeline = expanded_config[:model_step_idx]
-        else:
-            result.minimal_pipeline = expanded_config
-
-        # Target model metadata
-        result.target_model = {
-            k: v for k, v in prediction.items()
-            if k not in ("y_pred", "y_true", "X")
-        }
-
-        # Extract fold weights from prediction if available
-        pred_fold_weights = prediction.get("fold_weights")
-        if pred_fold_weights:
-            result.fold_weights = {int(k): v for k, v in pred_fold_weights.items()}
-            result.fold_strategy = FoldStrategy.WEIGHTED_AVERAGE
-
-        return result
+            return expanded_config[:model_step_idx]
+        return expanded_config
 
     def _build_artifact_map_from_chain(
         self,

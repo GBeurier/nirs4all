@@ -1169,25 +1169,9 @@ class BundleLoader:
                 continue
 
             # Get chain for this artifact
-            chain: OperatorChain | None
-            if artifact_key in merged_chains:
-                chain = merged_chains[artifact_key]
-            else:
-                chain = self.get_chain_for_artifact(artifact_key)
-                if chain:
-                    chain = chain.with_pipeline_id(pipeline_id)
-
-            if chain is None:
-                # Fallback: create minimal chain
-                parts = artifact_key.split("_")
-                step_idx = int(parts[1]) if len(parts) >= 2 else 0
-                chain = OperatorChain(
-                    nodes=[OperatorNode(
-                        step_index=step_idx + step_offset,
-                        operator_class=artifact.__class__.__name__,
-                    )],
-                    pipeline_id=pipeline_id
-                )
+            chain = self._resolve_import_chain(
+                artifact_key, artifact, merged_chains, pipeline_id, step_offset
+            )
 
             # Determine fold_id from key
             fold_id = None
@@ -1196,12 +1180,7 @@ class BundleLoader:
                     fold_id = int(artifact_key.split("_fold")[1])
 
             # Determine artifact type
-            if hasattr(artifact, 'predict'):
-                artifact_type = ArtifactType.MODEL
-            elif hasattr(artifact, 'transform'):
-                artifact_type = ArtifactType.TRANSFORMER
-            else:
-                artifact_type = ArtifactType.MODEL
+            artifact_type = self._classify_artifact_type(artifact, ArtifactType)
 
             # Generate chain path
             chain_path = chain.to_path()
@@ -1219,6 +1198,71 @@ class BundleLoader:
             logger.debug(f"Imported bundle artifact {artifact_key} as {artifact_id}")
 
         return id_mapping
+
+    def _resolve_import_chain(
+        self,
+        artifact_key: str,
+        artifact: Any,
+        merged_chains: dict[str, OperatorChain],
+        pipeline_id: str,
+        step_offset: int,
+    ) -> OperatorChain:
+        """Resolve the operator chain for an artifact being imported.
+
+        Mirrors the chain-selection logic of ``import_artifacts_to_registry``:
+        prefer a pre-merged chain, else the artifact's own chain (re-stamped
+        with ``pipeline_id``), else a minimal fallback chain.
+
+        Args:
+            artifact_key: Artifact key (e.g., "step_1", "step_4_fold0").
+            artifact: Loaded artifact object (used for fallback class name).
+            merged_chains: Pre-merged chains keyed by artifact key.
+            pipeline_id: Target pipeline ID for imported artifacts.
+            step_offset: Step offset applied to fallback chains.
+
+        Returns:
+            The resolved (never None) OperatorChain for the artifact.
+        """
+        chain: OperatorChain | None
+        if artifact_key in merged_chains:
+            chain = merged_chains[artifact_key]
+        else:
+            chain = self.get_chain_for_artifact(artifact_key)
+            if chain:
+                chain = chain.with_pipeline_id(pipeline_id)
+
+        if chain is None:
+            # Fallback: create minimal chain
+            parts = artifact_key.split("_")
+            step_idx = int(parts[1]) if len(parts) >= 2 else 0
+            chain = OperatorChain(
+                nodes=[OperatorNode(
+                    step_index=step_idx + step_offset,
+                    operator_class=artifact.__class__.__name__,
+                )],
+                pipeline_id=pipeline_id
+            )
+
+        return chain
+
+    @staticmethod
+    def _classify_artifact_type(artifact: Any, artifact_type_enum: Any) -> Any:
+        """Classify an artifact as MODEL or TRANSFORMER.
+
+        Args:
+            artifact: Loaded artifact object.
+            artifact_type_enum: The ``ArtifactType`` enum (passed in so the
+                function-local import in the caller keeps its original timing).
+
+        Returns:
+            The matching ``ArtifactType`` member.
+        """
+        if hasattr(artifact, 'predict'):
+            return artifact_type_enum.MODEL
+        elif hasattr(artifact, 'transform'):
+            return artifact_type_enum.TRANSFORMER
+        else:
+            return artifact_type_enum.MODEL
 
     # =========================================================================
     # Phase 4: Metadata-Based Prediction Routing
@@ -1327,86 +1371,13 @@ class BundleLoader:
                 logger.warning(f"Partitioner at step {step_idx} has no partition info")
                 continue
 
-            # Build partition-to-branch mapping
-            partition_to_branch = {name: idx for idx, name in enumerate(partitions)}
-
-            # Build value-to-partition mapping
-            value_to_partition = {}
-            if group_values:
-                # Grouped values
-                for group_name, values in group_values.items():
-                    for v in values:
-                        value_to_partition[v] = group_name
-            # Add direct partition names as values
-            for partition_name in partitions:
-                if partition_name not in value_to_partition:
-                    value_to_partition[partition_name] = partition_name
-
             # Route samples to branches
-            sample_branches: dict[int, list[int]] = {}  # branch_id -> sample_indices
-            unknown_samples = []
-
-            for sample_idx, value in enumerate(column_values):
-                # Find partition for this value
-                partition_name = value_to_partition.get(value)
-
-                if partition_name is None:
-                    # Try string conversion
-                    partition_name = value_to_partition.get(str(value))
-
-                if partition_name is None:
-                    # Check if value itself is a partition name
-                    if value in partition_to_branch:
-                        partition_name = value
-                    elif str(value) in partition_to_branch:
-                        partition_name = str(value)
-
-                if partition_name is not None and partition_name in partition_to_branch:
-                    branch_id = partition_to_branch[partition_name]
-                    if branch_id not in sample_branches:
-                        sample_branches[branch_id] = []
-                    sample_branches[branch_id].append(sample_idx)
-                else:
-                    unknown_samples.append(sample_idx)
-
-            # Handle unknown samples
-            if unknown_samples:
-                if fallback_branch is not None:
-                    if fallback_branch not in sample_branches:
-                        sample_branches[fallback_branch] = []
-                    sample_branches[fallback_branch].extend(unknown_samples)
-                    logger.warning(
-                        f"{len(unknown_samples)} samples with unknown metadata values "
-                        f"routed to fallback branch {fallback_branch}"
-                    )
-                else:
-                    unknown_values = {column_values[i] for i in unknown_samples[:5]}
-                    raise ValueError(
-                        f"{len(unknown_samples)} samples have metadata values "
-                        f"not seen during training: {unknown_values}. "
-                        f"Use fallback_branch parameter to handle unknown values."
-                    )
+            sample_branches = self._route_samples_to_branches(
+                column_values, partitions, group_values, column, fallback_branch
+            )
 
             # Process each branch
-            for branch_id, sample_indices in sample_branches.items():
-                if not sample_indices:
-                    continue
-
-                # Extract subset of data for this branch
-                X_branch = X[sample_indices]
-
-                logger.debug(
-                    f"Branch {branch_id} ({partitions[branch_id] if branch_id < len(partitions) else 'fallback'}): "
-                    f"{len(sample_indices)} samples"
-                )
-
-                # Run prediction with branch path
-                branch_path = [branch_id]
-                y_branch = self.predict(X_branch, branch_path=branch_path)
-
-                # Store predictions in correct positions
-                for local_idx, global_idx in enumerate(sample_indices):
-                    y_pred[global_idx] = y_branch[local_idx] if len(y_branch.shape) == 1 else y_branch[local_idx, 0]
+            self._predict_branches(X, sample_branches, partitions, y_pred)
 
         # Check for any unprocessed samples
         unprocessed = np.isnan(y_pred)
@@ -1415,6 +1386,130 @@ class BundleLoader:
             logger.warning(f"{n_unprocessed} samples were not processed (no matching branch)")
 
         return y_pred
+
+    @staticmethod
+    def _route_samples_to_branches(
+        column_values: np.ndarray,
+        partitions: list[Any],
+        group_values: dict[Any, Any],
+        column: Any,
+        fallback_branch: int | None,
+    ) -> dict[int, list[int]]:
+        """Route samples to partition branches by their metadata value.
+
+        Builds the value->partition mapping (from grouped values and direct
+        partition names), assigns each sample to a branch, and handles unknown
+        values either via ``fallback_branch`` or by raising ``ValueError``.
+
+        Args:
+            column_values: Per-sample metadata values for the routing column.
+            partitions: Ordered partition names; index == branch_id.
+            group_values: Optional mapping of group name -> list of raw values.
+            column: Routing column name (used only in the error message).
+            fallback_branch: Branch ID for unknown values, or None to raise.
+
+        Returns:
+            Mapping of branch_id -> list of sample indices.
+
+        Raises:
+            ValueError: If unknown values are present and no fallback is set.
+        """
+        # Build partition-to-branch mapping
+        partition_to_branch = {name: idx for idx, name in enumerate(partitions)}
+
+        # Build value-to-partition mapping
+        value_to_partition = {}
+        if group_values:
+            # Grouped values
+            for group_name, values in group_values.items():
+                for v in values:
+                    value_to_partition[v] = group_name
+        # Add direct partition names as values
+        for partition_name in partitions:
+            if partition_name not in value_to_partition:
+                value_to_partition[partition_name] = partition_name
+
+        # Route samples to branches
+        sample_branches: dict[int, list[int]] = {}  # branch_id -> sample_indices
+        unknown_samples = []
+
+        for sample_idx, value in enumerate(column_values):
+            # Find partition for this value
+            partition_name = value_to_partition.get(value)
+
+            if partition_name is None:
+                # Try string conversion
+                partition_name = value_to_partition.get(str(value))
+
+            if partition_name is None:
+                # Check if value itself is a partition name
+                if value in partition_to_branch:
+                    partition_name = value
+                elif str(value) in partition_to_branch:
+                    partition_name = str(value)
+
+            if partition_name is not None and partition_name in partition_to_branch:
+                branch_id = partition_to_branch[partition_name]
+                if branch_id not in sample_branches:
+                    sample_branches[branch_id] = []
+                sample_branches[branch_id].append(sample_idx)
+            else:
+                unknown_samples.append(sample_idx)
+
+        # Handle unknown samples
+        if unknown_samples:
+            if fallback_branch is not None:
+                if fallback_branch not in sample_branches:
+                    sample_branches[fallback_branch] = []
+                sample_branches[fallback_branch].extend(unknown_samples)
+                logger.warning(
+                    f"{len(unknown_samples)} samples with unknown metadata values "
+                    f"routed to fallback branch {fallback_branch}"
+                )
+            else:
+                unknown_values = {column_values[i] for i in unknown_samples[:5]}
+                raise ValueError(
+                    f"{len(unknown_samples)} samples have metadata values "
+                    f"not seen during training: {unknown_values}. "
+                    f"Use fallback_branch parameter to handle unknown values."
+                )
+
+        return sample_branches
+
+    def _predict_branches(
+        self,
+        X: np.ndarray,
+        sample_branches: dict[int, list[int]],
+        partitions: list[Any],
+        y_pred: np.ndarray,
+    ) -> None:
+        """Predict each branch's samples and write them into ``y_pred``.
+
+        Args:
+            X: Full input feature matrix (n_samples, n_features).
+            sample_branches: Mapping of branch_id -> list of sample indices.
+            partitions: Ordered partition names (used only for logging).
+            y_pred: Pre-allocated output array, mutated in place.
+        """
+        for branch_id, sample_indices in sample_branches.items():
+            if not sample_indices:
+                continue
+
+            # Extract subset of data for this branch
+            X_branch = X[sample_indices]
+
+            logger.debug(
+                f"Branch {branch_id} ({partitions[branch_id] if branch_id < len(partitions) else 'fallback'}): "
+                f"{len(sample_indices)} samples"
+            )
+
+            # Run prediction with branch path
+            branch_path = [branch_id]
+            y_branch = self.predict(X_branch, branch_path=branch_path)
+
+            # Store predictions in correct positions
+            for local_idx, global_idx in enumerate(sample_indices):
+                y_pred[global_idx] = y_branch[local_idx] if len(y_branch.shape) == 1 else y_branch[local_idx, 0]
 
     def get_required_metadata_columns(self) -> list[str]:
         """Get the metadata columns required for prediction routing.
