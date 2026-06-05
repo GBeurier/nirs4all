@@ -15,6 +15,22 @@ pytest.importorskip("tabpfn")
 from nirs4all.operators.models import TabPFNNIRSRegressor  # noqa: E402
 
 
+def _fit_or_skip(est: TabPFNNIRSRegressor, X: np.ndarray, y: np.ndarray) -> TabPFNNIRSRegressor:
+    """Fit, skipping when TabPFN cannot obtain its model weights here.
+
+    Recent ``tabpfn`` releases gate the weight download behind a one-time license
+    acceptance (``TABPFN_TOKEN``); fresh CI runners have neither the token nor a
+    weights cache, so ``fit`` raises ``TabPFNLicenseError``. Matched by name so the
+    module keeps working with older tabpfn versions that lack the error class.
+    """
+    try:
+        return est.fit(X, y)
+    except Exception as exc:
+        if type(exc).__name__ == "TabPFNLicenseError":
+            pytest.skip("TabPFN license not accepted in this environment (no TABPFN_TOKEN or cached weights)")
+        raise
+
+
 def _make_nirs_like_data(
     n_train: int = 80,
     n_test: int = 40,
@@ -54,7 +70,7 @@ def test_fit_predict_shape() -> None:
     """fit/predict return a 1D float array of the right length."""
     X_train, y_train, X_test, _y_test = _make_nirs_like_data()
     est = TabPFNNIRSRegressor(n_estimators=4, device="auto")
-    fitted = est.fit(X_train, y_train)
+    fitted = _fit_or_skip(est, X_train, y_train)
     assert fitted is est
 
     y_pred = est.predict(X_test)
@@ -66,7 +82,7 @@ def test_fit_predict_shape() -> None:
 def test_fit_populates_attributes() -> None:
     """After fit, expected attributes are populated and consistent."""
     X_train, y_train, _X_test, _y_test = _make_nirs_like_data()
-    est = TabPFNNIRSRegressor(n_estimators=4, device="auto").fit(X_train, y_train)
+    est = _fit_or_skip(TabPFNNIRSRegressor(n_estimators=4, device="auto"), X_train, y_train)
 
     assert est.n_features_in_ == X_train.shape[1]
     assert est.n_features_used_ <= est.max_features
@@ -83,7 +99,7 @@ def test_subsample_when_p_exceeds_max_features() -> None:
     """When p > max_features, the cap is applied and predict reuses indices."""
     X_train, y_train, X_test, _y_test = _make_nirs_like_data(p=2200)
     est = TabPFNNIRSRegressor(n_estimators=4, max_features=1500, device="auto")
-    est.fit(X_train, y_train)
+    _fit_or_skip(est, X_train, y_train)
 
     assert est.n_features_used_ == 1500
     assert est.subsample_idx_ is not None
