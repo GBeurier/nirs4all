@@ -560,45 +560,10 @@ class BaseModelController(OperatorController, ABC):
 
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled = self.get_xy(dataset, context)
 
-        # --- NA guard for model inputs ---
-        if dataset._may_contain_nan:
-            # Extract na_policy from step configuration
-            na_policy = None
-            model_fill_value = 0
-            if isinstance(step, dict):
-                na_policy = step.get("na_policy")
-                model_fill_value = step.get("fill_value", 0)
-
-            # Check X for NaN
-            for X_arr, label in [(X_train, "X_train"), (X_test, "X_test")]:
-                if X_arr is not None and X_arr.size > 0 and np.any(np.isnan(X_arr)):
-                    allow_nan = getattr(operator, '_tags', {}).get('allow_nan', False)
-                    if allow_nan:
-                        pass  # Model natively handles NaN
-                    elif na_policy == "replace":
-                        if label == "X_train":
-                            X_train = np.where(np.isnan(X_train), model_fill_value, X_train)
-                        else:
-                            X_test = np.where(np.isnan(X_test), model_fill_value, X_test)
-                    elif na_policy == "ignore":
-                        pass  # NaN samples handled downstream
-                    else:
-                        raise NAError(
-                            f"Model '{operator.__class__.__name__}' received NaN in {label}. "
-                            f"Set na_policy on this step or handle NAs upstream."
-                        )
-
-            # Check y for NaN (always an error — NaN targets must be removed upstream)
-            if y_train is not None and y_train.size > 0 and np.any(np.isnan(y_train)):
-                raise NAError(
-                    f"Model '{operator.__class__.__name__}' received NaN target values in y_train. "
-                    f"Remove NaN targets upstream (e.g., YOutlierFilter)."
-                )
-            if mode == "train" and y_test is not None and y_test.size > 0 and np.any(np.isnan(y_test)):
-                raise NAError(
-                    f"Model '{operator.__class__.__name__}' received NaN target values in y_test. "
-                    f"Remove NaN targets upstream (e.g., YOutlierFilter)."
-                )
+        # --- NA guard for model inputs --- (may replace NaNs in X per na_policy)
+        X_train, X_test = self._check_na_inputs(
+            dataset, step, operator, mode, X_train, y_train, X_test, y_test
+        )
 
         # Get actual sample IDs for train and test partitions (for stacking/OOF reconstruction)
         train_sample_ids, test_sample_ids = self._get_partition_sample_indices(dataset, context, mode)
@@ -611,6 +576,116 @@ class BaseModelController(OperatorController, ABC):
         if self.verbose > 0:
             logger.debug(f"Model config: {model_config}")
 
+        return self._dispatch_execution(
+            dataset, model_config, context, runtime_context, prediction_store,
+            X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+            loaded_binaries, mode,
+            train_sample_ids=train_sample_ids, test_sample_ids=test_sample_ids
+        )
+
+    def _check_na_inputs(
+        self,
+        dataset: 'SpectroDataset',
+        step: Any,
+        operator: Any,
+        mode: str,
+        X_train: Any,
+        y_train: Any,
+        X_test: Any,
+        y_test: Any,
+    ) -> tuple[Any, Any]:
+        """Guard model inputs against NaN values according to the step's na_policy.
+
+        For X, NaNs are tolerated when the model declares ``allow_nan`` or the
+        step sets ``na_policy`` to ``"replace"`` (filled with ``fill_value``) or
+        ``"ignore"``; otherwise an :class:`NAError` is raised. NaN targets are
+        always an error.
+
+        Args:
+            dataset: SpectroDataset (checked for the ``_may_contain_nan`` flag).
+            step: Original step (dict carrying ``na_policy``/``fill_value`` or other).
+            operator: Model operator instance (inspected for ``_tags``).
+            mode: Execution mode ('train', 'finetune', 'predict', 'explain').
+            X_train: Training features (returned NaN-filled when na_policy=='replace').
+            y_train: Training targets (checked for NaN).
+            X_test: Test features (returned NaN-filled when na_policy=='replace').
+            y_test: Test targets (checked for NaN in train mode only).
+
+        Returns:
+            Tuple of (X_train, X_test), with NaNs replaced when na_policy=='replace'.
+        """
+        if not dataset._may_contain_nan:
+            return X_train, X_test
+
+        # Extract na_policy from step configuration
+        na_policy = None
+        model_fill_value = 0
+        if isinstance(step, dict):
+            na_policy = step.get("na_policy")
+            model_fill_value = step.get("fill_value", 0)
+
+        # Check X for NaN
+        for X_arr, label in [(X_train, "X_train"), (X_test, "X_test")]:
+            if X_arr is not None and X_arr.size > 0 and np.any(np.isnan(X_arr)):
+                allow_nan = getattr(operator, '_tags', {}).get('allow_nan', False)
+                if allow_nan:
+                    pass  # Model natively handles NaN
+                elif na_policy == "replace":
+                    if label == "X_train":
+                        X_train = np.where(np.isnan(X_train), model_fill_value, X_train)
+                    else:
+                        X_test = np.where(np.isnan(X_test), model_fill_value, X_test)
+                elif na_policy == "ignore":
+                    pass  # NaN samples handled downstream
+                else:
+                    raise NAError(
+                        f"Model '{operator.__class__.__name__}' received NaN in {label}. "
+                        f"Set na_policy on this step or handle NAs upstream."
+                    )
+
+        # Check y for NaN (always an error — NaN targets must be removed upstream)
+        if y_train is not None and y_train.size > 0 and np.any(np.isnan(y_train)):
+            raise NAError(
+                f"Model '{operator.__class__.__name__}' received NaN target values in y_train. "
+                f"Remove NaN targets upstream (e.g., YOutlierFilter)."
+            )
+        if mode == "train" and y_test is not None and y_test.size > 0 and np.any(np.isnan(y_test)):
+            raise NAError(
+                f"Model '{operator.__class__.__name__}' received NaN target values in y_test. "
+                f"Remove NaN targets upstream (e.g., YOutlierFilter)."
+            )
+
+        return X_train, X_test
+
+    def _dispatch_execution(
+        self, dataset, model_config, context, runtime_context, prediction_store,
+        X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+        loaded_binaries, mode,
+        train_sample_ids=None, test_sample_ids=None
+    ) -> tuple['ExecutionContext', list['ArtifactMeta']]:
+        """Route execution to finetune, train, or predict based on mode and config.
+
+        Honors the REFIT-phase guard: during refit the finetune path is skipped
+        (BUG-4) so an already-optimized model is not re-tuned. Propagates
+        ``random_state`` into ``finetune_params`` for Optuna reproducibility.
+
+        Args:
+            dataset: SpectroDataset with features and targets.
+            model_config: Model configuration dictionary.
+            context: Execution context.
+            runtime_context: Runtime context (carries the execution phase).
+            prediction_store: External Predictions storage.
+            X_train, y_train, X_test, y_test: Train/test features and scaled targets.
+            y_train_unscaled, y_test_unscaled: Unscaled targets for evaluation.
+            folds: Positional fold indices (possibly empty).
+            loaded_binaries: Optional model binaries for prediction mode.
+            mode: Execution mode ('train', 'finetune', 'predict', 'explain').
+            train_sample_ids: Sample IDs for train partition.
+            test_sample_ids: Sample IDs for test partition.
+
+        Returns:
+            Tuple of (updated_context, list_of_artifact_metadata).
+        """
         finetune_params = model_config.get('finetune_params')
         is_refit = runtime_context.phase == ExecutionPhase.REFIT
 
@@ -816,170 +891,232 @@ class BaseModelController(OperatorController, ABC):
         # In predict/explain mode, skip fold iteration entirely
         # Just load the model and predict on X_test (which contains all prediction samples)
         if mode in ("predict", "explain"):
-            # Check for a single refit ("final") model first.  When a refit
-            # model exists we dispatch a single prediction call instead of
-            # iterating through all CV fold models.
-            has_refit_model = False
-            if runtime_context.artifact_provider is not None:
-                step_index = runtime_context.step_number
-                refit_model = runtime_context.artifact_provider.get_refit_artifact(step_index)
-                if refit_model is not None:
-                    has_refit_model = True
-
-            if has_refit_model:
-                # Single refit model dispatch -- predict once with fold_idx=None
-                model, model_id, score, model_name, prediction_data = self.launch_training(
-                    dataset, model_config, context, runtime_context, prediction_store,
-                    X_train, y_train, X_test, y_test, X_test,
-                    y_train_unscaled, y_test_unscaled, y_test_unscaled,
-                    train_indices=None, val_indices=None,
-                    fold_idx=None, best_params=best_params,
-                    loaded_binaries=loaded_binaries, mode=mode,
-                    test_sample_ids=test_sample_ids
-                )
-                self._add_all_predictions(prediction_store, [prediction_data], None, mode=mode)
-                return binaries
-
-            # No refit model -- iterate through all fold models
-            n_folds = len(folds) if folds else 1
-            all_fold_predictions = []
-
-            for fold_iter in range(n_folds):
-                # Use X_test as both val and test data (for prediction on all samples)
-                # X_train and y_train are empty in predict mode
-                # When no folds exist (folds is empty), pass fold_idx=None to load shared artifact
-                # When folds exist, pass the actual fold index
-                actual_fold_idx = fold_iter if folds else None
-                model, model_id, score, model_name, prediction_data = self.launch_training(
-                    dataset, model_config, context, runtime_context, prediction_store,
-                    X_train, y_train, X_test, y_test, X_test,
-                    y_train_unscaled, y_test_unscaled, y_test_unscaled,
-                    train_indices=None, val_indices=None,
-                    fold_idx=actual_fold_idx, best_params=best_params,
-                    loaded_binaries=loaded_binaries, mode=mode,
-                    test_sample_ids=test_sample_ids
-                )
-                all_fold_predictions.append(prediction_data)
-
-            self._add_all_predictions(prediction_store, all_fold_predictions, None, mode=mode)
+            # _train_predict_mode never persists, so binaries stays empty and is
+            # the canonical return (the helper returns this same list).
+            self._train_predict_mode(
+                dataset, model_config, context, runtime_context, prediction_store,
+                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+                best_params, loaded_binaries, mode, test_sample_ids, binaries
+            )
             return binaries
 
         if len(folds) > 0:
-            folds_models = []
-            fold_val_indices = []
-            scores = []
-            all_fold_predictions = []
-            base_model_name = ""
-            model_classname = ""
-
-            # Prepare arguments for parallel execution
-            fold_args = []
-            for fold_idx, (train_indices, val_indices) in enumerate(folds):
-                fold_val_indices.append(val_indices)
-                X_train_fold = X_train[train_indices] if X_train.shape[0] > 0 else np.array([])
-                y_train_fold = y_train[train_indices] if y_train.shape[0] > 0 else np.array([])
-                y_train_fold_unscaled = y_train_unscaled[train_indices] if y_train_unscaled.shape[0] > 0 else np.array([])
-                X_val_fold = X_train[val_indices] if X_train.shape[0] > 0 else np.array([])
-                y_val_fold = y_train[val_indices] if y_train.shape[0] > 0 else np.array([])
-                y_val_fold_unscaled = y_train_unscaled[val_indices] if y_train_unscaled.shape[0] > 0 else np.array([])
-
-                if isinstance(best_params, list):
-                    best_params_fold = best_params[fold_idx] if fold_idx < len(best_params) else None
-                else:
-                    best_params_fold = best_params
-
-                fold_args.append((
-                    dataset, model_config, context, runtime_context, prediction_store,
-                    X_train_fold, y_train_fold, X_val_fold, y_val_fold, X_test,
-                    y_train_fold_unscaled, y_val_fold_unscaled, y_test_unscaled,
-                    train_indices, val_indices,
-                    fold_idx, best_params_fold,
-                    loaded_binaries, mode,
-                    test_sample_ids  # Added for proper test sample indexing
-                ))
-
-            if verbose > 0:
-                logger.info(f"Training {len(folds)} folds (n_jobs={n_jobs})...")
-
-            # Execute folds (parallel or sequential)
-            if n_jobs > 1 and mode == "train": # Only parallelize training, not prediction/finetuning for now to avoid complexity
-                results = Parallel(n_jobs=n_jobs)(
-                    delayed(self.launch_training)(*args) for args in fold_args
-                )
-            else:
-                results = [self.launch_training(*args) for args in fold_args]
-
-            # Process results
-            for i, (model, model_id, score, model_name, prediction_data) in enumerate(results):
-                folds_models.append((model_id, model, score))
-                all_fold_predictions.append(prediction_data)
-                base_model_name = model_name
-                scores.append(score)
-                model_classname = model.__class__.__name__
-
-                # Only persist in train mode, not in predict/explain modes
-                if mode == "train":
-                    artifact = self._persist_model(
-                        runtime_context, model, model_id,
-                        branch_id=context.selector.branch_id,
-                        branch_name=context.selector.branch_name,
-                        branch_path=context.selector.branch_path,
-                        fold_id=i,
-                        custom_name=model_name
-                    )
-                    if artifact is not None:
-                        binaries.append(artifact)
-                    # Attach artifact_id to prediction_data for deterministic loading
-                    artifact_id = getattr(artifact, 'artifact_id', None)
-                    if artifact_id:
-                        prediction_data['model_artifact_id'] = artifact_id
-
-            # Compute weights based on scores
-            metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
-            weights = EnsembleUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
-
-            # Create fold averages and get average predictions data
-            if len(folds) > 1:
-                avg_predictions, w_avg_predictions = self._create_fold_averages(
-                    base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
-                    folds_models, fold_val_indices, scores,
-                    X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params,
-                    test_sample_ids=test_sample_ids
-                )
-                # Collect ALL predictions (folds + averages) and add them in one shot with same weights
-                all_fold_predictions = all_fold_predictions + [avg_predictions, w_avg_predictions]
-
-            self._add_all_predictions(prediction_store, all_fold_predictions, weights, mode=mode)
-
+            self._train_with_folds(
+                dataset, model_config, context, runtime_context, prediction_store,
+                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+                best_params, loaded_binaries, mode, test_sample_ids,
+                binaries, verbose, n_jobs
+            )
         else:
-            logger.warning("WARNING: Using test set as validation set (no folds provided)")
+            self._train_single_model(
+                dataset, model_config, context, runtime_context, prediction_store,
+                X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled,
+                loaded_binaries, mode, test_sample_ids, binaries
+            )
 
+        return binaries
+
+    def _train_predict_mode(
+        self, dataset, model_config, context, runtime_context, prediction_store,
+        X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+        best_params, loaded_binaries, mode, test_sample_ids, binaries
+    ):
+        """Predict/explain path of train(): load models and predict without fold training.
+
+        Dispatches a single prediction call when a refit ("final") model exists;
+        otherwise iterates the stored CV fold models. No artifacts are persisted,
+        so the (empty) ``binaries`` list is returned unchanged.
+
+        Shared state: reads all inputs; appends predictions to ``prediction_store``
+        via ``_add_all_predictions``. Returns the passed ``binaries`` list.
+        """
+        # Check for a single refit ("final") model first.  When a refit
+        # model exists we dispatch a single prediction call instead of
+        # iterating through all CV fold models.
+        has_refit_model = False
+        if runtime_context.artifact_provider is not None:
+            step_index = runtime_context.step_number
+            refit_model = runtime_context.artifact_provider.get_refit_artifact(step_index)
+            if refit_model is not None:
+                has_refit_model = True
+
+        if has_refit_model:
+            # Single refit model dispatch -- predict once with fold_idx=None
             model, model_id, score, model_name, prediction_data = self.launch_training(
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, X_test,
                 y_train_unscaled, y_test_unscaled, y_test_unscaled,
+                train_indices=None, val_indices=None,
+                fold_idx=None, best_params=best_params,
                 loaded_binaries=loaded_binaries, mode=mode,
                 test_sample_ids=test_sample_ids
             )
-            artifact = self._persist_model(
-                runtime_context, model, model_id,
-                branch_id=context.selector.branch_id,
-                branch_name=context.selector.branch_name,
-                branch_path=context.selector.branch_path,
-                fold_id=None,  # Single model, no folds
-                custom_name=model_name
-            )
-            if artifact is not None:
-                binaries.append(artifact)
-            # Attach artifact_id to prediction_data for deterministic loading
-            artifact_id = getattr(artifact, 'artifact_id', None)
-            if artifact_id:
-                prediction_data['model_artifact_id'] = artifact_id
-
-            # Add predictions for single model case (no weights)
             self._add_all_predictions(prediction_store, [prediction_data], None, mode=mode)
+            return binaries
 
+        # No refit model -- iterate through all fold models
+        n_folds = len(folds) if folds else 1
+        all_fold_predictions = []
+
+        for fold_iter in range(n_folds):
+            # Use X_test as both val and test data (for prediction on all samples)
+            # X_train and y_train are empty in predict mode
+            # When no folds exist (folds is empty), pass fold_idx=None to load shared artifact
+            # When folds exist, pass the actual fold index
+            actual_fold_idx = fold_iter if folds else None
+            model, model_id, score, model_name, prediction_data = self.launch_training(
+                dataset, model_config, context, runtime_context, prediction_store,
+                X_train, y_train, X_test, y_test, X_test,
+                y_train_unscaled, y_test_unscaled, y_test_unscaled,
+                train_indices=None, val_indices=None,
+                fold_idx=actual_fold_idx, best_params=best_params,
+                loaded_binaries=loaded_binaries, mode=mode,
+                test_sample_ids=test_sample_ids
+            )
+            all_fold_predictions.append(prediction_data)
+
+        self._add_all_predictions(prediction_store, all_fold_predictions, None, mode=mode)
         return binaries
+
+    def _train_with_folds(
+        self, dataset, model_config, context, runtime_context, prediction_store,
+        X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled, folds,
+        best_params, loaded_binaries, mode, test_sample_ids,
+        binaries, verbose, n_jobs
+    ):
+        """Cross-validation training path of train().
+
+        Builds per-fold argument tuples, runs ``launch_training`` (parallel in
+        train mode when n_jobs>1, else sequential), persists fold models, computes
+        ensemble weights, and creates simple/weighted fold-averaged predictions.
+
+        Shared state: appends persisted artifacts to ``binaries`` (mutated in
+        place); writes predictions to ``prediction_store``. Returns None.
+        """
+        folds_models = []
+        fold_val_indices = []
+        scores = []
+        all_fold_predictions = []
+        base_model_name = ""
+        model_classname = ""
+
+        # Prepare arguments for parallel execution
+        fold_args = []
+        for fold_idx, (train_indices, val_indices) in enumerate(folds):
+            fold_val_indices.append(val_indices)
+            X_train_fold = X_train[train_indices] if X_train.shape[0] > 0 else np.array([])
+            y_train_fold = y_train[train_indices] if y_train.shape[0] > 0 else np.array([])
+            y_train_fold_unscaled = y_train_unscaled[train_indices] if y_train_unscaled.shape[0] > 0 else np.array([])
+            X_val_fold = X_train[val_indices] if X_train.shape[0] > 0 else np.array([])
+            y_val_fold = y_train[val_indices] if y_train.shape[0] > 0 else np.array([])
+            y_val_fold_unscaled = y_train_unscaled[val_indices] if y_train_unscaled.shape[0] > 0 else np.array([])
+
+            if isinstance(best_params, list):
+                best_params_fold = best_params[fold_idx] if fold_idx < len(best_params) else None
+            else:
+                best_params_fold = best_params
+
+            fold_args.append((
+                dataset, model_config, context, runtime_context, prediction_store,
+                X_train_fold, y_train_fold, X_val_fold, y_val_fold, X_test,
+                y_train_fold_unscaled, y_val_fold_unscaled, y_test_unscaled,
+                train_indices, val_indices,
+                fold_idx, best_params_fold,
+                loaded_binaries, mode,
+                test_sample_ids  # Added for proper test sample indexing
+            ))
+
+        if verbose > 0:
+            logger.info(f"Training {len(folds)} folds (n_jobs={n_jobs})...")
+
+        # Execute folds (parallel or sequential)
+        if n_jobs > 1 and mode == "train": # Only parallelize training, not prediction/finetuning for now to avoid complexity
+            results = Parallel(n_jobs=n_jobs)(
+                delayed(self.launch_training)(*args) for args in fold_args
+            )
+        else:
+            results = [self.launch_training(*args) for args in fold_args]
+
+        # Process results
+        for i, (model, model_id, score, model_name, prediction_data) in enumerate(results):
+            folds_models.append((model_id, model, score))
+            all_fold_predictions.append(prediction_data)
+            base_model_name = model_name
+            scores.append(score)
+            model_classname = model.__class__.__name__
+
+            # Only persist in train mode, not in predict/explain modes
+            if mode == "train":
+                artifact = self._persist_model(
+                    runtime_context, model, model_id,
+                    branch_id=context.selector.branch_id,
+                    branch_name=context.selector.branch_name,
+                    branch_path=context.selector.branch_path,
+                    fold_id=i,
+                    custom_name=model_name
+                )
+                if artifact is not None:
+                    binaries.append(artifact)
+                # Attach artifact_id to prediction_data for deterministic loading
+                artifact_id = getattr(artifact, 'artifact_id', None)
+                if artifact_id:
+                    prediction_data['model_artifact_id'] = artifact_id
+
+        # Compute weights based on scores
+        metric, higher_is_better = ModelUtils.get_best_score_metric(dataset.task_type)
+        weights = EnsembleUtils._scores_to_weights(np.array(scores), higher_is_better=higher_is_better)
+
+        # Create fold averages and get average predictions data
+        if len(folds) > 1:
+            avg_predictions, w_avg_predictions = self._create_fold_averages(
+                base_model_name, dataset, model_config, context, runtime_context, prediction_store, model_classname,
+                folds_models, fold_val_indices, scores,
+                X_train, X_test, y_train_unscaled, y_test_unscaled, mode=mode, best_params=best_params,
+                test_sample_ids=test_sample_ids
+            )
+            # Collect ALL predictions (folds + averages) and add them in one shot with same weights
+            all_fold_predictions = all_fold_predictions + [avg_predictions, w_avg_predictions]
+
+        self._add_all_predictions(prediction_store, all_fold_predictions, weights, mode=mode)
+
+    def _train_single_model(
+        self, dataset, model_config, context, runtime_context, prediction_store,
+        X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled,
+        loaded_binaries, mode, test_sample_ids, binaries
+    ):
+        """No-folds training path of train(): use the test set as validation.
+
+        Trains a single model, persists it, and stores its predictions.
+
+        Shared state: appends the persisted artifact to ``binaries`` (mutated in
+        place); writes predictions to ``prediction_store``. Returns None.
+        """
+        logger.warning("WARNING: Using test set as validation set (no folds provided)")
+
+        model, model_id, score, model_name, prediction_data = self.launch_training(
+            dataset, model_config, context, runtime_context, prediction_store,
+            X_train, y_train, X_test, y_test, X_test,
+            y_train_unscaled, y_test_unscaled, y_test_unscaled,
+            loaded_binaries=loaded_binaries, mode=mode,
+            test_sample_ids=test_sample_ids
+        )
+        artifact = self._persist_model(
+            runtime_context, model, model_id,
+            branch_id=context.selector.branch_id,
+            branch_name=context.selector.branch_name,
+            branch_path=context.selector.branch_path,
+            fold_id=None,  # Single model, no folds
+            custom_name=model_name
+        )
+        if artifact is not None:
+            binaries.append(artifact)
+        # Attach artifact_id to prediction_data for deterministic loading
+        artifact_id = getattr(artifact, 'artifact_id', None)
+        if artifact_id:
+            prediction_data['model_artifact_id'] = artifact_id
+
+        # Add predictions for single model case (no weights)
+        self._add_all_predictions(prediction_store, [prediction_data], None, mode=mode)
 
     def process_hyperparameters(self, params: dict[str, Any]) -> dict[str, Any]:
         """Process hyperparameters before use.
@@ -1121,108 +1258,168 @@ class BaseModelController(OperatorController, ABC):
 
         # === 2. GET OR LOAD MODEL ===
         if mode in ("predict", "explain"):
-            model = None
-
-            # V3: Use artifact_provider for chain-based loading
-            if runtime_context.artifact_provider is not None:
-                step_index = runtime_context.step_number
-                import logging
-                logging.debug(f"MODEL: loading from artifact_provider step={step_index}, fold={fold_idx}")
-
-                # Get artifact with branch awareness
-                branch_path = context.selector.branch_path if hasattr(context.selector, 'branch_path') else None
-
-                if fold_idx is not None:
-                    # Get fold-specific artifact using get_fold_artifacts (supports branch_path)
-                    fold_artifacts = runtime_context.artifact_provider.get_fold_artifacts(
-                        step_index, branch_path=branch_path
-                    )
-                    # Find artifact for this specific fold
-                    for fid, artifact_obj in fold_artifacts:
-                        if fid == fold_idx:
-                            model = artifact_obj
-                            break
-                else:
-                    # Try refit ("final") artifact first, then fall back to
-                    # primary/first artifact for non-CV or single model case.
-                    model = runtime_context.artifact_provider.get_refit_artifact(
-                        step_index, branch_path=branch_path
-                    )
-                    if model is None:
-                        step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
-                            step_index, branch_path=branch_path
-                        )
-                        if step_artifacts:
-                            model = step_artifacts[0][1]
-
-                if model is not None:
-                    logging.debug(f"MODEL: loaded model type={type(model).__name__}")
-                    if self.verbose > 0:
-                        logger.debug(f"Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
-            if model is None:
-                raise ValueError(
-                    f"Model not found at step {runtime_context.step_number}, fold={fold_idx}. "
-                    f"Ensure artifact_provider is properly configured."
-                )
-
-            # Capture model for SHAP explanation
-            if mode == "explain" and self._should_capture_for_explanation(runtime_context, identifiers) and hasattr(runtime_context, 'explainer') and hasattr(runtime_context.explainer, 'capture_model'):
-                runtime_context.explainer.capture_model(model, self)
-
-            trained_model = model
+            trained_model = self._load_model_for_prediction(
+                context, runtime_context, identifiers, fold_idx, mode
+            )
         else:
-            # Create new model for training
-            if best_params is not None:
-                if self.verbose > 0:
-                    print(f"Training model {identifiers.name} with: {best_params}...")
-                model = self._get_model_instance(dataset, model_config, force_params=best_params)
-            else:
-                # Support model_params for customizing NN architecture at training time
-                model_params = model_config.get('model_params', {})
-                base_model = self._get_model_instance(dataset, model_config, force_params=model_params) if model_params else self._get_model_instance(dataset, model_config)
-                model = self._clone_model(base_model)
-
-            # === 2b. WARM-START (REFIT PHASE ONLY) ===
-            if runtime_context.phase == ExecutionPhase.REFIT:
-                resolved_params = model_config.get('refit_params', {}) or {}
-                if resolved_params.get('warm_start', False):
-                    warm_start_fold = resolved_params.get('warm_start_fold', 'best')
-                    fold_index = self._resolve_warm_start_fold(runtime_context, warm_start_fold)
-                    if fold_index is not None and runtime_context.artifact_provider is not None:
-                        step_index = runtime_context.step_number
-                        fold_artifacts = runtime_context.artifact_provider.get_fold_artifacts(step_index)
-                        source_model = None
-                        for fid, artifact_obj in fold_artifacts:
-                            if fid == fold_index:
-                                source_model = artifact_obj
-                                break
-                        if source_model is not None:
-                            model = self._apply_warm_start(model, source_model, runtime_context)
-                            logger.info(
-                                f"Warm-started refit model from fold {fold_index} "
-                                f"(strategy: {warm_start_fold})"
-                            )
-
-            # === 3. TRAIN MODEL ===
-            X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context or {})
-            X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
-            X_test_prep, _ = self._prepare_data(X_test, None, context or {})
-
-            # Log data shapes before training
-            if self.verbose > 0:
-                logger.debug(f"Training data shapes - X_train: {X_train_prep.shape}, y_train: {y_train_prep.shape if y_train_prep is not None else 'None'}, "
-                      f"X_val: {X_val_prep.shape}, y_val: {y_val_prep.shape if y_val_prep is not None else 'None'}, "
-                      f"X_test: {X_test_prep.shape}")
-
-            # Pass task_type to train_model
-            train_params = model_config.get('train_params', {}).copy()
-            train_params['task_type'] = dataset.task_type
-
-            trained_model = self._train_model(
-                model, X_train_prep, y_train_prep, X_val_prep, y_val_prep,
-                **train_params
+            trained_model = self._build_and_train_model(
+                dataset, model_config, context, runtime_context, identifiers,
+                X_train, y_train, X_val, y_val, X_test, best_params
             )
 
+        # === 4-8. PREDICT, TRANSFORM, SCORE, ASSEMBLE ===
+        return self._assemble_prediction_result(
+            dataset, context, runtime_context, identifiers, trained_model,
+            X_train, y_train, X_val, y_val, X_test,
+            y_train_unscaled, y_val_unscaled, y_test_unscaled,
+            train_indices, val_indices, best_params, test_sample_ids
+        )
+
+    def _load_model_for_prediction(
+        self, context, runtime_context, identifiers, fold_idx, mode
+    ):
+        """Load the model to use for predict/explain mode from the artifact provider.
+
+        Branch-aware loading: for a specific fold, loads that fold's artifact;
+        otherwise prefers a refit ("final") artifact and falls back to the first
+        step artifact. Captures the model for SHAP in explain mode. Raises
+        ValueError when no model can be found.
+
+        Shared state: reads ``runtime_context.artifact_provider`` and the
+        explainer; no mutation of caller locals. Returns the loaded model.
+        """
+        model = None
+
+        # V3: Use artifact_provider for chain-based loading
+        if runtime_context.artifact_provider is not None:
+            step_index = runtime_context.step_number
+            import logging
+            logging.debug(f"MODEL: loading from artifact_provider step={step_index}, fold={fold_idx}")
+
+            # Get artifact with branch awareness
+            branch_path = context.selector.branch_path if hasattr(context.selector, 'branch_path') else None
+
+            if fold_idx is not None:
+                # Get fold-specific artifact using get_fold_artifacts (supports branch_path)
+                fold_artifacts = runtime_context.artifact_provider.get_fold_artifacts(
+                    step_index, branch_path=branch_path
+                )
+                # Find artifact for this specific fold
+                for fid, artifact_obj in fold_artifacts:
+                    if fid == fold_idx:
+                        model = artifact_obj
+                        break
+            else:
+                # Try refit ("final") artifact first, then fall back to
+                # primary/first artifact for non-CV or single model case.
+                model = runtime_context.artifact_provider.get_refit_artifact(
+                    step_index, branch_path=branch_path
+                )
+                if model is None:
+                    step_artifacts = runtime_context.artifact_provider.get_artifacts_for_step(
+                        step_index, branch_path=branch_path
+                    )
+                    if step_artifacts:
+                        model = step_artifacts[0][1]
+
+            if model is not None:
+                logging.debug(f"MODEL: loaded model type={type(model).__name__}")
+                if self.verbose > 0:
+                    logger.debug(f"Loaded model via artifact_provider for step {step_index}, fold={fold_idx}")
+        if model is None:
+            raise ValueError(
+                f"Model not found at step {runtime_context.step_number}, fold={fold_idx}. "
+                f"Ensure artifact_provider is properly configured."
+            )
+
+        # Capture model for SHAP explanation
+        if mode == "explain" and self._should_capture_for_explanation(runtime_context, identifiers) and hasattr(runtime_context, 'explainer') and hasattr(runtime_context.explainer, 'capture_model'):
+            runtime_context.explainer.capture_model(model, self)
+
+        return model
+
+    def _build_and_train_model(
+        self, dataset, model_config, context, runtime_context, identifiers,
+        X_train, y_train, X_val, y_val, X_test, best_params
+    ):
+        """Build a fresh model, optionally warm-start it (refit), and train it.
+
+        Uses ``best_params`` to force hyperparameters when provided; otherwise
+        clones a model built from ``model_params``. During the REFIT phase with
+        warm-start enabled, transfers weights from a source fold model. Trains via
+        the framework-specific ``_train_model``.
+
+        Shared state: reads dataset/config/context; no mutation of caller locals.
+        Returns the trained model. The ``*_prep`` arrays built here are local-only
+        (predictions recompute them downstream).
+        """
+        # Create new model for training
+        if best_params is not None:
+            if self.verbose > 0:
+                print(f"Training model {identifiers.name} with: {best_params}...")
+            model = self._get_model_instance(dataset, model_config, force_params=best_params)
+        else:
+            # Support model_params for customizing NN architecture at training time
+            model_params = model_config.get('model_params', {})
+            base_model = self._get_model_instance(dataset, model_config, force_params=model_params) if model_params else self._get_model_instance(dataset, model_config)
+            model = self._clone_model(base_model)
+
+        # === 2b. WARM-START (REFIT PHASE ONLY) ===
+        if runtime_context.phase == ExecutionPhase.REFIT:
+            resolved_params = model_config.get('refit_params', {}) or {}
+            if resolved_params.get('warm_start', False):
+                warm_start_fold = resolved_params.get('warm_start_fold', 'best')
+                fold_index = self._resolve_warm_start_fold(runtime_context, warm_start_fold)
+                if fold_index is not None and runtime_context.artifact_provider is not None:
+                    step_index = runtime_context.step_number
+                    fold_artifacts = runtime_context.artifact_provider.get_fold_artifacts(step_index)
+                    source_model = None
+                    for fid, artifact_obj in fold_artifacts:
+                        if fid == fold_index:
+                            source_model = artifact_obj
+                            break
+                    if source_model is not None:
+                        model = self._apply_warm_start(model, source_model, runtime_context)
+                        logger.info(
+                            f"Warm-started refit model from fold {fold_index} "
+                            f"(strategy: {warm_start_fold})"
+                        )
+
+        # === 3. TRAIN MODEL ===
+        X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context or {})
+        X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})
+        X_test_prep, _ = self._prepare_data(X_test, None, context or {})
+
+        # Log data shapes before training
+        if self.verbose > 0:
+            logger.debug(f"Training data shapes - X_train: {X_train_prep.shape}, y_train: {y_train_prep.shape if y_train_prep is not None else 'None'}, "
+                  f"X_val: {X_val_prep.shape}, y_val: {y_val_prep.shape if y_val_prep is not None else 'None'}, "
+                  f"X_test: {X_test_prep.shape}")
+
+        # Pass task_type to train_model
+        train_params = model_config.get('train_params', {}).copy()
+        train_params['task_type'] = dataset.task_type
+
+        return self._train_model(
+            model, X_train_prep, y_train_prep, X_val_prep, y_val_prep,
+            **train_params
+        )
+
+    def _assemble_prediction_result(
+        self, dataset, context, runtime_context, identifiers, trained_model,
+        X_train, y_train, X_val, y_val, X_test,
+        y_train_unscaled, y_val_unscaled, y_test_unscaled,
+        train_indices, val_indices, best_params, test_sample_ids
+    ):
+        """Run predictions with ``trained_model`` and build the prediction record.
+
+        Generates scaled predictions (and class probabilities for classification),
+        transforms to the unscaled space, computes partition scores and full
+        metrics, normalizes sample indices, and assembles the prediction payload.
+
+        Shared state: read-only over inputs. Returns
+        ``(trained_model, model_id, val_score, model_name, prediction_data)``.
+        """
         # === 4. GENERATE PREDICTIONS (scaled) ===
         X_train_prep, y_train_prep = self._prepare_data(X_train, y_train, context or {})
         X_val_prep, y_val_prep = self._prepare_data(X_val, y_val, context or {})

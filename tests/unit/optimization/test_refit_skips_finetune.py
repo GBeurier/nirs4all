@@ -22,15 +22,19 @@ class TestRefitSkipsFinetuneGuard:
 
         from nirs4all.controllers.models.base_model import BaseModelController
 
-        source = inspect.getsource(BaseModelController.execute)
+        # Inspect the WHOLE controller class source (not just execute) so this
+        # guard survives method extraction: the refit dispatch gate may live in
+        # execute or in any private helper it delegates to. It still guards the
+        # exact BUG-4 regression.
+        source = inspect.getsource(BaseModelController)
 
         # The fix adds: is_refit = runtime_context.phase == ExecutionPhase.REFIT
         # and: if not is_refit and (mode == "finetune" or ...)
         assert "is_refit" in source, (
-            "BUG-4: execute() must check is_refit before dispatching to _execute_finetune"
+            "BUG-4: controller must check is_refit before dispatching to _execute_finetune"
         )
         assert "not is_refit" in source, (
-            "BUG-4: execute() must skip _execute_finetune when is_refit is True"
+            "BUG-4: controller must skip _execute_finetune when is_refit is True"
         )
 
 class TestInjectBestParamsStripsFinetuneParams:

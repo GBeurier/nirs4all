@@ -752,11 +752,17 @@ class TestBaseModelControllerRefitDispatch:
 
         from nirs4all.controllers.models.base_model import BaseModelController
 
-        source = inspect.getsource(BaseModelController.train)
+        # Inspect the predict-mode dispatch helper (where both the refit check and
+        # the fold loop live) rather than a single public method, so the ordering
+        # assertion stays MEANINGFUL after method extraction: scoping to the helper
+        # guarantees the two patterns are compared within the same control-flow unit
+        # (a whole-class scope would compare across unrelated methods and be vacuous).
+        source = inspect.getsource(BaseModelController._train_predict_mode)
         # The refit check should appear before the fold iteration
         refit_check_pos = source.find("get_refit_artifact")
         fold_iter_pos = source.find("for fold_iter in range(n_folds)")
         assert refit_check_pos > -1, "get_refit_artifact should be called"
+        assert fold_iter_pos > -1, "fold iteration loop should exist"
         assert refit_check_pos < fold_iter_pos, "Refit check should come before fold iteration"
 
     def test_launch_training_tries_refit_artifact_first(self):
@@ -765,10 +771,16 @@ class TestBaseModelControllerRefitDispatch:
 
         from nirs4all.controllers.models.base_model import BaseModelController
 
-        source = inspect.getsource(BaseModelController.launch_training)
+        # Inspect the predict-mode model-load helper (which holds both
+        # get_refit_artifact and the get_artifacts_for_step fallback, in that order)
+        # rather than a single public method, so the ordering assertion stays
+        # MEANINGFUL after method extraction. A whole-class scope would pick the
+        # first get_refit_artifact from an unrelated helper and make this vacuous.
+        source = inspect.getsource(BaseModelController._load_model_for_prediction)
         refit_pos = source.find("get_refit_artifact")
         fallback_pos = source.find("get_artifacts_for_step")
-        assert refit_pos > -1, "get_refit_artifact should be called in launch_training"
+        assert refit_pos > -1, "get_refit_artifact should be called in the model-load path"
+        assert fallback_pos > -1, "get_artifacts_for_step should be the fallback"
         assert refit_pos < fallback_pos, "Refit artifact should be tried before general artifacts"
 
 # =========================================================================
