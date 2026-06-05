@@ -18,16 +18,21 @@ from nirs4all.operators.models import TabPFNNIRSRegressor  # noqa: E402
 def _fit_or_skip(est: TabPFNNIRSRegressor, X: np.ndarray, y: np.ndarray) -> TabPFNNIRSRegressor:
     """Fit, skipping when TabPFN cannot obtain its model weights here.
 
-    Recent ``tabpfn`` releases gate the weight download behind a one-time license
-    acceptance (``TABPFN_TOKEN``); fresh CI runners have neither the token nor a
-    weights cache, so ``fit`` raises ``TabPFNLicenseError``. Matched by name so the
-    module keeps working with older tabpfn versions that lack the error class.
+    Recent ``tabpfn`` releases gate the weight download behind a license
+    acceptance (``TABPFN_TOKEN``) and a gated HuggingFace repo; fresh CI runners
+    have neither credentials nor a weights cache, so ``fit`` raises a
+    tabpfn-specific setup error (``TabPFNLicenseError``,
+    ``TabPFNHuggingFaceGatedRepoError``, ...). The whole ``TabPFN*`` error family
+    from the ``tabpfn`` package is matched by name/module — those are by design
+    its environment/licensing errors (a genuine fit bug raises builtins) — so the
+    module keeps working across tabpfn versions and failure paths.
     """
     try:
         return est.fit(X, y)
     except Exception as exc:
-        if type(exc).__name__ == "TabPFNLicenseError":
-            pytest.skip("TabPFN license not accepted in this environment (no TABPFN_TOKEN or cached weights)")
+        cls = type(exc)
+        if cls.__name__.startswith("TabPFN") and cls.__module__.startswith("tabpfn"):
+            pytest.skip(f"TabPFN cannot obtain model weights in this environment: {cls.__name__}")
         raise
 
 
