@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import nullcontext
 from unittest.mock import Mock
 
 import numpy as np
@@ -45,6 +46,7 @@ def test_execute_passes_dataset_content_hash_to_begin_pipeline():
 def test_flush_predictions_uses_refit_runtime_overrides():
     """Refit runtime labels should be applied before saving predictions."""
     store = Mock()
+    store.transaction.return_value = nullcontext()  # flush() wraps its body in a transaction
     store.get_chains_for_pipeline.return_value = pl.DataFrame(
         {
             "chain_id": ["chain-1"],
@@ -138,6 +140,7 @@ def test_record_dataset_shapes_reuses_cached_selector_shapes():
 def test_flush_predictions_uses_preindexed_chain_matching():
     """Chain selection should resolve by step/branch/class/preprocessing."""
     store = Mock()
+    store.transaction.return_value = nullcontext()  # flush() wraps its body in a transaction
     store.get_chains_for_pipeline.return_value = pl.DataFrame(
         {
             "chain_id": ["chain-0", "chain-1", "chain-2", "chain-3"],
