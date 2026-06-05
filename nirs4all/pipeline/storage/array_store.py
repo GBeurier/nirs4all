@@ -539,13 +539,17 @@ class ArrayStore:
     # Maintenance
     # ------------------------------------------------------------------
 
-    def has_pending_tombstones(self) -> bool:
-        """Return True when deletes are pending physical removal.
+    def pending_tombstone_count(self) -> int:
+        """Number of deletes pending physical removal.
 
         Cheap (single small JSON read, no Parquet access) — used to gate the
-        startup reconciliation in ``WorkspaceStore``.
+        startup reconciliation and the auto-compaction in ``WorkspaceStore``.
         """
-        return bool(self._read_tombstones())
+        return len(self._read_tombstones())
+
+    def has_pending_tombstones(self) -> bool:
+        """Return True when deletes are pending physical removal."""
+        return self.pending_tombstone_count() > 0
 
     @_locked
     def compact(self, dataset_name: str | None = None, live_ids: set[str] | None = None) -> dict[str, dict[str, Any]]:

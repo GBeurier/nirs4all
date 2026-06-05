@@ -130,6 +130,135 @@ class TestWorkspaceStoreCompactArrays:
         assert store._array_store._read_tombstones() == {}
 
 # =========================================================================
+# Auto-compaction (threshold-gated, after committed deletes)
+# =========================================================================
+
+class TestAutoCompaction:
+    def test_below_threshold_keeps_tombstones_pending(self, tmp_path):
+        """A single delete under the (default, high) threshold does not compact."""
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+
+        assert store.delete_prediction(ids["pred_id"]) is True
+
+        assert store._array_store.has_pending_tombstones()
+        # Arrays still physically present until a compaction runs.
+        assert ids["pred_id"] in store._array_store.load_batch([ids["pred_id"]])
+
+    def test_threshold_reached_triggers_compaction(self, tmp_path, monkeypatch):
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        monkeypatch.setattr(WorkspaceStore, "AUTO_COMPACT_TOMBSTONE_THRESHOLD", 1)
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+
+        assert store.delete_prediction(ids["pred_id"]) is True
+
+        # Compaction ran automatically: arrays reclaimed, no pending tombstones.
+        assert not store._array_store.has_pending_tombstones()
+        assert store._array_store.load_batch([ids["pred_id"]]) == {}
+
+    def test_skipped_inside_open_transaction(self, tmp_path, monkeypatch):
+        """Deletes inside a transaction never auto-compact (committed-state rule)."""
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        monkeypatch.setattr(WorkspaceStore, "AUTO_COMPACT_TOMBSTONE_THRESHOLD", 1)
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+
+        with store.transaction():
+            store.delete_prediction(ids["pred_id"])
+
+        # The guard skipped compaction; the tombstone is still pending after commit
+        # (the next delete, manual compact_arrays, or reopen reclaims it).
+        assert store._array_store.has_pending_tombstones()
+        assert ids["pred_id"] in store._array_store.load_batch([ids["pred_id"]])
+
+    def test_delete_run_call_site_triggers_auto_compaction(self, tmp_path, monkeypatch):
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        monkeypatch.setattr(WorkspaceStore, "AUTO_COMPACT_TOMBSTONE_THRESHOLD", 1)
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+
+        store.delete_run(ids["run_id"], delete_artifacts=False)
+
+        assert not store._array_store.has_pending_tombstones()
+        assert store._array_store.load_batch([ids["pred_id"]]) == {}
+
+    def test_metadata_only_upsert_tombstone_resolved_by_next_auto_compaction(self, tmp_path, monkeypatch):
+        """flush() never auto-compacts (it runs inside a transaction). A
+        metadata-only upsert tombstones the overwritten id but skips save_batch
+        (no arrays to write), so the stale tombstone stays pending. It counts
+        toward the threshold, and the next delete-triggered compaction resolves it
+        SAFELY: the live row's arrays are kept and the stale tombstone dropped."""
+        import numpy as np
+
+        from nirs4all.data.predictions import Predictions
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+        from tests.unit.data.test_predictions_store import _setup_store_hierarchy
+
+        store = _make_store(tmp_path)
+        pipeline_id, chain_id = _setup_store_hierarchy(store)
+        preds = Predictions(store=store)
+
+        def buffer(with_arrays: bool) -> None:
+            preds.add_prediction(
+                dataset_name="wheat", model_name="PLS", model_classname="PLSRegression",
+                fold_id=0, partition="val",
+                y_true=np.array([1.0, 2.0]) if with_arrays else None,
+                y_pred=np.array([1.1, 2.1]) if with_arrays else None,
+                val_score=0.1, metric="rmse", task_type="regression",
+                n_samples=2, n_features=10,
+            )
+
+        # 1st flush: full row with arrays.
+        buffer(with_arrays=True)
+        preds.flush(pipeline_id=pipeline_id, chain_id=chain_id)
+        pred_id = store.query_predictions()["prediction_id"][0]
+        assert pred_id in store.array_store.load_batch([pred_id])
+
+        # 2nd flush: metadata-only upsert of the SAME natural key -> tombstones the
+        # id but writes no arrays, leaving a stale tombstone pending.
+        preds._buffer.clear()
+        buffer(with_arrays=False)
+        preds.flush(pipeline_id=pipeline_id, chain_id=chain_id)
+        assert store.array_store.has_pending_tombstones()
+        assert pred_id in store.array_store.load_batch([pred_id])  # not applied
+
+        # Next delete-triggered auto-compaction (threshold counts the stale one).
+        monkeypatch.setattr(WorkspaceStore, "AUTO_COMPACT_TOMBSTONE_THRESHOLD", 1)
+        ids2 = _create_full_run(store, dataset_name="corn")
+        _seed_arrays(store, ids2["pred_id"], dataset_name="corn")
+        store.delete_prediction(ids2["pred_id"])
+
+        # Stale tombstone dropped, live arrays KEPT; dead row reclaimed.
+        assert not store.array_store.has_pending_tombstones()
+        assert pred_id in store.array_store.load_batch([pred_id])
+        assert store.array_store.load_batch([ids2["pred_id"]]) == {}
+
+    def test_auto_compact_failure_does_not_break_the_delete(self, tmp_path, monkeypatch):
+        from nirs4all.pipeline.storage.array_store import ArrayStore
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        monkeypatch.setattr(WorkspaceStore, "AUTO_COMPACT_TOMBSTONE_THRESHOLD", 1)
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        _seed_arrays(store, ids["pred_id"])
+
+        def boom(self, dataset_name=None, live_ids=None):
+            raise RuntimeError("simulated compaction failure")
+
+        monkeypatch.setattr(ArrayStore, "_compact_unlocked", boom)
+
+        assert store.delete_prediction(ids["pred_id"]) is True  # delete unaffected
+        assert store._array_store.has_pending_tombstones()  # left for later repair
+
+# =========================================================================
 # Startup reconciliation (WorkspaceStore.__init__, gated on pending tombstones)
 # =========================================================================
 

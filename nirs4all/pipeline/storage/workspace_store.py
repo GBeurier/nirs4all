@@ -229,6 +229,13 @@ class WorkspaceStore:
         >>> store.complete_run(run_id, summary={"total_pipelines": 5})
     """
 
+    # Auto-compaction trigger: once this many tombstones are pending after a
+    # committed delete, compact_arrays() runs automatically. The threshold
+    # amortizes the whole-file Parquet rewrite across many deletes; startup
+    # reconciliation reclaims whatever is still pending when a session ends.
+    # Class attribute so tests (and power users) can tune it.
+    AUTO_COMPACT_TOMBSTONE_THRESHOLD = 64
+
     def __init__(self, workspace_path: Path) -> None:
         self._workspace_path = Path(workspace_path)
         self._workspace_path.mkdir(parents=True, exist_ok=True)
@@ -2469,6 +2476,7 @@ class WorkspaceStore:
             if delete_artifacts:
                 self.gc_artifacts()
 
+            self._auto_compact_if_needed()
             return total
 
     def delete_prediction(self, prediction_id: str) -> bool:
@@ -2624,6 +2632,7 @@ class WorkspaceStore:
             )
             deleted_artifacts = self.gc_artifacts() if deleted_chains > 0 else 0
 
+            self._auto_compact_if_needed()
             return {
                 "success": True,
                 "deleted_predictions": len(pred_ids),
@@ -3017,6 +3026,33 @@ class WorkspaceStore:
                 rows = conn.execute("SELECT prediction_id FROM predictions").fetchall()
                 live_ids = {str(row[0]) for row in rows}
                 return self._array_store._compact_unlocked(dataset_name=dataset_name, live_ids=live_ids)
+
+    def _auto_compact_if_needed(self) -> None:
+        """Threshold-gated auto-compaction after a committed delete.
+
+        Runs :meth:`compact_arrays` once ``AUTO_COMPACT_TOMBSTONE_THRESHOLD``
+        tombstones are pending. Skipped silently inside an open ``transaction()``
+        (compaction must only act on committed state — a rollback after it would
+        resurrect rows whose arrays are gone). Failures are logged, never
+        propagated: the delete that triggered the maintenance already succeeded.
+
+        Deliberately NOT triggered by ``flush()`` (it always runs inside a
+        transaction, so the guard would skip it). Metadata-only upserts there can
+        leave stale tombstones pending — those count toward this threshold and are
+        resolved safely by the next delete-triggered compaction (validated: the
+        live row's arrays are kept, the stale tombstone dropped) or by the startup
+        reconciliation on the next open.
+        """
+        with self._lock:
+            conn = self._ensure_open()
+            if conn.in_transaction:
+                return
+            if self._array_store.pending_tombstone_count() < self.AUTO_COMPACT_TOMBSTONE_THRESHOLD:
+                return
+            try:
+                self.compact_arrays()
+            except Exception as exc:
+                logger.warning("Auto-compaction failed (tombstones remain pending): %s", exc)
 
     # =====================================================================
     # Chain replay
