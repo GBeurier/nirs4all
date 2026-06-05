@@ -2814,7 +2814,7 @@ class Predictions:
                 store.delete_prediction(pid)
                 removed_meta += 1
             if array_orphans:
-                store.array_store.compact()
+                store.compact_arrays()
 
         return {
             "metadata_orphans_removed": removed_meta if not dry_run else len(metadata_orphans),
@@ -2912,6 +2912,10 @@ class Predictions:
     def compact(self, dataset_name: str | None = None) -> dict[str, dict[str, Any]]:
         """Compact Parquet files: apply tombstones, deduplicate, re-sort.
 
+        Delegates to :meth:`WorkspaceStore.compact_arrays`, which validates
+        tombstones against committed SQLite metadata so a stale tombstone can
+        never remove a live prediction's arrays.
+
         Args:
             dataset_name: If given, compact only that dataset.
 
@@ -2919,7 +2923,7 @@ class Predictions:
             Per-dataset compaction stats.
         """
         store = self._require_store()
-        return store.array_store.compact(dataset_name)
+        return store.compact_arrays(dataset_name)
 
     def _find_store_db_path(self, workspace_path: Path) -> Path | None:
         """Locate the metadata store file in a workspace directory.

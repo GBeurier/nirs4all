@@ -465,12 +465,19 @@ class ArrayStore:
     # Maintenance
     # ------------------------------------------------------------------
 
-    def compact(self, dataset_name: str | None = None) -> dict[str, dict[str, Any]]:
+    def compact(self, dataset_name: str | None = None, live_ids: set[str] | None = None) -> dict[str, dict[str, Any]]:
         """Rewrite Parquet file(s): apply tombstones, deduplicate, re-sort.
 
         Args:
             dataset_name: If given, compact only that dataset's file.
                 If ``None``, compact all datasets.
+            live_ids: Prediction IDs that are LIVE in committed SQLite metadata.
+                When given, a tombstoned id that is still live is NEVER removed —
+                its stale tombstone is dropped instead. Stale tombstones arise from
+                a crash or rollback between a SQLite write and the matching
+                tombstone write (e.g. the ``save_prediction`` upsert window).
+                When ``None``, tombstones are applied as-is; callers with access to
+                the SQLite metadata should prefer ``WorkspaceStore.compact_arrays``.
 
         Returns:
             Stats per dataset::
@@ -480,6 +487,16 @@ class ArrayStore:
         """
         tombstones = self._read_tombstones()
         tombstone_ids = set(tombstones.keys())
+        stale_ids: set[str] = set()
+        if live_ids is not None and tombstone_ids:
+            stale_ids = tombstone_ids & live_ids
+            if stale_ids:
+                logger.warning(
+                    "compact: ignoring %d stale tombstone(s) referencing live predictions; "
+                    "dropping the tombstone(s) and keeping the arrays.",
+                    len(stale_ids),
+                )
+            tombstone_ids -= live_ids
         applied_ids: set[str] = set()
         stats: dict[str, dict[str, Any]] = {}
 
@@ -531,9 +548,11 @@ class ArrayStore:
                     "bytes_after": bytes_after,
                 }
 
-        # Only clear tombstones that were actually applied to files
-        if applied_ids:
-            remaining = {k: v for k, v in tombstones.items() if k not in applied_ids}
+        # Clear tombstones that were applied to files, plus stale tombstones for
+        # live predictions (they must never be allowed to remove a live row's arrays).
+        cleared_ids = applied_ids | stale_ids
+        if cleared_ids:
+            remaining = {k: v for k, v in tombstones.items() if k not in cleared_ids}
             self._write_tombstones(remaining)
 
         return stats

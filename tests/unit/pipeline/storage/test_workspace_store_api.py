@@ -825,6 +825,7 @@ class TestMethodInventory:
         "cleanup_transient_artifacts",
         "gc_artifacts",
         "vacuum",
+        "compact_arrays",
         # Cross-run cache
         "save_artifact_with_cache_key",
         "update_artifact_cache_key",
@@ -884,4 +885,4 @@ class TestMethodInventory:
 
     def test_total_method_count(self):
         """The expected method count matches the design doc."""
-        assert len(self.EXPECTED_METHODS) == 56
+        assert len(self.EXPECTED_METHODS) == 57

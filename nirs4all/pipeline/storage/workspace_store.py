@@ -2958,6 +2958,37 @@ class WorkspaceStore:
             conn = self._ensure_open()
             conn.execute("VACUUM")
 
+    def compact_arrays(self, dataset_name: str | None = None) -> dict[str, dict[str, Any]]:
+        """Compact Parquet array files, validated against committed SQLite metadata.
+
+        Applies pending ArrayStore tombstones with a safety guard: a tombstoned
+        ``prediction_id`` that is still LIVE in SQLite is never removed — its stale
+        tombstone is dropped instead. Stale tombstones arise from a crash or
+        rollback between a SQLite write and the matching tombstone write (e.g. the
+        ``save_prediction`` upsert window inside a ``transaction()`` block).
+
+        Must run on committed state: raises ``RuntimeError`` when called inside an
+        open ``transaction()`` block, because a rollback after compaction would
+        resurrect SQLite rows whose arrays were already physically removed.
+
+        Args:
+            dataset_name: If given, compact only that dataset's Parquet file.
+                The live-id validation is always computed across ALL datasets.
+
+        Returns:
+            Per-dataset compaction stats (see :meth:`ArrayStore.compact`).
+        """
+        with self._lock:
+            conn = self._ensure_open()
+            if conn.in_transaction:
+                raise RuntimeError(
+                    "compact_arrays() must not run inside an open transaction(); "
+                    "call it after the transaction commits."
+                )
+            rows = conn.execute("SELECT prediction_id FROM predictions").fetchall()
+            live_ids = {str(row[0]) for row in rows}
+            return self._array_store.compact(dataset_name=dataset_name, live_ids=live_ids)
+
     # =====================================================================
     # Chain replay
     # =====================================================================
