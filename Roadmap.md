@@ -3,6 +3,7 @@
 > JS in page, pls lib, aom publish, test protocol, tabpfn 3.
 
 > [publish] auto release on tag
+>   - [version] migrate to setuptools-scm (version derived from git tags, no literal anywhere) — pairs with tag-driven release. Today the version is single-sourced from `nirs4all/__init__.py` (`__version__`) via pyproject `dynamic = ["version"]` + `attr:` (debt campaign 2026-06-05); scm is the next step once releases go tag-driven.
 
 > [refit] refit as an operator of pipeline
 
