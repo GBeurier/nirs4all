@@ -18,6 +18,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 PYPROJECT = ROOT / "pyproject.toml"
 META_YAML = ROOT / "conda-forge" / "meta.yaml"
+INIT_PY = ROOT / "nirs4all" / "__init__.py"
+
+
+def read_version() -> str:
+    """Read the single-source version from nirs4all/__init__.py (__version__).
+
+    pyproject.toml declares the version dynamically (attr = nirs4all.__version__),
+    so it is no longer a literal there; __init__.py is the single source of truth.
+    """
+    text = INIT_PY.read_text(encoding="utf-8")
+    match = re.search(r'^__version__\s*=\s*"([^"]+)"', text, re.MULTILINE)
+    if not match:
+        raise RuntimeError(f"Could not find __version__ in {INIT_PY}")
+    return match.group(1)
 
 # PyPI package name -> conda-forge package name
 PYPI_TO_CONDA = {
@@ -32,7 +46,7 @@ def parse_pyproject() -> dict:
         data = tomllib.load(f)
     project = data["project"]
     return {
-        "version": project["version"],
+        "version": read_version(),
         "dependencies": project.get("dependencies", []),
     }
 

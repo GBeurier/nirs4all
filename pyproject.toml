@@ -4,7 +4,9 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "nirs4all"
-version = "0.9.1"
+# Version is single-sourced from nirs4all/__init__.py (__version__); see
+# [tool.setuptools.dynamic] below. Keep the literal only there.
+dynamic = ["version"]
 description = "A comprehensive Python library for Near-Infrared Spectroscopy (NIRS) data analysis with ML/DL pipelines."
 authors = [
     { name = "Gregory Beurier", email = "beurier@cirad.fr" },
@@ -171,6 +173,9 @@ include = ["nirs4all*"]
 
 [tool.setuptools.package-data]
 nirs4all = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = { attr = "nirs4all.__version__" }
 
 # Ruff configuration (replaces flake8 + pylint for linting)
 [tool.ruff]
