@@ -1587,6 +1587,38 @@ class MetaModelController(SklearnModelController):
             logger.info("MetaModel prediction mode")
 
         # Get meta operator from context
+        meta_operator = self._resolve_predict_meta_operator(context, model_config)
+
+        # Build meta-features from current session predictions and stash them
+        X_test_meta = self._prepare_predict_meta_features(
+            dataset, context, runtime_context, prediction_store,
+            meta_operator, loaded_binaries, verbose
+        )
+
+        # Call parent's prediction execution with meta-features
+        return SklearnModelController._execute_predict(
+            self, dataset, model_config, context, runtime_context, prediction_store,
+            X_train, y_train, X_test_meta, y_test, y_train_unscaled, y_test_unscaled,
+            folds, loaded_binaries, mode
+        )
+
+    def _resolve_predict_meta_operator(self, context, model_config) -> MetaModel:
+        """Resolve the MetaModel operator for prediction mode.
+
+        Tries the execution context first, falling back to the model_config's
+        ``model_instance``. Preserves the original ``raise ... from None`` so the
+        fallback failure is reported without chaining the context lookup error.
+
+        Args:
+            context: Execution context.
+            model_config: Model configuration dictionary.
+
+        Returns:
+            The resolved MetaModel operator.
+
+        Raises:
+            MetaModelPredictionError: If no MetaModel operator can be found.
+        """
         try:
             meta_operator = self._get_meta_operator_from_context(context)
         except ValueError:
@@ -1596,7 +1628,31 @@ class MetaModelController(SklearnModelController):
                 raise MetaModelPredictionError(
                     "Cannot find MetaModel operator for prediction"
                 ) from None
+        return meta_operator
 
+    def _prepare_predict_meta_features(
+        self, dataset, context, runtime_context, prediction_store,
+        meta_operator, loaded_binaries, verbose
+    ):
+        """Build prediction-mode meta-features and stash them on the context.
+
+        Loads the meta-model artifact config, validates the branch context when an
+        artifact is present, builds the meta-features from current session
+        predictions, optionally logs the resulting shape, and stores the features
+        on ``context.custom['_X_test_meta']``.
+
+        Args:
+            dataset: SpectroDataset instance.
+            context: Execution context (mutated: ``custom['_X_test_meta']``).
+            runtime_context: Runtime context.
+            prediction_store: Predictions storage.
+            meta_operator: Resolved MetaModel operator.
+            loaded_binaries: Pre-loaded model binaries.
+            verbose: Verbosity level controlling the success log.
+
+        Returns:
+            The constructed meta-feature test matrix ``X_test_meta``.
+        """
         # Try to load meta-model configuration from artifacts
         meta_artifact = self._load_meta_artifact_config(
             runtime_context, context, loaded_binaries
@@ -1618,12 +1674,7 @@ class MetaModelController(SklearnModelController):
         # Store original for reference
         context.custom['_X_test_meta'] = X_test_meta
 
-        # Call parent's prediction execution with meta-features
-        return SklearnModelController._execute_predict(
-            self, dataset, model_config, context, runtime_context, prediction_store,
-            X_train, y_train, X_test_meta, y_test, y_train_unscaled, y_test_unscaled,
-            folds, loaded_binaries, mode
-        )
+        return X_test_meta
 
     def _load_meta_artifact_config(
         self,
@@ -1863,6 +1914,63 @@ class MetaModelController(SklearnModelController):
         step_index = runtime_context.step_number
         bp = branch_path or ([branch_id] if branch_id is not None else [])
 
+        artifact_id, chain_path = self._generate_meta_artifact_id(
+            runtime_context, model, bp, fold_id, pipeline_id, step_index
+        )
+
+        meta_artifact = serializer.build_artifact(
+            meta_operator=meta_operator,
+            source_models=source_models,
+            reconstruction_result=reconstruction_result,
+            context=context,
+            artifact_id=artifact_id,
+        )
+
+        # Validate artifact
+        validation_errors = serializer.validate_artifact(meta_artifact)
+        if validation_errors:
+            warnings.warn(
+                f"Meta-model artifact validation warnings: {validation_errors}", stacklevel=2
+            )
+
+        # Use artifact registry if available
+        if runtime_context.artifact_registry is not None:
+            return self._register_meta_model(
+                runtime_context, serializer, meta_artifact, model, meta_operator,
+                artifact_id, chain_path, bp, fold_id, custom_name
+            )
+
+        # Fallback: return artifact metadata dict (no artifact_registry available)
+        return self._persist_meta_model_fallback(
+            runtime_context, meta_artifact, model, model_id, meta_operator,
+            pipeline_id, step_index, branch_id, branch_name, fold_id, custom_name
+        )
+
+    def _generate_meta_artifact_id(
+        self,
+        runtime_context: 'RuntimeContext',
+        model: Any,
+        bp: list[int],
+        fold_id: int | None,
+        pipeline_id: str,
+        step_index: Any,
+    ) -> tuple[str, str]:
+        """Generate the artifact ID and chain path for a meta-model.
+
+        Mirrors the original inline V3 chain-based ID generation, including the
+        fallback used when no artifact registry is available.
+
+        Args:
+            runtime_context: Runtime context with artifact registry / trace recorder.
+            model: Trained meta-model (used for the operator class name in the node).
+            bp: Resolved branch path for the meta-model node.
+            fold_id: Fold identifier.
+            pipeline_id: Pipeline identifier (already defaulted by caller).
+            step_index: Step number for the chain node / fallback ID.
+
+        Returns:
+            Tuple of ``(artifact_id, chain_path)``.
+        """
         if runtime_context.artifact_registry is not None:
             # V3: Build operator chain for this meta-model
             from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
@@ -1891,67 +1999,119 @@ class MetaModelController(SklearnModelController):
             artifact_id = f"{pipeline_id}:{step_index}:{fold_id or 'all'}"
             chain_path = ""
 
-        meta_artifact = serializer.build_artifact(
-            meta_operator=meta_operator,
-            source_models=source_models,
-            reconstruction_result=reconstruction_result,
-            context=context,
+        return artifact_id, chain_path
+
+    def _register_meta_model(
+        self,
+        runtime_context: 'RuntimeContext',
+        serializer: MetaModelSerializer,
+        meta_artifact: MetaModelArtifact,
+        model: Any,
+        meta_operator: MetaModel,
+        artifact_id: str,
+        chain_path: str,
+        bp: list[int],
+        fold_id: int | None,
+        custom_name: str | None,
+    ) -> Any:
+        """Register the meta-model via the artifact registry and record its trace.
+
+        Used when ``runtime_context.artifact_registry`` is available. Preserves the
+        original dependency collection, registration call, and trace recording.
+
+        Args:
+            runtime_context: Runtime context with the artifact registry.
+            serializer: MetaModelSerializer used to build the registry config.
+            meta_artifact: Built MetaModelArtifact (provides source model refs).
+            model: Trained meta-model object to persist.
+            meta_operator: MetaModel operator (name + wrapped model params).
+            artifact_id: Generated artifact ID.
+            chain_path: V3 chain path for the artifact.
+            bp: Resolved branch path for trace recording.
+            fold_id: Fold identifier (drives primary/non-primary recording).
+            custom_name: User-defined name, falling back to ``meta_operator.name``.
+
+        Returns:
+            The ArtifactRecord returned by the registry.
+        """
+        registry = runtime_context.artifact_registry
+
+        # Get source model artifact IDs for dependencies
+        source_artifact_ids = []
+        for ref in meta_artifact.source_models:
+            if ref.artifact_id:
+                source_artifact_ids.append(ref.artifact_id)
+
+        # Create MetaModelConfig for registry
+        meta_config = serializer.to_meta_model_config(meta_artifact)
+
+        # Use custom_name if provided, otherwise fall back to meta_operator.name
+        artifact_name = custom_name or meta_operator.name
+
+        # Register meta-model with dependencies (V3 with chain_path)
+        record = registry.register(
+            obj=model,
             artifact_id=artifact_id,
+            artifact_type=ArtifactType.META_MODEL,
+            depends_on=source_artifact_ids,
+            params=meta_operator.model.get_params() if hasattr(meta_operator.model, 'get_params') else {},
+            meta_config=meta_config,
+            format_hint='sklearn',
+            chain_path=chain_path,
+            custom_name=artifact_name,
         )
 
-        # Validate artifact
-        validation_errors = serializer.validate_artifact(meta_artifact)
-        if validation_errors:
-            warnings.warn(
-                f"Meta-model artifact validation warnings: {validation_errors}", stacklevel=2
-            )
+        # Record artifact in execution trace (Phase 2) with V3 chain info
+        runtime_context.record_step_artifact(
+            artifact_id=artifact_id,
+            is_primary=(fold_id is None),
+            fold_id=fold_id,
+            chain_path=chain_path,
+            branch_path=bp,
+            metadata={
+                "class_name": model.__class__.__name__,
+                "custom_name": artifact_name,
+                "is_meta_model": True
+            }
+        )
 
-        # Use artifact registry if available
-        if runtime_context.artifact_registry is not None:
-            registry = runtime_context.artifact_registry
+        return record
 
-            # Get source model artifact IDs for dependencies
-            source_artifact_ids = []
-            for ref in meta_artifact.source_models:
-                if ref.artifact_id:
-                    source_artifact_ids.append(ref.artifact_id)
+    def _persist_meta_model_fallback(
+        self,
+        runtime_context: 'RuntimeContext',
+        meta_artifact: MetaModelArtifact,
+        model: Any,
+        model_id: str,
+        meta_operator: MetaModel,
+        pipeline_id: str,
+        step_index: Any,
+        branch_id: int | None,
+        branch_name: str | None,
+        fold_id: int | None,
+        custom_name: str | None,
+    ) -> Any:
+        """Build and record the fallback artifact metadata (no registry available).
 
-            # Create MetaModelConfig for registry
-            meta_config = serializer.to_meta_model_config(meta_artifact)
+        Mirrors the original inline fallback branch: builds the artifact metadata
+        dict and records the step artifact under the fallback artifact ID.
 
-            # Use custom_name if provided, otherwise fall back to meta_operator.name
-            artifact_name = custom_name or meta_operator.name
+        Args:
+            runtime_context: Runtime context (provides step number, trace recording).
+            meta_artifact: Built MetaModelArtifact (serialized into ``meta_config``).
+            model: Trained meta-model (used for the class name in metadata).
+            model_id: Model identifier (used for the artifact file name).
+            meta_operator: MetaModel operator (name fallback for ``custom_name``).
+            pipeline_id: Pipeline identifier for the fallback artifact ID.
+            step_index: Step number for the fallback artifact ID.
+            branch_id: Branch identifier stored in the metadata dict.
+            branch_name: Branch name stored in the metadata dict.
+            fold_id: Fold identifier (drives primary recording + fallback ID).
+            custom_name: User-defined name, falling back to ``meta_operator.name``.
 
-            # Register meta-model with dependencies (V3 with chain_path)
-            record = registry.register(
-                obj=model,
-                artifact_id=artifact_id,
-                artifact_type=ArtifactType.META_MODEL,
-                depends_on=source_artifact_ids,
-                params=meta_operator.model.get_params() if hasattr(meta_operator.model, 'get_params') else {},
-                meta_config=meta_config,
-                format_hint='sklearn',
-                chain_path=chain_path,
-                custom_name=artifact_name,
-            )
-
-            # Record artifact in execution trace (Phase 2) with V3 chain info
-            runtime_context.record_step_artifact(
-                artifact_id=artifact_id,
-                is_primary=(fold_id is None),
-                fold_id=fold_id,
-                chain_path=chain_path,
-                branch_path=bp,
-                metadata={
-                    "class_name": model.__class__.__name__,
-                    "custom_name": artifact_name,
-                    "is_meta_model": True
-                }
-            )
-
-            return record
-
-        # Fallback: return artifact metadata dict (no artifact_registry available)
+        Returns:
+            The fallback artifact metadata dict.
+        """
         artifact_name = custom_name or meta_operator.name
         artifact_meta = {
             "name": f"{model_id}.pkl",

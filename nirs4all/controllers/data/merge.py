@@ -2288,10 +2288,84 @@ class MergeController(OperatorController):
 
         n_total_samples = disjoint_analysis.total_samples
         select_by = config.select_by
+        branch_sample_indices = disjoint_analysis.branch_sample_indices
 
         # Step 1: Discover models in each branch and their scores
+        branch_models = self._discover_disjoint_branch_models(
+            branch_contexts=branch_contexts,
+            context=context,
+            config=config,
+            select_by=select_by,
+            prediction_store=prediction_store,
+        )
+
+        # Step 2: Determine N (output column count)
+        n_columns, model_counts, min_model_count, max_model_count = (
+            self._determine_disjoint_n_columns(
+                branch_models=branch_models,
+                config=config,
+                select_by=select_by,
+            )
+        )
+
+        # Step 3: Select top-N models per branch
+        selected_per_branch, dropped_per_branch, column_mapping = (
+            self._select_disjoint_top_models(
+                branch_models=branch_models,
+                n_columns=n_columns,
+                select_by=select_by,
+            )
+        )
+
+        # Step 4: Collect OOF predictions for selected models
+        merged = self._collect_disjoint_oof_predictions(
+            dataset=dataset,
+            context=context,
+            prediction_store=prediction_store,
+            mode=mode,
+            selected_per_branch=selected_per_branch,
+            branch_sample_indices=branch_sample_indices,
+            n_total_samples=n_total_samples,
+            n_columns=n_columns,
+        )
+
+        # Build comprehensive metadata + info dict
+        info = self._build_disjoint_prediction_info(
+            merged=merged,
+            selected_per_branch=selected_per_branch,
+            dropped_per_branch=dropped_per_branch,
+            branch_sample_indices=branch_sample_indices,
+            column_mapping=column_mapping,
+            model_counts=model_counts,
+            n_columns=n_columns,
+            min_model_count=min_model_count,
+            max_model_count=max_model_count,
+            select_by=select_by,
+        )
+
+        logger.info(
+            f"  Collected predictions: {len(selected_per_branch)} branches → "
+            f"shape={merged.shape}"
+        )
+
+        return merged, info
+
+    def _discover_disjoint_branch_models(
+        self,
+        branch_contexts: list[dict[str, Any]],
+        context: "ExecutionContext",
+        config: MergeConfig,
+        select_by: str,
+        prediction_store: Any,
+    ) -> dict[int, list[dict[str, Any]]]:
+        """Discover models and their ranking scores per disjoint branch (Step 1).
+
+        Shared state in: ``branch_contexts``, ``context``, ``config``,
+        ``select_by``, ``prediction_store``.
+        Shared state out: ``branch_models`` (branch_id -> list of model_info
+        dicts). Raises ValueError [MERGE-E043] when no branch yielded any model.
+        """
         branch_models: dict[int, list[dict[str, Any]]] = {}
-        branch_sample_indices = disjoint_analysis.branch_sample_indices
 
         for bc in branch_contexts:
             branch_id = bc["branch_id"]
@@ -2337,7 +2411,21 @@ class MergeController(OperatorController):
                 "[Error: MERGE-E043]"
             )
 
-        # Step 2: Determine N (output column count)
+        return branch_models
+
+    def _determine_disjoint_n_columns(
+        self,
+        branch_models: dict[int, list[dict[str, Any]]],
+        config: MergeConfig,
+        select_by: str,
+    ) -> tuple[int, dict[int, int], int, int]:
+        """Determine output column count N for disjoint merge (Step 2).
+
+        Shared state in: ``branch_models``, ``config``, ``select_by``.
+        Shared state out: ``(n_columns, model_counts, min_model_count,
+        max_model_count)``. Raises ValueError [MERGE-E044] when a configured
+        ``n_columns`` exceeds the minimum per-branch model count.
+        """
         model_counts = {bid: len(models) for bid, models in branch_models.items()}
         min_model_count = min(model_counts.values())
         max_model_count = max(model_counts.values())
@@ -2359,7 +2447,24 @@ class MergeController(OperatorController):
             f"(model counts: {model_counts}, select_by='{select_by}')"
         )
 
-        # Step 3: Select top-N models per branch
+        return n_columns, model_counts, min_model_count, max_model_count
+
+    def _select_disjoint_top_models(
+        self,
+        branch_models: dict[int, list[dict[str, Any]]],
+        n_columns: int,
+        select_by: str,
+    ) -> tuple[
+        dict[int, list[dict[str, Any]]],
+        dict[int, list[dict[str, Any]]],
+        dict[int, dict[str, str]],
+    ]:
+        """Select top-N models per branch and build column mapping (Step 3).
+
+        Shared state in: ``branch_models``, ``n_columns``, ``select_by``.
+        Shared state out: ``(selected_per_branch, dropped_per_branch,
+        column_mapping)``.
+        """
         selected_per_branch: dict[int, list[dict[str, Any]]] = {}
         dropped_per_branch: dict[int, list[dict[str, Any]]] = {}
         column_mapping: dict[int, dict[str, str]] = {i: {} for i in range(n_columns)}
@@ -2402,7 +2507,27 @@ class MergeController(OperatorController):
             for col_idx, model_info in enumerate(selected):
                 column_mapping[col_idx][branch_name] = model_info["name"]
 
-        # Step 4: Collect OOF predictions for selected models
+        return selected_per_branch, dropped_per_branch, column_mapping
+
+    def _collect_disjoint_oof_predictions(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        prediction_store: Any,
+        mode: str,
+        selected_per_branch: dict[int, list[dict[str, Any]]],
+        branch_sample_indices: dict[int, list[int]],
+        n_total_samples: int,
+        n_columns: int,
+    ) -> np.ndarray:
+        """Collect OOF predictions for the selected models into a matrix (Step 4).
+
+        Shared state in: ``selected_per_branch``, ``branch_sample_indices``,
+        ``n_total_samples``, ``n_columns`` plus ``dataset``/``context``/
+        ``prediction_store``/``mode`` for OOF retrieval.
+        Shared state out: ``merged`` array of shape (n_total_samples, n_columns).
+        Emits the incomplete-coverage NaN warning.
+        """
         merged = np.full((n_total_samples, n_columns), np.nan)
 
         for branch_id, selected_models in selected_per_branch.items():
@@ -2436,6 +2561,29 @@ class MergeController(OperatorController):
                 f"This may indicate incomplete OOF coverage."
             )
 
+        return merged
+
+    def _build_disjoint_prediction_info(
+        self,
+        merged: np.ndarray,
+        selected_per_branch: dict[int, list[dict[str, Any]]],
+        dropped_per_branch: dict[int, list[dict[str, Any]]],
+        branch_sample_indices: dict[int, list[int]],
+        column_mapping: dict[int, dict[str, str]],
+        model_counts: dict[int, int],
+        n_columns: int,
+        min_model_count: int,
+        max_model_count: int,
+        select_by: str,
+    ) -> dict[str, Any]:
+        """Build the DisjointMergeMetadata and the returned info dict.
+
+        Shared state in: all of the per-branch selection results plus ``merged``
+        (for shape), ``model_counts``, ``n_columns``, ``min_model_count``,
+        ``max_model_count`` and ``select_by``.
+        Shared state out: ``info`` dict. Emits the metadata summary log and, when
+        heterogeneous or model counts differ, the metadata warnings.
+        """
         # Phase 3: Build comprehensive metadata using DisjointMergeMetadata
         # Build per-branch info
         branches_info: dict[str, DisjointBranchInfo] = {}
@@ -2515,12 +2663,7 @@ class MergeController(OperatorController):
             "disjoint_metadata": disjoint_metadata.to_dict(),
         }
 
-        logger.info(
-            f"  Collected predictions: {len(selected_per_branch)} branches → "
-            f"shape={merged.shape}"
-        )
-
-        return merged, info
+        return info
 
     def _get_model_score(
         self,
@@ -4795,6 +4938,65 @@ class MergeController(OperatorController):
             )
 
         # Parse configuration
+        model_filter, aggregation = self._parse_prediction_merge_config(step_info)
+
+        # Discover available models from prediction store + apply filter
+        selected_models = self._select_prediction_merge_models(
+            context=context,
+            prediction_store=prediction_store,
+            model_filter=model_filter,
+        )
+
+        # Collect predictions using OOF reconstruction
+        model_predictions = self._collect_prediction_merge_predictions(
+            dataset=dataset,
+            context=context,
+            prediction_store=prediction_store,
+            selected_models=selected_models,
+        )
+
+        # Aggregate predictions based on strategy
+        merged = self._aggregate_prediction_merge(
+            context=context,
+            prediction_store=prediction_store,
+            model_predictions=model_predictions,
+            selected_models=selected_models,
+            aggregation=aggregation,
+        )
+
+        # Store merged predictions as features
+        dataset.add_merged_features(
+            features=merged,
+            processing_name="merged_predictions",
+            source=0
+        )
+
+        # Build metadata
+        metadata = {
+            "merge_predictions": True,
+            "models_used": selected_models,
+            "aggregation": aggregation,
+            "n_features": merged.shape[1],
+            "merged_shape": merged.shape,
+        }
+
+        logger.success(
+            f"Prediction merge completed: {len(selected_models)} models, "
+            f"shape={merged.shape}"
+        )
+
+        return context.copy(), StepOutput(metadata=metadata)
+
+    def _parse_prediction_merge_config(
+        self,
+        step_info: "ParsedStep",
+    ) -> tuple[list[str] | None, str]:
+        """Parse the merge_predictions step config into model filter + aggregation.
+
+        Shared state in: ``step_info``.
+        Shared state out: ``(model_filter, aggregation)``. Emits the prediction
+        merge info log.
+        """
         raw_config = step_info.original_step.get("merge_predictions", {})
 
         # Handle simple string vs dict config
@@ -4813,6 +5015,21 @@ class MergeController(OperatorController):
             f"aggregate={aggregation}"
         )
 
+        return model_filter, aggregation
+
+    def _select_prediction_merge_models(
+        self,
+        context: "ExecutionContext",
+        prediction_store: Any,
+        model_filter: list[str] | None,
+    ) -> list[str]:
+        """Discover available models from the store and apply the model filter.
+
+        Shared state in: ``context``, ``prediction_store``, ``model_filter``.
+        Shared state out: ``selected_models``. Raises ValueError [MERGE-E010]
+        when the store has no models; warns (but still returns) when a filter
+        matches nothing.
+        """
         # Discover available models from prediction store
         current_step = getattr(context.state, 'step_number', float('inf'))
 
@@ -4851,6 +5068,24 @@ class MergeController(OperatorController):
 
         logger.info(f"  Selected {len(selected_models)} models for prediction merge")
 
+        return selected_models
+
+    def _collect_prediction_merge_predictions(
+        self,
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        prediction_store: Any,
+        selected_models: list[str],
+    ) -> dict[str, np.ndarray]:
+        """Reconstruct per-model OOF+test predictions for the prediction merge.
+
+        Shared state in: ``dataset``, ``context``, ``prediction_store``,
+        ``selected_models``.
+        Shared state out: ``model_predictions`` (model_name -> combined array).
+        Each model is handled inside its own try/except so a failure logs a
+        warning and continues. Raises ValueError [MERGE-E010] when no model
+        produced predictions.
+        """
         # Collect predictions using OOF reconstruction
         # Use empty branch_contexts since we're not in branch mode
         config = MergeConfig(
@@ -4955,6 +5190,23 @@ class MergeController(OperatorController):
                 "[Error: MERGE-E010]"
             )
 
+        return model_predictions
+
+    def _aggregate_prediction_merge(
+        self,
+        context: "ExecutionContext",
+        prediction_store: Any,
+        model_predictions: dict[str, np.ndarray],
+        selected_models: list[str],
+        aggregation: str,
+    ) -> np.ndarray:
+        """Aggregate per-model predictions according to the chosen strategy.
+
+        Shared state in: ``model_predictions``, ``aggregation`` plus
+        ``selected_models``/``prediction_store``/``context`` for weighted_mean
+        scoring.
+        Shared state out: ``merged`` array.
+        """
         # Aggregate predictions based on strategy
         if aggregation == "separate":
             merged = PredictionAggregator.aggregate(
@@ -4990,28 +5242,7 @@ class MergeController(OperatorController):
                 strategy=AggregationStrategy.SEPARATE,
             )
 
-        # Store merged predictions as features
-        dataset.add_merged_features(
-            features=merged,
-            processing_name="merged_predictions",
-            source=0
-        )
-
-        # Build metadata
-        metadata = {
-            "merge_predictions": True,
-            "models_used": selected_models,
-            "aggregation": aggregation,
-            "n_features": merged.shape[1],
-            "merged_shape": merged.shape,
-        }
-
-        logger.success(
-            f"Prediction merge completed: {len(selected_models)} models, "
-            f"shape={merged.shape}"
-        )
-
-        return context.copy(), StepOutput(metadata=metadata)
+        return merged
 
     # =========================================================================
     # Phase 5: Branch Type Validation and Source Merge from Config

@@ -980,109 +980,202 @@ class BranchController(OperatorController):
             if target_branch_id is not None and branch_id != target_branch_id:
                 continue
 
-            # Convert local indices to actual sample indices
-            branch_sample_indices = sample_indices[local_indices] if local_indices else np.array([], dtype=int)
-
-            logger.info(f"    Branch {branch_id} '{branch_name}': {len(branch_sample_indices)} samples")
-
-            # V3: Enter branch context
-            if recorder is not None:
-                recorder.enter_branch(branch_id)
-                if initial_chain is not None:
-                    recorder.reset_chain_to(initial_chain)
-
-            # Restore features to initial state
-            self._restore_features(dataset, initial_features_snapshot, use_cow=use_cow)
-
-            # Create isolated context for this branch
-            branch_context = initial_context.copy()
-
-            # Build branch_path
-            parent_branch_path = context.selector.branch_path or []
-            new_branch_path = parent_branch_path + [branch_id]
-
-            branch_context.selector = branch_context.selector.with_branch(
+            branch_dict, branch_artifacts = self._execute_single_separation_branch(
                 branch_id=branch_id,
                 branch_name=branch_name,
-                branch_path=new_branch_path
+                local_indices=local_indices,
+                sample_indices=sample_indices,
+                steps=steps,
+                dataset=dataset,
+                context=context,
+                runtime_context=runtime_context,
+                initial_context=initial_context,
+                initial_processing=initial_processing,
+                initial_features_snapshot=initial_features_snapshot,
+                initial_chain=initial_chain,
+                recorder=recorder,
+                mode=mode,
+                use_cow=use_cow,
+                loaded_binaries=loaded_binaries,
+                prediction_store=prediction_store,
+                separation_type=separation_type,
+                separation_key=separation_key,
             )
-            branch_context.selector.processing = copy.deepcopy(initial_processing)
+            branch_contexts.append(branch_dict)
+            all_artifacts.extend(branch_artifacts)
 
-            # Store sample partition info for downstream controllers
-            branch_context.custom["sample_partition"] = {
-                "sample_indices": branch_sample_indices.tolist() if isinstance(branch_sample_indices, np.ndarray) else list(branch_sample_indices),
-                "n_samples": len(branch_sample_indices),
-                "separation_type": separation_type,
-                "separation_key": separation_key,
-            }
+        return self._finalize_separation_branches(
+            branch_contexts=branch_contexts,
+            all_artifacts=all_artifacts,
+            context=context,
+            recorder=recorder,
+            initial_features_snapshot=initial_features_snapshot,
+            use_cow=use_cow,
+            separation_type=separation_type,
+            separation_key=separation_key,
+        )
 
-            # Reset artifact counter
-            if runtime_context:
-                runtime_context.artifact_load_counter = {}
+    def _execute_single_separation_branch(
+        self,
+        branch_id: int,
+        branch_name: str,
+        local_indices: list[int],
+        sample_indices: np.ndarray,
+        steps: list[Any],
+        dataset: "SpectroDataset",
+        context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        initial_context: "ExecutionContext",
+        initial_processing: list[Any],
+        initial_features_snapshot: list[Any],
+        initial_chain: Any,
+        recorder: Any,
+        mode: str,
+        use_cow: bool,
+        loaded_binaries: list[tuple[str, Any]] | None,
+        prediction_store: Any | None,
+        separation_type: str,
+        separation_key: str,
+    ) -> tuple[dict[str, Any], list[Any]]:
+        """Execute a single separation branch and build its context dict.
 
-            # Get branch-specific binaries
-            branch_binaries = loaded_binaries
-            if mode in ("predict", "explain") and runtime_context.artifact_loader:
-                branch_binaries = runtime_context.artifact_loader.get_step_binaries(
-                    runtime_context.step_number, branch_id=branch_id
-                )
-                if not branch_binaries:
-                    branch_binaries = loaded_binaries
+        Shared state in: initial_context/processing/features/chain snapshots,
+        parent ``context`` (for branch_path), ``dataset`` (restored then mutated
+        in place), ``runtime_context`` (artifact_load_counter/substep_number
+        mutated), ``recorder`` (trace mutated), ``prediction_store``.
 
-            # Execute branch steps
-            for substep_idx, substep in enumerate(steps):
-                if runtime_context.step_runner:
-                    runtime_context.substep_number = substep_idx
+        Shared state out: returns the branch context dict to append to
+        ``branch_contexts`` and the list of artifacts produced by this branch
+        (to extend ``all_artifacts``). The dataset is left snapshotted after the
+        branch's processing, matching the original in-loop behavior.
+        """
+        # Convert local indices to actual sample indices
+        branch_sample_indices = sample_indices[local_indices] if local_indices else np.array([], dtype=int)
 
-                    if recorder is not None:
-                        op_type, op_class = self._extract_substep_info(substep)
-                        recorder.start_branch_substep(
-                            parent_step_index=runtime_context.step_number,
-                            branch_id=branch_id,
-                            operator_type=op_type,
-                            operator_class=op_class,
-                            substep_index=substep_idx,
-                            branch_name=branch_name,
-                        )
+        logger.info(f"    Branch {branch_id} '{branch_name}': {len(branch_sample_indices)} samples")
 
-                    result = runtime_context.step_runner.execute(
-                        step=substep,
-                        dataset=dataset,
-                        context=branch_context,
-                        runtime_context=runtime_context,
-                        loaded_binaries=branch_binaries,
-                        prediction_store=prediction_store
+        # V3: Enter branch context
+        if recorder is not None:
+            recorder.enter_branch(branch_id)
+            if initial_chain is not None:
+                recorder.reset_chain_to(initial_chain)
+
+        # Restore features to initial state
+        self._restore_features(dataset, initial_features_snapshot, use_cow=use_cow)
+
+        # Create isolated context for this branch
+        branch_context = initial_context.copy()
+
+        # Build branch_path
+        parent_branch_path = context.selector.branch_path or []
+        new_branch_path = parent_branch_path + [branch_id]
+
+        branch_context.selector = branch_context.selector.with_branch(
+            branch_id=branch_id,
+            branch_name=branch_name,
+            branch_path=new_branch_path
+        )
+        branch_context.selector.processing = copy.deepcopy(initial_processing)
+
+        # Store sample partition info for downstream controllers
+        branch_context.custom["sample_partition"] = {
+            "sample_indices": branch_sample_indices.tolist() if isinstance(branch_sample_indices, np.ndarray) else list(branch_sample_indices),
+            "n_samples": len(branch_sample_indices),
+            "separation_type": separation_type,
+            "separation_key": separation_key,
+        }
+
+        # Reset artifact counter
+        if runtime_context:
+            runtime_context.artifact_load_counter = {}
+
+        # Get branch-specific binaries
+        branch_binaries = loaded_binaries
+        if mode in ("predict", "explain") and runtime_context.artifact_loader:
+            branch_binaries = runtime_context.artifact_loader.get_step_binaries(
+                runtime_context.step_number, branch_id=branch_id
+            )
+            if not branch_binaries:
+                branch_binaries = loaded_binaries
+
+        branch_artifacts: list[Any] = []
+
+        # Execute branch steps
+        for substep_idx, substep in enumerate(steps):
+            if runtime_context.step_runner:
+                runtime_context.substep_number = substep_idx
+
+                if recorder is not None:
+                    op_type, op_class = self._extract_substep_info(substep)
+                    recorder.start_branch_substep(
+                        parent_step_index=runtime_context.step_number,
+                        branch_id=branch_id,
+                        operator_type=op_type,
+                        operator_class=op_class,
+                        substep_index=substep_idx,
+                        branch_name=branch_name,
                     )
 
-                    if recorder is not None:
-                        is_model = op_type in ("model", "meta_model")
-                        recorder.end_step(is_model=is_model)
+                result = runtime_context.step_runner.execute(
+                    step=substep,
+                    dataset=dataset,
+                    context=branch_context,
+                    runtime_context=runtime_context,
+                    loaded_binaries=branch_binaries,
+                    prediction_store=prediction_store
+                )
 
-                    branch_context = result.updated_context
-                    all_artifacts.extend(result.artifacts)
+                if recorder is not None:
+                    is_model = op_type in ("model", "meta_model")
+                    recorder.end_step(is_model=is_model)
 
-            # V3: Snapshot chain and exit branch
-            branch_chain_snapshot = recorder.current_chain() if recorder else None
-            if recorder is not None:
-                recorder.exit_branch()
+                branch_context = result.updated_context
+                branch_artifacts.extend(result.artifacts)
 
-            # Snapshot features after processing
-            branch_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
+        # V3: Snapshot chain and exit branch
+        branch_chain_snapshot = recorder.current_chain() if recorder else None
+        if recorder is not None:
+            recorder.exit_branch()
 
-            # Store branch context
-            branch_contexts.append({
-                "branch_id": branch_id,
-                "name": branch_name,
-                "context": branch_context,
-                "features_snapshot": branch_features_snapshot,
-                "chain_snapshot": branch_chain_snapshot,
-                "branch_mode": "separation",
-                "sample_indices": branch_sample_indices.tolist() if isinstance(branch_sample_indices, np.ndarray) else list(branch_sample_indices),
-                "use_cow": use_cow,
-            })
+        # Snapshot features after processing
+        branch_features_snapshot = self._snapshot_features(dataset, use_cow=use_cow)
 
-            logger.success(f"    Branch {branch_id} '{branch_name}' completed")
+        # Store branch context
+        branch_dict = {
+            "branch_id": branch_id,
+            "name": branch_name,
+            "context": branch_context,
+            "features_snapshot": branch_features_snapshot,
+            "chain_snapshot": branch_chain_snapshot,
+            "branch_mode": "separation",
+            "sample_indices": branch_sample_indices.tolist() if isinstance(branch_sample_indices, np.ndarray) else list(branch_sample_indices),
+            "use_cow": use_cow,
+        }
 
+        logger.success(f"    Branch {branch_id} '{branch_name}' completed")
+
+        return branch_dict, branch_artifacts
+
+    def _finalize_separation_branches(
+        self,
+        branch_contexts: list[dict[str, Any]],
+        all_artifacts: list[Any],
+        context: "ExecutionContext",
+        recorder: Any,
+        initial_features_snapshot: list[Any],
+        use_cow: bool,
+        separation_type: str,
+        separation_key: str,
+    ) -> tuple["ExecutionContext", StepOutput]:
+        """Finalize separation branch execution after all branches have run.
+
+        Shared state in: the accumulated ``branch_contexts`` and ``all_artifacts``,
+        the parent ``context`` (for existing branches + result base), ``recorder``
+        (trace end), and the ``initial_features_snapshot`` to release.
+
+        Shared state out: returns the ``(result_context, StepOutput)`` tuple that
+        ``_execute_separation_branches`` returns to its caller.
+        """
         # V3: End branch step
         if recorder is not None:
             recorder.end_step()
@@ -2208,25 +2301,9 @@ class BranchController(OperatorController):
         Args:
             n_jobs: Number of parallel workers (-1 = auto-detect)
         """
-        import multiprocessing
-
         from joblib import Parallel, delayed
 
-        # Determine effective n_jobs
-        if n_jobs == -1:
-            n_jobs = min(len(branch_defs), multiprocessing.cpu_count())
-        n_jobs = min(n_jobs, len(branch_defs))
-
-        logger.info(f"Parallel execution: {len(branch_defs)} branches with {n_jobs} workers (chunk-based)")
-
-        # Split branches into n_jobs chunks
-        chunk_size = (len(branch_defs) + n_jobs - 1) // n_jobs
-        branch_chunks: list[list[tuple[int, dict[str, Any]]]] = []
-        for i in range(0, len(branch_defs), chunk_size):
-            chunk = [(idx, bdef) for idx, bdef in enumerate(branch_defs[i:i + chunk_size], start=i)]
-            branch_chunks.append(chunk)
-
-        logger.info(f"Split into {len(branch_chunks)} chunks (avg {chunk_size} branches/worker)")
+        n_jobs, branch_chunks = self._compute_branch_chunks(branch_defs, n_jobs)
 
         parent_branch_path = context.selector.branch_path or []
 
@@ -2321,6 +2398,86 @@ class BranchController(OperatorController):
             self._release_snapshot(worker_initial_snapshot, use_cow=True)
             return results
 
+        worker_args = self._build_parallel_worker_args(
+            branch_chunks=branch_chunks,
+            branch_defs=branch_defs,
+            dataset=dataset,
+            initial_context=initial_context,
+            initial_processing=initial_processing,
+            runtime_context=runtime_context,
+        )
+
+        # Execute chunks in parallel using threading backend
+        chunk_results = Parallel(n_jobs=n_jobs, backend='threading')(
+            delayed(_execute_branch_chunk_worker)(*args)
+            for args in worker_args
+        )
+
+        return self._collect_parallel_branch_results(
+            chunk_results=chunk_results,
+            initial_context=initial_context,
+            runtime_context=runtime_context,
+            prediction_store=prediction_store,
+            mode=mode,
+            use_cow=use_cow,
+        )
+
+    def _compute_branch_chunks(
+        self,
+        branch_defs: list[dict[str, Any]],
+        n_jobs: int,
+    ) -> tuple[int, list[list[tuple[int, dict[str, Any]]]]]:
+        """Resolve the effective worker count and split branches into chunks.
+
+        Shared state in: ``branch_defs`` and the requested ``n_jobs``
+        (-1 = auto-detect from CPU count).
+
+        Shared state out: returns the resolved ``n_jobs`` and the list of
+        branch chunks (each a list of ``(branch_id, branch_def)`` pairs).
+        """
+        import multiprocessing
+
+        # Determine effective n_jobs
+        if n_jobs == -1:
+            n_jobs = min(len(branch_defs), multiprocessing.cpu_count())
+        n_jobs = min(n_jobs, len(branch_defs))
+
+        logger.info(f"Parallel execution: {len(branch_defs)} branches with {n_jobs} workers (chunk-based)")
+
+        # Split branches into n_jobs chunks
+        chunk_size = (len(branch_defs) + n_jobs - 1) // n_jobs
+        branch_chunks: list[list[tuple[int, dict[str, Any]]]] = []
+        for i in range(0, len(branch_defs), chunk_size):
+            chunk = [(idx, bdef) for idx, bdef in enumerate(branch_defs[i:i + chunk_size], start=i)]
+            branch_chunks.append(chunk)
+
+        logger.info(f"Split into {len(branch_chunks)} chunks (avg {chunk_size} branches/worker)")
+
+        return n_jobs, branch_chunks
+
+    def _build_parallel_worker_args(
+        self,
+        branch_chunks: list[list[tuple[int, dict[str, Any]]]],
+        branch_defs: list[dict[str, Any]],
+        dataset: "SpectroDataset",
+        initial_context: "ExecutionContext",
+        initial_processing: list[Any],
+        runtime_context: "RuntimeContext",
+    ) -> list[tuple[Any, Any, Any, Any, Any]]:
+        """Build the pickle-safe deep-copied argument tuples for each worker.
+
+        Temporarily clears unpicklable attributes off ``runtime_context``,
+        deep-copies the dataset/context/processing/runtime per chunk, then
+        restores the original attributes. The clear/restore is straight-line
+        (no try/finally) to preserve the original failure semantics exactly:
+        if a deep copy raises, the attributes are left cleared, as before.
+
+        Shared state in: ``branch_chunks`` (one worker per chunk), ``dataset`` /
+        ``initial_context`` / ``initial_processing`` to copy, ``runtime_context``
+        (mutated in place: attrs cleared then restored), ``branch_defs`` (log only).
+
+        Shared state out: returns ``worker_args`` for the joblib dispatch.
+        """
         # Temporarily clear unpicklable objects from runtime_context for deep copy
         original_attrs = {}
         unpicklable_keys = ["store", "artifact_registry", "trace_recorder", "step_runner", "artifact_loader"]
@@ -2349,12 +2506,29 @@ class BranchController(OperatorController):
 
         logger.info(f"Created {len(worker_args)} worker copies (instead of {len(branch_defs)})")
 
-        # Execute chunks in parallel using threading backend
-        chunk_results = Parallel(n_jobs=n_jobs, backend='threading')(
-            delayed(_execute_branch_chunk_worker)(*args)
-            for args in worker_args
-        )
+        return worker_args
 
+    def _collect_parallel_branch_results(
+        self,
+        chunk_results: list[list[dict[str, Any]]],
+        initial_context: "ExecutionContext",
+        runtime_context: "RuntimeContext",
+        prediction_store: Any | None,
+        mode: str,
+        use_cow: bool,
+    ) -> tuple[list[dict[str, Any]], list[Any]]:
+        """Flatten worker chunk results, merge predictions, rebuild contexts.
+
+        Shared state in: ``chunk_results`` from joblib, ``initial_context`` (base
+        for rebuilt branch contexts), ``runtime_context`` (refit-chain accumulator
+        target), ``prediction_store`` (mutated: predictions merged in), ``mode``,
+        ``use_cow``.
+
+        Shared state out: returns the ``(branch_contexts, all_artifacts)`` tuple
+        that ``_execute_branches_parallel`` returns. ``all_artifacts`` is always
+        empty in the parallel path (artifacts are not threaded back from workers),
+        matching the original.
+        """
         # Flatten chunk results and collect
         branch_contexts = []
         all_artifacts: list[Any] = []
