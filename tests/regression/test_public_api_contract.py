@@ -262,32 +262,42 @@ def test_public_functions_are_importable() -> None:
         assert callable(getattr(nirs4all, name)), f"nirs4all.{name} is not callable"
 
 
+def _sig(fn: object) -> str:
+    """Render a signature for comparison, normalized across interpreter builds.
+
+    Python 3.13 moved ``Path`` into ``pathlib._local``, and some interpreter
+    builds leak that internal module in annotation reprs. The public contract is
+    the ``pathlib.Path`` spelling, so normalize before comparing.
+    """
+    return str(inspect.signature(fn)).replace("pathlib._local.Path", "pathlib.Path")  # type: ignore[arg-type]
+
+
 def test_run_signature_frozen() -> None:
-    assert str(inspect.signature(nirs4all.run)) == EXPECTED_SIGNATURES["run"]
+    assert _sig(nirs4all.run) == EXPECTED_SIGNATURES["run"]
 
 
 def test_predict_signature_frozen() -> None:
-    assert str(inspect.signature(nirs4all.predict)) == EXPECTED_SIGNATURES["predict"]
+    assert _sig(nirs4all.predict) == EXPECTED_SIGNATURES["predict"]
 
 
 def test_explain_signature_frozen() -> None:
-    assert str(inspect.signature(nirs4all.explain)) == EXPECTED_SIGNATURES["explain"]
+    assert _sig(nirs4all.explain) == EXPECTED_SIGNATURES["explain"]
 
 
 def test_retrain_signature_frozen() -> None:
-    assert str(inspect.signature(nirs4all.retrain)) == EXPECTED_SIGNATURES["retrain"]
+    assert _sig(nirs4all.retrain) == EXPECTED_SIGNATURES["retrain"]
 
 
 def test_session_signature_frozen() -> None:
-    assert str(inspect.signature(nirs4all.session)) == EXPECTED_SIGNATURES["session"]
+    assert _sig(nirs4all.session) == EXPECTED_SIGNATURES["session"]
 
 
 def test_load_session_signature_frozen() -> None:
-    assert str(inspect.signature(nirs4all.load_session)) == EXPECTED_SIGNATURES["load_session"]
+    assert _sig(nirs4all.load_session) == EXPECTED_SIGNATURES["load_session"]
 
 
 def test_generate_signature_frozen() -> None:
-    assert str(inspect.signature(nirs4all.generate)) == EXPECTED_SIGNATURES["generate"]
+    assert _sig(nirs4all.generate) == EXPECTED_SIGNATURES["generate"]
 
 
 # ---------------------------------------------------------------------------
