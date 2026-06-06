@@ -67,12 +67,21 @@ class TestExtractSplitterConfig:
         assert config.test_size == 0.2
         assert config.group_by == "sample_id"
 
-    def test_repr_string_steps_are_normalized(self):
+    def test_repr_string_steps_are_skipped(self):
+        """Non-reconstructable repr strings (legacy runtime objects serialized
+        via default=str) carry no authored CV config — same rule as the step
+        parser. The next real splitter wins; none -> None."""
         config = extract_splitter_config([
-            {"class": "<sklearn.model_selection._split.KFold object at 0x7f3a2b>"},
+            {"class": "<nirs4all.pipeline._FullTrainFoldSplitter object at 0x7f3a2b>"},
+            {"class": "KFold", "params": {"n_splits": 4}},
         ])
         assert config is not None
         assert config.splitter_class == "KFold"
+        assert config.n_splits == 4
+
+        assert extract_splitter_config([
+            {"class": "<sklearn.model_selection._split.KFold object at 0x7f3a2b>"},
+        ]) is None
 
     def test_no_splitter_returns_none(self):
         assert extract_splitter_config([

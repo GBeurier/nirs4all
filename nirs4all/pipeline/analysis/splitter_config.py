@@ -151,9 +151,13 @@ def extract_splitter_config(expanded_config: Any) -> SplitterConfig | None:
         reference, params = _extract_step_reference(step)
         if not reference:
             continue
-        # Non-reconstructable repr strings carry no parseable identity beyond
-        # the path inside them; normalize, then test like any reference.
-        normalized = _OBJECT_REPR_RE.sub(r"\g<path>", str(reference).strip()).strip()
+        # Skip non-reconstructable Python repr strings (the step parser
+        # applies the same rule): older runs serialized internal runtime
+        # objects (e.g. refit splitters) via json.dumps(default=str), and
+        # those carry no authored CV configuration.
+        normalized = str(reference).strip()
+        if normalized.startswith("<"):
+            continue
         if not is_splitter_reference(normalized):
             continue
 
