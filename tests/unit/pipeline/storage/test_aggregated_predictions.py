@@ -748,3 +748,55 @@ class TestDeletionCascade:
         df = store.query_aggregated_predictions()
         assert len(df) == 0
         store.close()
+
+
+# =========================================================================
+# Pagination & count surface (studio boundary: paginated rankings)
+# =========================================================================
+
+
+class TestChainSummaryCountAndPagination:
+    """count_chain_summaries + query_top_chains offset/list-filter support."""
+
+    def test_count_empty_store(self, tmp_path):
+        store = _make_store(tmp_path)
+        assert store.count_chain_summaries() == 0
+        store.close()
+
+    def test_count_matches_query(self, tmp_path):
+        store = _make_store(tmp_path)
+        ids = _populate_store(store)
+        total = store.count_chain_summaries()
+        df = store.query_chain_summaries()
+        assert total == len(df) == 1
+        # Filtered count
+        assert store.count_chain_summaries(run_id=ids["run_id"]) == 1
+        assert store.count_chain_summaries(run_id="nonexistent") == 0
+        assert store.count_chain_summaries(dataset_name="wheat") == 1
+        store.close()
+
+    def test_count_accepts_list_filters(self, tmp_path):
+        store = _make_store(tmp_path)
+        ids = _populate_store(store)
+        assert store.count_chain_summaries(run_id=[ids["run_id"], "other"]) == 1
+        assert store.count_chain_summaries(run_id=["other", "another"]) == 0
+        store.close()
+
+    def test_top_chains_offset_paginates(self, tmp_path):
+        store = _make_store(tmp_path)
+        _populate_store(store)
+        page1 = store.query_top_chains(n=1, offset=0, score_column="cv_val_score")
+        page2 = store.query_top_chains(n=1, offset=1, score_column="cv_val_score")
+        assert len(page1) == 1
+        # Only one chain exists: the second page must be empty.
+        assert len(page2) == 0
+        store.close()
+
+    def test_top_chains_accepts_list_filters(self, tmp_path):
+        store = _make_store(tmp_path)
+        ids = _populate_store(store)
+        df = store.query_top_chains(n=5, run_id=[ids["run_id"], "other"])
+        assert len(df) == 1
+        df_none = store.query_top_chains(n=5, run_id=["other"])
+        assert len(df_none) == 0
+        store.close()

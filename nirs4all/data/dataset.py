@@ -1807,6 +1807,32 @@ class SpectroDataset:
         """Get number of feature sources."""
         return self._feature_accessor.num_sources
 
+    def describe(self) -> dict[str, Any]:
+        """One-call structural summary for UIs, catalogs and APIs.
+
+        Returns plain JSON-friendly values (enum values as strings) so callers
+        do not need to poke individual accessors and normalize enums
+        themselves.
+
+        Returns:
+            Dict with ``num_samples``, ``num_features``, ``n_sources``,
+            ``task_type`` (string value or ``None``), ``signal_types``
+            (string values), ``metadata_columns``, ``num_targets`` and
+            ``has_targets``.
+        """
+        task = self.task_type
+        num_targets = self._target_accessor._block.num_targets
+        return {
+            "num_samples": self.num_samples,
+            "num_features": self.num_features,
+            "n_sources": self.n_sources,
+            "task_type": (str(task.value) if task is not None else None),
+            "signal_types": [str(st.value) for st in (self.signal_types or [])],
+            "metadata_columns": list(self.metadata_columns or []),
+            "num_targets": num_targets,
+            "has_targets": num_targets > 0,
+        }
+
     # ========== Tag Operations ==========
 
     def add_tag(self, name: str, dtype: str = "bool") -> None:

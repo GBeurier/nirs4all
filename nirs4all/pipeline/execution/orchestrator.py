@@ -5,6 +5,7 @@ import gc
 import multiprocessing
 import re
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, cast
 
@@ -38,6 +39,16 @@ from nirs4all.visualization.naming import NamingMode, get_metric_names
 from nirs4all.visualization.reports import TabReportManager
 
 logger = get_logger(__name__)
+
+class RunCancelledError(RuntimeError):
+    """Raised when a run is cancelled via the ``should_stop`` hook.
+
+    The orchestrator checks the hook at cooperative boundaries (before each
+    dataset, before each pipeline variant, before the refit phase) and aborts
+    with this exception; the store run is marked failed with the cancellation
+    message by the standard failure path.
+    """
+
 
 class PipelineOrchestrator:
     """Orchestrates execution of multiple pipelines across multiple datasets.
@@ -76,6 +87,7 @@ class PipelineOrchestrator:
         random_state: int | None = None,
         n_jobs: int = 1,
         report_naming: NamingMode = "nirs",
+        should_stop: Callable[[], bool] | None = None,
     ) -> None:
         """Initialize pipeline orchestrator.
 
@@ -95,6 +107,10 @@ class PipelineOrchestrator:
             random_state: Random seed for reproducibility propagation
             n_jobs: Number of parallel workers for pipeline variants (1=sequential, -1=all cores)
             report_naming: Naming convention for metrics in reports ("nirs", "ml", or "auto")
+            should_stop: Optional cooperative-cancellation hook. Polled at
+                run boundaries (each dataset, each sequential pipeline
+                variant, the refit phase); returning ``True`` aborts the run
+                with :class:`RunCancelledError`.
         """
         # Workspace configuration
         if workspace_path is None:
@@ -122,6 +138,7 @@ class PipelineOrchestrator:
         self.max_preprocessed_snapshots_per_dataset = max(0, int(max_preprocessed_snapshots_per_dataset))
         self.plots_visible = plots_visible
         self.random_state = random_state
+        self.should_stop = should_stop
         self.report_naming = report_naming
         self.n_jobs = n_jobs
 
@@ -154,6 +171,11 @@ class PipelineOrchestrator:
         self.last_aggregate_exclude_outliers: bool = False  # Last dataset's exclude outliers setting
         self.last_execution_trace: Any = None  # ExecutionTrace from last run for post-run visualization
         self.last_run_id: str | None = None  # Last WorkspaceStore run UUID
+
+    def _check_should_stop(self) -> None:
+        """Abort with :class:`RunCancelledError` when the cancel hook fires."""
+        if self.should_stop is not None and self.should_stop():
+            raise RunCancelledError("Run cancelled by should_stop hook")
 
     def execute(
         self,
@@ -243,6 +265,7 @@ class PipelineOrchestrator:
         try:
             for _dataset_idx, (config, name) in enumerate(dataset_configs.configs):
               try:
+                self._check_should_stop()
                 self._execute_dataset(
                     config=config,
                     name=name,
@@ -259,6 +282,8 @@ class PipelineOrchestrator:
                     explainer=explainer,
                     refit=refit,
                 )
+              except RunCancelledError:
+                raise
               except Exception as e:
                 logger.error(f"Dataset '{name}' failed: {e}")
                 failed_datasets.append(name)
@@ -534,6 +559,7 @@ class PipelineOrchestrator:
         # --- Pass 2: Refit (optional) ---
         # After all variants have been executed for this dataset,
         # retrain the winning model on the full training set.
+        self._check_should_stop()
         refit_enabled = refit is True or (isinstance(refit, dict) and refit) or (isinstance(refit, list) and refit)
         if refit_enabled and self.mode == "train" and run_id and run_dataset_predictions.num_predictions > 0:
             # Re-load a pristine dataset for refit.
@@ -900,6 +926,7 @@ class PipelineOrchestrator:
             pipeline_configs.generator_choices,
             strict=False,
         )):
+            self._check_should_stop()
             self._current_run += 1
             logger.info(f"Run {self._current_run}/{total_runs}: pipeline '{config_name}' on dataset '{name}'")
 
