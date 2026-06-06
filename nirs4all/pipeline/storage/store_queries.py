@@ -502,6 +502,37 @@ _CHAIN_SUMMARY_COLUMNS: frozenset[str] = frozenset({
     "run_id", "pipeline_status",
 })
 
+def _append_filter_conditions(
+    conditions: list[str],
+    params: list[object],
+    pairs: list[tuple[str, object]],
+) -> None:
+    """Append list-aware AND filter conditions for ``(column, value)`` pairs.
+
+    ``None`` values are skipped; lists/tuples become ``IN (...)``; strings
+    containing ``%`` become ``LIKE``; everything else an equality match.
+    """
+    for col, val in pairs:
+        if val is None:
+            continue
+        if isinstance(val, (list, tuple)):
+            if len(val) == 0:
+                continue
+            if len(val) == 1:
+                conditions.append(f"{col} = ?")
+                params.append(val[0])
+            else:
+                placeholders = ", ".join("?" for _ in val)
+                conditions.append(f"{col} IN ({placeholders})")
+                params.extend(val)
+        elif isinstance(val, str) and "%" in val:
+            conditions.append(f"{col} LIKE ?")
+            params.append(val)
+        else:
+            conditions.append(f"{col} = ?")
+            params.append(val)
+
+
 def build_chain_summary_query(
     *,
     run_id: str | list[str] | None = None,
@@ -526,7 +557,7 @@ def build_chain_summary_query(
     conditions: list[str] = []
     params: list[object] = []
 
-    for col, val in [
+    _append_filter_conditions(conditions, params, [
         ("run_id", run_id),
         ("pipeline_id", pipeline_id),
         ("chain_id", chain_id),
@@ -534,25 +565,7 @@ def build_chain_summary_query(
         ("model_class", model_class),
         ("metric", metric),
         ("task_type", task_type),
-    ]:
-        if val is None:
-            continue
-        if isinstance(val, (list, tuple)):
-            if len(val) == 0:
-                continue
-            if len(val) == 1:
-                conditions.append(f"{col} = ?")
-                params.append(val[0])
-            else:
-                placeholders = ", ".join("?" for _ in val)
-                conditions.append(f"{col} IN ({placeholders})")
-                params.extend(val)
-        elif isinstance(val, str) and "%" in val:
-            conditions.append(f"{col} LIKE ?")
-            params.append(val)
-        else:
-            conditions.append(f"{col} = ?")
-            params.append(val)
+    ])
 
     where = ""
     if conditions:
@@ -560,29 +573,66 @@ def build_chain_summary_query(
 
     return QUERY_CHAIN_SUMMARY_BASE + where, params
 
+def build_chain_summary_count_query(
+    *,
+    run_id: str | list[str] | None = None,
+    pipeline_id: str | list[str] | None = None,
+    chain_id: str | list[str] | None = None,
+    dataset_name: str | list[str] | None = None,
+    model_class: str | list[str] | None = None,
+    metric: str | None = None,
+    task_type: str | None = None,
+) -> tuple[str, list[object]]:
+    """Build a ``COUNT(*)`` query over ``v_chain_summary``.
+
+    Accepts the same optional filters as :func:`build_chain_summary_query`,
+    enabling paginated consumers to fetch a total without re-reading rows.
+
+    Returns:
+        ``(sql, params)`` ready for ``conn.execute(sql, params)``.
+    """
+    conditions: list[str] = []
+    params: list[object] = []
+    _append_filter_conditions(conditions, params, [
+        ("run_id", run_id),
+        ("pipeline_id", pipeline_id),
+        ("chain_id", chain_id),
+        ("dataset_name", dataset_name),
+        ("model_class", model_class),
+        ("metric", metric),
+        ("task_type", task_type),
+    ])
+    where = ""
+    if conditions:
+        where = " WHERE " + " AND ".join(conditions)
+    return "SELECT COUNT(*) AS total FROM v_chain_summary" + where, params
+
+
 def build_top_chains_query(
     *,
     metric: str | None = None,
     n: int = 10,
+    offset: int = 0,
     score_column: str = "cv_val_score",
     ascending: bool = True,
-    run_id: str | None = None,
-    pipeline_id: str | None = None,
-    dataset_name: str | None = None,
-    model_class: str | None = None,
+    run_id: str | list[str] | None = None,
+    pipeline_id: str | list[str] | None = None,
+    dataset_name: str | list[str] | None = None,
+    model_class: str | list[str] | None = None,
 ) -> tuple[str, list[object]]:
     """Build a ranking query on ``v_chain_summary``.
 
     Args:
         metric: Optional metric name filter.
         n: Number of top results to return.
+        offset: Number of ranked rows to skip (pagination).
         score_column: Column to sort by (e.g. ``"cv_val_score"``,
             ``"final_test_score"``).
         ascending: Sort direction.  ``True`` for lower-is-better metrics.
-        run_id: Optional run filter.
-        pipeline_id: Optional pipeline filter.
-        dataset_name: Optional dataset filter.
-        model_class: Optional model class filter.
+        run_id: Optional run filter (single value or list -> ``IN``).
+        pipeline_id: Optional pipeline filter (single value or list).
+        dataset_name: Optional dataset filter (single value or list).
+        model_class: Optional model class filter (single value or list).
 
     Returns:
         ``(sql, params)`` ready for ``conn.execute(sql, params)``.
@@ -621,16 +671,12 @@ def build_top_chains_query(
         conditions.append("metric = ?")
         params.append(metric)
 
-    for col, val in [
+    _append_filter_conditions(conditions, params, [
         ("run_id", run_id),
         ("pipeline_id", pipeline_id),
         ("dataset_name", dataset_name),
         ("model_class", model_class),
-    ]:
-        if val is None:
-            continue
-        conditions.append(f"{col} = ?")
-        params.append(val)
+    ])
 
     where = ""
     if conditions:
@@ -644,5 +690,8 @@ def build_top_chains_query(
         f"LIMIT ?"
     )
     params.append(n)
+    if offset:
+        sql += " OFFSET ?"
+        params.append(int(offset))
 
     return sql, params

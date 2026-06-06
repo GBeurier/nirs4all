@@ -104,6 +104,7 @@ from nirs4all.pipeline.storage.store_queries import (
     UPDATE_CHAIN_SUMMARY,
     UPDATE_PROJECT,
     build_chain_predictions_query,
+    build_chain_summary_count_query,
     build_chain_summary_query,
     build_prediction_query,
     build_top_chains_query,
@@ -1870,11 +1871,11 @@ class WorkspaceStore:
 
     def query_aggregated_predictions(
         self,
-        run_id: str | None = None,
-        pipeline_id: str | None = None,
-        chain_id: str | None = None,
-        dataset_name: str | None = None,
-        model_class: str | None = None,
+        run_id: str | list[str] | None = None,
+        pipeline_id: str | list[str] | None = None,
+        chain_id: str | list[str] | None = None,
+        dataset_name: str | list[str] | None = None,
+        model_class: str | list[str] | None = None,
         metric: str | None = None,
         score_scope: str = "cv",
     ) -> pl.DataFrame:
@@ -1888,10 +1889,10 @@ class WorkspaceStore:
         All filter arguments are optional and combined with ``AND``.
 
         Args:
-            run_id: Filter by parent run.
-            pipeline_id: Filter by parent pipeline.
-            chain_id: Filter by chain.
-            dataset_name: Filter by dataset name.
+            run_id: Filter by parent run(s) (single value or list).
+            pipeline_id: Filter by parent pipeline(s).
+            chain_id: Filter by chain(s).
+            dataset_name: Filter by dataset name(s).
             model_class: Filter by model class (supports SQL ``LIKE``).
             metric: Filter by metric name.
             score_scope: Which predictions to include.
@@ -1945,6 +1946,7 @@ class WorkspaceStore:
         self,
         metric: str,
         n: int = 10,
+        offset: int = 0,
         score_column: str = "avg_val_score",
         ascending: bool | None = None,
         score_scope: str = "cv",
@@ -1959,6 +1961,7 @@ class WorkspaceStore:
         Args:
             metric: Metric name (e.g. ``"rmse"``, ``"r2"``).
             n: Number of top results to return.
+            offset: Ranked rows to skip (pagination).
             score_column: Aggregation column to sort by (default
                 ``"avg_val_score"``).
             ascending: Sort direction.  If ``None`` (default), inferred
@@ -1981,6 +1984,7 @@ class WorkspaceStore:
         sql, params = build_top_chains_query(
             metric=metric,
             n=n,
+            offset=offset,
             score_column=score_column,
             ascending=ascending,
             run_id=filters.get("run_id"),
@@ -2035,10 +2039,44 @@ class WorkspaceStore:
         )
         return self._fetch_pl(sql, params)
 
+    def count_chain_summaries(
+        self,
+        run_id: str | list[str] | None = None,
+        pipeline_id: str | list[str] | None = None,
+        chain_id: str | list[str] | None = None,
+        dataset_name: str | list[str] | None = None,
+        model_class: str | list[str] | None = None,
+        metric: str | None = None,
+        task_type: str | None = None,
+    ) -> int:
+        """Count chain summaries matching the same filters as
+        :meth:`query_chain_summaries` without materializing rows.
+
+        Enables paginated consumers (e.g. ranking endpoints) to report a
+        total alongside an OFFSET/LIMIT page.
+
+        Returns:
+            The number of matching ``v_chain_summary`` rows.
+        """
+        sql, params = build_chain_summary_count_query(
+            run_id=run_id,
+            pipeline_id=pipeline_id,
+            chain_id=chain_id,
+            dataset_name=dataset_name,
+            model_class=model_class,
+            metric=metric,
+            task_type=task_type,
+        )
+        df = self._fetch_pl(sql, params)
+        if len(df) == 0:
+            return 0
+        return int(df.row(0)[0])
+
     def query_top_chains(
         self,
         metric: str | None = None,
         n: int = 10,
+        offset: int = 0,
         score_column: str = "cv_val_score",
         ascending: bool | None = None,
         **filters: Any,
@@ -2052,10 +2090,12 @@ class WorkspaceStore:
         Args:
             metric: Optional metric name filter.
             n: Number of top results.
+            offset: Ranked rows to skip (pagination).
             score_column: Column to sort by (default ``"cv_val_score"``).
             ascending: Sort direction.  Inferred from *metric* if ``None``.
             **filters: Additional filters (``run_id``, ``pipeline_id``,
-                ``dataset_name``, ``model_class``).
+                ``dataset_name``, ``model_class``); each accepts a single
+                value or a list (``IN``).
 
         Returns:
             A :class:`polars.DataFrame` with the top *n* chain summaries.
@@ -2066,6 +2106,7 @@ class WorkspaceStore:
         sql, params = build_top_chains_query(
             metric=metric,
             n=n,
+            offset=offset,
             score_column=score_column,
             ascending=ascending,
             run_id=filters.get("run_id"),
