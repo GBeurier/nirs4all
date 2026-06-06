@@ -7,6 +7,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+
+## [0.9.3] - Studio Boundary APIs - 2026-06-06
+
+### 🎯 Highlights
+
+Additive release — **no breaking change** (the 0.9.x stable contracts hold). Eight public APIs
+requested by the nirs4all-studio tech-debt closeout, so UIs stop re-implementing library
+semantics in their HTTP layers.
+
+### ✨ Added
+
+- **Storage**: `WorkspaceStore.count_chain_summaries()` (COUNT with the same filters as
+  `query_chain_summaries`) and `offset` + list-valued filters on `query_top_chains` /
+  `query_top_aggregated_predictions` — SQL-side ranking pagination for result browsers.
+- **Data**: `nirs4all.data.repetition_detection` — bio-sample/replicate grouping from metadata
+  columns (`auto_detect_repetition_column`) or sample-id naming conventions
+  (`detect_repetition_groups`).
+- **Data**: `SpectroDataset.describe()` — one-call JSON-safe structural summary (sizes, sources,
+  task type, signal types, metadata columns, target presence).
+- **Analysis**: `nirs4all.pipeline.analysis.model_diagnostics` — bias-variance decomposition over
+  repeated CV predictions, normalized robustness axes, learning-curve aggregation.
+- **Analysis**: `nirs4all.pipeline.analysis.shape_inference` — pre-fit operator output-shape
+  rules (`infer_output_shape`) + the dimension-bound parameter taxonomy, for editor-time shape
+  propagation.
+- **Analysis**: `nirs4all.pipeline.analysis.splitter_config` — recover the CV setup
+  (`extract_splitter_config`) from a stored pipeline `expanded_config`, with the step parser's
+  repr-skip rule.
+- **Pipeline**: cooperative run cancellation — `should_stop: Callable[[], bool]` on
+  `PipelineRunner`/`PipelineOrchestrator`/`nirs4all.run()`, polled at dataset/variant/refit
+  boundaries; aborts with the new `RunCancelledError` and the store run is marked failed.
+
+### 🧪 Tests
+
+53 new tests across the eight APIs; full unit tier green.
+
 ## [0.9.2] - Storage Crash Safety, Lighter Imports & Debt Cleanup - 2026-06-05
 
 ### 🎯 Highlights
