@@ -5,6 +5,7 @@ for executing ML pipelines on spectroscopic datasets. It delegates execution to
 PipelineOrchestrator and provides prediction/explanation capabilities via
 Predictor and Explainer classes.
 """
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
@@ -143,6 +144,7 @@ class PipelineRunner:
         use_colors: bool | None = None,
         show_progress_bar: bool = True,
         json_output: bool = False,
+        should_stop: "Callable[[], bool] | None" = None,
     ):
         """Initialize pipeline runner.
 
@@ -237,6 +239,7 @@ class PipelineRunner:
             plots_visible=plots_visible,
             random_state=random_state,
             report_naming=report_naming,
+            should_stop=should_stop,
         )
 
         # Create predictor and explainer
