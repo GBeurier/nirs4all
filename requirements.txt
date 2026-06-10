@@ -8,7 +8,6 @@ scikit-learn>=1.2.0
 polars>=1.0.0
 pyarrow>=14.0.0
 h5py>=3.8.0
-umap-learn
 
 # Signal processing
 PyWavelets>=1.4.0
@@ -16,13 +15,6 @@ pybaselines>=1.2.1
 
 # Optimization & hyperparameter tuning
 optuna>=3.0.0
-
-# Visualization
-matplotlib>=3.7.0
-seaborn>=0.12.0
-
-# Model explainability
-shap>=0.42.0
 
 # Utilities
 joblib>=1.2.0

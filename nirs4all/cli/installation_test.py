@@ -63,13 +63,10 @@ def test_installation() -> bool:
         'joblib': '0.16.0',
         'jsonschema': '3.2.0',
         'optuna': '2.0.0',
-        'matplotlib': '3.0.0',
         'polars': '0.18.0',
         'yaml': '5.4.0',      # pyyaml is imported as yaml
-        'seaborn': '0.11.0',
         'h5py': '3.0.0',
         'packaging': '20.0',
-        'shap': '0.41.0',
     }
 
     # Optional ML framework dependencies
