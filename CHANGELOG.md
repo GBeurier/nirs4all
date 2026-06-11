@@ -8,6 +8,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ---
 
 
+## [0.9.4] - Slim core (optional viz/explain extras) - 2026-06-11
+
+### 🎯 Highlights
+
+Dependency-only release — **no API change** (the 0.9.x contracts hold). The default
+`pip install nirs4all` no longer pulls matplotlib, seaborn, shap or umap-learn: shap
+and umap dragged numba + llvmlite (~170 MB) into every install, yet they are only
+needed for optional features. `import nirs4all` and all core (non-plotting,
+non-SHAP) workflows are unaffected — the heavy imports were already lazy.
+
+### ♻️ Changed
+
+- `matplotlib` moved to a new `viz` extra; `shap` moved to a new `explain` extra
+  (which also carries matplotlib, since the SHAP analysis module renders with it).
+  Both are included in `all` / `all-gpu`. Get plotting + SHAP with
+  `pip install nirs4all[viz,explain]`.
+
+### 🗑️ Removed
+
+- `umap-learn` and `seaborn` were unused inside the package (0 functional imports)
+  and are dropped from the core dependencies (no extra). `installation_test` no
+  longer reports matplotlib / seaborn / shap as required dependencies.
+
+---
+
 ## [0.9.3] - Studio Boundary APIs - 2026-06-06
 
 ### 🎯 Highlights
