@@ -118,12 +118,24 @@ bundles. The manifest records staging, representation, reducer, missingness,
 stacking, and fit-influence contracts with fingerprints. `BundleLoader` exposes
 the loaded manifest as `loader.relation_replay_manifest`.
 
+The high-level API also surfaces the same provenance. `RunResult` exposes
+`relation_replay_manifest`, `relation_replay_manifests`,
+`relation_materialization_manifest`, and `get_feature_lineage(...)` for the
+best or selected relation-aware chain. `PredictResult` carries relation
+metadata in `metadata` and exposes the same `relation_replay_manifest`,
+`relation_materialization_manifest`, `feature_lineage`, `lineage_warning`, and
+`get_feature_lineage(...)` accessors after workspace-chain, bundle, or session
+prediction.
+
 When explanations are computed on aggregated or derived features, use
 `ExplainResult.explanation_level` and `ExplainResult.feature_lineage` to keep the
 scientific meaning visible. A feature aggregated from MIR repetitions should not
 be presented as if it were a raw wavelength from one observation.
 Use `ExplainResult.get_feature_lineage("MIR:1000")` to inspect the source-level
 provenance for one explained feature.
+For `stack_padded_masked`, model-space headers include both value columns and
+presence-mask columns such as `mask:MIR:1000`. The lineage keeps the source as
+`MIR` and marks the mask column with `feature_role: presence_mask`.
 For bundle replay, the materialization fingerprint describes the saved model's
 feature-space contract; if a freshly materialized dataset carries its own
 relation manifest, that dataset manifest takes precedence.
