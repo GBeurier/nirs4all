@@ -21,6 +21,7 @@ from nirs4all.data.raw_multisource import (
 )
 from nirs4all.data.relations import (
     NormalizedObservationTable,
+    Partition,
     RelationValidationError,
     RepetitionSpec,
     SourceObservations,
@@ -263,6 +264,50 @@ def test_per_source_aggregate_is_rectangular_and_aligned():
     assert mat.targets == [10.0, 20.0]
     assert mat.representation_plan is not None
     assert mat.to_manifest()["representation_plan"]["representation"] == "per_source_aggregate"
+    assert mat.to_manifest()["partitions"] == ["train", "train"]
+
+
+def test_materialization_to_spectro_dataset_preserves_features_targets_and_provenance():
+    ds = _heterogeneous_dataset()
+    mat = ds.materialize("per_source_aggregate")
+    spectro = mat.to_spectro_dataset("materialized")
+
+    assert spectro.name == "materialized"
+    np.testing.assert_allclose(spectro.x({"partition": "train"}), mat.X)
+    np.testing.assert_allclose(spectro.y({"partition": "train", "y": "raw"}).ravel(), np.array([10.0, 20.0]))
+    assert spectro.repetition == "physical_sample_id"
+    assert spectro.aggregate == "physical_sample_id"
+
+    metadata = spectro.metadata({"partition": "train"})
+    assert metadata["physical_sample_id"].to_list() == ["S1", "S2"]
+    assert metadata["unit_id"].to_list() == ["S1", "S2"]
+    assert metadata["representation"].to_list() == ["per_source_aggregate", "per_source_aggregate"]
+    assert getattr(spectro, "_relation_materialization_manifest")["fingerprint"] == mat.fingerprint
+
+
+def test_materialization_to_spectro_dataset_honors_row_partitions():
+    mat = AlignedMaterialization(
+        representation="per_source_aggregate",
+        X=np.array([[1.0], [2.0]]),
+        sample_ids=["S1", "S2"],
+        headers=["A:f0"],
+        targets=[None, None],
+        unit_ids=["S1", "S2"],
+        source_ids=[None, None],
+        partitions=[Partition.TRAIN.value, Partition.TEST.value],
+    )
+    spectro = mat.to_spectro_dataset("split")
+
+    np.testing.assert_allclose(spectro.x({"partition": "train"}), np.array([[1.0]]))
+    np.testing.assert_allclose(spectro.x({"partition": "test"}), np.array([[2.0]]))
+
+
+def test_materialization_to_spectro_dataset_rejects_masked_representations():
+    ds = _heterogeneous_dataset()
+    mat = ds.materialize("per_source_observation")
+
+    with pytest.raises(RelationValidationError, match="feature_mask"):
+        mat.to_spectro_dataset("masked")
 
 
 def test_per_source_aggregate_is_invariant_to_input_shuffle():

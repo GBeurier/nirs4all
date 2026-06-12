@@ -46,12 +46,25 @@ def test_rep_fusion_controller_materializes_raw_multisource_dataset():
         mode="predict",
     )
     assert isinstance(context, ExecutionContext)
+    override = context.custom["dataset_override"]
+    assert isinstance(override, SpectroDataset)
+    np.testing.assert_allclose(override.x({"partition": "train"}), np.array([[1.0, 10.0], [3.0, 20.0]]))
+    assert context.custom["relation_materialization_manifest"]["fingerprint"] == output.metadata["materialization_manifest"]["fingerprint"]
     assert output.metadata["representation"] == "per_source_aggregate"
     assert output.metadata["shape"] == [2, 2]
     assert output.metadata["materialization_manifest"]["representation_plan"]["representation"] == "per_source_aggregate"
+    assert output.metadata["dataset_override"] is True
 
 
 def test_rep_fusion_controller_rejects_legacy_dataset_until_staged():
     controller = RepFusionController()
     with pytest.raises(ValueError, match="RawMultiSourceDataset"):
         controller.execute(_step("per_source_aggregate"), SpectroDataset(), ExecutionContext(), RuntimeContext())
+
+
+def test_rep_fusion_controller_rejects_branch_contexts():
+    controller = RepFusionController()
+    context = ExecutionContext(custom={"branch_contexts": [{"branch_id": 0}]})
+
+    with pytest.raises(ValueError, match="before branch"):
+        controller.execute(_step("per_source_aggregate"), _dataset(), context, RuntimeContext())

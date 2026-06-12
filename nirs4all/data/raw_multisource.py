@@ -28,6 +28,7 @@ fit-influence contracts.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import itertools
 import json
@@ -35,7 +36,8 @@ import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any, cast
+from functools import cached_property
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
@@ -49,6 +51,9 @@ from nirs4all.data.relations import (
     UnitLevel,
     build_relation_table,
 )
+
+if TYPE_CHECKING:
+    from nirs4all.data.dataset import SpectroDataset
 
 #: Representations that :meth:`RawMultiSourceDataset.materialize` can execute now.
 EXECUTABLE_REPRESENTATIONS: frozenset[str] = frozenset(
@@ -359,8 +364,9 @@ class AlignedMaterialization:
     source_ids: list[str | None] | None = None
     feature_mask: np.ndarray | None = None
     lineage: list[dict[str, Any]] | None = None
+    partitions: list[str] | None = None
 
-    @property
+    @cached_property
     def fingerprint(self) -> str:
         """Stable SHA-256 over the materialised arrays and replay plan."""
         digest = hashlib.sha256()
@@ -373,6 +379,7 @@ class AlignedMaterialization:
             "sample_ids": self.sample_ids,
             "unit_ids": self.unit_ids,
             "source_ids": self.source_ids,
+            "partitions": self.partitions,
             "headers": self.headers,
             "targets": _json_safe(self.targets),
             "arrays": digest.hexdigest(),
@@ -390,10 +397,85 @@ class AlignedMaterialization:
             "sample_ids": list(self.sample_ids),
             "unit_ids": list(self.unit_ids) if self.unit_ids is not None else None,
             "source_ids": list(self.source_ids) if self.source_ids is not None else None,
+            "partitions": list(self.partitions) if self.partitions is not None else None,
             "headers": list(self.headers),
             "targets": _json_safe(self.targets),
             "lineage": _json_safe(self.lineage),
         }
+
+    def to_spectro_dataset(self, name: str = "relation_materialized") -> SpectroDataset:
+        """Convert this explicit materialisation to the legacy rectangular dataset API."""
+        from nirs4all.data.dataset import SpectroDataset
+
+        if self.feature_mask is not None:
+            raise RelationValidationError(
+                f"Representation {self.representation!r} carries a feature_mask. "
+                "Masked/NaN materializations are not yet safely convertible to SpectroDataset; "
+                "use an unmasked representation or add a downstream mask-aware adapter.",
+                code="REL-E019",
+            )
+
+        dataset = SpectroDataset(name=name)
+        n_rows = int(self.X.shape[0])
+        partitions = list(self.partitions) if self.partitions is not None else [Partition.TRAIN.value] * n_rows
+        if len(partitions) != n_rows:
+            raise RelationValidationError(
+                f"Materialization declares {len(partitions)} partitions for {n_rows} rows.",
+                code="REL-E021",
+            )
+
+        base_partition = partitions[0] if partitions else Partition.TRAIN.value
+        dataset.add_samples(self.X, {"partition": base_partition}, headers=self.headers, header_unit="text")
+
+        for partition in sorted(set(partitions)):
+            if partition == base_partition:
+                continue
+            sample_indices = [idx for idx, value in enumerate(partitions) if value == partition]
+            dataset._indexer.update_by_indices(sample_indices, {"partition": partition})
+
+        if any(target is not None for target in self.targets):
+            target_values = np.asarray([np.nan if target is None else target for target in self.targets])
+            if target_values.dtype == object:
+                with contextlib.suppress(TypeError, ValueError):
+                    target_values = target_values.astype(float)
+            dataset.add_targets(target_values)
+
+        metadata_rows = self._spectro_metadata_rows(partitions)
+        if metadata_rows:
+            headers = list(metadata_rows[0])
+            dataset.add_metadata(np.asarray([[row.get(header, "") for header in headers] for row in metadata_rows], dtype=object), headers=headers)
+            dataset.set_repetition("physical_sample_id")
+            dataset.set_aggregate("physical_sample_id")
+
+        dataset._relation_materialization_manifest = self.to_manifest()
+        return dataset
+
+    def _spectro_metadata_rows(self, partitions: Sequence[str]) -> list[dict[str, Any]]:
+        unit_level = self.representation_plan.unit_level if self.representation_plan is not None else self.representation
+        unit_ids = self.unit_ids if self.unit_ids is not None else self.sample_ids
+        source_ids = self.source_ids if self.source_ids is not None else [None] * len(self.sample_ids)
+        lineage = self.lineage if self.lineage is not None else [{} for _ in self.sample_ids]
+        rows: list[dict[str, Any]] = []
+        for idx, sample_id in enumerate(self.sample_ids):
+            unit_id = unit_ids[idx] if idx < len(unit_ids) else sample_id
+            source_id = source_ids[idx] if idx < len(source_ids) else None
+            line = lineage[idx] if idx < len(lineage) else {}
+            rows.append(
+                {
+                    "physical_sample_id": sample_id,
+                    "origin_sample_id": line.get("origin_sample_id", sample_id) if isinstance(line, Mapping) else sample_id,
+                    "unit_level": unit_level,
+                    "unit_id": unit_id,
+                    "derived_unit_id": line.get("derived_unit_id", unit_id) if isinstance(line, Mapping) else unit_id,
+                    "source_id": source_id or "",
+                    "relation_partition": partitions[idx],
+                    "relation_row_id": f"{self.representation}:{idx}",
+                    "representation": self.representation,
+                    "representation_fingerprint": self.fingerprint,
+                    "relation_lineage": json.dumps(_json_safe(line), sort_keys=True, separators=(",", ":")),
+                }
+            )
+        return rows
 
 
 class RawMultiSourceDataset:
@@ -519,6 +601,11 @@ class RawMultiSourceDataset:
     # -- basic accessors ---------------------------------------------------
 
     @property
+    def name(self) -> str:
+        """Dataset identifier used by legacy pipeline logging."""
+        return "raw_multisource"
+
+    @property
     def source_ids(self) -> list[str]:
         """Sorted unique source ids (deterministic)."""
         return cast(list[str], self.relation_table.source_ids)
@@ -537,6 +624,38 @@ class RawMultiSourceDataset:
     def n_observations(self) -> int:
         """Total number of raw observations across all sources."""
         return sum(1 for r in self.relation_table.records if r.unit_level is UnitLevel.OBSERVATION)
+
+    @property
+    def num_samples(self) -> int:
+        """Legacy-compatible sample count for pipeline shape logging."""
+        return self.n_samples
+
+    @property
+    def num_features(self) -> int:
+        """Legacy-compatible rectangular width for the default materialized block."""
+        return sum(self.feature_dims().values())
+
+    @property
+    def aggregate(self) -> str | None:
+        """Legacy-compatible aggregation setting before explicit materialisation."""
+        return None
+
+    def features_sources(self) -> int:
+        """Legacy-compatible number of feature sources."""
+        return len(self.source_ids)
+
+    def content_hash(self, source_index: int | None = None) -> str:
+        """Legacy-compatible content hash for pipeline bookkeeping."""
+        if source_index is not None:
+            source_id = self.source_ids[source_index]
+            digest = hashlib.sha256()
+            digest.update(np.ascontiguousarray(self.X_by_source[source_id], dtype=np.float64).tobytes())
+            return digest.hexdigest()
+        return self.fingerprint()
+
+    def short_preprocessings_str(self) -> str:
+        """Display label used by chain persistence before materialisation."""
+        return "raw_multisource"
 
     def cardinalities(self) -> dict[tuple[str, str], int]:
         """Observation counts keyed by ``(physical_sample_id, source_id)``."""
@@ -660,6 +779,7 @@ class RawMultiSourceDataset:
             unit_ids=list(samples),
             source_ids=[None for _ in samples],
             lineage=lineage,
+            partitions=self._partitions_for_samples(samples),
         )
 
     def _materialize_per_source_observation(self, plan: RepresentationPlan) -> AlignedMaterialization:
@@ -672,6 +792,7 @@ class RawMultiSourceDataset:
         sample_ids: list[str] = []
         unit_ids: list[str] = []
         source_ids: list[str | None] = []
+        partitions: list[str] = []
         targets_map = self.targets_by_sample()
         targets: list[Any] = []
         lineage: list[dict[str, Any]] = []
@@ -687,6 +808,7 @@ class RawMultiSourceDataset:
             sample_ids.append(record.physical_sample_id)
             unit_ids.append(unit_id)
             source_ids.append(record.source_id)
+            partitions.append(self._partition_value(record.partition))
             targets.append(targets_map.get(record.physical_sample_id))
             lineage.append(
                 {
@@ -711,6 +833,7 @@ class RawMultiSourceDataset:
             source_ids=source_ids,
             feature_mask=feature_mask,
             lineage=lineage,
+            partitions=partitions,
         )
 
     def _materialize_stack_fixed(self, plan: RepresentationPlan) -> AlignedMaterialization:
@@ -755,6 +878,7 @@ class RawMultiSourceDataset:
             unit_ids=list(samples),
             source_ids=[None for _ in samples],
             lineage=lineage,
+            partitions=self._partitions_for_samples(samples),
         )
 
     def _materialize_stack_padded_masked(self, plan: RepresentationPlan) -> AlignedMaterialization:
@@ -809,6 +933,7 @@ class RawMultiSourceDataset:
             source_ids=[None for _ in samples],
             feature_mask=feature_mask,
             lineage=lineage,
+            partitions=self._partitions_for_samples(samples),
         )
 
     def _materialize_cartesian(self, plan: RepresentationPlan) -> AlignedMaterialization:
@@ -835,9 +960,11 @@ class RawMultiSourceDataset:
         masks: list[np.ndarray] = []
         sample_ids: list[str] = []
         unit_ids: list[str] = []
+        partitions: list[str] = []
         targets: list[Any] = []
         lineage: list[dict[str, Any]] = []
         for sample in samples:
+            sample_partition = self._partition_for_sample(sample)
             for combo_index, combo in enumerate(selected_by_sample[sample]):
                 vectors = [component[1] for component in combo]
                 mask_parts = [component[2] for component in combo]
@@ -848,6 +975,7 @@ class RawMultiSourceDataset:
                 masks.append(mask)
                 sample_ids.append(sample)
                 unit_ids.append(unit_id)
+                partitions.append(sample_partition)
                 targets.append(targets_map.get(sample))
                 lineage.append(self._cartesian_lineage(plan, sample, combo_index, unit_id, combo))
 
@@ -864,6 +992,7 @@ class RawMultiSourceDataset:
             source_ids=[None for _ in sample_ids],
             feature_mask=feature_mask,
             lineage=lineage,
+            partitions=partitions,
         )
 
     def _cartesian_options_for_sample(
@@ -981,6 +1110,30 @@ class RawMultiSourceDataset:
         for record in self._sorted_observation_records():
             by_key.setdefault((record.physical_sample_id, record.source_id), []).append(record)
         return by_key
+
+    def _partitions_for_samples(self, sample_ids: Sequence[str]) -> list[str]:
+        """Return one unambiguous partition per physical sample."""
+        return [self._partition_for_sample(sample_id) for sample_id in sample_ids]
+
+    def _partition_for_sample(self, sample_id: str) -> str:
+        partitions = {
+            self._partition_value(record.partition)
+            for record in self.relation_table.records
+            if record.unit_level is UnitLevel.OBSERVATION and record.physical_sample_id == sample_id
+        }
+        if not partitions:
+            return "train"
+        if len(partitions) != 1:
+            raise RelationValidationError(
+                f"Physical sample {sample_id!r} spans multiple partitions {sorted(partitions)}; "
+                "materialized rows require one partition per derived unit.",
+                code="REL-E021",
+            )
+        return next(iter(partitions))
+
+    @staticmethod
+    def _partition_value(partition: Partition | str) -> str:
+        return partition.value if isinstance(partition, Partition) else str(partition)
 
     def _source_block_headers(self) -> tuple[list[str], dict[str, tuple[int, int]]]:
         headers: list[str] = []

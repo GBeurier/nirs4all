@@ -55,7 +55,25 @@ class RepFusionController(OperatorController):
                 "rep_fusion requires a RawMultiSourceDataset staging object. "
                 "Legacy SpectroDataset -> relational staging conversion is intentionally not implicit."
             )
+        if context.custom.get("branch_contexts"):
+            raise ValueError(
+                "rep_fusion must run before branch execution. Materialising relation-aware staging inside branch contexts "
+                "is not supported because dataset overrides are pipeline-wide."
+            )
         materialized = config.materialize(dataset)
+        materialization_manifest = materialized.to_manifest()
+        materialized_dataset = materialized.to_spectro_dataset(
+            name=f"{getattr(dataset, 'name', 'raw_multisource')}::{materialized.representation}"
+        )
+        result_context = context.copy()
+        result_context.custom["dataset_override"] = materialized_dataset
+        result_context.custom["relation_materialization_manifest"] = {
+            "representation": materialization_manifest["representation"],
+            "representation_plan": materialization_manifest["representation_plan"],
+            "fingerprint": materialization_manifest["fingerprint"],
+            "shape": materialization_manifest["shape"],
+            "has_feature_mask": materialization_manifest["has_feature_mask"],
+        }
         output = StepOutput()
         output.metadata.update(
             {
@@ -63,11 +81,12 @@ class RepFusionController(OperatorController):
                 "representation": materialized.representation,
                 "shape": list(materialized.X.shape),
                 "representation_plan": config.plan.to_dict(),
-                "materialization_manifest": materialized.to_manifest(),
+                "materialization_manifest": materialization_manifest,
+                "dataset_override": True,
                 "mode": mode,
             }
         )
-        return context, output
+        return result_context, output
 
 
 __all__ = ["RepFusionController"]

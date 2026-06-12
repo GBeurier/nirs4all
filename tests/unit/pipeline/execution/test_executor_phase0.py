@@ -8,9 +8,14 @@ from unittest.mock import Mock
 import numpy as np
 import polars as pl
 
+from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
+from nirs4all.data.raw_multisource import RawMultiSourceDataset
+from nirs4all.data.relations import RepetitionSpec
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.executor import PipelineExecutor
+from nirs4all.pipeline.execution.result import StepResult
+from nirs4all.pipeline.steps.step_runner import StepRunner
 
 
 def test_execute_passes_dataset_content_hash_to_begin_pipeline():
@@ -27,7 +32,7 @@ def test_execute_passes_dataset_content_hash_to_begin_pipeline():
     context = Mock()
 
     executor = PipelineExecutor(step_runner=Mock(), mode="train")
-    executor._execute_steps = Mock(return_value=context)
+    executor._execute_steps = Mock(return_value=(context, dataset))
 
     executor.execute(
         steps=[],
@@ -42,6 +47,78 @@ def test_execute_passes_dataset_content_hash_to_begin_pipeline():
     assert store.begin_pipeline.call_count == 1
     assert store.begin_pipeline.call_args.kwargs["dataset_hash"] == "dataset-hash-123"
     assert store.begin_pipeline.call_args.kwargs["original_template"] == [{"_or_": ["SNV", "MSC"]}, {"model": "PLSRegression"}]
+
+
+def test_execute_steps_promotes_rep_fusion_dataset_override():
+    raw = RawMultiSourceDataset.from_sources(
+        RepetitionSpec(sample_id="sid", link_by="sid"),
+        {"A": np.array([[1.0], [3.0]]), "B": np.array([[10.0], [20.0]])},
+        {"A": ["S1", "S2"], "B": ["S1", "S2"]},
+        targets_by_source={"A": [10.0, 20.0]},
+    )
+    executor = PipelineExecutor(step_runner=StepRunner(), mode="train")
+    context = executor.initialize_context(raw)
+
+    context, dataset = executor._execute_steps(
+        steps=[{"rep_fusion": "per_source_aggregate"}],
+        dataset=raw,
+        context=context,
+        runtime_context=None,
+        prediction_store=Predictions(),
+        all_artifacts=[],
+    )
+
+    assert isinstance(dataset, SpectroDataset)
+    assert "dataset_override" not in context.custom
+    assert context.aggregate_column == "physical_sample_id"
+    assert context.selector.processing == [["raw"]]
+    np.testing.assert_allclose(dataset.x({"partition": "train"}), np.array([[1.0, 10.0], [3.0, 20.0]]))
+    np.testing.assert_allclose(dataset.y({"partition": "train", "y": "raw"}).ravel(), np.array([10.0, 20.0]))
+
+
+def test_execute_minimal_promotes_dataset_override_between_steps():
+    base = SpectroDataset("base")
+    base.add_samples(np.array([[0.0]]), {"partition": "train"})
+    override = SpectroDataset("override")
+    override.add_samples(np.array([[1.0]]), {"partition": "train"})
+
+    class _Runner:
+        def __init__(self) -> None:
+            self.seen: list[SpectroDataset] = []
+
+        def execute(self, step, dataset, context, runtime_context, loaded_binaries=None, prediction_store=None):
+            self.seen.append(dataset)
+            if len(self.seen) == 1:
+                updated = context.copy()
+                updated.custom["dataset_override"] = override
+                return StepResult(updated_context=updated)
+            return StepResult(updated_context=context)
+
+    class _Step:
+        def __init__(self, step_index: int) -> None:
+            self.step_index = step_index
+            self.substep_index = None
+            self.branch_path = []
+
+    class _Minimal:
+        steps = [_Step(1), _Step(2)]
+        model_step_index = None
+
+    runner = _Runner()
+    executor = PipelineExecutor(step_runner=runner, mode="predict")
+    context = executor.initialize_context(base)
+
+    executor.execute_minimal(
+        steps=[{"first": True}, {"second": True}],
+        minimal_pipeline=_Minimal(),
+        dataset=base,
+        context=context,
+        runtime_context=RuntimeContext(),
+        prediction_store=Predictions(),
+    )
+
+    assert runner.seen == [base, override]
+
 
 def test_flush_predictions_uses_refit_runtime_overrides():
     """Refit runtime labels should be applied before saving predictions."""

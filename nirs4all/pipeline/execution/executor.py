@@ -178,7 +178,7 @@ class PipelineExecutor:
         # Execute all steps
         all_artifacts: list[Any] = []
         try:
-            context = self._execute_steps(
+            context, dataset = self._execute_steps(
                 steps,
                 dataset,
                 context,
@@ -566,7 +566,7 @@ class PipelineExecutor:
         runtime_context: Any,
         prediction_store: Predictions,
         all_artifacts: list[Any]
-    ) -> ExecutionContext:
+    ) -> tuple[ExecutionContext, SpectroDataset]:
         """Execute all steps in sequence.
 
         Handles pipeline branching: when a branch step is encountered, subsequent
@@ -581,7 +581,7 @@ class PipelineExecutor:
             all_artifacts: List to accumulate artifacts
 
         Returns:
-            Updated execution context
+            Updated execution context and current dataset
         """
         for step in steps:
             self.step_number += 1
@@ -623,6 +623,7 @@ class PipelineExecutor:
                     prediction_store=prediction_store,
                     all_artifacts=all_artifacts
                 )
+                context, dataset = self._consume_dataset_override(context, dataset)
             else:
                 # Normal execution (single context)
                 context = self._execute_single_step(
@@ -634,8 +635,46 @@ class PipelineExecutor:
                     prediction_store=prediction_store,
                     all_artifacts=all_artifacts
                 )
+                context, dataset = self._consume_dataset_override(context, dataset)
 
-        return context
+        return context, dataset
+
+    def _consume_dataset_override(
+        self,
+        context: ExecutionContext,
+        current_dataset: SpectroDataset,
+    ) -> tuple[ExecutionContext, SpectroDataset]:
+        """Promote a controller-provided dataset override to the pipeline dataset."""
+        override = self._peek_dataset_override(context)
+        if override is None:
+            return context, current_dataset
+
+        sentinel = object()
+        saved_override = context.custom.pop("dataset_override", sentinel)
+        try:
+            result_context = context.copy()
+        finally:
+            if saved_override is not sentinel:
+                context.custom["dataset_override"] = saved_override
+        result_context = result_context.with_processing([["raw"]] * override.features_sources())
+        result_context.aggregate_column = override.aggregate
+        logger.debug(
+            f"Dataset override consumed after step {self.step_number}: "
+            f"{current_dataset.name} -> {override.name}"
+        )
+        return result_context, override
+
+    @staticmethod
+    def _peek_dataset_override(context: ExecutionContext) -> SpectroDataset | None:
+        override = context.custom.get("dataset_override")
+        if override is None:
+            return None
+        if not isinstance(override, SpectroDataset):
+            raise TypeError(
+                "ExecutionContext.custom['dataset_override'] must be a SpectroDataset, "
+                f"got {type(override).__name__}."
+            )
+        return override
 
     def _execute_step_on_branches(
         self,
@@ -1018,12 +1057,14 @@ class PipelineExecutor:
             if self.verbose > 1:
                 logger.debug(str(dataset))
 
+            output_dataset = self._peek_dataset_override(step_result.updated_context) or dataset
+
             # Per-step memory logging (Phase 1.5)
-            self._log_step_memory(dataset, operator_class, runtime_context)
+            self._log_step_memory(output_dataset, operator_class, runtime_context)
 
             # Record output shapes after execution
             if runtime_context:
-                self._record_dataset_shapes(dataset, step_result.updated_context, runtime_context, is_input=False)
+                self._record_dataset_shapes(output_dataset, step_result.updated_context, runtime_context, is_input=False)
 
             # Process artifacts (persist via store if needed)
             processed_artifacts = self._process_step_artifacts(
@@ -1559,7 +1600,7 @@ class PipelineExecutor:
                         return False
                 return has_effective_substep
             controller = self.step_runner.router.route(parsed, step)
-            return controller.supports_step_cache()
+            return bool(controller.supports_step_cache())
         except Exception:
             return False
 
@@ -1757,6 +1798,7 @@ class PipelineExecutor:
                     prediction_store=prediction_store,
                     all_artifacts=[]
                 )
+                context, dataset = self._consume_dataset_override(context, dataset)
             else:
                 # Single context execution
                 context = self._execute_single_step(
@@ -1768,5 +1810,6 @@ class PipelineExecutor:
                     prediction_store=prediction_store,
                     all_artifacts=[]
                 )
+                context, dataset = self._consume_dataset_override(context, dataset)
 
         logger.success(f"Minimal pipeline completed: {prediction_store.num_predictions} predictions")
