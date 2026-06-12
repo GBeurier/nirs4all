@@ -462,6 +462,23 @@ class TestBundleLoader:
         assert y_pred_changed_cardinality.shape == (1,)
         np.testing.assert_allclose(y_pred_changed_cardinality, np.ones(1))
 
+        missing_source_dataset = RawMultiSourceDataset.from_sources(
+            RepetitionSpec.from_config(
+                {
+                    "sample_id": "sid",
+                    "link_by": "sid",
+                    "missing_source_policy": "impute_declared",
+                    "sources": {"MIR": {"expected": 2}, "RAMAN": {"expected": 1}},
+                }
+            ),
+            {"MIR": np.array([[7.0, 7.0], [8.0, 8.0]])},
+            {"MIR": ["S4", "S4"]},
+            targets_by_source={"MIR": [40.0, 40.0]},
+        )
+
+        with pytest.raises(ValueError, match="feature-space width"):
+            loader.predict(missing_source_dataset)
+
     def test_relation_replay_manifest_reference_must_exist(self, tmp_path):
         """Test relation replay manifest references fail loudly when broken."""
         bundle_path = tmp_path / "broken_relation_ref.n4a"

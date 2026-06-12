@@ -1465,7 +1465,9 @@ def replay_materialization(
     """Replay a materialisation from a minimal N9 representation manifest.
 
     By default this reuses only the replayable :class:`RepresentationPlan`, so
-    prediction data may have different row/cardinality counts. Set
+    prediction data may have different row/cardinality counts. The feature-space
+    contract (number and names of columns) is still validated because a bundle
+    model cannot safely consume a different rectangular representation. Set
     ``validate_fingerprint=True`` when replaying the exact same dataset and
     expecting byte-identical materialisation output.
     """
@@ -1475,6 +1477,7 @@ def replay_materialization(
     if not isinstance(plan_payload, Mapping):
         raise RelationValidationError("Materialization representation_plan must be a mapping.", code="REL-E019")
     materialized = dataset.materialize(RepresentationPlan.from_dict(plan_payload))
+    _validate_replayed_feature_space(materialized, manifest)
     if validate_fingerprint:
         expected_shape = manifest.get("shape")
         if expected_shape is not None and list(materialized.X.shape) != list(expected_shape):
@@ -1486,6 +1489,32 @@ def replay_materialization(
         if expected_fingerprint is not None and str(expected_fingerprint) != materialized.fingerprint:
             raise RelationValidationError("Replayed materialization fingerprint does not match manifest.", code="REL-E019")
     return materialized
+
+
+def _validate_replayed_feature_space(materialized: AlignedMaterialization, manifest: Mapping[str, Any]) -> None:
+    """Ensure prediction replay preserves the trained rectangular feature space."""
+    expected_shape = manifest.get("shape")
+    if isinstance(expected_shape, Sequence) and len(expected_shape) >= 2:
+        expected_width = int(expected_shape[1])
+        actual_width = int(materialized.X.shape[1]) if materialized.X.ndim >= 2 else 0
+        if actual_width != expected_width:
+            raise RelationValidationError(
+                "Replayed relation materialization produced a different feature-space width "
+                f"({actual_width}) than the bundle manifest ({expected_width}). This usually means a "
+                "declared source is missing, a source feature width changed, or the missing-source policy "
+                "is not replayable for this bundle.",
+                code="REL-E019",
+            )
+    expected_headers = manifest.get("headers")
+    if isinstance(expected_headers, Sequence) and not isinstance(expected_headers, (str, bytes)):
+        expected = [str(header) for header in expected_headers]
+        actual = [str(header) for header in materialized.headers]
+        if actual != expected:
+            raise RelationValidationError(
+                "Replayed relation materialization produced different feature-space headers than the bundle manifest. "
+                "Source order, source widths and missing-source replay policy must preserve the trained headers.",
+                code="REL-E019",
+            )
 
 
 __all__ = [

@@ -387,6 +387,26 @@ def test_materialization_manifest_replays_exactly():
     np.testing.assert_allclose(replayed.X, mat.X)
 
 
+def test_replay_materialization_rejects_prediction_feature_space_mismatch():
+    manifest = _heterogeneous_dataset().materialize("per_source_aggregate").to_manifest()
+    predict_ds = RawMultiSourceDataset.from_sources(
+        RepetitionSpec.from_config(
+            {
+                "sample_id": "sid",
+                "link_by": "sid",
+                "missing_source_policy": "impute_declared",
+                "sources": {"MIR": {"expected": 2}, "RAMAN": {"expected": 1}},
+            }
+        ),
+        {"MIR": np.array([[5.0, 5.0], [6.0, 6.0]])},
+        {"MIR": ["S3", "S3"]},
+        targets_by_source={"MIR": [30.0, 30.0]},
+    )
+
+    with pytest.raises(RelationValidationError, match="feature-space width"):
+        replay_materialization(predict_ds, manifest, validate_fingerprint=False)
+
+
 def test_per_source_observation_is_sparse_rectangular_with_mask():
     mat = _heterogeneous_dataset().materialize("per_source_observation")
     assert mat.representation == "per_source_observation"
