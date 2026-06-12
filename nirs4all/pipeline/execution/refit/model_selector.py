@@ -23,8 +23,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
+import numpy as np
+
+from nirs4all.core import metrics as evaluator
 from nirs4all.core.logging import get_logger
 from nirs4all.core.metrics import infer_ascending as _infer_ascending
+from nirs4all.data.reduction import EvaluationScope, normalize_evaluation_scope
 from nirs4all.pipeline.analysis.topology import PipelineTopology
 
 logger = get_logger(__name__)
@@ -77,10 +81,10 @@ def select_best_per_model(
             directly.
         ascending: Sort direction.  ``True`` means lower is better
             (e.g. RMSE).  ``None`` infers from the metric name.
-        evaluation_scope: Reserved hook (roadmap N0) for the future
-            sample/observation/combo selection scope. Inert in this phase; the
-            legacy per-model ``val_score`` selection is unchanged. Defaults to
-            ``None``.
+        evaluation_scope: Optional unit at which prediction-backed candidates
+            are ranked. ``"sample"`` recomputes scores from arrays after
+            grouping by ``metadata["physical_sample_id"]`` when present.
+            ``None`` keeps legacy ``val_score`` selection.
 
     Returns:
         Mapping from model class name to its ``PerModelSelection``.
@@ -97,11 +101,10 @@ def select_best_per_model(
           the stacking context.  Branch base models are still
           independently selected within that context.
     """
-    # Reserved evaluation-scope hook (roadmap N0): inert in this phase.
-    _ = evaluation_scope
-
     if ascending is None:
         ascending = _infer_ascending(metric)
+
+    scope = normalize_evaluation_scope(evaluation_scope) if evaluation_scope is not None else None
 
     # Single variant shortcut
     if len(variant_configs) <= 1:
@@ -115,7 +118,7 @@ def select_best_per_model(
         if not model_name:
             continue
 
-        val_score = pred.get("val_score")
+        val_score = _score_prediction_for_scope(pred, metric, scope)
         if val_score is None:
             continue
 
@@ -185,6 +188,49 @@ def select_best_per_model(
             )
 
     return result
+
+def _score_prediction_for_scope(
+    pred: dict[str, Any],
+    metric: str,
+    evaluation_scope: EvaluationScope | None,
+) -> float | None:
+    """Return the selection score for one prediction row."""
+    legacy_score = pred.get("val_score")
+    if evaluation_scope is not EvaluationScope.SAMPLE:
+        return float(legacy_score) if legacy_score is not None else None
+
+    metadata = pred.get("metadata", {})
+    y_true = pred.get("y_true")
+    y_pred = pred.get("y_pred")
+    if (
+        not isinstance(metadata, dict)
+        or "physical_sample_id" not in metadata
+        or not isinstance(y_true, np.ndarray)
+        or not isinstance(y_pred, np.ndarray)
+        or y_true.size == 0
+        or y_pred.size == 0
+    ):
+        return float(legacy_score) if legacy_score is not None else None
+
+    from nirs4all.data.predictions import Predictions
+
+    agg_y_true, agg_y_pred, _, was_aggregated = Predictions._apply_aggregation(
+        y_true,
+        y_pred,
+        pred.get("y_proba"),
+        metadata,
+        "physical_sample_id",
+        pred.get("model_name", ""),
+    )
+    if not was_aggregated or agg_y_true is None or agg_y_pred is None:
+        return float(legacy_score) if legacy_score is not None else None
+
+    effective_metric = metric or pred.get("metric") or "rmse"
+    try:
+        score = evaluator.eval(agg_y_true, agg_y_pred, effective_metric)
+    except Exception:
+        return float(legacy_score) if legacy_score is not None else None
+    return float(score) if isinstance(score, (int, float)) else None
 
 def _single_variant_selection(
     topology: PipelineTopology,

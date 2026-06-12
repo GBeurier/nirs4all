@@ -15,9 +15,12 @@ Covers:
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
+from nirs4all.core import metrics as evaluator
 from nirs4all.core.metrics import infer_ascending as _infer_ascending
+from nirs4all.data.reduction import ReductionError
 from nirs4all.pipeline.analysis.topology import (
     ModelNodeInfo,
     PipelineTopology,
@@ -181,6 +184,68 @@ class TestMultiVariantSingleModel:
 
         # Variant 1 wins, its best_params should be {"n_components": 6}
         assert result["PLSRegression"].best_params == {"n_components": 6}
+
+    def test_sample_evaluation_scope_changes_variant_selection(self):
+        """Sample-level scoring can select a different variant than val_score."""
+        topo = _make_topology(("PLSRegression", [], None))
+        configs = _make_variant_configs(2)
+        sample_ids = ["S1"] * 10 + ["S2"]
+        y_true = np.array([0.0] * 10 + [10.0])
+        row_level_winner = np.array([0.0] * 10 + [20.0])
+        sample_level_winner = np.array([4.0] * 10 + [10.0])
+
+        preds = [
+            {
+                "model_name": "PLSRegression",
+                "variant_index": 0,
+                "metric": "rmse",
+                "val_score": evaluator.eval(y_true, row_level_winner, "rmse"),
+                "y_true": y_true,
+                "y_pred": row_level_winner,
+                "metadata": {"physical_sample_id": sample_ids},
+            },
+            {
+                "model_name": "PLSRegression",
+                "variant_index": 1,
+                "metric": "rmse",
+                "val_score": evaluator.eval(y_true, sample_level_winner, "rmse"),
+                "y_true": y_true,
+                "y_pred": sample_level_winner,
+                "metadata": {"physical_sample_id": sample_ids},
+            },
+        ]
+
+        row_result = select_best_per_model(preds, topo, configs, metric="rmse", ascending=True)
+        sample_result = select_best_per_model(preds, topo, configs, metric="rmse", ascending=True, evaluation_scope="sample")
+
+        assert row_result["PLSRegression"].variant_index == 0
+        assert sample_result["PLSRegression"].variant_index == 1
+        assert sample_result["PLSRegression"].best_score == pytest.approx(2.8284271247)
+
+    def test_sample_evaluation_scope_without_physical_sample_id_keeps_legacy_score(self):
+        """Sample scope falls back to val_score when canonical metadata is absent."""
+        topo = _make_topology(("PLSRegression", [], None))
+        configs = _make_variant_configs(2)
+        preds = _make_predictions([
+            {"model_name": "PLSRegression", "val_score": 0.2, "variant_index": 0},
+            {"model_name": "PLSRegression", "val_score": 0.4, "variant_index": 1},
+        ])
+
+        result = select_best_per_model(preds, topo, configs, ascending=True, evaluation_scope="sample")
+
+        assert result["PLSRegression"].variant_index == 0
+        assert result["PLSRegression"].best_score == pytest.approx(0.2)
+
+    def test_unknown_evaluation_scope_fails_loud(self):
+        """Invalid evaluation scopes are rejected instead of ignored."""
+        topo = _make_topology(("PLSRegression", [], None))
+        configs = _make_variant_configs(2)
+        preds = _make_predictions([
+            {"model_name": "PLSRegression", "val_score": 0.2, "variant_index": 0},
+        ])
+
+        with pytest.raises(ReductionError):
+            select_best_per_model(preds, topo, configs, evaluation_scope="not_a_scope")
 
 # =========================================================================
 # Multiple variants with multiple models (independent selection)
