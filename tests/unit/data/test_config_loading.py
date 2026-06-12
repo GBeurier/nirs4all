@@ -4,8 +4,10 @@ Tests the ability to load DatasetConfigs from JSON and YAML files,
 as well as error handling for invalid files.
 """
 
+import csv
 import json
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 import pytest
@@ -257,6 +259,54 @@ class TestParseConfigWithFiles:
 
         assert config["train_x"] == "path/to/X.csv"
         assert config["train_y"] == "path/to/Y.csv"
+
+    def test_heterogeneous_repetition_examples_parse_and_reference_existing_files(self):
+        """Smoke-test the experimental heterogeneous repetition example configs."""
+        repo_root = Path(__file__).resolve().parents[3]
+        examples_root = repo_root / "examples"
+        config_paths = sorted((repo_root / "examples" / "configs" / "datasets").glob("heterogeneous_repetitions_*.yaml"))
+
+        assert {path.name for path in config_paths} == {
+            "heterogeneous_repetitions_cartesian_full.yaml",
+            "heterogeneous_repetitions_late_fusion.yaml",
+            "heterogeneous_repetitions_missing_source.yaml",
+            "heterogeneous_repetitions_per_source_aggregate.yaml",
+        }
+
+        for config_path in config_paths:
+            config, name = parse_config(str(config_path))
+
+            assert name == config_path.stem
+            assert config["name"] == config_path.stem
+            assert config["experimental_relation_pipeline"] is True
+            assert config["task_type"] == "regression"
+
+            repetition_spec = config["repetition_spec"]
+            assert repetition_spec["sample_id"] == "sample_id"
+            assert repetition_spec["target_level"] == "physical_sample"
+
+            target_path = examples_root / config["targets"]["path"]
+            assert target_path.is_file()
+            with target_path.open(newline="") as handle:
+                target_rows = list(csv.DictReader(handle))
+            assert {row["sample_id"] for row in target_rows} == {"S001", "S002", "S003", "S004", "S005"}
+
+            for source in config["sources"]:
+                source_name = source["name"]
+                expected_reps = int(repetition_spec["sources"][source_name]["expected"])
+                expected_rep_ids = {str(rep_id) for rep_id in range(1, expected_reps + 1)}
+
+                for path_key, sample_ids in (("train_x", {"S001", "S002", "S003"}), ("test_x", {"S004", "S005"})):
+                    data_path = examples_root / source[path_key]
+                    assert data_path.is_file()
+                    with data_path.open(newline="") as handle:
+                        rows = list(csv.DictReader(handle))
+
+                    assert rows
+                    assert {"sample_id", "rep"} <= set(rows[0])
+                    assert Counter(row["sample_id"] for row in rows) == Counter(dict.fromkeys(sample_ids, expected_reps))
+                    for sample_id in sample_ids:
+                        assert {row["rep"] for row in rows if row["sample_id"] == sample_id} == expected_rep_ids
 
 class TestDatasetConfigsWithFiles:
     """Test suite for DatasetConfigs with file-based configs."""
