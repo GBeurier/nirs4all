@@ -24,11 +24,12 @@ The N4 completion adds, on top of the N0 adapter:
 
 Only **leakage-free, group-stateless** methods are executable in this phase
 (``mean`` / ``median`` / ``vote`` / ``robust`` and ``weighted_mean`` when the
-weights are supplied as inputs). Fitable reducers carry a contract and a state
-holder; executing one requires an explicit, non-leaked fitted state. Everything
-else (``custom`` without a reducer, the non-``unit`` axes) fails loud. None of
-this is wired into the persisted prediction format: the additive columns and
-public kwargs stay inert metadata.
+weights are supplied as inputs). They run on all declared axes by treating
+``group_ids`` as the caller-resolved bucket key for that axis (unit, fold, model
+or metric). Fitable reducers carry a contract and a state holder; executing one
+requires an explicit, non-leaked fitted state. Everything else (``custom``
+without a reducer) fails loud. None of this is wired into the persisted
+prediction format: the additive columns and public kwargs stay inert metadata.
 """
 
 from __future__ import annotations
@@ -463,14 +464,15 @@ class ReductionPlan:
     """Canonical reduction contract that generalises the existing mechanisms.
 
     Wraps the existing reduction semantics so scoring, ranking, refit and
-    reporting can converge on one object. The ``unit`` axis is executable and,
-    for the safe leakage-free methods, byte-for-byte identical to the legacy
-    :meth:`Predictions.aggregate` path. Other axes are declared metadata until
-    their phase lands.
+    reporting can converge on one object. For the safe leakage-free methods, the
+    ``unit`` axis remains byte-for-byte identical to the legacy
+    :meth:`Predictions.aggregate` path. The ``fold``, ``model`` and ``metric``
+    axes reuse the same grouped reducer; callers provide the appropriate bucket
+    key through ``group_ids``.
 
     Attributes:
         role: Why the reduction is applied.
-        axis: Which axis it collapses (only ``unit`` is executable here).
+        axis: Which axis it collapses.
         method: ``mean`` / ``median`` / ``vote`` / ``weighted_mean`` / ``robust``
             / ``custom``.
         input_level: The level the reduction consumes.
@@ -552,11 +554,12 @@ class ReductionPlan:
     def from_test_aggregation(cls, test_aggregation: Any) -> ReductionPlan:
         """Build a fold-axis plan from a legacy ``TestAggregation`` value.
 
-        Captures the fold-ensemble role/method/weight metadata faithfully. The
-        ``fold`` axis is not executable in this phase, so the plan is metadata
-        only: ``weighted`` keeps ``method=weighted_mean`` with
-        ``weight_source="val_score"`` and ``best`` is the non-averaging
-        ``custom`` best-fold selection (also keyed by ``val_score``).
+        Captures the fold-ensemble role/method/weight metadata faithfully.
+        ``mean`` and ``weighted`` are executable grouped reductions when the
+        caller supplies fold predictions keyed by the output unit. ``weighted``
+        keeps ``method=weighted_mean`` with ``weight_source="val_score"``.
+        ``best`` is the non-averaging ``custom`` best-fold selection (also keyed
+        by ``val_score``) and remains fail-loud without an explicit reducer.
 
         Args:
             test_aggregation: A ``TestAggregation`` enum or its string value
@@ -645,13 +648,18 @@ class ReductionPlan:
         """Reduce predictions by group.
 
         For the safe leakage-free methods on the ``unit`` axis, the output is
-        identical to the legacy :meth:`Predictions.aggregate` call. Fitable plans
-        (``fit_scope != stateless``) require an explicit, non-leaked
-        :class:`ReducerState`; unsupported axes and ``custom`` fail loud.
+        identical to the legacy :meth:`Predictions.aggregate` call. The
+        ``fold``, ``model`` and ``metric`` axes use the same grouped reducer; in
+        those cases ``group_ids`` is the already-resolved output bucket key
+        (for example the physical sample id when collapsing fold predictions).
+        Fitable plans (``fit_scope != stateless``) require an explicit,
+        non-leaked :class:`ReducerState`; ``custom`` fails loud.
 
         Args:
             y_pred: Predicted values ``(n_samples,)``.
-            group_ids: Group identifiers ``(n_samples,)``.
+            group_ids: Group identifiers ``(n_samples,)``. The meaning depends
+                on :attr:`axis`; for non-unit axes it is the caller-resolved
+                output bucket key.
             y_proba: Optional class probabilities.
             y_true: Optional true values.
             weights: Optional per-row weights (required for ``weighted_mean``).
@@ -664,15 +672,9 @@ class ReductionPlan:
             optional ``y_proba`` / ``y_true`` / ``outliers_excluded``).
 
         Raises:
-            NotImplementedError: If the axis is not yet executable.
             ReductionError: For an unsupported method or a missing fitted state.
             LeakedReducerStateError: If the supplied state leaks.
         """
-        if self.axis is not ReductionAxis.UNIT:
-            raise NotImplementedError(
-                f"ReductionPlan axis={self.axis.value!r} is declared but only the 'unit' axis is "
-                "executable in this phase."
-            )
         if task_type is not None:
             self.validate_task(task_type)
         self._require_valid_state(state)

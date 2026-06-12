@@ -97,6 +97,9 @@ Use:
 
 Reducers still define how predictions are reduced back to the sample level for
 scoring, ranking, final prediction, and export.
+For `axis: fold`, `axis: model`, and `axis: metric`, the reducer is still a
+grouped reduction: nirs4all supplies the appropriate output key, such as
+`physical_sample_id`, and applies the declared method within each key.
 
 ## Stacking And Missing Sources
 

@@ -1,8 +1,8 @@
-"""Unit tests for the N0 reduction socle.
+"""Unit tests for the N0/N4 reduction socle.
 
 Covers the ``ReductionPlan`` parity with ``Predictions.aggregate`` (the adapter
-must not change legacy output), prediction levels / unit ids and the typed
-``fold_id`` helpers.
+must not change legacy output), the executable grouped axes, prediction levels /
+unit ids and the typed ``fold_id`` helpers.
 """
 
 from __future__ import annotations
@@ -88,11 +88,73 @@ def test_reduction_plan_from_by_repetition():
     assert plan.axis is ReductionAxis.UNIT
 
 
-def test_non_unit_axis_not_executable():
+def test_fold_axis_mean_reduces_fold_predictions_by_sample():
     plan = ReductionPlan.from_test_aggregation("mean")
     assert plan.axis is ReductionAxis.FOLD
-    with pytest.raises(NotImplementedError):
-        plan.reduce(np.array([1.0]), np.array([0]))
+    y_pred = np.array([1.0, 1.4, 2.0, 2.6, 0.8, 1.2])
+    group_ids = np.array(["S1", "S1", "S2", "S2", "S3", "S3"])
+
+    reduced = plan.reduce(y_pred, group_ids)
+
+    np.testing.assert_array_equal(reduced["group_ids"], np.array(["S1", "S2", "S3"]))
+    np.testing.assert_allclose(reduced["y_pred"], np.array([1.2, 2.3, 1.0]))
+    np.testing.assert_array_equal(reduced["group_sizes"], np.array([2, 2, 2]))
+
+
+def test_model_axis_weighted_mean_reduces_model_ensemble_by_sample():
+    plan = ReductionPlan(
+        role=ReductionRole.FINAL_OUTPUT,
+        axis=ReductionAxis.MODEL,
+        method=ReductionMethod.WEIGHTED_MEAN,
+        input_level=PredictionLevel.SAMPLE,
+        output_level=PredictionLevel.SAMPLE,
+        weight_source="model_weight",
+    )
+    y_pred = np.array([1.0, 3.0, 10.0, 20.0])
+    group_ids = np.array(["S1", "S1", "S2", "S2"])
+    weights = np.array([0.25, 0.75, 0.8, 0.2])
+
+    reduced = plan.reduce(y_pred, group_ids, weights=weights)
+
+    np.testing.assert_array_equal(reduced["group_ids"], np.array(["S1", "S2"]))
+    np.testing.assert_allclose(reduced["y_pred"], np.array([2.5, 12.0]))
+    np.testing.assert_array_equal(reduced["group_sizes"], np.array([2, 2]))
+
+
+def test_metric_axis_median_reduces_metric_values_by_bucket():
+    plan = ReductionPlan(
+        role=ReductionRole.SCORE,
+        axis=ReductionAxis.METRIC,
+        method=ReductionMethod.MEDIAN,
+        input_level=PredictionLevel.SAMPLE,
+        output_level=PredictionLevel.SAMPLE,
+    )
+    values = np.array([1.0, 3.0, 10.0, 20.0, 30.0])
+    metric_bucket = np.array([0, 0, 1, 1, 1])
+
+    reduced = plan.reduce(values, metric_bucket)
+
+    np.testing.assert_array_equal(reduced["group_ids"], np.array([0, 1]))
+    np.testing.assert_allclose(reduced["y_pred"], np.array([2.0, 20.0]))
+
+
+def test_non_unit_axis_robust_reduction_uses_group_outlier_exclusion():
+    plan = ReductionPlan(axis=ReductionAxis.MODEL, method=ReductionMethod.ROBUST)
+    y_pred = np.array([10.0, 10.1, 9.9, 50.0, 1.0, 1.1, 0.9, 1.05])
+    group_ids = np.array(["S1", "S1", "S1", "S1", "S2", "S2", "S2", "S2"])
+
+    reduced = plan.reduce(y_pred, group_ids)
+    legacy = Predictions.aggregate(y_pred, group_ids, method="mean", exclude_outliers=True)
+    _assert_aggregate_equal(reduced, legacy)
+
+
+def test_custom_non_unit_axis_remains_fail_loud():
+    plan = ReductionPlan.from_test_aggregation("best")
+    assert plan.axis is ReductionAxis.FOLD
+    assert plan.method is ReductionMethod.CUSTOM
+
+    with pytest.raises(ReductionError, match="not executable without an explicit reducer"):
+        plan.reduce(np.array([1.0, 2.0]), np.array(["S1", "S1"]))
 
 
 def test_from_test_aggregation_methods():
