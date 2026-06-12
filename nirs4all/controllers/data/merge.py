@@ -643,6 +643,7 @@ class MergeConfigParser:
             )
             if not has_other_keys:
                 cls._parse_late_fusion_contracts(config, config_dict)
+                config.validate_relation_safety()
                 return config
 
         # Phase 5: Check for separation branch merge (concat mode)
@@ -671,6 +672,7 @@ class MergeConfigParser:
         config.output_as = config_dict.get("output_as", "features")
         config.source_names = config_dict.get("source_names")
         cls._parse_late_fusion_contracts(config, config_dict)
+        config.validate_relation_safety()
 
         # Parse disjoint sample branch merge options (Phase 2)
         config.n_columns = config_dict.get("n_columns")

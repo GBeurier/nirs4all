@@ -433,6 +433,15 @@ class TestMergeConfig:
             assert len(w) == 1
             assert "DATA LEAKAGE" in str(w[0].message)
 
+    def test_relation_aware_merge_rejects_unsafe_predictions(self):
+        """Test relation-aware late fusion requires OOF reconstruction."""
+        with pytest.raises(ValueError, match="unsafe=True is forbidden"):
+            MergeConfig(
+                collect_predictions=True,
+                unsafe=True,
+                meta_feature_plan=MetaFeaturePlan(),
+            )
+
     def test_source_names_warning_without_sources(self):
         """Test source_names with wrong output_as emits warning."""
         with warnings.catch_warnings(record=True) as w:
@@ -700,6 +709,18 @@ class TestMergeConfigParser:
                 base_prediction_calibration="rank",
                 model_selection_protocol="meta_aware",
             )
+
+        def test_parse_late_fusion_rejects_unsafe(self):
+            """Test relation-aware merge parsing rejects unsafe prediction merging."""
+            with pytest.raises(ValueError, match="unsafe=True is forbidden"):
+                MergeConfigParser.parse({
+                    "predictions": "all",
+                    "unsafe": True,
+                    "meta_feature_plan": {
+                        "meta_row_domain": "sample",
+                        "alignment_key": "physical_sample_id",
+                    },
+                })
 
         def test_parse_unsafe(self):
             """Test parsing unsafe option."""

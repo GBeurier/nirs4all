@@ -809,6 +809,7 @@ class MergeConfig:
 
         # Validate unsafe usage
         if self.unsafe and self.collect_predictions:
+            self.validate_relation_safety()
             warnings.warn(
                 "⚠️ MergeConfig: unsafe=True disables OOF reconstruction. "
                 "Training predictions will be used directly, causing DATA LEAKAGE. "
@@ -837,6 +838,18 @@ class MergeConfig:
         if self.select_by not in valid_select_by:
             raise ValueError(
                 f"select_by must be one of {valid_select_by}, got '{self.select_by}'"
+            )
+
+    def validate_relation_safety(self) -> None:
+        """Refuse relation-aware prediction merges that disable OOF reconstruction."""
+        if (
+            self.unsafe
+            and self.collect_predictions
+            and (self.meta_feature_plan is not None or self.stacking_fit_contract is not None)
+        ):
+            raise ValueError(
+                "unsafe=True is forbidden for relation-aware late fusion/stacking merges; "
+                "OOF reconstruction is required when meta_feature_plan or stacking_fit_contract is declared."
             )
 
     def get_selection_criterion(self) -> "DisjointSelectionCriterion":
