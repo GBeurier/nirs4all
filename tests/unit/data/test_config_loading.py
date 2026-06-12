@@ -15,6 +15,7 @@ import yaml
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.config_parser import _load_config_from_file, parse_config
+from nirs4all.data.relations import RepetitionSpec, SampleRelationPlan, SourceObservations
 
 
 class TestLoadConfigFromFile:
@@ -260,7 +261,7 @@ class TestParseConfigWithFiles:
         assert config["train_x"] == "path/to/X.csv"
         assert config["train_y"] == "path/to/Y.csv"
 
-    def test_heterogeneous_repetition_examples_parse_and_reference_existing_files(self):
+    def test_heterogeneous_repetition_examples_parse_reference_and_build_relation_tables(self):
         """Smoke-test the experimental heterogeneous repetition example configs."""
         repo_root = Path(__file__).resolve().parents[3]
         examples_root = repo_root / "examples"
@@ -284,6 +285,7 @@ class TestParseConfigWithFiles:
             repetition_spec = config["repetition_spec"]
             assert repetition_spec["sample_id"] == "sample_id"
             assert repetition_spec["target_level"] == "physical_sample"
+            spec = RepetitionSpec.from_config(repetition_spec)
 
             target_path = examples_root / config["targets"]["path"]
             assert target_path.is_file()
@@ -291,12 +293,13 @@ class TestParseConfigWithFiles:
                 target_rows = list(csv.DictReader(handle))
             assert {row["sample_id"] for row in target_rows} == {"S001", "S002", "S003", "S004", "S005"}
 
+            relation_sources_by_partition: dict[str, list[SourceObservations]] = {"train": [], "test": []}
             for source in config["sources"]:
                 source_name = source["name"]
                 expected_reps = int(repetition_spec["sources"][source_name]["expected"])
                 expected_rep_ids = {str(rep_id) for rep_id in range(1, expected_reps + 1)}
 
-                for path_key, sample_ids in (("train_x", {"S001", "S002", "S003"}), ("test_x", {"S004", "S005"})):
+                for partition, path_key, sample_ids in (("train", "train_x", {"S001", "S002", "S003"}), ("test", "test_x", {"S004", "S005"})):
                     data_path = examples_root / source[path_key]
                     assert data_path.is_file()
                     with data_path.open(newline="") as handle:
@@ -307,6 +310,29 @@ class TestParseConfigWithFiles:
                     assert Counter(row["sample_id"] for row in rows) == Counter(dict.fromkeys(sample_ids, expected_reps))
                     for sample_id in sample_ids:
                         assert {row["rep"] for row in rows if row["sample_id"] == sample_id} == expected_rep_ids
+                    frame = {column: [row[column] for row in rows] for column in rows[0]}
+                    relation_sources_by_partition[partition].append(
+                        SourceObservations.from_frame(
+                            source_name,
+                            frame,
+                            sample_col=repetition_spec["sample_id"],
+                            rep_col=repetition_spec["sources"][source_name]["rep_col"],
+                        )
+                    )
+
+            for partition, sample_ids in (("train", {"S001", "S002", "S003"}), ("test", {"S004", "S005"})):
+                relation_plan = SampleRelationPlan.from_sources(spec, relation_sources_by_partition[partition], partition=partition)
+                table = relation_plan.table
+
+                assert table.physical_sample_ids == sorted(sample_ids)
+                assert table.source_ids == ["MIR", "NIRS", "RAMAN"]
+                assert len(table) == len(sample_ids) * sum(int(source_spec["expected"]) for source_spec in repetition_spec["sources"].values())
+                assert table.cardinalities() == {
+                    (sample_id, source_name): int(source_spec["expected"])
+                    for sample_id in sample_ids
+                    for source_name, source_spec in repetition_spec["sources"].items()
+                }
+                assert len(table.enumerate_combos(next(iter(sample_ids)))) == 12
 
 class TestDatasetConfigsWithFiles:
     """Test suite for DatasetConfigs with file-based configs."""
