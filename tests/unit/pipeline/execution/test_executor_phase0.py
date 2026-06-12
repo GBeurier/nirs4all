@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from contextlib import nullcontext
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import numpy as np
 import polars as pl
@@ -74,6 +74,102 @@ def test_execute_steps_promotes_rep_fusion_dataset_override():
     assert context.selector.processing == [["raw"]]
     np.testing.assert_allclose(dataset.x({"partition": "train"}), np.array([[1.0, 10.0], [3.0, 20.0]]))
     np.testing.assert_allclose(dataset.y({"partition": "train", "y": "raw"}).ravel(), np.array([10.0, 20.0]))
+
+
+def test_finalize_pipeline_saves_relation_replay_manifest_from_materialized_dataset():
+    raw = RawMultiSourceDataset.from_sources(
+        RepetitionSpec(sample_id="sid", link_by="sid"),
+        {"A": np.array([[1.0], [3.0]]), "B": np.array([[10.0], [20.0]])},
+        {"A": ["S1", "S2"], "B": ["S1", "S2"]},
+        targets_by_source={"A": [10.0, 20.0]},
+    )
+    materialized = raw.materialize("per_source_aggregate")
+    dataset = materialized.to_spectro_dataset("rel")
+    store = Mock()
+    trace_recorder = Mock()
+    trace_recorder.finalize.return_value = object()
+
+    class _ChainBuilder:
+        def __init__(self, trace, artifact_registry) -> None:
+            self.trace = trace
+            self.artifact_registry = artifact_registry
+
+        def build_all(self):
+            return [
+                {
+                    "steps": [],
+                    "model_step_idx": 0,
+                    "model_class": "DummyModel",
+                    "preprocessings": "raw",
+                    "fold_strategy": "shared",
+                    "fold_artifacts": {},
+                    "shared_artifacts": {},
+                }
+            ]
+
+    executor = PipelineExecutor(step_runner=Mock(), mode="predict")
+    with patch("nirs4all.pipeline.storage.chain_builder.ChainBuilder", _ChainBuilder):
+        executor._finalize_pipeline(
+            steps=[{"rep_fusion": "per_source_aggregate"}],
+            config_name="cfg",
+            dataset=dataset,
+            runtime_context=RuntimeContext(),
+            prediction_store=Predictions(),
+            all_artifacts=[],
+            trace_recorder=trace_recorder,
+            store=store,
+            pipeline_id="pipe-1",
+            start_time=0.0,
+        )
+
+    relation_manifest = store.save_chain.call_args.kwargs["relation_replay_manifest"]
+    payload = relation_manifest.to_dict()
+    assert payload["materialization_manifest"]["fingerprint"] == materialized.fingerprint
+    assert payload["representation_plan"]["representation"] == "per_source_aggregate"
+    assert payload["fingerprint"]
+
+
+def test_finalize_pipeline_omits_relation_replay_manifest_for_legacy_dataset():
+    dataset = SpectroDataset("legacy")
+    dataset.add_samples(np.array([[1.0]]), {"partition": "train"})
+    store = Mock()
+    trace_recorder = Mock()
+    trace_recorder.finalize.return_value = object()
+
+    class _ChainBuilder:
+        def __init__(self, trace, artifact_registry) -> None:
+            self.trace = trace
+            self.artifact_registry = artifact_registry
+
+        def build_all(self):
+            return [
+                {
+                    "steps": [],
+                    "model_step_idx": 0,
+                    "model_class": "DummyModel",
+                    "preprocessings": "raw",
+                    "fold_strategy": "shared",
+                    "fold_artifacts": {},
+                    "shared_artifacts": {},
+                }
+            ]
+
+    executor = PipelineExecutor(step_runner=Mock(), mode="predict")
+    with patch("nirs4all.pipeline.storage.chain_builder.ChainBuilder", _ChainBuilder):
+        executor._finalize_pipeline(
+            steps=[],
+            config_name="cfg",
+            dataset=dataset,
+            runtime_context=RuntimeContext(),
+            prediction_store=Predictions(),
+            all_artifacts=[],
+            trace_recorder=trace_recorder,
+            store=store,
+            pipeline_id="pipe-1",
+            start_time=0.0,
+        )
+
+    assert "relation_replay_manifest" not in store.save_chain.call_args.kwargs
 
 
 def test_execute_minimal_promotes_dataset_override_between_steps():

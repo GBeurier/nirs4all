@@ -3,6 +3,7 @@ import contextlib
 import hashlib
 import json
 import time
+from collections.abc import Mapping
 from typing import Any, Optional
 
 from nirs4all.core.logging import get_logger
@@ -304,12 +305,15 @@ class PipelineExecutor:
         # Build chain from trace and save to store
         if trace_recorder is not None and store and pipeline_id:
             from nirs4all.pipeline.storage.chain_builder import ChainBuilder
+            relation_replay_manifest = self._relation_replay_manifest_from_dataset(dataset)
             trace = trace_recorder.finalize(
                 preprocessing_chain=dataset.short_preprocessings_str(),
                 metadata={"n_steps": len(steps), "n_artifacts": len(all_artifacts)}
             )
             chain_builder = ChainBuilder(trace, self.artifact_registry)
             for chain_data in chain_builder.build_all():
+                if relation_replay_manifest is not None:
+                    chain_data = {**chain_data, "relation_replay_manifest": relation_replay_manifest}
                 store.save_chain(pipeline_id=pipeline_id, **chain_data)
 
             # Flush ArtifactRegistry records to WorkspaceStore so that
@@ -380,6 +384,25 @@ class PipelineExecutor:
                 f"Pipeline {config_name} completed successfully "
                 f"on dataset {dataset.name}"
             )
+
+    @staticmethod
+    def _relation_replay_manifest_from_dataset(dataset: SpectroDataset) -> Any | None:
+        """Build the optional N9 relation replay manifest carried by a materialized dataset."""
+        materialization_manifest = getattr(dataset, "__dict__", {}).get("_relation_materialization_manifest")
+        if materialization_manifest is None:
+            return None
+        if not isinstance(materialization_manifest, Mapping):
+            raise ValueError(
+                "Dataset relation materialization manifest must be a mapping so it can be saved for replay."
+            )
+        try:
+            from nirs4all.data.relation_replay_manifest import build_relation_replay_manifest
+
+            return build_relation_replay_manifest(materialization=materialization_manifest)
+        except ValueError as exc:
+            raise ValueError(
+                "Dataset relation materialization manifest is invalid and cannot be saved for replay."
+            ) from exc
 
     def _flush_predictions_to_store(
         self,
