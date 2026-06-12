@@ -21,6 +21,7 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, LoaderArtifactProvider, PipelineState, StepMetadata
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
+from nirs4all.pipeline.explain_lineage import derive_relation_explain_lineage
 from nirs4all.pipeline.storage.artifacts.artifact_loader import ArtifactLoader
 
 logger = get_logger(__name__)
@@ -53,6 +54,8 @@ class Explainer:
         self.config_path: str | None = None
         self.target_model: dict[str, Any] | None = None
         self.captured_model: tuple[Any, Any] | None = None
+        self._resolved_artifact_provider: Any | None = None
+        self._relation_replay_manifest: dict[str, Any] | None = None
 
     def explain(
         self,
@@ -175,6 +178,14 @@ class Explainer:
             feature_names = None
             if hasattr(dataset_obj, "wavelengths") and dataset_obj.wavelengths is not None:
                 feature_names = [f"\u03bb{w:.1f}" for w in dataset_obj.wavelengths]
+            relation_manifest = self._relation_explain_manifest(dataset_obj)
+            relation_lineage = derive_relation_explain_lineage(
+                relation_manifest,
+                feature_names=feature_names,
+                n_features=self._feature_count(X_test),
+            )
+            if feature_names is None and relation_lineage is not None and relation_lineage.feature_names is not None:
+                feature_names = relation_lineage.feature_names
 
             task_type = "classification" if dataset_obj.task_type and dataset_obj.task_type.is_classification else "regression"
 
@@ -206,6 +217,7 @@ class Explainer:
             shap_results["model_name"] = self.target_model.get("model_name", "unknown")
             shap_results["model_id"] = model_id
             shap_results["dataset_name"] = dataset_obj.name
+            self._attach_relation_explain_lineage(shap_results, relation_manifest, X_test, feature_names)
 
             logger.success("SHAP explanation completed!")
             logger.artifact("visualization", path=output_dir)
@@ -228,6 +240,49 @@ class Explainer:
             controller: Controller that trained the model.
         """
         self.captured_model = (model, controller)
+
+    def _relation_explain_manifest(self, dataset_obj: SpectroDataset) -> dict[str, Any] | None:
+        """Return relation materialization/replay metadata available for explanations."""
+        materialization_manifest = getattr(dataset_obj, "_relation_materialization_manifest", None)
+        if isinstance(materialization_manifest, dict):
+            return materialization_manifest
+        if isinstance(self._relation_replay_manifest, dict):
+            return self._relation_replay_manifest
+        return None
+
+    @staticmethod
+    def _feature_count(X: Any) -> int | None:
+        """Return the feature width for 2D SHAP inputs when it can be inferred."""
+        shape = getattr(X, "shape", None)
+        if shape is not None and len(shape) >= 2:
+            return int(shape[-1])
+        return None
+
+    @staticmethod
+    def _attach_relation_explain_lineage(
+        shap_results: dict[str, Any],
+        manifest: dict[str, Any] | None,
+        X: Any,
+        feature_names: list[str] | None,
+    ) -> None:
+        """Attach relation explanation metadata to SHAP results in-place."""
+        result_feature_names = shap_results.get("feature_names")
+        lineage_feature_names = result_feature_names if result_feature_names is not None else feature_names
+        relation_lineage = derive_relation_explain_lineage(
+            manifest,
+            feature_names=lineage_feature_names,
+            n_features=Explainer._feature_count(X),
+        )
+        if relation_lineage is None:
+            return
+        if result_feature_names is None and relation_lineage.feature_names is not None:
+            shap_results["feature_names"] = relation_lineage.feature_names
+        if relation_lineage.explanation_level is not None:
+            shap_results["explanation_level"] = relation_lineage.explanation_level
+        if relation_lineage.feature_lineage:
+            shap_results["feature_lineage"] = relation_lineage.feature_lineage
+        if relation_lineage.lineage_warning is not None:
+            shap_results["lineage_warning"] = relation_lineage.lineage_warning
 
     def _prepare_replay(
         self,
@@ -286,6 +341,7 @@ class Explainer:
 
         # Store the resolved artifact provider for use in explain
         self._resolved_artifact_provider = resolved.artifact_provider
+        self._relation_replay_manifest = self._extract_relation_replay_manifest(resolved)
 
         # Create artifact loader from resolved artifact provider (for LoaderArtifactProvider)
         self.artifact_loader = None
@@ -293,3 +349,25 @@ class Explainer:
             self.artifact_loader = resolved.artifact_provider.artifact_loader
 
         return list(resolved.minimal_pipeline)
+
+    @staticmethod
+    def _extract_relation_replay_manifest(resolved: Any) -> dict[str, Any] | None:
+        """Extract relation replay metadata from resolver outputs when available."""
+        manifest = getattr(resolved, "manifest", None)
+        if isinstance(manifest, dict):
+            relation = manifest.get("relation_replay_manifest")
+            if isinstance(relation, dict):
+                return relation
+            chain = manifest.get("chain")
+            if isinstance(chain, dict):
+                relation = chain.get("relation_replay_manifest")
+                if isinstance(relation, dict):
+                    return relation
+
+        provider = getattr(resolved, "artifact_provider", None)
+        loader = getattr(provider, "artifact_loader", None)
+        for candidate in (loader, provider):
+            relation = getattr(candidate, "relation_replay_manifest", None)
+            if isinstance(relation, dict):
+                return relation
+        return None

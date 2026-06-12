@@ -224,5 +224,8 @@ def explain(
         visualizations=visualizations,
         explainer_type=actual_explainer,
         model_name=model_name,
-        n_samples=n_explained
+        n_samples=n_explained,
+        explanation_level=shap_results.get("explanation_level"),
+        feature_lineage=shap_results.get("feature_lineage") or {},
+        lineage_warning=shap_results.get("lineage_warning"),
     )

@@ -1155,7 +1155,7 @@ class ExplainResult:
         model_name: Name of the explained model.
         n_samples: Number of samples explained.
         explanation_level: Unit level explained, such as raw_observation,
-            source_aggregate, combo, or sample.
+            source_aggregate, sample_aggregate, combo, or stack.
         feature_lineage: Mapping from explained feature names to relation
             lineage/provenance payloads.
         lineage_warning: Optional warning when explanations are for derived or

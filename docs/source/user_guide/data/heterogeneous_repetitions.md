@@ -119,6 +119,11 @@ When explanations are computed on aggregated or derived features, use
 `ExplainResult.explanation_level` and `ExplainResult.feature_lineage` to keep the
 scientific meaning visible. A feature aggregated from MIR repetitions should not
 be presented as if it were a raw wavelength from one observation.
+Use `ExplainResult.get_feature_lineage("MIR:1000")` to inspect the source-level
+provenance for one explained feature.
+For bundle replay, the materialization fingerprint describes the saved model's
+feature-space contract; if a freshly materialized dataset carries its own
+relation manifest, that dataset manifest takes precedence.
 
 ## Minimal Examples
 
