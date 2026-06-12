@@ -89,6 +89,36 @@ class TestSchemaCreation:
         assert "train_score" in columns
         assert "exclusion_count" in columns
         assert "exclusion_rate" in columns
+        assert "prediction_scope" in columns
+        assert "prediction_level" in columns
+        assert "evaluation_scope" in columns
+        assert "reduction_role" in columns
+        assert "reduction_id" in columns
+        assert "physical_sample_id" in columns
+        assert "origin_sample_id" in columns
+        assert "derived_unit_id" in columns
+        assert "unit_level" in columns
+        assert "unit_id" in columns
+        assert "row_id" in columns
+        assert "sample_influence_weight" in columns
+
+    def test_chains_table_relation_replay_columns(self, conn):
+        """The chains table persists relation replay manifest metadata."""
+        create_schema(conn)
+        result = conn.execute("PRAGMA table_info('chains')").fetchall()
+        columns = [row[1] for row in result]
+        assert "relation_replay_manifest" in columns
+        assert "relation_replay_version" in columns
+        assert "relation_replay_fingerprint" in columns
+
+    def test_chain_summary_view_relation_replay_columns(self, conn):
+        """The chain summary view exposes relation replay manifest metadata."""
+        create_schema(conn)
+        result = conn.execute("PRAGMA table_info('v_chain_summary')").fetchall()
+        columns = [row[1] for row in result]
+        assert "relation_replay_manifest" in columns
+        assert "relation_replay_version" in columns
+        assert "relation_replay_fingerprint" in columns
 
     def test_prediction_arrays_table_removed(self, conn):
         """The prediction_arrays table no longer exists (arrays moved to Parquet)."""

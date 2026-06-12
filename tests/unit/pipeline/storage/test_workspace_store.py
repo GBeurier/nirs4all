@@ -308,6 +308,37 @@ class TestChainSaveLoad:
 
         store.close()
 
+    def test_chain_relation_replay_manifest_round_trip(self, tmp_path):
+        """Chain relation replay manifests are persisted with queryable metadata."""
+        store = _make_store(tmp_path)
+        run_id = store.begin_run("run", config={}, datasets=[])
+        pid = store.begin_pipeline(run_id, "p", {}, [], "ds", "h")
+        relation_manifest = build_relation_replay_manifest(
+            representation_plan=RepresentationPlan("sample_aggregate"),
+            extra_fingerprints={"relation": "abc123"},
+        )
+
+        chain_id = store.save_chain(
+            pipeline_id=pid,
+            steps=[{"step_idx": 0, "operator_class": "M", "params": {}, "artifact_id": None, "stateless": True}],
+            model_step_idx=0,
+            model_class="Model",
+            preprocessings="",
+            fold_strategy="per_fold",
+            fold_artifacts={},
+            shared_artifacts={},
+            relation_replay_manifest=relation_manifest,
+        )
+
+        chain = store.get_chain(chain_id)
+        assert chain is not None
+        assert chain["relation_replay_manifest"]["representation_plan"]["representation"] == "sample_aggregate"
+        assert chain["relation_replay_manifest"]["extra_fingerprints"] == {"relation": "abc123"}
+        assert chain["relation_replay_version"] == relation_manifest.version
+        assert chain["relation_replay_fingerprint"] == relation_manifest.fingerprint()
+
+        store.close()
+
 class TestChainReplay:
     """Chain replay behavior including wavelength passthrough."""
 
@@ -428,6 +459,68 @@ class TestPredictionSaveQuery:
         # By run_id
         df = store.query_predictions(run_id=run_id)
         assert len(df) == 100
+
+        store.close()
+
+    def test_prediction_relation_metadata_round_trip(self, tmp_path):
+        """Relation-aware prediction metadata is stored and can be grouped."""
+        store = _make_store(tmp_path)
+        run_id = store.begin_run("run", config={}, datasets=[])
+        pid = store.begin_pipeline(run_id, "p", {}, [], "wheat", "h")
+        chain_id = store.save_chain(pid, [{"step_idx": 0, "operator_class": "M", "params": {}, "artifact_id": None, "stateless": True}], 0, "Model", "", "per_fold", {}, {})
+
+        pred_id = store.save_prediction(
+            pipeline_id=pid,
+            chain_id=chain_id,
+            dataset_name="wheat",
+            model_name="PLS",
+            model_class="PLS",
+            fold_id="fold_0",
+            partition="val",
+            val_score=0.1,
+            test_score=0.2,
+            train_score=0.05,
+            metric="rmse",
+            task_type="regression",
+            n_samples=10,
+            n_features=5,
+            scores={"val": {"rmse": 0.1}},
+            best_params={},
+            branch_id=None,
+            branch_name=None,
+            exclusion_count=0,
+            exclusion_rate=0.0,
+            prediction_scope="relation",
+            prediction_level="derived_unit",
+            evaluation_scope="physical_sample",
+            reduction_role="reduced",
+            reduction_id="red_mean",
+            physical_sample_id="phys_1",
+            origin_sample_id="src_1",
+            derived_unit_id="unit_1_aug_0",
+            unit_level="derived_unit",
+            unit_id="unit_1",
+            row_id="row_1",
+            sample_influence_weight=0.25,
+        )
+
+        pred = store.get_prediction(pred_id)
+        assert pred is not None
+        assert pred["prediction_scope"] == "relation"
+        assert pred["prediction_level"] == "derived_unit"
+        assert pred["evaluation_scope"] == "physical_sample"
+        assert pred["reduction_role"] == "reduced"
+        assert pred["reduction_id"] == "red_mean"
+        assert pred["physical_sample_id"] == "phys_1"
+        assert pred["origin_sample_id"] == "src_1"
+        assert pred["derived_unit_id"] == "unit_1_aug_0"
+        assert pred["unit_level"] == "derived_unit"
+        assert pred["unit_id"] == "unit_1"
+        assert pred["row_id"] == "row_1"
+        assert pred["sample_influence_weight"] == pytest.approx(0.25)
+
+        grouped = store.top_predictions(1, group_by="evaluation_scope")
+        assert grouped["evaluation_scope"].to_list() == ["physical_sample"]
 
         store.close()
 

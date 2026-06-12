@@ -105,6 +105,8 @@ class WorkspaceStoreProtocol(Protocol):
         shared_artifacts: dict,
         branch_path: list[int] | None = None,
         source_index: int | None = None,
+        dataset_name: str | None = None,
+        relation_replay_manifest: Any | None = None,
     ) -> str:
         """Store a chain and return its identifier."""
         ...
@@ -139,6 +141,19 @@ class WorkspaceStoreProtocol(Protocol):
         exclusion_rate: float,
         preprocessings: str = "",
         prediction_id: str | None = None,
+        refit_context: str | None = None,
+        prediction_scope: str | None = None,
+        prediction_level: str | None = None,
+        evaluation_scope: str | None = None,
+        reduction_role: str | None = None,
+        reduction_id: str | None = None,
+        physical_sample_id: str | None = None,
+        origin_sample_id: str | None = None,
+        derived_unit_id: str | None = None,
+        unit_level: str | None = None,
+        unit_id: str | None = None,
+        row_id: str | None = None,
+        sample_influence_weight: float | None = None,
     ) -> str:
         """Store a prediction record and return its identifier."""
         ...

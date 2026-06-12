@@ -35,7 +35,7 @@ import zipfile
 from collections.abc import Callable, Generator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import numpy as np
@@ -641,6 +641,7 @@ class WorkspaceStore:
         branch_path: list[int] | None = None,
         source_index: int | None = None,
         dataset_name: str | None = None,
+        relation_replay_manifest: Any | None = None,
     ) -> str:
         """Store a preprocessing-to-model chain.
 
@@ -683,10 +684,16 @@ class WorkspaceStore:
                 pipelines.
             dataset_name: Dataset name for this chain.  Resolved from
                 the parent pipeline if not provided.
+            relation_replay_manifest: Optional heterogeneous-source replay
+                manifest.  Stored as JSON together with its version and
+                fingerprint for later export and schema inspection.
 
         Returns:
             A unique chain identifier (UUID-based string).
         """
+        relation_payload = _relation_replay_manifest_payload(relation_replay_manifest)
+        relation_version = relation_payload.get("version") if relation_payload is not None else None
+        relation_fingerprint = relation_payload.get("fingerprint") if relation_payload is not None else None
         with self._lock:
             conn = self._ensure_open()
             chain_id = str(uuid4())
@@ -703,6 +710,7 @@ class WorkspaceStore:
             model_class, preprocessings, fold_strategy,
             _to_json(fold_artifacts), _to_json(shared_artifacts),
             _to_json(branch_path), source_index, dataset_name,
+            _to_json(relation_payload), relation_version, relation_fingerprint,
         ])
         return chain_id
 
@@ -718,7 +726,7 @@ class WorkspaceStore:
         if row is None:
             return None
         # Deserialize JSON fields
-        for field in ("steps", "fold_artifacts", "shared_artifacts", "branch_path"):
+        for field in ("steps", "fold_artifacts", "shared_artifacts", "branch_path", "relation_replay_manifest"):
             row[field] = _from_json(row[field])
         return row
 
@@ -1176,6 +1184,18 @@ class WorkspaceStore:
         preprocessings: str = "",
         prediction_id: str | None = None,
         refit_context: str | None = None,
+        prediction_scope: str | None = None,
+        prediction_level: str | None = None,
+        evaluation_scope: str | None = None,
+        reduction_role: str | None = None,
+        reduction_id: str | None = None,
+        physical_sample_id: str | None = None,
+        origin_sample_id: str | None = None,
+        derived_unit_id: str | None = None,
+        unit_level: str | None = None,
+        unit_id: str | None = None,
+        row_id: str | None = None,
+        sample_influence_weight: float | None = None,
     ) -> str:
         """Store a single prediction record.
 
@@ -1216,6 +1236,24 @@ class WorkspaceStore:
             refit_context: Refit context label. ``None`` for CV entries,
                 ``"standalone"`` for standalone refit,
                 ``"stacking"`` for stacking-context refit.
+            prediction_scope: Prediction scope such as ``"raw"`` or
+                ``"reduced"`` for heterogeneous-source evaluations.
+            prediction_level: Level represented by the prediction row.
+            evaluation_scope: Evaluation scope used by reducers/metrics.
+            reduction_role: Role of this row in a reduction workflow.
+            reduction_id: Identifier of the reduction plan that produced
+                this row, when applicable.
+            physical_sample_id: Physical sample identifier before
+                representation/reduction.
+            origin_sample_id: Source sample identifier carried through
+                relation materialization.
+            derived_unit_id: Derived unit identifier after expansion or
+                aggregation.
+            unit_level: Level namespace for ``unit_id``.
+            unit_id: Evaluation unit identifier.
+            row_id: Stable row identifier from the materialized relation.
+            sample_influence_weight: Optional sample influence weight used
+                during fit/evaluation.
 
         Returns:
             A unique prediction identifier (UUID-based string).
@@ -1271,6 +1309,10 @@ class WorkspaceStore:
                 _to_json(scores), _to_json(best_params),
                 preprocessings, branch_id, branch_name,
                 exclusion_count, exclusion_rate, refit_context,
+                prediction_scope, prediction_level, evaluation_scope,
+                reduction_role, reduction_id,
+                physical_sample_id, origin_sample_id, derived_unit_id,
+                unit_level, unit_id, row_id, sample_influence_weight,
             ])
             return prediction_id
 
@@ -3099,7 +3141,8 @@ class WorkspaceStore:
             with self._array_store._process_lock():
                 rows = conn.execute("SELECT prediction_id FROM predictions").fetchall()
                 live_ids = {str(row[0]) for row in rows}
-                return self._array_store._compact_unlocked(dataset_name=dataset_name, live_ids=live_ids)
+                stats = self._array_store._compact_unlocked(dataset_name=dataset_name, live_ids=live_ids)
+                return cast(dict[str, dict[str, Any]], stats)
 
     def _auto_compact_if_needed(self) -> None:
         """Threshold-gated auto-compaction after a committed delete.
@@ -3176,7 +3219,7 @@ class WorkspaceStore:
         def _transform_with_optional_wavelengths(transformer: Any, X_in: np.ndarray) -> np.ndarray:
             """Call transformer.transform with wavelengths when supported."""
             if wavelengths is None:
-                return np.asarray(transformer.transform(X_in))
+                return cast(np.ndarray, np.asarray(transformer.transform(X_in)))
 
             supports_wavelengths = False
             try:
@@ -3189,9 +3232,9 @@ class WorkspaceStore:
                 supports_wavelengths = False
 
             if supports_wavelengths or hasattr(transformer, "_requires_wavelengths"):
-                return np.asarray(transformer.transform(X_in, wavelengths=wavelengths))
+                return cast(np.ndarray, np.asarray(transformer.transform(X_in, wavelengths=wavelengths)))
 
-            return np.asarray(transformer.transform(X_in))
+            return cast(np.ndarray, np.asarray(transformer.transform(X_in)))
 
         for step in steps:
             idx = step["step_idx"]
@@ -3201,7 +3244,7 @@ class WorkspaceStore:
                 refit_artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
                 if refit_artifact_id:
                     model = self.load_artifact(refit_artifact_id)
-                    return np.asarray(model.predict(X_current))
+                    return cast(np.ndarray, np.asarray(model.predict(X_current)))
 
                 # Legacy: load all fold models, predict, average
                 fold_preds = []
@@ -3210,7 +3253,7 @@ class WorkspaceStore:
                     fold_preds.append(model.predict(X_current))
                 if not fold_preds:
                     raise RuntimeError("Chain has no fold model artifacts")
-                return np.asarray(np.mean(fold_preds, axis=0))
+                return cast(np.ndarray, np.asarray(np.mean(fold_preds, axis=0)))
 
             str_idx = str(idx)
             if str_idx in shared_artifacts:

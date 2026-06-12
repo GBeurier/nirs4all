@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Bump when the schema changes in a non-additive or otherwise
 # version-significant way. Stamped into the database via PRAGMA user_version.
-SCHEMA_VERSION: int = 1
+SCHEMA_VERSION: int = 2
 
 # =========================================================================
 # Refit context constants
@@ -102,6 +102,9 @@ CREATE TABLE IF NOT EXISTS chains (
     final_agg_test_score REAL,
     final_agg_train_score REAL,
     final_agg_scores TEXT,
+    relation_replay_manifest TEXT,
+    relation_replay_version INTEGER,
+    relation_replay_fingerprint TEXT,
     created_at TIMESTAMP DEFAULT current_timestamp
 );
 
@@ -129,6 +132,18 @@ CREATE TABLE IF NOT EXISTS predictions (
     exclusion_count INTEGER DEFAULT 0,
     exclusion_rate REAL DEFAULT 0.0,
     refit_context TEXT DEFAULT NULL,
+    prediction_scope TEXT,
+    prediction_level TEXT,
+    evaluation_scope TEXT,
+    reduction_role TEXT,
+    reduction_id TEXT,
+    physical_sample_id TEXT,
+    origin_sample_id TEXT,
+    derived_unit_id TEXT,
+    unit_level TEXT,
+    unit_id TEXT,
+    row_id TEXT,
+    sample_influence_weight REAL,
     created_at TIMESTAMP DEFAULT current_timestamp
 );
 
@@ -200,6 +215,9 @@ SELECT
     c.final_agg_test_score,
     c.final_agg_train_score,
     c.final_agg_scores,
+    c.relation_replay_manifest,
+    c.relation_replay_version,
+    c.relation_replay_fingerprint,
     pl.run_id,
     pl.status AS pipeline_status
 FROM chains c
@@ -670,6 +688,27 @@ def _migrate_schema(conn: sqlite3.Connection, *, workspace_path: Path | None = N
     existing_columns = _get_table_columns(conn, "predictions")
     if "refit_context" not in existing_columns:
         conn.execute("ALTER TABLE predictions ADD COLUMN refit_context TEXT DEFAULT NULL")
+        existing_columns.add("refit_context")
+
+    # Migration: add relation-aware prediction metadata columns (schema v2).
+    _relation_prediction_cols: list[tuple[str, str]] = [
+        ("prediction_scope", "TEXT"),
+        ("prediction_level", "TEXT"),
+        ("evaluation_scope", "TEXT"),
+        ("reduction_role", "TEXT"),
+        ("reduction_id", "TEXT"),
+        ("physical_sample_id", "TEXT"),
+        ("origin_sample_id", "TEXT"),
+        ("derived_unit_id", "TEXT"),
+        ("unit_level", "TEXT"),
+        ("unit_id", "TEXT"),
+        ("row_id", "TEXT"),
+        ("sample_influence_weight", "REAL"),
+    ]
+    for col, ddl_type in _relation_prediction_cols:
+        if col not in existing_columns:
+            conn.execute(f"ALTER TABLE predictions ADD COLUMN {col} {ddl_type}")
+            existing_columns.add(col)
 
     # Migration: add cross-run cache columns to artifacts table
     artifact_columns = _get_table_columns(conn, "artifacts")
@@ -746,6 +785,9 @@ def _migrate_schema(conn: sqlite3.Connection, *, workspace_path: Path | None = N
         ("final_agg_test_score", "REAL"),
         ("final_agg_train_score", "REAL"),
         ("final_agg_scores", "TEXT"),
+        ("relation_replay_manifest", "TEXT"),
+        ("relation_replay_version", "INTEGER"),
+        ("relation_replay_fingerprint", "TEXT"),
     ]
     added_chain_cols = False
     for col_name, col_type in _chain_summary_cols:

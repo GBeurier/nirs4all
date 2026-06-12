@@ -22,6 +22,8 @@ existing bundle unit tests. We snapshot three cases:
   * the *partitioner full* keys, where the trace contains a
     ``MetadataPartitionerController`` step carrying routing metadata, asserted
     exactly so the additional optional ``partitioner_routing`` key is pinned.
+  * the relation-replay full keys, where a heterogeneous-source replay manifest
+    is embedded and exposed via the optional ``relation_replay_manifest`` key.
 
 ``partitioner_routing`` is an additional optional manifest key that
 ``BundleGenerator`` emits only for traces that include a metadata-partitioner
@@ -69,6 +71,10 @@ EXPECTED_FULL_MANIFEST_KEYS: frozenset[str] = EXPECTED_CORE_MANIFEST_KEYS | {
 # the optional ``partitioner_routing`` key is additionally emitted.
 EXPECTED_PARTITIONER_MANIFEST_KEYS: frozenset[str] = EXPECTED_FULL_MANIFEST_KEYS | {
     "partitioner_routing",
+}
+
+EXPECTED_RELATION_REPLAY_MANIFEST_KEYS: frozenset[str] = EXPECTED_FULL_MANIFEST_KEYS | {
+    "relation_replay_manifest",
 }
 
 
@@ -154,6 +160,30 @@ def _minimal_resolved_with_partitioner_trace() -> ResolvedPrediction:
     )
 
 
+def _minimal_resolved_with_relation_replay_manifest() -> ResolvedPrediction:
+    """A minimal ResolvedPrediction carrying an embedded relation replay manifest."""
+    resolved = _minimal_resolved_with_trace()
+    resolved.manifest["relation_replay_manifest"] = {
+        "version": 1,
+        "fingerprint": "rel_fp",
+        "representation_plan": {
+            "representation": "sample_aggregate",
+            "reducers": [],
+            "preserve_lineage": True,
+            "selection_policy": "all",
+            "allow_lossy_reduction": False,
+            "id_namespace": "derived",
+        },
+        "reduction_plans": [],
+        "fit_influence_policy": None,
+        "stacking_fit_contract": None,
+        "staging_manifest": None,
+        "materialization_manifest": None,
+        "extra_fingerprints": {"relation": "abc123"},
+    }
+    return resolved
+
+
 def _minimal_resolved_without_trace() -> ResolvedPrediction:
     """A minimal ResolvedPrediction with no trace and no manifest."""
     provider = MagicMock()
@@ -219,3 +249,16 @@ def test_manifest_keys_with_partitioner_routing(tmp_path: Path) -> None:
     assert set(manifest.keys()) == EXPECTED_PARTITIONER_MANIFEST_KEYS
     assert "partitioner_routing" in manifest
     assert manifest["bundle_format_version"] == EXPECTED_BUNDLE_FORMAT_VERSION
+
+
+def test_manifest_keys_with_relation_replay_manifest(tmp_path: Path) -> None:
+    """An embedded heterogeneous-source replay manifest adds its reference key."""
+    generator = BundleGenerator(tmp_path)
+    manifest = generator._create_bundle_manifest(
+        _minimal_resolved_with_relation_replay_manifest(), include_metadata=True
+    )
+    assert set(manifest.keys()) == EXPECTED_RELATION_REPLAY_MANIFEST_KEYS
+    relation_ref = manifest["relation_replay_manifest"]
+    assert relation_ref["path"] == "relation_replay_manifest.json"
+    assert relation_ref["version"] == 1
+    assert relation_ref["fingerprint"] == "rel_fp"

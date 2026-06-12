@@ -220,9 +220,13 @@ EXPECTED_EXPLAINRESULT_MEMBERS: frozenset[str] = frozenset(
     {
         "base_value",
         "explainer_type",
+        "explanation_level",
         "feature_names",
+        "feature_lineage",
+        "get_feature_lineage",
         "get_feature_importance",
         "get_sample_explanation",
+        "lineage_warning",
         "mean_abs_shap",
         "model_name",
         "n_samples",

@@ -18,7 +18,12 @@ _PREDICTION_COLUMNS: frozenset[str] = frozenset({
     "metric", "task_type", "n_samples", "n_features",
     "scores", "best_params", "preprocessings",
     "branch_id", "branch_name",
-    "exclusion_count", "exclusion_rate", "refit_context", "created_at",
+    "exclusion_count", "exclusion_rate", "refit_context",
+    "prediction_scope", "prediction_level", "evaluation_scope",
+    "reduction_role", "reduction_id",
+    "physical_sample_id", "origin_sample_id", "derived_unit_id",
+    "unit_level", "unit_id", "row_id", "sample_influence_weight",
+    "created_at",
 })
 
 # =========================================================================
@@ -96,8 +101,9 @@ INSERT_CHAIN = """
 INSERT INTO chains
     (chain_id, pipeline_id, steps, model_step_idx, model_class,
      preprocessings, fold_strategy, fold_artifacts, shared_artifacts,
-     branch_path, source_index, dataset_name)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     branch_path, source_index, dataset_name, relation_replay_manifest,
+     relation_replay_version, relation_replay_fingerprint)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
 UPDATE_CHAIN_SUMMARY = """
@@ -132,8 +138,11 @@ INSERT INTO predictions
      model_class, fold_id, partition, val_score, test_score, train_score,
      metric, task_type, n_samples, n_features, scores, best_params,
      preprocessings, branch_id, branch_name, exclusion_count, exclusion_rate,
-     refit_context)
+     refit_context, prediction_scope, prediction_level, evaluation_scope,
+     reduction_role, reduction_id, physical_sample_id, origin_sample_id,
+     derived_unit_id, unit_level, unit_id, row_id, sample_influence_weight)
 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
         ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 """
 
@@ -499,6 +508,8 @@ _CHAIN_SUMMARY_COLUMNS: frozenset[str] = frozenset({
     "metric", "task_type", "best_params", "dataset_name",
     "cv_val_score", "cv_test_score", "cv_train_score", "cv_fold_count",
     "cv_scores", "final_test_score", "final_train_score", "final_scores",
+    "final_agg_test_score", "final_agg_train_score", "final_agg_scores",
+    "relation_replay_manifest", "relation_replay_version", "relation_replay_fingerprint",
     "run_id", "pipeline_status",
 })
 

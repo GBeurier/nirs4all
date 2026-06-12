@@ -230,6 +230,8 @@ class TestChainManagementMethods:
         assert "shared_artifacts" in params
         assert "branch_path" in params
         assert "source_index" in params
+        assert "dataset_name" in params
+        assert "relation_replay_manifest" in params
 
     def test_save_chain_return_annotation(self):
         """save_chain is annotated to return str."""
@@ -237,10 +239,12 @@ class TestChainManagementMethods:
         assert hints.get("return") is str
 
     def test_save_chain_optional_params_have_defaults(self):
-        """branch_path and source_index default to None."""
+        """Optional chain metadata parameters default to None."""
         sig = inspect.signature(WorkspaceStore.save_chain)
         assert sig.parameters["branch_path"].default is None
         assert sig.parameters["source_index"].default is None
+        assert sig.parameters["dataset_name"].default is None
+        assert sig.parameters["relation_replay_manifest"].default is None
 
     def test_get_chain_exists(self):
         """get_chain method exists."""
@@ -288,7 +292,11 @@ class TestPredictionStorageMethods:
             "test_score", "train_score", "metric", "task_type",
             "n_samples", "n_features", "scores", "best_params",
             "branch_id", "branch_name", "exclusion_count",
-            "exclusion_rate", "preprocessings",
+            "exclusion_rate", "preprocessings", "prediction_id",
+            "refit_context", "prediction_scope", "prediction_level",
+            "evaluation_scope", "reduction_role", "reduction_id",
+            "physical_sample_id", "origin_sample_id", "derived_unit_id",
+            "unit_level", "unit_id", "row_id", "sample_influence_weight",
         ]
         for param in expected_params:
             assert param in params, f"Missing parameter: {param}"
@@ -297,6 +305,27 @@ class TestPredictionStorageMethods:
         """save_prediction preprocessings parameter defaults to empty string."""
         sig = inspect.signature(WorkspaceStore.save_prediction)
         assert sig.parameters["preprocessings"].default == ""
+
+    def test_save_prediction_relation_metadata_defaults(self):
+        """Relation-aware prediction metadata parameters default to None."""
+        sig = inspect.signature(WorkspaceStore.save_prediction)
+        for name in [
+            "prediction_id",
+            "refit_context",
+            "prediction_scope",
+            "prediction_level",
+            "evaluation_scope",
+            "reduction_role",
+            "reduction_id",
+            "physical_sample_id",
+            "origin_sample_id",
+            "derived_unit_id",
+            "unit_level",
+            "unit_id",
+            "row_id",
+            "sample_influence_weight",
+        ]:
+            assert sig.parameters[name].default is None
 
     def test_save_prediction_return_annotation(self):
         """save_prediction is annotated to return str."""

@@ -29,7 +29,7 @@ snapshotted in ``test_user_version_stamped``: when ``SCHEMA_VERSION`` is bumped,
 this test fails and must be updated to the new value — making the version bump a
 deliberate, reviewed event.
 
-Snapshot captured from nirs4all 0.9.1.
+Snapshot updated for heterogeneous relation metadata (schema v2).
 """
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ from nirs4all.pipeline.storage.store_schema import SCHEMA_VERSION
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 # ---------------------------------------------------------------------------
-# Frozen schema snapshot (captured from nirs4all 0.9.1).
+# Frozen schema snapshot (schema v2).
 #
 # {table_name: [(column_name, declared_type), ...]} in table_info order.
 # ---------------------------------------------------------------------------
@@ -89,6 +89,9 @@ EXPECTED_SCHEMA: dict[str, list[tuple[str, str]]] = {
         ("final_agg_test_score", "REAL"),
         ("final_agg_train_score", "REAL"),
         ("final_agg_scores", "TEXT"),
+        ("relation_replay_manifest", "TEXT"),
+        ("relation_replay_version", "INTEGER"),
+        ("relation_replay_fingerprint", "TEXT"),
         ("created_at", "TIMESTAMP"),
     ],
     "logs": [
@@ -145,6 +148,18 @@ EXPECTED_SCHEMA: dict[str, list[tuple[str, str]]] = {
         ("exclusion_count", "INTEGER"),
         ("exclusion_rate", "REAL"),
         ("refit_context", "TEXT"),
+        ("prediction_scope", "TEXT"),
+        ("prediction_level", "TEXT"),
+        ("evaluation_scope", "TEXT"),
+        ("reduction_role", "TEXT"),
+        ("reduction_id", "TEXT"),
+        ("physical_sample_id", "TEXT"),
+        ("origin_sample_id", "TEXT"),
+        ("derived_unit_id", "TEXT"),
+        ("unit_level", "TEXT"),
+        ("unit_id", "TEXT"),
+        ("row_id", "TEXT"),
+        ("sample_influence_weight", "REAL"),
         ("created_at", "TIMESTAMP"),
     ],
     "projects": [
@@ -199,7 +214,7 @@ EXPECTED_INDEXES: dict[str, str] = {
 # (not ``SCHEMA_VERSION``) so that bumping ``SCHEMA_VERSION`` makes this test FAIL,
 # flagging the schema-version change for deliberate review (a self-referential
 # ``= SCHEMA_VERSION`` would silently pass through any bump).
-EXPECTED_USER_VERSION = 1
+EXPECTED_USER_VERSION = 2
 # Cross-check that the library constant still matches the frozen contract value;
 # this is the loud reminder when SCHEMA_VERSION is bumped.
 assert SCHEMA_VERSION == EXPECTED_USER_VERSION, (

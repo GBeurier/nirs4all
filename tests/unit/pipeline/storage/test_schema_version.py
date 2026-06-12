@@ -58,6 +58,51 @@ def test_legacy_db_is_migrated_and_restamped() -> None:
         conn.close()
 
 
+def test_v1_relation_metadata_columns_are_added() -> None:
+    """A schema-v1 DB gains relation replay and prediction metadata columns."""
+    conn = sqlite3.connect(":memory:")
+    try:
+        create_schema(conn)
+        conn.execute("DROP VIEW IF EXISTS v_chain_summary")
+
+        missing_chain_cols = [
+            "relation_replay_manifest",
+            "relation_replay_version",
+            "relation_replay_fingerprint",
+        ]
+        missing_prediction_cols = [
+            "prediction_scope",
+            "prediction_level",
+            "evaluation_scope",
+            "reduction_role",
+            "reduction_id",
+            "physical_sample_id",
+            "origin_sample_id",
+            "derived_unit_id",
+            "unit_level",
+            "unit_id",
+            "row_id",
+            "sample_influence_weight",
+        ]
+        for table, columns in (("chains", missing_chain_cols), ("predictions", missing_prediction_cols)):
+            for column in columns:
+                try:
+                    conn.execute(f"ALTER TABLE {table} DROP COLUMN {column}")
+                except sqlite3.OperationalError as exc:
+                    pytest.skip(f"SQLite build does not support this DROP COLUMN migration fixture: {exc}")
+
+        conn.execute("PRAGMA user_version = 1")
+        create_schema(conn)
+
+        chain_columns = {row[1] for row in conn.execute("PRAGMA table_info('chains')").fetchall()}
+        prediction_columns = {row[1] for row in conn.execute("PRAGMA table_info('predictions')").fetchall()}
+        assert set(missing_chain_cols) <= chain_columns
+        assert set(missing_prediction_cols) <= prediction_columns
+        assert _user_version(conn) == SCHEMA_VERSION
+    finally:
+        conn.close()
+
+
 def test_forward_incompatible_db_is_refused() -> None:
     """A DB stamped newer than SCHEMA_VERSION raises a clear RuntimeError."""
     conn = sqlite3.connect(":memory:")
