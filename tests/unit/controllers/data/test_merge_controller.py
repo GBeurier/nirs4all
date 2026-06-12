@@ -415,6 +415,24 @@ class TestMergeControllerExitsBranchMode:
 
         assert "_relation_meta_feature_plan" not in dataset.__dict__
 
+    def test_relation_prediction_merge_rejects_internal_impute_mean(self):
+        """Relation-aware prediction collection refuses silent coverage imputation."""
+        controller = MergeController()
+        config = MergeConfig(
+            collect_predictions=True,
+            meta_feature_plan=MetaFeaturePlan(),
+        )
+
+        with pytest.raises(ValueError, match="IMPUTE_MEAN"):
+            controller._collect_branch_predictions_oof(
+                dataset=create_test_dataset(),
+                context=object(),
+                prediction_store=object(),
+                model_names=["PLS"],
+                branch_id=0,
+                config=config,
+            )
+
     def test_merge_without_branch_mode_raises(self):
         """Test that merge without active branch mode raises error."""
         controller = MergeController()

@@ -498,6 +498,36 @@ class TestStackingConfigSerialization:
         assert config.allow_no_cv is True
         assert config.min_coverage_ratio == 0.5
 
+    def test_relation_profile_rejects_impute_mean(self):
+        """Test relation-aware stacking refuses silent mean coverage imputation."""
+        with pytest.raises(ValueError, match="IMPUTE_MEAN"):
+            StackingConfig(
+                coverage_strategy=CoverageStrategy.IMPUTE_MEAN,
+                relation_profile=True,
+            )
+
+        with pytest.raises(ValueError, match="IMPUTE_MEAN"):
+            stacking_config_from_dict(
+                {
+                    'coverage_strategy': 'impute_mean',
+                    'relation_profile': True,
+                }
+            )
+
+    def test_relation_profile_roundtrip(self):
+        """Test relation-aware stacking flag survives serialization."""
+        original = StackingConfig(
+            coverage_strategy=CoverageStrategy.DROP_INCOMPLETE,
+            relation_profile=True,
+        )
+
+        d = stacking_config_to_dict(original)
+        restored = stacking_config_from_dict(d)
+
+        assert d['relation_profile'] is True
+        assert restored.relation_profile is True
+        assert restored.coverage_strategy == CoverageStrategy.DROP_INCOMPLETE
+
     def test_roundtrip_config(self):
         """Test roundtrip serialization of StackingConfig."""
         original = StackingConfig(

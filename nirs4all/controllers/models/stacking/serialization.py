@@ -279,13 +279,16 @@ def stacking_config_to_dict(config: StackingConfig) -> dict[str, Any]:
     Returns:
         Dictionary with string enum values.
     """
-    return {
+    result = {
         "coverage_strategy": config.coverage_strategy.value,
         "test_aggregation": config.test_aggregation.value,
         "branch_scope": config.branch_scope.value,
         "allow_no_cv": config.allow_no_cv,
         "min_coverage_ratio": config.min_coverage_ratio,
     }
+    if config.relation_profile:
+        result["relation_profile"] = True
+    return result
 
 def stacking_config_from_dict(data: dict[str, Any]) -> StackingConfig:
     """Create StackingConfig from dictionary.
@@ -302,6 +305,7 @@ def stacking_config_from_dict(data: dict[str, Any]) -> StackingConfig:
         branch_scope=BranchScope(data.get("branch_scope", "current_only")),
         allow_no_cv=data.get("allow_no_cv", False),
         min_coverage_ratio=data.get("min_coverage_ratio", 1.0),
+        relation_profile=data.get("relation_profile", False),
     )
 
 class MetaModelSerializer:

@@ -428,6 +428,8 @@ class TrainingSetReconstructor:
         self.source_model_names = source_model_names
         self.stacking_config = stacking_config or StackingConfig()
         self.reconstructor_config = reconstructor_config or ReconstructorConfig()
+        self.stacking_config.validate_relation_safety()
+        self.reconstructor_config.validate_relation_safety()
         self.source_model_branch_map = source_model_branch_map or {}
         self.fold_validator = FoldAlignmentValidator(
             prediction_store, self.reconstructor_config

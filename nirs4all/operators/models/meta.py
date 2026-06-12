@@ -112,6 +112,7 @@ class StackingConfig:
         level: Stacking level for multi-level stacking (AUTO, LEVEL_1, LEVEL_2, LEVEL_3).
         allow_meta_sources: If True, allow other MetaModels as source models.
         max_level: Maximum allowed stacking level (for validation).
+        relation_profile: If True, enforce relation-aware stacking guardrails.
 
     Example:
         >>> config = StackingConfig(
@@ -131,6 +132,7 @@ class StackingConfig:
     level: StackingLevel = StackingLevel.AUTO
     allow_meta_sources: bool = True
     max_level: int = 3
+    relation_profile: bool = False
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -158,6 +160,16 @@ class StackingConfig:
                 self.level = StackingLevel(int(self.level))
         if isinstance(self.level, int):
             self.level = StackingLevel(self.level)
+
+        self.validate_relation_safety()
+
+    def validate_relation_safety(self) -> None:
+        """Refuse silent coverage imputation in relation-aware stacking profiles."""
+        if self.relation_profile and self.coverage_strategy == CoverageStrategy.IMPUTE_MEAN:
+            raise ValueError(
+                "CoverageStrategy.IMPUTE_MEAN is forbidden for relation-aware stacking; "
+                "use STRICT, DROP_INCOMPLETE, or an explicitly declared missing-prediction policy."
+            )
 
 class MetaModel(BaseModelOperator):
     """Wrapper for meta-model stacking using pipeline predictions.

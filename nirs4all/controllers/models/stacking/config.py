@@ -25,6 +25,7 @@ class ReconstructorConfig:
         feature_name_pattern: Pattern for generating feature column names.
             Supports: {model_name}, {fold_id}, {classname}, {step_idx}
         excluded_fold_ids: Set of fold_id values to exclude (e.g., {'avg', 'w_avg'}).
+        relation_profile: If True, enforce relation-aware reconstruction guardrails.
 
     Example:
         >>> config = ReconstructorConfig(
@@ -41,6 +42,7 @@ class ReconstructorConfig:
     allow_partial_sources: bool = False
     feature_name_pattern: str = "{model_name}_pred"
     excluded_fold_ids: set[str] = field(default_factory=lambda: {'avg', 'w_avg'})
+    relation_profile: bool = False
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -53,3 +55,13 @@ class ReconstructorConfig:
         # Convert excluded_fold_ids to set if needed
         if not isinstance(self.excluded_fold_ids, set):
             self.excluded_fold_ids = set(self.excluded_fold_ids)
+
+        self.validate_relation_safety()
+
+    def validate_relation_safety(self) -> None:
+        """Refuse disabled fold-alignment validation in relation-aware profiles."""
+        if self.relation_profile and not self.validate_fold_alignment:
+            raise ValueError(
+                "validate_fold_alignment=False is forbidden for relation-aware stacking reconstruction; "
+                "fold alignment must be validated when relation plans drive meta-features."
+            )

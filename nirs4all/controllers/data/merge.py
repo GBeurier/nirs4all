@@ -4000,15 +4000,19 @@ class MergeController(OperatorController):
         )
         from nirs4all.operators.models.meta import CoverageStrategy, StackingConfig
 
+        relation_profile = config.meta_feature_plan is not None or config.stacking_fit_contract is not None
+
         # Create stacking config with IMPUTE_MEAN to handle incomplete coverage
         # This is more lenient than STRICT and allows merge to work with
         # samples that may not have predictions from all folds
         stacking_config = StackingConfig(
             coverage_strategy=CoverageStrategy.IMPUTE_MEAN,
+            relation_profile=relation_profile,
         )
         reconstructor_config = ReconstructorConfig(
             log_warnings=True,
             validate_fold_alignment=False,  # Allow fold mismatch for branch merge
+            relation_profile=relation_profile,
         )
 
         model_predictions = {}
@@ -5328,12 +5332,16 @@ class MergeController(OperatorController):
                 )
                 from nirs4all.operators.models.meta import CoverageStrategy, StackingConfig
 
+                relation_profile = config.meta_feature_plan is not None or config.stacking_fit_contract is not None
+
                 stacking_config = StackingConfig(
                     coverage_strategy=CoverageStrategy.IMPUTE_MEAN,
+                    relation_profile=relation_profile,
                 )
                 reconstructor_config = ReconstructorConfig(
                     log_warnings=True,
                     validate_fold_alignment=False,
+                    relation_profile=relation_profile,
                 )
 
                 reconstructor = TrainingSetReconstructor(

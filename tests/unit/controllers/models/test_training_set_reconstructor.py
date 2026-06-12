@@ -305,6 +305,14 @@ class TestReconstructorConfig:
         assert config.max_missing_fold_ratio == 0.2
         assert config.feature_name_pattern == "{model_name}_{classname}"
 
+    def test_relation_profile_rejects_disabled_fold_alignment(self):
+        """Test relation-aware reconstruction requires fold-alignment validation."""
+        with pytest.raises(ValueError, match="validate_fold_alignment=False"):
+            ReconstructorConfig(
+                validate_fold_alignment=False,
+                relation_profile=True,
+            )
+
     def test_invalid_max_missing_fold_ratio(self):
         """Test that invalid max_missing_fold_ratio raises error."""
         with pytest.raises(ValueError, match="max_missing_fold_ratio"):
