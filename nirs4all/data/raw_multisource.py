@@ -922,6 +922,7 @@ class RawMultiSourceDataset:
             for source_id in sources:
                 width = self.feature_dims()[source_id]
                 records = by_key.get((sample, source_id), [])
+                missing_source_vector = self._missing_source_vector(plan, sample, source_id) if not records else None
                 source_slots: list[np.ndarray] = []
                 source_masks: list[np.ndarray] = []
                 for slot in range(counts_by_source[source_id]):
@@ -929,6 +930,9 @@ class RawMultiSourceDataset:
                         record = records[slot]
                         source_slots.append(self.X_by_source[source_id][record.source_row])
                         source_masks.append(np.ones(width, dtype=bool))
+                    elif missing_source_vector is not None:
+                        source_slots.append(missing_source_vector.copy())
+                        source_masks.append(np.zeros(width, dtype=bool))
                     else:
                         source_slots.append(np.full(width, np.nan, dtype=float))
                         source_masks.append(np.zeros(width, dtype=bool))
@@ -1176,10 +1180,17 @@ class RawMultiSourceDataset:
     def _missing_source_vector(self, plan: RepresentationPlan, sample: str, source_id: str) -> np.ndarray:
         policy = plan.missing_source_policy.lower()
         width = self.feature_dims()[source_id]
-        if policy in {"nan", "pad", "mask", "allow", "allow_missing"}:
+        if policy in {"impute_declared", "nan", "pad", "mask", "allow", "allow_missing"}:
             return cast(np.ndarray, np.full(width, np.nan, dtype=float))
         if policy == "zero":
             return cast(np.ndarray, np.zeros(width, dtype=float))
+        if policy in {"drop_incomplete", "drop_branch", "partial_model"}:
+            raise RelationValidationError(
+                f"Cannot materialise {plan.representation!r}: missing_source_policy={plan.missing_source_policy!r} "
+                "requires a model-selection or row-dropping adapter that is not part of this representation. "
+                "Use 'impute_declared', 'mask', or 'pad' for explicit rectangular replay.",
+                code="REL-E007",
+            )
         spec_policy = self.spec.missing_source_policy.value if self.spec is not None else "none"
         raise RelationValidationError(
             f"Cannot materialise {plan.representation!r}: physical sample {sample!r} has no observation for "

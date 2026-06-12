@@ -492,7 +492,7 @@ class TestBundleLoader:
             {"A": np.array([[1.0], [2.0]]), "B": np.array([[10.0]])},
             {"A": ["S1", "S2"], "B": ["S1"]},
         )
-        materialization = raw_dataset.materialize(RepresentationPlan("stack_padded_masked", missing_source_policy="nan"))
+        materialization = raw_dataset.materialize(RepresentationPlan("stack_padded_masked", missing_source_policy="impute_declared"))
         relation_manifest = build_relation_replay_manifest(materialization=materialization).to_dict()
 
         bundle_path = tmp_path / "relation_masked_predict.n4a"

@@ -67,7 +67,7 @@ def test_rep_fusion_controller_materializes_raw_multisource_dataset():
 def test_rep_fusion_controller_materializes_masked_stack_with_mask_features():
     controller = RepFusionController()
     context, output = controller.execute(
-        _step({"representation": "stack_padded_masked", "missing_source_policy": "nan"}),
+        _step({"representation": "stack_padded_masked", "missing_source_policy": "impute_declared"}),
         _dataset_with_missing_source(),
         ExecutionContext(),
         RuntimeContext(),

@@ -465,11 +465,24 @@ def test_stack_padded_masked_accepts_missing_source_with_mask():
     ds = RawMultiSourceDataset.from_sources(
         _spec(missing_source_policy=MissingSourcePolicy.DROP_INCOMPLETE), X, keys
     )
-    mat = ds.materialize(RepresentationPlan("stack_padded_masked", missing_source_policy="nan"))
+    mat = ds.materialize(RepresentationPlan("stack_padded_masked", missing_source_policy="impute_declared"))
     assert mat.X.shape == (2, 2)
     assert mat.feature_mask is not None
     np.testing.assert_allclose(mat.X[1], [2.0, np.nan], equal_nan=True)
     assert mat.feature_mask[1].tolist() == [True, False]
+
+
+def test_missing_source_drop_branch_requires_dedicated_adapter():
+    from nirs4all.data.relations import MissingSourcePolicy
+
+    X = {"A": np.array([[1.0], [2.0]]), "B": np.array([[3.0]])}
+    keys = {"A": ["S1", "S2"], "B": ["S1"]}
+    ds = RawMultiSourceDataset.from_sources(
+        _spec(missing_source_policy=MissingSourcePolicy.DROP_INCOMPLETE), X, keys
+    )
+
+    with pytest.raises(RelationValidationError, match="model-selection or row-dropping adapter"):
+        ds.materialize(RepresentationPlan("stack_padded_masked", missing_source_policy="drop_branch"))
 
 
 def test_cartesian_full_materializes_combo_rows_with_lineage():
