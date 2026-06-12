@@ -250,9 +250,11 @@ def extract_top_configs(
             all CV prediction entries.  Required for ``"mean_val"``
             ranking (to access individual fold scores).
         dataset_name: Filter pipelines to this dataset.
-        evaluation_scope: Reserved hook (roadmap N0) for selecting the unit at
-            which refit candidates are ranked. Inert in this phase; the legacy
-            RMSECV / mean_val ranking is unchanged. Defaults to ``None``.
+        evaluation_scope: Optional unit at which prediction-backed refit
+            candidates are ranked. ``"sample"`` recomputes ``mean_val``
+            fold scores through :meth:`Predictions.top` when canonical
+            ``physical_sample_id`` metadata is present. ``None`` keeps the
+            legacy stored-score ranking.
 
     Returns:
         Deduplicated list of :class:`RefitConfig` objects, one per
@@ -320,7 +322,7 @@ def extract_top_configs(
             else:
                 # Compute mean of individual fold val_scores for each pipeline
                 scored = _compute_mean_val_scores(
-                    predictions, pipeline_ids, completed, effective_metric,
+                    predictions, pipeline_ids, completed, effective_metric, evaluation_scope=evaluation_scope,
                 )
                 scored.sort(key=lambda x: x[1], reverse=not ascending)
 
@@ -376,7 +378,7 @@ def extract_top_configs(
     has_mean_val_criterion = any("mean_val" in c for c in all_criteria_labels_flat)
     if has_mean_val_criterion and predictions is not None:
         mean_val_scores = _compute_mean_val_scores(
-            predictions, pipeline_ids, completed, effective_metric,
+            predictions, pipeline_ids, completed, effective_metric, evaluation_scope=evaluation_scope,
         )
         mean_val_scores_map = dict(mean_val_scores)
 
@@ -439,18 +441,24 @@ def _compute_mean_val_scores(
     pipeline_ids: list[str],
     completed_df: Any,
     metric: str,
+    evaluation_scope: str | None = None,
 ) -> list[tuple[str, float]]:
     """Compute mean of individual fold validation scores for each pipeline.
 
     Filters predictions to individual folds (excluding avg, w_avg, final),
     groups by config_name (matched to pipeline via the completed DataFrame),
-    and computes the arithmetic mean of fold val_scores.
+    and computes the arithmetic mean of fold val_scores. When
+    ``evaluation_scope`` is provided, per-fold scores are recomputed through
+    :meth:`Predictions.top` so sample-level ranking can use aggregated
+    ``rank_score`` values while preserving the same mean-by-config contract.
 
     Args:
         predictions: In-memory Predictions with all CV entries.
         pipeline_ids: List of pipeline IDs to score.
         completed_df: Polars DataFrame of completed pipelines.
         metric: Metric name for extracting scores.
+        evaluation_scope: Optional evaluation scope for recomputing fold scores.
+            ``None`` preserves the legacy stored-score path exactly.
 
     Returns:
         List of (pipeline_id, mean_val_score) tuples.
@@ -464,13 +472,24 @@ def _compute_mean_val_scores(
 
     # Group fold val_scores by config_name (excluding virtual folds)
     config_scores: dict[str, list[float]] = {}
+    if evaluation_scope is not None:
+        ranked_val_preds = predictions.top(
+            n=max(len(val_preds), 1),
+            rank_metric=metric,
+            rank_partition="val",
+            display_partition="val",
+            score_scope="folds",
+            evaluation_scope=evaluation_scope,
+        )
+        val_preds = list(ranked_val_preds) if not isinstance(ranked_val_preds, dict) else []
+
     for entry in val_preds:
         fold_id = str(entry.get("fold_id", ""))
         if fold_id in ("avg", "w_avg", "final"):
             continue
 
         config_name = entry.get("config_name", "")
-        val_score = entry.get("val_score")
+        val_score = entry.get("rank_score") if evaluation_scope is not None else entry.get("val_score")
         if val_score is None:
             # Try to get from scores dict
             scores_dict = entry.get("scores", {})

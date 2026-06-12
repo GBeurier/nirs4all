@@ -1348,6 +1348,51 @@ class TestExtractTopConfigs:
         }
         store.close()
 
+    def test_mean_val_uses_sample_scope_scores_when_requested(self, tmp_path):
+        """mean_val selection can rank by sample-level fold scores."""
+        from nirs4all.core import metrics as evaluator
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path, n_pipelines=2)
+        predictions = Predictions()
+        sample_ids = ["S1"] * 10 + ["S2"]
+        y_true = np.array([0.0] * 10 + [10.0])
+
+        row_level_winner = np.array([0.0] * 10 + [20.0])
+        sample_level_winner = np.array([4.0] * 10 + [10.0])
+
+        for config_name, y_pred in (
+            ("pipeline_0", row_level_winner),
+            ("pipeline_1", sample_level_winner),
+        ):
+            predictions.add_prediction(
+                dataset_name="ds",
+                config_name=config_name,
+                pipeline_uid=config_name,
+                model_name="PLS",
+                model_classname="PLSRegression",
+                fold_id="fold_0",
+                partition="val",
+                y_true=y_true,
+                y_pred=y_pred,
+                metadata={"physical_sample_id": sample_ids},
+                val_score=evaluator.eval(y_true, y_pred, "rmse"),
+                metric="rmse",
+                task_type="regression",
+                n_samples=len(y_true),
+                n_features=200,
+            )
+
+        criteria = [RefitCriterion(top_k=1, ranking="mean_val", metric="rmse")]
+        row_configs = extract_top_configs(store, run_id, criteria, predictions=predictions, dataset_name="ds")
+        sample_configs = extract_top_configs(store, run_id, criteria, predictions=predictions, dataset_name="ds", evaluation_scope="sample")
+
+        assert row_configs[0].pipeline_id == pipeline_ids[0]
+        assert sample_configs[0].pipeline_id == pipeline_ids[1]
+        assert row_configs[0].selection_scores["mean_val"] == pytest.approx(3.0151134458)
+        assert sample_configs[0].selection_scores["mean_val"] == pytest.approx(2.8284271247)
+        store.close()
+
     def test_refit_pipelines_are_excluded_from_rmsecv_ranking(self, tmp_path):
         """Completed refit pipelines must not outrank CV pipelines by best_val=0."""
         from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
