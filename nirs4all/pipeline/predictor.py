@@ -562,17 +562,24 @@ class Predictor:
 
         loader = BundleLoader(bundle_path)
 
-        dataset_config = self.runner.orchestrator._normalize_dataset(dataset, dataset_name)
-        X_data: np.ndarray | None = None
+        from nirs4all.data.raw_multisource import RawMultiSourceDataset
 
-        for data_config, name in dataset_config.configs:
-            dataset_obj = dataset_config.get_dataset(data_config, name)
-            raw = dataset_obj.x({})
-            X_data = np.concatenate(raw, axis=1) if isinstance(raw, list) else raw
-            break
+        if isinstance(dataset, RawMultiSourceDataset):
+            if not loader.relation_replay_manifest:
+                raise ValueError("RawMultiSourceDataset bundle prediction requires a relation replay manifest.")
+            X_data: Any = dataset
+        else:
+            dataset_config = self.runner.orchestrator._normalize_dataset(dataset, dataset_name)
+            X_data = None
 
-        if X_data is None:
-            raise ValueError("No data found in dataset for prediction")
+            for data_config, name in dataset_config.configs:
+                dataset_obj = dataset_config.get_dataset(data_config, name)
+                raw = dataset_obj.x({})
+                X_data = np.concatenate(raw, axis=1) if isinstance(raw, list) else raw
+                break
+
+            if X_data is None:
+                raise ValueError("No data found in dataset for prediction")
 
         y_pred = loader.predict(X_data)
 
