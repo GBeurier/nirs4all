@@ -1471,6 +1471,8 @@ class BaseModelController(OperatorController, ABC):
             backend_supports_sample_weight=self._supports_fit_sample_weight(model),
             row_is_derived=row_is_derived,
         )
+        with contextlib.suppress(Exception):
+            dataset._relation_fit_influence_policy = resolution.policy.to_dict()
         manifest = resolution.to_manifest()
         manifest["source"] = "training_metadata.physical_sample_id"
         return resolution, manifest

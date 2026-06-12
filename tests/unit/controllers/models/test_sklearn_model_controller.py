@@ -152,12 +152,14 @@ class TestSklearnFitInfluence:
         )
 
     def test_passes_equal_sample_weight_when_estimator_supports_it(self):
-        model = self._build_model(_RecordingWeightedEstimator())
+        dataset = _RelationDataset()
+        model = self._build_model(_RecordingWeightedEstimator(), dataset=dataset)
 
         assert model.fit_shape_ == (4, 2)
         np.testing.assert_allclose(model.sample_weight_, [1 / 3, 1 / 3, 1 / 3, 1.0])
         assert model._nirs4all_fit_influence_manifest["effective_mode"] == "equal_sample_influence"
         assert model._nirs4all_fit_influence_manifest["has_sample_weight"] is True
+        assert dataset._relation_fit_influence_policy["mode"] == "auto"
 
     def test_resamples_when_estimator_lacks_sample_weight_support(self):
         model = self._build_model(_RecordingUnweightedEstimator())
