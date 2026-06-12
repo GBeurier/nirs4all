@@ -1,6 +1,6 @@
 # Test Dataset Configurations
 
-This folder contains 30 YAML configuration files covering all possible dataset loading scenarios in nirs4all. Each config has a matching synthetic dataset in `../sample_datasets/`.
+This folder contains 34 YAML configuration files covering dataset loading and relation-contract scenarios in nirs4all. The first 30 configs target the legacy `DatasetConfigs` loader with matching synthetic datasets in `../sample_datasets/`. Category G contains experimental heterogeneous repetition contracts backed by `../sample_data/heterogeneous/`.
 
 ## Overview
 
@@ -12,6 +12,7 @@ This folder contains 30 YAML configuration files covering all possible dataset l
 | D | 5 | Partition & split strategies |
 | E | 5 | Multi-source & aggregation |
 | F | 5 | Task types & feature variations |
+| G | 4 | Experimental source-aware repetitions |
 
 ---
 
@@ -133,6 +134,22 @@ variation_mode: separate  # or "concat", "select", "compare"
 
 ---
 
+## Category G: Experimental Source-Aware Repetitions
+
+Relation-contract examples for heterogeneous multisource repetitions. They opt into
+`experimental_relation_pipeline: true`, reference `sample_data/heterogeneous/`, and are
+validated by relation-table smoke tests rather than the legacy `DatasetConfigs`
+loader.
+
+| Config | Key Options | Description |
+|--------|-------------|-------------|
+| `G01_heterogeneous_per_source_aggregate` | `per_source_aggregate`, `fit_influence: uniform_rows` | MIR=2, RAMAN=3, NIRS=2 pre-aggregation contract |
+| `G02_heterogeneous_late_fusion` | `per_source_observation`, `meta_features.meta_row_domain: sample` | Source-level branches with sample-aligned meta features |
+| `G03_heterogeneous_cartesian_full` | `cartesian_full`, `max_combos_per_sample: 12` | Full feature-level combo contract with sample reducers |
+| `G04_heterogeneous_missing_source` | `missing_source_policy: impute_declared` | Declared missing-source policy and mask/pad representation |
+
+---
+
 ## Usage
 
 ### Loading with nirs4all
@@ -169,6 +186,10 @@ cd examples
 python scripts/verify_test_datasets.py
 ```
 
+Experimental Category G configs are parsed and skipped by this script because
+they are relation-pipeline contracts, not legacy loader fixtures. They are covered by:
+`pytest tests/unit/data/test_config_loading.py -k heterogeneous`
+
 ---
 
 ## Loader Compatibility
@@ -181,8 +202,9 @@ python scripts/verify_test_datasets.py
 | D (Partitions) | ⚠️ Partial | D01-D04 need partition loader support |
 | E (Multi-source) | ⚠️ Partial | E01-E03 need multi-source loader support |
 | F (Task types) | ⚠️ Partial | F04-F05 need variations loader support |
+| G (Source-aware repetitions) | Experimental | Skipped by legacy loader verification; covered by relation-table smoke tests |
 
-**Current status: 20/30 configs load successfully.**
+**Current status: legacy A-F loader compatibility is partial and should be re-verified against the current loader before publishing pass counts; 4 Category G relation-contract configs are skipped by loader verification.**
 
 The remaining 10 require extended loader functionality for:
 - Column-based partitioning

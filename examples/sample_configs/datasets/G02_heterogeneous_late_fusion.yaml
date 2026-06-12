@@ -1,0 +1,64 @@
+# Experimental source-aware repetitions: branch by source, then stack sample-level predictions.
+# Relation-contract example (experimental_relation_pipeline) - not a legacy DatasetConfigs load.
+name: G02_heterogeneous_late_fusion
+task_type: regression
+experimental_relation_pipeline: true
+
+sources:
+  - name: MIR
+    train_x: sample_data/heterogeneous/MIR_train.csv
+    test_x: sample_data/heterogeneous/MIR_test.csv
+    link_by: sample_id
+  - name: RAMAN
+    train_x: sample_data/heterogeneous/RAMAN_train.csv
+    test_x: sample_data/heterogeneous/RAMAN_test.csv
+    link_by: sample_id
+  - name: NIRS
+    train_x: sample_data/heterogeneous/NIRS_train.csv
+    test_x: sample_data/heterogeneous/NIRS_test.csv
+    link_by: sample_id
+
+shared_targets:
+  path: sample_data/heterogeneous/Y.csv
+  link_by: sample_id
+
+repetition_spec:
+  sample_id: sample_id
+  link_by: sample_id
+  target_level: physical_sample
+  sources:
+    MIR: {rep_col: rep, expected: 2}
+    RAMAN: {rep_col: rep, expected: 3}
+    NIRS: {rep_col: rep, expected: 2}
+
+representations:
+  - name: per_source_observation
+    stage: raw_before_preprocessing
+    unit_level: observation
+
+reducers:
+  - role: meta_feature
+    axis: unit
+    input_level: observation
+    output_level: sample
+    method: mean
+  - role: final_output
+    axis: unit
+    input_level: sample
+    output_level: sample
+    method: mean
+
+meta_features:
+  meta_row_domain: sample
+  alignment_key: physical_sample_id
+  adapters:
+    MIR: reduce
+    RAMAN: reduce
+    NIRS: reduce
+  missing_prediction_policy: strict
+
+refit_slots:
+  - slot_id: best_sample_meta
+    mode: refit_one
+    selection_level: sample
+    selection_metric: rmse

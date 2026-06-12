@@ -15,10 +15,17 @@ import argparse
 import traceback
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
 
 import numpy as np
 import yaml
+
+
+def _category_key(name: str) -> str:
+    """Return the letter category for names like A01_csv_semicolon."""
+    prefix = name.split("_", maxsplit=1)[0]
+    if len(prefix) > 1 and prefix[0].isalpha() and prefix[1:].isdigit():
+        return prefix[0]
+    return prefix
 
 
 @dataclass
@@ -32,8 +39,10 @@ class VerificationResult:
     n_train_samples: int = 0
     n_test_samples: int = 0
     n_features: int = 0
+    skipped: bool = False
     errors: list[str] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+
 
 class DatasetVerifier:
     """Verifies all test datasets load correctly."""
@@ -61,10 +70,15 @@ class DatasetVerifier:
             result = self.verify_single(config_path)
             self.results.append(result)
 
-            status = "\033[92mPASS\033[0m" if result.success else "\033[91mFAIL\033[0m"
+            if result.skipped:
+                status = "\033[94mSKIP\033[0m"
+            elif result.success:
+                status = "\033[92mPASS\033[0m"
+            else:
+                status = "\033[91mFAIL\033[0m"
             print(f"[{status}] {result.name}")
 
-            if result.success and self.verbose:
+            if result.loads_correctly and self.verbose:
                 print(f"       train={result.n_train_samples}, test={result.n_test_samples}, features={result.n_features}")
             for err in result.errors:
                 print(f"       \033[91mERROR:\033[0m {err}")
@@ -85,6 +99,15 @@ class DatasetVerifier:
 
             result.config_valid = True
 
+            if isinstance(raw_config, dict) and raw_config.get("experimental_relation_pipeline") is True:
+                result.success = True
+                result.skipped = True
+                result.warnings.append(
+                    "Experimental relation config: skipped legacy DatasetConfigs loading; "
+                    "covered by tests/unit/data/test_config_loading.py relation-table smoke."
+                )
+                return result
+
             # Step 2: Try to load the dataset
             from nirs4all.data import DatasetConfigs
 
@@ -98,7 +121,7 @@ class DatasetVerifier:
             # Step 3: Verify data shapes
             X_train = dataset.x({"partition": "train"}, layout="2d")
             assert isinstance(X_train, np.ndarray)
-            y_train = dataset.y({"partition": "train"})
+            dataset.y({"partition": "train"})
 
             result.n_train_samples = X_train.shape[0] if X_train is not None else 0
             result.n_features = X_train.shape[1] if X_train is not None and X_train.ndim == 2 else 0
@@ -107,7 +130,7 @@ class DatasetVerifier:
             try:
                 X_test = dataset.x({"partition": "test"}, layout="2d")
                 assert isinstance(X_test, np.ndarray)
-                y_test = dataset.y({"partition": "test"})
+                dataset.y({"partition": "test"})
                 result.n_test_samples = X_test.shape[0] if X_test is not None else 0
             except Exception:
                 result.n_test_samples = 0
@@ -146,14 +169,16 @@ class DatasetVerifier:
 
     def print_summary(self) -> None:
         """Print verification summary."""
-        passed = sum(1 for r in self.results if r.success)
+        passed = sum(1 for r in self.results if r.success and not r.skipped)
+        skipped = sum(1 for r in self.results if r.skipped)
+        failed = sum(1 for r in self.results if not r.success)
         total = len(self.results)
 
         print(f"\n{'=' * 60}")
-        print(f"Verification Summary: {passed}/{total} passed")
+        print(f"Verification Summary: {passed}/{total} passed, {skipped} skipped, {failed} failed")
         print(f"{'=' * 60}")
 
-        if passed < total:
+        if failed:
             print("\nFailed datasets:")
             for r in self.results:
                 if not r.success:
@@ -164,18 +189,21 @@ class DatasetVerifier:
         # Category breakdown
         categories = {}
         for r in self.results:
-            cat = r.name.split("_")[0]
+            cat = _category_key(r.name)
             if cat not in categories:
-                categories[cat] = {"passed": 0, "total": 0}
+                categories[cat] = {"passed": 0, "skipped": 0, "total": 0}
             categories[cat]["total"] += 1
-            if r.success:
+            if r.skipped:
+                categories[cat]["skipped"] += 1
+            elif r.success:
                 categories[cat]["passed"] += 1
 
         print("\nBy category:")
         for cat in sorted(categories.keys()):
             info = categories[cat]
-            status = "\033[92mOK\033[0m" if info["passed"] == info["total"] else "\033[91mFAIL\033[0m"
-            print(f"  {cat}: {info['passed']}/{info['total']} {status}")
+            status = "\033[92mOK\033[0m" if info["passed"] + info["skipped"] == info["total"] else "\033[91mFAIL\033[0m"
+            print(f"  {cat}: {info['passed']} passed, {info['skipped']} skipped / {info['total']} {status}")
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Verify test datasets load correctly")

@@ -18,6 +18,73 @@ from nirs4all.data.config_parser import _load_config_from_file, parse_config
 from nirs4all.data.relations import RepetitionSpec, SampleRelationPlan, SourceObservations
 
 
+def _assert_heterogeneous_relation_config(config_path: Path, examples_root: Path) -> None:
+    """Parse one experimental relation config and rebuild its sample relation table.
+
+    Shared smoke used for both the ``examples/configs/datasets`` relation-contract
+    examples and their ``examples/sample_configs/datasets`` Category G mirrors; both
+    reference the same ``sample_data/heterogeneous`` fixtures.
+    """
+    config, name = parse_config(str(config_path))
+
+    assert name == config_path.stem
+    assert config["name"] == config_path.stem
+    assert config["experimental_relation_pipeline"] is True
+    assert config["task_type"] == "regression"
+
+    repetition_spec = config["repetition_spec"]
+    assert repetition_spec["sample_id"] == "sample_id"
+    assert repetition_spec["target_level"] == "physical_sample"
+    spec = RepetitionSpec.from_config(repetition_spec)
+
+    target_path = examples_root / config["targets"]["path"]
+    assert target_path.is_file()
+    with target_path.open(newline="") as handle:
+        target_rows = list(csv.DictReader(handle))
+    assert {row["sample_id"] for row in target_rows} == {"S001", "S002", "S003", "S004", "S005"}
+
+    relation_sources_by_partition: dict[str, list[SourceObservations]] = {"train": [], "test": []}
+    for source in config["sources"]:
+        source_name = source["name"]
+        expected_reps = int(repetition_spec["sources"][source_name]["expected"])
+        expected_rep_ids = {str(rep_id) for rep_id in range(1, expected_reps + 1)}
+
+        for partition, path_key, sample_ids in (("train", "train_x", {"S001", "S002", "S003"}), ("test", "test_x", {"S004", "S005"})):
+            data_path = examples_root / source[path_key]
+            assert data_path.is_file()
+            with data_path.open(newline="") as handle:
+                rows = list(csv.DictReader(handle))
+
+            assert rows
+            assert {"sample_id", "rep"} <= set(rows[0])
+            assert Counter(row["sample_id"] for row in rows) == Counter(dict.fromkeys(sample_ids, expected_reps))
+            for sample_id in sample_ids:
+                assert {row["rep"] for row in rows if row["sample_id"] == sample_id} == expected_rep_ids
+            frame = {column: [row[column] for row in rows] for column in rows[0]}
+            relation_sources_by_partition[partition].append(
+                SourceObservations.from_frame(
+                    source_name,
+                    frame,
+                    sample_col=repetition_spec["sample_id"],
+                    rep_col=repetition_spec["sources"][source_name]["rep_col"],
+                )
+            )
+
+    for partition, sample_ids in (("train", {"S001", "S002", "S003"}), ("test", {"S004", "S005"})):
+        relation_plan = SampleRelationPlan.from_sources(spec, relation_sources_by_partition[partition], partition=partition)
+        table = relation_plan.table
+
+        assert table.physical_sample_ids == sorted(sample_ids)
+        assert table.source_ids == ["MIR", "NIRS", "RAMAN"]
+        assert len(table) == len(sample_ids) * sum(int(source_spec["expected"]) for source_spec in repetition_spec["sources"].values())
+        assert table.cardinalities() == {
+            (sample_id, source_name): int(source_spec["expected"])
+            for sample_id in sample_ids
+            for source_name, source_spec in repetition_spec["sources"].items()
+        }
+        assert len(table.enumerate_combos(next(iter(sample_ids)))) == 12
+
+
 class TestLoadConfigFromFile:
     """Test suite for _load_config_from_file function."""
 
@@ -262,7 +329,7 @@ class TestParseConfigWithFiles:
         assert config["train_y"] == "path/to/Y.csv"
 
     def test_heterogeneous_repetition_examples_parse_reference_and_build_relation_tables(self):
-        """Smoke-test the experimental heterogeneous repetition example configs."""
+        """Smoke-test public heterogeneous repetition example configs."""
         repo_root = Path(__file__).resolve().parents[3]
         examples_root = repo_root / "examples"
         config_paths = sorted((repo_root / "examples" / "configs" / "datasets").glob("heterogeneous_repetitions_*.yaml"))
@@ -275,64 +342,44 @@ class TestParseConfigWithFiles:
         }
 
         for config_path in config_paths:
-            config, name = parse_config(str(config_path))
+            _assert_heterogeneous_relation_config(config_path, examples_root)
 
-            assert name == config_path.stem
-            assert config["name"] == config_path.stem
-            assert config["experimental_relation_pipeline"] is True
-            assert config["task_type"] == "regression"
+    def test_heterogeneous_repetition_sample_configs_parse_reference_and_build_relation_tables(self):
+        """Smoke-test Category G heterogeneous repetition sample configs."""
+        repo_root = Path(__file__).resolve().parents[3]
+        examples_root = repo_root / "examples"
+        sample_configs_root = repo_root / "examples" / "sample_configs" / "datasets"
+        public_configs_root = repo_root / "examples" / "configs" / "datasets"
+        config_paths = sorted(sample_configs_root.glob("G0*_heterogeneous_*.yaml"))
+        mirror_sources = {
+            "G01_heterogeneous_per_source_aggregate.yaml": "heterogeneous_repetitions_per_source_aggregate.yaml",
+            "G02_heterogeneous_late_fusion.yaml": "heterogeneous_repetitions_late_fusion.yaml",
+            "G03_heterogeneous_cartesian_full.yaml": "heterogeneous_repetitions_cartesian_full.yaml",
+            "G04_heterogeneous_missing_source.yaml": "heterogeneous_repetitions_missing_source.yaml",
+        }
+        mirrored_contract_keys = (
+            "task_type",
+            "experimental_relation_pipeline",
+            "sources",
+            "targets",
+            "repetition_spec",
+            "representations",
+            "reducers",
+            "fit_influence",
+            "meta_features",
+            "refit_slots",
+        )
 
-            repetition_spec = config["repetition_spec"]
-            assert repetition_spec["sample_id"] == "sample_id"
-            assert repetition_spec["target_level"] == "physical_sample"
-            spec = RepetitionSpec.from_config(repetition_spec)
+        assert {path.name for path in config_paths} == set(mirror_sources)
 
-            target_path = examples_root / config["targets"]["path"]
-            assert target_path.is_file()
-            with target_path.open(newline="") as handle:
-                target_rows = list(csv.DictReader(handle))
-            assert {row["sample_id"] for row in target_rows} == {"S001", "S002", "S003", "S004", "S005"}
+        for config_path in config_paths:
+            _assert_heterogeneous_relation_config(config_path, examples_root)
+            sample_config, _ = parse_config(str(config_path))
+            public_config, _ = parse_config(str(public_configs_root / mirror_sources[config_path.name]))
 
-            relation_sources_by_partition: dict[str, list[SourceObservations]] = {"train": [], "test": []}
-            for source in config["sources"]:
-                source_name = source["name"]
-                expected_reps = int(repetition_spec["sources"][source_name]["expected"])
-                expected_rep_ids = {str(rep_id) for rep_id in range(1, expected_reps + 1)}
+            for key in mirrored_contract_keys:
+                assert sample_config.get(key) == public_config.get(key)
 
-                for partition, path_key, sample_ids in (("train", "train_x", {"S001", "S002", "S003"}), ("test", "test_x", {"S004", "S005"})):
-                    data_path = examples_root / source[path_key]
-                    assert data_path.is_file()
-                    with data_path.open(newline="") as handle:
-                        rows = list(csv.DictReader(handle))
-
-                    assert rows
-                    assert {"sample_id", "rep"} <= set(rows[0])
-                    assert Counter(row["sample_id"] for row in rows) == Counter(dict.fromkeys(sample_ids, expected_reps))
-                    for sample_id in sample_ids:
-                        assert {row["rep"] for row in rows if row["sample_id"] == sample_id} == expected_rep_ids
-                    frame = {column: [row[column] for row in rows] for column in rows[0]}
-                    relation_sources_by_partition[partition].append(
-                        SourceObservations.from_frame(
-                            source_name,
-                            frame,
-                            sample_col=repetition_spec["sample_id"],
-                            rep_col=repetition_spec["sources"][source_name]["rep_col"],
-                        )
-                    )
-
-            for partition, sample_ids in (("train", {"S001", "S002", "S003"}), ("test", {"S004", "S005"})):
-                relation_plan = SampleRelationPlan.from_sources(spec, relation_sources_by_partition[partition], partition=partition)
-                table = relation_plan.table
-
-                assert table.physical_sample_ids == sorted(sample_ids)
-                assert table.source_ids == ["MIR", "NIRS", "RAMAN"]
-                assert len(table) == len(sample_ids) * sum(int(source_spec["expected"]) for source_spec in repetition_spec["sources"].values())
-                assert table.cardinalities() == {
-                    (sample_id, source_name): int(source_spec["expected"])
-                    for sample_id in sample_ids
-                    for source_name, source_spec in repetition_spec["sources"].items()
-                }
-                assert len(table.enumerate_combos(next(iter(sample_ids)))) == 12
 
 class TestDatasetConfigsWithFiles:
     """Test suite for DatasetConfigs with file-based configs."""

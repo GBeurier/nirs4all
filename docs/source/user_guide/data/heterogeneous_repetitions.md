@@ -128,3 +128,10 @@ See:
 - `examples/configs/datasets/heterogeneous_repetitions_late_fusion.yaml`
 - `examples/configs/datasets/heterogeneous_repetitions_cartesian_full.yaml`
 - `examples/configs/datasets/heterogeneous_repetitions_missing_source.yaml`
+
+Sample-config mirrors are also available for test-dataset discovery:
+
+- `examples/sample_configs/datasets/G01_heterogeneous_per_source_aggregate.yaml`
+- `examples/sample_configs/datasets/G02_heterogeneous_late_fusion.yaml`
+- `examples/sample_configs/datasets/G03_heterogeneous_cartesian_full.yaml`
+- `examples/sample_configs/datasets/G04_heterogeneous_missing_source.yaml`
