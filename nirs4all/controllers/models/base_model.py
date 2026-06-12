@@ -16,7 +16,7 @@ import copy
 import multiprocessing
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import numpy as np
 from joblib import Parallel, delayed
@@ -1472,7 +1472,7 @@ class BaseModelController(OperatorController, ABC):
             row_is_derived=row_is_derived,
         )
         with contextlib.suppress(Exception):
-            dataset._relation_fit_influence_policy = resolution.policy.to_dict()
+            cast(Any, dataset)._relation_fit_influence_policy = resolution.policy.to_dict()
         manifest = resolution.to_manifest()
         manifest["source"] = "training_metadata.physical_sample_id"
         return resolution, manifest

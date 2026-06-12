@@ -825,7 +825,8 @@ class RunResult:
         )
         if lineage is None:
             return None
-        return lineage.lineage_warning
+        warning = lineage.lineage_warning
+        return str(warning) if warning is not None else None
 
     @property
     def explanation_level(self) -> str | None:
@@ -836,7 +837,8 @@ class RunResult:
         )
         if lineage is None:
             return None
-        return lineage.explanation_level
+        level = lineage.explanation_level
+        return str(level) if level is not None else None
 
     def get_feature_lineage(self, feature: str | int) -> dict[str, Any]:
         """Get relation lineage for a feature name or zero-based feature index."""
@@ -1258,7 +1260,8 @@ class PredictResult:
         lineage = _derive_relation_lineage(self.relation_replay_manifest or self.relation_materialization_manifest)
         if lineage is None:
             return None
-        return lineage.lineage_warning
+        warning = lineage.lineage_warning
+        return str(warning) if warning is not None else None
 
     @property
     def explanation_level(self) -> str | None:
@@ -1270,7 +1273,8 @@ class PredictResult:
         lineage = _derive_relation_lineage(self.relation_replay_manifest or self.relation_materialization_manifest)
         if lineage is None:
             return None
-        return lineage.explanation_level
+        level = lineage.explanation_level
+        return str(level) if level is not None else None
 
     def get_feature_lineage(self, feature: str | int) -> dict[str, Any]:
         """Get relation lineage for a feature name or zero-based feature index."""

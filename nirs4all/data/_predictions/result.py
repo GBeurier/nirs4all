@@ -10,6 +10,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any
 
@@ -345,7 +346,7 @@ class PredictionResultsList(list[PredictionResult]):
         3
     """
 
-    def __init__(self, predictions: list[dict[str, Any] | PredictionResult] | None = None):
+    def __init__(self, predictions: Sequence[dict[str, Any] | PredictionResult] | None = None):
         """
         Initialize with optional list of PredictionResult objects.
 

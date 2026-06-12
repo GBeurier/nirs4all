@@ -465,9 +465,9 @@ class AlignedMaterialization:
             dataset.set_repetition("physical_sample_id")
             dataset.set_aggregate("physical_sample_id")
 
-        dataset._relation_materialization_manifest = self.to_manifest()
+        cast(Any, dataset)._relation_materialization_manifest = self.to_manifest()
         if self.feature_mask is not None:
-            dataset._relation_feature_mask = np.asarray(self.feature_mask, dtype=bool).copy()
+            cast(Any, dataset)._relation_feature_mask = np.asarray(self.feature_mask, dtype=bool).copy()
         return dataset
 
     def _spectro_metadata_rows(self, partitions: Sequence[str]) -> list[dict[str, Any]]:
