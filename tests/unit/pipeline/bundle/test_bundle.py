@@ -479,6 +479,53 @@ class TestBundleLoader:
         with pytest.raises(ValueError, match="feature-space width"):
             loader.predict(missing_source_dataset)
 
+    def test_predict_replays_masked_relation_materialization_model_matrix(self, tmp_path):
+        """Masked relation replay feeds models the same value+mask matrix used at train time."""
+        import joblib
+
+        from nirs4all.data.raw_multisource import RawMultiSourceDataset, RepresentationPlan
+        from nirs4all.data.relation_replay_manifest import build_relation_replay_manifest
+        from nirs4all.data.relations import RepetitionSpec
+
+        raw_dataset = RawMultiSourceDataset.from_sources(
+            RepetitionSpec(sample_id="sid", link_by="sid", missing_source_policy="drop_incomplete"),
+            {"A": np.array([[1.0], [2.0]]), "B": np.array([[10.0]])},
+            {"A": ["S1", "S2"], "B": ["S1"]},
+        )
+        materialization = raw_dataset.materialize(RepresentationPlan("stack_padded_masked", missing_source_policy="nan"))
+        relation_manifest = build_relation_replay_manifest(materialization=materialization).to_dict()
+
+        bundle_path = tmp_path / "relation_masked_predict.n4a"
+        with zipfile.ZipFile(bundle_path, "w") as zf:
+            zf.writestr(
+                "manifest.json",
+                json.dumps({
+                    "bundle_format_version": "1.0",
+                    "pipeline_uid": "relation_masked_pipeline",
+                    "model_step_index": 4,
+                    "relation_replay_manifest": {
+                        "path": "relation_replay_manifest.json",
+                        "version": relation_manifest["version"],
+                        "fingerprint": relation_manifest["fingerprint"],
+                    },
+                }),
+            )
+            zf.writestr("pipeline.json", json.dumps({"steps": [{"model": "PLSRegression"}], "model_step_index": 4}))
+            zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest))
+            buffer = io.BytesIO()
+            joblib.dump(SimpleModel(), buffer)
+            zf.writestr("artifacts/step_4_fold0_PLSRegression.joblib", buffer.getvalue())
+
+        loader = BundleLoader(bundle_path)
+
+        prepared = loader._prepare_prediction_input(raw_dataset)
+        y_pred = loader.predict(raw_dataset)
+
+        assert relation_manifest["materialization_manifest"]["model_shape"] == [2, 4]
+        assert prepared.shape == (2, 4)
+        np.testing.assert_allclose(prepared, np.array([[1.0, 10.0, 1.0, 1.0], [2.0, 0.0, 1.0, 0.0]]))
+        np.testing.assert_allclose(y_pred, np.ones(2))
+
     def test_relation_replay_manifest_reference_must_exist(self, tmp_path):
         """Test relation replay manifest references fail loudly when broken."""
         bundle_path = tmp_path / "broken_relation_ref.n4a"

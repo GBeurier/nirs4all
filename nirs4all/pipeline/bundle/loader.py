@@ -600,7 +600,8 @@ class BundleLoader:
                         "it does not contain a materialization_manifest."
                 )
                 materialized = replay_materialization(X, materialization_manifest, validate_fingerprint=False)
-                return cast(np.ndarray, np.asarray(materialized.X).copy())
+                model_matrix, _model_headers = materialized.to_feature_matrix()
+                return cast(np.ndarray, np.asarray(model_matrix).copy())
 
         return cast(np.ndarray, np.asarray(X).copy())
 

@@ -302,12 +302,26 @@ def test_materialization_to_spectro_dataset_honors_row_partitions():
     np.testing.assert_allclose(spectro.x({"partition": "test"}), np.array([[2.0]]))
 
 
-def test_materialization_to_spectro_dataset_rejects_masked_representations():
+def test_materialization_to_spectro_dataset_exports_mask_features():
     ds = _heterogeneous_dataset()
     mat = ds.materialize("per_source_observation")
+    spectro = mat.to_spectro_dataset("masked")
 
-    with pytest.raises(RelationValidationError, match="feature_mask"):
-        mat.to_spectro_dataset("masked")
+    model_X = spectro.x({"partition": "train"})
+    assert model_X.shape == (10, 6)
+    np.testing.assert_allclose(model_X[0], [1.0, 1.0, 0.0, 1.0, 1.0, 0.0])
+    manifest = getattr(spectro, "_relation_materialization_manifest")
+    assert manifest["has_feature_mask"] is True
+    assert manifest["model_shape"] == [10, 6]
+    assert manifest["model_headers"] == [
+        "MIR:MIR_f0",
+        "MIR:MIR_f1",
+        "RAMAN:RAMAN_f0",
+        "mask:MIR:MIR_f0",
+        "mask:MIR:MIR_f1",
+        "mask:RAMAN:RAMAN_f0",
+    ]
+    assert getattr(spectro, "_relation_feature_mask").shape == mat.feature_mask.shape
 
 
 def test_per_source_aggregate_is_invariant_to_input_shuffle():

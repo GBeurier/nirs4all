@@ -388,34 +388,52 @@ class AlignedMaterialization:
 
     def to_manifest(self) -> dict[str, Any]:
         """Return a JSON-serialisable replay/export manifest without arrays."""
+        model_matrix, model_headers = self.to_feature_matrix()
         return {
             "representation": self.representation,
             "representation_plan": self.representation_plan.to_dict() if self.representation_plan is not None else None,
             "fingerprint": self.fingerprint,
             "shape": list(self.X.shape),
+            "model_shape": list(model_matrix.shape),
             "has_feature_mask": self.feature_mask is not None,
             "sample_ids": list(self.sample_ids),
             "unit_ids": list(self.unit_ids) if self.unit_ids is not None else None,
             "source_ids": list(self.source_ids) if self.source_ids is not None else None,
             "partitions": list(self.partitions) if self.partitions is not None else None,
             "headers": list(self.headers),
+            "model_headers": list(model_headers),
             "targets": _json_safe(self.targets),
             "lineage": _json_safe(self.lineage),
         }
+
+    def to_feature_matrix(self) -> tuple[np.ndarray, list[str]]:
+        """Return the numeric matrix and headers consumed by legacy models.
+
+        Masked relational representations keep the original padded values in
+        ``X`` plus a boolean ``feature_mask``. Legacy estimators cannot consume
+        a side-channel mask, so the model matrix fills missing values with zero
+        and appends deterministic mask columns.
+        """
+        if self.feature_mask is None:
+            return np.asarray(self.X).copy(), list(self.headers)
+
+        if self.feature_mask.shape != self.X.shape:
+            raise RelationValidationError(
+                f"feature_mask shape {self.feature_mask.shape!r} does not match X shape {self.X.shape!r}.",
+                code="REL-E019",
+            )
+
+        values = np.nan_to_num(np.asarray(self.X, dtype=float), nan=0.0)
+        mask_values = np.asarray(self.feature_mask, dtype=float)
+        mask_headers = [f"mask:{header}" for header in self.headers]
+        return np.concatenate([values, mask_values], axis=1), [*self.headers, *mask_headers]
 
     def to_spectro_dataset(self, name: str = "relation_materialized") -> SpectroDataset:
         """Convert this explicit materialisation to the legacy rectangular dataset API."""
         from nirs4all.data.dataset import SpectroDataset
 
-        if self.feature_mask is not None:
-            raise RelationValidationError(
-                f"Representation {self.representation!r} carries a feature_mask. "
-                "Masked/NaN materializations are not yet safely convertible to SpectroDataset; "
-                "use an unmasked representation or add a downstream mask-aware adapter.",
-                code="REL-E019",
-            )
-
         dataset = SpectroDataset(name=name)
+        model_matrix, model_headers = self.to_feature_matrix()
         n_rows = int(self.X.shape[0])
         partitions = list(self.partitions) if self.partitions is not None else [Partition.TRAIN.value] * n_rows
         if len(partitions) != n_rows:
@@ -425,7 +443,7 @@ class AlignedMaterialization:
             )
 
         base_partition = partitions[0] if partitions else Partition.TRAIN.value
-        dataset.add_samples(self.X, {"partition": base_partition}, headers=self.headers, header_unit="text")
+        dataset.add_samples(model_matrix, {"partition": base_partition}, headers=model_headers, header_unit="text")
 
         for partition in sorted(set(partitions)):
             if partition == base_partition:
@@ -448,6 +466,8 @@ class AlignedMaterialization:
             dataset.set_aggregate("physical_sample_id")
 
         dataset._relation_materialization_manifest = self.to_manifest()
+        if self.feature_mask is not None:
+            dataset._relation_feature_mask = np.asarray(self.feature_mask, dtype=bool).copy()
         return dataset
 
     def _spectro_metadata_rows(self, partitions: Sequence[str]) -> list[dict[str, Any]]:
@@ -1493,6 +1513,14 @@ def replay_materialization(
 
 def _validate_replayed_feature_space(materialized: AlignedMaterialization, manifest: Mapping[str, Any]) -> None:
     """Ensure prediction replay preserves the trained rectangular feature space."""
+    expected_mask = manifest.get("has_feature_mask")
+    if expected_mask is not None and bool(expected_mask) != (materialized.feature_mask is not None):
+        raise RelationValidationError(
+            "Replayed relation materialization produced a different mask contract than the bundle manifest. "
+            "Missing-source and masked-representation policies must preserve whether mask features are present.",
+            code="REL-E019",
+        )
+
     expected_shape = manifest.get("shape")
     if isinstance(expected_shape, Sequence) and len(expected_shape) >= 2:
         expected_width = int(expected_shape[1])
@@ -1515,6 +1543,27 @@ def _validate_replayed_feature_space(materialized: AlignedMaterialization, manif
                 "Source order, source widths and missing-source replay policy must preserve the trained headers.",
                 code="REL-E019",
             )
+
+    expected_model_shape = manifest.get("model_shape")
+    if isinstance(expected_model_shape, Sequence) and len(expected_model_shape) >= 2:
+        model_matrix, model_headers = materialized.to_feature_matrix()
+        expected_model_width = int(expected_model_shape[1])
+        actual_model_width = int(model_matrix.shape[1]) if model_matrix.ndim >= 2 else 0
+        if actual_model_width != expected_model_width:
+            raise RelationValidationError(
+                "Replayed relation materialization produced a different model feature-space width "
+                f"({actual_model_width}) than the bundle manifest ({expected_model_width}).",
+                code="REL-E019",
+            )
+        expected_model_headers = manifest.get("model_headers")
+        if isinstance(expected_model_headers, Sequence) and not isinstance(expected_model_headers, (str, bytes)):
+            expected = [str(header) for header in expected_model_headers]
+            actual = [str(header) for header in model_headers]
+            if actual != expected:
+                raise RelationValidationError(
+                    "Replayed relation materialization produced different model feature-space headers than the bundle manifest.",
+                    code="REL-E019",
+                )
 
 
 __all__ = [
