@@ -32,7 +32,7 @@ import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import numpy as np
 
@@ -556,7 +556,7 @@ class BundleLoader:
 
     def predict(
         self,
-        X: np.ndarray,
+        X: Any,
         branch_path: list[int] | None = None
     ) -> np.ndarray:
         """Run prediction on input data.
@@ -565,7 +565,10 @@ class BundleLoader:
         Supports branching pipelines, meta-models (stacking), and CV ensembles.
 
         Args:
-            X: Input features as numpy array
+            X: Input features as a numpy array. For bundles carrying a
+                relational replay manifest, a ``RawMultiSourceDataset`` staging
+                object is also accepted and materialized through the saved
+                representation plan before prediction.
             branch_path: Optional branch path filter for multi-branch pipelines
 
         Returns:
@@ -574,7 +577,7 @@ class BundleLoader:
         if self.artifact_provider is None:
             raise RuntimeError("Bundle not loaded properly: no artifact provider")
 
-        X_current = X.copy()
+        X_current = self._prepare_prediction_input(X)
 
         # Get step execution order from trace or artifact index
         if self.trace:
@@ -583,6 +586,23 @@ class BundleLoader:
         else:
             # Fallback: infer from artifact index
             return self._predict_from_index(X_current)
+
+    def _prepare_prediction_input(self, X: Any) -> np.ndarray:
+        """Prepare a bundle prediction matrix, replaying relation materialization when possible."""
+        if self.relation_replay_manifest:
+            from nirs4all.data.raw_multisource import RawMultiSourceDataset, replay_materialization
+
+            if isinstance(X, RawMultiSourceDataset):
+                materialization_manifest = self.relation_replay_manifest.get("materialization_manifest")
+                if not isinstance(materialization_manifest, dict):
+                    raise ValueError(
+                        "Bundle relation replay manifest cannot materialize a RawMultiSourceDataset because "
+                        "it does not contain a materialization_manifest."
+                )
+                materialized = replay_materialization(X, materialization_manifest, validate_fingerprint=False)
+                return cast(np.ndarray, np.asarray(materialized.X).copy())
+
+        return cast(np.ndarray, np.asarray(X).copy())
 
     def _predict_with_trace(
         self,

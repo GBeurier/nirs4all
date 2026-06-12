@@ -390,6 +390,57 @@ class TestBundleLoader:
         resolved = loader.to_resolved_prediction()
         assert resolved.manifest["relation_replay_manifest"]["fingerprint"] == "rel_fp"
 
+    def test_predict_replays_relation_materialization_for_raw_multisource_input(self, tmp_path):
+        """A relation-aware bundle can materialize RawMultiSourceDataset input before predict."""
+        import joblib
+
+        from nirs4all.data.raw_multisource import RawMultiSourceDataset
+        from nirs4all.data.relation_replay_manifest import build_relation_replay_manifest
+        from nirs4all.data.relations import RepetitionSpec
+
+        raw_dataset = RawMultiSourceDataset.from_sources(
+            RepetitionSpec(sample_id="sid", link_by="sid"),
+            {
+                "MIR": np.array([[1.0, 1.0], [2.0, 2.0], [3.0, 3.0], [4.0, 4.0]]),
+                "RAMAN": np.array([[10.0], [20.0], [11.0], [21.0]]),
+            },
+            {
+                "MIR": ["S1", "S1", "S2", "S2"],
+                "RAMAN": ["S1", "S2", "S1", "S2"],
+            },
+            targets_by_source={"MIR": [10.0, 10.0, 20.0, 20.0]},
+        )
+        materialization = raw_dataset.materialize("per_source_aggregate")
+        relation_manifest = build_relation_replay_manifest(materialization=materialization).to_dict()
+
+        bundle_path = tmp_path / "relation_predict.n4a"
+        with zipfile.ZipFile(bundle_path, "w") as zf:
+            zf.writestr(
+                "manifest.json",
+                json.dumps({
+                    "bundle_format_version": "1.0",
+                    "pipeline_uid": "relation_pipeline",
+                    "model_step_index": 4,
+                    "relation_replay_manifest": {
+                        "path": "relation_replay_manifest.json",
+                        "version": relation_manifest["version"],
+                        "fingerprint": relation_manifest["fingerprint"],
+                    },
+                }),
+            )
+            zf.writestr("pipeline.json", json.dumps({"steps": [{"model": "PLSRegression"}], "model_step_index": 4}))
+            zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest))
+            buffer = io.BytesIO()
+            joblib.dump(SimpleModel(), buffer)
+            zf.writestr("artifacts/step_4_fold0_PLSRegression.joblib", buffer.getvalue())
+
+        loader = BundleLoader(bundle_path)
+
+        y_pred = loader.predict(raw_dataset)
+
+        assert y_pred.shape == (materialization.X.shape[0],)
+        np.testing.assert_allclose(y_pred, np.ones(materialization.X.shape[0]))
+
     def test_relation_replay_manifest_reference_must_exist(self, tmp_path):
         """Test relation replay manifest references fail loudly when broken."""
         bundle_path = tmp_path / "broken_relation_ref.n4a"
