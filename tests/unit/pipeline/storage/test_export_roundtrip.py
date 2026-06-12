@@ -92,6 +92,39 @@ class TestPredictFromChain:
 
     @patch("nirs4all.pipeline.storage.chain_replay.replay_chain")
     @patch("nirs4all.pipeline.storage.workspace_store.WorkspaceStore")
+    def test_returns_relation_replay_manifest(self, MockStore, mock_replay):
+        """_predict_from_chain should expose relation replay metadata."""
+        relation_manifest = {
+            "version": "1.0",
+            "fingerprint": "rel-fp",
+            "materialization_manifest": {
+                "representation": "per_source_aggregate",
+                "fingerprint": "mat-fp",
+                "shape": [1, 1],
+                "headers": ["MIR:1000"],
+                "source_ids": ["MIR"],
+            },
+        }
+        store_instance = MockStore.return_value
+        mock_replay.return_value = np.array([1.0])
+        store_instance.get_chain.return_value = {
+            "model_class": "PLSRegression",
+            "relation_replay_manifest": relation_manifest,
+        }
+
+        result = _predict_from_chain(
+            chain_id="abc123",
+            data=np.random.randn(1, 10),
+            workspace_path=Path("workspace"),
+            session=None,
+            verbose=0,
+        )
+
+        assert result.relation_replay_manifest == relation_manifest
+        assert result.relation_materialization_manifest["fingerprint"] == "mat-fp"
+
+    @patch("nirs4all.pipeline.storage.chain_replay.replay_chain")
+    @patch("nirs4all.pipeline.storage.workspace_store.WorkspaceStore")
     def test_uses_session_workspace(self, MockStore, mock_replay):
         """_predict_from_chain should use session's workspace path when provided."""
         session = MagicMock()

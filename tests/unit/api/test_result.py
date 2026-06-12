@@ -16,6 +16,26 @@ from nirs4all.api.result import ExplainResult, PredictResult, RunResult
 # Fixtures
 # =============================================================================
 
+def _relation_replay_manifest() -> dict:
+    return {
+        "version": "1.0",
+        "fingerprint": "rel-fp",
+        "materialization_manifest": {
+            "representation": "stack_padded_masked",
+            "fingerprint": "mat-fp",
+            "shape": [1, 1],
+            "model_shape": [1, 2],
+            "headers": ["MIR:1000"],
+            "model_headers": ["MIR:1000", "mask:MIR:1000"],
+            "source_ids": ["MIR"],
+            "representation_plan": {
+                "representation": "stack_padded_masked",
+                "unit_level": "sample",
+                "stage": "stack",
+            },
+        },
+    }
+
 @pytest.fixture
 def mock_predictions():
     """Create a mock Predictions object with sample data."""
@@ -263,6 +283,28 @@ class TestRunResult:
         mock_predictions.top.return_value = [{'model_name': 'test'}]
         assert str(run_result) == run_result.summary()
 
+    def test_relation_lineage_from_prediction_metadata(self, mock_predictions):
+        """RunResult exposes relation provenance attached to prediction rows."""
+        manifest = _relation_replay_manifest()
+        row = {
+            'id': 'pred_rel',
+            'chain_id': 'chain_rel',
+            'model_name': 'PLSRegression',
+            'test_score': 0.5,
+            'n_features': 2,
+            'metadata': {'relation_replay_manifest': manifest},
+        }
+        mock_predictions.filter_predictions.return_value = [row]
+        mock_predictions.top.return_value = [row]
+
+        result = RunResult(predictions=mock_predictions, per_dataset={})
+
+        assert result.relation_replay_manifest == manifest
+        assert result.relation_materialization_manifest['fingerprint'] == 'mat-fp'
+        assert result.explanation_level == 'stack'
+        assert result.get_feature_lineage('mask:MIR:1000')['source_id'] == 'MIR'
+        assert result.get_feature_lineage(1)['feature_role'] == 'presence_mask'
+
 # =============================================================================
 # PredictResult Tests
 # =============================================================================
@@ -386,6 +428,21 @@ class TestPredictResult:
             metadata={'timing': 0.5, 'uncertainty': [0.1]}
         )
         assert result.metadata['timing'] == 0.5
+
+    def test_relation_lineage_from_metadata(self):
+        """Test relation provenance accessors derived from prediction metadata."""
+        manifest = _relation_replay_manifest()
+        result = PredictResult(
+            y_pred=np.array([1.0]),
+            metadata={'relation_replay_manifest': manifest}
+        )
+
+        assert result.relation_replay_manifest == manifest
+        assert result.relation_materialization_manifest['fingerprint'] == 'mat-fp'
+        assert result.explanation_level == 'stack'
+        assert result.get_feature_lineage('MIR:1000')['source_feature'] == '1000'
+        assert result.get_feature_lineage(1)['feature_role'] == 'presence_mask'
+        assert 'Relation provenance: available' in str(result)
 
     def test_model_name(self):
         """Test model_name attribute."""

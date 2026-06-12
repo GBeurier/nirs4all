@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import threading
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
@@ -34,6 +35,73 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
 
 logger = get_logger(__name__)
+
+
+def _plain_mapping(value: Any) -> dict[str, Any] | None:
+    """Return a shallow dict copy when *value* is mapping-like."""
+    if isinstance(value, Mapping):
+        return dict(value)
+    return None
+
+
+def _metadata_mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _materialization_manifest(value: Any) -> dict[str, Any] | None:
+    """Extract the materialization manifest from a relation replay payload."""
+    manifest = _plain_mapping(value)
+    if manifest is None:
+        return None
+    inner = manifest.get("materialization_manifest")
+    if isinstance(inner, Mapping):
+        return dict(inner)
+    if manifest.get("representation") is not None and any(key in manifest for key in ("headers", "model_headers", "shape", "fingerprint")):
+        return manifest
+    return None
+
+
+def _relation_manifest_from_metadata(metadata: Any) -> dict[str, Any] | None:
+    meta = _metadata_mapping(metadata)
+    for key in ("relation_replay_manifest", "relation_materialization_manifest"):
+        manifest = _plain_mapping(meta.get(key))
+        if manifest is not None:
+            return manifest
+    return None
+
+
+def _derive_relation_lineage(
+    manifest: Any,
+    *,
+    feature_names: Sequence[str] | None = None,
+    n_features: int | None = None,
+) -> Any | None:
+    payload = _plain_mapping(manifest)
+    if payload is None:
+        return None
+    from nirs4all.pipeline.explain_lineage import derive_relation_explain_lineage
+
+    return derive_relation_explain_lineage(
+        payload,
+        feature_names=feature_names,
+        n_features=n_features,
+    )
+
+
+def _lineage_by_feature(feature_lineage: Mapping[str, Any], feature: str | int) -> dict[str, Any]:
+    if isinstance(feature, int):
+        for lineage in feature_lineage.values():
+            if isinstance(lineage, Mapping) and lineage.get("feature_index") == feature:
+                return dict(lineage)
+        names = list(feature_lineage)
+        if 0 <= feature < len(names):
+            lineage = feature_lineage.get(names[feature])
+            return dict(lineage) if isinstance(lineage, Mapping) else {}
+        return {}
+
+    lineage = feature_lineage.get(feature)
+    return dict(lineage) if isinstance(lineage, Mapping) else {}
+
 
 @dataclass
 class ModelRefitResult:
@@ -682,6 +750,108 @@ class RunResult:
         """
         return self.predictions.get_models()
 
+    @property
+    def relation_replay_manifests(self) -> dict[str, dict[str, Any]]:
+        """Return relation replay manifests keyed by chain or prediction id."""
+        manifests: dict[str, dict[str, Any]] = {}
+        chain_ids: list[str] = []
+
+        for row in self.predictions.filter_predictions(load_arrays=False):
+            row_key = str(row.get("chain_id") or row.get("prediction_id") or row.get("id") or len(manifests))
+            row_manifest = _relation_manifest_from_metadata(row.get("metadata"))
+            if row_manifest is not None:
+                manifests.setdefault(row_key, row_manifest)
+
+            chain_id = row.get("chain_id")
+            if chain_id is not None and str(chain_id):
+                chain_ids.append(str(chain_id))
+
+        missing_chain_ids = [chain_id for chain_id in dict.fromkeys(chain_ids) if chain_id not in manifests]
+        if not missing_chain_ids:
+            return manifests
+
+        try:
+            with self._open_store_for_export() as store:
+                if store is None:
+                    return manifests
+                for chain_id in missing_chain_ids:
+                    chain = store.get_chain(chain_id)
+                    if not isinstance(chain, Mapping):
+                        continue
+                    manifest = _plain_mapping(chain.get("relation_replay_manifest"))
+                    if manifest is not None:
+                        manifests[chain_id] = manifest
+        except Exception as exc:
+            logger.debug("Could not load relation replay manifests for RunResult: %s", exc)
+
+        return manifests
+
+    @property
+    def relation_replay_manifest(self) -> dict[str, Any] | None:
+        """Return the relation replay manifest for the best/only chain, if any."""
+        manifests = self.relation_replay_manifests
+        if not manifests:
+            return None
+
+        best = self.best
+        best_chain_id = best.get("chain_id") if isinstance(best, Mapping) else None
+        if best_chain_id is not None and str(best_chain_id) in manifests:
+            return dict(manifests[str(best_chain_id)])
+
+        return dict(next(iter(manifests.values())))
+
+    @property
+    def relation_materialization_manifest(self) -> dict[str, Any] | None:
+        """Return materialization provenance for the best relation replay manifest."""
+        return _materialization_manifest(self.relation_replay_manifest)
+
+    @property
+    def feature_lineage(self) -> dict[str, Any]:
+        """Feature provenance derived from the relation manifest, when available."""
+        lineage = _derive_relation_lineage(
+            self.relation_replay_manifest,
+            n_features=self._best_n_features(),
+        )
+        if lineage is None or not getattr(lineage, "feature_lineage", None):
+            return {}
+        return {str(name): dict(payload) for name, payload in lineage.feature_lineage.items()}
+
+    @property
+    def lineage_warning(self) -> str | None:
+        """Warning describing derived relation features, when applicable."""
+        lineage = _derive_relation_lineage(
+            self.relation_replay_manifest,
+            n_features=self._best_n_features(),
+        )
+        if lineage is None:
+            return None
+        return lineage.lineage_warning
+
+    @property
+    def explanation_level(self) -> str | None:
+        """Feature explanation level inferred from relation provenance."""
+        lineage = _derive_relation_lineage(
+            self.relation_replay_manifest,
+            n_features=self._best_n_features(),
+        )
+        if lineage is None:
+            return None
+        return lineage.explanation_level
+
+    def get_feature_lineage(self, feature: str | int) -> dict[str, Any]:
+        """Get relation lineage for a feature name or zero-based feature index."""
+        return _lineage_by_feature(self.feature_lineage, feature)
+
+    def _best_n_features(self) -> int | None:
+        best = self.best
+        if not isinstance(best, Mapping):
+            return None
+        n_features = best.get("n_features")
+        try:
+            return int(n_features) if n_features is not None else None
+        except (TypeError, ValueError):
+            return None
+
     # --- Export methods ---
 
     def _open_store_for_export(self):
@@ -1044,11 +1214,67 @@ class PredictResult:
         """Ensure y_pred is a numpy array."""
         if self.y_pred is not None and not isinstance(self.y_pred, np.ndarray):
             self.y_pred = np.asarray(self.y_pred)
+        if self.metadata is None:
+            self.metadata = {}
 
     @property
     def values(self) -> np.ndarray:
         """Get prediction values (alias for y_pred)."""
         return self.y_pred
+
+    @property
+    def relation_replay_manifest(self) -> dict[str, Any] | None:
+        """Relation replay manifest used to materialize heterogeneous inputs."""
+        return _plain_mapping(_metadata_mapping(self.metadata).get("relation_replay_manifest"))
+
+    @property
+    def relation_materialization_manifest(self) -> dict[str, Any] | None:
+        """Materialization provenance embedded in the relation replay manifest."""
+        metadata = _metadata_mapping(self.metadata)
+        explicit = _plain_mapping(metadata.get("relation_materialization_manifest"))
+        if explicit is not None:
+            return explicit
+        return _materialization_manifest(self.relation_replay_manifest)
+
+    @property
+    def feature_lineage(self) -> dict[str, Any]:
+        """Feature provenance derived from prediction relation metadata."""
+        metadata = _metadata_mapping(self.metadata)
+        explicit = _plain_mapping(metadata.get("feature_lineage"))
+        if explicit is not None:
+            return explicit
+        lineage = _derive_relation_lineage(self.relation_replay_manifest or self.relation_materialization_manifest)
+        if lineage is None or not getattr(lineage, "feature_lineage", None):
+            return {}
+        return {str(name): dict(payload) for name, payload in lineage.feature_lineage.items()}
+
+    @property
+    def lineage_warning(self) -> str | None:
+        """Warning describing derived relation features, when applicable."""
+        metadata = _metadata_mapping(self.metadata)
+        warning = metadata.get("lineage_warning")
+        if warning is not None:
+            return str(warning)
+        lineage = _derive_relation_lineage(self.relation_replay_manifest or self.relation_materialization_manifest)
+        if lineage is None:
+            return None
+        return lineage.lineage_warning
+
+    @property
+    def explanation_level(self) -> str | None:
+        """Feature explanation level inferred from relation provenance."""
+        metadata = _metadata_mapping(self.metadata)
+        level = metadata.get("explanation_level")
+        if level is not None:
+            return str(level)
+        lineage = _derive_relation_lineage(self.relation_replay_manifest or self.relation_materialization_manifest)
+        if lineage is None:
+            return None
+        return lineage.explanation_level
+
+    def get_feature_lineage(self, feature: str | int) -> dict[str, Any]:
+        """Get relation lineage for a feature name or zero-based feature index."""
+        return _lineage_by_feature(self.feature_lineage, feature)
 
     @property
     def shape(self) -> tuple:
@@ -1137,6 +1363,8 @@ class PredictResult:
             lines.append(f"  Model: {self.model_name}")
         if self.preprocessing_steps:
             lines.append(f"  Preprocessing: {' -> '.join(self.preprocessing_steps)}")
+        if self.relation_replay_manifest is not None or self.relation_materialization_manifest is not None:
+            lines.append("  Relation provenance: available")
         lines.append(f"  Shape: {self.shape}")
         return "\n".join(lines)
 

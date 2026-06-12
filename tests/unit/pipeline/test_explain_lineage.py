@@ -62,6 +62,26 @@ def test_derive_relation_explain_lineage_unwraps_replay_manifest_and_colon_heade
     assert lineage.feature_lineage["NIRS:1000"]["source_feature"] == "1000"
 
 
+def test_derive_relation_explain_lineage_prefers_model_headers_for_masks() -> None:
+    """Masked materializations expose model-value and model-mask feature lineage."""
+    materialization = _per_source_aggregate_manifest(["MIR:1000"])
+    materialization["representation"] = "stack_padded_masked"
+    materialization["shape"] = [1, 1]
+    materialization["model_shape"] = [1, 2]
+    materialization["model_headers"] = ["MIR:1000", "mask:MIR:1000"]
+
+    lineage = derive_relation_explain_lineage(
+        {"materialization_manifest": materialization},
+        n_features=2,
+    )
+
+    assert lineage is not None
+    assert lineage.feature_names == ["MIR:1000", "mask:MIR:1000"]
+    assert lineage.feature_lineage["MIR:1000"]["feature_role"] == "signal"
+    assert lineage.feature_lineage["mask:MIR:1000"]["source_id"] == "MIR"
+    assert lineage.feature_lineage["mask:MIR:1000"]["feature_role"] == "presence_mask"
+
+
 def test_derive_relation_explain_lineage_accepts_relation_replay_manifest_to_dict() -> None:
     """The helper unwraps the actual RelationReplayManifest serialisation shape."""
     replay_manifest = build_relation_replay_manifest(

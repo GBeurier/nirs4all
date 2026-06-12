@@ -587,6 +587,10 @@ class Predictor:
         if loader.metadata:
             model_name = loader.metadata.original_manifest.get("name", "bundle_model")
 
+        metadata: dict[str, Any] = {}
+        if loader.relation_replay_manifest:
+            metadata["relation_replay_manifest"] = dict(loader.relation_replay_manifest)
+
         run_predictions = Predictions()
         run_predictions.add_prediction(
             dataset_name=dataset_name,
@@ -597,6 +601,7 @@ class Predictor:
             step_idx=loader.metadata.model_step_index if loader.metadata and loader.metadata.model_step_index is not None else 0,
             config_path=str(bundle_path),
             fold_id="all",
+            metadata=metadata or None,
         )
 
         logger.success(f"Predicted with bundle: {model_name}")

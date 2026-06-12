@@ -99,8 +99,11 @@ def derive_relation_explain_lineage(
     lineage_stages = _lineage_stages(plan.get("lineage")) if plan is not None else None
     fingerprint = materialization.get("fingerprint")
 
-    headers = materialization.get("headers")
-    headers = [str(h) for h in headers] if headers is not None else None
+    headers = _header_names(materialization.get("model_headers"))
+    if headers is None or (n_features is not None and len(headers) != n_features):
+        raw_headers = _header_names(materialization.get("headers"))
+        if raw_headers is not None and (n_features is None or len(raw_headers) == n_features):
+            headers = raw_headers
 
     level = _explanation_level(representation, stage, unit_level)
     warning = _lineage_warning(level, representation)
@@ -116,10 +119,11 @@ def derive_relation_explain_lineage(
     feature_lineage: dict[str, dict[str, Any]] = {}
     if effective_names is not None:
         for index, name in enumerate(effective_names):
-            source_id, source_feature = _split_source(name, known_sources)
+            source_id, source_feature, feature_role = _split_feature_header(name, known_sources)
             feature_lineage[name] = {
                 "feature_name": name,
                 "feature_index": index,
+                "feature_role": feature_role,
                 "representation": representation,
                 "explanation_level": level,
                 "materialization_fingerprint": fingerprint,
@@ -147,6 +151,16 @@ def _materialization_manifest(manifest: Mapping[str, Any] | None) -> Mapping[str
         return inner
     if manifest.get("representation") is not None and any(key in manifest for key in ("headers", "shape", "fingerprint")):
         return manifest
+    return None
+
+
+def _header_names(value: Any) -> list[str] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, Sequence):
+        return [str(item) for item in value]
     return None
 
 
@@ -231,6 +245,15 @@ def _known_sources(materialization: Mapping[str, Any]) -> set[str]:
         if isinstance(observations, Mapping):
             sources.update(str(key) for key in observations)
     return sources
+
+
+def _split_feature_header(name: str, known_sources: set[str]) -> tuple[str | None, str, str]:
+    text = str(name)
+    if text.startswith("mask:"):
+        source_id, source_feature = _split_source(text[len("mask:"):], known_sources)
+        return source_id, source_feature, "presence_mask"
+    source_id, source_feature = _split_source(text, known_sources)
+    return source_id, source_feature, "signal"
 
 
 def _split_source(name: str, known_sources: set[str]) -> tuple[str | None, str]:

@@ -24,6 +24,7 @@ Example:
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TypeAlias
 
@@ -223,12 +224,17 @@ def _predict_from_chain(
         y_pred = replay_chain(store, chain_id=chain_id, X=X)
         chain_info = store.get_chain(chain_id)
         model_name = chain_info.get("model_class", "") if chain_info else ""
+        relation_replay_manifest = chain_info.get("relation_replay_manifest") if isinstance(chain_info, Mapping) else None
     finally:
         store.close()
 
+    metadata: dict[str, Any] = {"chain_id": chain_id}
+    if isinstance(relation_replay_manifest, Mapping):
+        metadata["relation_replay_manifest"] = dict(relation_replay_manifest)
+
     return PredictResult(
         y_pred=y_pred,
-        metadata={"chain_id": chain_id},
+        metadata=metadata,
         model_name=model_name,
         preprocessing_steps=[],
     )
@@ -290,6 +296,9 @@ def _predict_from_model(
             y_array = y_pred if isinstance(y_pred, np.ndarray) else np.asarray(y_pred)
             metadata = {}
 
+        metadata.update(_relation_metadata_from_predictions(predictions))
+        metadata.update(_relation_metadata_from_runner(runner))
+
         return PredictResult(
             y_pred=y_array,
             metadata=metadata,
@@ -299,6 +308,40 @@ def _predict_from_model(
     finally:
         if owns_runner:
             runner.close()
+
+def _relation_metadata_from_predictions(predictions: Any) -> dict[str, Any]:
+    """Extract relation provenance attached to prediction-row metadata."""
+    metadata: dict[str, Any] = {}
+    if not hasattr(predictions, "filter_predictions"):
+        return metadata
+    try:
+        rows = predictions.filter_predictions(load_arrays=False)
+    except Exception:
+        return metadata
+    for row in rows:
+        row_meta = row.get("metadata") if isinstance(row, Mapping) else None
+        if not isinstance(row_meta, Mapping):
+            continue
+        for key in ("relation_replay_manifest", "relation_materialization_manifest", "feature_lineage", "lineage_warning", "explanation_level"):
+            value = row_meta.get(key)
+            if isinstance(value, Mapping):
+                metadata.setdefault(key, dict(value))
+            elif value is not None:
+                metadata.setdefault(key, value)
+    return metadata
+
+def _relation_metadata_from_runner(runner: PipelineRunner) -> dict[str, Any]:
+    """Extract relation replay metadata from the predictor's resolved source."""
+    predictor = getattr(runner, "predictor", None)
+    resolved = getattr(predictor, "_resolved", None)
+    manifest = getattr(resolved, "manifest", None)
+    if not isinstance(manifest, Mapping):
+        return {}
+
+    relation = manifest.get("relation_replay_manifest")
+    if isinstance(relation, Mapping):
+        return {"relation_replay_manifest": dict(relation)}
+    return {}
 
 def _extract_X(data: DataSpec) -> np.ndarray:
     """Extract feature matrix X from various data formats.

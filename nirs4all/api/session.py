@@ -20,7 +20,7 @@ Two usage patterns:
     >>> session.save("model.n4a")
 """
 
-from collections.abc import Generator
+from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -284,9 +284,13 @@ class Session:
             **kwargs
         )
 
+        metadata = dict(predictions.__dict__) if hasattr(predictions, '__dict__') else {}
+        if isinstance(metadata, dict):
+            metadata.update(_relation_metadata_from_session_prediction(predictions, self.runner))
+
         return PredictResult(
             y_pred=np.asarray(y_pred).flatten() if y_pred is not None else np.array([]),
-            metadata=predictions.__dict__ if hasattr(predictions, '__dict__') else {},
+            metadata=metadata,
             model_name=model_name
         )
 
@@ -491,3 +495,31 @@ def session(
         yield s
     finally:
         s.close()
+
+
+def _relation_metadata_from_session_prediction(predictions: Any, runner: "PipelineRunner") -> dict[str, Any]:
+    metadata: dict[str, Any] = {}
+    if hasattr(predictions, "filter_predictions"):
+        try:
+            rows = predictions.filter_predictions(load_arrays=False)
+        except Exception:
+            rows = []
+        for row in rows:
+            row_meta = row.get("metadata") if isinstance(row, Mapping) else None
+            if not isinstance(row_meta, Mapping):
+                continue
+            for key in ("relation_replay_manifest", "relation_materialization_manifest", "feature_lineage", "lineage_warning", "explanation_level"):
+                value = row_meta.get(key)
+                if isinstance(value, Mapping):
+                    metadata.setdefault(key, dict(value))
+                elif value is not None:
+                    metadata.setdefault(key, value)
+
+    predictor = getattr(runner, "predictor", None)
+    resolved = getattr(predictor, "_resolved", None)
+    manifest = getattr(resolved, "manifest", None)
+    if isinstance(manifest, Mapping):
+        relation = manifest.get("relation_replay_manifest")
+        if isinstance(relation, Mapping):
+            metadata.setdefault("relation_replay_manifest", dict(relation))
+    return metadata
