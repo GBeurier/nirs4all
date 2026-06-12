@@ -15,6 +15,7 @@ Key features:
 import copy
 import multiprocessing
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 import numpy as np
@@ -26,6 +27,7 @@ from nirs4all.core.exceptions import NAError
 from nirs4all.core.logging import get_logger
 from nirs4all.core.task_type import TaskType
 from nirs4all.data.ensemble_utils import EnsembleUtils
+from nirs4all.data.fit_influence import FitInfluencePolicy, FitInfluenceResolution, resolve_fit_influence
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import ExecutionPhase
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
@@ -1264,7 +1266,7 @@ class BaseModelController(OperatorController, ABC):
         else:
             trained_model = self._build_and_train_model(
                 dataset, model_config, context, runtime_context, identifiers,
-                X_train, y_train, X_val, y_val, X_test, best_params
+                X_train, y_train, X_val, y_val, X_test, best_params, train_indices
             )
 
         # === 4-8. PREDICT, TRANSFORM, SCORE, ASSEMBLE ===
@@ -1340,7 +1342,7 @@ class BaseModelController(OperatorController, ABC):
 
     def _build_and_train_model(
         self, dataset, model_config, context, runtime_context, identifiers,
-        X_train, y_train, X_val, y_val, X_test, best_params
+        X_train, y_train, X_val, y_val, X_test, best_params, train_indices
     ):
         """Build a fresh model, optionally warm-start it (refit), and train it.
 
@@ -1398,12 +1400,174 @@ class BaseModelController(OperatorController, ABC):
 
         # Pass task_type to train_model
         train_params = model_config.get('train_params', {}).copy()
+        train_params.pop('fit_influence', None)
         train_params['task_type'] = dataset.task_type
+        fit_influence_manifest = None
+        fit_influence = self._resolve_fit_influence_for_training(
+            dataset=dataset,
+            model_config=model_config,
+            context=context,
+            model=model,
+            X_train=X_train_prep,
+            train_indices=train_indices,
+        )
+        if fit_influence is not None:
+            resolution, manifest = fit_influence
+            if resolution.resample_indices is not None:
+                X_train_prep = X_train_prep[resolution.resample_indices]
+                if y_train_prep is not None:
+                    y_train_prep = y_train_prep[resolution.resample_indices]
+            if resolution.sample_weight is not None:
+                train_params['_sample_weight'] = resolution.sample_weight
+            for warning in resolution.warnings:
+                logger.warning("FitInfluencePolicy: %s", warning)
+            fit_influence_manifest = manifest
 
-        return self._train_model(
+        trained_model = self._train_model(
             model, X_train_prep, y_train_prep, X_val_prep, y_val_prep,
             **train_params
         )
+        if fit_influence_manifest is not None:
+            manifest_attr = "_nirs4all_fit_influence_manifest"
+            with contextlib.suppress(Exception):
+                setattr(trained_model, manifest_attr, fit_influence_manifest)
+        return trained_model
+
+    def _supports_fit_sample_weight(self, model: Any) -> bool:
+        """Return whether this controller can pass sample_weight to model.fit()."""
+        return False
+
+    def _resolve_fit_influence_for_training(
+        self,
+        *,
+        dataset: 'SpectroDataset',
+        model_config: dict[str, Any],
+        context: 'ExecutionContext',
+        model: Any,
+        X_train: Any,
+        train_indices: Any = None,
+    ) -> tuple[FitInfluenceResolution, dict[str, Any]] | None:
+        """Resolve N7 fit influence for relation-materialised training rows.
+
+        Legacy datasets without row-level ``physical_sample_id`` metadata are
+        left untouched. Relation-materialised datasets get the default ``auto``
+        policy unless a policy is present in the model config or context custom
+        state.
+        """
+        n_rows = int(getattr(X_train, "shape", [0])[0])
+        if n_rows == 0:
+            return None
+        metadata = self._training_metadata_for_fit_influence(dataset, train_indices, n_rows)
+        sample_ids = metadata.get("physical_sample_id")
+        if not sample_ids:
+            return None
+        if not self._has_relation_fit_influence_context(dataset, context, metadata):
+            return None
+        policy = self._coerce_fit_influence_policy(self._find_fit_influence_policy(model_config, context))
+        row_is_derived = self._fit_influence_derived_flags(metadata, sample_ids)
+        resolution = resolve_fit_influence(
+            sample_ids,
+            policy=policy,
+            backend_supports_sample_weight=self._supports_fit_sample_weight(model),
+            row_is_derived=row_is_derived,
+        )
+        manifest = resolution.to_manifest()
+        manifest["source"] = "training_metadata.physical_sample_id"
+        return resolution, manifest
+
+    def _training_metadata_for_fit_influence(
+        self,
+        dataset: 'SpectroDataset',
+        train_indices: Any,
+        n_rows: int,
+    ) -> dict[str, list[Any]]:
+        columns = ("physical_sample_id", "origin_sample_id", "unit_level", "representation")
+        try:
+            meta_df = dataset.metadata({"partition": "train"})
+        except (KeyError, AttributeError, ValueError, TypeError):
+            return {}
+        if meta_df is None or not hasattr(meta_df, "columns"):
+            return {}
+
+        out: dict[str, list[Any]] = {}
+        available = set(getattr(meta_df, "columns", []))
+        indices = np.asarray(train_indices, dtype=int) if train_indices is not None else None
+        for column in columns:
+            if column not in available:
+                continue
+            values = np.asarray(meta_df[column].to_numpy(), dtype=object)
+            if indices is not None:
+                if indices.size == 0:
+                    values = values[:0]
+                elif indices.max(initial=-1) >= len(values) or indices.min(initial=0) < 0:
+                    continue
+                else:
+                    values = values[indices]
+            if len(values) == n_rows:
+                out[column] = values.tolist()
+        return out
+
+    def _has_relation_fit_influence_context(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        metadata: Mapping[str, list[Any]],
+    ) -> bool:
+        if getattr(dataset, "__dict__", {}).get("_relation_materialization_manifest") is not None:
+            return True
+        if context.custom.get("relation_replay_manifest") or context.custom.get("relation_materialization_manifest"):
+            return True
+        return "representation" in metadata
+
+    def _fit_influence_derived_flags(
+        self,
+        metadata: Mapping[str, list[Any]],
+        sample_ids: list[Any],
+    ) -> list[bool] | None:
+        origins = metadata.get("origin_sample_id")
+        levels = metadata.get("unit_level")
+        representations = metadata.get("representation")
+        if origins is None and levels is None and representations is None:
+            return None
+        flags: list[bool] = []
+        for idx, sample_id in enumerate(sample_ids):
+            sample_text = str(sample_id)
+            origin = origins[idx] if origins is not None and idx < len(origins) else sample_id
+            level = str(levels[idx]).lower() if levels is not None and idx < len(levels) else ""
+            representation = str(representations[idx]).lower() if representations is not None and idx < len(representations) else ""
+            flags.append(
+                (str(origin) not in ("", sample_text))
+                or level == "combo"
+                or representation == "cartesian_augmentation"
+            )
+        return flags
+
+    def _find_fit_influence_policy(
+        self,
+        model_config: Mapping[str, Any],
+        context: 'ExecutionContext',
+    ) -> Any | None:
+        train_params = model_config.get("train_params", {})
+        candidates = (
+            model_config.get("fit_influence"),
+            train_params.get("fit_influence") if isinstance(train_params, Mapping) else None,
+            context.custom.get("fit_influence_policy"),
+            context.custom.get("fit_influence"),
+        )
+        for candidate in candidates:
+            if candidate is not None:
+                return candidate
+        relation_manifest = context.custom.get("relation_replay_manifest") or context.custom.get("relation_materialization_manifest")
+        if isinstance(relation_manifest, Mapping):
+            return relation_manifest.get("fit_influence_policy")
+        return None
+
+    def _coerce_fit_influence_policy(self, value: Any | None) -> FitInfluencePolicy | str | None:
+        if value is None or isinstance(value, (FitInfluencePolicy, str)):
+            return value
+        if isinstance(value, Mapping):
+            return FitInfluencePolicy.from_dict(dict(value))
+        raise TypeError("fit_influence must be a string, mapping, FitInfluencePolicy, or None.")
 
     def _assemble_prediction_result(
         self, dataset, context, runtime_context, identifiers, trained_model,
@@ -1520,6 +1684,9 @@ class BaseModelController(OperatorController, ABC):
 
         # Add probabilities for classification tasks
         prediction_data['probabilities'] = probabilities
+        fit_influence_manifest = getattr(trained_model, "_nirs4all_fit_influence_manifest", None)
+        if fit_influence_manifest is not None:
+            prediction_data["fit_influence_manifest"] = fit_influence_manifest
 
         return trained_model, identifiers.model_id, partition_scores.val, identifiers.name, prediction_data
 
@@ -2472,4 +2639,3 @@ class BaseModelController(OperatorController, ABC):
         # No registry available - skip persistence (for unit tests)
         # In production, artifact_registry should always be set by the runner
         return None
-

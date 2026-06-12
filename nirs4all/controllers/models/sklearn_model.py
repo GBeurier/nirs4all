@@ -263,6 +263,7 @@ class SklearnModelController(BaseModelController):
         # Extract controller-specific parameters that shouldn't be passed to the model
         # task_type is injected by launch_training and conflicts with CatBoost's task_type (CPU/GPU)
         task_type = train_params.pop('task_type', None)
+        sample_weight = train_params.pop('_sample_weight', None)
         # verbose controls controller output, we don't want to force it on the model
         verbose = train_params.pop('verbose', 0)
         # reset_gpu: if True, reset GPU memory before/after training (helps with CatBoost GPU memory leaks)
@@ -286,7 +287,7 @@ class SklearnModelController(BaseModelController):
         self._apply_train_params(trained_model, train_params)
 
         # Fit the model
-        self._fit_sklearn_model(trained_model, X_train, y_train, X_val, y_val)
+        self._fit_sklearn_model(trained_model, X_train, y_train, X_val, y_val, sample_weight=sample_weight)
 
         # Reset GPU memory AFTER training as well to free model's training buffers
         if reset_gpu:
@@ -298,6 +299,12 @@ class SklearnModelController(BaseModelController):
             self._display_training_scores(trained_model, X_train, y_train, X_val, y_val, kwargs)
 
         return trained_model
+
+    def _supports_fit_sample_weight(self, model: Any) -> bool:
+        """Return whether the estimator's fit signature accepts sample_weight."""
+        with contextlib.suppress(TypeError, ValueError):
+            return "sample_weight" in inspect.signature(model.fit).parameters
+        return False
 
     def _apply_train_params(self, trained_model: BaseEstimator, train_params: dict[str, Any]) -> None:
         """Apply training kwargs that map to valid model parameters, in place.
@@ -331,12 +338,15 @@ class SklearnModelController(BaseModelController):
         y_train: np.ndarray,
         X_val: np.ndarray | None,
         y_val: np.ndarray | None,
+        *,
+        sample_weight: np.ndarray | None = None,
     ) -> None:
         """Fit the model, passing validation data to estimators that accept it.
 
         Ravels single-column targets to 1D and routes validation data into ``fit``
         only when the estimator's signature exposes ``X_val``/``y_val`` and both
-        validation arrays are provided. Annotates invalid-hyperparameter
+        validation arrays are provided. Routes N7 fit-influence ``sample_weight``
+        only when the estimator accepts it. Annotates invalid-hyperparameter
         ``ValueError`` messages (n_components / upper bound) before re-raising.
 
         Args:
@@ -346,6 +356,7 @@ class SklearnModelController(BaseModelController):
             X_val (Optional[np.ndarray]): Validation features (forwarded only when
                 the estimator accepts them).
             y_val (Optional[np.ndarray]): Validation targets.
+            sample_weight (Optional[np.ndarray]): Per-row training weights.
 
         Raises:
             ValueError: Re-raised (annotated when hyperparameter-related).
@@ -356,9 +367,14 @@ class SklearnModelController(BaseModelController):
         try:
             # Pass validation data to models that accept it (e.g. AOMPLSRegressor)
             fit_params = inspect.signature(trained_model.fit).parameters
+            fit_kwargs: dict[str, Any] = {}
+            if sample_weight is not None and 'sample_weight' in fit_params:
+                fit_kwargs["sample_weight"] = sample_weight
             if 'X_val' in fit_params and 'y_val' in fit_params and X_val is not None and y_val is not None:
                 y_val_fit = y_val.ravel() if y_val.ndim == 2 and y_val.shape[1] == 1 else y_val
-                trained_model.fit(X_train, y_fit, X_val=X_val, y_val=y_val_fit)
+                fit_kwargs.update({"X_val": X_val, "y_val": y_val_fit})
+            if fit_kwargs:
+                trained_model.fit(X_train, y_fit, **fit_kwargs)
             else:
                 trained_model.fit(X_train, y_fit)
         except ValueError as e:
@@ -701,4 +717,3 @@ class SklearnModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)
-
