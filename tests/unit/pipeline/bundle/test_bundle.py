@@ -52,6 +52,11 @@ class TestBundleMetadata:
             "model_step_index": 4,
             "fold_strategy": "weighted_average",
             "preprocessing_chain": "SNV>SG>MinMax",
+            "relation_replay_manifest": {
+                "path": "relation_replay_manifest.json",
+                "version": "1.0",
+                "fingerprint": "abc123",
+            },
         }
 
         metadata = BundleMetadata.from_dict(data)
@@ -61,6 +66,7 @@ class TestBundleMetadata:
         assert metadata.pipeline_uid == "0001_pls_abc123"
         assert metadata.model_step_index == 4
         assert metadata.preprocessing_chain == "SNV>SG>MinMax"
+        assert metadata.relation_replay_manifest["fingerprint"] == "abc123"
 
     def test_from_dict_with_defaults(self):
         """Test creating BundleMetadata with missing fields."""
@@ -194,6 +200,29 @@ class TestBundleGenerator:
         assert manifest["preprocessing_chain"] == "SNV>SG>MinMax"
         assert manifest["trace_id"] == "test_trace_123"
 
+    def test_create_bundle_manifest_with_relation_replay_manifest(self, mock_workspace, mock_resolved_prediction):
+        """Test relation replay manifest metadata is referenced in bundle manifest."""
+        generator = BundleGenerator(mock_workspace)
+        mock_resolved_prediction.manifest["relation_replay_manifest"] = {
+            "version": "1.0",
+            "fingerprint": "rel_fp",
+            "staging_manifest": {"fingerprint": "table_fp"},
+            "representation_plan": None,
+            "reduction_plans": [],
+        }
+
+        manifest = generator._create_bundle_manifest(
+            mock_resolved_prediction,
+            include_metadata=True
+        )
+
+        relation_ref = manifest["relation_replay_manifest"]
+        assert relation_ref == {
+            "path": "relation_replay_manifest.json",
+            "version": "1.0",
+            "fingerprint": "rel_fp",
+        }
+
     def test_extract_pipeline_config(self, mock_workspace, mock_resolved_prediction):
         """Test extracting pipeline configuration."""
         generator = BundleGenerator(mock_workspace)
@@ -203,6 +232,32 @@ class TestBundleGenerator:
         assert "steps" in config
         assert config["model_step_index"] == 4
         assert len(config["steps"]) == 2
+
+    def test_export_n4a_writes_relation_replay_manifest(self, mock_workspace, mock_resolved_prediction, tmp_path):
+        """Test resolver-based export embeds the relation replay manifest payload."""
+        generator = BundleGenerator(mock_workspace)
+        mock_resolved_prediction.manifest["relation_replay_manifest"] = {
+            "version": "1.0",
+            "fingerprint": "rel_fp",
+            "staging_manifest": {"fingerprint": "table_fp"},
+            "representation_plan": None,
+            "reduction_plans": [],
+        }
+
+        bundle_path = generator._export_n4a(
+            mock_resolved_prediction,
+            tmp_path / "relation_bundle.n4a",
+            include_metadata=True,
+            compress=True,
+        )
+
+        with zipfile.ZipFile(bundle_path) as zf:
+            assert "relation_replay_manifest.json" in zf.namelist()
+            manifest = json.loads(zf.read("manifest.json"))
+            relation_payload = json.loads(zf.read("relation_replay_manifest.json"))
+
+        assert manifest["relation_replay_manifest"]["fingerprint"] == "rel_fp"
+        assert relation_payload["staging_manifest"]["fingerprint"] == "table_fp"
 
     def test_artifact_filename(self, mock_workspace):
         """Test generating artifact filenames."""
@@ -229,7 +284,8 @@ class TestBundleLoader:
         def _create_bundle(
             pipeline_uid="0001_test_abc123",
             model_step=4,
-            include_trace=True
+            include_trace=True,
+            include_relation_manifest=False
         ):
             import joblib
 
@@ -247,7 +303,22 @@ class TestBundleLoader:
                     "fold_strategy": "weighted_average",
                     "preprocessing_chain": "SNV>MinMax",
                 }
+                if include_relation_manifest:
+                    manifest["relation_replay_manifest"] = {
+                        "path": "relation_replay_manifest.json",
+                        "version": "1.0",
+                        "fingerprint": "rel_fp",
+                    }
                 zf.writestr('manifest.json', json.dumps(manifest))
+                if include_relation_manifest:
+                    relation_payload = {
+                        "version": "1.0",
+                        "fingerprint": "rel_fp",
+                        "staging_manifest": {"fingerprint": "table_fp"},
+                        "representation_plan": None,
+                        "reduction_plans": [],
+                    }
+                    zf.writestr('relation_replay_manifest.json', json.dumps(relation_payload))
 
                 # Write pipeline config
                 pipeline_config = {
@@ -306,6 +377,38 @@ class TestBundleLoader:
 
         assert loader.trace is not None
         assert loader.trace.trace_id == "test_trace"
+
+    def test_load_relation_replay_manifest(self, create_test_bundle):
+        """Test loading embedded N9 relation replay manifest."""
+        bundle_path = create_test_bundle(include_relation_manifest=True)
+
+        loader = BundleLoader(bundle_path)
+
+        assert loader.metadata is not None
+        assert loader.metadata.relation_replay_manifest["fingerprint"] == "rel_fp"
+        assert loader.relation_replay_manifest["staging_manifest"]["fingerprint"] == "table_fp"
+        resolved = loader.to_resolved_prediction()
+        assert resolved.manifest["relation_replay_manifest"]["fingerprint"] == "rel_fp"
+
+    def test_relation_replay_manifest_reference_must_exist(self, tmp_path):
+        """Test relation replay manifest references fail loudly when broken."""
+        bundle_path = tmp_path / "broken_relation_ref.n4a"
+        with zipfile.ZipFile(bundle_path, "w") as zf:
+            zf.writestr(
+                "manifest.json",
+                json.dumps({
+                    "bundle_format_version": "1.0",
+                    "pipeline_uid": "test_pipeline",
+                    "relation_replay_manifest": {
+                        "path": "relation_replay_manifest.json",
+                        "version": "1.0",
+                        "fingerprint": "rel_fp",
+                    },
+                }),
+            )
+
+        with pytest.raises(ValueError, match="relation replay manifest reference"):
+            BundleLoader(bundle_path)
 
     def test_bundle_not_found(self, tmp_path):
         """Test error when bundle file doesn't exist."""

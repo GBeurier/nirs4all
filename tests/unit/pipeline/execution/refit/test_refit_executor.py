@@ -17,7 +17,7 @@ import pytest
 
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
-from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, RefitCriterion, parse_refit_param
+from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, RefitCriterion, RefitSlotPlan, parse_refit_param
 from nirs4all.pipeline.execution.refit.executor import (
     RefitResult,
     _apply_params_to_model,
@@ -345,6 +345,29 @@ class TestRelabelRefitPredictions:
         """No error on empty predictions."""
         preds = Predictions()
         _relabel_refit_predictions(preds)  # Should not raise
+
+    def test_adds_refit_slot_plan_metadata(self):
+        """Selection/refit scope contract is persisted into refit metadata."""
+        preds = Predictions()
+        preds.add_prediction(dataset_name="ds", model_name="PLS", fold_id="fold_0", partition="val")
+        config = RefitConfig(
+            expanded_steps=[],
+            selection_level="sample",
+            evaluation_scope="sample",
+            refit_slot_plan=RefitSlotPlan(refit_mode="refit_ensemble", selection_level="sample", selection_metric="rmse", reduction_plan={"method": "mean"}),
+        )
+
+        _relabel_refit_predictions(preds, refit_config=config)
+
+        metadata = preds._buffer[0].get("metadata", {})
+        assert metadata["selection_level"] == "sample"
+        assert metadata["evaluation_scope"] == "sample"
+        assert metadata["refit_slot_plan"] == {
+            "refit_mode": "refit_ensemble",
+            "selection_level": "sample",
+            "selection_metric": "rmse",
+            "reduction_plan": {"method": "mean"},
+        }
 
 # =========================================================================
 # Task 2.4: _extract_test_score
@@ -1040,13 +1063,36 @@ class TestRefitCriterion:
         assert c.top_k == 1
         assert c.ranking == "rmsecv"
         assert c.metric == ""
+        assert c.selection_level is None
+        assert c.refit_mode == "refit_one"
+        assert c.reduction_plan is None
 
     def test_custom_values(self):
         """RefitCriterion accepts custom values."""
-        c = RefitCriterion(top_k=3, ranking="mean_val", metric="r2")
+        c = RefitCriterion(top_k=3, ranking="mean_val", metric="r2", selection_level="sample", refit_mode="refit_ensemble", reduction_plan={"method": "mean"})
         assert c.top_k == 3
         assert c.ranking == "mean_val"
         assert c.metric == "r2"
+        assert c.selection_level == "sample"
+        assert c.refit_mode == "refit_ensemble"
+        assert c.reduction_plan == {"method": "mean"}
+
+
+class TestRefitSlotPlan:
+    """Tests for the N6 refit slot plan."""
+
+    def test_to_dict(self):
+        plan = RefitSlotPlan(refit_mode="refit_ensemble", selection_level="sample", selection_metric="rmse", reduction_plan={"axis": "unit"})
+        assert plan.to_dict() == {
+            "refit_mode": "refit_ensemble",
+            "selection_level": "sample",
+            "selection_metric": "rmse",
+            "reduction_plan": {"axis": "unit"},
+        }
+
+    def test_invalid_mode_rejected(self):
+        with pytest.raises(ValueError, match="refit_mode"):
+            RefitSlotPlan(refit_mode="not_real")
 
 class TestParseRefitParam:
     """Tests for parse_refit_param normalization."""
@@ -1068,10 +1114,12 @@ class TestParseRefitParam:
 
     def test_dict_returns_single_criterion(self):
         """Dict → single criterion."""
-        result = parse_refit_param({"top_k": 3, "ranking": "mean_val"})
+        result = parse_refit_param({"top_k": 3, "ranking": "mean_val", "selection_level": "sample", "refit_mode": "refit_ensemble"})
         assert len(result) == 1
         assert result[0].top_k == 3
         assert result[0].ranking == "mean_val"
+        assert result[0].selection_level == "sample"
+        assert result[0].refit_mode == "refit_ensemble"
 
     def test_dict_ignores_unknown_keys(self):
         """Dict with unknown keys ignores them."""
@@ -1082,12 +1130,14 @@ class TestParseRefitParam:
     def test_list_returns_multiple_criteria(self):
         """list[dict] → multiple criteria."""
         result = parse_refit_param([
-            {"top_k": 3, "ranking": "rmsecv"},
+            {"top_k": 3, "ranking": "rmsecv", "selection_level": "sample", "reduction_plan": {"method": "mean"}},
             {"top_k": 1, "ranking": "mean_val"},
         ])
         assert len(result) == 2
         assert result[0].top_k == 3
         assert result[0].ranking == "rmsecv"
+        assert result[0].selection_level == "sample"
+        assert result[0].reduction_plan == {"method": "mean"}
         assert result[1].top_k == 1
         assert result[1].ranking == "mean_val"
 
@@ -1272,6 +1322,30 @@ class TestExtractTopConfigs:
         assert config.selection_score == pytest.approx(0.10)
         assert config.config_name == "pipeline_0"
         assert len(config.expanded_steps) == 3
+        assert config.selection_level is None
+        assert config.evaluation_scope is None
+        store.close()
+
+    def test_config_propagates_selection_metadata_hooks(self, tmp_path):
+        """RefitConfig carries selection_level/evaluation_scope without changing ranking."""
+        from nirs4all.pipeline.execution.refit.config_extractor import extract_top_configs
+
+        store, run_id, pipeline_ids = self._setup_store_with_pipelines(tmp_path)
+
+        criteria = [RefitCriterion(top_k=1, ranking="rmsecv", selection_level="sample", refit_mode="refit_ensemble", reduction_plan={"method": "mean"})]
+        configs = extract_top_configs(store, run_id, criteria, dataset_name="ds", evaluation_scope="sample")
+
+        assert len(configs) == 1
+        assert configs[0].pipeline_id == pipeline_ids[0]
+        assert configs[0].selection_level == "sample"
+        assert configs[0].evaluation_scope == "sample"
+        assert configs[0].refit_slot_plan is not None
+        assert configs[0].refit_slot_plan.to_dict() == {
+            "refit_mode": "refit_ensemble",
+            "selection_level": "sample",
+            "selection_metric": "rmse",
+            "reduction_plan": {"method": "mean"},
+        }
         store.close()
 
     def test_refit_pipelines_are_excluded_from_rmsecv_ranking(self, tmp_path):

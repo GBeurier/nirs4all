@@ -200,6 +200,29 @@ class TestDatasetConfigSchema:
         assert config.train_y == "Y.csv"
         assert config.task_type == TaskType.REGRESSION
 
+    def test_experimental_relation_yaml_blocks_round_trip(self):
+        """Test experimental relation pipeline blocks are retained by the schema."""
+        config = DatasetConfigSchema(
+            train_x="X.csv",
+            experimental_relation_pipeline=True,
+            repetition_spec={"sample_id": "sample_id", "sources": {"MIR": 2}},
+            relations={"sample_id": "sample_id"},
+            representations=[{"name": "cartesian_full", "unit_level": "combo"}],
+            reducers=[{"role": "score", "axis": "unit", "input_level": "combo", "output_level": "sample"}],
+            fit_influence={"mode": "auto"},
+            meta_features={"meta_row_domain": "sample", "alignment_key": "physical_sample_id"},
+            refit_slots=[{"slot_id": "best_sample", "selection_level": "sample"}],
+        )
+
+        data = config.to_dict()
+
+        assert data["experimental_relation_pipeline"] is True
+        assert data["representations"][0]["name"] == "cartesian_full"
+        assert data["reducers"][0]["role"] == "score"
+        assert data["fit_influence"]["mode"] == "auto"
+        assert data["meta_features"]["alignment_key"] == "physical_sample_id"
+        assert data["refit_slots"][0]["slot_id"] == "best_sample"
+
     def test_loading_params_as_dict(self):
         """Test that dict values are converted to LoadingParams."""
         config = DatasetConfigSchema(

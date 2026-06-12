@@ -17,8 +17,13 @@ from nirs4all.operators.data.merge import (
     BranchPredictionConfig,
     MergeConfig,
     MergeMode,
+    MetaFeaturePlan,
+    MetaRowDomain,
+    MissingPredictionPolicy,
+    SelectionProtocol,
     SelectionStrategy,
     ShapeMismatchStrategy,
+    StackingFitContract,
 )
 
 
@@ -99,6 +104,134 @@ class TestShapeMismatchStrategy:
     def test_truncate_strategy(self):
         """Test TRUNCATE strategy value."""
         assert ShapeMismatchStrategy.TRUNCATE.value == "truncate"
+
+
+class TestMetaFeaturePlan:
+    """Test suite for late-fusion meta-feature alignment contracts."""
+
+    def test_default_plan(self):
+        """Test default plan is sample-domain and strict."""
+        plan = MetaFeaturePlan()
+
+        assert plan.meta_row_domain == MetaRowDomain.SAMPLE.value
+        assert plan.adapters == ["direct"]
+        assert plan.alignment_key == "physical_sample_id"
+        assert plan.missing_prediction_policy == MissingPredictionPolicy.STRICT.value
+
+    def test_combo_plan_requires_experimental_opt_in(self):
+        """Test combo-domain plans are refused by default."""
+        with pytest.raises(ValueError, match="experimental"):
+            MetaFeaturePlan(meta_row_domain="combo", alignment_key="combo_id")
+
+    def test_combo_plan_requires_complete_experimental_contract(self):
+        """Test combo-domain plans require explicit reducer and influence policy."""
+        plan = MetaFeaturePlan(
+            meta_row_domain="combo",
+            adapters=["source_to_combo"],
+            alignment_key="combo_id",
+            allow_experimental_combo_meta=True,
+            combo_reduction_plan={"input_level": "combo", "output_level": "sample", "method": "mean"},
+            fit_influence_policy={"mode": "equal_sample_influence"},
+        )
+
+        assert plan.meta_row_domain == "combo"
+        assert plan.alignment_key == "combo_id"
+        assert plan.combo_reduction_plan["output_level"] == "sample"
+
+    def test_sample_plan_rejects_combo_alignment_key(self):
+        """Test sample-domain plans cannot silently align on combo_id."""
+        with pytest.raises(ValueError, match="sample-domain"):
+            MetaFeaturePlan(alignment_key="combo_id")
+
+    def test_combo_plan_rejects_sample_alignment_key(self):
+        """Test combo-domain plans cannot silently align on physical samples."""
+        with pytest.raises(ValueError, match="combo-domain"):
+            MetaFeaturePlan(meta_row_domain="combo", alignment_key="physical_sample_id")
+
+    def test_combo_plan_requires_strict_missing_prediction_policy(self):
+        """Test combo-domain OOF alignment cannot use missing prediction fallbacks."""
+        with pytest.raises(ValueError, match="missing_prediction_policy='strict'"):
+            MetaFeaturePlan(
+                meta_row_domain="combo",
+                alignment_key="combo_id",
+                missing_prediction_policy="mask",
+                allow_experimental_combo_meta=True,
+                combo_reduction_plan={"input_level": "combo", "output_level": "sample", "method": "mean"},
+                fit_influence_policy={"mode": "equal_sample_influence"},
+            )
+
+    def test_combo_plan_requires_combo_to_sample_reduction(self):
+        """Test combo-domain meta needs an explicit final combo -> sample reducer."""
+        with pytest.raises(ValueError, match="combo to sample"):
+            MetaFeaturePlan(
+                meta_row_domain="combo",
+                alignment_key="combo_id",
+                allow_experimental_combo_meta=True,
+                combo_reduction_plan={"input_level": "combo", "output_level": "combo", "method": "mean"},
+                fit_influence_policy={"mode": "equal_sample_influence"},
+            )
+
+    def test_invalid_adapter_raises(self):
+        """Test invalid adapters fail during config validation."""
+        with pytest.raises(ValueError):
+            MetaFeaturePlan(adapters=["positional"])
+
+    def test_round_trip_dict(self):
+        """Test manifest serialization preserves all contract fields."""
+        original = MetaFeaturePlan(
+            meta_row_domain="sample",
+            adapters=["direct", "reduce"],
+            alignment_key="physical_sample_id",
+            missing_prediction_policy="impute_declared",
+            allow_fallbacks=["drop_incomplete"],
+        )
+
+        restored = MetaFeaturePlan.from_dict(original.to_dict())
+
+        assert restored == original
+
+
+class TestStackingFitContract:
+    """Test suite for late-fusion/stacking leakage contracts."""
+
+    def test_default_contract(self):
+        """Test default contract uses OOF training and nested validation."""
+        contract = StackingFitContract()
+
+        assert contract.meta_training_features == "oof"
+        assert contract.inference_features == "refit_base_predictions"
+        assert contract.selection_protocol == "nested"
+        assert contract.model_selection_protocol == SelectionProtocol.BRANCH_LEVEL.value
+
+    def test_rejects_in_sample_meta_features(self):
+        """Test in-sample meta training features are rejected."""
+        with pytest.raises(ValueError, match="in-sample"):
+            StackingFitContract(meta_training_features="in_sample")
+
+    def test_rejects_reuse_oof_for_final_validation(self):
+        """Test reuse_oof cannot be used in final-validation profile."""
+        with pytest.raises(ValueError, match="reuse_oof"):
+            StackingFitContract(selection_protocol="reuse_oof", final_validation_profile=True)
+
+    def test_allows_reuse_oof_for_exploration(self):
+        """Test reuse_oof stays available for explicit exploratory runs."""
+        contract = StackingFitContract(selection_protocol="reuse_oof", final_validation_profile=False)
+
+        assert contract.selection_protocol == "reuse_oof"
+        assert contract.final_validation_profile is False
+
+    def test_round_trip_dict(self):
+        """Test manifest serialization preserves all contract fields."""
+        original = StackingFitContract(
+            selection_protocol="holdout",
+            base_prediction_calibration="rank",
+            model_selection_protocol="meta_aware",
+        )
+
+        restored = StackingFitContract.from_dict(original.to_dict())
+
+        assert restored == original
+
 
 class TestBranchPredictionConfig:
     """Test suite for BranchPredictionConfig dataclass."""
@@ -309,6 +442,25 @@ class TestMergeConfig:
             )
             assert len(w) == 1
             assert "source_names is only used" in str(w[0].message)
+
+    def test_late_fusion_contracts_round_trip(self):
+        """Test MergeConfig serializes late-fusion contracts."""
+        config = MergeConfig(
+            collect_predictions=True,
+            meta_feature_plan=MetaFeaturePlan(
+                adapters=["direct"],
+                missing_prediction_policy="drop_incomplete",
+            ),
+            stacking_fit_contract=StackingFitContract(
+                selection_protocol="holdout",
+                model_selection_protocol="global",
+            ),
+        )
+
+        restored = MergeConfig.from_dict(config.to_dict())
+
+        assert restored.meta_feature_plan == config.meta_feature_plan
+        assert restored.stacking_fit_contract == config.stacking_fit_contract
 
     def test_has_per_branch_config_false(self):
         """Test has_per_branch_config returns False when not set."""
@@ -524,6 +676,30 @@ class TestMergeConfigParser:
             assert config.on_missing == "warn"
             assert config.on_shape_mismatch == "allow"
             assert config.output_as == "sources"
+
+        def test_parse_late_fusion_contracts(self):
+            """Test parsing late-fusion contracts from dict syntax."""
+            config = MergeConfigParser.parse({
+                "predictions": "all",
+                "meta_feature_plan": {
+                    "meta_row_domain": "sample",
+                    "adapters": ["direct"],
+                    "alignment_key": "physical_sample_id",
+                    "missing_prediction_policy": "mask",
+                },
+                "stacking_fit_contract": {
+                    "selection_protocol": "holdout",
+                    "base_prediction_calibration": "rank",
+                    "model_selection_protocol": "meta_aware",
+                },
+            })
+
+            assert config.meta_feature_plan == MetaFeaturePlan(missing_prediction_policy="mask")
+            assert config.stacking_fit_contract == StackingFitContract(
+                selection_protocol="holdout",
+                base_prediction_calibration="rank",
+                model_selection_protocol="meta_aware",
+            )
 
         def test_parse_unsafe(self):
             """Test parsing unsafe option."""

@@ -15,6 +15,13 @@ from ._features import (
 )
 from .config import DatasetConfigs
 from .dataset import SpectroDataset
+from .fit_influence import (
+    FitInfluenceError,
+    FitInfluenceMode,
+    FitInfluencePolicy,
+    FitInfluenceResolution,
+    resolve_fit_influence,
+)
 
 # Parser utilities
 from .parsers import (
@@ -22,6 +29,11 @@ from .parsers import (
     normalize_config,
 )
 from .predictions import MergeReport, PredictionResult, PredictionResultsList, Predictions
+from .relation_replay_manifest import (
+    RelationReplayManifest,
+    RelationReplayManifestError,
+    build_relation_replay_manifest,
+)
 
 # Schema types (Phase 1 - new in refactoring)
 from .schema import (
@@ -59,6 +71,16 @@ __all__ = [
     "HeaderUnit",
     "normalize_layout",
     "normalize_header_unit",
+    # Fit influence
+    "FitInfluenceError",
+    "FitInfluenceMode",
+    "FitInfluencePolicy",
+    "FitInfluenceResolution",
+    "resolve_fit_influence",
+    # Relational replay
+    "RelationReplayManifest",
+    "RelationReplayManifestError",
+    "build_relation_replay_manifest",
     # Signal type
     "SignalType",
     "SignalTypeInput",

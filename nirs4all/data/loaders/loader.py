@@ -3,7 +3,7 @@
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import numpy as np
 import pandas as pd
@@ -14,6 +14,9 @@ from nirs4all.data.config_parser import parse_config
 from nirs4all.data.loaders.base import FormatNotSupportedError, LoaderRegistry
 from nirs4all.data.loaders.csv_loader_new import load_csv
 from nirs4all.data.signal_type import SignalType, normalize_signal_type
+
+if TYPE_CHECKING:
+    from nirs4all.data.relations import NormalizedObservationTable
 
 
 def _merge_params(local_params, handler_params, global_params):
@@ -287,6 +290,103 @@ def load_XY(x_path: str, x_filter: Any, x_params: dict[str, Any], y_path: str | 
 
     return x, y, m, x_headers, m_headers, x_unit, x_signal_type
 
+def _audit_multisource_lengths(config: dict[str, Any], x_arrays: list[np.ndarray]) -> None:
+    """Reject heterogeneous multi-source feature blocks loaded positionally.
+
+    Compares the row count of every loaded source. Equal counts pass through
+    (the legacy aligned case is unchanged). Unequal counts raise an actionable
+    :class:`~nirs4all.data.relations.RelationValidationError`, tailored by
+    whether a ``link_by`` key is declared on the sources.
+
+    Args:
+        config: The dataset configuration dict (carries ``_sources`` / link_by).
+        x_arrays: The per-source loaded feature arrays.
+    """
+    from nirs4all.data.relations import audit_source_lengths, parse_relation_config
+
+    lengths = [int(arr.shape[0]) for arr in x_arrays if hasattr(arr, "shape") and arr.ndim >= 1]
+    if len(lengths) <= 1:
+        return
+
+    relation_config = parse_relation_config(config)
+    link_by = relation_config.link_by if relation_config is not None else None
+
+    # The legacy loader can only align positionally; the relation table that owns
+    # heterogeneous alignment is materialised via ``materialize_relation_table`` /
+    # ``RawMultiSourceDataset`` (phase N2/N3), so relation_mode stays False here and
+    # unequal lengths always fail loudly with an actionable, link_by-aware hint.
+    audit_source_lengths(lengths, relation_mode=False, link_by=link_by)
+
+
+def materialize_relation_table(
+    config: dict[str, Any],
+    source_frames: dict[str, Any],
+    *,
+    partition: str = "train",
+    target_col: str | None = None,
+) -> "NormalizedObservationTable | None":
+    """Materialise a :class:`NormalizedObservationTable` from per-source frames.
+
+    This is the loader-level seam for the experimental relation pipeline
+    (roadmap N2): given the per-source column frames already read from disk (or
+    any ``frame[column]`` container -- pandas ``DataFrame``, dict of lists ...)
+    and a declared ``repetition_spec`` / ``link_by``, it joins the sources *by
+    key* into a validated relation table. Source row order is irrelevant -- only
+    the ``link_by`` keys matter -- so shuffled sources are supported and
+    heterogeneous sources are never aligned by accident.
+
+    This function is intentionally **additive**: it does not change the legacy
+    :func:`handle_data` return contract. Callers in the relation profile invoke
+    it explicitly; legacy positional loads never reach it.
+
+    Args:
+        config: The dataset configuration dict (carries the relational fields).
+        source_frames: Mapping ``source_id -> frame`` where ``frame[column]``
+            yields a per-row sequence. Each source must expose the join-key
+            column declared by the spec.
+        partition: Partition label applied to every produced row.
+        target_col: Optional column holding the per-row (sample-level) target,
+            shared across sources via the join.
+
+    Returns:
+        A validated :class:`~nirs4all.data.relations.NormalizedObservationTable`,
+        or ``None`` when no executable ``repetition_spec`` is declared.
+
+    Raises:
+        RelationValidationError: If the declared join is not executable (missing
+            key column, divergent / non-unique ids, missing source ...).
+    """
+    from nirs4all.data.relations import (
+        SourceObservations,
+        build_relation_table,
+        parse_relation_config,
+    )
+
+    relation_config = parse_relation_config(config)
+    if relation_config is None or relation_config.spec is None:
+        return None
+
+    spec = relation_config.spec
+    sources = []
+    for source_id in sorted(source_frames):
+        frame = source_frames[source_id]
+        source_spec = spec.source_spec(source_id)
+        # Targets are sample-level: a `link_by`-shared target may live on a single
+        # source. Only extract it where the column actually exists; the join
+        # propagates it to the physical sample (and thus its other sources).
+        effective_target = target_col if (target_col is not None and target_col in frame) else None
+        sources.append(
+            SourceObservations.from_frame(
+                source_id,
+                frame,
+                sample_col=spec.join_key,
+                rep_col=source_spec.rep_col,
+                target_col=effective_target,
+            )
+        )
+    return build_relation_table(spec, sources, partition=partition)
+
+
 def handle_data(config, t_set):
     """
     Handle data loading for a given dataset type (train, test).
@@ -418,6 +518,13 @@ def handle_data(config, t_set):
                 signal_types.append(x_sig_type)
             except Exception as e:
                 raise ValueError(f"Error loading X source {i} from {single_x_path}: {str(e)}") from e
+
+        # Guardrail (roadmap N0): multi-source feature blocks are concatenated by
+        # row position downstream, which only holds when every source has the
+        # same number of rows. Heterogeneous repetitions (e.g. MIR=2N/RAMAN=3N)
+        # must be joined via a declared relation plan (experimental, phase N3),
+        # not loaded by accident as positionally-aligned sources.
+        _audit_multisource_lengths(config, x_arrays)
 
         return x_arrays, y_array, m_data, headers_arrays, m_headers, header_units, signal_types
     else:

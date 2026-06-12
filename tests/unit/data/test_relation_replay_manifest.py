@@ -1,0 +1,90 @@
+"""Unit tests for N9 minimal relational replay manifests."""
+
+from __future__ import annotations
+
+import json
+
+import numpy as np
+import pytest
+
+from nirs4all.data.fit_influence import FitInfluencePolicy
+from nirs4all.data.raw_multisource import RawMultiSourceDataset, RepresentationPlan
+from nirs4all.data.reduction import PredictionLevel, ReductionPlan
+from nirs4all.data.relation_replay_manifest import (
+    RelationReplayManifest,
+    RelationReplayManifestError,
+    build_relation_replay_manifest,
+)
+from nirs4all.data.relations import RepetitionSpec
+from nirs4all.operators.data.merge import StackingFitContract
+
+
+def _dataset() -> RawMultiSourceDataset:
+    spec = RepetitionSpec(sample_id="sid", link_by="sid")
+    return RawMultiSourceDataset.from_sources(
+        spec,
+        {
+            "MIR": np.array([[1.0], [2.0], [3.0], [4.0]]),
+            "RAMAN": np.array([[10.0], [11.0], [20.0], [21.0]]),
+        },
+        {"MIR": ["S1", "S1", "S2", "S2"], "RAMAN": ["S1", "S1", "S2", "S2"]},
+    )
+
+
+def test_build_relation_replay_manifest_round_trips_live_objects():
+    ds = _dataset()
+    materialization = ds.materialize(RepresentationPlan("cartesian_mc", max_combos_per_sample=2, random_state=3))
+    reduction = ReductionPlan(input_level=PredictionLevel.COMBO, output_level=PredictionLevel.SAMPLE)
+    fit_policy = FitInfluencePolicy(mode="equal_sample_influence")
+    stacking_contract = StackingFitContract(selection_protocol="holdout")
+
+    manifest = build_relation_replay_manifest(
+        staging=ds,
+        materialization=materialization,
+        reduction_plans=[reduction],
+        fit_influence_policy=fit_policy,
+        stacking_fit_contract=stacking_contract,
+        extra_fingerprints={"custom": "abc"},
+    )
+    payload = manifest.to_dict()
+    restored = RelationReplayManifest.from_dict(json.loads(json.dumps(payload)))
+
+    assert restored.fingerprint() == manifest.fingerprint()
+    assert restored.representation_plan is not None
+    assert restored.representation_plan.representation == "cartesian_mc"
+    assert restored.representation_plan.combination_plan is not None
+    assert restored.reduction_plans[0].output_level == PredictionLevel.SAMPLE
+    assert restored.fit_influence_policy == fit_policy
+    assert restored.stacking_fit_contract == stacking_contract
+    assert restored.extra_fingerprints == {"custom": "abc"}
+
+
+def test_relation_replay_manifest_can_be_built_from_plain_manifests():
+    ds = _dataset()
+    materialization = ds.materialize("per_source_aggregate")
+
+    manifest = build_relation_replay_manifest(
+        staging=ds.to_manifest(),
+        materialization=materialization.to_manifest(),
+        reduction_plans=[ReductionPlan().to_dict()],
+        fit_influence_policy=FitInfluencePolicy().to_dict(),
+        stacking_fit_contract=StackingFitContract().to_dict(),
+    )
+
+    assert manifest.representation_plan is not None
+    assert manifest.representation_plan.representation == "per_source_aggregate"
+    assert manifest.to_dict()["staging_manifest"]["relation_fingerprint"] == ds.relation_table.fingerprint()
+
+
+def test_relation_replay_manifest_rejects_tampered_fingerprint():
+    manifest = build_relation_replay_manifest(representation_plan=RepresentationPlan("sample_aggregate"))
+    payload = manifest.to_dict()
+    payload["fingerprint"] = "bad"
+
+    with pytest.raises(RelationReplayManifestError, match="fingerprint"):
+        RelationReplayManifest.from_dict(payload)
+
+
+def test_relation_replay_manifest_requires_replay_data():
+    with pytest.raises(RelationReplayManifestError, match="requires"):
+        RelationReplayManifest()

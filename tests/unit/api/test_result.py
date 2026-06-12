@@ -620,6 +620,27 @@ class TestExplainResult:
         )
         assert result.model_name == 'RandomForest'
 
+    def test_feature_lineage_by_name_and_index(self):
+        """Test relation lineage lookup for explained features."""
+        result = ExplainResult(
+            shap_values=np.array([[0.1, 0.2]]),
+            feature_names=['mir_mean_1200', 'raman_mean_800'],
+            explanation_level='source_aggregate',
+            feature_lineage={
+                'mir_mean_1200': {
+                    'source_id': 'MIR',
+                    'component_observation_ids': ['mir:s1:1', 'mir:s1:2'],
+                }
+            },
+            lineage_warning='Explaining aggregated features.',
+        )
+
+        assert result.get_feature_lineage('mir_mean_1200')['source_id'] == 'MIR'
+        assert result.get_feature_lineage(0)['component_observation_ids'] == ['mir:s1:1', 'mir:s1:2']
+        assert result.get_feature_lineage('missing') == {}
+        assert result.explanation_level == 'source_aggregate'
+        assert result.lineage_warning == 'Explaining aggregated features.'
+
     def test_repr(self):
         """Test __repr__ format."""
         result = ExplainResult(
@@ -643,6 +664,22 @@ class TestExplainResult:
         assert 'ExplainResult' in str_output
         assert 'PLS' in str_output
         assert 'samples' in str_output
+
+    def test_str_includes_relation_explainability_metadata(self):
+        """Test string output mentions optional relation explainability metadata."""
+        result = ExplainResult(
+            shap_values=np.array([[0.1, 0.2]]),
+            feature_names=['a', 'b'],
+            explanation_level='source_aggregate',
+            feature_lineage={'a': {'source_id': 'MIR'}},
+            lineage_warning='Aggregated features.',
+            n_samples=1,
+        )
+
+        str_output = str(result)
+        assert 'Explanation level: source_aggregate' in str_output
+        assert 'Feature lineage: available' in str_output
+        assert 'Lineage warning: Aggregated features.' in str_output
 
 # =============================================================================
 # Integration Tests

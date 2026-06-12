@@ -15,7 +15,11 @@ configs/
 └── datasets/           # Dataset configuration examples
     ├── regression_basic.yaml   # Basic regression dataset config
     ├── classification.json     # Classification dataset config
-    └── multi_source.yaml       # Multi-source dataset config
+    ├── multi_source.yaml       # Multi-source dataset config
+    ├── heterogeneous_repetitions_per_source_aggregate.yaml
+    ├── heterogeneous_repetitions_late_fusion.yaml
+    ├── heterogeneous_repetitions_cartesian_full.yaml
+    └── heterogeneous_repetitions_missing_source.yaml
 ```
 
 ## Usage
@@ -82,3 +86,10 @@ nirs4all config validate my_config.yaml
 | `signal_type` | string | "absorbance", "reflectance", "transmittance", etc. |
 | `aggregate` | string/bool | Column name or True for y-based aggregation |
 | `global_params` | object | Loading parameters (delimiter, header_unit, etc.) |
+| `experimental_relation_pipeline` | bool | Opt in to source-aware heterogeneous repetition contracts |
+| `repetition_spec` | object | Physical sample key, source repetition columns, cardinalities and missing policies |
+| `representations` | list | `rep_fusion` materialization plans such as `per_source_aggregate` or `cartesian_full` |
+| `reducers` | list | `ReductionPlan` declarations for score, refit, meta features and final output |
+| `fit_influence` | object | Fit influence policy for derived rows, separate from prediction reducers |
+| `meta_features` | object | Late-fusion or stacking alignment contract |
+| `refit_slots` | list | Scope-aware refit selection slots |

@@ -9,6 +9,7 @@ loading_data
 synthetic_data
 signal_types
 aggregation
+heterogeneous_repetitions
 sample_filtering
 ```
 
@@ -59,6 +60,18 @@ Handle repeated scans of the same physical sample: group replicates with
 
 +++
 {bdg-success}`NIRS`
+:::
+
+:::{grid-item-card} Source-aware Repetitions
+:link: heterogeneous_repetitions
+:link-type: doc
+
+Declare heterogeneous source repetitions such as MIR=2, Raman=3, NIR=2 with
+explicit sample identity, representation, reducer, fit influence, and replay
+contracts.
+
++++
+{bdg-warning}`Experimental`
 :::
 
 :::{grid-item-card} 🔍 Sample Filtering

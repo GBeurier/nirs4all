@@ -188,6 +188,7 @@ class WorkspaceStoreProtocol(Protocol):
         chain_id: str,
         output_path: Path,
         format: str = "n4a",
+        relation_replay_manifest: Any | None = None,
     ) -> Path:
         """Export a chain as a standalone bundle."""
         ...

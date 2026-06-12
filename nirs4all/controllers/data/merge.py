@@ -103,11 +103,13 @@ from nirs4all.operators.data.merge import (
     DisjointSelectionCriterion,
     MergeConfig,
     MergeMode,
+    MetaFeaturePlan,
     SelectionStrategy,
     ShapeMismatchStrategy,
     SourceIncompatibleStrategy,
     SourceMergeConfig,
     SourceMergeStrategy,
+    StackingFitContract,
 )
 from nirs4all.pipeline.execution.result import StepOutput
 
@@ -667,6 +669,16 @@ class MergeConfigParser:
         config.unsafe = config_dict.get("unsafe", False)
         config.output_as = config_dict.get("output_as", "features")
         config.source_names = config_dict.get("source_names")
+        if "meta_feature_plan" in config_dict:
+            meta_plan = config_dict["meta_feature_plan"]
+            config.meta_feature_plan = meta_plan if isinstance(meta_plan, MetaFeaturePlan) else MetaFeaturePlan.from_dict(meta_plan)
+        if "stacking_fit_contract" in config_dict:
+            stacking_contract = config_dict["stacking_fit_contract"]
+            config.stacking_fit_contract = (
+                stacking_contract
+                if isinstance(stacking_contract, StackingFitContract)
+                else StackingFitContract.from_dict(stacking_contract)
+            )
 
         # Parse disjoint sample branch merge options (Phase 2)
         config.n_columns = config_dict.get("n_columns")

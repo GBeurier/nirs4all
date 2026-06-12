@@ -345,6 +345,12 @@ class BundleGenerator:
             # 1. Write manifest.json
             manifest = self._create_bundle_manifest(resolved, include_metadata)
             zf.writestr('manifest.json', json.dumps(manifest, indent=2))
+            relation_replay_manifest = self._relation_replay_manifest_payload(resolved)
+            if relation_replay_manifest is not None:
+                zf.writestr(
+                    'relation_replay_manifest.json',
+                    json.dumps(relation_replay_manifest, indent=2, sort_keys=True),
+                )
 
             # 2. Write pipeline.json
             pipeline_config = self._extract_pipeline_config(resolved)
@@ -460,7 +466,31 @@ class BundleGenerator:
             if routing_info:
                 manifest["partitioner_routing"] = routing_info
 
+        relation_replay_manifest = self._relation_replay_manifest_payload(resolved)
+        if relation_replay_manifest is not None:
+            manifest["relation_replay_manifest"] = {
+                "path": "relation_replay_manifest.json",
+                "version": relation_replay_manifest.get("version"),
+                "fingerprint": relation_replay_manifest.get("fingerprint"),
+            }
+
         return manifest
+
+    def _relation_replay_manifest_payload(
+        self,
+        resolved: ResolvedPrediction,
+    ) -> dict[str, Any] | None:
+        """Return an optional embedded N9 relation replay manifest payload."""
+        manifest = resolved.manifest or {}
+        payload = manifest.get("relation_replay_manifest_payload")
+        if payload is None:
+            payload = manifest.get("relation_replay_manifest")
+        if not isinstance(payload, dict):
+            return None
+        if "path" in payload and set(payload).issubset({"path", "version", "fingerprint"}):
+            return None
+        json.dumps(payload, default=str)
+        return payload
 
     def _extract_partitioner_routing_info(
         self,

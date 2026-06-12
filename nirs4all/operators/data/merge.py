@@ -387,6 +387,170 @@ class SourceIncompatibleStrategy(Enum):
     PAD = "pad"
     TRUNCATE = "truncate"
 
+
+class MetaRowDomain(Enum):
+    """Unit domain for rows of late-fusion/meta-model features."""
+
+    SAMPLE = "sample"
+    COMBO = "combo"
+
+
+class MetaFeatureAdapter(Enum):
+    """How branch predictions are adapted to the meta-feature row domain."""
+
+    DIRECT = "direct"
+    REDUCE = "reduce"
+    BROADCAST = "broadcast"
+    SOURCE_TO_COMBO = "source_to_combo"
+
+
+class MissingPredictionPolicy(Enum):
+    """How late-fusion/stacking handles missing branch predictions."""
+
+    STRICT = "strict"
+    IMPUTE_DECLARED = "impute_declared"
+    DROP_INCOMPLETE = "drop_incomplete"
+    DROP_BRANCH = "drop_branch"
+    MASK = "mask"
+    PAD = "pad"
+    PARTIAL_MODEL = "partial_model"
+
+
+class StackingSelectionProtocol(Enum):
+    """How final validation / selection data is obtained for stacking."""
+
+    NESTED = "nested"
+    HOLDOUT = "holdout"
+    REUSE_OOF = "reuse_oof"
+
+
+class SelectionProtocol(Enum):
+    """How branch/base models are selected for a meta-model."""
+
+    BRANCH_LEVEL = "branch_level"
+    GLOBAL = "global"
+    META_AWARE = "meta_aware"
+
+
+@dataclass(frozen=True)
+class MetaFeaturePlan:
+    """Replayable contract for late-fusion/meta-feature alignment."""
+
+    meta_row_domain: str = "sample"
+    adapters: list[str] = field(default_factory=lambda: ["direct"])
+    alignment_key: str = "physical_sample_id"
+    missing_prediction_policy: str = "strict"
+    allow_fallbacks: list[str] = field(default_factory=list)
+    allow_experimental_combo_meta: bool = False
+    combo_reduction_plan: dict[str, Any] | None = None
+    fit_influence_policy: dict[str, Any] | None = None
+
+    def __post_init__(self) -> None:
+        MetaRowDomain(self.meta_row_domain)
+        for adapter in self.adapters:
+            MetaFeatureAdapter(adapter)
+        MissingPredictionPolicy(self.missing_prediction_policy)
+        valid_alignment_keys = {"physical_sample_id", "combo_id"}
+        if self.alignment_key not in valid_alignment_keys:
+            raise ValueError(f"alignment_key must be one of {sorted(valid_alignment_keys)}, got {self.alignment_key!r}")
+        if self.meta_row_domain == MetaRowDomain.SAMPLE.value and self.alignment_key != "physical_sample_id":
+            raise ValueError("sample-domain meta features must align on physical_sample_id")
+        if self.meta_row_domain == MetaRowDomain.COMBO.value and self.alignment_key != "combo_id":
+            raise ValueError("combo-domain meta features must align on combo_id")
+        if self.meta_row_domain == MetaRowDomain.COMBO.value:
+            self._validate_combo_meta()
+        for fallback in self.allow_fallbacks:
+            MissingPredictionPolicy(fallback)
+
+    def _validate_combo_meta(self) -> None:
+        if not self.allow_experimental_combo_meta:
+            raise ValueError("combo-domain meta features are experimental and require allow_experimental_combo_meta=True")
+        if self.missing_prediction_policy != MissingPredictionPolicy.STRICT.value:
+            raise ValueError("combo-domain meta features require missing_prediction_policy='strict'")
+        if not self.fit_influence_policy:
+            raise ValueError("combo-domain meta features require an explicit fit_influence_policy")
+        if not self.combo_reduction_plan:
+            raise ValueError("combo-domain meta features require an explicit combo_reduction_plan")
+        if self.combo_reduction_plan.get("input_level") != "combo" or self.combo_reduction_plan.get("output_level") != "sample":
+            raise ValueError("combo-domain meta features require a combo_reduction_plan from combo to sample")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the plan for workspace/bundle manifests."""
+        return {
+            "meta_row_domain": self.meta_row_domain,
+            "adapters": list(self.adapters),
+            "alignment_key": self.alignment_key,
+            "missing_prediction_policy": self.missing_prediction_policy,
+            "allow_fallbacks": list(self.allow_fallbacks),
+            "allow_experimental_combo_meta": self.allow_experimental_combo_meta,
+            "combo_reduction_plan": self.combo_reduction_plan,
+            "fit_influence_policy": self.fit_influence_policy,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "MetaFeaturePlan":
+        """Create a plan from a manifest dictionary."""
+        return cls(
+            meta_row_domain=data.get("meta_row_domain", "sample"),
+            adapters=list(data.get("adapters", ["direct"])),
+            alignment_key=data.get("alignment_key", "physical_sample_id"),
+            missing_prediction_policy=data.get("missing_prediction_policy", "strict"),
+            allow_fallbacks=list(data.get("allow_fallbacks", [])),
+            allow_experimental_combo_meta=bool(data.get("allow_experimental_combo_meta", False)),
+            combo_reduction_plan=data.get("combo_reduction_plan"),
+            fit_influence_policy=data.get("fit_influence_policy"),
+        )
+
+
+@dataclass(frozen=True)
+class StackingFitContract:
+    """Contract preventing in-sample late-fusion/meta-model leakage."""
+
+    meta_training_features: str = "oof"
+    inference_features: str = "refit_base_predictions"
+    selection_protocol: str = "nested"
+    base_prediction_calibration: str = "none"
+    model_selection_protocol: str = "branch_level"
+    final_validation_profile: bool = True
+
+    def __post_init__(self) -> None:
+        valid_meta_training = {"oof"}
+        valid_inference = {"refit_base_predictions"}
+        valid_calibration = {"none", "rank", "calibrated_oof_to_refit"}
+        if self.meta_training_features not in valid_meta_training:
+            raise ValueError("meta_training_features must be 'oof'; in-sample meta-features are not allowed")
+        if self.inference_features not in valid_inference:
+            raise ValueError("inference_features must be 'refit_base_predictions'")
+        protocol = StackingSelectionProtocol(self.selection_protocol)
+        if self.final_validation_profile and protocol is StackingSelectionProtocol.REUSE_OOF:
+            raise ValueError("selection_protocol='reuse_oof' is exploratory and forbidden in final-validation profile")
+        if self.base_prediction_calibration not in valid_calibration:
+            raise ValueError(f"base_prediction_calibration must be one of {sorted(valid_calibration)}")
+        SelectionProtocol(self.model_selection_protocol)
+
+    def to_dict(self) -> dict[str, Any]:
+        """Serialize the contract for workspace/bundle manifests."""
+        return {
+            "meta_training_features": self.meta_training_features,
+            "inference_features": self.inference_features,
+            "selection_protocol": self.selection_protocol,
+            "base_prediction_calibration": self.base_prediction_calibration,
+            "model_selection_protocol": self.model_selection_protocol,
+            "final_validation_profile": self.final_validation_profile,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict[str, Any]) -> "StackingFitContract":
+        """Create a contract from a manifest dictionary."""
+        return cls(
+            meta_training_features=data.get("meta_training_features", "oof"),
+            inference_features=data.get("inference_features", "refit_base_predictions"),
+            selection_protocol=data.get("selection_protocol", "nested"),
+            base_prediction_calibration=data.get("base_prediction_calibration", "none"),
+            model_selection_protocol=data.get("model_selection_protocol", "branch_level"),
+            final_validation_profile=data.get("final_validation_profile", True),
+        )
+
 @dataclass
 class BranchPredictionConfig:
     """Configuration for prediction collection from a single branch.
@@ -615,6 +779,9 @@ class MergeConfig:
     is_separation_merge: bool = False  # True when using "concat" mode for separation branches
     # Phase 5: Source merge within merge keyword
     source_merge: Optional["SourceMergeConfig"] = None  # For {"merge": {"sources": "concat"}}
+    # Phase N8: late-fusion / stacking contracts
+    meta_feature_plan: MetaFeaturePlan | None = None
+    stacking_fit_contract: StackingFitContract | None = None
 
     def __post_init__(self):
         """Validate configuration after initialization."""
@@ -825,6 +992,12 @@ class MergeConfig:
         if self.source_merge is not None:
             result["source_merge"] = self.source_merge.to_dict()
 
+        if self.meta_feature_plan is not None:
+            result["meta_feature_plan"] = self.meta_feature_plan.to_dict()
+
+        if self.stacking_fit_contract is not None:
+            result["stacking_fit_contract"] = self.stacking_fit_contract.to_dict()
+
         return result
 
     @classmethod
@@ -859,6 +1032,14 @@ class MergeConfig:
         if "source_merge" in data:
             source_merge = SourceMergeConfig.from_dict(data["source_merge"])
 
+        meta_feature_plan = None
+        if "meta_feature_plan" in data:
+            meta_feature_plan = MetaFeaturePlan.from_dict(data["meta_feature_plan"])
+
+        stacking_fit_contract = None
+        if "stacking_fit_contract" in data:
+            stacking_fit_contract = StackingFitContract.from_dict(data["stacking_fit_contract"])
+
         return cls(
             collect_features=data.get("collect_features", False),
             feature_branches=data.get("feature_branches", "all"),
@@ -877,6 +1058,8 @@ class MergeConfig:
             select_by=data.get("select_by", "mse"),
             is_separation_merge=data.get("is_separation_merge", False),
             source_merge=source_merge,
+            meta_feature_plan=meta_feature_plan,
+            stacking_fit_contract=stacking_fit_contract,
         )
 
 @dataclass

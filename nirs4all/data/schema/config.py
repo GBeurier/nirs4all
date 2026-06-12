@@ -1228,6 +1228,50 @@ class DatasetConfigSchema(BaseModel):
         description="Whether to exclude outliers before aggregation."
     )
 
+    # --- Experimental relational pipeline (roadmap N0-N2) ---
+    # These are additive fields for source-aware heterogeneous repetitions. They
+    # keep legacy outputs untouched while carrying the declared join contract to
+    # the loader guardrails and the future relation materialisation path.
+    experimental_relation_pipeline: bool | None = Field(
+        default=None,
+        description="Experimental opt-in flag for the source-aware relation pipeline; legacy loading remains unchanged unless relation helpers are invoked explicitly."
+    )
+
+    repetition_spec: dict[str, Any] | None = Field(
+        default=None,
+        description="Experimental source-aware repetition specification parsed by relation helpers for key-based multisource joins."
+    )
+
+    relations: dict[str, Any] | None = Field(
+        default=None,
+        description="Experimental relational identity declaration (sample/source/observation) consumed by the relation materialisation helpers."
+    )
+
+    representations: list[dict[str, Any]] | dict[str, Any] | None = Field(
+        default=None,
+        description="Experimental representation plan declaration for rep_fusion materialisation."
+    )
+
+    reducers: list[dict[str, Any]] | dict[str, Any] | None = Field(
+        default=None,
+        description="Experimental ReductionPlan declarations for scoring, refit, persistence and final output."
+    )
+
+    fit_influence: dict[str, Any] | None = Field(
+        default=None,
+        description="Experimental FitInfluencePolicy declaration for derived rows and cartesian representations."
+    )
+
+    meta_features: dict[str, Any] | None = Field(
+        default=None,
+        description="Experimental MetaFeaturePlan declaration for prediction-plane stacking/late fusion."
+    )
+
+    refit_slots: list[dict[str, Any]] | dict[str, Any] | None = Field(
+        default=None,
+        description="Experimental RefitSlotPlan declaration for scope-aware refit selection."
+    )
+
     # --- New format (stubs for future implementation) ---
     files: list[FileConfig] | None = Field(
         default=None,
@@ -1814,6 +1858,25 @@ class DatasetConfigSchema(BaseModel):
             }
             for s in self.sources
         ]
+
+        # Carry experimental relational fields through to the legacy dict so the
+        # loader guardrails and (phase N3) relation materialisation can see them.
+        if self.experimental_relation_pipeline is not None:
+            result['experimental_relation_pipeline'] = self.experimental_relation_pipeline
+        if self.repetition_spec is not None:
+            result['repetition_spec'] = self.repetition_spec
+        if self.relations is not None:
+            result['relations'] = self.relations
+        if self.representations is not None:
+            result['representations'] = self.representations
+        if self.reducers is not None:
+            result['reducers'] = self.reducers
+        if self.fit_influence is not None:
+            result['fit_influence'] = self.fit_influence
+        if self.meta_features is not None:
+            result['meta_features'] = self.meta_features
+        if self.refit_slots is not None:
+            result['refit_slots'] = self.refit_slots
 
         return result
 

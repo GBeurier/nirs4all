@@ -1154,6 +1154,12 @@ class ExplainResult:
         explainer_type: Type of SHAP explainer used.
         model_name: Name of the explained model.
         n_samples: Number of samples explained.
+        explanation_level: Unit level explained, such as raw_observation,
+            source_aggregate, combo, or sample.
+        feature_lineage: Mapping from explained feature names to relation
+            lineage/provenance payloads.
+        lineage_warning: Optional warning when explanations are for derived or
+            aggregated features rather than raw observations.
 
     Properties:
         values: Raw SHAP values array.
@@ -1179,6 +1185,9 @@ class ExplainResult:
     explainer_type: str = "auto"
     model_name: str = ""
     n_samples: int = 0
+    explanation_level: str | None = None
+    feature_lineage: dict[str, Any] = field(default_factory=dict)
+    lineage_warning: str | None = None
 
     def __post_init__(self):
         """Extract metadata from shap_values if available."""
@@ -1290,6 +1299,25 @@ class ExplainResult:
 
         return result
 
+    def get_feature_lineage(self, feature: str | int) -> dict[str, Any]:
+        """Get relation lineage for an explained feature.
+
+        Args:
+            feature: Feature name or positional feature index.
+
+        Returns:
+            Lineage payload for the feature, or an empty dictionary when absent.
+        """
+        if isinstance(feature, int):
+            if self.feature_names and 0 <= feature < len(self.feature_names):
+                feature_name = self.feature_names[feature]
+            else:
+                feature_name = str(feature)
+        else:
+            feature_name = feature
+        lineage = self.feature_lineage.get(feature_name, {})
+        return dict(lineage) if isinstance(lineage, dict) else {}
+
     def to_dataframe(self, include_feature_names: bool = True):
         """Get SHAP values as pandas DataFrame.
 
@@ -1329,6 +1357,12 @@ class ExplainResult:
         lines.append(f"  Shape: {self.shape}")
         if self.feature_names:
             lines.append(f"  Features: {len(self.feature_names)}")
+        if self.explanation_level:
+            lines.append(f"  Explanation level: {self.explanation_level}")
+        if self.feature_lineage:
+            lines.append("  Feature lineage: available")
+        if self.lineage_warning:
+            lines.append(f"  Lineage warning: {self.lineage_warning}")
 
         # Show top 5 features
         top = self.top_features[:5]

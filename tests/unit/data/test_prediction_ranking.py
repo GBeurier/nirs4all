@@ -661,6 +661,93 @@ class TestEdgeCases:
         # Results should still be returned (without aggregation)
         assert len(results) >= 1
 
+    def test_evaluation_scope_sample_without_canonical_metadata_keeps_legacy_ranking(self, predictions_with_multiple_models):
+        """Sample scope preserves legacy ranking when physical_sample_id is absent."""
+        predictions = predictions_with_multiple_models
+
+        baseline = predictions.top(n=3, rank_metric="rmse", rank_partition="val", score_scope="folds")
+        hooked = predictions.top(
+            n=3,
+            rank_metric="rmse",
+            rank_partition="val",
+            score_scope="folds",
+            evaluation_scope="sample",
+            reduction_plan=object(),
+        )
+
+        def _identity(rows):
+            return [(row["model_name"], row["fold_id"], row["rank_score"]) for row in rows]
+
+        assert _identity(hooked) == _identity(baseline)
+
+        best = predictions.get_best(metric="rmse", score_scope="folds")
+        best_hooked = predictions.get_best(
+            metric="rmse",
+            score_scope="folds",
+            evaluation_scope="sample",
+            reduction_plan=object(),
+        )
+        assert best_hooked is not None
+        assert best is not None
+        assert best_hooked["model_name"] == best["model_name"]
+        assert best_hooked["fold_id"] == best["fold_id"]
+        assert best_hooked["rank_score"] == best["rank_score"]
+
+    def test_evaluation_scope_sample_changes_ranking_when_physical_sample_metadata_exists(self, base_prediction_params):
+        """Sample-level scoring aggregates by physical_sample_id before ranking."""
+        predictions = Predictions()
+        sample_ids = ["S1"] * 10 + ["S2"]
+        y_true = np.array([0.0] * 10 + [10.0])
+
+        row_level_winner = np.array([0.0] * 10 + [20.0])
+        sample_level_winner = np.array([4.0] * 10 + [10.0])
+
+        from nirs4all.core import metrics as evaluator
+
+        for model_name, y_pred in (
+            ("row_level_winner", row_level_winner),
+            ("sample_level_winner", sample_level_winner),
+        ):
+            predictions.add_prediction(
+                partition="val",
+                y_true=y_true,
+                y_pred=y_pred,
+                model_name=model_name,
+                model_classname="PLSRegression",
+                fold_id=0,
+                metadata={"physical_sample_id": sample_ids},
+                val_score=evaluator.eval(y_true, y_pred, "rmse"),
+                **{k: v for k, v in base_prediction_params.items() if k not in ["model_name", "model_classname", "fold_id"]},
+            )
+
+        row_results = predictions.top(n=2, rank_metric="rmse", rank_partition="val", score_scope="folds")
+        sample_results = predictions.top(
+            n=2,
+            rank_metric="rmse",
+            rank_partition="val",
+            score_scope="folds",
+            display_partition="val",
+            evaluation_scope="sample",
+        )
+
+        assert row_results[0]["model_name"] == "row_level_winner"
+        assert sample_results[0]["model_name"] == "sample_level_winner"
+        assert sample_results[0].get("aggregated", False) is True
+        assert len(sample_results[0]["y_pred"]) == 2
+
+    def test_unknown_evaluation_scope_fails_loud(self, predictions_with_multiple_models):
+        """Invalid evaluation scopes are rejected instead of silently ignored."""
+        from nirs4all.data.reduction import ReductionError
+
+        with pytest.raises(ReductionError):
+            predictions_with_multiple_models.top(
+                n=1,
+                rank_metric="rmse",
+                rank_partition="val",
+                score_scope="folds",
+                evaluation_scope="not_a_scope",
+            )
+
 
 class TestScoreScope:
     """Test score_scope parameter for controlling refit vs CV entry ranking."""

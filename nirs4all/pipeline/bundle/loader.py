@@ -69,6 +69,8 @@ class BundleMetadata:
         trace_id: ID of the execution trace (if available)
         original_manifest: Subset of original manifest metadata
         partitioner_routing: Routing info for metadata partitioner branches
+        relation_replay_manifest: Reference to the optional N9 relation replay
+            manifest embedded in the bundle.
     """
     bundle_format_version: str = "1.0"
     nirs4all_version: str = ""
@@ -81,6 +83,7 @@ class BundleMetadata:
     trace_id: str | None = None
     original_manifest: dict[str, Any] = field(default_factory=dict)
     partitioner_routing: dict[str, Any] = field(default_factory=dict)
+    relation_replay_manifest: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BundleMetadata":
@@ -104,6 +107,7 @@ class BundleMetadata:
             trace_id=data.get("trace_id"),
             original_manifest=data.get("original_manifest", {}),
             partitioner_routing=data.get("partitioner_routing", {}),
+            relation_replay_manifest=data.get("relation_replay_manifest", {}),
         )
 
 class BundleArtifactProvider(ArtifactProvider):
@@ -393,6 +397,7 @@ class BundleLoader:
         self.pipeline_config: dict[str, Any] = {}
         self.fold_weights: dict[int, float] = {}
         self._artifact_index: dict[str, str] = {}
+        self.relation_replay_manifest: dict[str, Any] = {}
         self.artifact_provider: BundleArtifactProvider | None = None
 
         self._load_bundle()
@@ -432,6 +437,19 @@ class BundleLoader:
                     weights_data = json.load(f)
                     # Convert string keys back to int
                     self.fold_weights = {int(k): v for k, v in weights_data.items()}
+
+            if self.metadata and self.metadata.relation_replay_manifest:
+                relation_ref = self.metadata.relation_replay_manifest
+                relation_path = relation_ref.get("path", "relation_replay_manifest.json")
+                if relation_path not in zf.namelist():
+                    raise ValueError(
+                        f"Bundle relation replay manifest reference points to missing file: {relation_path}"
+                    )
+                with zf.open(relation_path) as f:
+                    relation_payload = json.load(f)
+                if not isinstance(relation_payload, dict):
+                    raise ValueError("Bundle relation replay manifest must be a JSON object")
+                self.relation_replay_manifest = relation_payload
 
             # Build artifact index
             for name in zf.namelist():
@@ -1033,7 +1051,10 @@ class BundleLoader:
             },
             pipeline_uid=self.metadata.pipeline_uid,
             run_dir=None,
-            manifest={},
+            manifest={
+                "relation_replay_manifest": self.relation_replay_manifest,
+                "relation_replay_manifest_ref": self.metadata.relation_replay_manifest,
+            },
         )
 
     def __repr__(self) -> str:

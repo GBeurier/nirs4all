@@ -208,7 +208,7 @@ def _step_is_splitter(step: Any) -> bool:
     """
     # Live instance (e.g., KFold(), ShuffleSplit())
     if not isinstance(step, dict):
-        return _is_splitter_instance(step)
+        return bool(_is_splitter_instance(step))
 
     # Dict with 'split' keyword
     if "split" in step:
@@ -389,6 +389,12 @@ def _relabel_refit_predictions(
         # Record all selection scores for multi-criteria refit
         if refit_config.selection_scores:
             refit_metadata["selection_scores"] = refit_config.selection_scores
+        if refit_config.selection_level:
+            refit_metadata["selection_level"] = refit_config.selection_level
+        if refit_config.evaluation_scope:
+            refit_metadata["evaluation_scope"] = refit_config.evaluation_scope
+        if refit_config.refit_slot_plan is not None:
+            refit_metadata["refit_slot_plan"] = refit_config.refit_slot_plan.to_dict()
 
     # Extract CV strategy info from original steps
     if original_steps is not None:

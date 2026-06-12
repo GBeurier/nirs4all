@@ -18,6 +18,8 @@ import polars as pl
 import pytest
 import yaml
 
+from nirs4all.data.raw_multisource import RepresentationPlan
+from nirs4all.data.relation_replay_manifest import build_relation_replay_manifest
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 # =========================================================================
@@ -1115,6 +1117,35 @@ class TestExportChainN4a:
             # Check artifacts are included
             artifact_files = [n for n in names if n.startswith("artifacts/")]
             assert len(artifact_files) > 0
+
+        store.close()
+
+    def test_export_chain_n4a_includes_relation_replay_manifest(self, tmp_path):
+        """Optional relation replay manifests are exported additively."""
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        relation_manifest = build_relation_replay_manifest(
+            representation_plan=RepresentationPlan("sample_aggregate"),
+            extra_fingerprints={"relation": "abc123"},
+        )
+
+        output = tmp_path / "model.n4a"
+        result_path = store.export_chain(
+            ids["chain_id"],
+            output,
+            relation_replay_manifest=relation_manifest,
+        )
+
+        with zipfile.ZipFile(result_path, "r") as zf:
+            names = zf.namelist()
+            assert "relation_replay_manifest.json" in names
+            manifest = json.loads(zf.read("manifest.json"))
+            relation_ref = manifest["relation_replay_manifest"]
+            assert relation_ref["path"] == "relation_replay_manifest.json"
+            assert relation_ref["fingerprint"] == relation_manifest.fingerprint()
+            relation_payload = json.loads(zf.read("relation_replay_manifest.json"))
+            assert relation_payload["representation_plan"]["representation"] == "sample_aggregate"
+            assert relation_payload["extra_fingerprints"] == {"relation": "abc123"}
 
         store.close()
 

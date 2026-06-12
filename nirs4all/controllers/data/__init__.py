@@ -16,6 +16,7 @@ from .exclude import ExcludeController
 from .feature_augmentation import FeatureAugmentationController
 from .feature_selection import FeatureSelectionController
 from .merge import MergeConfigParser, MergeController
+from .rep_fusion import RepFusionController
 from .repetition import RepToPPController, RepToSourcesController
 from .resampler import ResamplerController
 from .sample_augmentation import SampleAugmentationController
@@ -35,6 +36,7 @@ __all__ = [
     "MergeConfigParser",
     "RepToSourcesController",
     "RepToPPController",
+    "RepFusionController",
     "BranchController",
     # Branch utilities
     "parse_value_condition",

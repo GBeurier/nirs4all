@@ -57,6 +57,7 @@ def select_best_per_model(
     variant_configs: list[dict[str, Any]],
     metric: str = "",
     ascending: bool | None = None,
+    evaluation_scope: str | None = None,
 ) -> dict[str, PerModelSelection]:
     """Select the best variant for each model node independently.
 
@@ -76,6 +77,10 @@ def select_best_per_model(
             directly.
         ascending: Sort direction.  ``True`` means lower is better
             (e.g. RMSE).  ``None`` infers from the metric name.
+        evaluation_scope: Reserved hook (roadmap N0) for the future
+            sample/observation/combo selection scope. Inert in this phase; the
+            legacy per-model ``val_score`` selection is unchanged. Defaults to
+            ``None``.
 
     Returns:
         Mapping from model class name to its ``PerModelSelection``.
@@ -92,6 +97,9 @@ def select_best_per_model(
           the stacking context.  Branch base models are still
           independently selected within that context.
     """
+    # Reserved evaluation-scope hook (roadmap N0): inert in this phase.
+    _ = evaluation_scope
+
     if ascending is None:
         ascending = _infer_ascending(metric)
 

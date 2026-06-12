@@ -1064,6 +1064,8 @@ class Predictions:
         group_by: str | list[str] | None = None,
         return_grouped: bool = False,
         task_type: str | None = None,
+        evaluation_scope: str | None = None,
+        reduction_plan: Any | None = None,
         **filters: Any,
     ) -> PredictionResultsList | dict[tuple, PredictionResultsList]:
         """Get top *n* predictions ranked by a metric.
@@ -1116,6 +1118,17 @@ class Predictions:
                 ``"regression"``/``"reg"``, ``"classification"``/``"clf"``
                 (matches both binary and multiclass), ``"binary"``,
                 ``"multiclass"``.  ``None`` disables filtering.
+            evaluation_scope: Optional unit level for ranking. ``"sample"``
+                recomputes rank/display scores after aggregating rows by
+                metadata column ``physical_sample_id`` when present. ``"row"``,
+                ``"observation"`` and ``"combo"`` keep row-level ranking for now.
+                ``None`` keeps legacy behaviour.
+            reduction_plan: Optional explicit
+                :class:`~nirs4all.data.reduction.ReductionPlan` (roadmap N4).
+                When supplied **together with** ``by_repetition`` aggregation, the
+                plan drives the repetition/sample aggregation ``method`` /
+                ``exclude_outliers`` (``mean`` / ``median`` / ``vote`` / ``robust``).
+                Ignored when no aggregation is active (legacy behaviour).
             **filters: Additional filter criteria.
 
         Returns:
@@ -1141,6 +1154,17 @@ class Predictions:
             if return_grouped:
                 return {}
             return PredictionResultsList([])
+
+        effective_by_repetition = self._resolve_evaluation_scope_grouping(
+            candidates,
+            evaluation_scope=evaluation_scope,
+            effective_by_repetition=effective_by_repetition,
+        )
+        if reduction_plan is not None and effective_by_repetition:
+            from nirs4all.data.reduction import ReductionPlan
+
+            if isinstance(reduction_plan, ReductionPlan):
+                effective_repetition_method, effective_repetition_exclude_outliers = reduction_plan.as_repetition_aggregation()
 
         # Phase 5: warn on mixed task types and resolve the effective metric.
         self._warn_on_mixed_task_types(candidates, task_type, rank_metric)
@@ -1198,7 +1222,7 @@ class Predictions:
                     grouped_out[group_key].append(res)
             return grouped_out
 
-        return PredictionResultsList(enriched_results)  # type: ignore[arg-type]
+        return PredictionResultsList(enriched_results)
 
     def _resolve_repetition_options(
         self,
@@ -1227,6 +1251,31 @@ class Predictions:
             else:
                 effective_by_repetition = self._dataset_repetition
         return effective_by_repetition, repetition_method, repetition_exclude_outliers
+
+    def _resolve_evaluation_scope_grouping(
+        self,
+        candidates: list[dict[str, Any]],
+        *,
+        evaluation_scope: str | None,
+        effective_by_repetition: bool | str | None,
+    ) -> bool | str | None:
+        """Map ``evaluation_scope='sample'`` to canonical sample grouping.
+
+        Existing explicit repetition/grouping settings win. This makes the N6
+        sample-level path active for relation-aware predictions while preserving
+        row-level legacy behaviour for records that do not carry
+        ``physical_sample_id`` metadata.
+        """
+        from nirs4all.data.reduction import EvaluationScope, normalize_evaluation_scope
+
+        scope = normalize_evaluation_scope(evaluation_scope)
+        if scope is not EvaluationScope.SAMPLE or effective_by_repetition:
+            return effective_by_repetition
+        for row in candidates:
+            metadata = row.get("metadata", {})
+            if isinstance(metadata, dict) and "physical_sample_id" in metadata:
+                return "physical_sample_id"
+        return effective_by_repetition
 
     @staticmethod
     def _strip_non_filter_kwargs(filters: dict[str, Any]) -> None:
@@ -1608,6 +1657,8 @@ class Predictions:
         repetition_method: str | None = None,
         repetition_exclude_outliers: bool = False,
         task_type: str | None = None,
+        evaluation_scope: str | None = None,
+        reduction_plan: Any | None = None,
         **filters: Any,
     ) -> PredictionResult | None:
         """Get the best prediction for a specific metric.
@@ -1628,6 +1679,12 @@ class Predictions:
             repetition_method: Aggregation method (``"mean"``, ``"median"``, ``"vote"``).
             repetition_exclude_outliers: Exclude outliers before aggregation.
             task_type: Filter by task type.  See :meth:`top` for aliases.
+            evaluation_scope: Optional unit level forwarded to :meth:`top`.
+                ``"sample"`` activates canonical sample-level ranking when
+                ``physical_sample_id`` metadata is present.
+            reduction_plan: Optional :class:`~nirs4all.data.reduction.ReductionPlan`
+                (roadmap N4) forwarded to :meth:`top`; meaningful only with
+                active repetition/sample aggregation, otherwise ignored.
             **filters: Additional filter criteria.
 
         Returns:
@@ -1644,6 +1701,8 @@ class Predictions:
             repetition_method=repetition_method,
             repetition_exclude_outliers=repetition_exclude_outliers,
             task_type=task_type,
+            evaluation_scope=evaluation_scope,
+            reduction_plan=reduction_plan,
             **filters,
         )
         # Fallback to test partition
@@ -1659,6 +1718,8 @@ class Predictions:
                 repetition_method=repetition_method,
                 repetition_exclude_outliers=repetition_exclude_outliers,
                 task_type=task_type,
+                evaluation_scope=evaluation_scope,
+                reduction_plan=reduction_plan,
                 **filters,
             )
         if isinstance(results_list, dict):
@@ -2319,7 +2380,7 @@ class Predictions:
         Returns:
             Boolean mask where ``True`` = valid (non-outlier).
         """
-        valid_mask = np.ones(len(y_pred), dtype=bool)
+        valid_mask: np.ndarray = np.ones(len(y_pred), dtype=bool)
         if threshold >= 0.99:
             z_threshold = 4.5
         elif threshold >= 0.95:
@@ -2935,7 +2996,7 @@ class Predictions:
             Per-dataset compaction stats.
         """
         store = self._require_store()
-        return store.compact_arrays(dataset_name)
+        return cast("dict[str, dict[str, Any]]", store.compact_arrays(dataset_name))
 
     def _find_store_db_path(self, workspace_path: Path) -> Path | None:
         """Locate the metadata store file in a workspace directory.

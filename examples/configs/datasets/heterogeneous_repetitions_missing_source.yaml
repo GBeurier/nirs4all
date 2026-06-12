@@ -1,0 +1,47 @@
+# Experimental source-aware repetitions: prediction may miss one source.
+name: heterogeneous_repetitions_missing_source
+task_type: regression
+experimental_relation_pipeline: true
+
+sources:
+  - name: MIR
+    train_x: sample_data/heterogeneous/MIR_train.csv
+    test_x: sample_data/heterogeneous/MIR_test.csv
+    link_by: sample_id
+  - name: RAMAN
+    train_x: sample_data/heterogeneous/RAMAN_train.csv
+    test_x: sample_data/heterogeneous/RAMAN_test.csv
+    link_by: sample_id
+  - name: NIRS
+    train_x: sample_data/heterogeneous/NIRS_train.csv
+    test_x: sample_data/heterogeneous/NIRS_test.csv
+    link_by: sample_id
+
+shared_targets:
+  path: sample_data/heterogeneous/Y.csv
+  link_by: sample_id
+
+repetition_spec:
+  sample_id: sample_id
+  link_by: sample_id
+  target_level: physical_sample
+  missing_source_policy: impute_declared
+  sources:
+    MIR: {rep_col: rep, expected: 2}
+    RAMAN: {rep_col: rep, expected: 3}
+    NIRS: {rep_col: rep, expected: 2}
+
+representations:
+  - name: stack_padded_masked
+    stage: raw_before_preprocessing
+    unit_level: sample
+    missing_source_policy: impute_declared
+    missing_repetition_policy: pad
+
+meta_features:
+  meta_row_domain: sample
+  alignment_key: physical_sample_id
+  missing_prediction_policy: mask
+
+fit_influence:
+  mode: scorer_only

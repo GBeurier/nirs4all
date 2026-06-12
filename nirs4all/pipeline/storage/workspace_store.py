@@ -32,7 +32,7 @@ import sqlite3
 import threading
 import time
 import zipfile
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -167,6 +167,25 @@ def _from_json(val: str | None) -> Any:
     if val is None:
         return None
     return json.loads(val)
+
+
+def _relation_replay_manifest_payload(value: Any | None) -> dict[str, Any] | None:
+    """Normalise an optional RelationReplayManifest-like object for bundle export."""
+    if value is None:
+        return None
+    if isinstance(value, Mapping):
+        payload = dict(value)
+    elif hasattr(value, "to_dict"):
+        payload = value.to_dict()
+    else:
+        raise TypeError(
+            "relation_replay_manifest must be a mapping or expose to_dict()."
+        )
+    if not isinstance(payload, dict):
+        raise TypeError("relation_replay_manifest.to_dict() must return a dict.")
+    json.dumps(payload, default=str)
+    return payload
+
 
 def _serialize_artifact(obj: Any, fmt: str) -> bytes:
     """Serialize a Python object to bytes using *fmt* as the strategy."""
@@ -2212,6 +2231,7 @@ class WorkspaceStore:
         chain_id: str,
         output_path: Path,
         format: str = "n4a",
+        relation_replay_manifest: Any | None = None,
     ) -> Path:
         """Export a chain as a standalone prediction bundle.
 
@@ -2230,6 +2250,10 @@ class WorkspaceStore:
             chain_id: Chain to export.
             output_path: Destination file path.
             format: Export format (``"n4a"`` or ``"n4a.py"``).
+            relation_replay_manifest: Optional N9 relational replay manifest.
+                When provided, it is written as ``relation_replay_manifest.json``
+                and referenced from ``manifest.json``. Existing bundles are
+                unchanged when omitted.
 
         Returns:
             The resolved output path (may have an extension appended if
@@ -2279,6 +2303,7 @@ class WorkspaceStore:
 
         # Build manifest
         fold_strategy = "single_refit" if has_refit else chain["fold_strategy"]
+        relation_manifest_payload = _relation_replay_manifest_payload(relation_replay_manifest)
         manifest = {
             "chain_id": chain_id,
             "model_class": chain["model_class"],
@@ -2288,6 +2313,12 @@ class WorkspaceStore:
             "has_refit": has_refit,
             "exported_at": datetime.now(UTC).isoformat(),
         }
+        if relation_manifest_payload is not None:
+            manifest["relation_replay_manifest"] = {
+                "path": "relation_replay_manifest.json",
+                "version": relation_manifest_payload.get("version"),
+                "fingerprint": relation_manifest_payload.get("fingerprint"),
+            }
 
         # Write ZIP bundle
         with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -2298,6 +2329,8 @@ class WorkspaceStore:
                 "fold_artifacts": export_fold_artifacts,
                 "shared_artifacts": shared_artifacts,
             }, indent=2))
+            if relation_manifest_payload is not None:
+                zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest_payload, indent=2, sort_keys=True))
 
             for aid in artifact_ids:
                 path = self.get_artifact_path(aid)

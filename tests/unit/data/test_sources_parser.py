@@ -477,6 +477,14 @@ class TestDatasetConfigSchemaSourcesMethods:
                 ),
             ],
             shared_targets=SharedTargetsConfig(path="data/targets.csv"),
+            experimental_relation_pipeline=True,
+            repetition_spec={"sample_id": "sample_id", "sources": {"NIR": 2, "MIR": 3}},
+            relations={"sample_id": "sample_id"},
+            representations=[{"name": "per_source_aggregate"}],
+            reducers=[{"role": "score", "axis": "unit"}],
+            fit_influence={"mode": "auto"},
+            meta_features={"meta_row_domain": "sample"},
+            refit_slots=[{"slot_id": "best_sample"}],
         )
 
         legacy = config.to_legacy_format()
@@ -488,6 +496,13 @@ class TestDatasetConfigSchemaSourcesMethods:
         assert legacy['test_y'] == "data/targets.csv"
         assert '_sources' in legacy
         assert len(legacy['_sources']) == 2
+        assert legacy['experimental_relation_pipeline'] is True
+        assert legacy['repetition_spec']['sources'] == {"NIR": 2, "MIR": 3}
+        assert legacy['representations'][0]['name'] == "per_source_aggregate"
+        assert legacy['reducers'][0]['role'] == "score"
+        assert legacy['fit_influence']['mode'] == "auto"
+        assert legacy['meta_features']['meta_row_domain'] == "sample"
+        assert legacy['refit_slots'][0]['slot_id'] == "best_sample"
 
     def test_to_legacy_format_single_source(self):
         """Test conversion with single source returns single path, not list."""

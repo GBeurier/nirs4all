@@ -81,6 +81,34 @@ def _list_pipelines_in_creation_order(
     return pipelines_df
 
 @dataclass
+class RefitSlotPlan:
+    """Selection/refit slot contract for one refit replay."""
+
+    refit_mode: str = "refit_one"
+    selection_level: str | None = None
+    selection_metric: str = ""
+    reduction_plan: Any | None = None
+
+    def __post_init__(self) -> None:
+        valid_modes = {"refit_one", "refit_ensemble"}
+        if self.refit_mode not in valid_modes:
+            raise ValueError(f"refit_mode must be one of {sorted(valid_modes)}, got {self.refit_mode!r}")
+
+    def to_dict(self) -> dict[str, Any]:
+        """Return a manifest-safe mapping."""
+        reduction_payload = self.reduction_plan
+        to_dict = getattr(reduction_payload, "to_dict", None)
+        if callable(to_dict):
+            reduction_payload = to_dict()
+        return {
+            "refit_mode": self.refit_mode,
+            "selection_level": self.selection_level,
+            "selection_metric": self.selection_metric,
+            "reduction_plan": reduction_payload,
+        }
+
+
+@dataclass
 class RefitConfig:
     """Configuration for a refit execution.
 
@@ -110,6 +138,16 @@ class RefitConfig:
         selected_by_criteria: List of criterion labels that selected this
             config in multi-criteria refit (e.g. ["rmsecv(top3)", "mean_val(top1)"]).
             Empty for single-criterion refit.
+        selection_level: Reserved hook (roadmap N4) carrying the evaluation level
+            (``"row"`` / ``"observation"`` / ``"combo"`` / ``"sample"``) of the
+            criterion that selected this config. Propagated from
+            :class:`RefitCriterion` for manifests/lineage; inert for legacy
+            ranking. ``None`` keeps the legacy behaviour.
+        evaluation_scope: Reserved hook (roadmap N4) carrying the evaluation scope
+            requested for refit selection. Propagated for manifests/lineage; inert
+            for legacy ranking. ``None`` keeps the legacy behaviour.
+        refit_slot_plan: Additive N6 contract describing how this selected
+            slot should be refit/replayed.
     """
 
     expanded_steps: list[Any]
@@ -123,6 +161,9 @@ class RefitConfig:
     primary_selection_criterion: str = "rmsecv"
     config_name: str = ""
     selected_by_criteria: list[str] = field(default_factory=list)
+    selection_level: str | None = None
+    evaluation_scope: str | None = None
+    refit_slot_plan: RefitSlotPlan | None = None
 
 @dataclass
 class RefitCriterion:
@@ -136,11 +177,18 @@ class RefitCriterion:
             validation scores.
         metric: Metric name for ranking.  Empty string uses the metric
             recorded in the pipeline records.
+        selection_level: Reserved hook (roadmap N0) for the future evaluation
+            scope at which this criterion selects (``"row"`` / ``"observation"``
+            / ``"combo"`` / ``"sample"``). ``None`` keeps the legacy behaviour
+            and is inert in this phase.
     """
 
     top_k: int = 1
     ranking: str = "rmsecv"
     metric: str = ""
+    selection_level: str | None = None
+    refit_mode: str = "refit_one"
+    reduction_plan: Any | None = None
 
 def parse_refit_param(
     refit: bool | dict[str, Any] | list[dict[str, Any]] | None,
@@ -169,11 +217,12 @@ def parse_refit_param(
         return [RefitCriterion()]
     if not refit:
         return []
+    _allowed = ("top_k", "ranking", "metric", "selection_level", "refit_mode", "reduction_plan")
     if isinstance(refit, dict):
-        return [RefitCriterion(**{k: v for k, v in refit.items() if k in ("top_k", "ranking", "metric")})]
+        return [RefitCriterion(**{k: v for k, v in refit.items() if k in _allowed})]
     if isinstance(refit, list):
         return [
-            RefitCriterion(**{k: v for k, v in c.items() if k in ("top_k", "ranking", "metric")})
+            RefitCriterion(**{k: v for k, v in c.items() if k in _allowed})
             for c in refit
         ]
     return []
@@ -184,6 +233,7 @@ def extract_top_configs(
     criteria: list[RefitCriterion],
     predictions: Predictions | None = None,
     dataset_name: str | None = None,
+    evaluation_scope: str | None = None,
 ) -> list[RefitConfig]:
     """Extract top pipeline configurations for refit based on multiple criteria.
 
@@ -200,6 +250,9 @@ def extract_top_configs(
             all CV prediction entries.  Required for ``"mean_val"``
             ranking (to access individual fold scores).
         dataset_name: Filter pipelines to this dataset.
+        evaluation_scope: Reserved hook (roadmap N0) for selecting the unit at
+            which refit candidates are ranked. Inert in this phase; the legacy
+            RMSECV / mean_val ranking is unchanged. Defaults to ``None``.
 
     Returns:
         Deduplicated list of :class:`RefitConfig` objects, one per
@@ -209,6 +262,9 @@ def extract_top_configs(
         ValueError: If the run has no completed pipelines.
     """
     from nirs4all.pipeline.storage.workspace_store import _infer_metric_ascending
+
+    # Reserved evaluation-scope hook (roadmap N0/N4): carried into refit
+    # metadata but kept out of legacy ranking decisions.
 
     if not criteria:
         return []
@@ -237,6 +293,8 @@ def extract_top_configs(
     selected_ids: list[str] = []
     seen_ids: set[str] = set()
     pid_to_criteria: dict[str, list[str]] = {}  # pipeline_id -> list of criterion labels
+    pid_to_selection_level: dict[str, str | None] = {}  # pipeline_id -> selecting criterion's selection_level
+    pid_to_refit_slot_plan: dict[str, RefitSlotPlan] = {}
 
     for _crit_idx, criterion in enumerate(criteria):
         effective_metric = criterion.metric or first_metric
@@ -289,6 +347,16 @@ def extract_top_configs(
 
         for pid in top_ids:
             pid_to_criteria.setdefault(pid, []).append(crit_label)
+            pid_to_selection_level.setdefault(pid, criterion.selection_level)
+            pid_to_refit_slot_plan.setdefault(
+                pid,
+                RefitSlotPlan(
+                    refit_mode=criterion.refit_mode,
+                    selection_level=criterion.selection_level,
+                    selection_metric=effective_metric,
+                    reduction_plan=criterion.reduction_plan,
+                ),
+            )
             selected_ids.append(pid)
             seen_ids.add(pid)
 
@@ -359,6 +427,9 @@ def extract_top_configs(
             primary_selection_criterion=primary_criterion,
             config_name=cv_config_name,
             selected_by_criteria=pid_to_criteria.get(pipeline_id, []),
+            selection_level=pid_to_selection_level.get(pipeline_id),
+            evaluation_scope=evaluation_scope,
+            refit_slot_plan=pid_to_refit_slot_plan.get(pipeline_id),
         ))
 
     return configs
