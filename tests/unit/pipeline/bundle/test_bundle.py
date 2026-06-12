@@ -441,6 +441,24 @@ class TestBundleLoader:
         assert y_pred.shape == (materialization.X.shape[0],)
         np.testing.assert_allclose(y_pred, np.ones(materialization.X.shape[0]))
 
+        predict_dataset = RawMultiSourceDataset.from_sources(
+            RepetitionSpec(sample_id="sid", link_by="sid"),
+            {
+                "MIR": np.array([[5.0, 5.0], [6.0, 6.0]]),
+                "RAMAN": np.array([[30.0]]),
+            },
+            {
+                "MIR": ["S3", "S3"],
+                "RAMAN": ["S3"],
+            },
+            targets_by_source={"MIR": [30.0, 30.0]},
+        )
+
+        y_pred_changed_cardinality = loader.predict(predict_dataset)
+
+        assert y_pred_changed_cardinality.shape == (1,)
+        np.testing.assert_allclose(y_pred_changed_cardinality, np.ones(1))
+
     def test_relation_replay_manifest_reference_must_exist(self, tmp_path):
         """Test relation replay manifest references fail loudly when broken."""
         bundle_path = tmp_path / "broken_relation_ref.n4a"
