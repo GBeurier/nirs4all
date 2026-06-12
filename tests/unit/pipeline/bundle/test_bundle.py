@@ -209,6 +209,7 @@ class TestBundleGenerator:
             "staging_manifest": {"fingerprint": "table_fp"},
             "representation_plan": None,
             "reduction_plans": [],
+            "meta_feature_plan": {"meta_row_domain": "sample", "missing_prediction_policy": "mask"},
         }
 
         manifest = generator._create_bundle_manifest(
@@ -242,6 +243,7 @@ class TestBundleGenerator:
             "staging_manifest": {"fingerprint": "table_fp"},
             "representation_plan": None,
             "reduction_plans": [],
+            "meta_feature_plan": {"meta_row_domain": "sample", "missing_prediction_policy": "mask"},
         }
 
         bundle_path = generator._export_n4a(
@@ -258,6 +260,7 @@ class TestBundleGenerator:
 
         assert manifest["relation_replay_manifest"]["fingerprint"] == "rel_fp"
         assert relation_payload["staging_manifest"]["fingerprint"] == "table_fp"
+        assert relation_payload["meta_feature_plan"]["missing_prediction_policy"] == "mask"
 
     def test_artifact_filename(self, mock_workspace):
         """Test generating artifact filenames."""

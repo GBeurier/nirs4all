@@ -399,13 +399,15 @@ class PipelineExecutor:
             from nirs4all.data.relation_replay_manifest import build_relation_replay_manifest
 
             fit_influence_policy = getattr(dataset, "__dict__", {}).get("_relation_fit_influence_policy")
+            meta_feature_plan = getattr(dataset, "__dict__", {}).get("_relation_meta_feature_plan")
             return build_relation_replay_manifest(
                 materialization=materialization_manifest,
                 fit_influence_policy=fit_influence_policy,
+                meta_feature_plan=meta_feature_plan,
             )
         except ValueError as exc:
             raise ValueError(
-                "Dataset relation materialization manifest is invalid and cannot be saved for replay."
+                "Dataset relation replay metadata is invalid and cannot be saved for replay."
             ) from exc
 
     def _flush_predictions_to_store(

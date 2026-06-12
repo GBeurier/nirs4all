@@ -13,7 +13,7 @@ import numpy as np
 from nirs4all.data.fit_influence import FitInfluencePolicy
 from nirs4all.data.raw_multisource import AlignedMaterialization, RawMultiSourceDataset, RepresentationPlan
 from nirs4all.data.reduction import ReductionPlan
-from nirs4all.operators.data.merge import StackingFitContract
+from nirs4all.operators.data.merge import MetaFeaturePlan, StackingFitContract
 
 
 class RelationReplayManifestError(ValueError):
@@ -29,6 +29,7 @@ class RelationReplayManifest:
     representation_plan: RepresentationPlan | None = None
     reduction_plans: tuple[ReductionPlan, ...] = ()
     fit_influence_policy: FitInfluencePolicy | None = None
+    meta_feature_plan: MetaFeaturePlan | None = None
     stacking_fit_contract: StackingFitContract | None = None
     extra_fingerprints: dict[str, str] = field(default_factory=dict)
     version: int = 1
@@ -52,6 +53,7 @@ class RelationReplayManifest:
             "representation_plan": self.representation_plan.to_dict() if self.representation_plan is not None else None,
             "reduction_plans": [plan.to_dict() for plan in self.reduction_plans],
             "fit_influence_policy": self.fit_influence_policy.to_dict() if self.fit_influence_policy is not None else None,
+            "meta_feature_plan": _json_safe(self.meta_feature_plan.to_dict()) if self.meta_feature_plan is not None else None,
             "stacking_fit_contract": self.stacking_fit_contract.to_dict() if self.stacking_fit_contract is not None else None,
             "extra_fingerprints": dict(sorted(self.extra_fingerprints.items())),
         }
@@ -68,6 +70,9 @@ class RelationReplayManifest:
         fit_influence_policy = None
         if data.get("fit_influence_policy") is not None:
             fit_influence_policy = FitInfluencePolicy.from_dict(dict(data["fit_influence_policy"]))
+        meta_feature_plan = None
+        if data.get("meta_feature_plan") is not None:
+            meta_feature_plan = MetaFeaturePlan.from_dict(dict(data["meta_feature_plan"]))
         stacking_fit_contract = None
         if data.get("stacking_fit_contract") is not None:
             stacking_fit_contract = StackingFitContract.from_dict(dict(data["stacking_fit_contract"]))
@@ -77,12 +82,13 @@ class RelationReplayManifest:
             representation_plan=representation_plan,
             reduction_plans=tuple(ReductionPlan.from_dict(item) for item in data.get("reduction_plans", ())),
             fit_influence_policy=fit_influence_policy,
+            meta_feature_plan=meta_feature_plan,
             stacking_fit_contract=stacking_fit_contract,
             extra_fingerprints={str(k): str(v) for k, v in dict(data.get("extra_fingerprints", {})).items()},
             version=int(data.get("version", 1)),
         )
         expected_fingerprint = data.get("fingerprint")
-        if expected_fingerprint is not None and str(expected_fingerprint) != manifest.fingerprint():
+        if expected_fingerprint is not None and not manifest._matches_fingerprint(str(expected_fingerprint), has_meta_feature_plan="meta_feature_plan" in data):
             raise RelationReplayManifestError("RelationReplayManifest fingerprint does not match its content.")
         return manifest
 
@@ -90,6 +96,17 @@ class RelationReplayManifest:
         """Stable SHA-256 over the replay contract."""
         payload = self.to_dict(include_fingerprint=False)
         return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+
+    def _matches_fingerprint(self, expected_fingerprint: str, *, has_meta_feature_plan: bool) -> bool:
+        """Return whether ``expected_fingerprint`` matches current or legacy payloads."""
+        if expected_fingerprint == self.fingerprint():
+            return True
+        if has_meta_feature_plan:
+            return False
+        payload = self.to_dict(include_fingerprint=False)
+        payload.pop("meta_feature_plan", None)
+        legacy_fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+        return expected_fingerprint == legacy_fingerprint
 
 
 def build_relation_replay_manifest(
@@ -99,6 +116,7 @@ def build_relation_replay_manifest(
     representation_plan: RepresentationPlan | Mapping[str, Any] | None = None,
     reduction_plans: Sequence[ReductionPlan | Mapping[str, Any]] = (),
     fit_influence_policy: FitInfluencePolicy | Mapping[str, Any] | None = None,
+    meta_feature_plan: MetaFeaturePlan | Mapping[str, Any] | None = None,
     stacking_fit_contract: StackingFitContract | Mapping[str, Any] | None = None,
     extra_fingerprints: Mapping[str, str] | None = None,
 ) -> RelationReplayManifest:
@@ -117,6 +135,7 @@ def build_relation_replay_manifest(
         for item in reduction_plans
     )
     resolved_fit = _coerce_fit_influence_policy(fit_influence_policy)
+    resolved_meta = _coerce_meta_feature_plan(meta_feature_plan)
     resolved_stacking = _coerce_stacking_fit_contract(stacking_fit_contract)
     return RelationReplayManifest(
         staging_manifest=staging_manifest,
@@ -124,6 +143,7 @@ def build_relation_replay_manifest(
         representation_plan=resolved_plan,
         reduction_plans=resolved_reductions,
         fit_influence_policy=resolved_fit,
+        meta_feature_plan=resolved_meta,
         stacking_fit_contract=resolved_stacking,
         extra_fingerprints={str(k): str(v) for k, v in dict(extra_fingerprints or {}).items()},
     )
@@ -143,6 +163,14 @@ def _coerce_fit_influence_policy(value: FitInfluencePolicy | Mapping[str, Any] |
     if isinstance(value, FitInfluencePolicy):
         return value
     return FitInfluencePolicy.from_dict(dict(value))
+
+
+def _coerce_meta_feature_plan(value: MetaFeaturePlan | Mapping[str, Any] | None) -> MetaFeaturePlan | None:
+    if value is None:
+        return None
+    if isinstance(value, MetaFeaturePlan):
+        return value
+    return MetaFeaturePlan.from_dict(dict(value))
 
 
 def _coerce_stacking_fit_contract(value: StackingFitContract | Mapping[str, Any] | None) -> StackingFitContract | None:

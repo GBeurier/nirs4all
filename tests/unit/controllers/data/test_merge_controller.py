@@ -19,7 +19,7 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from nirs4all.controllers.data.merge import MergeConfigParser, MergeController
 from nirs4all.data._features.feature_source import FeatureSource
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.operators.data.merge import MergeConfig
+from nirs4all.operators.data.merge import MergeConfig, MetaFeaturePlan
 from nirs4all.pipeline.config.context import ExecutionContext
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
 
@@ -316,6 +316,104 @@ class TestMergeControllerExitsBranchMode:
         # Verify branch mode was exited
         assert result_context.custom["branch_contexts"] == []
         assert result_context.custom["in_branch_mode"] is False
+
+    def test_merge_attaches_meta_feature_plan_to_dataset(self):
+        """Branch merge should carry replayable meta-feature alignment metadata."""
+        controller = MergeController()
+
+        class MockStepInfo:
+            keyword = "merge"
+            original_step = {
+                "merge": {
+                    "features": "all",
+                    "meta_feature_plan": {"missing_prediction_policy": "mask"},
+                }
+            }
+
+        dataset = create_test_dataset()
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "branch_0",
+                "features_snapshot": create_mock_feature_snapshot(50, 30, seed=42),
+            },
+            {
+                "branch_id": 1,
+                "name": "branch_1",
+                "features_snapshot": create_mock_feature_snapshot(50, 30, seed=43),
+            },
+        ]
+
+        class MockContext:
+            def __init__(self):
+                self.custom = {
+                    "branch_contexts": branch_contexts,
+                    "in_branch_mode": True,
+                }
+
+            def copy(self):
+                new = MockContext()
+                new.custom = dict(self.custom)
+                return new
+
+            def with_processing(self, processing):
+                return self.copy()
+
+        controller.execute(
+            step_info=MockStepInfo(),
+            dataset=dataset,
+            context=MockContext(),
+            runtime_context=None,
+        )
+
+        assert dataset.__dict__["_relation_meta_feature_plan"] == MetaFeaturePlan(missing_prediction_policy="mask").to_dict()
+
+    def test_merge_without_meta_feature_plan_clears_stale_dataset_plan(self):
+        """A later merge without a plan should not persist stale replay metadata."""
+        controller = MergeController()
+
+        class MockStepInfo:
+            keyword = "merge"
+            original_step = {"merge": "features"}
+
+        dataset = create_test_dataset()
+        dataset.__dict__["_relation_meta_feature_plan"] = MetaFeaturePlan(missing_prediction_policy="mask").to_dict()
+        branch_contexts = [
+            {
+                "branch_id": 0,
+                "name": "branch_0",
+                "features_snapshot": create_mock_feature_snapshot(50, 30, seed=42),
+            },
+            {
+                "branch_id": 1,
+                "name": "branch_1",
+                "features_snapshot": create_mock_feature_snapshot(50, 30, seed=43),
+            },
+        ]
+
+        class MockContext:
+            def __init__(self):
+                self.custom = {
+                    "branch_contexts": branch_contexts,
+                    "in_branch_mode": True,
+                }
+
+            def copy(self):
+                new = MockContext()
+                new.custom = dict(self.custom)
+                return new
+
+            def with_processing(self, processing):
+                return self.copy()
+
+        controller.execute(
+            step_info=MockStepInfo(),
+            dataset=dataset,
+            context=MockContext(),
+            runtime_context=None,
+        )
+
+        assert "_relation_meta_feature_plan" not in dataset.__dict__
 
     def test_merge_without_branch_mode_raises(self):
         """Test that merge without active branch mode raises error."""

@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from nirs4all.controllers.data.merge import MergeConfigParser, MergeController
-from nirs4all.operators.data.merge import MergeConfig, SourceMergeConfig
+from nirs4all.operators.data.merge import MergeConfig, MetaFeaturePlan, SourceMergeConfig, StackingFitContract
 
 
 class TestMergeConfigParserConcatMode:
@@ -90,6 +90,19 @@ class TestMergeConfigParserSourcesMerge:
         assert config.source_merge is not None
         # With features key, should not short-circuit
         assert config.collect_features is True
+
+    def test_parse_sources_only_preserves_late_fusion_contracts(self):
+        """Sources-only merge configs should keep replay contracts despite early return."""
+        config = MergeConfigParser.parse({
+            "sources": "concat",
+            "meta_feature_plan": {"missing_prediction_policy": "mask"},
+            "stacking_fit_contract": {"selection_protocol": "holdout"},
+        })
+
+        assert config.source_merge is not None
+        assert config.collect_features is False
+        assert config.meta_feature_plan == MetaFeaturePlan(missing_prediction_policy="mask")
+        assert config.stacking_fit_contract == StackingFitContract(selection_protocol="holdout")
 
 class TestMergeConfigSerialization:
     """Tests for serialization with new fields."""

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 
 import numpy as np
@@ -16,7 +17,11 @@ from nirs4all.data.relation_replay_manifest import (
     build_relation_replay_manifest,
 )
 from nirs4all.data.relations import RepetitionSpec
-from nirs4all.operators.data.merge import StackingFitContract
+from nirs4all.operators.data.merge import MetaFeaturePlan, StackingFitContract
+
+
+def _fingerprint_payload(payload: dict) -> str:
+    return hashlib.sha256(json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
 
 
 def _dataset() -> RawMultiSourceDataset:
@@ -36,6 +41,7 @@ def test_build_relation_replay_manifest_round_trips_live_objects():
     materialization = ds.materialize(RepresentationPlan("cartesian_mc", max_combos_per_sample=2, random_state=3))
     reduction = ReductionPlan(input_level=PredictionLevel.COMBO, output_level=PredictionLevel.SAMPLE)
     fit_policy = FitInfluencePolicy(mode="equal_sample_influence")
+    meta_plan = MetaFeaturePlan(missing_prediction_policy="drop_incomplete")
     stacking_contract = StackingFitContract(selection_protocol="holdout")
 
     manifest = build_relation_replay_manifest(
@@ -43,6 +49,7 @@ def test_build_relation_replay_manifest_round_trips_live_objects():
         materialization=materialization,
         reduction_plans=[reduction],
         fit_influence_policy=fit_policy,
+        meta_feature_plan=meta_plan,
         stacking_fit_contract=stacking_contract,
         extra_fingerprints={"custom": "abc"},
     )
@@ -55,6 +62,7 @@ def test_build_relation_replay_manifest_round_trips_live_objects():
     assert restored.representation_plan.combination_plan is not None
     assert restored.reduction_plans[0].output_level == PredictionLevel.SAMPLE
     assert restored.fit_influence_policy == fit_policy
+    assert restored.meta_feature_plan == meta_plan
     assert restored.stacking_fit_contract == stacking_contract
     assert restored.extra_fingerprints == {"custom": "abc"}
 
@@ -68,12 +76,56 @@ def test_relation_replay_manifest_can_be_built_from_plain_manifests():
         materialization=materialization.to_manifest(),
         reduction_plans=[ReductionPlan().to_dict()],
         fit_influence_policy=FitInfluencePolicy().to_dict(),
+        meta_feature_plan=MetaFeaturePlan(missing_prediction_policy="mask").to_dict(),
         stacking_fit_contract=StackingFitContract().to_dict(),
     )
 
     assert manifest.representation_plan is not None
     assert manifest.representation_plan.representation == "per_source_aggregate"
+    assert manifest.meta_feature_plan is not None
+    assert manifest.meta_feature_plan.missing_prediction_policy == "mask"
     assert manifest.to_dict()["staging_manifest"]["relation_fingerprint"] == ds.relation_table.fingerprint()
+
+
+def test_relation_replay_manifest_accepts_legacy_payload_without_meta_feature_plan():
+    manifest = build_relation_replay_manifest(
+        representation_plan=RepresentationPlan("sample_aggregate"),
+        stacking_fit_contract=StackingFitContract().to_dict(),
+    )
+    payload = manifest.to_dict(include_fingerprint=False)
+    payload.pop("meta_feature_plan")
+    payload["fingerprint"] = _fingerprint_payload(payload)
+
+    restored = RelationReplayManifest.from_dict(payload)
+
+    assert restored.meta_feature_plan is None
+    assert restored.stacking_fit_contract == StackingFitContract()
+
+
+def test_relation_replay_manifest_rejects_tampered_legacy_payload_without_meta_feature_plan():
+    manifest = build_relation_replay_manifest(
+        representation_plan=RepresentationPlan("sample_aggregate"),
+        extra_fingerprints={"source": "original"},
+    )
+    payload = manifest.to_dict(include_fingerprint=False)
+    payload.pop("meta_feature_plan")
+    payload["fingerprint"] = _fingerprint_payload(payload)
+    payload["extra_fingerprints"]["source"] = "tampered"
+
+    with pytest.raises(RelationReplayManifestError, match="fingerprint"):
+        RelationReplayManifest.from_dict(payload)
+
+
+def test_relation_replay_manifest_rejects_legacy_fingerprint_when_meta_feature_plan_key_is_explicit():
+    manifest = build_relation_replay_manifest(representation_plan=RepresentationPlan("sample_aggregate"))
+    payload = manifest.to_dict(include_fingerprint=False)
+    legacy_payload = dict(payload)
+    legacy_payload.pop("meta_feature_plan")
+    payload["meta_feature_plan"] = None
+    payload["fingerprint"] = _fingerprint_payload(legacy_payload)
+
+    with pytest.raises(RelationReplayManifestError, match="fingerprint"):
+        RelationReplayManifest.from_dict(payload)
 
 
 def test_relation_replay_manifest_rejects_tampered_fingerprint():

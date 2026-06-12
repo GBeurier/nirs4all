@@ -7,12 +7,14 @@ from unittest.mock import Mock, patch
 
 import numpy as np
 import polars as pl
+import pytest
 
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.fit_influence import FitInfluencePolicy
 from nirs4all.data.predictions import Predictions
 from nirs4all.data.raw_multisource import RawMultiSourceDataset
 from nirs4all.data.relations import RepetitionSpec
+from nirs4all.operators.data.merge import MetaFeaturePlan
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.execution.executor import PipelineExecutor
 from nirs4all.pipeline.execution.result import StepResult
@@ -148,6 +150,41 @@ def test_relation_replay_manifest_includes_fit_influence_policy_from_dataset():
     assert payload["materialization_manifest"]["fingerprint"] == materialized.fingerprint
     assert payload["fit_influence_policy"]["mode"] == "equal_sample_influence"
     assert payload["fingerprint"]
+
+
+def test_relation_replay_manifest_includes_meta_feature_plan_from_dataset():
+    raw = RawMultiSourceDataset.from_sources(
+        RepetitionSpec(sample_id="sid", link_by="sid"),
+        {"A": np.array([[1.0], [3.0]]), "B": np.array([[10.0], [20.0]])},
+        {"A": ["S1", "S2"], "B": ["S1", "S2"]},
+        targets_by_source={"A": [10.0, 20.0]},
+    )
+    materialized = raw.materialize("per_source_aggregate")
+    dataset = materialized.to_spectro_dataset("rel")
+    dataset._relation_meta_feature_plan = MetaFeaturePlan(missing_prediction_policy="mask").to_dict()
+
+    relation_manifest = PipelineExecutor._relation_replay_manifest_from_dataset(dataset)
+    assert relation_manifest is not None
+    payload = relation_manifest.to_dict()
+
+    assert payload["materialization_manifest"]["fingerprint"] == materialized.fingerprint
+    assert payload["meta_feature_plan"]["missing_prediction_policy"] == "mask"
+    assert payload["fingerprint"]
+
+
+def test_relation_replay_manifest_rejects_invalid_meta_feature_plan_from_dataset():
+    raw = RawMultiSourceDataset.from_sources(
+        RepetitionSpec(sample_id="sid", link_by="sid"),
+        {"A": np.array([[1.0], [3.0]]), "B": np.array([[10.0], [20.0]])},
+        {"A": ["S1", "S2"], "B": ["S1", "S2"]},
+        targets_by_source={"A": [10.0, 20.0]},
+    )
+    materialized = raw.materialize("per_source_aggregate")
+    dataset = materialized.to_spectro_dataset("rel")
+    dataset._relation_meta_feature_plan = {"missing_prediction_policy": "not-a-policy"}
+
+    with pytest.raises(ValueError, match="relation replay metadata"):
+        PipelineExecutor._relation_replay_manifest_from_dataset(dataset)
 
 
 def test_finalize_pipeline_omits_relation_replay_manifest_for_legacy_dataset():

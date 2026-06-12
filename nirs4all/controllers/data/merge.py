@@ -642,6 +642,7 @@ class MergeConfigParser:
                 k in config_dict for k in ("features", "predictions", "concat")
             )
             if not has_other_keys:
+                cls._parse_late_fusion_contracts(config, config_dict)
                 return config
 
         # Phase 5: Check for separation branch merge (concat mode)
@@ -669,16 +670,7 @@ class MergeConfigParser:
         config.unsafe = config_dict.get("unsafe", False)
         config.output_as = config_dict.get("output_as", "features")
         config.source_names = config_dict.get("source_names")
-        if "meta_feature_plan" in config_dict:
-            meta_plan = config_dict["meta_feature_plan"]
-            config.meta_feature_plan = meta_plan if isinstance(meta_plan, MetaFeaturePlan) else MetaFeaturePlan.from_dict(meta_plan)
-        if "stacking_fit_contract" in config_dict:
-            stacking_contract = config_dict["stacking_fit_contract"]
-            config.stacking_fit_contract = (
-                stacking_contract
-                if isinstance(stacking_contract, StackingFitContract)
-                else StackingFitContract.from_dict(stacking_contract)
-            )
+        cls._parse_late_fusion_contracts(config, config_dict)
 
         # Parse disjoint sample branch merge options (Phase 2)
         config.n_columns = config_dict.get("n_columns")
@@ -693,6 +685,20 @@ class MergeConfigParser:
             )
 
         return config
+
+    @staticmethod
+    def _parse_late_fusion_contracts(config: MergeConfig, config_dict: dict[str, Any]) -> None:
+        """Attach replayable late-fusion contracts from merge config."""
+        if "meta_feature_plan" in config_dict:
+            meta_plan = config_dict["meta_feature_plan"]
+            config.meta_feature_plan = meta_plan if isinstance(meta_plan, MetaFeaturePlan) else MetaFeaturePlan.from_dict(meta_plan)
+        if "stacking_fit_contract" in config_dict:
+            stacking_contract = config_dict["stacking_fit_contract"]
+            config.stacking_fit_contract = (
+                stacking_contract
+                if isinstance(stacking_contract, StackingFitContract)
+                else StackingFitContract.from_dict(stacking_contract)
+            )
 
     @classmethod
     def _parse_source_merge_spec(
@@ -1107,6 +1113,7 @@ class MergeController(OperatorController):
                 source=source,
                 mode=mode,
                 source_merge_config=config.source_merge,
+                meta_feature_plan=config.meta_feature_plan,
                 loaded_binaries=loaded_binaries,
                 prediction_store=prediction_store,
             )
@@ -1249,6 +1256,7 @@ class MergeController(OperatorController):
             merge_info=merge_info,
             is_source_branch_merge=is_source_branch_merge,
         )
+        self._attach_relation_meta_feature_plan(dataset, config.meta_feature_plan)
 
         # ALWAYS exit branch mode (both regular and source_branch) and
         # re-sync context processing with the new dataset processing names
@@ -1517,6 +1525,17 @@ class MergeController(OperatorController):
 
         return metadata
 
+    @staticmethod
+    def _attach_relation_meta_feature_plan(
+        dataset: "SpectroDataset",
+        meta_feature_plan: MetaFeaturePlan | None,
+    ) -> None:
+        """Persist replayable late-fusion alignment metadata on merged datasets."""
+        if meta_feature_plan is None:
+            dataset.__dict__.pop("_relation_meta_feature_plan", None)
+            return
+        dataset.__dict__["_relation_meta_feature_plan"] = meta_feature_plan.to_dict()
+
     def _execute_source_branch_merge(
         self,
         step_info: "ParsedStep",
@@ -1648,6 +1667,8 @@ class MergeController(OperatorController):
                 source=0
             )
             logger.info(f"  Concatenated to shape {merged_features.shape}")
+
+        self._attach_relation_meta_feature_plan(dataset, config.meta_feature_plan)
 
         # Exit source branch mode
         result_context = context.copy()
@@ -1814,6 +1835,8 @@ class MergeController(OperatorController):
         if dataset.features_sources() > 1:
             dataset.keep_sources(0)
 
+        self._attach_relation_meta_feature_plan(dataset, config.meta_feature_plan)
+
         # Exit branch mode
         result_context = context.copy()
         result_context.custom["branch_contexts"] = []
@@ -1966,6 +1989,9 @@ class MergeController(OperatorController):
 
             except Exception as e:
                 logger.warning(f"Could not collect predictions in predict mode: {e}")
+
+        if config.collect_features or config.collect_predictions:
+            self._attach_relation_meta_feature_plan(dataset, config.meta_feature_plan)
 
         # Exit branch mode
         result_context = context.copy()
@@ -4418,6 +4444,7 @@ class MergeController(OperatorController):
                 processing_name=processing_name,
                 source=0
             )
+            self._attach_relation_meta_feature_plan(dataset, config.meta_feature_plan)
 
         # Exit branch mode (if any residual state)
         result_context = context.copy()
@@ -5499,6 +5526,7 @@ class MergeController(OperatorController):
         source_merge_config: SourceMergeConfig,
         loaded_binaries: list[tuple[str, Any]] | None,
         prediction_store: Any | None,
+        meta_feature_plan: MetaFeaturePlan | None = None,
     ) -> tuple["ExecutionContext", StepOutput]:
         """Execute source merge using SourceMergeConfig from merge keyword.
 
@@ -5513,6 +5541,7 @@ class MergeController(OperatorController):
             source: Data source index
             mode: Execution mode ("train" or "predict")
             source_merge_config: Source merge configuration
+            meta_feature_plan: Optional late-fusion/meta-feature replay plan from the merge config
             loaded_binaries: Pre-loaded binary objects for prediction mode
             prediction_store: External prediction store for model predictions
 
@@ -5632,6 +5661,8 @@ class MergeController(OperatorController):
                 logger.info(
                     f"Source merge ({source_merge_config.strategy}) completed: shape={shape_str}"
                 )
+
+        self._attach_relation_meta_feature_plan(dataset, meta_feature_plan)
 
         # Build metadata
         metadata = {
