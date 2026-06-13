@@ -142,6 +142,11 @@ relation manifest, that dataset manifest takes precedence.
 
 ## Minimal Examples
 
+For a step-by-step walkthrough that reads the shipped CSV fixtures, builds a
+`RawMultiSourceDataset`, materializes `per_source_aggregate` and
+`cartesian_full`, and connects the staged dataset to `rep_fusion`, see
+{doc}`heterogeneous_repetitions_tutorial`.
+
 See:
 
 - `examples/configs/datasets/heterogeneous_repetitions_per_source_aggregate.yaml`

@@ -10,6 +10,7 @@ synthetic_data
 signal_types
 aggregation
 heterogeneous_repetitions
+heterogeneous_repetitions_tutorial
 sample_filtering
 ```
 
@@ -72,6 +73,17 @@ contracts.
 
 +++
 {bdg-warning}`Experimental`
+:::
+
+:::{grid-item-card} Heterogeneous Repetitions Tutorial
+:link: heterogeneous_repetitions_tutorial
+:link-type: doc
+
+Build the shipped MIR/Raman/NIRS relation fixture, materialize sample-level and
+cartesian representations, and connect the staged data to `rep_fusion`.
+
++++
+{bdg-warning}`Experimental` {bdg-info}`Tutorial`
 :::
 
 :::{grid-item-card} 🔍 Sample Filtering
