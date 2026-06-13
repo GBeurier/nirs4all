@@ -7,6 +7,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.0] - Heterogeneous source repetitions - 2026-06-13
+
+### 🎯 Highlights
+
+Minor release for the experimental relation pipeline: nirs4all can now model
+heterogeneous multisource repetitions where each physical sample has different
+source-specific repetition counts, for example `MIR=2`, `RAMAN=3`, `NIRS=2`.
+The legacy `repetition=` path remains unchanged; relation-aware workflows opt in
+explicitly through `experimental_relation_pipeline`.
+
+### ✨ Added
+
+- **Data relation contracts**: `RepetitionSpec`, normalized relation tables,
+  `RawMultiSourceDataset`, explicit representation plans, relation fingerprints,
+  and replay manifests.
+- **Representation materialization**: `per_source_aggregate`,
+  `per_source_observation`, `sample_aggregate`, fixed/padded stack modes, and
+  bounded cartesian materializations including train-only augmentation.
+- **Pipeline integration**: `rep_fusion` as the explicit boundary from ragged
+  source staging to model matrices, relation-aware guards for merge/stacking,
+  sample-level reducers, fit-influence policy handling, bundle replay, and
+  prediction/explainability lineage accessors.
+- **Examples and docs**: heterogeneous relation YAML examples, mirrored sample
+  configs, fixture CSVs, an RTD user guide page, and a step-by-step RTD tutorial.
+
+### 🛡️ Changed
+
+- Ambiguous heterogeneous multisource inputs that would previously be silently
+  treated as positionally aligned are rejected with explicit relation errors.
+- Relation-aware runs persist representation, reducer, missingness,
+  fit-influence, and feature-lineage contracts so exported bundles can replay
+  prediction materialization safely.
+
+### 🧪 Tests
+
+- Added unit, integration, regression, bundle, storage, API, and example-contract
+  coverage for relation materialization, replay, guardrails, fit influence,
+  prediction provenance, and docs/example contracts.
+- Full validation before release: `7638 passed, 13 skipped`.
+
+---
+
 
 ## [0.9.4] - Slim core (optional viz/explain extras) - 2026-06-11
 
