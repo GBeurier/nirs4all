@@ -9,6 +9,8 @@ from typing import Any, Optional, Union
 
 import yaml
 
+from nirs4all.data.relations import check_repetition_exclusivity
+
 from .component_serialization import serialize_component
 from .generator import ALL_KEYWORDS, count_combinations, expand_spec, expand_spec_with_choices
 
@@ -91,6 +93,8 @@ class PipelineConfigs:
             self.steps = [self.steps]  # Wrap single configuration in a list
             self.generator_choices = [[]]  # No choices for single config
 
+        self._validate_repetition_mechanisms(self.steps)
+
         ## Name and hash
         if name == "":
             name = "config"
@@ -100,6 +104,12 @@ class PipelineConfigs:
         ]
 
         # print(f"✅ {len(self.steps)} pipeline configuration(s).")
+
+    @staticmethod
+    def _validate_repetition_mechanisms(configurations: list[list[Any]]) -> None:
+        """Reject mutually exclusive repetition mechanisms in each variant."""
+        for steps in configurations:
+            check_repetition_exclusivity(steps)
 
     @staticmethod
     def _has_gen_keys(obj: Any, skip_branch: bool = True) -> bool:

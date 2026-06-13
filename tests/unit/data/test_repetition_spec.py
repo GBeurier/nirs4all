@@ -21,6 +21,8 @@ from nirs4all.data.relations import (
     check_repetition_exclusivity,
     detect_repetition_mechanisms,
 )
+from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+from nirs4all.pipeline.execution.orchestrator import PipelineOrchestrator
 
 # ---------------------------------------------------------------------------
 # RepetitionSpec.from_config
@@ -133,6 +135,32 @@ def test_exclusivity_rep_to_sources_and_rep_to_pp_rejected():
     with pytest.raises(RelationValidationError) as exc:
         check_repetition_exclusivity(steps)
     assert exc.value.code == "REL-E008"
+
+
+def test_pipeline_configs_enforces_repetition_exclusivity():
+    with pytest.raises(RelationValidationError) as exc:
+        PipelineConfigs([{"rep_to_sources": "id"}, {"rep_fusion": "per_source_aggregate"}])
+    assert exc.value.code == "REL-E008"
+
+
+def test_pipeline_orchestrator_enforces_dataset_repetition_exclusivity():
+    pipeline_configs = PipelineConfigs([{"rep_fusion": "per_source_aggregate"}])
+
+    class _DatasetConfigs:
+        repetitions = ["sample_id"]
+
+    with pytest.raises(RelationValidationError) as exc:
+        PipelineOrchestrator._validate_repetition_exclusivity(pipeline_configs, _DatasetConfigs())
+    assert exc.value.code == "REL-E008"
+
+
+def test_pipeline_orchestrator_preserves_legacy_repetition_reshapers():
+    pipeline_configs = PipelineConfigs([{"rep_to_sources": "sample_id"}])
+
+    class _DatasetConfigs:
+        repetitions = ["sample_id"]
+
+    PipelineOrchestrator._validate_repetition_exclusivity(pipeline_configs, _DatasetConfigs())
 
 
 # ---------------------------------------------------------------------------

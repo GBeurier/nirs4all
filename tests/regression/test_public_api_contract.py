@@ -201,11 +201,17 @@ EXPECTED_RUNRESULT_MEMBERS: frozenset[str] = frozenset(
 EXPECTED_PREDICTRESULT_MEMBERS: frozenset[str] = frozenset(
     {
         "flatten",
+        "explanation_level",
+        "feature_lineage",
+        "get_feature_lineage",
         "is_multioutput",
+        "lineage_warning",
         # dataclass instance fields (missed by dir(cls), recovered via fields())
         "metadata",
         "model_name",
         "preprocessing_steps",
+        "relation_materialization_manifest",
+        "relation_replay_manifest",
         "sample_indices",
         "shape",
         "to_dataframe",

@@ -18,6 +18,7 @@ from nirs4all.core.metrics import infer_ascending as _infer_ascending
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
+from nirs4all.data.relations import check_repetition_exclusivity, detect_repetition_mechanisms
 from nirs4all.pipeline.analysis.topology import analyze_topology
 from nirs4all.pipeline.config.context import BestChainEntry, RuntimeContext
 from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
@@ -222,6 +223,7 @@ class PipelineOrchestrator:
             max_generation_count=max_generation_count
         )
         dataset_configs = self._normalize_dataset(dataset, dataset_name=dataset_name)
+        self._validate_repetition_exclusivity(pipeline_configs, dataset_configs)
 
         # Clear previous figure references
         self._figure_refs.clear()
@@ -331,6 +333,22 @@ class PipelineOrchestrator:
             raise
 
         return run_predictions, datasets_predictions
+
+    @staticmethod
+    def _validate_repetition_exclusivity(pipeline_configs: PipelineConfigs, dataset_configs: DatasetConfigs) -> None:
+        """Validate relational repetition mechanisms against dataset-level repetition.
+
+        Legacy ``rep_to_sources`` / ``rep_to_pp`` parity configs use the
+        dataset-level repetition column as their source of truth, so runtime
+        rejection is limited to the relational ``rep_fusion`` path.
+        """
+        repetitions = getattr(dataset_configs, "repetitions", [])
+        has_global_repetition = any(rep is not None for rep in repetitions)
+        if not has_global_repetition:
+            return
+        for steps in pipeline_configs.steps:
+            if "rep_fusion" in detect_repetition_mechanisms(steps):
+                check_repetition_exclusivity(steps, has_global_repetition=True)
 
     def _begin_store_run(
         self,
