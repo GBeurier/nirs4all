@@ -24,8 +24,8 @@ jobs:
     name: Metadata + reference gates (blocking)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Metadata gate (version + license)
@@ -39,12 +39,12 @@ jobs:
     name: Sphinx build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
-      - name: Install (with docs extra)
-        run: pip install -e ".[docs]"
+      - name: Install (with docs, visualization, and explain extras)
+        run: pip install -e ".[docs,viz,explain]"
       - name: Build HTML
         run: python -m sphinx -b html docs/source docs/_build/html
 
@@ -52,12 +52,12 @@ jobs:
     name: Fast example subset (per-PR)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
       - name: Install
-        run: pip install -e .
+        run: pip install -e ".[viz]"
       - name: Run canonical on-ramp + reference examples
         working-directory: examples
         run: |
