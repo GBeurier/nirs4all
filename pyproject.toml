@@ -14,7 +14,7 @@ authors = [
     { name = "Lauriane Rouan", email = "lauriane.rouan@cirad.fr" }
 ]
 readme = "README.md"
-license = { file = "LICENSE" }
+license = { text = "CeCILL-2.1 OR AGPL-3.0-or-later" }
 
 maintainers = [
     { name = "Gregory Beurier", email = "gregory.beurier@cirad.fr" }

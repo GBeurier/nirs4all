@@ -427,9 +427,11 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## License
 
-This project is licensed under [AGPL-3.0-or-later](LICENSE) by default, with
-GPL-3.0-or-later and CeCILL-2.1 variants available under the same licence file.
-A separate commercial licence is available for closed-source use.
+`nirs4all` is dual-licensed open-source — **`CeCILL-2.1 OR AGPL-3.0-or-later`** (your choice) —
+with an optional **commercial license** for closed-source / SaaS use. For any commercial use,
+contact <nirs4all-admin@cirad.fr>. See [`LICENSING.md`](LICENSING.md), the full texts bundled
+under [`LICENSES/`](LICENSES/), and third-party attributions in
+[`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
 ---
 
