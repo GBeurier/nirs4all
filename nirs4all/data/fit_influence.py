@@ -223,8 +223,15 @@ def _auto_mode(
 
 
 def _require_fallback(policy: FitInfluencePolicy, mode: FitInfluenceMode) -> None:
-    if mode.value not in policy.allowed_fallbacks and policy.mode == FitInfluenceMode.AUTO.value:
-        raise FitInfluenceError(f"FitInfluencePolicy auto cannot use fallback {mode.value!r}.")
+    # ``allowed_fallbacks`` constrains every fallback, not only the ones picked by
+    # ``auto``. An explicit mode (e.g. ``equal_sample_influence``) that cannot be
+    # honoured by the backend still falls back through this gate, so the gate must
+    # apply regardless of ``policy.mode``.
+    if mode.value not in policy.allowed_fallbacks:
+        raise FitInfluenceError(
+            f"FitInfluencePolicy cannot use fallback {mode.value!r}; it is not listed in "
+            f"allowed_fallbacks={list(policy.allowed_fallbacks)}."
+        )
 
 
 def _equal_sample_weights(sample_ids: Sequence[str]) -> np.ndarray:

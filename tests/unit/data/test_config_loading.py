@@ -15,7 +15,7 @@ import yaml
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.config_parser import _load_config_from_file, parse_config
-from nirs4all.data.relations import RepetitionSpec, SampleRelationPlan, SourceObservations
+from nirs4all.data.relations import RelationValidationError, RepetitionSpec, SampleRelationPlan, SourceObservations
 
 
 def _assert_heterogeneous_relation_config(config_path: Path, examples_root: Path) -> None:
@@ -529,3 +529,13 @@ global_params:
 
         error_msg = str(exc_info.value)
         assert "Invalid JSON" in error_msg or "line" in error_msg.lower()
+
+    def test_experimental_relation_sources_config_refused_by_legacy_loader(self):
+        """Experimental relation + sources YAML must not load as an empty dataset."""
+        repo_root = Path(__file__).resolve().parents[3]
+        config_path = repo_root / "examples" / "configs" / "datasets" / "heterogeneous_repetitions_per_source_aggregate.yaml"
+
+        configs = DatasetConfigs(str(config_path))
+        with pytest.raises(RelationValidationError) as exc:
+            configs.get_dataset_at(0)
+        assert exc.value.code == "REL-E023"

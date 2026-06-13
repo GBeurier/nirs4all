@@ -138,3 +138,27 @@ def test_auto_fails_when_required_fallback_is_not_allowed():
             policy=FitInfluencePolicy(mode="auto", allowed_fallbacks=("uniform_rows",)),
             backend_supports_sample_weight=False,
         )
+
+
+def test_explicit_mode_respects_disallowed_fallback():
+    # An explicit (non-auto) mode that the backend cannot honour must still obey
+    # allowed_fallbacks: resample_equalized is not allowed here, so it must fail.
+    with pytest.raises(FitInfluenceError, match="fallback"):
+        resolve_fit_influence(
+            ["S1", "S1", "S2"],
+            policy=FitInfluencePolicy(mode="equal_sample_influence", allowed_fallbacks=("uniform_rows",)),
+            backend_supports_sample_weight=False,
+        )
+
+
+def test_explicit_mode_uses_allowed_fallback():
+    # Same explicit mode, but the fallback is allowed: resolution falls back cleanly.
+    resolution = resolve_fit_influence(
+        ["S1", "S1", "S2"],
+        policy=FitInfluencePolicy(mode="equal_sample_influence", allowed_fallbacks=("resample_equalized",)),
+        backend_supports_sample_weight=False,
+    )
+
+    assert resolution.effective_mode == "resample_equalized"
+    assert resolution.resample_indices is not None
+    assert resolution.sample_weight is None

@@ -392,6 +392,28 @@ def test_cartesian_representation_plan_carries_combination_plan():
     assert restored.fingerprint() == plan.fingerprint()
 
 
+def test_partial_nested_combination_plan_inherits_representation_defaults_and_top_level_caps():
+    plan = RepresentationPlan(
+        "cartesian_mc",
+        max_combos_per_sample=2,
+        max_total_combos=4,
+        max_total_rows=4,
+        memory_budget="1MB",
+        random_state=7,
+        combination_plan={"max_total_combos": 3},
+    )
+
+    assert plan.combo_selection == "random_seeded"
+    assert plan.combination_plan == CombinationPlan(
+        combo_selection="random_seeded",
+        max_combos_per_sample=2,
+        max_total_combos=3,
+        max_total_rows=4,
+        memory_budget="1MB",
+        random_state=7,
+    )
+
+
 def test_materialization_manifest_replays_exactly():
     ds = _heterogeneous_dataset()
     plan = RepresentationPlan("per_source_aggregate", max_total_rows=2)
@@ -545,6 +567,197 @@ def test_representation_caps_are_enforced_before_allocation():
     with pytest.raises(RelationValidationError) as exc:
         ds.materialize(RepresentationPlan("per_source_observation", max_total_rows=2))
     assert exc.value.code == "REL-E019"
+
+
+def test_combo_at_index_matches_itertools_product_order():
+    # The mixed-radix decode used to sample combos without building the full
+    # product must agree with itertools.product ordering for every index.
+    import itertools
+
+    options = [["a0", "a1"], ["b0", "b1", "b2"], ["c0"]]
+    sizes = [len(source_options) for source_options in options]
+    expected = list(itertools.product(*options))
+    decoded = [RawMultiSourceDataset._combo_at_index(options, sizes, index) for index in range(len(expected))]
+    assert decoded == expected
+
+
+def test_cartesian_full_total_row_cap_enforced_during_selection():
+    # The total-row cap is checked incrementally, before the second sample is expanded.
+    ds = _heterogeneous_dataset()
+    with pytest.raises(RelationValidationError) as exc:
+        ds.materialize(RepresentationPlan("cartesian_full", max_total_rows=6))
+    assert exc.value.code == "REL-E019"
+    assert "max_total_rows" in str(exc.value)
+
+
+def test_cartesian_full_total_cap_fails_before_product(monkeypatch):
+    # If a single sample already exceeds the global cap, fail before calling
+    # itertools.product at all.
+    from nirs4all.data import raw_multisource
+
+    def fail_product(*_args, **_kwargs):
+        raise AssertionError("cartesian product should not be materialized")
+
+    ds = _heterogeneous_dataset()
+    monkeypatch.setattr(raw_multisource.itertools, "product", fail_product)
+    with pytest.raises(RelationValidationError) as exc:
+        ds.materialize(RepresentationPlan("cartesian_full", max_total_rows=5))
+    assert exc.value.code == "REL-E019"
+    assert "max_total_rows" in str(exc.value)
+
+
+def test_cartesian_nested_combination_plan_total_cap_fails_before_product(monkeypatch):
+    # Explicit/nested CombinationPlan caps are part of the executable contract.
+    from nirs4all.data import raw_multisource
+
+    def fail_product(*_args, **_kwargs):
+        raise AssertionError("cartesian product should not be materialized")
+
+    ds = _heterogeneous_dataset()
+    plan = RepresentationPlan(
+        "cartesian_full",
+        combination_plan={"combo_selection": "deterministic_all", "max_total_rows": 5},
+    )
+    monkeypatch.setattr(raw_multisource.itertools, "product", fail_product)
+    with pytest.raises(RelationValidationError) as exc:
+        ds.materialize(plan)
+    assert exc.value.code == "REL-E019"
+    assert "max_total_rows" in str(exc.value)
+
+
+def test_partial_nested_combination_plan_uses_top_level_total_cap_before_product(monkeypatch):
+    # A partial nested plan still inherits the top-level safety caps.
+    from nirs4all.data import raw_multisource
+
+    def fail_product(*_args, **_kwargs):
+        raise AssertionError("cartesian product should not be materialized")
+
+    ds = _heterogeneous_dataset()
+    plan = RepresentationPlan("cartesian_full", max_total_rows=5, combination_plan={"combo_selection": "deterministic_all"})
+    monkeypatch.setattr(raw_multisource.itertools, "product", fail_product)
+    with pytest.raises(RelationValidationError) as exc:
+        ds.materialize(plan)
+    assert exc.value.code == "REL-E019"
+    assert "max_total_rows" in str(exc.value)
+
+
+def test_combination_plan_object_uses_top_level_combo_caps_before_product(monkeypatch):
+    # A pre-built CombinationPlan is an advanced API path and does not go through
+    # mapping normalisation, so runtime cap lookup must still fall back to the
+    # top-level RepresentationPlan values.
+    from nirs4all.data import raw_multisource
+
+    def fail_product(*_args, **_kwargs):
+        raise AssertionError("cartesian product should not be materialized")
+
+    ds = _heterogeneous_dataset()
+    monkeypatch.setattr(raw_multisource.itertools, "product", fail_product)
+
+    total_cap_plan = RepresentationPlan(
+        "cartesian_full",
+        max_total_combos=5,
+        combination_plan=CombinationPlan(combo_selection="deterministic_all"),
+    )
+    assert total_cap_plan.combination_plan is not None
+    assert total_cap_plan.combination_plan.max_total_combos == 5
+    with pytest.raises(RelationValidationError) as exc:
+        ds.materialize(total_cap_plan)
+    assert exc.value.code == "REL-E019"
+    assert "max_total_combos" in str(exc.value)
+
+    per_sample_plan = RepresentationPlan(
+        "cartesian_full",
+        max_combos_per_sample=5,
+        combination_plan=CombinationPlan(combo_selection="deterministic_all"),
+    )
+    assert per_sample_plan.combination_plan is not None
+    assert per_sample_plan.combination_plan.max_combos_per_sample == 5
+    with pytest.raises(RelationValidationError) as exc:
+        ds.materialize(per_sample_plan)
+    assert exc.value.code == "REL-E019"
+    assert "max_combos_per_sample" in str(exc.value)
+
+
+def test_cartesian_memory_budget_fails_before_product(monkeypatch):
+    from nirs4all.data import raw_multisource
+
+    def fail_product(*_args, **_kwargs):
+        raise AssertionError("cartesian product should not be materialized")
+
+    ds = _heterogeneous_dataset()
+    monkeypatch.setattr(raw_multisource.itertools, "product", fail_product)
+    with pytest.raises(RelationValidationError) as exc:
+        ds.materialize(RepresentationPlan("cartesian_full", memory_budget=16))
+    assert exc.value.code == "REL-E019"
+    assert "memory_budget" in str(exc.value)
+
+
+def test_cartesian_mc_selects_bounded_combos_without_full_expansion():
+    # 20 x 20 = 400 combos for one sample; MC must select only the cap and stay
+    # replayable without ever materialising the full product.
+    X = {
+        "A": np.arange(20, dtype=float).reshape(20, 1),
+        "B": np.arange(20, 40, dtype=float).reshape(20, 1),
+    }
+    keys = {"A": ["S1"] * 20, "B": ["S1"] * 20}
+    ds = RawMultiSourceDataset.from_sources(_spec(), X, keys, targets_by_source={"A": [1.0] * 20})
+    plan = RepresentationPlan("cartesian_mc", max_combos_per_sample=5, random_state=7)
+
+    mat = ds.materialize(plan)
+    assert mat.X.shape == (5, 2)
+    replayed = replay_materialization(ds, mat.to_manifest(), validate_fingerprint=True)
+    np.testing.assert_allclose(replayed.X, mat.X)
+    assert replayed.unit_ids == mat.unit_ids
+
+
+def test_cartesian_mc_uses_nested_combination_plan_random_state():
+    ds = _heterogeneous_dataset()
+    top_level = ds.materialize(RepresentationPlan("cartesian_mc", max_combos_per_sample=2, random_state=42))
+    nested = ds.materialize(
+        RepresentationPlan(
+            "cartesian_mc",
+            combination_plan={"combo_selection": "random_seeded", "max_combos_per_sample": 2, "random_state": 42},
+        )
+    )
+
+    assert nested.unit_ids == top_level.unit_ids
+    np.testing.assert_allclose(nested.X, top_level.X)
+
+
+def test_cartesian_augmentation_does_not_augment_non_train_samples():
+    # train_only (the cartesian_augmentation default) must keep non-train samples
+    # to a single deterministic row instead of the full cartesian expansion.
+    ds = _heterogeneous_dataset()  # S1, S2; MIR=2 x RAMAN=3 -> 6 combos/sample
+    for record in ds.relation_table.records:
+        if record.physical_sample_id == "S2":
+            record.partition = Partition.TEST
+
+    aug = ds.materialize(RepresentationPlan("cartesian_augmentation"))
+    assert aug.sample_ids == ["S1"] * 6 + ["S2"]
+    assert aug.X.shape == (7, 3)
+    # The non-train sample keeps one canonical (first) combo: rep0 of every source.
+    np.testing.assert_allclose(aug.X[-1], [3.0, 3.0, 20.0])
+    assert aug.partitions[-1] == "test"
+    assert aug.lineage[-1]["physical_sample_id"] == "S2"
+    assert aug.lineage[-1]["augmentation"] is None
+    # Train rows stay augmented.
+    assert aug.lineage[0]["augmentation"] == "cartesian_augmentation"
+
+    # cartesian_full keeps train_only=False, so every sample is fully expanded.
+    full = ds.materialize("cartesian_full")
+    assert full.X.shape == (12, 3)
+    assert full.sample_ids == ["S1"] * 6 + ["S2"] * 6
+
+    direct_plan = RepresentationPlan(
+        "cartesian_augmentation",
+        combination_plan=CombinationPlan(combo_selection="deterministic_all"),
+    )
+    direct = ds.materialize(direct_plan)
+    assert direct.representation_plan is not None
+    assert direct.representation_plan.combination_plan is not None
+    assert direct.representation_plan.combination_plan.train_only is True
+    assert direct.sample_ids == aug.sample_ids
+    np.testing.assert_allclose(direct.X, aug.X)
 
 
 # ---------------------------------------------------------------------------

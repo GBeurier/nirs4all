@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from nirs4all.data.loaders.loader import materialize_relation_table
+from nirs4all.data.loaders.loader import handle_data, materialize_relation_table
 from nirs4all.data.relations import RelationValidationError
 
 
@@ -82,3 +82,26 @@ def test_materialize_missing_declared_source_frame_refused():
     with pytest.raises(RelationValidationError) as exc:
         materialize_relation_table(_config(), frames)
     assert exc.value.code == "REL-E007"
+
+
+def test_handle_data_refuses_experimental_relation_sources_config():
+    # The legacy loader cannot materialise the experimental relation pipeline: it
+    # must fail loudly instead of returning an empty/positional dataset.
+    config = {
+        **_config(),
+        "train_x": ["MIR_train.csv", "RAMAN_train.csv"],
+        "_sources": [{"name": "MIR", "link_by": "sid"}, {"name": "RAMAN", "link_by": "sid"}],
+    }
+    with pytest.raises(RelationValidationError) as exc:
+        handle_data(config, "train")
+    assert exc.value.code == "REL-E023"
+    assert "rep_fusion" in str(exc.value)
+
+
+def test_handle_data_allows_plain_legacy_config():
+    # A plain legacy config without relation fields is not affected by the guard.
+    import numpy as np
+
+    config = {"train_x": np.zeros((3, 2)), "train_y": np.zeros((3, 1))}
+    x, _y, _m, _xh, _mh, _unit, _sig = handle_data(config, "train")
+    assert x.shape == (3, 2)

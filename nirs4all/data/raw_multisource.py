@@ -968,16 +968,31 @@ class RawMultiSourceDataset:
         headers, _offsets = self._source_block_headers()
         by_key = self._observation_groups()
         targets_map = self.targets_by_sample()
-        selected_by_sample: dict[str, list[tuple[tuple[Any, np.ndarray, np.ndarray], ...]]] = {}
+        train_only = plan.combination_plan.train_only
+        selected_by_sample: dict[str, tuple[list[tuple[tuple[Any, np.ndarray, np.ndarray], ...]], bool]] = {}
         n_rows = 0
         has_missing = False
         for sample in samples:
             options = self._cartesian_options_for_sample(plan, sample, sources, by_key)
-            combos = self._select_cartesian_combos(plan, sample, options)
-            selected_by_sample[sample] = combos
+            # train_only (the cartesian_augmentation default) must not augment
+            # non-train samples: validation/test/predict samples keep a single
+            # deterministic row instead of the full cartesian expansion.
+            augmented = not (train_only and self._partition_for_sample(sample) != Partition.TRAIN.value)
+            selected_count = self._cartesian_selected_count(plan, sample, options, augmented=augmented)
+            sample_has_missing = any(component[0] is None for source_options in options for component in source_options)
+            # Enforce the total combo/row caps before the sample selection is
+            # materialised; this prevents a capped cartesian_full plan from
+            # building a huge product just to reject it afterwards.
+            self._enforce_running_combo_caps(
+                plan,
+                n_rows + selected_count,
+                n_features=len(headers),
+                include_mask=has_missing or sample_has_missing,
+            )
+            combos = self._select_cartesian_combos(plan, sample, options) if augmented else self._cartesian_non_augmented_combos(options)
+            selected_by_sample[sample] = (combos, augmented)
             n_rows += len(combos)
-            has_missing = has_missing or any(component[0] is None for combo in combos for component in combo)
-        self._enforce_combo_caps(plan, n_rows)
+            has_missing = has_missing or sample_has_missing
         self._enforce_materialization_caps(plan, n_rows=n_rows, n_features=len(headers), include_mask=has_missing)
 
         rows: list[np.ndarray] = []
@@ -989,19 +1004,21 @@ class RawMultiSourceDataset:
         lineage: list[dict[str, Any]] = []
         for sample in samples:
             sample_partition = self._partition_for_sample(sample)
-            for combo_index, combo in enumerate(selected_by_sample[sample]):
+            combos, augmented = selected_by_sample[sample]
+            for combo_index, combo in enumerate(combos):
                 vectors = [component[1] for component in combo]
-                mask_parts = [component[2] for component in combo]
                 row = np.concatenate(vectors) if vectors else np.empty((0,), dtype=float)
-                mask = np.concatenate(mask_parts) if mask_parts else np.empty((0,), dtype=bool)
                 unit_id = self._cartesian_unit_id(sample, combo)
                 rows.append(row)
-                masks.append(mask)
+                if has_missing:
+                    mask_parts = [component[2] for component in combo]
+                    mask = np.concatenate(mask_parts) if mask_parts else np.empty((0,), dtype=bool)
+                    masks.append(mask)
                 sample_ids.append(sample)
                 unit_ids.append(unit_id)
                 partitions.append(sample_partition)
                 targets.append(targets_map.get(sample))
-                lineage.append(self._cartesian_lineage(plan, sample, combo_index, unit_id, combo))
+                lineage.append(self._cartesian_lineage(plan, sample, combo_index, unit_id, combo, augmented=augmented))
 
         X = np.vstack(rows) if rows else np.empty((0, len(headers)), dtype=float)
         feature_mask = np.vstack(masks) if has_missing and masks else None
@@ -1043,35 +1060,107 @@ class RawMultiSourceDataset:
             options_by_source.append(source_options)
         return options_by_source
 
+    def _cartesian_selected_count(
+        self,
+        plan: RepresentationPlan,
+        sample: str,
+        options_by_source: Sequence[Sequence[tuple[Any, np.ndarray, np.ndarray]]],
+        *,
+        augmented: bool,
+    ) -> int:
+        """Return how many rows the cartesian selector will emit for one sample."""
+        sizes = [len(source_options) for source_options in options_by_source]
+        total = _combo_count(sizes)
+        if total == 0:
+            return 0
+        if not augmented:
+            return 1
+
+        selection = ComboSelection(plan.combo_selection)
+        max_per_sample = _effective_max_combos_per_sample(plan)
+        if selection is ComboSelection.DETERMINISTIC_ALL:
+            if max_per_sample is not None and total > max_per_sample:
+                raise RelationValidationError(
+                    f"Representation {plan.representation!r} would produce {total} combos for sample "
+                    f"{sample!r}, exceeding max_combos_per_sample={max_per_sample}.",
+                    code="REL-E019",
+                )
+            return total
+        if selection is ComboSelection.RANDOM_SEEDED:
+            limit = max_per_sample if max_per_sample is not None else 1
+            return min(limit, total)
+        raise RelationValidationError(
+            f"combo_selection={selection.value!r} is declared but not executable for {plan.representation!r} yet.",
+            code="REL-E019",
+        )
+
     def _select_cartesian_combos(
         self,
         plan: RepresentationPlan,
         sample: str,
         options_by_source: Sequence[Sequence[tuple[Any, np.ndarray, np.ndarray]]],
     ) -> list[tuple[tuple[Any, np.ndarray, np.ndarray], ...]]:
-        all_combos = [tuple(combo) for combo in itertools.product(*options_by_source)]
-        if not all_combos:
+        sizes = [len(source_options) for source_options in options_by_source]
+        total = _combo_count(sizes)
+        if total == 0:
             return []
         selection = ComboSelection(plan.combo_selection)
-        max_per_sample = plan.combination_plan.max_combos_per_sample if plan.combination_plan is not None else None
+        max_per_sample = _effective_max_combos_per_sample(plan)
         if selection is ComboSelection.DETERMINISTIC_ALL:
-            if max_per_sample is not None and len(all_combos) > max_per_sample:
+            # Check the per-sample cap against the (cheap) product size *before*
+            # materialising the full cartesian product.
+            if max_per_sample is not None and total > max_per_sample:
                 raise RelationValidationError(
-                    f"Representation {plan.representation!r} would produce {len(all_combos)} combos for sample "
+                    f"Representation {plan.representation!r} would produce {total} combos for sample "
                     f"{sample!r}, exceeding max_combos_per_sample={max_per_sample}.",
                     code="REL-E019",
                 )
-            return all_combos
+            return [tuple(combo) for combo in itertools.product(*options_by_source)]
         if selection is ComboSelection.RANDOM_SEEDED:
             limit = max_per_sample if max_per_sample is not None else 1
-            n_select = min(limit, len(all_combos))
-            rng = np.random.default_rng(_stable_sample_seed(plan.random_state, sample))
-            selected_indices = sorted(rng.choice(len(all_combos), size=n_select, replace=False).tolist())
-            return [all_combos[idx] for idx in selected_indices]
+            n_select = min(limit, total)
+            random_state = _effective_random_state(plan)
+            rng = np.random.default_rng(_stable_sample_seed(random_state, sample))
+            # Sample distinct flat indices and decode them, so the full product is
+            # never built for Monte-Carlo selection.
+            return [self._combo_at_index(options_by_source, sizes, index) for index in _sample_distinct_indices(rng, total, n_select)]
         raise RelationValidationError(
             f"combo_selection={selection.value!r} is declared but not executable for {plan.representation!r} yet.",
             code="REL-E019",
         )
+
+    def _cartesian_non_augmented_combos(
+        self,
+        options_by_source: Sequence[Sequence[tuple[Any, np.ndarray, np.ndarray]]],
+    ) -> list[tuple[tuple[Any, np.ndarray, np.ndarray], ...]]:
+        """Return one deterministic combo for a non-augmented (non-train) sample.
+
+        Used when ``train_only`` is set: non-train samples keep a single row (the
+        first combo, lowest ``rep_id`` per source) so they are represented but not
+        augmented. The choice is deterministic and replayable.
+        """
+        sizes = [len(source_options) for source_options in options_by_source]
+        total = _combo_count(sizes)
+        if total == 0:
+            return []
+        return [self._combo_at_index(options_by_source, sizes, 0)]
+
+    @staticmethod
+    def _combo_at_index(
+        options_by_source: Sequence[Sequence[tuple[Any, np.ndarray, np.ndarray]]],
+        sizes: Sequence[int],
+        index: int,
+    ) -> tuple[tuple[Any, np.ndarray, np.ndarray], ...]:
+        """Decode a flat combo index into one component per source (mixed radix).
+
+        Mirrors :func:`itertools.product` ordering (the last source varies
+        fastest), so the result equals ``list(product(*options))[index]`` without
+        materialising the product.
+        """
+        positions = [0] * len(sizes)
+        for axis in range(len(sizes) - 1, -1, -1):
+            index, positions[axis] = divmod(index, sizes[axis])
+        return tuple(options_by_source[axis][positions[axis]] for axis in range(len(sizes)))
 
     def _cartesian_unit_id(
         self,
@@ -1093,6 +1182,8 @@ class RawMultiSourceDataset:
         combo_index: int,
         unit_id: str,
         combo: Sequence[tuple[Any, np.ndarray, np.ndarray]],
+        *,
+        augmented: bool = True,
     ) -> dict[str, Any]:
         records = [component[0] for component in combo if component[0] is not None]
         partitions = sorted({record.partition.value for record in records})
@@ -1108,21 +1199,34 @@ class RawMultiSourceDataset:
             "rep_ids_by_source": {record.source_id: record.rep_id for record in records},
             "partition": partitions[0] if len(partitions) == 1 else partitions,
             "combination_plan": plan.combination_plan.to_dict() if plan.combination_plan is not None else None,
-            "augmentation": "cartesian_augmentation" if plan.representation == "cartesian_augmentation" else None,
+            # Non-augmented rows (train_only on a non-train sample) are not augmentations.
+            "augmentation": "cartesian_augmentation" if (augmented and plan.representation == "cartesian_augmentation") else None,
         }
 
     def _enforce_combo_caps(self, plan: RepresentationPlan, n_combos: int) -> None:
-        combination_plan = plan.combination_plan
-        if (
-            combination_plan is not None
-            and combination_plan.max_total_combos is not None
-            and n_combos > combination_plan.max_total_combos
-        ):
+        max_total_combos = _effective_max_total_combos(plan)
+        if max_total_combos is not None and n_combos > max_total_combos:
             raise RelationValidationError(
                 f"Representation {plan.representation!r} would produce {n_combos} combos, exceeding "
-                f"max_total_combos={combination_plan.max_total_combos}.",
+                f"max_total_combos={max_total_combos}.",
                 code="REL-E019",
             )
+
+    def _enforce_running_combo_caps(
+        self,
+        plan: RepresentationPlan,
+        n_rows: int,
+        *,
+        n_features: int,
+        include_mask: bool = False,
+    ) -> None:
+        """Enforce the total combo / row caps incrementally during selection.
+
+        Failing as soon as the running total exceeds a cap means a cartesian
+        explosion is rejected before the remaining samples are even expanded.
+        """
+        self._enforce_combo_caps(plan, n_rows)
+        self._enforce_materialization_caps(plan, n_rows=n_rows, n_features=n_features, include_mask=include_mask)
 
     def _sorted_observation_records(self) -> list[Any]:
         observations = [r for r in self.relation_table.records if r.unit_level is UnitLevel.OBSERVATION]
@@ -1207,13 +1311,15 @@ class RawMultiSourceDataset:
         n_features: int,
         include_mask: bool = False,
     ) -> None:
-        if plan.max_total_rows is not None and n_rows > plan.max_total_rows:
+        max_total_rows = _effective_max_total_rows(plan)
+        if max_total_rows is not None and n_rows > max_total_rows:
             raise RelationValidationError(
                 f"Representation {plan.representation!r} would produce {n_rows} rows, exceeding "
-                f"max_total_rows={plan.max_total_rows}.",
+                f"max_total_rows={max_total_rows}.",
                 code="REL-E019",
             )
-        budget = _memory_budget_bytes(plan.memory_budget)
+        memory_budget = _effective_memory_budget(plan)
+        budget = _memory_budget_bytes(memory_budget)
         if budget is None:
             return
         required = n_rows * n_features * np.dtype(np.float64).itemsize
@@ -1222,7 +1328,7 @@ class RawMultiSourceDataset:
         if required > budget:
             raise RelationValidationError(
                 f"Representation {plan.representation!r} would require about {required} bytes, exceeding "
-                f"memory_budget={plan.memory_budget!r}.",
+                f"memory_budget={memory_budget!r}.",
                 code="REL-E019",
             )
 
@@ -1429,9 +1535,29 @@ def _normalize_combination_plan(plan: RepresentationPlan) -> CombinationPlan | N
     if raw is None and not plan.is_cartesian:
         return None
     if isinstance(raw, CombinationPlan):
-        return raw
+        return CombinationPlan(
+            combo_selection=raw.combo_selection,
+            max_combos_per_sample=raw.max_combos_per_sample if raw.max_combos_per_sample is not None else plan.max_combos_per_sample,
+            max_total_combos=raw.max_total_combos if raw.max_total_combos is not None else plan.max_total_combos,
+            max_total_rows=raw.max_total_rows if raw.max_total_rows is not None else plan.max_total_rows,
+            memory_budget=raw.memory_budget if raw.memory_budget is not None else plan.memory_budget,
+            random_state=raw.random_state if raw.random_state is not None else plan.random_state,
+            train_only=raw.train_only or plan.representation == "cartesian_augmentation",
+            version=raw.version,
+        )
     if isinstance(raw, Mapping):
-        return CombinationPlan.from_dict(raw)
+        return CombinationPlan.from_dict(
+            {
+                "combo_selection": raw.get("combo_selection", plan.combo_selection),
+                "max_combos_per_sample": raw.get("max_combos_per_sample", plan.max_combos_per_sample),
+                "max_total_combos": raw.get("max_total_combos", plan.max_total_combos),
+                "max_total_rows": raw.get("max_total_rows", plan.max_total_rows),
+                "memory_budget": raw.get("memory_budget", plan.memory_budget),
+                "random_state": raw.get("random_state", plan.random_state),
+                "train_only": raw.get("train_only", plan.representation == "cartesian_augmentation"),
+                "version": raw.get("version", 1),
+            }
+        )
     if raw is not None:
         raise RelationValidationError(
             f"combination_plan must be a mapping or CombinationPlan, got {type(raw).__name__}.",
@@ -1448,9 +1574,76 @@ def _normalize_combination_plan(plan: RepresentationPlan) -> CombinationPlan | N
     )
 
 
+def _effective_max_total_rows(plan: RepresentationPlan) -> int | None:
+    """Return the executable row cap, including nested cartesian plans."""
+    if plan.combination_plan is not None and plan.combination_plan.max_total_rows is not None:
+        return plan.combination_plan.max_total_rows
+    return plan.max_total_rows
+
+
+def _effective_max_combos_per_sample(plan: RepresentationPlan) -> int | None:
+    """Return the executable per-sample combo cap, including nested cartesian plans."""
+    if plan.combination_plan is not None and plan.combination_plan.max_combos_per_sample is not None:
+        return plan.combination_plan.max_combos_per_sample
+    return plan.max_combos_per_sample
+
+
+def _effective_max_total_combos(plan: RepresentationPlan) -> int | None:
+    """Return the executable total combo cap, including nested cartesian plans."""
+    if plan.combination_plan is not None and plan.combination_plan.max_total_combos is not None:
+        return plan.combination_plan.max_total_combos
+    return plan.max_total_combos
+
+
+def _effective_memory_budget(plan: RepresentationPlan) -> int | str | None:
+    """Return the executable memory budget, including nested cartesian plans."""
+    if plan.combination_plan is not None and plan.combination_plan.memory_budget is not None:
+        return plan.combination_plan.memory_budget
+    return plan.memory_budget
+
+
+def _effective_random_state(plan: RepresentationPlan) -> int | None:
+    """Return the executable cartesian random seed, including nested cartesian plans."""
+    if plan.combination_plan is not None and plan.combination_plan.random_state is not None:
+        return plan.combination_plan.random_state
+    return plan.random_state
+
+
 def _stable_sample_seed(random_state: int | None, sample: str) -> int:
     payload = f"{0 if random_state is None else random_state}|{sample}".encode()
     return int(hashlib.sha256(payload).hexdigest()[:16], 16) % (2**32)
+
+
+def _combo_count(sizes: Sequence[int]) -> int:
+    """Number of cartesian combos for the given per-source option counts.
+
+    Returns the product of ``sizes`` (``0`` if any source has no options) without
+    materialising the cartesian product itself.
+    """
+    total = 1
+    for size in sizes:
+        total *= size
+    return total
+
+
+def _sample_distinct_indices(rng: np.random.Generator, total: int, k: int) -> list[int]:
+    """Sample ``k`` distinct sorted indices from ``range(total)`` in O(k).
+
+    Uses Floyd's algorithm so a bounded Monte-Carlo selection never builds (or
+    permutes) the full cartesian index space. Deterministic for a given ``rng``
+    state, keeping seeded selections replayable.
+    """
+    if k >= total:
+        return list(range(total))
+    selected: set[int] = set()
+    chosen: list[int] = []
+    for j in range(total - k, total):
+        candidate = int(rng.integers(0, j + 1))
+        if candidate in selected:
+            candidate = j
+        selected.add(candidate)
+        chosen.append(candidate)
+    return sorted(chosen)
 
 
 def _memory_budget_bytes(value: int | str | None) -> int | None:

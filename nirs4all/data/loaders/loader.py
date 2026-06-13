@@ -387,6 +387,50 @@ def materialize_relation_table(
     return build_relation_table(spec, sources, partition=partition)
 
 
+def _reject_unloadable_relation_config(config: dict[str, Any]) -> None:
+    """Refuse experimental source-aware relation configs in the legacy loader.
+
+    The legacy positional loader concatenates per-source feature blocks by row
+    position. It cannot execute the experimental source-aware relation pipeline
+    (``experimental_relation_pipeline`` / ``repetition_spec`` declared together
+    with multiple ``sources``): such a config exposes no top-level feature matrix,
+    so the legacy path would otherwise yield a silently empty dataset (file
+    configs, which keep ``sources``) or an opaque positional-alignment error
+    (dict configs, which expand to a ``train_x`` list). Heterogeneous sources are
+    joined by key and materialised through :class:`RawMultiSourceDataset` and the
+    ``rep_fusion`` pipeline step, never through :class:`DatasetConfigs`.
+
+    Args:
+        config: The (legacy-shaped) dataset configuration dict.
+
+    Raises:
+        RelationValidationError: If the config opts into the relation pipeline
+            (enabled flag or a repetition spec) and declares multiple sources.
+    """
+    from nirs4all.data.relations import RelationValidationError, parse_relation_config
+
+    relation_config = parse_relation_config(config)
+    if relation_config is None or not (relation_config.enabled or relation_config.spec is not None):
+        return
+    declares_sources = (
+        (isinstance(config.get("sources"), list) and len(config["sources"]) > 0)
+        or bool(config.get("_sources"))
+        or isinstance(config.get("train_x"), list)
+        or isinstance(config.get("test_x"), list)
+    )
+    if not declares_sources:
+        return
+    raise RelationValidationError(
+        "This dataset opts into the experimental source-aware relation pipeline "
+        "(experimental_relation_pipeline / repetition_spec) with multiple 'sources', which the legacy "
+        "loader cannot materialise: it would align heterogeneous sources by row position or load nothing "
+        "at all. Build the relation staging (RawMultiSourceDataset) and materialise a declared "
+        "representation with the 'rep_fusion' pipeline step instead of loading this schema through "
+        "DatasetConfigs.",
+        code="REL-E023",
+    )
+
+
 def handle_data(config, t_set):
     """
     Handle data loading for a given dataset type (train, test).
@@ -411,6 +455,10 @@ def handle_data(config, t_set):
 
     if not isinstance(config, dict):
         raise ValueError(f"Invalid config type for {t_set}: {type(config)}")
+
+    # Experimental source-aware relation configs are not loadable by the legacy
+    # positional loader; fail loudly instead of returning an empty dataset.
+    _reject_unloadable_relation_config(config)
 
     # Get effective global params (includes root-level loading params)
     effective_global_params = _get_effective_global_params(config)
