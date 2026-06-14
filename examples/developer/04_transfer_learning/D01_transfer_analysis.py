@@ -118,29 +118,36 @@ TransferPreprocessingSelector evaluates preprocessing options:
     from nirs4all.analysis import TransferPreprocessingSelector
 
     selector = TransferPreprocessingSelector(
-        preprocessings=[SNV, MSC, Detrend, FirstDerivative],
-        model=PLSRegression(n_components=5),
-        metric='rmse',
-        cv=5
+        preset=None,
+        preprocessings={
+            'none': None,
+            'snv': SNV(),
+            'msc': MSC(),
+            'detrend': Detrend(),
+            '1st_deriv': FirstDerivative(),
+        },
+        n_components=5,
     )
 
-    best_preproc = selector.fit(X_master, y, X_slave, y_slave)
+    transfer_results = selector.fit(X_master, X_slave)
 """)
 
 try:
     from nirs4all.analysis import TransferPreprocessingSelector
 
     selector = TransferPreprocessingSelector(
-        preprocessings=[
-            None,  # No preprocessing
-            SNV(),
-            MSC(),
-            Detrend(),
-            FirstDerivative(),
-            StandardScaler(),
-        ],
-        model=PLSRegression(n_components=5),
-        metric='rmse'
+        preset=None,
+        preprocessings={
+            'none': None,
+            'snv': SNV(),
+            'msc': MSC(),
+            'detrend': Detrend(),
+            '1st_deriv': FirstDerivative(),
+            'standard': StandardScaler(),
+        },
+        n_components=5,
+        verbose=0,
+        n_jobs=1,
     )
 
     print("TransferPreprocessingSelector created")
