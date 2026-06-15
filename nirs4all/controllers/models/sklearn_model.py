@@ -25,6 +25,7 @@ from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMet
 
 from ..models.base_model import BaseModelController
 from .factory import ModelFactory
+from .pipeline_cv import PrecomputedFoldSplitter, apply_pipeline_folds_to_aom_estimator
 from .utilities import ModelControllerUtils as ModelUtils
 
 logger = get_logger(__name__)
@@ -264,6 +265,9 @@ class SklearnModelController(BaseModelController):
         # task_type is injected by launch_training and conflicts with CatBoost's task_type (CPU/GPU)
         task_type = train_params.pop('task_type', None)
         sample_weight = train_params.pop('_sample_weight', None)
+        pipeline_fold_splitter: PrecomputedFoldSplitter | None = train_params.pop('_pipeline_fold_splitter_for_aom', None)
+        pipeline_fold_policy = train_params.pop('_pipeline_fold_policy_for_aom', 'auto')
+        pipeline_fold_unavailable_reason = train_params.pop('_pipeline_fold_unavailable_reason_for_aom', None)
         # verbose controls controller output, we don't want to force it on the model
         verbose = train_params.pop('verbose', 0)
         # reset_gpu: if True, reset GPU memory before/after training (helps with CatBoost GPU memory leaks)
@@ -285,6 +289,12 @@ class SklearnModelController(BaseModelController):
 
         # Set additional parameters if provided
         self._apply_train_params(trained_model, train_params)
+        apply_pipeline_folds_to_aom_estimator(
+            trained_model,
+            pipeline_fold_splitter,
+            policy=pipeline_fold_policy,
+            unavailable_reason=pipeline_fold_unavailable_reason,
+        )
 
         # Fit the model
         self._fit_sklearn_model(trained_model, X_train, y_train, X_val, y_val, sample_weight=sample_weight)

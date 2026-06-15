@@ -41,6 +41,7 @@ import contextlib
 from nirs4all.pipeline.storage.artifacts.types import ArtifactType
 
 from .components import IndexNormalizer, ModelIdentifierGenerator, PartitionScores, PredictionDataAssembler, PredictionTransformer, ScoreCalculator
+from .pipeline_cv import is_aom_estimator, make_pipeline_fold_splitter
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -456,6 +457,25 @@ class BaseModelController(OperatorController, ABC):
             remapped_folds.append((train_indices, val_indices))
 
         return remapped_folds
+
+    def _remap_aom_pipeline_folds_to_positions(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        mode: str
+    ) -> list[tuple[list[int], list[int]]]:
+        """Remap auxiliary AOM pipeline folds carried by refit splitters."""
+
+        raw_folds = getattr(dataset, "_nirs4all_aom_pipeline_folds", None)
+        if not raw_folds:
+            return []
+
+        current_folds = dataset.folds
+        try:
+            dataset.set_folds(raw_folds)
+            return self._remap_folds_to_positions(dataset, context, mode)
+        finally:
+            dataset.set_folds(current_folds)
 
     def _get_partition_sample_indices(
         self,
@@ -1001,6 +1021,11 @@ class BaseModelController(OperatorController, ABC):
         all_fold_predictions = []
         base_model_name = ""
         model_classname = ""
+        pipeline_folds_for_aom = self._remap_aom_pipeline_folds_to_positions(
+            dataset,
+            context,
+            mode,
+        ) or folds
 
         # Prepare arguments for parallel execution
         fold_args = []
@@ -1025,7 +1050,8 @@ class BaseModelController(OperatorController, ABC):
                 train_indices, val_indices,
                 fold_idx, best_params_fold,
                 loaded_binaries, mode,
-                test_sample_ids  # Added for proper test sample indexing
+                test_sample_ids,  # Added for proper test sample indexing
+                pipeline_folds_for_aom,
             ))
 
         if verbose > 0:
@@ -1219,7 +1245,7 @@ class BaseModelController(OperatorController, ABC):
         X_train, y_train, X_val, y_val, X_test,
         y_train_unscaled, y_val_unscaled, y_test_unscaled,
         train_indices=None, val_indices=None, fold_idx=None, best_params=None,
-        loaded_binaries=None, mode="train", test_sample_ids=None):
+        loaded_binaries=None, mode="train", test_sample_ids=None, pipeline_folds=None):
         """Execute single model training or prediction.
 
         This refactored method uses modular components to handle:
@@ -1266,7 +1292,8 @@ class BaseModelController(OperatorController, ABC):
         else:
             trained_model = self._build_and_train_model(
                 dataset, model_config, context, runtime_context, identifiers,
-                X_train, y_train, X_val, y_val, X_test, best_params, train_indices
+                X_train, y_train, X_val, y_val, X_test, best_params, train_indices,
+                pipeline_folds=pipeline_folds,
             )
 
         # === 4-8. PREDICT, TRANSFORM, SCORE, ASSEMBLE ===
@@ -1342,7 +1369,8 @@ class BaseModelController(OperatorController, ABC):
 
     def _build_and_train_model(
         self, dataset, model_config, context, runtime_context, identifiers,
-        X_train, y_train, X_val, y_val, X_test, best_params, train_indices
+        X_train, y_train, X_val, y_val, X_test, best_params, train_indices,
+        pipeline_folds=None,
     ):
         """Build a fresh model, optionally warm-start it (refit), and train it.
 
@@ -1402,7 +1430,12 @@ class BaseModelController(OperatorController, ABC):
         train_params = model_config.get('train_params', {}).copy()
         train_params.pop('fit_influence', None)
         train_params['task_type'] = dataset.task_type
+        pipeline_cv_policy = train_params.pop('use_pipeline_folds_for_aom', 'auto')
+        use_pipeline_cv_for_aom = is_aom_estimator(model)
+        if use_pipeline_cv_for_aom:
+            train_params['_pipeline_fold_policy_for_aom'] = pipeline_cv_policy
         fit_influence_manifest = None
+        pipeline_cv_unavailable_reason = None
         fit_influence = self._resolve_fit_influence_for_training(
             dataset=dataset,
             model_config=model_config,
@@ -1417,11 +1450,31 @@ class BaseModelController(OperatorController, ABC):
                 X_train_prep = X_train_prep[resolution.resample_indices]
                 if y_train_prep is not None:
                     y_train_prep = y_train_prep[resolution.resample_indices]
+                pipeline_cv_unavailable_reason = (
+                    "fit influence resampled training rows, so pipeline fold indices "
+                    "no longer align with X_train"
+                )
             if resolution.sample_weight is not None:
                 train_params['_sample_weight'] = resolution.sample_weight
             for warning in resolution.warnings:
                 logger.warning("FitInfluencePolicy: %s", warning)
             fit_influence_manifest = manifest
+
+        if use_pipeline_cv_for_aom and pipeline_cv_unavailable_reason is None:
+            pipeline_fold_splitter = make_pipeline_fold_splitter(
+                pipeline_folds,
+                n_samples=int(X_train_prep.shape[0]),
+                train_indices=train_indices,
+                label=f"pipeline:{identifiers.name}",
+            )
+            if pipeline_fold_splitter is not None:
+                train_params['_pipeline_fold_splitter_for_aom'] = pipeline_fold_splitter
+            else:
+                pipeline_cv_unavailable_reason = (
+                    "no usable pipeline folds were available for this training slice"
+                )
+        if use_pipeline_cv_for_aom:
+            train_params['_pipeline_fold_unavailable_reason_for_aom'] = pipeline_cv_unavailable_reason
 
         trained_model = self._train_model(
             model, X_train_prep, y_train_prep, X_val_prep, y_val_prep,

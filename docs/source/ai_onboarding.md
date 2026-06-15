@@ -15,7 +15,7 @@ This guide is intentionally narrow. It covers:
 
 It does **not** cover SHAP, synthetic data generation, retraining, session internals, or architecture.
 
-**Version**: 0.10.0 | **Python**: 3.11+ | **License**: AGPL-3.0-or-later (dual; see LICENSE)
+**Version**: 0.10.1 | **Python**: 3.11+ | **License**: AGPL-3.0-or-later (dual; see LICENSE)
 
 ---
 
