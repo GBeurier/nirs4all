@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import inspect
 import warnings
 from dataclasses import dataclass
@@ -563,6 +564,7 @@ class CrossValidatorController(OperatorController):
         from nirs4all.pipeline.execution.result import StepOutput
 
         op = step_info.operator
+        aom_metadata_source = op
 
         # Extract grouping parameters from step dict
         group_by = None
@@ -671,6 +673,52 @@ class CrossValidatorController(OperatorController):
             (base_sample_ids[train_idx].tolist(), base_sample_ids[val_idx].tolist())
             for train_idx, val_idx in folds
         ]
+        aom_pipeline_sample_id_folds = getattr(aom_metadata_source, "aom_pipeline_folds", None)
+        aom_pipeline_splitter = getattr(aom_metadata_source, "aom_pipeline_splitter", None)
+        if aom_pipeline_splitter is not None and hasattr(aom_pipeline_splitter, "split"):
+            aux_op = copy.deepcopy(aom_pipeline_splitter)
+            aux_resolved_groups = resolve_split_groups(
+                dataset=dataset,
+                splitter=aux_op,
+                group_by=getattr(aom_metadata_source, "aom_group_by", None),
+                legacy_group=getattr(aom_metadata_source, "aom_legacy_group", None),
+                ignore_repetition=bool(getattr(aom_metadata_source, "aom_ignore_repetition", False)),
+                context=local_context,
+                include_augmented=False,
+            )
+            aux_groups = aux_resolved_groups.effective_groups
+            if aux_groups is not None and len(aux_groups) != X.shape[0]:
+                raise ValueError(
+                    f"Effective groups array length ({len(aux_groups)}) doesn't match X rows ({X.shape[0]})"
+                )
+            aux_needs_y, _ = _needs(aux_op)
+            aux_y: np.ndarray | None = None
+            if aux_needs_y or aux_groups is not None:
+                aux_y = dataset.y(local_context, include_augmented=False)
+            if aux_resolved_groups.requires_wrapper:
+                aux_op = GroupedSplitterWrapper(
+                    splitter=aux_op,
+                    aggregation=str(getattr(aom_metadata_source, "aom_aggregation", "mean")),
+                    y_aggregation=getattr(aom_metadata_source, "aom_y_aggregation", None),
+                )
+
+            aux_kwargs: dict[str, Any] = {}
+            if aux_needs_y:
+                if aux_y is None:
+                    raise ValueError(
+                        f"{aux_op.__class__.__name__} requires y but dataset.y returned None"
+                    )
+                aux_kwargs["y"] = aux_y
+            elif aux_groups is not None and aux_y is not None:
+                aux_kwargs["y"] = aux_y
+            if aux_groups is not None:
+                aux_kwargs["groups"] = aux_groups
+
+            aux_folds = list(aux_op.split(X, **aux_kwargs))
+            aom_pipeline_sample_id_folds = [
+                (base_sample_ids[train_idx].tolist(), base_sample_ids[val_idx].tolist())
+                for train_idx, val_idx in aux_folds
+            ]
 
         # If no test partition exists and this is a single-fold split,
         # use the validation set as test partition (not as fold)
@@ -691,6 +739,10 @@ class CrossValidatorController(OperatorController):
 
         # Store the folds in the dataset (using sample IDs, not positional indices)
         dataset.set_folds(sample_id_folds)
+        if aom_pipeline_sample_id_folds:
+            object.__setattr__(dataset, "_nirs4all_aom_pipeline_folds", aom_pipeline_sample_id_folds)
+        elif hasattr(dataset, "_nirs4all_aom_pipeline_folds"):
+            delattr(dataset, "_nirs4all_aom_pipeline_folds")
 
         # Leakage warning: Check if groups are split across train/val folds
         # This only applies when groups exist and is a safety check

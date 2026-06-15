@@ -7,6 +7,7 @@ This section covers model training, comparison, and optimization in NIRS4ALL.
 
 training
 hyperparameter_tuning
+aom_models
 deep_learning
 tabpfn_nirs
 ```
@@ -46,6 +47,16 @@ Use TensorFlow, PyTorch, and JAX models in pipelines.
 
 +++
 {bdg-warning}`Neural Networks`
+:::
+
+:::{grid-item-card} AOM Models
+:link: aom_models
+:link-type: doc
+
+Use AOM-PLS, AOM-Ridge, AutoSelector, Blender, and FastAOM with pipeline folds.
+
++++
+{bdg-primary}`Spectroscopy`
 :::
 
 :::{grid-item-card} 🤖 TabPFN for NIRS
@@ -93,6 +104,10 @@ NIRS4ALL includes specialized models optimized for spectroscopy:
 |-------|-------------|
 | **AOMPLSRegressor** | Adaptive Operator-Mixture PLS — auto-selects best preprocessing from operator bank |
 | **AOMPLSClassifier** | AOM-PLS for classification with probability calibration |
+| **AOMRidgeRegressor** | AOM-Ridge with operator-bank selection and internal CV |
+| **AOMRidgeAutoSelector** | Selects the best AOM-Ridge variant under outer CV |
+| **AOMRidgeBlender** | Convex blend of AOM-Ridge variants; strongest general AOM-Ridge recipe |
+| **FastAOMPLSRidge** | Fast screened operator-chain AOM PLS/Ridge |
 | **POPPLSRegressor** | Per-Operator-Per-component PLS — different operator per component via PRESS |
 | **POPPLSClassifier** | POP-PLS for classification with probability calibration |
 | **PLSDA** | PLS Discriminant Analysis |
@@ -106,12 +121,21 @@ NIRS4ALL includes specialized models optimized for spectroscopy:
 | **SIMPLS** | SIMPLS algorithm |
 
 ```python
-from nirs4all.operators.models import AOMPLSRegressor, POPPLSRegressor
+from nirs4all.operators.models import AOMPLSRegressor, AOMRidgeBlender, POPPLSRegressor
 
 # AOM-PLS: auto-selects best preprocessing from operator bank
 pipeline = [
     KFold(n_splits=5),
-    {"model": AOMPLSRegressor(n_components=15, gate="hard")}
+    {"model": AOMPLSRegressor(n_components="auto", operator_bank="compact")}
+]
+
+# AOM-Ridge Blender: strong split-aware operator-mixture Ridge recipe
+pipeline = [
+    KFold(n_splits=5),
+    {
+        "model": AOMRidgeBlender(outer_cv=5, inner_cv=5),
+        "train_params": {"use_pipeline_folds_for_aom": "required"},
+    },
 ]
 
 # POP-PLS: selects different operator per component (no holdout needed)

@@ -44,6 +44,7 @@ from .auto_selector import (
     _dispatch_candidate,
     _ravel_match,
     _resolve_outer_cv,
+    _subset_inner_cv,
 )
 
 VariantSpec = dict[str, Any]
@@ -60,6 +61,7 @@ def _oof_predictions_for_candidate(
     y: np.ndarray,
     folds: list[tuple[np.ndarray, np.ndarray]],
     seed: int,
+    inner_cv: int | object = 3,
 ) -> np.ndarray:
     """Return OOF predictions for one candidate, aligned with ``y``.
 
@@ -72,7 +74,9 @@ def _oof_predictions_for_candidate(
     for tr_idx, va_idx in folds:
         X_tr_raw, X_va_raw = X[tr_idx], X[va_idx]
         y_tr = y[tr_idx]
-        est, branch = _dispatch_candidate(spec, seed=seed, inner_cv=3)
+        est, branch = _dispatch_candidate(
+            spec, seed=seed, inner_cv=_subset_inner_cv(inner_cv, tr_idx),
+        )
         X_tr, X_va = _apply_branch(branch, X_tr_raw, y_tr, X_va_raw)
         est.fit(X_tr, y_tr)
         y_pred = est.predict(X_va)
@@ -223,6 +227,7 @@ class AOMRidgeBlender(BaseEstimator, RegressorMixin):
         self,
         candidates: Sequence[VariantSpec | Callable[[], BaseEstimator]] | None = None,
         outer_cv: int | object = 3,
+        inner_cv: int | object = 3,
         outer_cv_kind: str = "spxy",
         outer_cv_repeats: int = 1,
         regularizer: float = 0.01,
@@ -232,6 +237,7 @@ class AOMRidgeBlender(BaseEstimator, RegressorMixin):
     ) -> None:
         self.candidates = candidates
         self.outer_cv = outer_cv
+        self.inner_cv = inner_cv
         self.outer_cv_kind = outer_cv_kind
         self.outer_cv_repeats = outer_cv_repeats
         self.regularizer = regularizer
@@ -303,12 +309,12 @@ class AOMRidgeBlender(BaseEstimator, RegressorMixin):
         # OOF predictions per candidate (parallel over candidates).
         if int(self.n_jobs) == 1:
             oof_list = [
-                _oof_predictions_for_candidate(spec, X, y_arr, folds, seed)
+                _oof_predictions_for_candidate(spec, X, y_arr, folds, seed, self.inner_cv)
                 for spec in candidates
             ]
         else:
             oof_list = Parallel(n_jobs=int(self.n_jobs), backend="loky")(
-                delayed(_oof_predictions_for_candidate)(spec, X, y_arr, folds, seed)
+                delayed(_oof_predictions_for_candidate)(spec, X, y_arr, folds, seed, self.inner_cv)
                 for spec in candidates
             )
 
@@ -335,7 +341,7 @@ class AOMRidgeBlender(BaseEstimator, RegressorMixin):
         refit_branches: list[Any] = []
         from .branches import fit_transform_branch, make_branch_preproc
         for spec in candidates:
-            est, branch = _dispatch_candidate(spec, seed=seed, inner_cv=3)
+            est, branch = _dispatch_candidate(spec, seed=seed, inner_cv=self.inner_cv)
             branch_preproc = None
             X_refit = X
             if branch:
