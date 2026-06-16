@@ -57,9 +57,11 @@ dependencies = [
     # numpy>=2.0: ikpls calls ndarray.std(..., mean=...), a kwarg added in
     # NumPy 2.0; an older numpy raises "_std() got an unexpected keyword 'mean'".
     "numpy>=2.0.0",
-    "pandas>=2.0.0",
-    "scipy>=1.10.0",
-    "scikit-learn>=1.2.0",
+    # First releases of each that support NumPy 2.0, so an upgrade into an
+    # existing env can't leave a numpy-1 build of them behind (see numpy note).
+    "pandas>=2.2.2",
+    "scipy>=1.13.0",
+    "scikit-learn>=1.5.0",
 
     # Data processing
     "polars>=1.0.0",
