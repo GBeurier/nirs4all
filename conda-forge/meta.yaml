@@ -36,17 +36,11 @@ requirements:
     - polars >=1.0.0
     - pyarrow >=14.0.0
     - h5py >=3.8.0
-    - umap-learn
     # Signal processing
     - pywavelets >=1.4.0
     - pybaselines >=1.2.1
     # Optimization
     - optuna >=3.0.0
-    # Visualization
-    - matplotlib-base >=3.7.0
-    - seaborn >=0.12.0
-    # Explainability
-    - shap >=0.42.0
     # Utilities
     - joblib >=1.2.0
     - jsonschema >=4.17.0
@@ -59,6 +53,12 @@ requirements:
     - ikpls >=1.1.0
     - pyopls >=20.0
     - trendfitter >=0.0.6
+  # Optional dependencies, mirroring the wheel's pip extras (nirs4all[viz],
+  # nirs4all[explain]). Not required to import nirs4all; constrained here only
+  # so that, if present, they satisfy the same floors as the extras.
+  run_constrained:
+    - matplotlib-base >=3.7.0
+    - shap >=0.42.0
 
 test:
   imports:
