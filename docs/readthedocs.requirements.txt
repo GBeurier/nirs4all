@@ -4,6 +4,7 @@ sphinx-rtd-theme>=2.0
 myst-parser>=2.0
 sphinx-copybutton>=0.5
 sphinx-design>=0.5
+sphinxext-opengraph>=0.9
 
 # Build dependencies
 setuptools>=65.0.0
