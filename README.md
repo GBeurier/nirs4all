@@ -2,7 +2,7 @@
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="assets/brand/horizontal-dark.svg">
-  <img src="assets/brand/horizontal.svg" width="360" alt="nirs4all">
+  <img src="assets/brand/horizontal.svg" width="380" alt="nirs4all">
 </picture>
 <br><br>
 <img src="docs/source/assets/logo-cirad-en.jpg" width="260" alt="CIRAD Logo">
@@ -412,7 +412,7 @@ If you use NIRS4ALL in your research, please cite:
   author = {Gregory Beurier and Denis Cornet and Lauriane Rouan},
   title = {NIRS4ALL: Open spectroscopy for everyone},
   url = {https://github.com/GBeurier/nirs4all},
-  version = {0.10.0},
+  version = {0.10.1},
   year = {2026},
 }
 ```

@@ -436,6 +436,35 @@ class TestGroupSplitExecution:
         assert_no_group_overlap(batch_groups, dataset.folds)
         assert "groups-batch" in step_output.outputs[0][1]
 
+    def test_wrapped_splitter_keeps_original_aom_pipeline_splitter_metadata(self):
+        dataset = make_dataset()
+        splitter = KFold(n_splits=4, shuffle=False)
+        splitter.aom_pipeline_splitter = KFold(n_splits=2, shuffle=False)
+        splitter.aom_group_by = "batch"
+        splitter.aom_aggregation = "mean"
+        step = {"split": splitter, "group_by": "batch"}
+        controller = CrossValidatorController()
+
+        controller.execute(
+            step_info=make_step_info(splitter, step),
+            dataset=dataset,
+            context=make_execution_context(),
+            runtime_context=make_mock_runtime_context(),
+            mode="train",
+        )
+
+        aom_folds = getattr(dataset, "_nirs4all_aom_pipeline_folds", None)
+        batch_groups = compute_effective_groups(
+            dataset,
+            group_by="batch",
+            context=make_train_context(dataset),
+            include_augmented=False,
+        )
+        assert aom_folds is not None
+        assert batch_groups is not None
+        assert len(aom_folds) == 2
+        assert_no_group_overlap(batch_groups, aom_folds)
+
     def test_optional_splitter_with_repetition_and_group_by_combines_groups(self):
         dataset = make_dataset()
         dataset.set_repetition("sample_id")

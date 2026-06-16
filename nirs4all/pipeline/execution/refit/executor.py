@@ -17,11 +17,14 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import importlib
+import inspect
 from dataclasses import dataclass
 from typing import Any
 
 from nirs4all.core.logging import get_logger
 from nirs4all.pipeline.analysis.topology import _is_splitter_instance
+from nirs4all.pipeline.config.component_serialization import deserialize_component
 from nirs4all.pipeline.config.context import ExecutionPhase, RuntimeContext
 from nirs4all.pipeline.config.refit_params import resolve_refit_params
 from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
@@ -101,7 +104,7 @@ def execute_simple_refit(
         if _step_is_splitter(step):
             has_splitter = True
             # Replace splitter with a single full-training-data fold
-            steps[idx] = _make_full_train_fold_step(refit_dataset)
+            steps[idx] = _make_full_train_fold_step(refit_dataset, original_split_step=step)
             break
 
     if not has_splitter:
@@ -232,9 +235,27 @@ def _step_is_splitter(step: Any) -> bool:
 class _FullTrainFoldSplitter:
     """Dummy splitter that yields a single fold with all samples in train."""
 
-    def __init__(self, n_samples: int | None = None) -> None:
+    def __init__(
+        self,
+        n_samples: int | None = None,
+        *,
+        aom_pipeline_folds: list[tuple[list[int], list[int]]] | None = None,
+        aom_pipeline_splitter: Any | None = None,
+        aom_group_by: Any = None,
+        aom_legacy_group: Any = None,
+        aom_ignore_repetition: bool = False,
+        aom_aggregation: str = "mean",
+        aom_y_aggregation: Any = None,
+    ) -> None:
         # Optional fallback when X length cannot be inferred at runtime.
         self._n_samples = n_samples
+        self.aom_pipeline_folds = aom_pipeline_folds
+        self.aom_pipeline_splitter = aom_pipeline_splitter
+        self.aom_group_by = aom_group_by
+        self.aom_legacy_group = aom_legacy_group
+        self.aom_ignore_repetition = aom_ignore_repetition
+        self.aom_aggregation = aom_aggregation
+        self.aom_y_aggregation = aom_y_aggregation
 
     def split(self, X, y=None, groups=None):
         """Yield a single fold: all indices go to train, empty validation."""
@@ -255,7 +276,31 @@ class _FullTrainFoldSplitter:
         """Return 1 (single fold)."""
         return 1
 
-def _make_full_train_fold_step(dataset: Any) -> Any:
+def _extract_aom_pipeline_splitter(original_split_step: Any | None) -> Any | None:
+    """Return the user splitter carried by a live or serialized refit step."""
+    if original_split_step is None:
+        return None
+
+    candidate = None
+    if isinstance(original_split_step, dict):
+        if "split" in original_split_step:
+            candidate = original_split_step.get("split")
+        elif "class" in original_split_step or "instance" in original_split_step:
+            candidate = original_split_step
+    else:
+        candidate = original_split_step
+
+    if candidate is None:
+        return None
+
+    candidate = copy.deepcopy(candidate)
+    if isinstance(candidate, (dict, str)):
+        with contextlib.suppress(Exception):
+            candidate = deserialize_component(candidate)
+
+    return candidate if hasattr(candidate, "split") else None
+
+def _make_full_train_fold_step(dataset: Any, original_split_step: Any | None = None) -> Any:
     """Create a splitter step that assigns all training samples to a single fold.
 
     Args:
@@ -272,7 +317,32 @@ def _make_full_train_fold_step(dataset: Any) -> Any:
         logger.debug("Could not extract train partition size; using dataset.num_samples=%d as fallback", n_train)
     # The splitter re-measures from X at execution time so it remains valid
     # when upstream refit steps change active sample count.
-    return _FullTrainFoldSplitter(n_train)
+    original_pipeline_folds = copy.deepcopy(getattr(dataset, "folds", None) or [])
+    aom_pipeline_splitter = None
+    aom_group_by = None
+    aom_legacy_group = None
+    aom_ignore_repetition = False
+    aom_aggregation = "mean"
+    aom_y_aggregation = None
+    if isinstance(original_split_step, dict):
+        aom_pipeline_splitter = _extract_aom_pipeline_splitter(original_split_step)
+        aom_group_by = original_split_step.get("group_by")
+        aom_legacy_group = original_split_step.get("group")
+        aom_ignore_repetition = bool(original_split_step.get("ignore_repetition", False))
+        aom_aggregation = str(original_split_step.get("aggregation", "mean"))
+        aom_y_aggregation = original_split_step.get("y_aggregation")
+    elif original_split_step is not None:
+        aom_pipeline_splitter = _extract_aom_pipeline_splitter(original_split_step)
+    return _FullTrainFoldSplitter(
+        n_train,
+        aom_pipeline_folds=original_pipeline_folds,
+        aom_pipeline_splitter=aom_pipeline_splitter,
+        aom_group_by=aom_group_by,
+        aom_legacy_group=aom_legacy_group,
+        aom_ignore_repetition=aom_ignore_repetition,
+        aom_aggregation=aom_aggregation,
+        aom_y_aggregation=aom_y_aggregation,
+    )
 
 def _inject_best_params(steps: list[Any], best_params: dict[str, Any]) -> None:
     """Inject best hyperparameters and refit_params into model steps.
@@ -314,7 +384,7 @@ def _inject_best_params(steps: list[Any], best_params: dict[str, Any]) -> None:
             if hasattr(model_value, "set_params"):
                 _apply_params_to_model(model_value, best_params)
             elif isinstance(model_value, dict) and "params" in model_value:
-                model_value["params"].update(best_params)
+                model_value["params"].update(_filter_serialized_model_params(model_value, best_params))
 
         # Remove finetune_params to prevent re-triggering during refit
         step.pop("finetune_params", None)
@@ -326,12 +396,45 @@ def _inject_best_params(steps: list[Any], best_params: dict[str, Any]) -> None:
             if hasattr(model_value, "set_params"):
                 _apply_params_to_model(model_value, resolved)
             elif isinstance(model_value, dict) and "params" in model_value:
-                model_value["params"].update(resolved)
+                model_value["params"].update(_filter_serialized_model_params(model_value, resolved))
 
             # Write resolved params back to train_params so that
             # launch_training() picks them up for all frameworks
             # (PyTorch, TensorFlow, etc. read train_params, not set_params).
             step["train_params"] = resolved
+
+def _filter_serialized_model_params(model_config: dict[str, Any], params: dict[str, Any]) -> dict[str, Any]:
+    """Keep only params accepted by a serialized model constructor when knowable."""
+    if not params:
+        return {}
+
+    class_path = model_config.get("class") or model_config.get("instance")
+    if not isinstance(class_path, str) or "." not in class_path:
+        return params
+
+    mod_name, _, cls_or_func_name = class_path.rpartition(".")
+    try:
+        mod = importlib.import_module(mod_name)
+        cls_or_func = getattr(mod, cls_or_func_name)
+        target = cls_or_func.__init__ if inspect.isclass(cls_or_func) else cls_or_func
+        sig = inspect.signature(target)
+    except (ImportError, AttributeError, TypeError, ValueError):
+        return params
+
+    allowed: set[str] = set()
+    accepts_var_kwargs = False
+    for name, param in sig.parameters.items():
+        if name == "self":
+            continue
+        if param.kind is inspect.Parameter.VAR_KEYWORD:
+            accepts_var_kwargs = True
+            continue
+        allowed.add(name)
+
+    if accepts_var_kwargs:
+        return params
+
+    return {key: value for key, value in params.items() if key in allowed}
 
 def _apply_params_to_model(model: Any, params: dict[str, Any]) -> None:
     """Safely apply parameters to a model, skipping refit-only keys.
@@ -341,7 +444,7 @@ def _apply_params_to_model(model: Any, params: dict[str, Any]) -> None:
         params: Parameters to apply.
     """
     # Filter out refit-specific keys that are not model params
-    refit_only_keys = {"warm_start_fold"}
+    refit_only_keys = {"warm_start_fold", "use_pipeline_folds_for_aom"}
     applicable = {k: v for k, v in params.items() if k not in refit_only_keys}
 
     if not applicable or not hasattr(model, "set_params"):

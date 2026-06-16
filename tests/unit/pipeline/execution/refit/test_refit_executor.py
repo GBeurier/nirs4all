@@ -21,6 +21,7 @@ from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig, Refi
 from nirs4all.pipeline.execution.refit.executor import (
     RefitResult,
     _apply_params_to_model,
+    _extract_aom_pipeline_splitter,
     _extract_test_score,
     _FullTrainFoldSplitter,
     _inject_best_params,
@@ -280,6 +281,22 @@ class TestInjectBestParams:
         _inject_best_params(steps, {"n_components": 10})
         assert model.n_components == 10
         assert model.alpha == 0.1  # refit_params override
+
+    def test_serialized_model_refit_params_do_not_receive_train_only_keys(self):
+        """Control train_params stay out of serialized model constructor params."""
+        steps = [{
+            "model": {
+                "class": "sklearn.cross_decomposition.PLSRegression",
+                "params": {"n_components": 5},
+            },
+            "train_params": {"use_pipeline_folds_for_aom": "required", "scale": False},
+            "refit_params": {"n_components": 3},
+        }]
+
+        _inject_best_params(steps, {})
+
+        assert steps[0]["model"]["params"] == {"n_components": 3, "scale": False}
+        assert steps[0]["train_params"]["use_pipeline_folds_for_aom"] == "required"
 
 # =========================================================================
 # Task 2.4: _apply_params_to_model
@@ -588,6 +605,37 @@ class TestExecuteSimpleRefit:
         # The splitter (originally at index 1) should now be a _FullTrainFoldSplitter
         splitter_step = steps[1]
         assert isinstance(splitter_step, _FullTrainFoldSplitter)
+
+    def test_refit_reconstructs_serialized_splitter_for_aom_pipeline_folds(self):
+        """Serialized splitters remain available as auxiliary AOM folds in refit."""
+        config = self._make_refit_config()
+        dataset = _DummyDataset(n_train=30)
+        runtime_context = RuntimeContext()
+        executor = self._make_mock_executor()
+
+        execute_simple_refit(
+            refit_config=config,
+            dataset=dataset,
+            context=None,
+            runtime_context=runtime_context,
+            artifact_registry=None,
+            executor=executor,
+            prediction_store=Predictions(),
+        )
+
+        steps = executor.execute.call_args.kwargs["steps"]
+        splitter_step = steps[1]
+        assert isinstance(splitter_step, _FullTrainFoldSplitter)
+        assert splitter_step.aom_pipeline_splitter is not None
+        assert splitter_step.aom_pipeline_splitter.get_n_splits() == 5
+
+    def test_extract_aom_pipeline_splitter_supports_split_dict(self):
+        """User split syntax keeps the original live splitter for AOM refit."""
+        step = {"split": _DummySplitter(), "group_by": "batch"}
+
+        splitter = _extract_aom_pipeline_splitter(step)
+
+        assert isinstance(splitter, _DummySplitter)
 
     def test_refit_injects_best_params(self):
         """Best params are injected into the model step."""

@@ -76,20 +76,18 @@ PreprocPCAEvaluator compares preprocessing effects:
 
     from nirs4all.visualization.analysis import PreprocPCAEvaluator
 
-    evaluator = PreprocPCAEvaluator(
-        preprocessings=[SNV(), MSC(), FirstDerivative()],
-        n_components=10
-    )
+    evaluator = PreprocPCAEvaluator(r_components=10, knn=10)
 
-    results = evaluator.fit_evaluate(X)
+    evaluator.fit(
+        raw_data={'instrument_a': X_raw},
+        pp_data={'snv': {'instrument_a': X_snv}}
+    )
 """)
 
 try:
     from nirs4all.visualization.analysis import PreprocPCAEvaluator
 
-    evaluator = PreprocPCAEvaluator(
-        n_components=10
-    )
+    evaluator = PreprocPCAEvaluator(r_components=10, knn=10)
     print("PreprocPCAEvaluator created")
 
 except ImportError:
@@ -289,12 +287,16 @@ print("-" * 60)
 print("""
 Use PCA analysis to select preprocessing:
 
-    # Evaluate options
-    evaluator = PreprocPCAEvaluator(n_components=10)
-    scores = evaluator.compare([SNV(), MSC(), Detrend()], X)
+    raw_data = {'batch_a': X}
+    pp_data = {
+        'snv': {'batch_a': SNV().fit_transform(X)},
+        'msc': {'batch_a': MSC().fit_transform(X)},
+        'detrend': {'batch_a': Detrend().fit_transform(X)},
+    }
 
-    # Use best in pipeline
-    best_preproc = scores.get_best()
+    evaluator = PreprocPCAEvaluator(r_components=10, knn=10).fit(raw_data, pp_data)
+    scores = evaluator.df_.sort_values('trustworthiness', ascending=False)
+    best_preproc = scores.iloc[0]['preproc']
 
     pipeline = [
         best_preproc,
@@ -328,8 +330,8 @@ Key metrics:
 Best preprocessing by combined metrics: {best_overall[0]}
 
 Usage:
-    evaluator = PreprocPCAEvaluator(n_components=10)
-    results = evaluator.fit_evaluate(X)
+    evaluator = PreprocPCAEvaluator(r_components=10, knn=10)
+    evaluator.fit(raw_data, pp_data)
 
 Next: 05_advanced_features/D01_metadata_branching.py - Metadata-based partitioning
 """)
