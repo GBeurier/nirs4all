@@ -130,11 +130,14 @@ def _dispatch_candidate(
             "block_scaling": block_scaling,
             "random_state": seed,
         }
+        inner_cv_is_splitter = hasattr(inner_cv, "split")
         cv_kind = extra.pop("cv_kind", None)
         cv_splits = int(extra.pop("cv_splits", 0)) or 0
         cv_repeats = int(extra.pop("cv_repeats", 1)) or 1
         if "n_components_grid" in extra or "ridge_alpha_grid" in extra:
-            if cv_kind == "spxy_repeated":
+            if inner_cv_is_splitter:
+                cv_for_inner: int | object = inner_cv
+            elif cv_kind == "spxy_repeated":
                 if cv_splits < 2:
                     raise ValueError(
                         "cv_splits must be >= 2 when cv_kind='spxy_repeated'"
@@ -166,13 +169,27 @@ def _dispatch_candidate(
         from nirs4all.operators.models._aom_nirs.pls.estimators import AOMPLSRegressor
 
         max_components = int(extra.pop("max_components", 30))
-        cv_inner = int(extra.pop("cv", 3))
+        explicit_cv = extra.pop("cv", None)
+        if hasattr(inner_cv, "split"):
+            cv_inner: int | object = inner_cv
+        else:
+            cv_inner = int(explicit_cv if explicit_cv is not None else (inner_cv if isinstance(inner_cv, int) else 3))
+        cv_kwargs: dict[str, Any] = {}
+        if hasattr(cv_inner, "split"):
+            cv_kwargs["cv_splitter"] = cv_inner
+            if hasattr(cv_inner, "get_n_splits"):
+                cv_arg = int(cv_inner.get_n_splits())
+            else:
+                cv_arg = int(getattr(cv_inner, "n_splits", 3))
+        else:
+            cv_arg = int(cv_inner)
         est = AOMPLSRegressor(
             n_components="auto",
             max_components=max_components,
             operator_bank=operator_bank,
-            cv=cv_inner,
+            cv=cv_arg,
             random_state=seed,
+            **cv_kwargs,
             **extra,
         )
         return est, branch
@@ -188,6 +205,20 @@ def _dispatch_candidate(
     }
     kwargs.update(extra)
     return AOMRidgeRegressor(**kwargs), branch
+
+
+def _subset_inner_cv(inner_cv: int | object, train_idx: np.ndarray) -> int | object:
+    """Derive candidate-local inner CV from a precomputed parent splitter."""
+
+    if hasattr(inner_cv, "for_training_subset"):
+        subset = inner_cv.for_training_subset(train_idx, label="aom-candidate-inner")
+        if subset is None or subset.get_n_splits() < 1:
+            raise ValueError(
+                "pipeline fold splitter cannot provide at least one inner fold "
+                "inside an AOM blender/auto-selector candidate"
+            )
+        return subset
+    return inner_cv
 
 
 def _apply_branch(
@@ -375,6 +406,7 @@ def _score_candidate(
     folds: list[tuple[np.ndarray, np.ndarray]],
     seed: int,
     scoring: str,
+    inner_cv: int | object = 3,
 ) -> tuple[float, list[float]]:
     """Compute the outer-CV score for one candidate spec.
 
@@ -392,7 +424,9 @@ def _score_candidate(
         # outer seed. The candidate's own spec may override (e.g. via
         # cv_kind="spxy_repeated"); we never let a candidate look at the
         # outer-validation slice because we only pass it ``X[tr_idx]``.
-        est, branch = _dispatch_candidate(spec, seed=seed, inner_cv=3)
+        est, branch = _dispatch_candidate(
+            spec, seed=seed, inner_cv=_subset_inner_cv(inner_cv, tr_idx),
+        )
         X_tr, X_va = _apply_branch(branch, X_tr_raw, y_tr, X_va_raw)
         est.fit(X_tr, y_tr)
         y_pred = est.predict(X_va)
@@ -476,6 +510,7 @@ class AOMRidgeAutoSelector(BaseEstimator, RegressorMixin):
         self,
         candidates: Sequence[VariantSpec | Callable[[], BaseEstimator]] | None = None,
         outer_cv: int | object = 3,
+        inner_cv: int | object = 3,
         outer_cv_kind: str = "spxy",
         outer_cv_repeats: int = 1,
         scoring: str = "rmse_mean",
@@ -484,6 +519,7 @@ class AOMRidgeAutoSelector(BaseEstimator, RegressorMixin):
     ) -> None:
         self.candidates = candidates
         self.outer_cv = outer_cv
+        self.inner_cv = inner_cv
         self.outer_cv_kind = outer_cv_kind
         self.outer_cv_repeats = outer_cv_repeats
         self.scoring = scoring
@@ -543,12 +579,12 @@ class AOMRidgeAutoSelector(BaseEstimator, RegressorMixin):
 
         if int(self.n_jobs) == 1:
             results = [
-                _score_candidate(spec, X, y_arr, folds, seed, scoring)
+                _score_candidate(spec, X, y_arr, folds, seed, scoring, self.inner_cv)
                 for spec in candidates
             ]
         else:
             results = Parallel(n_jobs=int(self.n_jobs), backend="loky")(
-                delayed(_score_candidate)(spec, X, y_arr, folds, seed, scoring)
+                delayed(_score_candidate)(spec, X, y_arr, folds, seed, scoring, self.inner_cv)
                 for spec in candidates
             )
 
@@ -560,7 +596,7 @@ class AOMRidgeAutoSelector(BaseEstimator, RegressorMixin):
 
         # Refit the winning candidate on the full training set with a fresh
         # estimator. Branch preprocessing is fitted on the full training rows.
-        refit_est, branch = _dispatch_candidate(best_spec, seed=seed, inner_cv=3)
+        refit_est, branch = _dispatch_candidate(best_spec, seed=seed, inner_cv=self.inner_cv)
         refit_branch_preproc = None
         X_refit = X
         if branch:

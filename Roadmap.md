@@ -1,22 +1,15 @@
 ## ROADMAP
 
-> JS in page, pls lib, aom publish, test protocol, tabpfn 3.
-
-> [publish] auto release on tag
->   - [version] migrate to setuptools-scm (version derived from git tags, no literal anywhere) — pairs with tag-driven release. Today the version is single-sourced from `nirs4all/__init__.py` (`__version__`) via pyproject `dynamic = ["version"]` + `attr:` (debt campaign 2026-06-05); scm is the next step once releases go tag-driven.
+> [publish] auto release on tag pour nirs4all
+2026-06-05); scm is the next step once releases go tag-driven.
 
 > [refit] refit as an operator of pipeline
 
 > [Top] remove display params. It should be sort params, groups, aggregation and that's all in a sort, then top return top X.
 
-> [clean] See God Classes Modularization Guide
-> [Optuna] Modularize god class
-
 > [TaskType] Review > Ensure tasktype correctly detected or customized >>> 2 in the same workspace induce bugs.
 
 > [Predictions] Simplify and verify save
-
-> [MB-PLS] en multi-source, en multi pp, etc.
 
 > [Branching] Preprocessing to source ou preprocessings to branch cf. MB-PLS
 
@@ -24,9 +17,6 @@
 
 
 **RELEASE** (webapp 0.1.0) - 0.8.0 UI compliant
-
-> [Design] Define all services
-> [SERVICE FUNCTIONS] provides easy services functions. > cf. Service.md
 
 ## FEATURES
 
@@ -37,13 +27,6 @@
 > [Transfer] Partial layers retraining or partial retrain on new data.
 
 > [Stacking] Stacking from predictions files directly (need hash for oof and clean separation) - use model path or chain path in pipeline
-
-> [PLS] make a pip librairie with torch/jax/numpy implementations of PLS.
->   - [MB-PLS] test on multi-source/block ---
->   - [PLS] Implement variable selection methods (CARS and MC-UVE done)
-> [FCK-PLS] full torch model
-
-> [transformerMixin] implement in pytorch for full differentiation > learn from data to pred
 
 > [Metrics] add custom losses - lambda / functions / classes; manage metrics per level (global, pipeline, model); clear metrics logic / usage / customization; clean the usage of default metrics and loss. Neg SCORE implementation to minimize, Review R2 computation / Q2 value - GOF (goodness of fit)
 
@@ -74,6 +57,8 @@
 > [Clustering Controllers]
 
 
+> *[transformerMixin] implement in pytorch for full differentiation > learn from data to pred >> nirs4all-lab differentiable aom
+> *[MB-PLS] en multi-source, en multi pp, etc. >>> nirs4all-methods
 ## CI/CD
 
 > [Complete_Review] Review modules one by one: pipeline, dataset, controllers, core,

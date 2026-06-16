@@ -15,6 +15,9 @@ This section covers model training, comparison, hyperparameter tuning, and ensem
 | [U02](#u02-hyperparameter-tuning) | Hyperparameter Tuning | ★★★☆☆ | ~5 min |
 | [U03](#u03-stacking-ensembles) | Stacking Ensembles | ★★★☆☆ | ~4 min |
 | [U04](#u04-pls-variants) | PLS Variants | ★★☆☆☆ | ~3 min |
+| [U05](#u05-advanced-finetuning) | Advanced Fine-Tuning | ★★★★☆ | ~8 min |
+| [U06](#u06-tabpfn-nirs) | TabPFN for NIRS | ★★☆☆☆ | ~3 min |
+| [U07](#u07-aom-panoply) | AOM Panoply | ★★★★★ | ~2-5 min |
 
 ---
 
@@ -38,7 +41,7 @@ Different models have different strengths:
 | Family | Models | Strengths |
 |--------|--------|-----------|
 | **Linear** | PLS, Ridge, Lasso, ElasticNet | Handles collinearity, interpretable |
-| **Adaptive PLS** | AOM-PLS, POP-PLS | Auto-selects preprocessing, no manual tuning |
+| **AOM models** | AOM-PLS, POP-PLS, AOM-Ridge, AOMRidgeBlender, FastAOM | Auto-selects preprocessing/operators, split-aware internal CV |
 | **Specialized PLS** | OPLS, DiPLS, MBPLS, IKPLS, FCKPLS | Domain-specific PLS extensions |
 | **Tree-based** | RandomForest, GradientBoosting, ExtraTrees | Handles non-linearity, feature importance |
 | **Other** | SVR, KNeighbors | Local patterns, non-parametric |
@@ -456,13 +459,86 @@ pipeline = [
 
 ---
 
+## U05: Advanced Fine-Tuning
+
+**Advanced model fine-tuning workflows for complex pipelines.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U05_advanced_finetuning.py)
+
+Use this when you need model-specific training parameters, nested searches, or
+fine-tuning behavior beyond a basic estimator comparison.
+
+---
+
+## U06: TabPFN NIRS
+
+**Use the fixed-recipe TabPFN regressor for NIRS spectra.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U06_tabpfn_nirs.py)
+
+This example shows the TabPFN NIRS recipe selected from NIRS-specific HPO logs:
+Savitzky-Golay derivative, OSC, feature subsampling, centering, then TabPFN.
+
+---
+
+## U07: AOM Panoply
+
+**Compare AOM-PLS, AOM-Ridge, AutoSelector, Blender, and FastAOM in one pipeline.**
+
+[📄 View source code](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U07_aom_panoply.py)
+
+### What You'll Learn
+
+- Using AOM-PLS and AOM-Ridge from `nirs4all.operators.models`
+- Running `AOMRidgeAutoSelector` and `AOMRidgeBlender` with a compact candidate set
+- Forwarding the user-defined pipeline split into AOM internal CV
+- Failing fast with `train_params.use_pipeline_folds_for_aom="required"`
+
+### Split-Aware AOM Pipeline
+
+```python
+from sklearn.model_selection import KFold
+from nirs4all.operators.models import AOMRidgeBlender
+
+pipeline = [
+    KFold(n_splits=4, shuffle=True, random_state=42),
+    {
+        "model": AOMRidgeBlender(outer_cv=4, inner_cv=4, random_state=42),
+        "name": "AOMRidge-blender",
+        "train_params": {"use_pipeline_folds_for_aom": "required"},
+    },
+]
+```
+
+With a grouped protocol, the same pattern works with a split step such as:
+
+```python
+from sklearn.model_selection import GroupKFold
+
+pipeline = [
+    {"split": GroupKFold(n_splits=4), "group_by": "sample_id"},
+    {
+        "model": AOMRidgeBlender(outer_cv=4, inner_cv=4, random_state=42),
+        "train_params": {"use_pipeline_folds_for_aom": "required"},
+    },
+]
+```
+
+When the policy is `required`, nirs4all raises if the pipeline folds cannot be
+mapped into the AOM estimator. This is the recommended setting for grouped or
+stratified protocols where leakage would be costly.
+
+---
+
 ## Model Selection Guidelines
 
 ### For NIRS Data
 
 | Data Characteristic | Recommended Models |
 |---------------------|-------------------|
-| Linear relationships | PLS, Ridge |
+| Strong spectroscopy baseline | AOMRidgeBlender, AOMRidgeAutoSelector |
+| Fast AOM screening | FastAOMPLSRidge |
+| Linear relationships | PLS, Ridge, AOM-Ridge |
 | Non-linear relationships | Random Forest, Gradient Boosting |
 | High collinearity | PLS (designed for this) |
 | Small sample size | PLS, Ridge (regularized) |

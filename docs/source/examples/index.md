@@ -274,9 +274,9 @@ NIRS-specific preprocessing operators and signal conversions.
 
 ---
 
-### 🤖 Models (4 examples)
+### 🤖 Models (7 examples)
 
-Model training, hyperparameter tuning, ensembles, PLS variants.
+Model training, hyperparameter tuning, ensembles, PLS variants, and AOM models.
 
 | Example | Difficulty | Description |
 |---------|------------|-------------|
@@ -284,8 +284,11 @@ Model training, hyperparameter tuning, ensembles, PLS variants.
 | [U02: Hyperparameter Tuning](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U02_hyperparameter_tuning.py) | ★★★☆☆ | Automated tuning with grid, random, Bayesian search |
 | [U03: Stacking Ensembles](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U03_stacking_ensembles.py) | ★★★☆☆ | StackingRegressor, VotingRegressor, meta-learners |
 | [U04: PLS Variants](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U04_pls_variants.py) | ★★★★☆ | PLSRegression, IKPLS, OPLS, SparsePLS, IntervalPLS |
+| [U05: Advanced Fine-Tuning](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U05_advanced_finetuning.py) | ★★★★☆ | Advanced model fine-tuning workflows |
+| [U06: TabPFN NIRS](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U06_tabpfn_nirs.py) | ★★☆☆☆ | Fixed-recipe TabPFN regressor for NIRS |
+| [U07: AOM Panoply](https://github.com/GBeurier/nirs4all/blob/main/examples/user/04_models/U07_aom_panoply.py) | ★★★★★ | AOM-PLS, AOM-Ridge, AutoSelector, Blender, FastAOM with pipeline folds |
 
-**Key APIs**: `finetune_params`, `StackingRegressor`, PLS variants, hyperparameter search
+**Key APIs**: `finetune_params`, `StackingRegressor`, PLS variants, AOM models, hyperparameter search
 
 ---
 

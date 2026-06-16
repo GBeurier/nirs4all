@@ -9,14 +9,18 @@ Any sklearn estimator (`RandomForestRegressor`, `Ridge`, `SVR`, `GradientBoostin
 ## Usage in Pipeline
 
 ```python
-from nirs4all.operators.models import AOMPLSRegressor, PLSDA
+from nirs4all.operators.models import AOMPLSRegressor, AOMRidgeBlender, PLSDA
 from nirs4all.operators.transforms import SNV
 from sklearn.model_selection import ShuffleSplit
 
 pipeline = [
     SNV(),
     ShuffleSplit(n_splits=5),
-    {"model": AOMPLSRegressor(n_components=15, gate="hard")},
+    {"model": AOMPLSRegressor(n_components="auto", operator_bank="compact")},
+    {
+        "model": AOMRidgeBlender(outer_cv=5, inner_cv=5),
+        "train_params": {"use_pipeline_folds_for_aom": "required"},
+    },
 ]
 ```
 
@@ -30,12 +34,46 @@ These models automatically select the best preprocessing operator for each PLS c
 
 | Class | Key Parameters | Description |
 |-------|---------------|-------------|
-| `AOMPLSRegressor` | `n_components=15`, `gate="hard"`, `bank=None` | Adaptive Operator-Mixture PLS -- auto-selects best preprocessing per component via soft/hard gating |
-| `AOMPLSClassifier` | `n_components=15`, `gate="hard"`, `bank=None` | AOM-PLS for classification with probability calibration |
+| `AOMPLSRegressor` | `n_components="auto"`, `operator_bank="compact"`, `criterion="cv"`, `cv=5` | Adaptive Operator-Mixture PLS -- auto-selects preprocessing from an operator bank |
+| `AOMPLSClassifier` | `n_components="auto"`, `operator_bank="compact"`, `cv=5` | AOM-PLS for classification with probability calibration |
 | `POPPLSRegressor` | `n_components=15`, `auto_select=True`, `bank=None` | Per-Operator-Per-component PLS -- selects a different operator per component via PRESS criterion |
 | `POPPLSClassifier` | `n_components=15`, `auto_select=True`, `bank=None` | POP-PLS for classification with probability calibration |
 
 AOM-PLS provides `default_operator_bank()` and `extended_operator_bank()` helper functions for customizing the preprocessing bank. POP-PLS provides `pop_pls_operator_bank()`.
+
+---
+
+## AOM-Ridge and FastAOM
+
+These models extend Ridge/PLS-Ridge calibration with AOM operator banks and
+variant aggregation.
+
+| Class | Key Parameters | Description |
+|-------|---------------|-------------|
+| `AOMRidgeRegressor` | `selection="global"`, `operator_bank="compact"`, `cv=5` | Single AOM-Ridge estimator with operator selection and alpha CV |
+| `AOMRidgeAutoSelector` | `candidates=None`, `outer_cv=3`, `inner_cv=3`, `scoring="rmse_mean"` | Runs outer CV over AOM-Ridge variants and refits the best one |
+| `AOMRidgeBlender` | `candidates=None`, `outer_cv=3`, `inner_cv=3`, `regularizer=0.01` | Convex non-negative blend of AOM-Ridge variants; strongest general AOM-Ridge recipe |
+| `FastAOMPLSRidge` | `config=FastAOMConfig(...)` | Fast screened chain-search family for PLS/Ridge calibration |
+
+Split-aware usage:
+
+```python
+from sklearn.model_selection import GroupKFold
+from nirs4all.operators.models import AOMRidgeBlender
+
+pipeline = [
+    {"split": GroupKFold(n_splits=5), "group_by": "batch_id"},
+    {
+        "model": AOMRidgeBlender(outer_cv=5, inner_cv=5, random_state=42),
+        "train_params": {"use_pipeline_folds_for_aom": "required"},
+    },
+]
+```
+
+When enabled, nirs4all forwards the pipeline folds to `cv`, `cv_splitter`,
+`outer_cv`, `inner_cv`, or `external_folds` depending on the estimator API.
+
+See {doc}`../user_guide/models/aom_models` for the full user guide.
 
 ---
 
