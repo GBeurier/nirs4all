@@ -1,0 +1,116 @@
+name: version-guard
+
+# Guardrail: the in-repo version must NEVER be ahead of the latest git tag.
+# Tag ahead of the manifest (a release in flight) is allowed; manifest ahead of
+# the tag (an un-tagged bump) is forbidden — that is the drift this blocks.
+# Part of the nirs4all ecosystem version-sync guardrail.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    env:
+      VG_STRATEGY: "python_attr"
+      VG_MANIFEST: "nirs4all/__init__.py"
+      VG_ATTR: "__version__"
+      VG_TAG_PREFIX: ""
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: python -m pip install --quiet packaging
+      - name: Manifest must not be ahead of the latest tag
+        shell: python
+        run: |
+          import os, re, subprocess, sys, json
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              import tomli as tomllib
+          from packaging.version import Version, InvalidVersion
+
+          strat = os.environ["VG_STRATEGY"]
+          path = os.environ["VG_MANIFEST"]
+          attr = os.environ.get("VG_ATTR", "")
+          prefix = os.environ.get("VG_TAG_PREFIX", "v")
+
+
+          def read_manifest(strat, path, attr):
+              with open(path, "r", encoding="utf-8") as f:
+                  text = f.read()
+              if strat == "python_attr":
+                  m = re.search(rf"{re.escape(attr or '__version__')}\s*=\s*['\"]([^'\"]+)['\"]", text)
+                  return m.group(1) if m else None
+              if strat == "c_header":
+                  macro = attr or "N4M_PROJECT_VERSION_STRING"
+                  m = re.search(rf"#\s*define\s+{re.escape(macro)}\s+\"([^\"]+)\"", text)
+                  return m.group(1) if m else None
+              if strat == "npm_package_json":
+                  return json.loads(text).get("version")
+              if strat == "version_file":
+                  return text.strip() or None
+              if strat in ("python_pyproject", "cargo_workspace", "cargo_package"):
+                  data = tomllib.loads(text)
+                  if strat == "python_pyproject":
+                      return (data.get("project") or {}).get("version")
+                  if strat == "cargo_workspace":
+                      return ((data.get("workspace") or {}).get("package") or {}).get("version")
+                  if strat == "cargo_package":
+                      return (data.get("package") or {}).get("version")
+              return None
+
+
+          def norm(s):
+              s = s.strip()
+              return s[1:] if s[:1] in ("v", "V") else s
+
+
+          raw = read_manifest(strat, path, attr)
+          if not raw:
+              print(f"::warning::version-guard: could not read a version ({strat}:{path}); skipping")
+              sys.exit(0)
+          try:
+              manifest = Version(norm(raw))
+          except InvalidVersion:
+              print(f"::warning::version-guard: manifest version '{raw}' is not PEP 440; skipping")
+              sys.exit(0)
+
+          tags = subprocess.run(["git", "tag"], capture_output=True, text=True).stdout.split()
+          cand = []
+          for t in tags:
+              if prefix:
+                  if not t.startswith(prefix):
+                      continue
+                  base = t[len(prefix):]
+              else:
+                  if t[:1] in ("v", "V"):
+                      continue
+                  base = t
+              try:
+                  cand.append((Version(base), t))
+              except InvalidVersion:
+                  continue
+          if not cand:
+              print("::notice::version-guard: no matching tags yet; nothing to compare against")
+              sys.exit(0)
+
+          latest_v, latest_t = max(cand, key=lambda x: x[0])
+          print(f"manifest = {manifest}    latest tag = {latest_t} ({latest_v})")
+          if manifest > latest_v:
+              print(
+                  f"::error::version-guard: in-repo version {manifest} is AHEAD of the latest tag {latest_t}. "
+                  f"A version bump must ship as a tag/release (tag {prefix}{manifest}), never merged to main ahead of its tag."
+              )
+              sys.exit(1)
+          print("OK: manifest is not ahead of the latest tag (tag ahead of / equal to the manifest is fine).")
