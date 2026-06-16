@@ -54,7 +54,9 @@ classifiers = [
 requires-python = ">=3.11"
 dependencies = [
     # Core scientific computing
-    "numpy>=1.24.0",
+    # numpy>=2.0: ikpls calls ndarray.std(..., mean=...), a kwarg added in
+    # NumPy 2.0; an older numpy raises "_std() got an unexpected keyword 'mean'".
+    "numpy>=2.0.0",
     "pandas>=2.0.0",
     "scipy>=1.10.0",
     "scikit-learn>=1.2.0",
