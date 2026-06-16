@@ -1,5 +1,5 @@
 {% set name = "nirs4all" %}
-{% set version = "0.9.2" %}
+{% set version = "0.10.2" %}
 {% set python_min = "3.11" %}
 
 package:
@@ -10,7 +10,7 @@ source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
   # SHA256 must be updated when publishing a new version to PyPI.
   # Run: python scripts/sync_conda_recipe.py --update
-  sha256: 5344e0b39346afd0bbca6c830cdc98760cc1765d9760213cbf3e53f36ed09e0c
+  sha256: 2e239673ae8c99df368d53f0c2ac5600510209284988667995eebd46248d884d
 
 build:
   noarch: python
