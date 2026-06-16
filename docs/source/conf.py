@@ -96,6 +96,7 @@ extensions = [
     'sphinx_copybutton',
     'sphinx_design',               # Cards, tabs, grids
     'sphinxcontrib.mermaid',
+    'sphinxext.opengraph',         # Social / OpenGraph cards
 ]
 
 templates_path = ['_templates']
@@ -106,15 +107,19 @@ exclude_patterns = []
 html_theme = 'sphinx_rtd_theme'
 html_static_path = ['assets']
 
-# Logo configuration
-html_logo = 'assets/nirs4all_logo.png'
+# Logo configuration (dark variant — the rtd nav header is dark)
+html_logo = 'assets/brand/horizontal-dark.svg'
 html_theme_options = {
     'logo_only': False,
     'style_nav_header_background': '#2c3e50',
 }
 
-# Favicon (uses the same logo)
-html_favicon = 'assets/nirs4all_logo.png'
+# Favicon
+html_favicon = 'assets/brand/favicon.ico'
+
+# -- OpenGraph / social cards ------------------------------------------------
+ogp_site_url = 'https://nirs4all.readthedocs.io/en/latest/'
+ogp_image = 'https://nirs4all.readthedocs.io/en/latest/_static/brand/og.png'
 
 # Custom CSS and JS for width toggle
 html_css_files = ['custom.css']
