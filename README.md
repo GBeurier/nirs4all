@@ -1,7 +1,11 @@
 <div align="center">
 
-<img src="docs/source/assets/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo">
-<img src="docs/source/assets/logo-cirad-en.jpg" width="300" alt="CIRAD Logo">
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="assets/brand/horizontal-dark.svg">
+  <img src="assets/brand/horizontal.svg" width="380" alt="nirs4all">
+</picture>
+<br><br>
+<img src="docs/source/assets/logo-cirad-en.jpg" width="260" alt="CIRAD Logo">
 
 # NIRS4ALL
 
