@@ -10,6 +10,7 @@ nirs4all core for a model-on-raw-features pipeline.
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -180,3 +181,39 @@ def test_end_to_end_cli_full_vertical_slice(tmp_path) -> None:
 
     diffs = [abs(dagml_oof[k] - sklearn_oof[k]) for k in sklearn_oof]
     assert max(diffs) < 1e-4, f"full-vertical-slice OOF parity drift {max(diffs)}"
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
+    """dag-ml scores NATIVELY: the adapter emits regression_targets, the CLI computes per-fold/final
+    RMSE in Rust and persists bundle.scores — and they match sklearn (no Python-side scoring)."""
+    import dag_ml
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml_bridge import controller_manifests
+
+    dataset, identity, train, folds, envelope, pipeline = _setup([StandardNormalVariate(), {"model": PLSRegression(n_components=5)}])
+    dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="snv_pls", n_splits=_N_SPLITS)
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_path("regression"),
+        workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable,
+    )
+    assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
+
+    bundle = json.loads((tmp_path / "bundle.json").read_text())
+    scores = bundle.get("scores")
+    assert scores is not None, "dag-ml must persist native scores in the bundle"
+    validation = {report["fold_id"]: report["metrics"]["rmse"] for report in scores["reports"] if report["partition"] == "validation"}
+    assert len(validation) == _N_SPLITS  # one native score per CV fold
+
+    # dag-ml's native RMSE matches sklearn fold-for-fold (computed in Rust, not Python).
+    for index, (train_ints, val_ints) in enumerate(folds):
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+        true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
+        sklearn_rmse = float(np.sqrt(mean_squared_error(true, pred)))
+        assert abs(validation[f"fold{index}"] - sklearn_rmse) < 1e-3, f"fold{index} native RMSE drift"
