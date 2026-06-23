@@ -28,7 +28,7 @@ from .node_runner import run_node
 _FRAME_SCHEMA_VERSION = 1
 _DESCRIPTION_SCHEMA_VERSION = 1
 _PROTOCOL = "dag-ml-process-adapter"
-_CAPABILITIES = ["control_frames_v1", "node_task_json_v1", "node_result_json_v1", "persistent_workers", "stateful_refit_artifacts"]
+_CAPABILITIES = ["control_frames_v1", "node_task_json_v1", "node_result_json_v1", "persistent_workers", "worker_env", "stateful_refit_artifacts"]
 
 NodeHandler = Callable[[dict[str, Any]], dict[str, Any]]
 
