@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "multi_source_by_source_branch_shared_preproc",
+  "datasets": [
+    "multi"
+  ],
+  "metrics": {
+    "best_score": 13.286431643519428,
+    "cv_best_score": 18.75567271603151,
+    "r2": 0.5425947554812258,
+    "rmse": 13.286431643519428
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 51,
+  "pipeline_fingerprint": "13d5bf49b2abae54"
+}

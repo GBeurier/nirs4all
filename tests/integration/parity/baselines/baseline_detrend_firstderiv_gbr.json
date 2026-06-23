@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "baseline_detrend_firstderiv_gbr",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 22.15497654783278,
+    "cv_best_score": 20.893927437500256,
+    "r2": 0.2525675099855095,
+    "rmse": 17.12199085421668
+  },
+  "models": [
+    "GradientBoostingRegressor"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "e5435eb0ef04e347"
+}

@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "aggregation_rep_outlier_exclude",
+  "datasets": [
+    "e05_aggregate_outliers"
+  ],
+  "metrics": {
+    "best_score": 4.501416865234558,
+    "cv_best_score": 4.666893018762796,
+    "r2": 0.8054869063933612,
+    "rmse": 4.453312767864515
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "0935fe27802ef779"
+}

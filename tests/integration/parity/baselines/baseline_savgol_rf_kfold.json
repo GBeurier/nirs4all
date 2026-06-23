@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "baseline_savgol_rf_kfold",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 24.29178157246286,
+    "cv_best_score": 24.81681895558872,
+    "r2": -0.5721646148597173,
+    "rmse": 24.832319265153114
+  },
+  "models": [
+    "RandomForestRegressor"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "96342e6fb1a29c26"
+}

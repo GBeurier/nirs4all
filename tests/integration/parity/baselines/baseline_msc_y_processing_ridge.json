@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "baseline_msc_y_processing_ridge",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 16.48852047253018,
+    "cv_best_score": 23.621727772312056,
+    "r2": 0.3422555923461914,
+    "rmse": 16.79516252171617
+  },
+  "models": [
+    "Ridge"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "913b8caa3b8f04c1"
+}

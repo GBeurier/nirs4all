@@ -1,0 +1,21 @@
+{
+  "backend": "legacy",
+  "case": "branch_dup_three_way_merge_predictions",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 13.057607241916322,
+    "cv_best_score": 18.75567271603152,
+    "r2": 0.5425947554812254,
+    "rmse": 19.929370722905855
+  },
+  "models": [
+    "GradientBoostingRegressor",
+    "PLSRegression",
+    "RandomForestRegressor",
+    "Ridge"
+  ],
+  "num_predictions": 60,
+  "pipeline_fingerprint": "91514f2d125fcfca"
+}

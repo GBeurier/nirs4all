@@ -1,0 +1,17 @@
+{
+  "backend": "legacy",
+  "case": "baseline_classification_rf_stratified",
+  "datasets": [
+    "classification"
+  ],
+  "metrics": {
+    "accuracy": 0.1,
+    "best_score": 0.1603174603174603,
+    "cv_best_score": 0.1716006216006216
+  },
+  "models": [
+    "RandomForestClassifier"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "dbc53f0d7fb1d8a5"
+}

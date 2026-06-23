@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "baseline_kennard_stone_plsr",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 13.286431643519423,
+    "cv_best_score": 14.735330429142788,
+    "r2": 0.5499298960801484,
+    "rmse": 13.286431643519423
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 5,
+  "pipeline_fingerprint": "4e54e33b9d9aa218"
+}

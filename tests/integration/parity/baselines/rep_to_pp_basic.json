@@ -1,0 +1,15 @@
+{
+  "backend": "legacy",
+  "case": "rep_to_pp_basic",
+  "datasets": [
+    "e04_aggregate_mean"
+  ],
+  "metrics": {
+    "cv_best_score": 6.1427143240770405
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 21,
+  "pipeline_fingerprint": "76b19369fb54f1ac"
+}

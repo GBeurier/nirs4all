@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "tag_then_exclude_combo",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 13.03048270993563,
+    "cv_best_score": 17.088504542022037,
+    "r2": 0.5595759595159495,
+    "rmse": 13.14328069611288
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "48370d8d2df254c9"
+}

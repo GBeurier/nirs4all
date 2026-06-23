@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "generator_log_range_alpha",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 12.137986612043226,
+    "cv_best_score": 16.572101616932994,
+    "r2": 0.5939241647720337,
+    "rmse": 12.137986612043226
+  },
+  "models": [
+    "Ridge"
+  ],
+  "num_predictions": 77,
+  "pipeline_fingerprint": "75abcf77ab37b793"
+}
