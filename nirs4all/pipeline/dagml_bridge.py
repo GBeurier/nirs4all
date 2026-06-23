@@ -26,6 +26,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from nirs4all import __version__ as _NIRS4ALL_VERSION
+
 # Step keywords recognised by nirs4all but not yet lowered by this spike.
 _UNSUPPORTED_STEP_KEYS = frozenset({
     "branch",
@@ -91,6 +93,108 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
         NotImplementedError: if a step uses a construct the spike does not yet cover.
     """
     return {"id": dsl_id, "pipeline": [_step_to_dsl(step) for step in pipeline]}
+
+
+def controller_manifests() -> list[dict[str, Any]]:
+    """The host-controller manifests for the vertical-slice node kinds.
+
+    One manifest per ``operator_kind`` — a dag-ml manifest serves exactly one node
+    kind, so ``transform`` / ``y_transform`` / ``model`` each need their own. These
+    are **control-plane declarations only**: no process-adapter command lives here
+    (that is a runtime concern of the later execution phase).
+
+    Binding is **by node kind**, mirroring nirs4all's one-controller-per-role
+    dispatch (``TransformerMixinController`` / ``YTransformerMixinController`` /
+    ``SklearnModelController``). Each manifest leaves ``operator_selectors`` empty,
+    which dag-ml treats as a kind-level catch-all that matches any operator of that
+    node kind. Class-name selectors are deliberately avoided: a generic scaler
+    (``MinMaxScaler``, ``StandardScaler``, …) is an X-transform or a y-transform
+    purely by its **DSL position** (bare step vs ``{"y_processing": …}`` wrapper),
+    not by its class — so a ``y_transform`` selector claiming those class names
+    would wrongly re-type a bare X-scaler as a target transform.
+    """
+    return [
+        {
+            "controller_id": "controller:nirs4all.transform",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "transform",
+            "priority": 20,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "output_ports": [{"name": "x_out", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "data_requirements": None,
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng"],
+            "operator_selectors": [],  # empty => bind any transform-kind node
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+        {
+            "controller_id": "controller:nirs4all.y_transform",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "y_transform",
+            "priority": 20,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "y", "kind": "target", "representation": "tabular_numeric", "cardinality": "one"}],
+            "output_ports": [{"name": "y_out", "kind": "target", "representation": "tabular_numeric", "cardinality": "one"}],
+            "data_requirements": None,
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng"],
+            "operator_selectors": [],  # empty => bind any y_transform-kind node (the {"y_processing": …} wrapper, not the class)
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+        {
+            "controller_id": "controller:nirs4all.model",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 20,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "output_ports": [
+                {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+            ],
+            "data_requirements": None,
+            # A prediction output port requires emits_predictions; an artifact port requires
+            # emits_artifacts (dag-ml ControllerManifest::validate). No consumes_oof_predictions:
+            # the vertical slice has no stacking/meta-model that would consume OOF.
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng", "emits_predictions", "emits_artifacts", "stateful"],
+            "operator_selectors": [],  # empty => bind any model-kind node
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+    ]
+
+
+def build_dagml_plan(
+    pipeline: list[Any],
+    plan_id: str = "plan:nirs4all-pipeline",
+    dsl_id: str = "nirs4all-pipeline",
+) -> Any:
+    """Lower → compile-with-controllers → build the dag-ml ``ExecutionPlan``.
+
+    The canonical compile→plan bridge: dag-ml's ``build_execution_plan`` takes the
+    ``campaign`` as a separate argument and does **not** auto-extract
+    ``campaign_template`` from the compiled artifact, so the bridge reads
+    ``artifact.graph`` + ``artifact.campaign_template`` and passes them explicitly,
+    alongside the same controller-manifest array used to compile.
+
+    Control-plane only — this builds the validated plan (PLAN phase); no host
+    controller is executed and no feature matrix is touched.
+
+    Raises:
+        ImportError: if dag-ml is not installed (``pip install nirs4all[dagml]``).
+        NotImplementedError: if the pipeline uses an unsupported construct.
+    """
+    try:
+        import dag_ml
+    except ImportError as exc:  # pragma: no cover - exercised only without dag-ml
+        raise ImportError("dag-ml is not installed; install with `pip install nirs4all[dagml]`") from exc
+    manifests = controller_manifests()
+    artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(pipeline_to_dsl(pipeline, dsl_id), manifests)
+    return dag_ml.build_execution_plan(plan_id, artifact.graph, artifact.campaign_template, manifests)
 
 
 def compile_with_dagml(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> Any:
