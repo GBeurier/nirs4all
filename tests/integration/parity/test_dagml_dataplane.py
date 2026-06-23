@@ -15,9 +15,11 @@ import pytest
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.identity import mint_identity
+from nirs4all.pipeline.dagml.operator_routing import route_graph_node, route_operator
 from nirs4all.pipeline.dagml.resolver import MaterializationResolver
 
 from ._datasets import dataset_path
+from ._registry import get
 
 pytestmark = [pytest.mark.parity]
 
@@ -93,3 +95,34 @@ def test_resolver_serves_real_spectra_not_a_hash(regression_dataset) -> None:
     assert np.array_equal(row, real)
     # A hashed-id synthesis would collapse 2151 wavelengths to a constant; real spectra vary.
     assert row.shape[0] > 1 and float(np.ptp(row)) > 0.0
+
+
+def test_route_operator_per_kind_and_overrides() -> None:
+    """route_graph_node resolves each node-kind operator-ref shape; variants win; unknowns raise."""
+    transform = route_graph_node({"kind": "transform", "operator": {"class": "nirs4all.operators.transforms.scalers.StandardNormalVariate"}, "params": {"with_std": True}})
+    assert type(transform).__name__ == "StandardNormalVariate"
+    # y_transform carries params nested under the operator, not on the node.
+    y_transform = route_graph_node({"kind": "y_transform", "operator": {"class": "sklearn.preprocessing._data.MinMaxScaler", "params": {"feature_range": [0, 1]}}})
+    assert type(y_transform).__name__ == "MinMaxScaler"
+    # model carries a bare short name resolved through the allow-table.
+    model = route_graph_node({"kind": "model", "operator": "PLSRegression", "params": {"n_components": 7}})
+    assert type(model).__name__ == "PLSRegression" and model.get_params()["n_components"] == 7
+
+    # Variant overrides win over node params.
+    swept = route_operator("model", "PLSRegression", {"n_components": 3}, variant_overrides={"n_components": 9})
+    assert swept.get_params()["n_components"] == 9
+    # Unknown model name and unsupported kind both fail loudly.
+    with pytest.raises(KeyError):
+        route_operator("model", "NotARealModel")
+    with pytest.raises(ValueError, match="operator_kind"):
+        route_operator("branch", "whatever")
+
+
+def test_route_real_compiled_vertical_slice_nodes() -> None:
+    """Every node of the actually-compiled vertical slice routes to its real operator."""
+    pytest.importorskip("dag_ml", reason="dag-ml not installed (nirs4all[dagml])")
+    from nirs4all.pipeline.dagml_bridge import build_dagml_plan
+
+    plan = build_dagml_plan(get("baseline_vertical_slice").pipeline, plan_id="p", dsl_id="vs").to_dict()
+    routed = {node["kind"]: type(route_graph_node(node)).__name__ for node in plan["graph_plan"]["graph"]["nodes"]}
+    assert routed == {"transform": "StandardNormalVariate", "y_transform": "MinMaxScaler", "model": "PLSRegression"}
