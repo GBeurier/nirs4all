@@ -9,6 +9,9 @@ model-on-raw-features graph (cross-node feature chaining is the deferred A3 gap)
 
 from __future__ import annotations
 
+import io
+import json
+
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -17,6 +20,7 @@ from sklearn.model_selection import ShuffleSplit
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.node_runner import run_node
+from nirs4all.pipeline.dagml.process_adapter import describe, run_jsonl_loop
 from nirs4all.pipeline.dagml.resolver import MaterializationResolver
 
 from ._datasets import dataset_path
@@ -101,3 +105,33 @@ def test_refit_then_predict_round_trips_the_model(slice_fixture) -> None:
     x_test = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"))[0] for i in f["test_ints"]])
     expected = np.asarray(store[artifact_id].predict(x_test), dtype=float).reshape(len(f["test_ints"]), -1)
     assert np.allclose(np.asarray(block["values"], dtype=float), expected, atol=1e-9)
+
+
+def test_jsonl_loop_handshake_and_task(slice_fixture) -> None:
+    """The JSONL frame loop acks init/close and returns a result frame with real predictions."""
+    f = slice_fixture
+    to_wire = f["identity"].to_wire
+    train, val = f["train_ints"][:90], f["train_ints"][90:120]
+    task = {
+        "phase": "FIT_CV", "fold_id": "fold0", "run_id": "r", "variant_id": None, "node_plan": f["node_plan"],
+        "data_views": {
+            "data:x": {"partition": "fold_train", "sample_ids": [to_wire(i) for i in train]},
+            "data:x:validation": {"partition": "fold_validation", "sample_ids": [to_wire(i) for i in val]},
+        },
+    }
+    store: dict = {}
+    infile = io.StringIO("\n".join(json.dumps(frame) for frame in (
+        {"type": "init"}, {"type": "task", "task": task}, {"type": "close"},
+    )) + "\n")
+    outfile = io.StringIO()
+    run_jsonl_loop(infile, outfile, lambda t: run_node(t, f["resolver"], f["node_lookup"], store))
+
+    frames = [json.loads(line) for line in outfile.getvalue().splitlines() if line.strip()]
+    assert frames[0] == {"type": "ack", "schema_version": 1, "status": "initialized"}
+    assert frames[1]["type"] == "result"
+    block = frames[1]["result"]["predictions"][0]
+    assert block["partition"] == "validation" and block["sample_ids"] == [to_wire(i) for i in val]
+    assert frames[2] == {"type": "ack", "schema_version": 1, "status": "closed"}
+
+    description = describe()
+    assert "jsonl" in description["supported_modes"] and "node_task_json_v1" in description["capabilities"]
