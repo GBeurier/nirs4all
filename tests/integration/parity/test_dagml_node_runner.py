@@ -88,12 +88,12 @@ def test_refit_then_predict_round_trips_the_model(slice_fixture) -> None:
         f["resolver"], f["node_lookup"], store,
     )
     assert refit["predictions"][0]["partition"] == "final"
-    artifact_id = next(iter(refit["artifact_handles"]))
-    assert artifact_id in store  # the fitted model was persisted
+    handle = refit["artifact_handles"][next(iter(refit["artifact_handles"]))]["handle"]
+    assert isinstance(handle, int) and handle in store  # the fitted model was persisted under its u64 handle
 
+    # PREDICT recomputes the same deterministic handle from node+variant (persistent worker).
     predict = run_node(
         {"phase": "PREDICT", "run_id": "r", "variant_id": None, "node_plan": f["node_plan"],
-         "replay_artifact_id": artifact_id,
          "data_views": {"data:x": {"partition": "predict", "sample_ids": [to_wire(i) for i in f["test_ints"]]}}},
         f["resolver"], f["node_lookup"], store,
     )
@@ -103,7 +103,7 @@ def test_refit_then_predict_round_trips_the_model(slice_fixture) -> None:
 
     ds = f["dataset"]
     x_test = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"))[0] for i in f["test_ints"]])
-    expected = np.asarray(store[artifact_id].predict(x_test), dtype=float).reshape(len(f["test_ints"]), -1)
+    expected = np.asarray(store[handle].predict(x_test), dtype=float).reshape(len(f["test_ints"]), -1)
     assert np.allclose(np.asarray(block["values"], dtype=float), expected, atol=1e-9)
 
 

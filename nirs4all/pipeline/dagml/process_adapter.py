@@ -94,7 +94,7 @@ def _build_handler() -> NodeHandler:
     resolver = MaterializationResolver(dataset, mint_identity(dataset))
     with open(os.environ["N4A_DAGML_GRAPH_PATH"], encoding="utf-8") as handle:
         nodes = {node["id"]: node for node in json.load(handle)["nodes"]}
-    store: dict[str, Any] = {}
+    store: dict[int, Any] = {}
     return lambda task: run_node(task, resolver, nodes.__getitem__, store)
 
 

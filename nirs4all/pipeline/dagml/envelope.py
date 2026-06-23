@@ -49,11 +49,11 @@ def _num_wavelengths(dataset: SpectroDataset) -> int:
     return int(num_features if isinstance(num_features, int) else num_features[0])
 
 
-def _dataset_schema(dataset: SpectroDataset, identity: IdentityMap, source_id: str) -> dict[str, Any]:
-    n_samples = len(identity.identities)
+def _dataset_schema(dataset: SpectroDataset, source_id: str, sample_id_strings: list[str]) -> dict[str, Any]:
+    n_samples = len(sample_id_strings)
     return {
         "dataset_id": f"nirs4all.{dataset.name}",
-        "sample_ids": [sample.sample_id for sample in identity.identities],
+        "sample_ids": sample_id_strings,
         "sources": [
             {
                 "id": source_id,
@@ -142,18 +142,24 @@ def _positions(identity: IdentityMap, sample_ints: list[int]) -> list[int]:
     return [index[sample_int] for sample_int in sample_ints]
 
 
-def build_envelope(dataset: SpectroDataset, identity: IdentityMap, *, source_id: str = _DEFAULT_SOURCE_ID) -> dict[str, Any]:
-    """Build the validated ``CoordinatorDataPlanEnvelope`` for the whole dataset.
+def build_envelope(dataset: SpectroDataset, identity: IdentityMap, *, source_id: str = _DEFAULT_SOURCE_ID, sample_ints: list[int] | None = None) -> dict[str, Any]:
+    """Build the validated ``CoordinatorDataPlanEnvelope``.
+
+    Pass ``sample_ints`` to scope the envelope to a sample universe — e.g. the CV training
+    pool, so the schema + ``coordinator_relations`` match the embedded ``FoldSet`` and pass
+    ``validate_data_envelope_relations`` (every relation must live inside the fold set).
+    Omit it for a whole-dataset envelope.
 
     The wheel computes all fingerprints and derives ``coordinator_relations``; a successful
     return means the envelope is contract-valid (the materialize-time fingerprint gate
     will accept it).
     """
     dag_ml_data = _import_dag_ml_data()
+    chosen = identity.identities if sample_ints is None else [identity.identities[i] for i in _positions(identity, sample_ints)]
     envelope = dag_ml_data.build_coordinator_data_plan_envelope(
-        _dataset_schema(dataset, identity, source_id),
+        _dataset_schema(dataset, source_id, [sample.sample_id for sample in chosen]),
         _data_plan(dataset, source_id),
-        sample_relations(identity, source_id=source_id),
+        sample_relations(identity, source_id=source_id, sample_ints=sample_ints),
     )
     return dict(envelope.to_dict())
 
