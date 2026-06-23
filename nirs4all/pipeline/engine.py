@@ -1,16 +1,15 @@
 """Execution-engine selector for the nirs4all core (ADR-17 cutover/rollback skeleton).
 
-Seam for the **nirs4all-core → dag-ml** migration. Today the only production
-engine is the in-process *legacy* orchestrator (:class:`~nirs4all.pipeline.PipelineRunner`).
-The dag-ml-backed engine (``"dag-ml"``) and the side-by-side comparison mode
-(``"dual"``) are reserved for the migration and not yet implemented, so
-:func:`resolve_engine` refuses them with a clear ``NotImplementedError``.
+Seam for the **nirs4all-core → dag-ml** migration. The default production engine is the in-process
+*legacy* orchestrator (:class:`~nirs4all.pipeline.PipelineRunner`). The ``"dag-ml"`` engine is
+**wired**: :func:`nirs4all.run` dispatches it to the dag-ml-cli backend
+(:mod:`nirs4all.pipeline.dagml.run_backend`), which runs the pipeline natively (Rust) and returns a
+``RunResult`` of dag-ml's native scores. The side-by-side comparison mode (``"dual"``) is still
+reserved and :func:`resolve_engine` refuses it with a clear ``NotImplementedError``.
 
-Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAULT_ENGINE`.
-
-This module is intentionally **not wired** into :func:`nirs4all.run` yet — it is
-the inert selection point the bridge will plug into. See
-``dag-ml/docs/migration-nirs4all/WORKING_STRATEGY.md``.
+Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAULT_ENGINE`. The
+default stays ``legacy`` (ADR-17): production behaviour is unchanged unless ``engine="dag-ml"`` is
+explicitly requested. See ``dag-ml/docs/migration-nirs4all/``.
 """
 
 from __future__ import annotations
@@ -43,10 +42,9 @@ def resolve_engine(engine: str | None = None) -> Engine:
     name = (engine or os.environ.get(ENGINE_ENV_VAR) or DEFAULT_ENGINE).strip().lower()
     if name not in ENGINES:
         raise ValueError(f"unknown nirs4all engine {name!r}; valid engines: {list(ENGINES)}")
-    if name != DEFAULT_ENGINE:
+    if name == "dual":
         raise NotImplementedError(
-            f"the {name!r} engine (dag-ml core) is under construction in the "
-            f"nirs4all-core -> dag-ml migration; only {DEFAULT_ENGINE!r} is available today "
-            f"(see dag-ml/docs/migration-nirs4all/)"
+            "the 'dual' engine (side-by-side legacy vs dag-ml comparison) is not implemented yet; "
+            "use 'legacy' or 'dag-ml' (see dag-ml/docs/migration-nirs4all/)"
         )
     return cast(Engine, name)

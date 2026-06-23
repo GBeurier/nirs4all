@@ -384,9 +384,12 @@ def run(
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
     # ADR-17 backend selector (nirs4all-core -> dag-ml migration). Default is the legacy
-    # in-process orchestrator; the dag-ml backend is gated here while it is built out, so
-    # production stays inert unless `engine="dag-ml"` is explicitly requested.
-    resolve_engine(engine)
+    # in-process orchestrator; `engine="dag-ml"` dispatches to the dag-ml-cli backend, which
+    # runs the pipeline natively (Rust) and returns a RunResult of dag-ml's native scores.
+    if resolve_engine(engine) == "dag-ml":
+        from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+        return run_via_dagml(pipeline, dataset)
 
     # Normalize pipelines and datasets to lists
     pipelines = _normalize_to_list(pipeline, _is_single_pipeline)
