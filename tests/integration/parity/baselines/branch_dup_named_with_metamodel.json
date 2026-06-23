@@ -1,0 +1,21 @@
+{
+  "backend": "legacy",
+  "case": "branch_dup_named_with_metamodel",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 16.519727155717636,
+    "cv_best_score": 22.412079533920846,
+    "r2": -0.2710904400554335,
+    "rmse": 23.52973064643998
+  },
+  "models": [
+    "PLS_Latent",
+    "RF",
+    "Ridge",
+    "Ridge_MetaModel"
+  ],
+  "num_predictions": 75,
+  "pipeline_fingerprint": "5be00355c53da4d6"
+}

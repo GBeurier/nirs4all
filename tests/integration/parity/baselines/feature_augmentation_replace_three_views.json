@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "feature_augmentation_replace_three_views",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 12.506075123140343,
+    "cv_best_score": 16.20504013675426,
+    "r2": 0.616545146104083,
+    "rmse": 12.506075123140343
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "470efa8d5360e981"
+}

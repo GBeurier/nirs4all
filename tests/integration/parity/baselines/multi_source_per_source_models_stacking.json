@@ -1,0 +1,19 @@
+{
+  "backend": "legacy",
+  "case": "multi_source_per_source_models_stacking",
+  "datasets": [
+    "multi"
+  ],
+  "metrics": {
+    "best_score": 13.42399962265869,
+    "cv_best_score": 19.665214786709598,
+    "r2": 0.3999967030407825,
+    "rmse": 15.340697032937666
+  },
+  "models": [
+    "PLSRegression",
+    "Ridge"
+  ],
+  "num_predictions": 90,
+  "pipeline_fingerprint": "3ac1e6dad7fb5bec"
+}

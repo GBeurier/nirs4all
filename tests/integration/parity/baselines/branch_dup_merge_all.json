@@ -1,0 +1,19 @@
+{
+  "backend": "legacy",
+  "case": "branch_dup_merge_all",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 12.725175577222954,
+    "cv_best_score": 18.45387792729103,
+    "r2": 0.5819040494771631,
+    "rmse": 13.214318719107633
+  },
+  "models": [
+    "PLSRegression",
+    "Ridge"
+  ],
+  "num_predictions": 45,
+  "pipeline_fingerprint": "e260f9568feb4fd6"
+}

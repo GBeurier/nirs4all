@@ -27,9 +27,24 @@ from . import _oracle
 from ._datasets import dataset_path
 from ._registry import PipelineCase, all_cases
 
-pytestmark = [pytest.mark.slow, pytest.mark.parity]
+pytestmark = [pytest.mark.parity]
 
 
+def test_every_runnable_case_has_committed_baseline() -> None:
+    """Gate integrity (fast): no runnable case may silently lack a gold baseline.
+
+    Without this, adding a parity case without capturing its baseline would make
+    that case skip on a clean checkout — a silent hole in the non-regression gate.
+    Marked ``parity`` only (not ``slow``): it runs no pipeline, just checks files.
+    """
+    missing = [c.name for c in all_cases() if not c.skip_reason and _oracle.load_baseline(c.name) is None]
+    assert not missing, (
+        "runnable parity cases without a committed gold baseline "
+        f"(capture with --parity-capture and commit): {missing}"
+    )
+
+
+@pytest.mark.slow
 @pytest.mark.parametrize("case", all_cases(), ids=lambda c: c.name)
 def test_legacy_gold_baseline(case: PipelineCase, request: pytest.FixtureRequest) -> None:
     """Capture or enforce the legacy gold baseline for one parity case."""

@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "multi_source_baseline_snv_plsr",
+  "datasets": [
+    "multi"
+  ],
+  "metrics": {
+    "best_score": 13.286431643519427,
+    "cv_best_score": 18.755672716031548,
+    "r2": 0.5425947554812247,
+    "rmse": 13.286431643519427
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "0935fe27802ef779"
+}

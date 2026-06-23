@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "branch_dup_two_way_merge_features",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 11.286995618000168,
+    "cv_best_score": 15.73846759258739,
+    "r2": 0.6661786329302655,
+    "rmse": 11.286995618000168
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "80059b514b8fd3e3"
+}

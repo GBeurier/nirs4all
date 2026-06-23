@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "generator_finetune_params_optuna",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 19.466093647206264,
+    "cv_best_score": 23.77847370763008,
+    "r2": -0.14247494447004838,
+    "rmse": 21.918153473800555
+  },
+  "models": [
+    "RF_Finetuned"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "7b0a366714438b35"
+}
