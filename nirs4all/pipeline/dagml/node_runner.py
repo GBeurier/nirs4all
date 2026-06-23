@@ -30,6 +30,7 @@ from collections.abc import Callable, MutableMapping
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+from sklearn.pipeline import make_pipeline
 
 from .operator_routing import route_graph_node
 
@@ -80,6 +81,26 @@ def _train_predict_ids(task: dict[str, Any]) -> tuple[list[str], list[str]]:
 
 def _artifact_id(node_id: str, variant_label: str) -> str:
     return f"artifact:{node_id}:nirs4all:refit:{variant_label}"
+
+
+def _upstream_x_chain(node_id: str, edges: list[dict[str, Any]] | None) -> list[str]:
+    """Ordered upstream node ids feeding ``node_id``'s ``x`` input (furthest-upstream first).
+
+    Walks the linear data-edge chain backward so the model node can apply the real
+    preprocessing (e.g. SNV) before fitting — the process-adapter delivers only sample_ids
+    per node, so cross-node feature flow is reconstructed here. Linear chains only.
+    """
+    incoming: dict[str, str] = {}
+    for edge in edges or []:
+        if edge["target"]["port_name"] == "x" and edge["contract"]["kind"] == "data":
+            incoming[edge["target"]["node_id"]] = edge["source"]["node_id"]
+    chain: list[str] = []
+    current = incoming.get(node_id)
+    while current is not None:
+        chain.append(current)
+        current = incoming.get(current)
+    chain.reverse()
+    return chain
 
 
 def _stable_handle(value: str) -> int:
@@ -145,8 +166,14 @@ def run_model_node(
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
     model_store: MutableMapping[int, Any],
+    edges: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``."""
+    """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``.
+
+    When ``edges`` are supplied, the model node reconstructs its upstream X-transform chain
+    (e.g. SNV→PLS) into a leakage-safe sklearn ``Pipeline`` fit on fold-train only — the
+    process-adapter delivers only sample_ids per node, so the chain is applied here.
+    """
     node_plan = task["node_plan"]
     node_id = node_plan["node_id"]
     controller_id = node_plan["controller_id"]
@@ -162,7 +189,9 @@ def run_model_node(
     if phase == "PREDICT":
         estimator = model_store[artifact_handle]
     else:
-        estimator = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        model = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
+        estimator = make_pipeline(*upstream, model) if upstream else model
         x_train = np.asarray(resolver.resolve_features(train_ids)["values"], dtype=float)
         y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
         estimator.fit(x_train, y_train)
@@ -196,13 +225,15 @@ def run_node(
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
     model_store: MutableMapping[int, Any],
+    edges: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Dispatch a ``NodeTask`` by node kind.
 
-    ``model``/``tuner`` execute and emit predictions; ``transform``/``y_transform`` are
-    passthrough (no predictions) — real cross-node feature chaining is the deferred A3 gap.
+    ``model``/``tuner`` execute and (with ``edges``) apply their upstream X-transform chain;
+    ``transform``/``y_transform`` are passthrough output-handles (the model node reconstructs
+    the chain), so the chained preprocessing is applied exactly once, at the model node.
     """
     kind = task["node_plan"]["kind"]
     if kind in ("model", "tuner"):
-        return run_model_node(task, resolver, node_lookup, model_store)
+        return run_model_node(task, resolver, node_lookup, model_store, edges)
     return _build_result(task, [], [], {})

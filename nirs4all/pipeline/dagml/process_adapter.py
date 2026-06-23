@@ -21,9 +21,14 @@ import json
 import os
 import sys
 from collections.abc import Callable
-from typing import IO, Any
+from typing import IO, Any, Protocol
 
 from .node_runner import run_node
+
+
+class _Writer(Protocol):
+    def write(self, text: str, /) -> int: ...
+    def flush(self) -> None: ...
 
 _FRAME_SCHEMA_VERSION = 1
 _DESCRIPTION_SCHEMA_VERSION = 1
@@ -44,7 +49,7 @@ def describe() -> dict[str, Any]:
     }
 
 
-def _emit(out: IO[str], payload: dict[str, Any]) -> None:
+def _emit(out: _Writer, payload: dict[str, Any]) -> None:
     json.dump(payload, out, sort_keys=True)
     out.write("\n")
     out.flush()
@@ -54,7 +59,7 @@ def _error(code: str, message: str) -> dict[str, Any]:
     return {"type": "error", "schema_version": _FRAME_SCHEMA_VERSION, "error": {"code": code, "message": message, "retryable": False}}
 
 
-def run_jsonl_loop(infile: IO[str], outfile: IO[str], handle: NodeHandler) -> None:
+def run_jsonl_loop(infile: IO[str], outfile: _Writer, handle: NodeHandler) -> None:
     """Drive the control-frame loop: ``init``/``close`` acks, ``task`` results, bare one-shot tasks."""
     for raw in infile:
         line = raw.strip()
@@ -93,16 +98,41 @@ def _build_handler() -> NodeHandler:
     dataset = DatasetConfigs(os.environ["N4A_DAGML_DATASET_PATH"]).get_dataset_at(0)
     resolver = MaterializationResolver(dataset, mint_identity(dataset))
     with open(os.environ["N4A_DAGML_GRAPH_PATH"], encoding="utf-8") as handle:
-        nodes = {node["id"]: node for node in json.load(handle)["nodes"]}
+        graph = json.load(handle)
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    edges = graph.get("edges", [])
     store: dict[int, Any] = {}
-    return lambda task: run_node(task, resolver, nodes.__getitem__, store)
+    return lambda task: run_node(task, resolver, nodes.__getitem__, store, edges)
+
+
+class _Tee:
+    """Write to two text streams (stdout for the coordinator + a robust capture file)."""
+
+    def __init__(self, primary: IO[str], secondary: IO[str]) -> None:
+        self._primary = primary
+        self._secondary = secondary
+
+    def write(self, text: str) -> int:
+        self._secondary.write(text)
+        return self._primary.write(text)
+
+    def flush(self) -> None:
+        self._secondary.flush()
+        self._primary.flush()
 
 
 def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] == "--describe":
         _emit(sys.stdout, describe())
         return 0
-    run_jsonl_loop(sys.stdin, sys.stdout, _build_handler())
+    capture = os.environ.get("N4A_DAGML_RESULT_CAPTURE")
+    if capture:
+        # Capture frames from inside the (single persistent) adapter — robust vs `tee` pipe
+        # buffering that can split a large result frame across reads.
+        with open(capture, "a", encoding="utf-8") as capture_file:
+            run_jsonl_loop(sys.stdin, _Tee(sys.stdout, capture_file), _build_handler())
+    else:
+        run_jsonl_loop(sys.stdin, sys.stdout, _build_handler())
     return 0
 
 
