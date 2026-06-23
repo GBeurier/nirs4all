@@ -8,12 +8,14 @@ identity-keyed invariant), entirely in-process with no CLI / execution / FFI.
 
 from __future__ import annotations
 
+import json
 import re
 
 import numpy as np
 import pytest
 
 from nirs4all.data.config import DatasetConfigs
+from nirs4all.pipeline.dagml.envelope import build_envelope, build_fold_set, sample_relations
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.operator_routing import route_graph_node, route_operator
 from nirs4all.pipeline.dagml.resolver import MaterializationResolver
@@ -126,3 +128,45 @@ def test_route_real_compiled_vertical_slice_nodes() -> None:
     plan = build_dagml_plan(get("baseline_vertical_slice").pipeline, plan_id="p", dsl_id="vs").to_dict()
     routed = {node["kind"]: type(route_graph_node(node)).__name__ for node in plan["graph_plan"]["graph"]["nodes"]}
     assert routed == {"transform": "StandardNormalVariate", "y_transform": "MinMaxScaler", "model": "PLSRegression"}
+
+
+def test_envelope_builds_and_validates_against_live_contract(regression_dataset) -> None:
+    """build_envelope produces a contract-valid CoordinatorDataPlanEnvelope (the wheel
+    derives relations + fingerprints; a successful build is itself the gate)."""
+    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not installed (nirs4all[dagml])")
+    identity = mint_identity(regression_dataset)
+
+    envelope = build_envelope(regression_dataset, identity)
+    assert envelope["schema_version"] == 1
+    for fp in ("schema_fingerprint", "plan_fingerprint", "relation_fingerprint"):
+        assert isinstance(envelope[fp], str) and len(envelope[fp]) == 64
+    assert envelope["plan"]["output_representation"] == "tabular_numeric"
+    step_kinds = [step["kind"] for step in envelope["plan"]["steps"]]
+    assert "materialize" in step_kinds and "adapt" in step_kinds
+    assert any(step.get("adapter_id") == "spectra.flatten" for step in envelope["plan"]["steps"])
+    records = envelope["coordinator_relations"]["records"]
+    assert len(records) == len(identity.identities)
+    assert all(not record["is_augmented"] for record in records)
+    # Re-validate through the same validator dag-ml-data uses (not a stale local schema).
+    dag_ml_data.validate_coordinator_data_plan_envelope_json(json.dumps(envelope))
+
+
+def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:
+    """A KFold partition validates against the CV-universe relations; ShuffleSplit (which
+    does not validate every sample exactly once) is refused -- a real OOF-semantics gap."""
+    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not installed (nirs4all[dagml])")
+    from sklearn.model_selection import KFold, ShuffleSplit
+
+    identity = mint_identity(regression_dataset)
+    train = regression_dataset.index_column("sample", {"partition": "train"})
+    cv_relations = sample_relations(identity, sample_ints=train)
+
+    def fold_set(splitter):
+        folds = [([train[j] for j in tr], [train[j] for j in va]) for tr, va in splitter.split(train)]
+        return build_fold_set(identity, folds)
+
+    # KFold partitions the pool: each sample validated exactly once -> valid.
+    dag_ml_data.validate_fold_set_against_sample_relations(fold_set(KFold(n_splits=3, shuffle=True, random_state=42)), cv_relations)
+    # ShuffleSplit's overlapping/incomplete validation sets break the OOF partition.
+    with pytest.raises(dag_ml_data.DagMlDataContractError):
+        dag_ml_data.validate_fold_set_against_sample_relations(fold_set(ShuffleSplit(n_splits=3, random_state=42)), cv_relations)
