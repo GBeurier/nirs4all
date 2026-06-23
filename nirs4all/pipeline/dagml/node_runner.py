@@ -209,31 +209,47 @@ def run_model_node(
         y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
         estimator.fit(x_train, y_fit)
 
-    x_predict = np.asarray(resolver.resolve_features(predict_ids)["values"], dtype=float)
-    y_pred = np.asarray(estimator.predict(x_predict), dtype=float).reshape(len(predict_ids), -1)
-    y_hat = np.asarray(y_transform.inverse_transform(y_pred), dtype=float).reshape(len(predict_ids), -1) if y_transform is not None else y_pred
-    predictions = [
-        {
-            "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}",
-            "producer_node": node_id,
-            "partition": _PREDICTION_PARTITION[phase],
-            "fold_id": task.get("fold_id") if phase == "FIT_CV" else None,
-            "sample_ids": predict_ids,
-            "values": y_hat.tolist(),
-            "target_names": ["y"],
-        }
-    ]
+    def _predict(ids: list[str]) -> list[list[float]]:
+        x = np.asarray(resolver.resolve_features(ids)["values"], dtype=float)
+        pred = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)
+        scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
+        return [[float(value) for value in row] for row in scaled]
 
-    # Emit the real y_true (original scale) for the predicted samples so dag-ml scores natively.
-    true_y = resolver.resolve_targets(predict_ids)["values"]
-    regression_targets = [
-        {
-            "level": "sample",
-            "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in predict_ids],
-            "values": [[float(value)] for value in true_y],
-            "target_names": ["y"],
-        }
-    ]
+    # What to predict: the phase's own partition; and — at REFIT — also the held-out TEST partition
+    # so dag-ml scores the final model's test RMSE (nirs4all's best_rmse). The CV fold set does not
+    # cover test, but dag-ml only scope-checks `validation` blocks (runtime validate_prediction_scope),
+    # so a `test`/`final` block for the refit model is accepted and scored natively.
+    specs: list[tuple[list[str], str, str | None]] = [(predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None)]
+    if phase == "REFIT":
+        test_ids = resolver.partition_wire_ids("test")
+        if test_ids:
+            specs.append((test_ids, "test", "final"))
+
+    # One prediction block per spec, each paired 1:1 with an exactly-matching y_true block (dag-ml
+    # scoring requires target units == prediction units). dag-ml matches block↔target by unit set.
+    predictions: list[dict[str, Any]] = []
+    regression_targets: list[dict[str, Any]] = []
+    for spec_ids, partition, spec_fold in specs:
+        predictions.append(
+            {
+                "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
+                "producer_node": node_id,
+                "partition": partition,
+                "fold_id": spec_fold,
+                "sample_ids": spec_ids,
+                "values": _predict(spec_ids),
+                "target_names": ["y"],
+            }
+        )
+        true_y = resolver.resolve_targets(spec_ids)["values"]
+        regression_targets.append(
+            {
+                "level": "sample",
+                "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in spec_ids],
+                "values": [[float(value)] for value in true_y],
+                "target_names": ["y"],
+            }
+        )
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}

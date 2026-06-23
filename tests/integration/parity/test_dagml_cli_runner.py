@@ -235,3 +235,16 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
     oof_rmse = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
     assert abs(avg[0]["metrics"]["rmse"] - oof_rmse) < 1e-3, "native OOF-average RMSE != sklearn OOF concat"
     assert avg[0]["row_count"] == len(keys)
+
+    # dag-ml also produces + scores the FINAL model's TEST predictions natively (best_rmse) — the
+    # refit model (fit on full train) predicts the held-out test partition in the same run.
+    final_test = [r for r in scores["reports"] if r["partition"] == "test" and r["fold_id"] == "final"]
+    assert len(final_test) == 1, "dag-ml must emit a native final-test score (best_rmse)"
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    final_model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+    final_model.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+    test_pred = np.asarray(final_model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel()
+    test_true = np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel()
+    sklearn_final_test = float(np.sqrt(mean_squared_error(test_true, test_pred)))
+    assert abs(final_test[0]["metrics"]["rmse"] - sklearn_final_test) < 1e-3, "native final-test RMSE != sklearn"
+    assert final_test[0]["row_count"] == len(test_ints)
