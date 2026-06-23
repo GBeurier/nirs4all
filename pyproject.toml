@@ -110,6 +110,11 @@ explain = ["shap>=0.42.0", "matplotlib>=3.7.0"]
 # Legacy DuckDB workspace migration (only needed for pre-v0.9 workspaces)
 migration = ["duckdb>=1.0.0"]
 
+# dag-ml execution core (in development — see dag-ml/docs/migration-nirs4all/).
+# Inert at the default engine (legacy); only needed to exercise the dag-ml
+# backend path of the nirs4all-core migration. Version pins are provisional.
+dagml = ["dag-ml>=0.2.0", "dag-ml-data>=0.2.0"]
+
 # AutoML
 autogluon = ["autogluon>=1.0.0"]
 
@@ -216,6 +221,8 @@ markers = [
     "slow: slow running tests",
     "gpu: GPU-requiring tests",
     "stress: memory stress tests (slow, excluded from fast CI)",
+    "parity: dag-ml migration parity oracle (legacy gold baseline + future dual-run)",
+    "bench: performance benchmarks (legacy vs dag-ml; nightly, not a fast-CI gate)",
     "xdist_group(name): mark test to run in a named group for sequential execution with pytest-xdist",
 ]
 
