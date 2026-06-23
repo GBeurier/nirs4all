@@ -81,16 +81,14 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     return dsl
 
 
-def write_launcher_shim(path: Path, venv_python: str, *, capture: Path | None = None) -> Path:
+def write_launcher_shim(path: Path, venv_python: str) -> Path:
     """Write a non-``.py`` executable shim that re-execs the adapter under the project venv.
 
     dag-ml-cli runs a ``.py`` adapter under the *system* python3 (which lacks nirs4all), so the
-    adapter must be a non-``.py`` executable. ``capture`` tees the adapter's result frames for
-    inspection (the OOF predictions are not persisted to the cache without a requires_oof edge).
+    adapter must be a non-``.py`` executable. Result frames are captured by the adapter itself
+    (``N4A_DAGML_RESULT_CAPTURE``), robust vs ``tee`` pipe-buffer line splitting.
     """
-    run = f'{venv_python} -m nirs4all.pipeline.dagml.process_adapter "$@"'
-    body = f"#!/bin/sh\n{run} | tee {capture}\n" if capture is not None else f"#!/bin/sh\nexec {run}\n"
-    path.write_text(body)
+    path.write_text(f'#!/bin/sh\nexec {venv_python} -m nirs4all.pipeline.dagml.process_adapter "$@"\n')
     path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IRUSR)
     return path
 
@@ -116,9 +114,14 @@ def run_cv_refit_bundle(
     (workdir / "envelope.json").write_text(json.dumps(envelope))
     (workdir / "graph.json").write_text(json.dumps(graph))
     capture = workdir / "results.jsonl"
-    shim = write_launcher_shim(workdir / "n4a_adapter", venv_python, capture=capture)
+    shim = write_launcher_shim(workdir / "n4a_adapter", venv_python)
 
-    env = {**os.environ, "N4A_DAGML_DATASET_PATH": dataset_path, "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json")}
+    env = {
+        **os.environ,
+        "N4A_DAGML_DATASET_PATH": dataset_path,
+        "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
+        "N4A_DAGML_RESULT_CAPTURE": str(capture),
+    }
     proc = subprocess.run(
         [
             dagml_cli, "run-process-dsl-cv-refit-bundle",

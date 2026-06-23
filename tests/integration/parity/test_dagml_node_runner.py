@@ -137,3 +137,40 @@ def test_jsonl_loop_handshake_and_task(slice_fixture) -> None:
     assert "jsonl" in description["supported_modes"]
     # worker_env is required by dag-ml-cli for --persistent mode (verified end-to-end).
     assert {"node_task_json_v1", "worker_env", "persistent_workers"} <= set(description["capabilities"])
+
+
+def test_fit_cv_applies_upstream_snv_chain(slice_fixture) -> None:
+    """A model node with an upstream SNV transform fits the real Pipeline(SNV, PLS) on fold-train (A3)."""
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml_bridge import build_dagml_plan
+
+    f = slice_fixture
+    plan = build_dagml_plan([StandardNormalVariate(), {"model": PLSRegression(n_components=5)}], plan_id="p", dsl_id="snv_pls").to_dict()
+    graph = plan["graph_plan"]["graph"]
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    model_id = next(node_id for node_id, node in nodes.items() if node["kind"] == "model")
+    train, val = f["train_ints"][:90], f["train_ints"][90:120]
+    to_wire = f["identity"].to_wire
+    task = {
+        "phase": "FIT_CV", "fold_id": "fold0", "run_id": "r", "variant_id": None, "node_plan": plan["node_plans"][model_id],
+        "data_views": {
+            "data:x": {"partition": "fold_train", "sample_ids": [to_wire(i) for i in train]},
+            "data:x:validation": {"partition": "fold_validation", "sample_ids": [to_wire(i) for i in val]},
+        },
+    }
+    got = np.asarray(run_node(task, f["resolver"], nodes.__getitem__, {}, graph["edges"])["predictions"][0]["values"], dtype=float)
+
+    ds = f["dataset"]
+    # Compare same-dtype (the resolver upcasts ds.x float32 -> float64 via .tolist(); matching
+    # dtype isolates chaining correctness from the float32/float64 native-parity nuance).
+    expected_pipe = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+    expected_pipe.fit(np.asarray(ds.x({"sample": train}, layout="2d"), dtype=float), np.asarray(ds.y({"sample": train}), dtype=float))
+    x_val = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"), dtype=float)[0] for i in val])
+    expected = np.asarray(expected_pipe.predict(x_val), dtype=float).reshape(len(val), -1)
+    assert np.allclose(got, expected, atol=1e-6)  # same dtype + same fold order -> exact up to FP
+
+    # Without edges the chain is NOT applied (raw features) — proves the SNV step is load-bearing.
+    raw = np.asarray(run_node(task, f["resolver"], nodes.__getitem__, {}, None)["predictions"][0]["values"], dtype=float)
+    assert not np.allclose(raw, expected, atol=1e-2)
