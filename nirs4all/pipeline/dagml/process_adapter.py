@@ -101,8 +101,10 @@ def _build_handler() -> NodeHandler:
         graph = json.load(handle)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = graph.get("edges", [])
+    # Linear-pipeline y_processing: a single floating y_transform node applies to the model.
+    y_transform_node = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     store: dict[int, Any] = {}
-    return lambda task: run_node(task, resolver, nodes.__getitem__, store, edges)
+    return lambda task: run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node)
 
 
 class _Tee:
