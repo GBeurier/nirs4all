@@ -10,7 +10,12 @@ from __future__ import annotations
 
 import pytest
 
-from nirs4all.pipeline.dagml_bridge import compile_with_dagml, pipeline_to_dsl
+from nirs4all.pipeline.dagml_bridge import (
+    build_dagml_plan,
+    compile_with_dagml,
+    controller_manifests,
+    pipeline_to_dsl,
+)
 
 from ._registry import get
 
@@ -50,3 +55,81 @@ def test_unsupported_step_is_flagged() -> None:
     """Constructs the spike does not cover fail loudly, naming the keyword."""
     with pytest.raises(NotImplementedError):
         pipeline_to_dsl([{"branch": ["a", "b"]}])
+
+
+def test_vertical_slice_controller_manifests_validate() -> None:
+    """The three node-kind manifests validate individually and as a list."""
+    import dag_ml
+
+    manifests = controller_manifests()
+    assert sorted(m["operator_kind"] for m in manifests) == ["model", "transform", "y_transform"]
+    for manifest in manifests:
+        dag_ml.ControllerManifest(manifest)  # raises on an invalid manifest
+    dag_ml.ControllerManifests(manifests)  # raises on an invalid list / duplicate controller_id
+    # A prediction/artifact output port forces the matching emits_* capability.
+    model = next(m for m in manifests if m["operator_kind"] == "model")
+    assert {"emits_predictions", "emits_artifacts"} <= set(model["capabilities"])
+
+
+def test_vertical_slice_builds_execution_plan() -> None:
+    """baseline_vertical_slice lowers → compiles-with-controllers → builds a structured plan."""
+    case = get("baseline_vertical_slice")
+    plan = build_dagml_plan(case.pipeline, plan_id=f"plan:{case.name}", dsl_id=case.name)
+
+    d = plan.to_dict()  # .json() is a method; introspect the parsed dict
+    for key in (
+        "id", "graph_plan", "campaign", "node_plans", "controller_manifests",
+        "variants", "fold_set", "graph_fingerprint", "campaign_fingerprint", "controller_fingerprint",
+    ):
+        assert key in d, key
+    assert d["id"] == f"plan:{case.name}"
+
+    # The graph carries the three node kinds; the splitter is NOT a node.
+    node_kinds = [n["kind"] for n in d["graph_plan"]["graph"]["nodes"]]
+    assert "transform" in node_kinds and "y_transform" in node_kinds and "model" in node_kinds
+    assert "split" not in node_kinds and "splitter" not in node_kinds
+
+    # The ShuffleSplit rode into the campaign as a split_invocation, never an inner CV.
+    assert d["campaign"].get("split_invocation") is not None
+    assert d["campaign"].get("inner_cv") is None
+
+    # Our manifests resolved onto the nodes by alias selector (binding actually fired):
+    # the plan's controller-manifest map and each node_plan's controller_id agree.
+    assert set(d["controller_manifests"]) == {
+        "controller:nirs4all.transform",
+        "controller:nirs4all.y_transform",
+        "controller:nirs4all.model",
+    }
+    bound = {p["kind"]: p["controller_id"] for p in d["node_plans"].values()}
+    assert bound == {
+        "transform": "controller:nirs4all.transform",
+        "y_transform": "controller:nirs4all.y_transform",
+        "model": "controller:nirs4all.model",
+    }
+
+    # Fingerprints are non-empty determinism anchors.
+    for fp in ("graph_fingerprint", "campaign_fingerprint", "controller_fingerprint"):
+        assert isinstance(d[fp], str) and d[fp]
+
+
+def test_bare_scaler_x_step_binds_as_transform_not_y_transform() -> None:
+    """A bare sklearn scaler used as an X step is a transform, never a y_transform.
+
+    Regression guard: generic scalers (MinMaxScaler/StandardScaler/RobustScaler)
+    are X-transforms or y-transforms purely by DSL position (bare step vs the
+    ``{"y_processing": ...}`` wrapper), not by class name. Binding by node kind
+    (empty operator_selectors) must keep a bare X-scaler out of the y_transform
+    role, otherwise it is silently disconnected from the model path.
+    """
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.model_selection import ShuffleSplit
+    from sklearn.preprocessing import MinMaxScaler
+
+    plan = build_dagml_plan([MinMaxScaler(), ShuffleSplit(n_splits=3), {"model": PLSRegression(n_components=2)}])
+    d = plan.to_dict()
+    assert "y_transform" not in [n["kind"] for n in d["graph_plan"]["graph"]["nodes"]]
+    bound = {p["kind"]: p["controller_id"] for p in d["node_plans"].values()}
+    assert bound == {
+        "transform": "controller:nirs4all.transform",
+        "model": "controller:nirs4all.model",
+    }
