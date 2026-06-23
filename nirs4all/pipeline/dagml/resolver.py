@@ -40,6 +40,15 @@ class MaterializationResolver:
         self._dataset = dataset
         self._identity = identity
 
+    def partition_wire_ids(self, partition: str) -> list[str]:
+        """Wire sample ids for a dataset partition (e.g. ``"test"``), empty if none.
+
+        Lets the adapter predict a held-out partition the CV fold set does not cover (the final
+        model's test predictions): dag-ml only scope-checks ``validation`` predictions, so a
+        ``test``/``final`` block for these ids is accepted and scored natively.
+        """
+        return [self._identity.to_wire(sample_int) for sample_int in self._dataset.index_column("sample", {"partition": partition})]
+
     def _ordered_rows(self, sample_ints: list[int], block: np.ndarray, returned: list[int]) -> list[int]:
         """Row index in ``block`` for each requested sample int, restoring request order."""
         if len(returned) != block.shape[0]:
