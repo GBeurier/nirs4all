@@ -25,6 +25,7 @@ numerically correct for **model-on-raw-features** graphs.
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Callable, MutableMapping
 from typing import TYPE_CHECKING, Any, cast
 
@@ -81,11 +82,69 @@ def _artifact_id(node_id: str, variant_label: str) -> str:
     return f"artifact:{node_id}:nirs4all:refit:{variant_label}"
 
 
+def _stable_handle(value: str) -> int:
+    return int.from_bytes(hashlib.blake2b(value.encode(), digest_size=8).digest(), "big") & 0x7FFFFFFFFFFFFFFF
+
+
+def _output_handles(task: dict[str, Any], handle: int) -> dict[str, Any]:
+    """Output port handles by node kind (model→out+oof, join→out+prediction, else out+x_out)."""
+    controller_id = task["node_plan"]["controller_id"]
+    kind = task["node_plan"].get("kind")
+    outputs = {"out": {"handle": handle, "kind": "data", "owner_controller": controller_id}}
+    if kind in ("model", "tuner"):
+        outputs["oof"] = {"handle": handle, "kind": "prediction", "owner_controller": controller_id}
+    elif kind == "prediction_join":
+        outputs["prediction"] = {"handle": handle, "kind": "prediction", "owner_controller": controller_id}
+    else:
+        outputs["x_out"] = {"handle": handle, "kind": "data", "owner_controller": controller_id}
+    return outputs
+
+
+def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artifacts: list[dict[str, Any]], artifact_handles: dict[str, Any]) -> dict[str, Any]:
+    """Assemble the schema-complete ``NodeResult`` the runtime validates (outputs + full lineage)."""
+    node_plan = task["node_plan"]
+    node_id = node_plan["node_id"]
+    phase = task["phase"]
+    variant_label = task.get("variant_id") or "base"
+    fold_label = task.get("fold_id") or "nofold"
+    metrics = {"nirs4all_adapter": 1.0}
+    if predictions and predictions[0]["values"]:
+        flat = [row[0] for row in predictions[0]["values"]]
+        metrics["prediction_mean"] = float(sum(flat) / len(flat))
+    return {
+        "node_id": node_id,
+        "outputs": _output_handles(task, _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}")),
+        "predictions": predictions,
+        "shape_deltas": [],
+        "artifacts": artifacts,
+        "artifact_handles": artifact_handles,
+        "lineage": {
+            "record_id": f"lineage:{node_id}:{phase}:{variant_label}:{fold_label}",
+            "run_id": task["run_id"],
+            "node_id": node_id,
+            "phase": phase,
+            "controller_id": node_plan["controller_id"],
+            "controller_version": node_plan["controller_version"],
+            "variant_id": task.get("variant_id"),
+            "fold_id": task.get("fold_id"),
+            "branch_path": task.get("branch_path", []),
+            "input_lineage": [],
+            "artifact_refs": artifacts,
+            "params_fingerprint": node_plan["params_fingerprint"],
+            "data_model_shape_fingerprint": None,
+            "aggregation_policy_fingerprint": None,
+            "seed": task.get("seed"),
+            "unsafe_flags": [],
+            "metrics": metrics,
+        },
+    }
+
+
 def run_model_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
-    model_store: MutableMapping[str, Any],
+    model_store: MutableMapping[int, Any],
 ) -> dict[str, Any]:
     """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``."""
     node_plan = task["node_plan"]
@@ -97,10 +156,11 @@ def run_model_node(
 
     train_ids, predict_ids = _train_predict_ids(task)
     artifact_id = _artifact_id(node_id, variant_label)
+    artifact_handle = _stable_handle(artifact_id)
 
     estimator: Any
     if phase == "PREDICT":
-        estimator = model_store[task.get("replay_artifact_id", artifact_id)]
+        estimator = model_store[artifact_handle]
     else:
         estimator = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
         x_train = np.asarray(resolver.resolve_features(train_ids)["values"], dtype=float)
@@ -124,32 +184,18 @@ def run_model_node(
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
-        model_store[artifact_id] = estimator
+        model_store[artifact_handle] = estimator
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
-        artifact_handles[artifact_id] = {"handle": artifact_id, "kind": "model", "owner_controller": controller_id}
+        artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
-    return {
-        "node_id": node_id,
-        "predictions": predictions,
-        "artifacts": artifacts,
-        "artifact_handles": artifact_handles,
-        "lineage": {
-            "record_id": f"lineage:{node_id}:{phase}:{variant_label}:{fold_label}",
-            "run_id": task.get("run_id"),
-            "node_id": node_id,
-            "phase": phase,
-            "controller_id": controller_id,
-            "fold_id": task.get("fold_id"),
-            "metrics": {"nirs4all_adapter": 1.0},
-        },
-    }
+    return _build_result(task, predictions, artifacts, artifact_handles)
 
 
 def run_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
-    model_store: MutableMapping[str, Any],
+    model_store: MutableMapping[int, Any],
 ) -> dict[str, Any]:
     """Dispatch a ``NodeTask`` by node kind.
 
@@ -159,4 +205,4 @@ def run_node(
     kind = task["node_plan"]["kind"]
     if kind in ("model", "tuner"):
         return run_model_node(task, resolver, node_lookup, model_store)
-    return {"node_id": task["node_plan"]["node_id"], "predictions": [], "artifacts": [], "artifact_handles": {}}
+    return _build_result(task, [], [], {})
