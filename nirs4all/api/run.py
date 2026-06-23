@@ -24,6 +24,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
+from nirs4all.pipeline.engine import resolve_engine
 
 from .result import RunResult
 from .session import Session
@@ -205,6 +206,7 @@ def run(
     cache: Any | None = None,
     project: str | None = None,
     report_naming: str = "nirs",
+    engine: str | None = None,
     # All other PipelineRunner options
     **runner_kwargs: Any
 ) -> RunResult:
@@ -277,6 +279,11 @@ def run(
             - ``"auto"``: Auto-detect based on context (defaults to "nirs")
             Affects column headers in final summary tables. Internal variable names
             use ML conventions regardless of this setting.
+
+        engine: Execution backend (ADR-17 migration selector). ``None``/``"legacy"``
+            (default) runs the in-process orchestrator. ``"dag-ml"``/``"dual"`` select the
+            dag-ml-backed core, which is under construction and currently raises
+            ``NotImplementedError`` — production is unaffected unless explicitly requested.
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -376,6 +383,11 @@ def run(
         - :func:`nirs4all.session`: Create execution session for resource reuse
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
+    # ADR-17 backend selector (nirs4all-core -> dag-ml migration). Default is the legacy
+    # in-process orchestrator; the dag-ml backend is gated here while it is built out, so
+    # production stays inert unless `engine="dag-ml"` is explicitly requested.
+    resolve_engine(engine)
+
     # Normalize pipelines and datasets to lists
     pipelines = _normalize_to_list(pipeline, _is_single_pipeline)
     datasets = _normalize_to_list(dataset, _is_single_dataset)
