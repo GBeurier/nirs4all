@@ -167,12 +167,16 @@ def run_model_node(
     node_lookup: Callable[[str], dict[str, Any]],
     model_store: MutableMapping[int, Any],
     edges: list[dict[str, Any]] | None = None,
+    y_transform_node: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``.
 
     When ``edges`` are supplied, the model node reconstructs its upstream X-transform chain
     (e.g. SNV→PLS) into a leakage-safe sklearn ``Pipeline`` fit on fold-train only — the
-    process-adapter delivers only sample_ids per node, so the chain is applied here.
+    process-adapter delivers only sample_ids per node, so the chain is applied here. A
+    ``y_transform_node`` (a nirs4all ``y_processing`` step — a floating graph node with no edge
+    to the model) is fit on fold-train ``y``, applied before fitting, and **inverse-transformed**
+    over the predictions, exactly reproducing nirs4all target scaling.
     """
     node_plan = task["node_plan"]
     node_id = node_plan["node_id"]
@@ -186,18 +190,23 @@ def run_model_node(
     artifact_handle = _stable_handle(artifact_id)
 
     estimator: Any
+    y_transform: Any
     if phase == "PREDICT":
-        estimator = model_store[artifact_handle]
+        bundle = model_store[artifact_handle]
+        estimator, y_transform = bundle["estimator"], bundle["y_transform"]
     else:
         model = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
         estimator = make_pipeline(*upstream, model) if upstream else model
+        y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None
         x_train = np.asarray(resolver.resolve_features(train_ids)["values"], dtype=float)
         y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
-        estimator.fit(x_train, y_train)
+        y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
+        estimator.fit(x_train, y_fit)
 
     x_predict = np.asarray(resolver.resolve_features(predict_ids)["values"], dtype=float)
-    y_hat = np.asarray(estimator.predict(x_predict), dtype=float).reshape(len(predict_ids), -1)
+    y_pred = np.asarray(estimator.predict(x_predict), dtype=float).reshape(len(predict_ids), -1)
+    y_hat = np.asarray(y_transform.inverse_transform(y_pred), dtype=float).reshape(len(predict_ids), -1) if y_transform is not None else y_pred
     predictions = [
         {
             "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}",
@@ -213,7 +222,7 @@ def run_model_node(
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
-        model_store[artifact_handle] = estimator
+        model_store[artifact_handle] = {"estimator": estimator, "y_transform": y_transform}
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
@@ -226,14 +235,16 @@ def run_node(
     node_lookup: Callable[[str], dict[str, Any]],
     model_store: MutableMapping[int, Any],
     edges: list[dict[str, Any]] | None = None,
+    y_transform_node: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Dispatch a ``NodeTask`` by node kind.
 
-    ``model``/``tuner`` execute and (with ``edges``) apply their upstream X-transform chain;
-    ``transform``/``y_transform`` are passthrough output-handles (the model node reconstructs
-    the chain), so the chained preprocessing is applied exactly once, at the model node.
+    ``model``/``tuner`` execute and (with ``edges``/``y_transform_node``) apply their upstream
+    X-transform chain + target scaling; ``transform``/``y_transform`` are passthrough
+    output-handles (the model node reconstructs the chain), so each preprocessing step is
+    applied exactly once, at the model node.
     """
     kind = task["node_plan"]["kind"]
     if kind in ("model", "tuner"):
-        return run_model_node(task, resolver, node_lookup, model_store, edges)
+        return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node)
     return _build_result(task, [], [], {})

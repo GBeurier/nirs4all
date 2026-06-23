@@ -73,7 +73,22 @@ def route_operator(
         fqn = operator_ref
     else:
         raise ValueError(f"unsupported operator_kind {operator_kind!r}")
-    return _import_class(fqn)(**merged)
+    cls = _import_class(fqn)
+    return cls(**_coerce_tuple_params(cls, merged))
+
+
+def _coerce_tuple_params(cls: type, params: dict[str, Any]) -> dict[str, Any]:
+    """Restore tuple params lost to JSON (e.g. ``MinMaxScaler(feature_range=(0,1))`` → ``[0,1]``).
+
+    JSON has no tuples, so a serialized pipeline turns tuple params into lists; some sklearn
+    operators validate the type at fit. Coerce a list back to a tuple only when the operator's
+    own default for that param is a tuple — never touching genuinely-list params.
+    """
+    try:
+        defaults = cls().get_params()
+    except (TypeError, AttributeError):  # operator needs ctor args / is not an estimator
+        return params
+    return {key: tuple(value) if isinstance(value, list) and isinstance(defaults.get(key), tuple) else value for key, value in params.items()}
 
 
 def route_graph_node(node: dict[str, Any], *, variant_overrides: dict[str, Any] | None = None) -> object:

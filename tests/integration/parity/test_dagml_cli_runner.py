@@ -136,3 +136,47 @@ def test_end_to_end_cli_snv_pls_chain(tmp_path) -> None:
 
     diffs = [abs(dagml_oof[k] - sklearn_oof[k]) for k in sklearn_oof]
     assert max(diffs) < 1e-4, f"SNV->PLS chained OOF parity drift {max(diffs)}"
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_end_to_end_cli_full_vertical_slice(tmp_path) -> None:
+    """The full vertical-slice shape SNV + y_processing(MinMaxScaler) + PLS runs e2e (KFold).
+
+    Exercises X-chaining AND a y_transform node together. MinMaxScaler-y is affine -> a no-op for
+    PLS, so the OOF equals Pipeline(SNV, PLS); the point is that the full node shape executes.
+    """
+    import dag_ml
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import MinMaxScaler
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml_bridge import controller_manifests
+
+    pipe = [StandardNormalVariate(), {"y_processing": MinMaxScaler()}, {"model": PLSRegression(n_components=5)}]
+    dataset, identity, train, folds, envelope, pipeline = _setup(pipe)
+    dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="vslice", n_splits=_N_SPLITS)
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_path("regression"),
+        workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable,
+    )
+    assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
+
+    dagml_oof: dict[int, float] = {}
+    for frame in outcome["results"]:
+        result = frame.get("result") if frame.get("type") == "result" else frame
+        for block in (result or {}).get("predictions", []):
+            if block["partition"] == "validation":
+                for sid, value in zip(block["sample_ids"], block["values"], strict=True):
+                    dagml_oof[identity.to_int(sid)] = float(value[0])
+    assert len(dagml_oof) == len(train)
+
+    sklearn_oof: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        for sample_int in val_ints:
+            sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+
+    diffs = [abs(dagml_oof[k] - sklearn_oof[k]) for k in sklearn_oof]
+    assert max(diffs) < 1e-4, f"full-vertical-slice OOF parity drift {max(diffs)}"

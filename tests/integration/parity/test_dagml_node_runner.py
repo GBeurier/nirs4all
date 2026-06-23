@@ -103,7 +103,7 @@ def test_refit_then_predict_round_trips_the_model(slice_fixture) -> None:
 
     ds = f["dataset"]
     x_test = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"))[0] for i in f["test_ints"]])
-    expected = np.asarray(store[handle].predict(x_test), dtype=float).reshape(len(f["test_ints"]), -1)
+    expected = np.asarray(store[handle]["estimator"].predict(x_test), dtype=float).reshape(len(f["test_ints"]), -1)
     assert np.allclose(np.asarray(block["values"], dtype=float), expected, atol=1e-9)
 
 
@@ -174,3 +174,48 @@ def test_fit_cv_applies_upstream_snv_chain(slice_fixture) -> None:
     # Without edges the chain is NOT applied (raw features) — proves the SNV step is load-bearing.
     raw = np.asarray(run_node(task, f["resolver"], nodes.__getitem__, {}, None)["predictions"][0]["values"], dtype=float)
     assert not np.allclose(raw, expected, atol=1e-2)
+
+
+def test_fit_cv_applies_snv_and_y_processing_chain(slice_fixture) -> None:
+    """SNV + y_processing + PLS: model node applies the X-chain AND target scaling+inverse (A3.2).
+
+    Uses a NON-affine y transform (PowerTransformer) so the effect is observable — affine
+    scalers (MinMaxScaler/StandardScaler) are mathematically no-ops for a linear model's
+    inverse-transformed predictions (a useful parity fact, covered by the e2e test).
+    """
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import PowerTransformer
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml_bridge import build_dagml_plan
+
+    f = slice_fixture
+    pipeline = [StandardNormalVariate(), {"y_processing": PowerTransformer()}, {"model": PLSRegression(n_components=5)}]
+    plan = build_dagml_plan(pipeline, plan_id="p", dsl_id="vslice").to_dict()
+    graph = plan["graph_plan"]["graph"]
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    model_id = next(node_id for node_id, node in nodes.items() if node["kind"] == "model")
+    y_transform_node = next(node for node in graph["nodes"] if node["kind"] == "y_transform")
+    train, val = f["train_ints"][:90], f["train_ints"][90:120]
+    to_wire = f["identity"].to_wire
+    task = {
+        "phase": "FIT_CV", "fold_id": "fold0", "run_id": "r", "variant_id": None, "node_plan": plan["node_plans"][model_id],
+        "data_views": {
+            "data:x": {"partition": "fold_train", "sample_ids": [to_wire(i) for i in train]},
+            "data:x:validation": {"partition": "fold_validation", "sample_ids": [to_wire(i) for i in val]},
+        },
+    }
+    got = np.asarray(run_node(task, f["resolver"], nodes.__getitem__, {}, graph["edges"], y_transform_node)["predictions"][0]["values"], dtype=float)
+
+    # Manual nirs4all-equivalent: fit y transform on train y, fit SNV->PLS on transformed y, inverse predictions.
+    ds = f["dataset"]
+    y_train = np.asarray(ds.y({"sample": train}), dtype=float).reshape(-1, 1)
+    ytf = PowerTransformer().fit(y_train)
+    pipe = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+    pipe.fit(np.asarray(ds.x({"sample": train}, layout="2d"), dtype=float), ytf.transform(y_train).ravel())
+    x_val = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"), dtype=float)[0] for i in val])
+    expected = ytf.inverse_transform(np.asarray(pipe.predict(x_val), dtype=float).reshape(len(val), -1))
+    assert np.allclose(got, expected, atol=1e-6)
+    # Without the y transform the (non-affine) target scaling is missing — predictions differ.
+    no_ytf = np.asarray(run_node(task, f["resolver"], nodes.__getitem__, {}, graph["edges"], None)["predictions"][0]["values"], dtype=float)
+    assert not np.allclose(no_ytf, expected, atol=1e-2)
