@@ -207,7 +207,7 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
     scores = bundle.get("scores")
     assert scores is not None, "dag-ml must persist native scores in the bundle"
     validation = {report["fold_id"]: report["metrics"]["rmse"] for report in scores["reports"] if report["partition"] == "validation"}
-    assert len(validation) == _N_SPLITS  # one native score per CV fold
+    assert all(f"fold{i}" in validation for i in range(_N_SPLITS))  # one native score per CV fold
 
     # dag-ml's native RMSE matches sklearn fold-for-fold (computed in Rust, not Python).
     for index, (train_ints, val_ints) in enumerate(folds):
@@ -217,3 +217,21 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
         true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
         sklearn_rmse = float(np.sqrt(mean_squared_error(true, pred)))
         assert abs(validation[f"fold{index}"] - sklearn_rmse) < 1e-3, f"fold{index} native RMSE drift"
+
+    # dag-ml also computes the cross-fold OOF average natively (the cv_best_score row).
+    avg = [r for r in scores["reports"] if r["partition"] == "validation" and r["fold_id"] == "avg"]
+    assert len(avg) == 1, "dag-ml must emit a native cross-fold OOF average (fold_id=avg)"
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+        true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[sample_int] = float(pred[position])
+            oof_true[sample_int] = float(true[position])
+    keys = sorted(oof_pred)
+    oof_rmse = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(avg[0]["metrics"]["rmse"] - oof_rmse) < 1e-3, "native OOF-average RMSE != sklearn OOF concat"
+    assert avg[0]["row_count"] == len(keys)
