@@ -20,8 +20,7 @@ def test_explicit_legacy_case_insensitive() -> None:
 
 def test_env_var_is_read(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(ENGINE_ENV_VAR, "dag-ml")
-    with pytest.raises(NotImplementedError):
-        resolve_engine()
+    assert resolve_engine() == "dag-ml"
 
 
 def test_explicit_arg_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -29,10 +28,16 @@ def test_explicit_arg_beats_env(monkeypatch: pytest.MonkeyPatch) -> None:
     assert resolve_engine("legacy") == "legacy"
 
 
-@pytest.mark.parametrize("name", ["dag-ml", "dual"])
-def test_unimplemented_engines_refused(name: str) -> None:
+def test_dagml_engine_resolves() -> None:
+    # The dag-ml backend is wired (run dispatches to the dag-ml-cli runner); it resolves cleanly.
+    assert resolve_engine("dag-ml") == "dag-ml"
+    assert resolve_engine("  DAG-ML  ") == "dag-ml"
+
+
+def test_dual_engine_refused() -> None:
+    # Side-by-side comparison mode is still unimplemented.
     with pytest.raises(NotImplementedError):
-        resolve_engine(name)
+        resolve_engine("dual")
 
 
 def test_unknown_engine_rejected() -> None:

@@ -248,3 +248,42 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
     sklearn_final_test = float(np.sqrt(mean_squared_error(test_true, test_pred)))
     assert abs(final_test[0]["metrics"]["rmse"] - sklearn_final_test) < 1e-3, "native final-test RMSE != sklearn"
     assert final_test[0]["row_count"] == len(test_ints)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml() -> None:
+    """The public `nirs4all.run(engine="dag-ml")` runs on the dag-ml engine and returns native scores."""
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    # best_rmse == sklearn final-test (refit on full train, predict test)
+    model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+    model.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+    test_pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel()
+    sklearn_final_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), test_pred)))
+    assert abs(result.best_rmse - sklearn_final_test) < 1e-3
+
+    # cv_best_score == sklearn OOF-concat
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        fold_model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+        fold_model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(fold_model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+        true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), float(true[position])
+    keys = sorted(oof_pred)
+    sklearn_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - sklearn_oof) < 1e-3
