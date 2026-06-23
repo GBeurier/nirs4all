@@ -121,8 +121,12 @@ def _output_handles(task: dict[str, Any], handle: int) -> dict[str, Any]:
     return outputs
 
 
-def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artifacts: list[dict[str, Any]], artifact_handles: dict[str, Any]) -> dict[str, Any]:
-    """Assemble the schema-complete ``NodeResult`` the runtime validates (outputs + full lineage)."""
+def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artifacts: list[dict[str, Any]], artifact_handles: dict[str, Any], regression_targets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    """Assemble the schema-complete ``NodeResult`` the runtime validates (outputs + full lineage).
+
+    ``regression_targets`` (the real ``y_true`` for the predicted samples) lets dag-ml score the
+    predictions natively into the bundle's ScoreSet — emitted only when we predict labelled samples.
+    """
     node_plan = task["node_plan"]
     node_id = node_plan["node_id"]
     phase = task["phase"]
@@ -139,6 +143,7 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
         "shape_deltas": [],
         "artifacts": artifacts,
         "artifact_handles": artifact_handles,
+        "regression_targets": regression_targets or [],
         "lineage": {
             "record_id": f"lineage:{node_id}:{phase}:{variant_label}:{fold_label}",
             "run_id": task["run_id"],
@@ -219,6 +224,17 @@ def run_model_node(
         }
     ]
 
+    # Emit the real y_true (original scale) for the predicted samples so dag-ml scores natively.
+    true_y = resolver.resolve_targets(predict_ids)["values"]
+    regression_targets = [
+        {
+            "level": "sample",
+            "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in predict_ids],
+            "values": [[float(value)] for value in true_y],
+            "target_names": ["y"],
+        }
+    ]
+
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
@@ -226,7 +242,7 @@ def run_model_node(
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
-    return _build_result(task, predictions, artifacts, artifact_handles)
+    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
 
 
 def run_node(
