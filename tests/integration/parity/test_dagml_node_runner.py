@@ -134,4 +134,6 @@ def test_jsonl_loop_handshake_and_task(slice_fixture) -> None:
     assert frames[2] == {"type": "ack", "schema_version": 1, "status": "closed"}
 
     description = describe()
-    assert "jsonl" in description["supported_modes"] and "node_task_json_v1" in description["capabilities"]
+    assert "jsonl" in description["supported_modes"]
+    # worker_env is required by dag-ml-cli for --persistent mode (verified end-to-end).
+    assert {"node_task_json_v1", "worker_env", "persistent_workers"} <= set(description["capabilities"])
