@@ -99,18 +99,25 @@ def run_via_dagml(
     if not Path(cli).exists():
         raise FileNotFoundError(f"dag-ml-cli binary not found at {cli}; build it (cargo build -p dag-ml-cli --release)")
 
+    from nirs4all.core import detect_task_type
     from nirs4all.pipeline.config.generator import expand_spec
 
     spectro = DatasetConfigs(dataset).get_dataset_at(0)
     dataset_arg = str(spectro.dataset_path) if hasattr(spectro, "dataset_path") else str(dataset)
     base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
 
+    # Task type sets the selection metric: classification ranks by accuracy (higher is better),
+    # regression by RMSE (lower is better). dag-ml emits both natively in every score report.
+    is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
+    metric = "accuracy" if is_classification else "rmse"
+    task_type = "classification" if is_classification else "regression"
+
     # Expand generators (_or_/_range_/_grid_/...) into concrete pipelines in Python (nirs4all's own
     # expansion), run each through the verified single-variant dag-ml path, then select the best by
     # its cross-validation score — mirroring nirs4all selecting the best variant by its CV metric.
     variants = expand_spec(pipeline)
     results = [
-        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}")
+        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -118,12 +125,14 @@ def run_via_dagml(
 
     def _cv_rank(result: RunResult) -> float:
         score = result.cv_best_score
-        return score if score == score else float("inf")  # NaN (no CV score) ranks last
+        if score != score:  # NaN (no CV score) ranks last
+            return float("inf")
+        return -score if is_classification else score  # maximize accuracy, minimize RMSE
 
     return min(results, key=_cv_rank)
 
 
-def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path) -> RunResult:
+def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str = "rmse", task_type: str = "regression") -> RunResult:
     """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores."""
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -146,10 +155,10 @@ def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_
         raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps))
+    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
 
 
-def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str) -> RunResult:
+def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str, metric: str = "rmse", task_type: str = "regression") -> RunResult:
     """Map a dag-ml ScoreSet into a RunResult, mirroring nirs4all's entry shape.
 
     dag-ml emits one report per (partition, fold). nirs4all's RunResult expects per-fold validation
@@ -162,26 +171,34 @@ def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, mode
     by_key = {(report["partition"], report.get("fold_id")): {name: float(value) for name, value in report["metrics"].items()} for report in (scores or {}).get("reports", [])}
 
     def add(fold_id: str | None, partition: str, scores_map: dict[str, dict[str, float]], *, val: float | None = None, test: float | None = None, train: float | None = None) -> None:
-        predictions.add_prediction(dataset_name=dataset_name, model_name=model_name, fold_id=fold_id, partition=partition, metric="rmse", task_type="regression", scores=scores_map, val_score=val, test_score=test, train_score=train)
+        predictions.add_prediction(dataset_name=dataset_name, model_name=model_name, fold_id=fold_id, partition=partition, metric=metric, task_type=task_type, scores=scores_map, val_score=val, test_score=test, train_score=train)
 
-    # Only the `avg` (cv_best) + combined `final` entries: per-fold val entries would make
-    # get_best(score_scope="all") rank the lowest-val fold first (an entry with no test data),
-    # breaking best_rmse when a fold's RMSE < the final-test RMSE.
+    # Two entries: the `avg` CV entry (cv_best_score) and the combined refit `final` entry that holds
+    # val + test + train scores (best/best_rmse/best_accuracy resolve from it). Per-fold val entries
+    # are omitted — they would let get_best(score_scope="all") rank a single fold first.
+    #
+    # _rank_candidates ranks an is_final entry by its OWN partition's metric, so the final entry uses
+    # partition="val" (ranks on the CV metric, same axis as the avg) with the ranking value nudged a
+    # negligible epsilon in the better direction (maximize accuracy, minimize rmse). That makes the
+    # refit entry win the get_best tie over the avg for BOTH task directions; reported scores come
+    # from the unmodified `scores` dict, so best_rmse/best_accuracy read the true final-test value.
+    maximize = metric in ("accuracy", "r2")
     predictions = Predictions()
     avg = by_key.get(("validation", "avg"))
     test = by_key.get(("test", "final"))
     train = by_key.get(("final", None))
     if avg is not None:
-        add("avg", "val", {"val": avg}, val=avg.get("rmse"))
+        add("avg", "val", {"val": avg}, val=avg.get(metric))
     if test is not None or train is not None:
-        combined: dict[str, dict[str, float]] = {}
-        if avg is not None:
-            combined["val"] = avg
+        rank_val = dict(avg) if avg is not None else {}
+        if metric in rank_val:
+            rank_val[metric] += 1e-9 if maximize else -1e-9
+        combined: dict[str, dict[str, float]] = {"val": rank_val}
         if train is not None:
             combined["train"] = train
         if test is not None:
             combined["test"] = test
-        add("final", "test", combined, val=(avg or {}).get("rmse"), test=(test or {}).get("rmse"), train=(train or {}).get("rmse"))
+        add("final", "val", combined, val=(avg or {}).get(metric), test=(test or {}).get(metric), train=(train or {}).get(metric))
 
     predictions.flush()
     return RunResult(predictions=predictions, per_dataset={dataset_name: {"engine": "dag-ml"}})
