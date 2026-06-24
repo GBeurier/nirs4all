@@ -167,18 +167,24 @@ def build_envelope(dataset: SpectroDataset, identity: IdentityMap, *, source_id:
 def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]]], *, set_id: str = "nirs4all.folds") -> dict[str, Any]:
     """Translate ``(train_ints, validation_ints)`` folds into a dag-ml-data ``FoldSet``.
 
-    Pure identity translation — sample ints become stable wire ids. Whether the result
-    validates against the CV-universe relations depends on the *folds*: dag-ml-data
-    requires an OOF partition (each sample validated exactly once).
+    Pure identity translation — sample ints become stable wire ids. The validation distribution is
+    auto-detected: a clean OOF partition (each sample validated exactly once, KFold-style) stays the
+    default ``Partition`` mode (``partition_mode`` omitted → byte-identical fold set), while
+    resampling CV (ShuffleSplit / repeated KFold, where a sample is validated 0 or 2+ times) is
+    tagged ``"resampled"`` so dag-ml relaxes OOF completeness (the per-fold leakage guard holds).
     """
     pool: list[int] = []
     seen: set[int] = set()
+    validation_counts: dict[int, int] = {}
     for train_ints, validation_ints in folds:
         for sample_int in (*train_ints, *validation_ints):
             if sample_int not in seen:
                 seen.add(sample_int)
                 pool.append(sample_int)
-    return {
+        for sample_int in validation_ints:
+            validation_counts[sample_int] = validation_counts.get(sample_int, 0) + 1
+    is_oof_partition = len(validation_counts) == len(pool) and all(count == 1 for count in validation_counts.values())
+    fold_set: dict[str, Any] = {
         "id": set_id,
         "sample_ids": [identity.to_wire(sample_int) for sample_int in pool],
         "folds": [
@@ -190,3 +196,6 @@ def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]
             for index, (train_ints, validation_ints) in enumerate(folds)
         ],
     }
+    if not is_oof_partition:
+        fold_set["partition_mode"] = "resampled"
+    return fold_set
