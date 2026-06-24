@@ -66,9 +66,9 @@ def route_operator(
     """
     merged = {**(params or {}), **(variant_overrides or {})}
     if operator_kind == "model":
-        fqn = _MODEL_TABLE.get(operator_ref)
-        if fqn is None:
-            raise KeyError(f"no model registered for {operator_ref!r}; known: {sorted(_MODEL_TABLE)}")
+        # Short aliases stay supported; otherwise the model id IS a fully-qualified class (the bridge
+        # now emits FQNs), so any sklearn-style estimator — regressor or classifier — is imported.
+        fqn = _MODEL_TABLE.get(operator_ref, operator_ref)
     elif operator_kind in ("transform", "y_transform"):
         fqn = operator_ref
     else:
