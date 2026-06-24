@@ -40,6 +40,131 @@ def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     return steps, splitter
 
 
+def _is_exclude_step(step: Any) -> bool:
+    return isinstance(step, dict) and "exclude" in step
+
+
+def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: list[int]) -> set[int]:
+    """Excluded sample ints from ``pool_ints`` for one ``exclude_step``, mirroring ExcludeController.
+
+    Fits each :class:`~nirs4all.operators.filters.base.SampleFilter` on the CURRENT kept pool's X/y
+    (``include_augmented=False``) and combines the per-filter keep-masks by ``mode`` — exactly the
+    legacy :class:`~nirs4all.controllers.data.exclude.ExcludeController` mask logic:
+
+    * ``mode="any"`` → exclude if ANY filter flags = ``np.all`` of the keep-masks (exclude.py:193);
+    * ``mode="all"`` → exclude only if ALL filters flag = ``np.any`` (exclude.py:196).
+
+    Two legacy edge behaviors are replicated:
+
+    * **Per-filter ``ValueError`` → neutral keep-all** (exclude.py:175-184): a filter that fails to
+      fit/mask (e.g. insufficient data) contributes a keep-all mask rather than propagating.
+    * **All-excluded guard** (exclude.py:213-222): if the COMBINED keep-mask would exclude every row,
+      keep the first sample so exclusion never empties the pool.
+
+    The engine consumes the result as identity (a sample-int set) instead of marking the indexer.
+    """
+    from nirs4all.controllers.data.exclude import ExcludeController
+
+    controller = ExcludeController()
+    filters, filter_mode, _cascade = controller._parse_config(exclude_step)  # noqa: SLF001 - reuse legacy parsing
+    if not filters:
+        raise ValueError("exclude keyword requires at least one filter")
+    if not pool_ints:
+        return set()
+
+    x_pool = np.asarray(spectro.x({"sample": list(pool_ints)}, layout="2d", concat_source=True, include_augmented=False))
+    y_pool = np.asarray(spectro.y({"sample": list(pool_ints)}, include_augmented=False))
+    if y_pool.ndim > 1:
+        y_pool = y_pool.flatten()
+    if y_pool.size == 0:
+        return set()
+    # `spectro.x/y({"sample": ids})` returns ascending storage order, not request order; re-key so the
+    # mask aligns to `pool_ints` exactly (the storage-vs-request trap the resolver also guards against).
+    stored = spectro.index_column("sample", {"sample": list(pool_ints)})
+    row_of = {int(sample_int): row for row, sample_int in enumerate(stored)}
+    order = [row_of[int(sample_int)] for sample_int in pool_ints]
+    x_pool, y_pool = x_pool[order], y_pool[order]
+
+    masks: list[np.ndarray] = []
+    for filter_obj in filters:
+        try:
+            filter_obj.fit(x_pool, y_pool)
+            masks.append(filter_obj.get_mask(x_pool, y_pool))
+        except ValueError:
+            # exclude.py:175-184 — a filter that can't be applied contributes a neutral keep-all mask.
+            masks.append(np.ones(len(pool_ints), dtype=bool))
+
+    if len(masks) == 1:
+        keep_mask = masks[0].copy()
+    else:
+        stacked = np.stack(masks, axis=0)
+        keep_mask = np.all(stacked, axis=0) if filter_mode == "any" else np.any(stacked, axis=0)
+
+    # exclude.py:213-222 — never empty the pool: if all rows would be excluded, keep the first.
+    if not keep_mask.any():
+        keep_mask[0] = True
+
+    return {int(sample_int) for sample_int, keep in zip(pool_ints, keep_mask, strict=True) if not keep}
+
+
+def _resolve_exclude(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list[int], set[int]]:
+    """Consume ALL ``exclude`` steps and return ``(pipeline_without_exclude, cv_pool, excluded)``.
+
+    Mirrors the verified legacy + opt-in semantics:
+
+    * **No exclude step** → ``(pipeline, full_train, set())``.
+    * **``keep_in_oof=False`` (default = legacy parity)** → the CV pool is the train universe MINUS
+      the excluded ints; excluded samples are absent from the folds AND the envelope (removed from
+      the CV universe entirely, matching legacy: the splitter runs over ``include_excluded=False``).
+      The native ``excluded`` bit is unused (``excluded`` set is empty for the envelope).
+    * **``keep_in_oof=True`` (opt-in, leakage-pure)** → the CV pool is the FULL train universe; the
+      excluded ints are marked in the envelope so Phase 1's native bit drops them from each fold's
+      TRAIN while keeping them in validation/OOF.
+
+    Multiple ``exclude`` steps are applied SEQUENTIALLY, exactly as legacy: each step's filter fits on
+    the CURRENT kept train (``include_excluded=False``), i.e. the pool after the earlier steps'
+    exclusions (exclude.py:135-137 reads ``include_excluded=False``), so the excluded set is built
+    progressively. The ``keep_in_oof`` flag is honored from any exclude step (consistent across steps
+    is the caller's contract). All ``exclude`` steps are removed from the remaining pipeline — none is
+    lowered to a dag-ml node (the bridge still raises ``NotImplementedError`` for a raw ``exclude``).
+    """
+    train_ints = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
+    exclude_steps = [step for step in pipeline if _is_exclude_step(step)]
+    if not exclude_steps:
+        return pipeline, train_ints, set()
+
+    keep_in_oof = any(bool(step.get("keep_in_oof", False)) for step in exclude_steps)
+    excluded: set[int] = set()
+    for step in exclude_steps:
+        current_pool = [sample_int for sample_int in train_ints if sample_int not in excluded]
+        excluded |= _excluded_from_pool(step, spectro, current_pool)
+
+    remaining = [step for step in pipeline if not _is_exclude_step(step)]
+    if keep_in_oof:
+        # Opt-in: keep excluded in the CV universe; mark them excluded in the envelope (native bit)
+        # and (host-side) drop them from each fold's TRAIN below so the OOF is leakage-pure.
+        return remaining, train_ints, excluded
+    # Default (legacy): drop excluded from the CV universe entirely; envelope marks nothing excluded.
+    pool = [sample_int for sample_int in train_ints if sample_int not in excluded]
+    return remaining, pool, set()
+
+
+def _build_folds(splitter: Any, pool: list[int], excluded: set[int]) -> list[tuple[list[int], list[int]]]:
+    """Split ``pool`` and drop ``excluded`` from each fold's TRAIN, keeping them in VALIDATION.
+
+    In legacy mode ``excluded`` is empty (excluded samples are already absent from ``pool``), so this
+    is a plain split. In the opt-in (``keep_in_oof=True``) mode ``pool`` is the full train and
+    ``excluded`` is non-empty: excluded samples stay in each fold's validation (predicted in OOF) but
+    are removed from its train pool — the leakage-pure semantic, materialized in the host FoldSet (the
+    adapter owns the split; dag-ml has no runtime splitter, so the FoldSet's ``train_sample_ids`` are
+    authoritative for what the node trains on). The envelope still marks them ``excluded`` for lineage.
+    """
+    return [
+        ([pool[i] for i in train_idx if pool[i] not in excluded], [pool[i] for i in val_idx])
+        for train_idx, val_idx in splitter.split(pool)
+    ]
+
+
 # Keys on a step dict that are NOT model hyperparameters (mirrors StepParser.RESERVED_KEYWORDS).
 _RESERVED_STEP_KEYS = frozenset({"model", "params", "metadata", "steps", "name", "finetune_params", "train_params", "refit_params", "fit_on_all", "force_layout", "na_policy", "fill_value", "y_processing"})
 
@@ -160,6 +285,12 @@ def run_via_dagml(
     dataset_arg = str(spectro.dataset_path) if hasattr(spectro, "dataset_path") else str(dataset)
     base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
 
+    # Consume the `exclude` step (if any) BEFORE generator handling: run the SampleFilter operator(s)
+    # in Python on the full CV train pool to get the excluded sample ints, then choose the CV universe
+    # per the `keep_in_oof` mode. `cv_pool` is the sample-int universe the splitter runs over;
+    # `excluded` is non-empty only in the opt-in (keep_in_oof=True) leakage-pure mode.
+    pipeline, cv_pool, excluded = _resolve_exclude(list(pipeline), spectro)
+
     # Task type sets the selection metric: classification ranks by accuracy (higher is better),
     # regression by RMSE (lower is better). dag-ml emits both natively in every score report.
     is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
@@ -172,7 +303,7 @@ def run_via_dagml(
     # generators (`_or_`/`_cartesian_`, multi-model) stay on the Python `expand_spec` path below.
     if _generation_kind(list(pipeline)) == "param_model":
         return _run_native_generation(
-            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type
+            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded
         )
 
     # Expand operator-level generators (_or_/_cartesian_/...) into concrete pipelines in Python
@@ -180,7 +311,7 @@ def run_via_dagml(
     # select the best by its CV score — mirroring nirs4all selecting the best variant by its metric.
     variants = expand_spec(pipeline)
     results = [
-        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type)
+        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type, cv_pool, excluded)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -195,13 +326,16 @@ def run_via_dagml(
     return min(results, key=_cv_rank)
 
 
-def _run_native_generation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_native_generation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, cv_pool: list[int] | None = None, excluded: set[int] | None = None) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
 
     The model step keeps its generator dict so the bridge lowers it to native ``generators``; we
     apply only the plain (non-generator) sibling params to the model, never the sweep. dag-ml
     expands the variants, scores each by its cross-fold OOF ``metric``, and refits the winner —
     ``bundle.scores`` is the selected variant's, mapped to a RunResult exactly like the single path.
+
+    ``cv_pool`` is the CV sample-int universe (the de-excluded pool in legacy mode, the full train
+    in opt-in mode); ``excluded`` is marked in the envelope only in opt-in (``keep_in_oof=True``).
     """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -209,9 +343,9 @@ def _run_native_generation(pipeline: list[Any], spectro: Any, dataset_arg: str, 
     steps = _apply_plain_model_params(steps)
 
     identity = mint_identity(spectro)
-    train = spectro.index_column("sample", {"partition": "train"})
-    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in splitter.split(train)]
-    envelope = build_envelope(spectro, identity, sample_ints=train)
+    pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, pool, excluded or set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml
@@ -254,17 +388,21 @@ def _apply_plain_model_params(steps: list[Any]) -> list[Any]:
     return out
 
 
-def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str = "rmse", task_type: str = "regression") -> RunResult:
-    """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores."""
+def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str = "rmse", task_type: str = "regression", cv_pool: list[int] | None = None, excluded: set[int] | None = None) -> RunResult:
+    """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores.
+
+    ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
+    mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
+    """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     steps = _apply_model_params(steps)
 
     identity = mint_identity(spectro)
-    train = spectro.index_column("sample", {"partition": "train"})
-    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in splitter.split(train)]
-    envelope = build_envelope(spectro, identity, sample_ints=train)
+    pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, pool, excluded or set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml

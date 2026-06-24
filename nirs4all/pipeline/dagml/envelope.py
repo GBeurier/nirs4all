@@ -111,12 +111,25 @@ def _data_plan(dataset: SpectroDataset, source_id: str) -> dict[str, Any]:
     }
 
 
-def sample_relations(identity: IdentityMap, *, source_id: str = _DEFAULT_SOURCE_ID, sample_ints: list[int] | None = None) -> dict[str, Any]:
+def sample_relations(
+    identity: IdentityMap,
+    *,
+    source_id: str = _DEFAULT_SOURCE_ID,
+    sample_ints: list[int] | None = None,
+    excluded_sample_ints: set[int] | None = None,
+) -> dict[str, Any]:
     """The ``SampleRelationTable`` rows, optionally scoped to a sample-int subset.
 
     Pass ``sample_ints`` (e.g. the CV training pool) to scope the relations for fold
     validation; omit it for the full-dataset relations the envelope declares.
+
+    Pass ``excluded_sample_ints`` to emit ``excluded: true`` for those rows — the opt-in
+    leakage-pure exclude mode (``keep_in_oof=True``): Phase 1's native ``excluded`` bit then
+    drops them from each fold's TRAIN view while keeping them in validation/OOF and predict.
+    Omit it (the default) and every row is ``excluded: false`` — the legacy mode removes
+    excluded samples from the CV universe entirely (they are simply absent from the pool).
     """
+    excluded = excluded_sample_ints or set()
     chosen = identity.identities if sample_ints is None else [identity.identities[i] for i in _positions(identity, sample_ints)]
     return {
         "rows": [
@@ -129,7 +142,7 @@ def sample_relations(identity: IdentityMap, *, source_id: str = _DEFAULT_SOURCE_
                 "origin_id": None,
                 "repetition_id": None,
                 "augmented": sample.augmented,
-                "excluded": False,
+                "excluded": sample.sample_int in excluded,
                 "metadata": {},
             }
             for sample in chosen
@@ -142,13 +155,25 @@ def _positions(identity: IdentityMap, sample_ints: list[int]) -> list[int]:
     return [index[sample_int] for sample_int in sample_ints]
 
 
-def build_envelope(dataset: SpectroDataset, identity: IdentityMap, *, source_id: str = _DEFAULT_SOURCE_ID, sample_ints: list[int] | None = None) -> dict[str, Any]:
+def build_envelope(
+    dataset: SpectroDataset,
+    identity: IdentityMap,
+    *,
+    source_id: str = _DEFAULT_SOURCE_ID,
+    sample_ints: list[int] | None = None,
+    excluded_sample_ints: set[int] | None = None,
+) -> dict[str, Any]:
     """Build the validated ``CoordinatorDataPlanEnvelope``.
 
     Pass ``sample_ints`` to scope the envelope to a sample universe — e.g. the CV training
     pool, so the schema + ``coordinator_relations`` match the embedded ``FoldSet`` and pass
     ``validate_data_envelope_relations`` (every relation must live inside the fold set).
     Omit it for a whole-dataset envelope.
+
+    Pass ``excluded_sample_ints`` (a subset of ``sample_ints``) to mark those rows
+    ``excluded: true`` — the opt-in ``keep_in_oof=True`` exclude mode where Phase 1's native
+    bit drops them from fold TRAIN but keeps them in validation/OOF. Default (``None``) marks
+    every row not-excluded.
 
     The wheel computes all fingerprints and derives ``coordinator_relations``; a successful
     return means the envelope is contract-valid (the materialize-time fingerprint gate
@@ -159,7 +184,7 @@ def build_envelope(dataset: SpectroDataset, identity: IdentityMap, *, source_id:
     envelope = dag_ml_data.build_coordinator_data_plan_envelope(
         _dataset_schema(dataset, source_id, [sample.sample_id for sample in chosen]),
         _data_plan(dataset, source_id),
-        sample_relations(identity, source_id=source_id, sample_ints=sample_ints),
+        sample_relations(identity, source_id=source_id, sample_ints=sample_ints, excluded_sample_ints=excluded_sample_ints),
     )
     return dict(envelope.to_dict())
 
