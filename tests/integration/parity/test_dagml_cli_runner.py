@@ -579,3 +579,190 @@ def test_public_run_engine_dagml_classification() -> None:
     model = LogisticRegression(max_iter=500).fit(features(train), targets(train))
     sklearn_accuracy = float(np.mean(model.predict(features(test_ints)) == targets(test_ints)))
     assert abs(result.best_accuracy - sklearn_accuracy) < 1e-3
+
+
+def _excluded_train_ints(dataset, train: list[int], threshold: float) -> set[int]:
+    """Fit a YOutlierFilter on the full base train pool and return the excluded sample ints.
+
+    Mirrors ExcludeController / run_backend._excluded_sample_ints exactly: fit on the whole train
+    pool (``include_augmented=False``), ``get_mask`` (True=keep), exclude where mask is False.
+    """
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+
+    x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d", concat_source=True, include_augmented=False))
+    y_train = np.asarray(dataset.y({"partition": "train"}, include_augmented=False)).flatten()
+    filt = YOutlierFilter(method="iqr", threshold=threshold)
+    filt.fit(x_train, y_train)
+    return {int(s) for s, keep in zip(train, filt.get_mask(x_train, y_train), strict=True) if not keep}
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_exclude_default_legacy_parity() -> None:
+    """exclude (DEFAULT mode, keep_in_oof=False) on engine="dag-ml" == legacy: excluded removed from CV.
+
+    The default exclude mode removes excluded samples from the CV universe ENTIRELY (verified legacy
+    semantic: ExcludeController runs before the splitter, which splits over ``include_excluded=False``).
+    Asserts engine="dag-ml"'s ``cv_best_score`` matches the legacy/default engine's on the same pipeline,
+    and ``best_rmse`` matches the CLEAN refit-on-kept test score.
+
+    NOTE: legacy's ``best_rmse`` instead carries a get_best quirk (it returns the lowest-val per-fold
+    model's test_score, not the refit's), so it is NOT asserted equal here; the dag-ml engine
+    intentionally reports the clean refit-on-kept final-test (a known RunResult divergence that is not
+    exclude-specific — every dag-ml parity test compares to the clean refit, see the tests above).
+    """
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    import nirs4all
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    n_comp, threshold = 5, 1.0
+    pipeline = lambda: [  # noqa: E731 - fresh filter instance per engine (fit mutates state)
+        {"exclude": YOutlierFilter(method="iqr", threshold=threshold)},
+        StandardNormalVariate(),
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=n_comp)},
+    ]
+    legacy = nirs4all.run(pipeline(), dataset_path("regression"))
+    dagml = nirs4all.run(pipeline(), dataset_path("regression"), engine="dag-ml")
+
+    # cv_best_score: dag-ml default == legacy (both KFold over the kept universe; excluded absent).
+    assert abs(dagml.cv_best_score - legacy.cv_best_score) < 1e-3, (dagml.cv_best_score, legacy.cv_best_score)
+
+    # best_rmse: dag-ml == clean refit-on-kept test (the legacy get_best best_rmse quirk is NOT matched).
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    kept = [s for s in train if s not in _excluded_train_ints(dataset, train, threshold)]
+    model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+    model.fit(np.asarray(dataset.x({"sample": kept}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": kept}), dtype=float))
+    test_pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel()
+    refit_test_rmse = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), test_pred)))
+    assert abs(dagml.best_rmse - refit_test_rmse) < 1e-3, (dagml.best_rmse, refit_test_rmse)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_exclude_keep_in_oof(tmp_path) -> None:
+    """exclude (OPT-IN mode, keep_in_oof=True) keeps excluded in the OOF: leakage-pure CV.
+
+    Opt-in mode keeps excluded samples in each fold's VALIDATION (predicted in OOF by a model that
+    never trained on them) while dropping them from each fold's TRAIN. Asserts (a) the excluded
+    samples DO appear in the validation/OOF predictions and the OOF covers the FULL train universe;
+    (b) ``cv_best_score`` differs from the default mode (which removes them from CV); (c) it equals
+    the leakage-pure baseline (excluded dropped from fold-train, kept in fold-val).
+    """
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    import nirs4all
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
+    from nirs4all.pipeline.dagml.envelope import build_envelope
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml_bridge import controller_manifests
+
+    n_comp, threshold = 5, 1.0
+
+    def pipeline(keep: bool) -> list:
+        step: dict = {"exclude": YOutlierFilter(method="iqr", threshold=threshold)}
+        if keep:
+            step["keep_in_oof"] = True
+        return [step, StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=n_comp)}]
+
+    default = nirs4all.run(pipeline(False), dataset_path("regression"), engine="dag-ml")
+    optin = nirs4all.run(pipeline(True), dataset_path("regression"), engine="dag-ml")
+
+    # (b) opt-in CV differs from default (excluded kept in OOF vs removed from the CV universe).
+    assert abs(optin.cv_best_score - default.cv_best_score) > 1e-3, (optin.cv_best_score, default.cv_best_score)
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    identity = mint_identity(dataset)
+    train = dataset.index_column("sample", {"partition": "train"})
+    excluded = _excluded_train_ints(dataset, train, threshold)
+    assert excluded, "the filter must exclude at least one sample for this test to be meaningful"
+
+    # (a) the excluded samples ARE predicted in the OOF and the OOF covers the full train universe.
+    raw_folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+    pure_folds = [([s for s in tr if s not in excluded], va) for tr, va in raw_folds]
+    import dag_ml
+
+    envelope = build_envelope(dataset, identity, sample_ints=list(train), excluded_sample_ints=excluded)
+    steps = [StandardNormalVariate(), {"model": PLSRegression(n_components=n_comp)}]
+    dsl = assemble_cv_refit_dsl(steps, identity, envelope, pure_folds, dsl_id="exclude_optin", n_splits=_N_SPLITS)
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    outcome = run_cv_refit_bundle(dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_path("regression"), workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable)
+    assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
+    oof_ids = {identity.to_int(sid) for frame in outcome["results"] for block in (frame.get("result") or frame).get("predictions", []) if block["partition"] == "validation" for sid in block["sample_ids"]}
+    assert excluded <= oof_ids, "excluded samples must be predicted in the OOF (keep_in_oof=True)"
+    assert oof_ids == {int(s) for s in train}, "opt-in OOF must cover the full train universe"
+
+    # (c) cv_best_score == leakage-pure baseline (excluded dropped from fold-train, kept in fold-val).
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in pure_folds:
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+        true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), float(true[position])
+    keys = sorted(oof_pred)
+    leakage_pure_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(optin.cv_best_score - leakage_pure_oof) < 1e-3, (optin.cv_best_score, leakage_pure_oof)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_exclude_sequential() -> None:
+    """Multiple `exclude` steps are applied SEQUENTIALLY (legacy parity).
+
+    Two `{"exclude": ...}` steps with different filters: each fits on the CURRENT kept train (the pool
+    after earlier exclusions), exactly like legacy ExcludeController (which reads include_excluded=False).
+    Asserts engine="dag-ml" cv_best_score matches the legacy engine running the same two-exclude
+    pipeline — proving both excludes are consumed (a surviving second exclude would hit the bridge's
+    raw-exclude NotImplementedError) and the progressive cleaning matches.
+    """
+    import nirs4all
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    def pipeline() -> list:
+        return [
+            {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
+            {"exclude": YOutlierFilter(method="zscore", threshold=2.0)},
+            StandardNormalVariate(),
+            KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+            {"model": PLSRegression(n_components=5)},
+        ]
+
+    legacy = nirs4all.run(pipeline(), dataset_path("regression"))
+    dagml = nirs4all.run(pipeline(), dataset_path("regression"), engine="dag-ml")
+    assert abs(dagml.cv_best_score - legacy.cv_best_score) < 1e-3, (dagml.cv_best_score, legacy.cv_best_score)
+
+
+def test_resolve_exclude_all_excluded_guard_keeps_one() -> None:
+    """A combined keep-mask that would exclude EVERY train row keeps one sample (legacy guard).
+
+    Mirrors ExcludeController's all-excluded guard (exclude.py:213-222): exclusion must never empty the
+    pool. With a filter that excludes everything, _resolve_exclude keeps exactly one sample in the CV
+    pool (default mode) so the fold-train pool is non-empty. No CLI needed (pure host-side logic).
+    """
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+    from nirs4all.pipeline.dagml.run_backend import _excluded_from_pool, _resolve_exclude
+
+    class _ExcludeAll(YOutlierFilter):
+        def get_mask(self, X, y=None):  # noqa: ANN001, ANN202 - test stub
+            return np.zeros(len(X), dtype=bool)  # exclude every sample
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+
+    # Direct: the combined mask excludes all but one.
+    excluded = _excluded_from_pool({"exclude": _ExcludeAll(method="iqr")}, dataset, train)
+    assert len(train) - len(excluded) == 1, "guard must keep exactly one sample"
+
+    # Through _resolve_exclude (default mode): the CV pool is non-empty (exactly one sample).
+    _remaining, pool, envelope_excluded = _resolve_exclude([{"exclude": _ExcludeAll(method="iqr")}], dataset)
+    assert len(pool) == 1, pool
+    assert envelope_excluded == set()  # default mode marks nothing excluded in the envelope
