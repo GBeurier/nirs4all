@@ -43,6 +43,34 @@ def _setup(pipeline: list | None = None):
     return dataset, identity, train, folds, envelope, pipeline or [{"model": PLSRegression(n_components=5)}]
 
 
+def test_dagml_engine_coverage_boundary() -> None:
+    """The engine='dag-ml' coverage gate (ADR-17 cutover criterion).
+
+    SUPPORTED today (each has its own e2e parity test above): regression + classification, KFold +
+    ShuffleSplit, single + multi-model, any sklearn estimator, preprocessing chains, y_processing,
+    generators (_or_/_range_/_grid_), hyperparameter sweeps. UNSUPPORTED features must fail LOUDLY
+    (a clear NotImplementedError from the bridge) — never silently produce a wrong result — so the
+    default can only be flipped to dag-ml once these are covered. This test pins that boundary; drop
+    a keyword from `unsupported` as each gets implemented.
+    """
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.preprocessing import MinMaxScaler
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml_bridge import pipeline_to_dsl
+
+    unsupported = {
+        "exclude": {"exclude": {"partition": "val"}},
+        "branch": {"branch": [[StandardNormalVariate()], [MinMaxScaler()]]},
+        "sample_augmentation": {"sample_augmentation": StandardNormalVariate()},
+        "feature_augmentation": {"feature_augmentation": StandardNormalVariate()},
+        "merge": {"merge": "predictions"},
+    }
+    for keyword, step in unsupported.items():
+        with pytest.raises(NotImplementedError, match=keyword):
+            pipeline_to_dsl([step, {"model": PLSRegression(n_components=5)}], "boundary")
+
+
 def test_assembled_dsl_binds_data_and_materializes_folds() -> None:
     """The augmented DSL compiles to a plan whose model node has a data binding + a fold set."""
     import dag_ml
