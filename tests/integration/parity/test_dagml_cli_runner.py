@@ -386,3 +386,41 @@ def test_public_run_engine_dagml_generator_or() -> None:
     best_cv, best_test = scored[best_cls]
     assert abs(result.cv_best_score - best_cv) < 1e-3  # backend selected the best-CV variant
     assert abs(result.best_rmse - best_test) < 1e-3  # and reports that variant's final-test
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_param_sweep() -> None:
+    """engine="dag-ml" applies sibling hyperparameters and sweeps them: `n_components: {_range_}`.
+
+    Three n_components (3/9/15) → three variants; the sibling param is applied to the model (not the
+    default), and the backend selects the best-CV one with cv_best_score == sklearn for that value."""
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    components = [3, 9, 15]
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(), "n_components": {"_range_": [3, 16, 6]}}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    def oof_cv(n_components: int) -> float:
+        acc: dict[int, float] = {}
+        cnt: dict[int, int] = {}
+        tru: dict[int, float] = {}
+        for train_ints, val_ints in folds:
+            model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_components))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            for sample_int in val_ints:
+                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+                cnt[sample_int] = cnt.get(sample_int, 0) + 1
+                tru[sample_int] = float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
+        keys = sorted(acc)
+        return float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
+
+    best_cv = min(oof_cv(nc) for nc in components)  # the sweep must pick the best n_components
+    assert abs(result.cv_best_score - best_cv) < 1e-3

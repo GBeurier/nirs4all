@@ -40,6 +40,33 @@ def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     return steps, splitter
 
 
+# Keys on a step dict that are NOT model hyperparameters (mirrors StepParser.RESERVED_KEYWORDS).
+_RESERVED_STEP_KEYS = frozenset({"model", "params", "metadata", "steps", "name", "finetune_params", "train_params", "refit_params", "fit_on_all", "force_layout", "na_policy", "fill_value", "y_processing"})
+
+
+def _apply_model_params(steps: list[Any]) -> list[Any]:
+    """Apply sibling hyperparameters to the model (e.g. `{"model": PLS(), "n_components": 9}`).
+
+    Generators expand a param sweep into `{"model": M, "<param>": value}` steps; nirs4all applies the
+    non-reserved siblings to the model via set_params. We do the same on a clone so concurrent
+    variants do not share mutated state.
+    """
+    from sklearn.base import clone
+
+    out: list[Any] = []
+    for step in steps:
+        if isinstance(step, dict) and "model" in step:
+            params = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS}
+            if params:
+                model = step["model"]
+                model = clone(model) if hasattr(model, "set_params") else model
+                model.set_params(**params)
+                step = {key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS}
+                step["model"] = model
+        out.append(step)
+    return out
+
+
 def _model_name(steps: list[Any]) -> str:
     for step in steps:
         if isinstance(step, dict) and "model" in step:
@@ -101,6 +128,7 @@ def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    steps = _apply_model_params(steps)
 
     identity = mint_identity(spectro)
     train = spectro.index_column("sample", {"partition": "train"})
