@@ -74,6 +74,60 @@ def _model_name(steps: list[Any]) -> str:
     return "model"
 
 
+# Step keywords whose presence forces the Python path even alongside a model param sweep: Optuna
+# finetune / per-model train kwargs are not part of the native generation+SELECT contract, so a
+# pipeline carrying them must NOT be mistaken for a clean param-sweep-only pipeline.
+_FORCE_PYTHON_STEP_KEYS = frozenset({"finetune_params", "train_params"})
+
+
+def _generation_kind(pipeline: list[Any]) -> str:
+    """Classify a pipeline's generators: ``"none"``, ``"param_model"`` (native), or ``"operator"``.
+
+    CONSERVATIVE by design — native (``"param_model"``) is returned ONLY when the pipeline is a clean
+    model-param-sweep, i.e. ALL of:
+
+    (a) at least one ``{"model": ...}`` step carries a natively-lowerable param sweep
+        (:func:`~nirs4all.pipeline.dagml_bridge.is_param_generator_spec` — the exact ``_range_`` /
+        ``_log_range_`` list forms), AND
+    (b) NO other generator exists ANYWHERE — no generator keyword on a non-model step, no
+        generator-valued model (multi-model ``{"model": {"_or_": ...}}``), no generator-shaped model
+        sibling that is not natively lowerable (``_grid_``, dict-form, modifier-bearing), AND
+    (c) NO step carries ``finetune_params`` or ``train_params``.
+
+    Any other generator (or finetune/train_params) → ``"operator"`` (the correct Python ``expand_spec``
+    path). ``"none"`` means no generators at all. When in doubt, this never returns ``"param_model"``.
+    """
+    from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS, has_nested_generator_keywords
+    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
+
+    has_param_model = False
+    has_other = False
+    for step in pipeline:
+        if not isinstance(step, dict):
+            continue
+        if _FORCE_PYTHON_STEP_KEYS & set(step):
+            has_other = True  # finetune/train_params are not in the native contract
+        if "model" in step:
+            # A generator-valued model (multi-model) is operator-level, not a clean param sweep.
+            if has_nested_generator_keywords(step["model"]):
+                has_other = True
+            for key, value in step.items():
+                if key in _RESERVED_STEP_KEYS:
+                    continue
+                if is_param_generator_spec(value):
+                    has_param_model = True
+                elif has_nested_generator_keywords(value):
+                    # A generator-shaped sibling we cannot lower natively (e.g. `_grid_`, dict-form,
+                    # or a modifier-bearing range) — Python expand owns it.
+                    has_other = True
+        elif GENERATION_KEYWORDS & set(step) or has_nested_generator_keywords(step):
+            # Any generator on a non-model step (bare `_or_`/`_range_`/... or a nested one).
+            has_other = True
+    if has_other:
+        return "operator"
+    return "param_model" if has_param_model else "none"
+
+
 def run_via_dagml(
     pipeline: Any,
     dataset: Any,
@@ -112,9 +166,18 @@ def run_via_dagml(
     metric = "accuracy" if is_classification else "rmse"
     task_type = "classification" if is_classification else "regression"
 
-    # Expand generators (_or_/_range_/_grid_/...) into concrete pipelines in Python (nirs4all's own
-    # expansion), run each through the verified single-variant dag-ml path, then select the best by
-    # its cross-validation score — mirroring nirs4all selecting the best variant by its CV metric.
+    # Param-level model sweeps (`_range_`/`_log_range_`/`_grid_` on a model step) run as ONE native
+    # dag-ml run: the bridge lowers them to native `generators`, the compiler expands variants, and
+    # dag-ml generates + scores + SELECTs + refits the best (no Python expand). Operator-level
+    # generators (`_or_`/`_cartesian_`, multi-model) stay on the Python `expand_spec` path below.
+    if _generation_kind(list(pipeline)) == "param_model":
+        return _run_native_generation(
+            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type
+        )
+
+    # Expand operator-level generators (_or_/_cartesian_/...) into concrete pipelines in Python
+    # (nirs4all's own expansion), run each through the verified single-variant dag-ml path, then
+    # select the best by its CV score — mirroring nirs4all selecting the best variant by its metric.
     variants = expand_spec(pipeline)
     results = [
         _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type)
@@ -130,6 +193,65 @@ def run_via_dagml(
         return -score if is_classification else score  # maximize accuracy, minimize RMSE
 
     return min(results, key=_cv_rank)
+
+
+def _run_native_generation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
+
+    The model step keeps its generator dict so the bridge lowers it to native ``generators``; we
+    apply only the plain (non-generator) sibling params to the model, never the sweep. dag-ml
+    expands the variants, scores each by its cross-fold OOF ``metric``, and refits the winner —
+    ``bundle.scores`` is the selected variant's, mapped to a RunResult exactly like the single path.
+    """
+    steps, splitter = _split_pipeline(pipeline)
+    if splitter is None:
+        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    steps = _apply_plain_model_params(steps)
+
+    identity = mint_identity(spectro)
+    train = spectro.index_column("sample", {"partition": "train"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in splitter.split(train)]
+    envelope = build_envelope(spectro, identity, sample_ints=train)
+    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
+
+    import dag_ml
+
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+    )
+    if outcome["returncode"] != 0:
+        raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+
+    bundle = json.loads((run_dir / "bundle.json").read_text())
+    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
+
+
+def _apply_plain_model_params(steps: list[Any]) -> list[Any]:
+    """Apply only the PLAIN (non-generator) sibling hyperparameters to the model, keeping sweeps.
+
+    The native path lowers param-level sweeps (``_range_``/``_log_range_``/``_grid_``) to dag-ml
+    ``generators``, so they must stay on the step dict; plain siblings (e.g. ``scale=False``) are
+    set on a model clone, exactly like ``_apply_model_params`` but leaving the generator dicts in
+    place for the bridge to lower.
+    """
+    from sklearn.base import clone
+
+    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
+
+    out: list[Any] = []
+    for step in steps:
+        if isinstance(step, dict) and "model" in step:
+            plain = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS and not is_param_generator_spec(value)}
+            if plain:
+                model = step["model"]
+                model = clone(model) if hasattr(model, "set_params") else model
+                model.set_params(**plain)
+                kept = {key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS or is_param_generator_spec(value)}
+                kept["model"] = model
+                step = kept
+        out.append(step)
+    return out
 
 
 def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str = "rmse", task_type: str = "regression") -> RunResult:

@@ -102,11 +102,17 @@ def run_cv_refit_bundle(
     workdir: Path,
     dagml_cli: str,
     venv_python: str,
+    selection_metric: str = "rmse",
 ) -> dict[str, Any]:
     """Write inputs + shim, run ``dag-ml-cli run-process-dsl-cv-refit-bundle``, return outputs.
 
     Returns ``{returncode, stdout, results}`` where ``results`` are the adapter's captured
     NodeResult frames (carrying the FIT_CV validation/OOF predictions).
+
+    ``selection_metric`` (``rmse`` | ``accuracy``) is forwarded to ``--selection-metric``: when the
+    DSL compiles to multiple ``plan.variants`` (native param-level generation) and no variant is
+    pinned, dag-ml runs single-variant FIT_CV per variant, scores each variant's cross-fold OOF
+    average, and refits the best — so ``bundle.scores`` reflects the natively-selected winner.
     """
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "dsl.json").write_text(json.dumps(dsl))
@@ -127,6 +133,7 @@ def run_cv_refit_bundle(
             dagml_cli, "run-process-dsl-cv-refit-bundle",
             "--dsl", str(workdir / "dsl.json"), "--controllers", str(workdir / "controllers.json"),
             "--envelope", str(workdir / "envelope.json"), "--adapter", str(shim), "--persistent",
+            "--selection-metric", selection_metric,
             "--bundle-id", "bundle:n4a", "--plan-id", "plan:n4a",
             "--output", str(workdir / "bundle.json"), "--prediction-cache-output", str(workdir / "cache.json"),
         ],

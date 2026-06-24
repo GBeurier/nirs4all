@@ -74,21 +74,40 @@ def route_operator(
     else:
         raise ValueError(f"unsupported operator_kind {operator_kind!r}")
     cls = _import_class(fqn)
-    return cls(**_coerce_tuple_params(cls, merged))
+    return cls(**_coerce_json_params(cls, merged))
 
 
-def _coerce_tuple_params(cls: type, params: dict[str, Any]) -> dict[str, Any]:
-    """Restore tuple params lost to JSON (e.g. ``MinMaxScaler(feature_range=(0,1))`` → ``[0,1]``).
+def _coerce_one(value: Any, default: Any) -> Any:
+    """Coerce one JSON-decoded param value back to the type its operator default implies.
 
-    JSON has no tuples, so a serialized pipeline turns tuple params into lists; some sklearn
-    operators validate the type at fit. Coerce a list back to a tuple only when the operator's
-    own default for that param is a tuple — never touching genuinely-list params.
+    JSON loses Python's int-vs-float and tuple-vs-list distinctions, which some sklearn operators
+    validate strictly at fit. Two default-driven coercions (only when the default is informative):
+
+    * default is a ``tuple`` and value is a ``list`` → tuple (e.g. ``MinMaxScaler(feature_range``).
+    * default is an ``int`` and value is an integral ``float`` → int (e.g. dag-ml's native range
+      generator emits ``n_components`` as ``3.0``; ``PLSRegression`` rejects a float). ``bool`` is an
+      ``int`` subclass but is left untouched; non-integral floats (e.g. ``alpha=0.001``) pass through.
     """
+    if isinstance(value, list) and isinstance(default, tuple):
+        return tuple(value)
+    if (
+        isinstance(value, float)
+        and not isinstance(value, bool)
+        and isinstance(default, int)
+        and not isinstance(default, bool)
+        and value.is_integer()
+    ):
+        return int(value)
+    return value
+
+
+def _coerce_json_params(cls: type, params: dict[str, Any]) -> dict[str, Any]:
+    """Restore param types lost to JSON, driven by the operator's own defaults (see ``_coerce_one``)."""
     try:
         defaults = cls().get_params()
     except (TypeError, AttributeError):  # operator needs ctor args / is not an estimator
         return params
-    return {key: tuple(value) if isinstance(value, list) and isinstance(defaults.get(key), tuple) else value for key, value in params.items()}
+    return {key: _coerce_one(value, defaults.get(key)) for key, value in params.items()}
 
 
 def route_graph_node(node: dict[str, Any], *, variant_overrides: dict[str, Any] | None = None) -> object:
