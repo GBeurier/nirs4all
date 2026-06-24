@@ -72,30 +72,47 @@ def run_via_dagml(
     if not Path(cli).exists():
         raise FileNotFoundError(f"dag-ml-cli binary not found at {cli}; build it (cargo build -p dag-ml-cli --release)")
 
+    from nirs4all.pipeline.config.generator import expand_spec
+
+    spectro = DatasetConfigs(dataset).get_dataset_at(0)
+    dataset_arg = str(spectro.dataset_path) if hasattr(spectro, "dataset_path") else str(dataset)
+    base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
+
+    # Expand generators (_or_/_range_/_grid_/...) into concrete pipelines in Python (nirs4all's own
+    # expansion), run each through the verified single-variant dag-ml path, then select the best by
+    # its cross-validation score — mirroring nirs4all selecting the best variant by its CV metric.
+    variants = expand_spec(pipeline)
+    results = [
+        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}")
+        for index, variant in enumerate(variants)
+    ]
+    if len(results) == 1:
+        return results[0]
+
+    def _cv_rank(result: RunResult) -> float:
+        score = result.cv_best_score
+        return score if score == score else float("inf")  # NaN (no CV score) ranks last
+
+    return min(results, key=_cv_rank)
+
+
+def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path) -> RunResult:
+    """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores."""
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
-    spectro = DatasetConfigs(dataset).get_dataset_at(0)
     identity = mint_identity(spectro)
     train = spectro.index_column("sample", {"partition": "train"})
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in splitter.split(train)]
-    n_splits = len(folds)
     envelope = build_envelope(spectro, identity, sample_ints=train)
-    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=n_splits)
+    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
-    run_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
     outcome = run_cv_refit_bundle(
-        dsl=dsl,
-        envelope=envelope,
-        graph=graph,
-        dataset_path=str(spectro.dataset_path) if hasattr(spectro, "dataset_path") else str(dataset),
-        workdir=run_dir,
-        dagml_cli=cli,
-        venv_python=venv_python or sys.executable,
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
@@ -104,29 +121,39 @@ def run_via_dagml(
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps))
 
 
-# dag-ml partition -> nirs4all partition ("final" = the refit-on-full-train block).
-_PARTITION_MAP = {"validation": "val", "test": "test", "train": "train", "final": "train"}
-
-
 def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str) -> RunResult:
-    """Map a dag-ml ScoreSet into a RunResult — one Predictions entry per (partition, fold) report."""
+    """Map a dag-ml ScoreSet into a RunResult, mirroring nirs4all's entry shape.
+
+    dag-ml emits one report per (partition, fold). nirs4all's RunResult expects per-fold validation
+    entries + a single combined **refit/final** entry that carries val (the CV score), test and train
+    scores together — that combined entry is what `best`/`best_rmse`/`best_final` resolve. We build
+    exactly that: per-fold `val` entries, an `avg` CV entry (`cv_best_score`), and one `final` entry
+    (`fold_id="final"`, `partition="test"`) with val_score=OOF-average, test_score=final-test,
+    train_score=final-train, and a combined `scores` dict.
+    """
+    by_key = {(report["partition"], report.get("fold_id")): {name: float(value) for name, value in report["metrics"].items()} for report in (scores or {}).get("reports", [])}
+
+    def add(fold_id: str | None, partition: str, scores_map: dict[str, dict[str, float]], *, val: float | None = None, test: float | None = None, train: float | None = None) -> None:
+        predictions.add_prediction(dataset_name=dataset_name, model_name=model_name, fold_id=fold_id, partition=partition, metric="rmse", task_type="regression", scores=scores_map, val_score=val, test_score=test, train_score=train)
+
+    # Only the `avg` (cv_best) + combined `final` entries: per-fold val entries would make
+    # get_best(score_scope="all") rank the lowest-val fold first (an entry with no test data),
+    # breaking best_rmse when a fold's RMSE < the final-test RMSE.
     predictions = Predictions()
-    for report in (scores or {}).get("reports", []):
-        partition = _PARTITION_MAP.get(report["partition"], report["partition"])
-        metrics = {name: float(value) for name, value in report["metrics"].items()}
-        rmse = metrics.get("rmse")
-        predictions.add_prediction(
-            dataset_name=dataset_name,
-            model_name=model_name,
-            fold_id=report.get("fold_id"),
-            partition=partition,
-            metric="rmse",
-            task_type="regression",
-            scores={partition: metrics},
-            n_samples=int(report.get("row_count", 0)),
-            val_score=rmse if partition == "val" else None,
-            test_score=rmse if partition == "test" else None,
-            train_score=rmse if partition == "train" else None,
-        )
+    avg = by_key.get(("validation", "avg"))
+    test = by_key.get(("test", "final"))
+    train = by_key.get(("final", None))
+    if avg is not None:
+        add("avg", "val", {"val": avg}, val=avg.get("rmse"))
+    if test is not None or train is not None:
+        combined: dict[str, dict[str, float]] = {}
+        if avg is not None:
+            combined["val"] = avg
+        if train is not None:
+            combined["train"] = train
+        if test is not None:
+            combined["test"] = test
+        add("final", "test", combined, val=(avg or {}).get("rmse"), test=(test or {}).get("rmse"), train=(train or {}).get("rmse"))
+
     predictions.flush()
     return RunResult(predictions=predictions, per_dataset={dataset_name: {"engine": "dag-ml"}})
