@@ -48,7 +48,9 @@ def test_dsl_shape_for_vertical_slice() -> None:
     assert dsl["id"] == case.name
     assert any("class" in s and "model" not in s and "y_processing" not in s for s in steps)
     assert any("y_processing" in s for s in steps)
-    assert any(s.get("model") == "PLSRegression" for s in steps)
+    # The model is serialized by fully-qualified class name (like transforms), so any sklearn-style
+    # estimator resolves by import rather than a hardcoded short-name table.
+    assert any(isinstance(s.get("model"), str) and s["model"].endswith("PLSRegression") for s in steps)
 
 
 def test_unsupported_step_is_flagged() -> None:

@@ -455,6 +455,101 @@ def test_public_run_engine_dagml_param_sweep() -> None:
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_native_param_sweep(tmp_path) -> None:
+    """A PLS `n_components` `_range_` sweep runs as ONE NATIVE dag-ml generation + SELECT run.
+
+    The bridge lowers the sweep to native dag-ml `generators` (no Python `expand_spec`), so the
+    compiler expands the variants and dag-ml runs generation + per-variant CV scoring + SELECT +
+    refit in a single CLI invocation. We assert both: (1) it is one native run (param_model path,
+    a single bundle with a selected_variant_id and exactly one cross-fold OOF average — not the
+    per-variant `variant*/` dirs the Python-expand path would create); and (2) the selected
+    n_components and `result.best_rmse` MATCH what the Python-expand path selects — computed here
+    directly with sklearn KFold (best per-n_components OOF CV), within 1e-3.
+    """
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _generation_kind, run_via_dagml
+
+    components = [3, 9, 15]  # _range_[3, 16, 6] is end-inclusive: 3, 9, 15 (matches dag-ml range)
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(), "n_components": {"_range_": [3, 16, 6]}}]
+
+    # (1) It is the NATIVE param-level path, run once into the `native/` workdir.
+    assert _generation_kind(pipeline) == "param_model"
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path)
+    assert (tmp_path / "native" / "bundle.json").exists()
+    assert not list(tmp_path.glob("variant*")), "native generation must NOT run the per-variant Python-expand path"
+    bundle = json.loads((tmp_path / "native" / "bundle.json").read_text())
+    assert bundle.get("selected_variant_id"), "dag-ml must record the natively-selected variant"
+    avg_reports = [r for r in bundle["scores"]["reports"] if r["partition"] == "validation" and r.get("fold_id") == "avg"]
+    assert len(avg_reports) == 1, "the bundle scores must be the selected variant's (one OOF average)"
+
+    # (2) PARITY — compute the per-n_components OOF CV directly with sklearn KFold and pick the best,
+    # exactly as the Python-expand path would. The native run must select that same n_components and
+    # report its final-test RMSE.
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    def oof_cv(n_components: int) -> float:
+        acc: dict[int, float] = {}
+        cnt: dict[int, int] = {}
+        tru: dict[int, float] = {}
+        for train_ints, val_ints in folds:
+            model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_components))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            for sample_int in val_ints:
+                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+                cnt[sample_int] = cnt.get(sample_int, 0) + 1
+                tru[sample_int] = float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
+        keys = sorted(acc)
+        return float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
+
+    scored = {nc: oof_cv(nc) for nc in components}
+    best_nc = min(scored, key=lambda nc: scored[nc])  # the n_components Python-expand would select
+    assert abs(result.cv_best_score - scored[best_nc]) < 1e-3  # dag-ml selected the same variant by CV
+
+    # The selected variant's final-test RMSE (refit on full train, predict held-out test).
+    final = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=best_nc))
+    final.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+    best_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), np.asarray(final.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel())))
+    assert abs(result.best_rmse - best_test) < 1e-3  # and reports that variant's final-test RMSE
+
+
+def test_generation_kind_routes_conservatively() -> None:
+    """The native router is CONSERVATIVE: only a clean `_range_` model sweep goes native; every other
+    generator shape (mixed, finetune_params, _grid_, _log_range_, non-model sweep, multi-model) falls
+    back to the Python `expand_spec` path, so no generator is ever silently dropped. No CLI needed."""
+    from sklearn.linear_model import Ridge
+    from sklearn.preprocessing import MinMaxScaler
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _generation_kind
+
+    splitter = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
+
+    # The ONLY native case: a pure `_range_` sweep on a model step.
+    assert _generation_kind([StandardNormalVariate(), splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}}]) == "param_model"
+    # No generators at all → none.
+    assert _generation_kind([StandardNormalVariate(), splitter, {"model": PLSRegression(n_components=5)}]) == "none"
+
+    # Everything below must route to the Python path ("operator") — never native — or a generator
+    # would be silently dropped / mis-expanded.
+    mixed = [StandardNormalVariate(), {"y_processing": MinMaxScaler(), "feature_range": {"_range_": [0, 1, 1]}}, splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}}]
+    assert _generation_kind(mixed) == "operator"  # a sweep on a non-model step alongside the model sweep
+    assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}, "finetune_params": {"n_trials": 5}}]) == "operator"  # finetune_params
+    assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}, "train_params": {"epochs": 1}}]) == "operator"  # train_params
+    assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_grid_": {"n_components": [5, 10]}}}]) == "operator"  # _grid_ (not proven equivalent)
+    assert _generation_kind([splitter, {"model": Ridge(), "alpha": {"_log_range_": [0.001, 10.0, 4]}}]) == "operator"  # _log_range_ (fingerprint not round-tripping)
+    assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 16, 1], "count": 3}}]) == "operator"  # modifier-bearing range
+    assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": {"from": 3, "to": 9}}}]) == "operator"  # dict-form range
+    assert _generation_kind([splitter, {"model": {"_or_": [PLSRegression(), PLSRegression(n_components=3)]}}]) == "operator"  # multi-model
+    assert _generation_kind([{"_or_": [StandardNormalVariate(), MinMaxScaler()]}, splitter, {"model": PLSRegression()}]) == "operator"  # operator-level _or_ step
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_public_run_engine_dagml_classification() -> None:
     """engine="dag-ml" runs a CLASSIFIER: detects the task type, scores accuracy natively, and
     best_accuracy (final-test) == sklearn. Uses LogisticRegression (order-invariant) so the

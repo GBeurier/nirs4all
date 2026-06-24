@@ -28,6 +28,11 @@ from typing import Any
 
 from nirs4all import __version__ as _NIRS4ALL_VERSION
 
+# Every nirs4all generation keyword (mirrors config._generator.keywords.GENERATION_KEYWORDS). Used
+# to detect a generator-shaped model sibling that this bridge does NOT lower natively, so it can fail
+# loud instead of silently demoting it to a plain param.
+_GENERATION_KEYWORDS = frozenset({"_or_", "_range_", "_log_range_", "_grid_", "_zip_", "_chain_", "_sample_", "_cartesian_"})
+
 # Step keywords recognised by nirs4all but not yet lowered by this spike.
 _UNSUPPORTED_STEP_KEYS = frozenset({
     "branch",
@@ -41,6 +46,26 @@ _UNSUPPORTED_STEP_KEYS = frozenset({
     "rep_to_pp",
     "finetune_params",
     "train_params",
+})
+
+# Keys on a model step that are NOT a swept hyperparameter (mirrors run_backend._RESERVED_STEP_KEYS,
+# itself StepParser.RESERVED_KEYWORDS). Any other sibling is a model hyperparameter — a plain value
+# goes to ``params``; a param-level generator dict (``_range_``/``_log_range_``/``_grid_``) lowers to
+# a native dag-ml ``generators`` entry so the compiler expands variants and dag-ml selects natively.
+_RESERVED_MODEL_KEYS = frozenset({
+    "model",
+    "params",
+    "metadata",
+    "steps",
+    "name",
+    "finetune_params",
+    "train_params",
+    "refit_params",
+    "fit_on_all",
+    "force_layout",
+    "na_policy",
+    "fill_value",
+    "y_processing",
 })
 
 
@@ -62,6 +87,45 @@ def _json_safe_params(obj: Any) -> dict[str, Any]:
     return params
 
 
+def _param_generator(param: str, spec: Any) -> dict[str, Any]:
+    """Lower one nirs4all param-level generator sibling to a dag-ml ``generators`` entry.
+
+    Only the ``_range_`` list form is native (see :func:`is_param_generator_spec`); ``_grid_``,
+    ``_log_range_``, dict-form ranges, and modifier-bearing sweeps stay on the Python path, so this
+    never receives them. Field names verified against
+    ``examples/pipeline_dsl_compact_generation.json`` and ``dsl.rs``:
+
+    * ``{"_range_": [a, b, s]}`` → ``{"kind": "range", "param", "start": a, "stop": b, "step": s}``
+
+    dag-ml's ``range`` is end-inclusive (``inclusive`` defaults to true), matching nirs4all
+    ``_range_`` (``range(a, b + 1, s)``).
+    """
+    start, stop, step = spec["_range_"]
+    return {"kind": "range", "param": param, "start": start, "stop": stop, "step": step}
+
+
+def is_param_generator_spec(spec: Any) -> bool:
+    """True ONLY for the exact ``_range_`` list form the bridge lowers natively at proven parity.
+
+    Conservative by design: a single key ``_range_`` whose value is a list of exactly three numbers —
+    ``{"_range_": [a, b, s]}``. Everything else falls back to the correct Python ``expand_spec`` path:
+
+    * ``_grid_`` — value-level lowering is not proven equivalent to step-level grid expansion;
+    * ``_log_range_`` — dag-ml's native log_range search-space fingerprint does not round-trip through
+      ``build_execution_plan`` (float-label nondeterminism), so it would fail at plan time;
+    * the dict ``{"from"/"to"/...}`` form, a wrong-length list, or any modifier key (``count``/``_seed_``)
+      — would change the variant set versus ``expand_spec``.
+
+    Other keys in the dict (e.g. a ``model`` sibling) are handled by the caller, not here.
+    """
+    if not isinstance(spec, dict) or len(spec) != 1:
+        return False
+    key, value = next(iter(spec.items()))
+    if key != "_range_":
+        return False
+    return isinstance(value, list) and len(value) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in value)
+
+
 def _step_to_dsl(step: Any) -> dict[str, Any]:
     """Lower one nirs4all pipeline step to a compat-DSL step object."""
     if isinstance(step, dict):
@@ -69,7 +133,29 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             op = step["model"]
             # The model id is the fully-qualified class (like transforms), so any sklearn-style
             # estimator — regressor or classifier — resolves by import, not a hardcoded table.
-            return {"model": _qualname(op), "params": _json_safe_params(op)}
+            dsl_step: dict[str, Any] = {"model": _qualname(op), "params": _json_safe_params(op)}
+            # Non-reserved siblings are model hyperparameters: plain values extend ``params``;
+            # param-level generator dicts lower to native dag-ml ``generators`` so the compiler
+            # expands variants and dag-ml runs generation + SELECT + refit natively (no Python expand).
+            generators: list[dict[str, Any]] = []
+            for key, value in step.items():
+                if key in _RESERVED_MODEL_KEYS:
+                    continue
+                if is_param_generator_spec(value):
+                    generators.append(_param_generator(key, value))
+                elif isinstance(value, dict) and _GENERATION_KEYWORDS & set(value):
+                    # A generator-shaped sibling the bridge does NOT lower natively (e.g. `_grid_`,
+                    # the dict range form, or a modifier-bearing sweep). Fail loud rather than silently
+                    # treat it as a plain param — run_via_dagml routes these to the Python expand path.
+                    raise NotImplementedError(
+                        f"dag-ml bridge does not lower model param generator {sorted(value)} on `{key}`; "
+                        f"use the Python expand path (operator-level / _grid_ / modifier sweeps)"
+                    )
+                else:
+                    dsl_step["params"][key] = value
+            if generators:
+                dsl_step["generators"] = generators
+            return dsl_step
         if "y_processing" in step:
             op = step["y_processing"]
             return {"y_processing": {"class": _qualname(op), "params": _json_safe_params(op)}}

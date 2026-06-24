@@ -113,8 +113,9 @@ def test_route_operator_per_kind_and_overrides() -> None:
     # Variant overrides win over node params.
     swept = route_operator("model", "PLSRegression", {"n_components": 3}, variant_overrides={"n_components": 9})
     assert swept.get_params()["n_components"] == 9
-    # Unknown model name and unsupported kind both fail loudly.
-    with pytest.raises(KeyError):
+    # Unknown model name and unsupported kind both fail loudly. An unknown short name is not in the
+    # allow-table, so it falls through to import-by-FQN, which rejects a bare (non-qualified) name.
+    with pytest.raises(ValueError, match="fully-qualified class name"):
         route_operator("model", "NotARealModel")
     with pytest.raises(ValueError, match="operator_kind"):
         route_operator("branch", "whatever")
