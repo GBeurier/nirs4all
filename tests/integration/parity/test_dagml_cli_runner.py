@@ -424,3 +424,35 @@ def test_public_run_engine_dagml_param_sweep() -> None:
 
     best_cv = min(oof_cv(nc) for nc in components)  # the sweep must pick the best n_components
     assert abs(result.cv_best_score - best_cv) < 1e-3
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_classification() -> None:
+    """engine="dag-ml" runs a CLASSIFIER: detects the task type, scores accuracy natively, and
+    best_accuracy (final-test) == sklearn. Uses LogisticRegression (order-invariant) so the
+    resolver-aligned baseline is comparable (RandomForest bootstraps by row order)."""
+    from sklearn.linear_model import LogisticRegression
+
+    import nirs4all
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml.resolver import MaterializationResolver
+
+    pipeline = [KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": LogisticRegression(max_iter=500)}]
+    result = nirs4all.run(pipeline, dataset_path("classification"), engine="dag-ml")
+    assert result.best_accuracy == result.best_accuracy  # not NaN
+
+    dataset = DatasetConfigs(dataset_path("classification")).get_dataset_at(0)
+    identity = mint_identity(dataset)
+    resolver = MaterializationResolver(dataset, identity)
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+
+    def features(sample_ints: list[int]) -> np.ndarray:
+        return np.asarray(resolver.resolve_features([identity.to_wire(i) for i in sample_ints])["values"])
+
+    def targets(sample_ints: list[int]) -> np.ndarray:
+        return np.asarray(resolver.resolve_targets([identity.to_wire(i) for i in sample_ints])["values"]).ravel()
+
+    model = LogisticRegression(max_iter=500).fit(features(train), targets(train))
+    sklearn_accuracy = float(np.mean(model.predict(features(test_ints)) == targets(test_ints)))
+    assert abs(result.best_accuracy - sklearn_accuracy) < 1e-3
