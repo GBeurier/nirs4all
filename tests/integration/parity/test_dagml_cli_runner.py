@@ -336,3 +336,53 @@ def test_public_run_engine_dagml_shufflesplit() -> None:
     keys = sorted(acc)
     sklearn_oof = float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
     assert abs(result.cv_best_score - sklearn_oof) < 1e-3
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_generator_or() -> None:
+    """engine="dag-ml" expands a `_or_` generator, runs each variant, and selects the best by CV.
+
+    Two preprocessings (SNV vs MinMaxScaler) → two variants; dag-ml runs both natively and the
+    backend returns the lower-CV one, with best_rmse = that variant's final-test (both == sklearn)."""
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import MinMaxScaler
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    preprocessings: list[type] = [StandardNormalVariate, MinMaxScaler]
+    pipeline = [{"_or_": [StandardNormalVariate(), MinMaxScaler()]}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    def predict_one(model: object, sample_int: int) -> float:
+        return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+
+    def variant_scores(prep_cls: type) -> tuple[float, float]:
+        acc: dict[int, float] = {}
+        cnt: dict[int, int] = {}
+        tru: dict[int, float] = {}
+        for train_ints, val_ints in folds:
+            model = make_pipeline(prep_cls(), PLSRegression(n_components=5))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            for sample_int in val_ints:
+                acc[sample_int] = acc.get(sample_int, 0.0) + predict_one(model, sample_int)
+                cnt[sample_int] = cnt.get(sample_int, 0) + 1
+                tru[sample_int] = float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
+        keys = sorted(acc)
+        cv = float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
+        final = make_pipeline(prep_cls(), PLSRegression(n_components=5))
+        final.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+        test_rmse = float(np.sqrt(mean_squared_error([float(np.asarray(dataset.y({"sample": [i]}), dtype=float).ravel()[0]) for i in test_ints], [predict_one(final, i) for i in test_ints])))
+        return cv, test_rmse
+
+    scored = {cls: variant_scores(cls) for cls in preprocessings}
+    best_cls = min(scored, key=lambda cls: scored[cls][0])  # lowest CV wins
+    best_cv, best_test = scored[best_cls]
+    assert abs(result.cv_best_score - best_cv) < 1e-3  # backend selected the best-CV variant
+    assert abs(result.best_rmse - best_test) < 1e-3  # and reports that variant's final-test
