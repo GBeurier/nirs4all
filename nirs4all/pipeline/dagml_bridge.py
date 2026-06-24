@@ -62,17 +62,14 @@ def _json_safe_params(obj: Any) -> dict[str, Any]:
     return params
 
 
-def _model_name(obj: Any) -> str:
-    """Short class name dag-ml uses as the opaque model operator id."""
-    return obj.__name__ if isinstance(obj, type) else type(obj).__name__
-
-
 def _step_to_dsl(step: Any) -> dict[str, Any]:
     """Lower one nirs4all pipeline step to a compat-DSL step object."""
     if isinstance(step, dict):
         if "model" in step:
             op = step["model"]
-            return {"model": _model_name(op), "params": _json_safe_params(op)}
+            # The model id is the fully-qualified class (like transforms), so any sklearn-style
+            # estimator — regressor or classifier — resolves by import, not a hardcoded table.
+            return {"model": _qualname(op), "params": _json_safe_params(op)}
         if "y_processing" in step:
             op = step["y_processing"]
             return {"y_processing": {"class": _qualname(op), "params": _json_safe_params(op)}}
