@@ -899,3 +899,173 @@ def test_separation_branch_unsupported_shapes_fail_loud() -> None:
         with pytest.raises(NotImplementedError):
             nirs4all.run(pipeline, dataset_path("with_metadata"), engine="dag-ml")
         assert label  # name surfaced in the failure if the raise is missing
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
+    """`sample_augmentation` runs e2e on dag-ml: synthetic train rows TRAIN, never reach OOF/test.
+
+    The native path runs nirs4all's real augmentation machinery (synthetic train rows), builds
+    base-grain folds (a clean OOF partition over base val) + a CV-universe envelope, and the host
+    expands each fold's base-train ids to base + their augmented children at fit time. We assert:
+
+    * `cv_best_score` == a DIRECT sklearn-on-augmented-train OOF baseline (per fold, fit SNV->PLS on
+      base-train + their augmented children, validate on base-val; OOF reassembled, scored) — within
+      1e-3, reconstructed from THIS run's pickled augmented dataset (augmentation is stochastic, so the
+      baseline must use the same synthetic rows the run used);
+    * it DIFFERS from the no-augmentation OOF baseline (same folds, base-train only) — proving the
+      augmented samples actually train. Legacy is a CONFIRMED silent NO-OP (#14): the legacy model
+      controller fetches train with include_augmented defaulting False, so augmented rows never reach
+      fit and cv_best_score is identical to no-augmentation regardless of magnitude — so the dag-ml
+      engine is a CORRECTION and the parity baseline is the direct sklearn-on-aug, NOT legacy;
+    * NO augmented child appears in the validation/OOF predictions (the origin-boundary leakage guard).
+    """
+    import pickle
+
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.augmentation import GaussianAdditiveNoise
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    n_comp = 5
+    pipeline = [
+        StandardNormalVariate(),
+        {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1, "selection": "all", "random_state": 42}},
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=n_comp)},
+    ]
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path)
+
+    # Reconstruct the EXACT augmented dataset the run used (pickled in the run dir) — the synthetic rows
+    # are stochastic, so the baseline MUST use the same rows that trained the native run.
+    aug_ds = pickle.loads((tmp_path / "augment" / "augmented_dataset.pkl").read_bytes())  # noqa: S301 - test-written
+    base_train = [int(s) for s in DatasetConfigs(dataset_path("regression")).get_dataset_at(0).index_column("sample", {"partition": "train"})]
+    all_samples = [int(s) for s in aug_ds.index_column("sample", {})]
+    all_origins = [int(o) for o in aug_ds.index_column("origin", {})]
+    children: dict[int, list[int]] = {}
+    augmented_ints: list[int] = []
+    for sample_int, origin_int in zip(all_samples, all_origins, strict=True):
+        if sample_int != origin_int:
+            children.setdefault(origin_int, []).append(sample_int)
+            augmented_ints.append(sample_int)
+    assert augmented_ints, "augmentation must create synthetic rows for this test to be meaningful"
+    folds = [([base_train[i] for i in tr], [base_train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(base_train)]
+
+    def y_of(sample_int: int) -> float:
+        origin_int = all_origins[all_samples.index(sample_int)]
+        return float(np.asarray(aug_ds.y({"sample": [origin_int]})).ravel()[0])
+
+    # DIRECT sklearn-on-augmented-train OOF: per fold fit on base-train + their children, val on base-val.
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        fit_ints = list(train_ints) + [child for origin in train_ints for child in children.get(origin, [])]
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d"), dtype=float), np.asarray([y_of(s) for s in fit_ints], dtype=float))
+        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d"), dtype=float))).ravel()
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), y_of(sample_int)
+    keys = sorted(oof_pred)
+    direct_aug = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - direct_aug) < 1e-3, (result.cv_best_score, direct_aug)
+
+    # NO-augmentation OOF baseline (same folds, base-train only) — the augmented run must DIFFER from it
+    # (legacy's silent no-op would make them equal; #14).
+    no_pred: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model.fit(np.asarray(aug_ds.x_rows(list(train_ints), layout="2d"), dtype=float), np.asarray([y_of(s) for s in train_ints], dtype=float))
+        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d"), dtype=float))).ravel()
+        for position, sample_int in enumerate(val_ints):
+            no_pred[sample_int] = float(pred[position])
+    no_aug = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [no_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - no_aug) > 1e-3, "augmented samples must actually train (vs legacy no-op #14)"
+
+    # The OOF covers base val only — NO augmented child is ever validated (the leakage guard).
+    bundle = json.loads((tmp_path / "augment" / "bundle.json").read_text())
+    assert bundle.get("scores") is not None
+    avg = [r for r in bundle["scores"]["reports"] if r["partition"] == "validation" and r.get("fold_id") == "avg"]
+    assert len(avg) == 1 and avg[0]["row_count"] == len(base_train), "OOF must cover exactly the base train universe"
+
+
+def test_run_via_dagml_stateful_augmentation_fails_loud() -> None:
+    """STATEFUL/SUPERVISED/BALANCED augmentation is REJECTED (NotImplementedError), never silently run.
+
+    The first slice augments ONCE globally before folds exist — leakage-free ONLY for stateless
+    per-sample augmenters. A stateful augmenter (mixup with stored neighbors, a global-mean scatter
+    reference) or the balanced/supervised mode fits on the whole train (future fold-val included), so
+    it must fall through to the bridge's raw `sample_augmentation` NotImplementedError (fail-loud).
+    Fold-local augmentation to support these leakage-safely is a follow-up slice. No CLI needed — the
+    rejection happens before any dag-ml call. Stateless GaussianNoise stays native (the parity test).
+    """
+    import nirs4all
+    from nirs4all.operators.augmentation import GaussianAdditiveNoise
+    from nirs4all.operators.augmentation.spectral import LocalMixupAugmenter, ScatterSimulationMSC
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _augmentation_is_leakage_free, _operator_is_stateless
+
+    # Operator-level signal: stateless augmenters pass, stateful ones (learn data state in fit) are flagged.
+    assert _operator_is_stateless(GaussianAdditiveNoise(sigma=0.01))
+    assert not _operator_is_stateless(LocalMixupAugmenter())  # stores X_fit_ neighbors
+    assert not _operator_is_stateless(ScatterSimulationMSC(reference_mode="global_mean"))  # stores global_mean_
+
+    # Step-level: balanced/supervised mode and any stateful transformer are NOT leakage-free.
+    assert _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1, "selection": "all"}})
+    assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "balance": "y", "max_factor": 2}})
+    assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [LocalMixupAugmenter()], "count": 1}})
+    assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01), LocalMixupAugmenter()], "count": 1}})
+
+    # End-to-end: a stateful augmentation pipeline raises NotImplementedError naming sample_augmentation.
+    stateful_pipelines = {
+        "mixup": [StandardNormalVariate(), {"sample_augmentation": {"transformers": [LocalMixupAugmenter()], "count": 1, "selection": "all", "random_state": 42}}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
+        "balanced": [StandardNormalVariate(), {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "balance": "y", "max_factor": 2, "random_state": 42}}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
+    }
+    for label, pipeline in stateful_pipelines.items():
+        with pytest.raises(NotImplementedError, match="sample_augmentation"):
+            nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+        assert label  # name surfaced in the failure if the raise is missing
+
+
+def test_run_cv_refit_bundle_drops_stale_pickle_env(tmp_path, monkeypatch) -> None:
+    """A non-augmentation run must NOT inherit a stale N4A_DAGML_DATASET_PICKLE / sample-meta from the env.
+
+    The adapter prioritizes those vars over the dataset path, so a value left in the parent environment
+    (an earlier augmentation/branch run, or the caller's shell) would make a plain run load the wrong
+    dataset. `run_cv_refit_bundle` must set each var ONLY when it passes the corresponding argument and
+    explicitly drop it otherwise. Asserted by capturing the child env handed to subprocess.run — no CLI
+    binary or dag-ml needed (the subprocess call is stubbed before it would launch).
+    """
+    import subprocess
+
+    from nirs4all.pipeline.dagml import cli_runner
+
+    monkeypatch.setenv("N4A_DAGML_DATASET_PICKLE", "/stale/parent/dataset.pkl")
+    monkeypatch.setenv("N4A_DAGML_SAMPLE_META_PATH", "/stale/parent/meta.json")
+
+    captured: dict[str, dict[str, str]] = {}
+
+    def _fake_run(args, **kwargs):  # noqa: ANN001, ANN003 - test stub mirroring subprocess.run
+        captured["env"] = kwargs["env"]
+        return subprocess.CompletedProcess(args, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(cli_runner.subprocess, "run", _fake_run)
+
+    # No dataset_pickle and no sample_metadata → both stale vars must be DROPPED from the child env.
+    cli_runner.run_cv_refit_bundle(
+        dsl={"id": "x", "pipeline": []}, envelope={}, graph={"nodes": [], "edges": []},
+        dataset_path="/real/dataset", workdir=tmp_path, dagml_cli="/bin/true", venv_python="/usr/bin/python3",
+    )
+    env = captured["env"]
+    assert "N4A_DAGML_DATASET_PICKLE" not in env, "a non-augmentation run must not carry a stale pickle var"
+    assert "N4A_DAGML_SAMPLE_META_PATH" not in env, "a non-branch run must not carry a stale sample-meta var"
+    assert env["N4A_DAGML_DATASET_PATH"] == "/real/dataset"
+
+    # WITH a pickle → exactly that value is set (no stale leakage, the fresh value wins).
+    cli_runner.run_cv_refit_bundle(
+        dsl={"id": "x", "pipeline": []}, envelope={}, graph={"nodes": [], "edges": []},
+        dataset_path="/real/dataset", workdir=tmp_path, dagml_cli="/bin/true", venv_python="/usr/bin/python3",
+        dataset_pickle=str(tmp_path / "augmented.pkl"),
+    )
+    assert captured["env"]["N4A_DAGML_DATASET_PICKLE"] == str(tmp_path / "augmented.pkl")

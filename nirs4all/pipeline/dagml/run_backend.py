@@ -44,6 +44,10 @@ def _is_exclude_step(step: Any) -> bool:
     return isinstance(step, dict) and "exclude" in step
 
 
+def _is_augmentation_step(step: Any) -> bool:
+    return isinstance(step, dict) and "sample_augmentation" in step
+
+
 def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: list[int]) -> set[int]:
     """Excluded sample ints from ``pool_ints`` for one ``exclude_step``, mirroring ExcludeController.
 
@@ -361,6 +365,22 @@ def run_via_dagml(
         branch_step, branch_body = detected
         return _run_separation_branch(list(pipeline), branch_step, branch_body, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "branch", metric, task_type)
 
+    # `sample_augmentation` → run nirs4all's REAL augmentation machinery to create the synthetic TRAIN
+    # rows in the dataset, then run ONE native dag-ml CV+refit: base-grain folds (the synthetic children
+    # never reach a holdout) + a CV-universe envelope carrying the children's origin/augmentation grain.
+    # The model trains on base + its augmented children (host-side expansion); OOF is over base val only.
+    # Detected on the ORIGINAL pipeline so it composes only with the supported transform+model+splitter
+    # shape — a branch/exclude beside it is out of scope (the bridge fails loud below).
+    #
+    # GATED to LEAKAGE-FREE augmentation: this slice augments ONCE globally before folds exist, so a
+    # STATEFUL/SUPERVISED/BALANCED augmentation (which fits on the whole train, future fold-val included)
+    # would leak into the synthetic children. Only stateless per-sample augmentation is consumed natively;
+    # anything else falls through to the bridge's raw `sample_augmentation` NotImplementedError (fail-loud).
+    # Fold-local augmentation (to support the stateful case leakage-safely) is a follow-up slice.
+    augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
+    if augmentation_steps and all(_augmentation_is_leakage_free(step) for step in augmentation_steps):
+        return _run_augmentation(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "augment", metric, task_type)
+
     # Consume the `exclude` step (if any) BEFORE generator handling: run the SampleFilter operator(s)
     # in Python on the full CV train pool to get the excluded sample ints, then choose the CV universe
     # per the `keep_in_oof` mode. `cv_pool` is the sample-int universe the splitter runs over;
@@ -483,6 +503,193 @@ def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+
+    bundle = json.loads((run_dir / "bundle.json").read_text())
+    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
+
+
+def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
+    """Run nirs4all's REAL ``SampleAugmentationController`` to add synthetic train rows in place.
+
+    Reuses the production machinery (the controller delegates to ``TransformerMixinController``, which
+    fits the augmentation transformer on fold-train data and inserts each synthetic row via
+    ``dataset.add_samples_batch`` with index ``{partition: train, origin: <base sample int>,
+    augmentation: <op>}``) — no augmentation logic is reimplemented here. A minimal real ``StepRunner``
+    + ``RuntimeContext`` drive it (no workspace/artifacts), exactly as the orchestrator would. The
+    children land in ``partition: train`` with their ``origin`` set to the base sample, which is what
+    the base→child fold expansion and the envelope's augmentation grain key off.
+    """
+    from nirs4all.controllers.data.sample_augmentation import SampleAugmentationController
+    from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
+    from nirs4all.pipeline.steps.parser import ParsedStep, StepType
+    from nirs4all.pipeline.steps.step_runner import StepRunner
+
+    step_info = ParsedStep(operator=None, keyword="sample_augmentation", step_type=StepType.DIRECT, original_step=aug_step, metadata={})
+    context = ExecutionContext(selector=DataSelector(partition="train", processing=[["raw"]]), state=PipelineState(), metadata=StepMetadata())
+    runtime_context = RuntimeContext()
+    runtime_context.step_runner = StepRunner(verbose=0, mode="train")
+    runtime_context.save_artifacts = False
+    runtime_context.save_charts = False
+    SampleAugmentationController().execute(step_info, spectro, context, runtime_context, mode="train")
+
+
+def _augmentation_grain(spectro: Any, transform_label: str) -> tuple[list[int], dict[int, str]]:
+    """Post-augmentation grain: ``(augmented_ints, augmentation_by_sample)``.
+
+    ``augmented_ints`` is every augmented child (``sample != origin``); ``augmentation_by_sample`` tags
+    each with the augmentation transform id for the envelope's structured ``augmentation`` metadata. The
+    fit-time base→child expansion is recomputed by the resolver from the minted identity, not here.
+    """
+    samples = [int(s) for s in spectro.index_column("sample", {})]
+    origins = [int(o) for o in spectro.index_column("origin", {})]
+    augmented_ints = [sample_int for sample_int, origin_int in zip(samples, origins, strict=True) if sample_int != origin_int]
+    augmentation_by_sample = dict.fromkeys(augmented_ints, transform_label)
+    return augmented_ints, augmentation_by_sample
+
+
+def _augmentation_label(aug_step: dict[str, Any]) -> str:
+    """A stable transform label for the augmentation step's structured envelope metadata."""
+    transformers = _augmentation_transformers(aug_step)
+    return "+".join(type(transformer).__name__ for transformer in transformers) or "sample_augmentation"
+
+
+def _augmentation_transformers(aug_step: dict[str, Any]) -> list[Any]:
+    """The deserialized transformer instances of an augmentation step (mirrors the controller).
+
+    A transformer may be given bare or wrapped in a ``{"transformer": op, ...}`` dict (per-transformer
+    variation_scope); both forms resolve to the instance via ``deserialize_component``, exactly as
+    :meth:`SampleAugmentationController.execute` parses them.
+    """
+    from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+    raw = aug_step["sample_augmentation"].get("transformers", [])
+    return [deserialize_component(t["transformer"] if isinstance(t, dict) and "transformer" in t else t) for t in raw]
+
+
+def _operator_is_stateless(operator: Any) -> bool:
+    """Whether an augmentation transformer learns NO data-dependent state in ``fit``.
+
+    The first augmentation slice augments ONCE globally (before folds exist), so a transformer that
+    fits on the whole train partition would see future fold-validation rows. That is leakage-free ONLY
+    for STATELESS per-sample augmenters (Gaussian/multiplicative noise, scatter, baseline, spline,
+    wavelength warps — ``fit`` only seeds an RNG); a STATEFUL/SUPERVISED one (mixup storing neighbors,
+    a global-mean reference, a supervised transform) leaks. There is no declared marker on these
+    operators, so the signal is twofold and conservative:
+
+    * **supervised** — a ``requires_y`` tag (``_more_tags()``/``_tags``) means ``fit`` consumes y; reject.
+    * **fit-learned data state** — fit the transformer on two differently-distributed dummy datasets and
+      compare its post-fit attributes (sklearn fitted attrs ``*_`` + any ndarray, excluding the seeded
+      RNG). A transformer whose state varies with the fit data carries learned state (``X_fit_``,
+      ``global_mean_``, …) → stateful → reject. A clone is fit each time so no instance state is shared;
+      any error during the probe is treated as NOT stateless (fail closed).
+    """
+    from nirs4all.controllers.transforms.transformer import TransformerMixinController
+
+    if TransformerMixinController._requires_y(operator):  # noqa: SLF001 - reuse the supervised-tag check
+        return False
+    try:
+        from sklearn.base import clone
+
+        rng = np.random.default_rng(0)
+        probe_a = rng.normal(size=(24, 32))
+        probe_b = rng.normal(loc=8.0, scale=4.0, size=(24, 32))
+
+        def _fit_state(data: np.ndarray) -> dict[str, Any]:
+            fitted = clone(operator).fit(data)
+            return {name: value for name, value in vars(fitted).items() if (name.endswith("_") or isinstance(value, np.ndarray)) and not name.startswith("_")}
+
+        state_a, state_b = _fit_state(probe_a), _fit_state(probe_b)
+        for name in set(state_a) | set(state_b):
+            left, right = state_a.get(name), state_b.get(name)
+            if isinstance(left, np.ndarray) or isinstance(right, np.ndarray):
+                if not (left is not None and right is not None and np.array_equal(np.asarray(left), np.asarray(right))):
+                    return False
+            elif left != right:
+                return False
+    except Exception:  # noqa: BLE001 - any probe failure ⇒ cannot prove stateless ⇒ fail closed
+        return False
+    return True
+
+
+def _augmentation_is_leakage_free(aug_step: dict[str, Any]) -> bool:
+    """Whether a ``sample_augmentation`` step is safe to run as ONE global pre-fold augmentation.
+
+    True ONLY when neither leakage vector applies to global augmentation:
+
+    * the **balanced/supervised mode** (a ``balance`` key) is NOT used — it fits class/bin targets on
+      the whole train y, so the synthetic counts depend on the (future-fold-val-inclusive) label set;
+    * EVERY transformer is stateless (:func:`_operator_is_stateless`).
+
+    A stateful/supervised/balanced augmentation needs FOLD-LOCAL augmentation (fit inside each fold's
+    train only) to be leakage-safe — a follow-up slice. Until then it must fail loud, so this returns
+    ``False`` and the caller falls through to the bridge's raw ``sample_augmentation`` NotImplementedError.
+    """
+    config = aug_step["sample_augmentation"]
+    if "balance" in config:
+        return False
+    transformers = _augmentation_transformers(aug_step)
+    return bool(transformers) and all(_operator_is_stateless(transformer) for transformer in transformers)
+
+
+def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """Run a ``sample_augmentation`` pipeline as ONE native dag-ml CV+refit on augmented train.
+
+    Adds the synthetic train rows (real augmentation machinery), builds BASE-grain folds (each base
+    val sample validated once — a clean OOF partition that dag-ml/dag-ml-data accept) and a CV-universe
+    envelope (base + augmented children; observation-grain relations carrying each child's origin +
+    augmentation, deduped to the origin's sample grain in the schema). The fold-train views stay
+    base-grain + ``include_augmented_train`` so the host expands each base id to base + its children at
+    fit time — the children TRAIN, the OOF/validation/test never see them. The augmented dataset is
+    pickled for the adapter (augmentation is stochastic, not reproducible cross-process).
+
+    Only the supported ``transform* + sample_augmentation + splitter + model`` shape runs here; the
+    remaining steps are lowered through the bridge (a raw ``sample_augmentation`` still raises, keeping
+    the coverage boundary). A branch / exclude / generator beside it is out of scope and fails loud.
+    """
+    import pickle
+
+    aug_steps = [step for step in pipeline if _is_augmentation_step(step)]
+    if len(aug_steps) != 1:
+        raise NotImplementedError("engine='dag-ml' supports exactly one sample_augmentation step")
+    aug_step = aug_steps[0]
+    rest = [step for step in pipeline if not _is_augmentation_step(step)]
+    steps, splitter = _split_pipeline(rest)
+    if splitter is None:
+        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    steps = _apply_model_params(steps)
+
+    base_train = [int(s) for s in spectro.index_column("sample", {"partition": "train"})]
+
+    # Run the REAL augmentation: synthetic rows are inserted into `spectro` as partition=train children.
+    _apply_sample_augmentation(aug_step, spectro)
+
+    # Identity is minted on the AUGMENTED dataset so children get their own observation_id + the origin's
+    # sample_id (augmented=True). The CV universe = base train + the augmented children.
+    identity = mint_identity(spectro)
+    augmented_ints, augmentation_by_sample = _augmentation_grain(spectro, _augmentation_label(aug_step))
+    cv_universe = base_train + augmented_ints
+
+    # BASE-grain folds: split the base train pool only; train = base-train, val = base-val. The children
+    # are NEVER listed in a fold (the FoldSet stays a clean base-grain OOF partition); they are pulled
+    # into fit-train by the host expansion keyed on the origin's fold side.
+    base_folds = [([base_train[i] for i in train_idx], [base_train[i] for i in val_idx]) for train_idx, val_idx in splitter.split(base_train)]
+
+    envelope = build_envelope(spectro, identity, sample_ints=cv_universe, augmentation_by_sample=augmentation_by_sample)
+    dsl = assemble_cv_refit_dsl(steps, identity, envelope, base_folds, dsl_id="nirs4all-augmentation", n_splits=len(base_folds))
+
+    import dag_ml
+
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pickle_path = run_dir / "augmented_dataset.pkl"
+    pickle_path.write_bytes(pickle.dumps(spectro))
+
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path)
+    )
+    if outcome["returncode"] != 0:
+        raise RuntimeError(f"dag-ml augmentation run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
