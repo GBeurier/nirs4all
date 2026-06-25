@@ -50,8 +50,9 @@ _UNSUPPORTED_STEP_KEYS = frozenset({
 
 # Keys on a model step that are NOT a swept hyperparameter (mirrors run_backend._RESERVED_STEP_KEYS,
 # itself StepParser.RESERVED_KEYWORDS). Any other sibling is a model hyperparameter — a plain value
-# goes to ``params``; a param-level generator dict (``_range_``/``_log_range_``/``_grid_``) lowers to
-# a native dag-ml ``generators`` entry so the compiler expands variants and dag-ml selects natively.
+# goes to ``params``; a natively-lowerable param-level generator dict (``_range_``/``_log_range_``)
+# lowers to a native dag-ml ``generators`` entry so the compiler expands variants and dag-ml selects
+# natively (``_grid_``/dict-form/modifier sweeps stay on the Python expand path).
 _RESERVED_MODEL_KEYS = frozenset({
     "model",
     "params",
@@ -90,29 +91,37 @@ def _json_safe_params(obj: Any) -> dict[str, Any]:
 def _param_generator(param: str, spec: Any) -> dict[str, Any]:
     """Lower one nirs4all param-level generator sibling to a dag-ml ``generators`` entry.
 
-    Only the ``_range_`` list form is native (see :func:`is_param_generator_spec`); ``_grid_``,
-    ``_log_range_``, dict-form ranges, and modifier-bearing sweeps stay on the Python path, so this
-    never receives them. Field names verified against
+    Only the ``_range_`` and ``_log_range_`` list forms are native (see
+    :func:`is_param_generator_spec`); ``_grid_``, dict-form ranges, and modifier-bearing sweeps stay
+    on the Python path, so this never receives them. Field names verified against
     ``examples/pipeline_dsl_compact_generation.json`` and ``dsl.rs``:
 
     * ``{"_range_": [a, b, s]}`` → ``{"kind": "range", "param", "start": a, "stop": b, "step": s}``
+    * ``{"_log_range_": [a, b, n]}`` → ``{"kind": "log_range", "param", "start": a, "stop": b, "count": n}``
 
     dag-ml's ``range`` is end-inclusive (``inclusive`` defaults to true), matching nirs4all
-    ``_range_`` (``range(a, b + 1, s)``).
+    ``_range_`` (``range(a, b + 1, s)``). dag-ml's ``log_range`` generates ``count`` base-10
+    geometric points end-inclusive (``base.powf(start_log + (stop_log - start_log) * i / (count-1))``),
+    matching nirs4all's ``_log_range_`` ``[from, to, num]`` expansion exactly.
     """
+    if "_log_range_" in spec:
+        start, stop, count = spec["_log_range_"]
+        return {"kind": "log_range", "param": param, "start": start, "stop": stop, "count": int(count)}
     start, stop, step = spec["_range_"]
     return {"kind": "range", "param": param, "start": start, "stop": stop, "step": step}
 
 
 def is_param_generator_spec(spec: Any) -> bool:
-    """True ONLY for the exact ``_range_`` list form the bridge lowers natively at proven parity.
+    """True ONLY for the exact ``_range_`` / ``_log_range_`` list forms lowered natively at proven parity.
 
-    Conservative by design: a single key ``_range_`` whose value is a list of exactly three numbers —
-    ``{"_range_": [a, b, s]}``. Everything else falls back to the correct Python ``expand_spec`` path:
+    Conservative by design: a single key (``_range_`` or ``_log_range_``) whose value is a list of
+    exactly three numbers — ``{"_range_": [a, b, s]}`` or ``{"_log_range_": [a, b, n]}``. dag-ml's
+    native log_range now round-trips through ``build_execution_plan`` (the float-label fingerprint
+    drift is fixed by ``canonical_generator_number`` at value generation, dag-ml ``2a77a7f``), and its
+    base-10 geometric expansion matches nirs4all's ``_log_range_`` exactly, so the list form is native.
+    Everything else still falls back to the correct Python ``expand_spec`` path:
 
     * ``_grid_`` — value-level lowering is not proven equivalent to step-level grid expansion;
-    * ``_log_range_`` — dag-ml's native log_range search-space fingerprint does not round-trip through
-      ``build_execution_plan`` (float-label nondeterminism), so it would fail at plan time;
     * the dict ``{"from"/"to"/...}`` form, a wrong-length list, or any modifier key (``count``/``_seed_``)
       — would change the variant set versus ``expand_spec``.
 
@@ -121,7 +130,7 @@ def is_param_generator_spec(spec: Any) -> bool:
     if not isinstance(spec, dict) or len(spec) != 1:
         return False
     key, value = next(iter(spec.items()))
-    if key != "_range_":
+    if key not in ("_range_", "_log_range_"):
         return False
     return isinstance(value, list) and len(value) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in value)
 
