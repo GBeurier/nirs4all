@@ -1899,3 +1899,187 @@ def test_duplication_branch_unsupported_merge_fails_loud() -> None:
     ]
     with pytest.raises(NotImplementedError, match="proba"):
         nirs4all.run(proba, dataset_path("regression"), engine="dag-ml")
+
+
+def test_stacking_branch_detection() -> None:
+    """The stacking detector consumes ONLY the duplication-branch + predictions-merge + meta-model shape.
+
+    `_detect_stacking_branch` returns `(branches, meta_learner)` for `{"branch": [[A], [B], …]}` (each
+    sub-pipeline with a model) + `{"merge": "predictions"}` + a downstream `{"model": M}` whose M is a
+    handled meta-learner (a default `MetaModel` wrapper → its wrapped sklearn model, or a plain sklearn
+    estimator). Everything else (no/mis-ordered model, a fusion/concat/per-branch merge, a MetaModel
+    carrying unhandled options, a top-level step beside the branch) returns None so the loud #10 path
+    still guards it. The duplication detector must NOT claim the stacking shape. No CLI needed."""
+    from sklearn.linear_model import Ridge
+
+    from nirs4all.operators.models.meta import CoverageStrategy, MetaModel, StackingConfig, StackingLevel, TestAggregation
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _detect_duplication_branch, _detect_stacking_branch
+
+    splitter = KFold(n_splits=3, shuffle=True, random_state=42)
+    branch = {"branch": [[{"model": PLSRegression(n_components=5)}], [{"model": Ridge(alpha=1.0)}]]}
+
+    # Handled: a plain downstream model is the meta-learner.
+    plain = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(alpha=0.7)}])
+    assert plain is not None
+    branches, meta_learner = plain
+    assert len(branches) == 2 and isinstance(meta_learner, Ridge) and meta_learner.alpha == 0.7
+
+    # Handled: a MetaModel wrapper → its wrapped sklearn model (with its params).
+    wrapped = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(alpha=0.3))}])
+    assert wrapped is not None and isinstance(wrapped[1], Ridge) and wrapped[1].alpha == 0.3
+    # AUTO and explicit LEVEL_1 are both handled.
+    lvl1 = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(level=StackingLevel.LEVEL_1))}])
+    assert lvl1 is not None
+
+    # Not handled (each falls through to the loud #10 path):
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}]) is None  # no downstream model
+    assert _detect_stacking_branch([splitter, branch, {"model": Ridge()}, {"merge": "predictions"}]) is None  # model before merge
+    assert _detect_stacking_branch([splitter, branch, {"merge": "mean"}, {"model": Ridge()}]) is None  # fusion, not stacking
+    assert _detect_stacking_branch([splitter, branch, {"merge": "concat"}, {"model": Ridge()}]) is None  # concat reassembly
+    assert _detect_stacking_branch([splitter, branch, {"merge": {"predictions": [{"branch": 0, "select": "best"}]}}, {"model": Ridge()}]) is None  # per-branch config
+    # MetaModel carrying unhandled options.
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), use_proba=True)}]) is None
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), source_models=["PLS"])}]) is None
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(level=StackingLevel.LEVEL_2))}]) is None
+    # A non-default StackingConfig field (other than level) is silently IGNORED by the lowering → fail loud.
+    # test_aggregation is the load-bearing one (this slice cannot score test meta-features at all).
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(test_aggregation=TestAggregation.WEIGHTED_MEAN))}]) is None
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(coverage_strategy=CoverageStrategy.DROP_INCOMPLETE))}]) is None
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(min_coverage_ratio=0.5))}]) is None
+    # A sibling param or a generator on the meta-model step is silently dropped by the bare-estimator
+    # lowering (no _apply_model_params / native generation runs for it) → fail loud, not a silent mis-run.
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": 0.2}]) is None
+    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 3]}}]) is None
+    # A top-level transform beside the branch (would be silently dropped).
+    assert _detect_stacking_branch([StandardNormalVariate(), splitter, branch, {"merge": "predictions"}, {"model": Ridge()}]) is None
+    # A modelless base sub-pipeline (the base level needs a model to produce OOF).
+    assert _detect_stacking_branch([splitter, {"branch": [[StandardNormalVariate()], [{"model": Ridge()}]]}, {"merge": "predictions"}, {"model": Ridge()}]) is None
+    # The duplication (fusion) detector must NOT claim the stacking (predictions-merge) shape.
+    assert _detect_duplication_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge()}]) is None
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_stacking_branch() -> None:
+    """A duplication branch (2 base models) + {"merge": "predictions"} + a meta-model scores natively (#10).
+
+    The native path runs each base branch model on the full fold data (held-out Validation OOF); the
+    meta-node consumes the base branches' Validation OOF (Option A — leakage-safe, the requires_oof edge
+    refuses any train block) and fits the meta-learner on the per-fold OOF meta-feature matrix. Asserts
+    `cv_best_score` == a DIRECT sklearn stacking OOF (per fold: base models fit on fold-train, predict
+    fold-val → meta-features; meta-model fit on that fold's assembled OOF, predict it; concat across folds;
+    scored) within 1e-3, AND that the stacked score DIFFERS from either base branch alone (the meta-model
+    genuinely combines).
+
+    `best_rmse` is NaN: dag-ml delivers the meta-node only Validation OOF in REFIT too (no base refit-TEST
+    predictions), so the refit meta-model has no test meta-features to predict — the same NaN shape as the
+    fusion/concat merges. Producing best_rmse natively needs a dag-ml change (the meta-node would have to
+    receive the base models' refit-test predictions); the FIT_CV OOF-scored cv_best_score is what stacking
+    is meant to produce.
+    """
+    from sklearn.linear_model import Ridge
+    from sklearn.metrics import mean_squared_error
+
+    import nirs4all
+
+    n_splits, n_comp, base_alpha, meta_alpha = 3, 5, 1.0, 1.0
+    pipeline = [
+        KFold(n_splits=n_splits, shuffle=True, random_state=42),
+        {"branch": [[{"model": PLSRegression(n_components=n_comp)}], [{"model": Ridge(alpha=base_alpha)}]]},
+        {"merge": "predictions"},
+        {"model": Ridge(alpha=meta_alpha)},
+    ]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
+
+    def x(ints):  # noqa: ANN001, ANN202
+        return np.asarray(dataset.x({"sample": ints}, layout="2d"), dtype=float)
+
+    def y(ints):  # noqa: ANN001, ANN202
+        return np.asarray(dataset.y({"sample": ints}), dtype=float).ravel()
+
+    def base_oof(factory) -> dict[int, float]:  # noqa: ANN001
+        oof: dict[int, float] = {}
+        for train_ints, val_ints in folds:
+            model = factory()
+            model.fit(x(train_ints), y(train_ints))
+            p = np.asarray(model.predict(x(val_ints))).ravel()
+            for position, sample_int in enumerate(val_ints):
+                oof[int(sample_int)] = float(p[position])
+        return oof
+
+    pls_oof = base_oof(lambda: PLSRegression(n_components=n_comp))
+    ridge_oof = base_oof(lambda: Ridge(alpha=base_alpha))
+    truth: dict[int, float] = {int(s): float(v) for _tr, va in folds for s, v in zip(va, y(va))}
+
+    # DIRECT stacking OOF: per fold, fit the meta-model on that fold's base-OOF meta-features and predict
+    # them (the per-fold delivery dag-ml's meta-node receives — only the fold's Validation OOF), concat.
+    meta_oof: dict[int, float] = {}
+    for _train_ints, val_ints in folds:
+        ints = [int(s) for s in val_ints]
+        x_meta = np.array([[pls_oof[s], ridge_oof[s]] for s in ints])
+        y_meta = np.array([truth[s] for s in ints])
+        mm = Ridge(alpha=meta_alpha).fit(x_meta, y_meta)
+        p = mm.predict(x_meta)
+        for position, sample_int in enumerate(ints):
+            meta_oof[sample_int] = float(p[position])
+
+    keys = sorted(truth)
+    rmse_stack = float(np.sqrt(mean_squared_error([truth[k] for k in keys], [meta_oof[k] for k in keys])))
+    rmse_pls = float(np.sqrt(mean_squared_error([truth[k] for k in keys], [pls_oof[k] for k in keys])))
+    rmse_ridge = float(np.sqrt(mean_squared_error([truth[k] for k in keys], [ridge_oof[k] for k in keys])))
+
+    # cv_best_score == the direct sklearn stacking OOF.
+    assert abs(result.cv_best_score - rmse_stack) < 1e-3, (result.cv_best_score, rmse_stack)
+    # And it DIFFERS from either base branch alone (the meta-model genuinely combines, not a passthrough).
+    assert abs(result.cv_best_score - rmse_pls) > 1e-3, (result.cv_best_score, rmse_pls)
+    assert abs(result.cv_best_score - rmse_ridge) > 1e-3, (result.cv_best_score, rmse_ridge)
+    # best_rmse is NaN — the REFIT meta-node receives no base test predictions (documented dag-ml gap).
+    assert result.best_rmse != result.best_rmse, result.best_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> None:
+    """Stacking with an IGNORED MetaModel option or a sibling-param/generator meta step fails LOUD (#10).
+
+    Both are silently-dropped-config gaps the dag-ml stacking lowering would otherwise ignore: a non-default
+    `StackingConfig` field (e.g. `test_aggregation`, which this slice cannot honor at all — best_rmse is NaN)
+    and a sibling param / generator on the bare meta-model step (the bare-estimator lowering never runs
+    `_apply_model_params` / native generation for it). Each must raise `NotImplementedError` naming #10
+    rather than run with the option silently dropped — the project's never-silently-drop-config discipline."""
+    from sklearn.linear_model import Ridge
+
+    import nirs4all
+    from nirs4all.operators.models.meta import MetaModel, StackingConfig, TestAggregation
+
+    branch = {"branch": [[{"model": PLSRegression(n_components=5)}], [{"model": Ridge(alpha=1.0)}]]}
+
+    ignored_config = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        branch,
+        {"merge": "predictions"},
+        {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(test_aggregation=TestAggregation.WEIGHTED_MEAN))},
+    ]
+    with pytest.raises(NotImplementedError, match="#10"):
+        nirs4all.run(ignored_config, dataset_path("regression"), engine="dag-ml")
+
+    sibling_param = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        branch,
+        {"merge": "predictions"},
+        {"model": Ridge(), "alpha": 0.2},
+    ]
+    with pytest.raises(NotImplementedError, match="#10"):
+        nirs4all.run(sibling_param, dataset_path("regression"), engine="dag-ml")
+
+    swept_meta = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        branch,
+        {"merge": "predictions"},
+        {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 3]}},
+    ]
+    with pytest.raises(NotImplementedError, match="#10"):
+        nirs4all.run(swept_meta, dataset_path("regression"), engine="dag-ml")

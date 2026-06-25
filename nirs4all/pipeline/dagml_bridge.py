@@ -28,6 +28,12 @@ from typing import Any
 
 from nirs4all import __version__ as _NIRS4ALL_VERSION
 
+# Stacking meta-model wiring (backlog #10). The meta-node is a `model`-kind node bound to a dedicated
+# controller (via `metadata.controller_id`) that declares `consumes_oof_predictions`. The ref is the
+# operator-selector token that keeps the meta-model manifest out of the generic model-kind catch-all.
+_META_MODEL_CONTROLLER_ID = "controller:nirs4all.meta_model"
+_META_MODEL_REF = "nirs4all.meta_model"
+
 # Every nirs4all generation keyword (mirrors config._generator.keywords.GENERATION_KEYWORDS). Used
 # to detect a generator-shaped model sibling that this bridge does NOT lower natively, so it can fail
 # loud instead of silently demoting it to a plain param.
@@ -273,6 +279,35 @@ def controller_manifests() -> list[dict[str, Any]]:
             "data_requirements": None,
             "capabilities": ["deterministic", "thread_safe", "process_safe", "consumes_oof_predictions", "emits_predictions"],
             "operator_selectors": [],  # empty => bind any prediction_join-kind node
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+        {
+            # Stacking meta-model (backlog #10). The meta-node compiles to a `model`-kind node (it fits
+            # a real estimator) but is distinguished from a base model by `metadata.controller_id` set to
+            # this id (dag-ml's `requested_controller` binds it directly). It declares
+            # `consumes_oof_predictions` so the dag-ml planner permits the base→meta `requires_oof` edges
+            # (a base model lacks it, so a stray OOF edge into a base model is still refused — fail-loud).
+            # The node runner reads the meta-node's `prediction_inputs[*].values` (the base branches'
+            # Validation OOF, Option A) → meta-feature matrix → fits the MetaModel → emits its own OOF.
+            "controller_id": "controller:nirs4all.meta_model",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 20,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "output_ports": [
+                {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+            ],
+            "data_requirements": None,
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng", "consumes_oof_predictions", "emits_predictions", "emits_artifacts", "stateful"],
+            # A NON-EMPTY selector keeps this manifest OUT of the generic model-kind catch-all (else a
+            # base model node would match BOTH this and `controller:nirs4all.model` → ambiguous). The
+            # meta-node binds via `metadata.controller_id` (requested), which bypasses selectors anyway;
+            # the selector's only job is to never be a generic candidate for ordinary model nodes.
+            "operator_selectors": [{"refs": [_META_MODEL_REF]}],
             "fit_scope": "fold_train",
             "rng_policy": "uses_core_seed",
             "artifact_policy": "serializable",

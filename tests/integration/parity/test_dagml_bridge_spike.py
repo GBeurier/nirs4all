@@ -64,13 +64,23 @@ def test_vertical_slice_controller_manifests_validate() -> None:
     import dag_ml
 
     manifests = controller_manifests()
-    assert sorted(m["operator_kind"] for m in manifests) == ["model", "prediction_join", "transform", "y_transform"]
+    # Two model-kind manifests: the base model controller (generic catch-all) + the stacking meta-model
+    # controller (bound by metadata.controller_id, declaring consumes_oof_predictions); the others are
+    # one each. Distinguished by controller_id (the kind alone is no longer unique for model).
+    assert sorted(m["operator_kind"] for m in manifests) == ["model", "model", "prediction_join", "transform", "y_transform"]
+    assert sorted(m["controller_id"] for m in manifests) == [
+        "controller:nirs4all.merge_concat", "controller:nirs4all.meta_model", "controller:nirs4all.model",
+        "controller:nirs4all.transform", "controller:nirs4all.y_transform",
+    ]
     for manifest in manifests:
         dag_ml.ControllerManifest(manifest)  # raises on an invalid manifest
     dag_ml.ControllerManifests(manifests)  # raises on an invalid list / duplicate controller_id
-    # A prediction/artifact output port forces the matching emits_* capability.
-    model = next(m for m in manifests if m["operator_kind"] == "model")
-    assert {"emits_predictions", "emits_artifacts"} <= set(model["capabilities"])
+    # A prediction/artifact output port forces the matching emits_* capability (both model controllers).
+    for model in (m for m in manifests if m["operator_kind"] == "model"):
+        assert {"emits_predictions", "emits_artifacts"} <= set(model["capabilities"])
+    # The meta-model controller declares it consumes OOF (so the base→meta requires_oof edge is permitted).
+    meta = next(m for m in manifests if m["controller_id"] == "controller:nirs4all.meta_model")
+    assert "consumes_oof_predictions" in meta["capabilities"]
 
 
 def test_vertical_slice_builds_execution_plan() -> None:
