@@ -518,10 +518,80 @@ def test_public_run_engine_dagml_native_param_sweep(tmp_path) -> None:
     assert abs(result.best_rmse - best_test) < 1e-3  # and reports that variant's final-test RMSE
 
 
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_native_log_range_sweep(tmp_path) -> None:
+    """A Ridge `alpha` `_log_range_` sweep runs as ONE NATIVE dag-ml generation + SELECT run.
+
+    Mirrors `test_public_run_engine_dagml_native_param_sweep` for the `_log_range_` list form, whose
+    native dag-ml log_range generator now round-trips through `build_execution_plan` (the float-label
+    fingerprint drift is fixed by `canonical_generator_number`, dag-ml `2a77a7f`). The bridge lowers
+    the sweep to a native dag-ml `generators` entry (no Python `expand_spec`), so the compiler expands
+    the variants and dag-ml runs generation + per-variant CV scoring + SELECT + refit in a single CLI
+    invocation. We assert both: (1) it is one native run (param_model path, a single bundle with a
+    selected_variant_id and exactly one cross-fold OOF average — not the per-variant `variant*/` dirs
+    the Python-expand path would create); and (2) the selected `alpha` and `result.best_rmse` MATCH
+    what the Python-expand path selects — computed here directly with sklearn KFold (best per-alpha
+    OOF CV), within 1e-3.
+    """
+    from sklearn.linear_model import Ridge
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _generation_kind, run_via_dagml
+
+    # _log_range_[1e-3, 1e1, 5] is base-10 geometric end-inclusive: 1e-3, 1e-2, 1e-1, 1e0, 1e1.
+    alphas = [1e-3, 1e-2, 1e-1, 1e0, 1e1]
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": Ridge(), "alpha": {"_log_range_": [1e-3, 1e1, 5]}}]
+
+    # (1) It is the NATIVE param-level path, run once into the `native/` workdir.
+    assert _generation_kind(pipeline) == "param_model"
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path)
+    assert (tmp_path / "native" / "bundle.json").exists()
+    assert not list(tmp_path.glob("variant*")), "native generation must NOT run the per-variant Python-expand path"
+    bundle = json.loads((tmp_path / "native" / "bundle.json").read_text())
+    assert bundle.get("selected_variant_id"), "dag-ml must record the natively-selected variant"
+    avg_reports = [r for r in bundle["scores"]["reports"] if r["partition"] == "validation" and r.get("fold_id") == "avg"]
+    assert len(avg_reports) == 1, "the bundle scores must be the selected variant's (one OOF average)"
+
+    # (2) PARITY — compute the per-alpha OOF CV directly with sklearn KFold and pick the best, exactly
+    # as the Python-expand path would. The native run must select that same alpha and report its
+    # final-test RMSE.
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    def oof_cv(alpha: float) -> float:
+        acc: dict[int, float] = {}
+        cnt: dict[int, int] = {}
+        tru: dict[int, float] = {}
+        for train_ints, val_ints in folds:
+            model = make_pipeline(StandardNormalVariate(), Ridge(alpha=alpha))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            for sample_int in val_ints:
+                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+                cnt[sample_int] = cnt.get(sample_int, 0) + 1
+                tru[sample_int] = float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
+        keys = sorted(acc)
+        return float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
+
+    scored = {alpha: oof_cv(alpha) for alpha in alphas}
+    best_alpha = min(scored, key=lambda alpha: scored[alpha])  # the alpha Python-expand would select
+    assert abs(result.cv_best_score - scored[best_alpha]) < 1e-3  # dag-ml selected the same variant by CV
+
+    # The selected variant's final-test RMSE (refit on full train, predict held-out test).
+    final = make_pipeline(StandardNormalVariate(), Ridge(alpha=best_alpha))
+    final.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+    best_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), np.asarray(final.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel())))
+    assert abs(result.best_rmse - best_test) < 1e-3  # and reports that variant's final-test RMSE
+
+
 def test_generation_kind_routes_conservatively() -> None:
-    """The native router is CONSERVATIVE: only a clean `_range_` model sweep goes native; every other
-    generator shape (mixed, finetune_params, _grid_, _log_range_, non-model sweep, multi-model) falls
-    back to the Python `expand_spec` path, so no generator is ever silently dropped. No CLI needed."""
+    """The native router is CONSERVATIVE: only a clean `_range_`/`_log_range_` model sweep goes native;
+    every other generator shape (mixed, finetune_params, _grid_, dict/modifier sweeps, non-model sweep,
+    multi-model) falls back to the Python `expand_spec` path, so no generator is silently dropped.
+    No CLI needed."""
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import MinMaxScaler
 
@@ -530,8 +600,9 @@ def test_generation_kind_routes_conservatively() -> None:
 
     splitter = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
-    # The ONLY native case: a pure `_range_` sweep on a model step.
+    # The native cases: a pure `_range_` or `_log_range_` list-form sweep on a model step.
     assert _generation_kind([StandardNormalVariate(), splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}}]) == "param_model"
+    assert _generation_kind([StandardNormalVariate(), splitter, {"model": Ridge(), "alpha": {"_log_range_": [0.001, 10.0, 4]}}]) == "param_model"  # _log_range_ now native (dag-ml 2a77a7f)
     # No generators at all → none.
     assert _generation_kind([StandardNormalVariate(), splitter, {"model": PLSRegression(n_components=5)}]) == "none"
 
@@ -542,9 +613,10 @@ def test_generation_kind_routes_conservatively() -> None:
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}, "finetune_params": {"n_trials": 5}}]) == "operator"  # finetune_params
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}, "train_params": {"epochs": 1}}]) == "operator"  # train_params
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_grid_": {"n_components": [5, 10]}}}]) == "operator"  # _grid_ (not proven equivalent)
-    assert _generation_kind([splitter, {"model": Ridge(), "alpha": {"_log_range_": [0.001, 10.0, 4]}}]) == "operator"  # _log_range_ (fingerprint not round-tripping)
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 16, 1], "count": 3}}]) == "operator"  # modifier-bearing range
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": {"from": 3, "to": 9}}}]) == "operator"  # dict-form range
+    assert _generation_kind([splitter, {"model": Ridge(), "alpha": {"_log_range_": [0.001, 10.0, 4], "count": 3}}]) == "operator"  # modifier-bearing _log_range_ (only the bare list form is native)
+    assert _generation_kind([splitter, {"model": Ridge(), "alpha": {"_log_range_": {"from": 0.001, "to": 10.0, "num": 4}}}]) == "operator"  # dict-form _log_range_
     assert _generation_kind([splitter, {"model": {"_or_": [PLSRegression(), PLSRegression(n_components=3)]}}]) == "operator"  # multi-model
     assert _generation_kind([{"_or_": [StandardNormalVariate(), MinMaxScaler()]}, splitter, {"model": PLSRegression()}]) == "operator"  # operator-level _or_ step
 
