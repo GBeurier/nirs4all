@@ -89,13 +89,27 @@ def run_jsonl_loop(infile: IO[str], outfile: _Writer, handle: NodeHandler) -> No
 
 
 def _build_handler() -> NodeHandler:
-    """Construct the node handler from the dataset + compiled graph named in the env."""
+    """Construct the node handler from the dataset + compiled graph named in the env.
+
+    A ``sample_augmentation`` run pickles the AUGMENTED ``SpectroDataset`` (the synthetic rows are
+    stochastic and not reproducible across processes, so re-running augmentation here would diverge);
+    ``N4A_DAGML_DATASET_PICKLE`` then points the adapter at that exact materialized dataset so its
+    ``mint_identity`` + resolver match the wire ids the DSL/envelope/fold-set were built from. Without
+    augmentation the plain path-load is used.
+    """
+    import pickle
+
     from nirs4all.data.config import DatasetConfigs
 
     from .identity import mint_identity
     from .resolver import MaterializationResolver
 
-    dataset = DatasetConfigs(os.environ["N4A_DAGML_DATASET_PATH"]).get_dataset_at(0)
+    pickle_path = os.environ.get("N4A_DAGML_DATASET_PICKLE")
+    if pickle_path:
+        with open(pickle_path, "rb") as handle:
+            dataset = pickle.load(handle)  # noqa: S301 - host-written augmented dataset for this run
+    else:
+        dataset = DatasetConfigs(os.environ["N4A_DAGML_DATASET_PATH"]).get_dataset_at(0)
     resolver = MaterializationResolver(dataset, mint_identity(dataset))
     with open(os.environ["N4A_DAGML_GRAPH_PATH"], encoding="utf-8") as handle:
         graph = json.load(handle)

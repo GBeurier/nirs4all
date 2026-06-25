@@ -112,6 +112,7 @@ def run_cv_refit_bundle(
     venv_python: str,
     selection_metric: str = "rmse",
     sample_metadata: dict[str, dict[str, Any]] | None = None,
+    dataset_pickle: str | None = None,
 ) -> dict[str, Any]:
     """Write inputs + shim, run ``dag-ml-cli run-process-dsl-cv-refit-bundle``, return outputs.
 
@@ -126,6 +127,11 @@ def run_cv_refit_bundle(
     ``sample_metadata`` (``{wire_id: {col: value}}``) is written for the adapter to honor
     separation-branch ``branch_view`` selectors (each fanned model fits/predicts only its
     partition). Omit it for non-branch pipelines.
+
+    ``dataset_pickle`` (a path to a pickled augmented ``SpectroDataset``) is passed to the adapter
+    via ``N4A_DAGML_DATASET_PICKLE`` so it loads the exact same synthetic rows the DSL/envelope were
+    built from (a ``sample_augmentation`` run; augmentation is not reproducible across processes).
+    Omit it for non-augmentation pipelines.
     """
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "dsl.json").write_text(json.dumps(dsl))
@@ -141,9 +147,19 @@ def run_cv_refit_bundle(
         "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
         "N4A_DAGML_RESULT_CAPTURE": str(capture),
     }
+    # The adapter PRIORITIZES N4A_DAGML_DATASET_PICKLE / N4A_DAGML_SAMPLE_META_PATH over the dataset
+    # path. The child env inherits os.environ, so a stale value from an earlier run (or the caller's
+    # shell) would make THIS run load the wrong dataset/metadata. Set each ONLY for the run that needs
+    # it and explicitly DROP it otherwise, so a non-augmentation / non-branch run never inherits a stale one.
+    if dataset_pickle is not None:
+        env["N4A_DAGML_DATASET_PICKLE"] = dataset_pickle
+    else:
+        env.pop("N4A_DAGML_DATASET_PICKLE", None)
     if sample_metadata is not None:
         (workdir / "sample_meta.json").write_text(json.dumps(sample_metadata))
         env["N4A_DAGML_SAMPLE_META_PATH"] = str(workdir / "sample_meta.json")
+    else:
+        env.pop("N4A_DAGML_SAMPLE_META_PATH", None)
     proc = subprocess.run(
         [
             dagml_cli, "run-process-dsl-cv-refit-bundle",

@@ -271,10 +271,14 @@ def run_model_node(
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
         estimator = make_pipeline(*upstream, model) if upstream else model
         y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None
-        # Fit views materialize TRAINING rows (FIT_CV fold_train, REFIT full_train): augmented
-        # children belong here, so include_augmented=True. Non-fit views below default to False.
-        x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=True)["values"], dtype=float)
-        y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
+        # Fit views materialize TRAINING rows (FIT_CV fold_train, REFIT full_train): the view carries
+        # BASE ids (dag-ml keeps the FoldSet a clean base-grain OOF partition) + include_augmented_train,
+        # so the host expands each base id to base + its augmented children — those synthetic rows train.
+        # A no-op when no augmentation ran. A child's target is its origin's y (resolve_targets keys by
+        # the origin's sample_id). include_augmented=True so the leakage guard permits the children here.
+        fit_ids = resolver.expand_with_augmented_children(train_ids)
+        x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"], dtype=float)
+        y_train = np.asarray(resolver.resolve_targets(resolver.target_sample_ids(fit_ids))["values"], dtype=float)
         y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
         estimator.fit(x_train, y_fit)
 
@@ -290,12 +294,11 @@ def run_model_node(
     # so a `test`/`final` block for the refit model is accepted and scored natively.
     #
     # include_augmented per spec mirrors the leakage guard: it is True ONLY when the predicted ids are
-    # TRAINING rows — REFIT predicting its own full_train ("final"-train score), where augmented children
-    # legitimately appear. FIT_CV's validation/OOF view, the REFIT held-out TEST, and PREDICT are non-fit
-    # holdout views, so include_augmented=False makes resolve_features REFUSE any augmented child there.
-    # (Today no augmentation runs, so predict_ids carry no augmented ids and these flags are a no-op; the
-    # END-TO-END leakage test — an augmented child kept out of validation through node_runner — belongs to
-    # the augmentation run-path slice #8, where real augmented children exist.)
+    # TRAINING rows — REFIT predicting its own full_train ("final"-train score). The predict ids are the
+    # view's BASE ids, so resolve_features fetches base rows only (the "final"-train score is over base
+    # train); the synthetic children influenced the FIT, never a scored holdout. FIT_CV's validation/OOF
+    # view, the REFIT held-out TEST, and PREDICT are non-fit holdout views, so include_augmented=False
+    # makes resolve_features REFUSE any augmented child there (the origin-boundary leakage guard).
     predict_is_train = phase == "REFIT"  # REFIT predict_ids == full_train (training rows); FIT_CV/PREDICT are holdout
     specs: list[tuple[list[str], str, str | None, bool]] = [
         (predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)

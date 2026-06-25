@@ -45,6 +45,44 @@ class MaterializationResolver:
         self._augmented_observation_ids = frozenset(
             sample.observation_id for sample in identity.identities if sample.augmented
         )
+        # origin sample_int → the augmented children's observation ids, in dataset order. Lets a
+        # fit (training) view expand a base id to base + its augmented children, the host-side
+        # equivalent of dag-ml delivering base ids + include_augmented_train=true (the core stays
+        # base-grain so the FoldSet validates; the children only ever appear in a TRAIN materialization).
+        self._children_of_origin: dict[int, list[str]] = {}
+        # observation_id → the sample_id of its target grain (an augmented child's origin sample_id;
+        # a base row's own sample_id). resolve_targets is keyed by sample_id, so a fit view whose ids
+        # are observation_ids (after augmented expansion) maps each to its target's sample_id here.
+        self._sample_id_of_observation: dict[str, str] = {}
+        for sample in identity.identities:
+            self._sample_id_of_observation[sample.observation_id] = sample.sample_id
+            if sample.augmented:
+                self._children_of_origin.setdefault(sample.origin_int, []).append(sample.observation_id)
+
+    def target_sample_ids(self, observation_ids: list[str]) -> list[str]:
+        """Map observation ids to their target grain's ``sample_id`` (an augmented child → its origin).
+
+        ``resolve_targets`` is keyed by ``sample_id`` (the y grain). A fit materialization that has been
+        expanded with augmented children carries child *observation* ids, whose target is the origin's y;
+        this collapses each to the origin's ``sample_id`` so ``resolve_targets`` fetches the right row.
+        """
+        return [self._sample_id_of_observation[observation_id] for observation_id in observation_ids]
+
+    def expand_with_augmented_children(self, observation_ids: list[str]) -> list[str]:
+        """Append each base id's augmented children, preserving order (base id, then its children).
+
+        The fit (training) materialization for a base-grain fold/full-train view: dag-ml keeps the
+        view base-grain (so the FoldSet is a clean OOF partition) and signals ``include_augmented=true``;
+        the host expands it. A no-op when no augmentation ran (the children map is empty). Already-augmented
+        ids pass through unchanged (they carry no further children).
+        """
+        if not self._children_of_origin:
+            return list(observation_ids)
+        expanded: list[str] = []
+        for observation_id in observation_ids:
+            expanded.append(observation_id)
+            expanded.extend(self._children_of_origin.get(self._identity.to_int(observation_id), []))
+        return expanded
 
     def partition_wire_ids(self, partition: str) -> list[str]:
         """Wire sample ids for a dataset partition (e.g. ``"test"``), empty if none.
