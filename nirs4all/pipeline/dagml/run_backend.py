@@ -651,6 +651,132 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
     return branches, aggregate
 
 
+def _is_simple_predictions_merge_step(step: Any) -> bool:
+    """True ONLY for the exact ``{"merge": "predictions"}`` stacking-merge string — nothing richer.
+
+    A per-branch predictions config (``{"merge": {"predictions": [{"branch": 0, "select": "best"}]}}``)
+    carries model-selection/aggregation semantics this slice does NOT honor, so it is rejected (it stays
+    on the loud #10 path). Only the plain ``"predictions"`` collect-all merge is the supported stacking shape.
+    """
+    return isinstance(step, dict) and step.get("merge") == "predictions"
+
+
+def _is_default_except_level(config: Any) -> bool:
+    """True iff ``config`` is a ``StackingConfig`` equal to the default in EVERY field except ``level``.
+
+    A MetaModel may carry only the stacking options this slice actually HONORS. ``level`` is the one
+    permitted deviation (AUTO / LEVEL_1 → a single base→meta level, which the dag-ml lowering produces);
+    every other field (``coverage_strategy``, ``test_aggregation``, ``branch_scope``, ``allow_no_cv``,
+    ``min_coverage_ratio``, ``allow_meta_sources``, ``max_level``, ``relation_profile``) is SILENTLY
+    IGNORED by the lowering — notably ``test_aggregation``, which has no effect because this slice cannot
+    score test meta-features at all (best_rmse is NaN). So a non-default value of any of those must reject
+    the stacking shape (fail loud) rather than run with the option dropped. Comparison is field-exhaustive
+    by construction: clone the config with ``level`` reset to the default and compare to a fresh default,
+    so any future ``StackingConfig`` field is covered without enumerating them here.
+    """
+    import dataclasses
+
+    from nirs4all.operators.models.meta import StackingConfig
+
+    if not isinstance(config, StackingConfig):
+        return False
+    normalized = dataclasses.replace(config, level=StackingConfig().level)
+    return normalized == StackingConfig()
+
+
+def _meta_learner(model_step: dict[str, Any]) -> Any | None:
+    """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
+
+    Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
+    (``{"model": MetaModel(Ridge())}`` — the meta-learner is its wrapped ``.model``) or a plain sklearn
+    estimator (``{"model": Ridge()}`` after ``{"merge": "predictions"}``). Either way we return the bare
+    sklearn estimator that fits on the meta-feature matrix.
+
+    Returns ``None`` (→ fail loud, never run wrong) for any MetaModel option this slice does not honor:
+    a non-default ``source_models`` list, ``use_proba``, a custom ``selector``, a ``finetune_space``, a
+    non-AUTO/non-1 stacking ``level``, OR any OTHER non-default ``stacking_config`` field
+    (``test_aggregation``, ``coverage_strategy``, … — silently ignored by the lowering; see
+    :func:`_is_default_except_level`).
+    """
+    from nirs4all.operators.models.meta import MetaModel, StackingLevel
+
+    model = model_step.get("model")
+    if isinstance(model, MetaModel):
+        config = model.stacking_config
+        if (
+            model.source_models != "all"
+            or model.use_proba
+            or model.selector is not None
+            or model.finetune_space is not None
+            or config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_1)
+            or not _is_default_except_level(config)
+        ):
+            return None
+        return model.model
+    # A plain sklearn estimator step (no other generator/reserved sibling that would change its meaning).
+    if model is not None and hasattr(model, "fit") and hasattr(model, "predict"):
+        return model
+    return None
+
+
+def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] | None:
+    """Detect the EXACT duplication-branch + ``{"merge": "predictions"}`` + meta-model shape, else ``None``.
+
+    Admits ONLY: the splitter + ONE duplication branch (``{"branch": [[A], [B], …]}``, N≥2 sub-pipelines
+    each with a model) + ONE ``{"merge": "predictions"}`` + ONE downstream ``{"model": M}`` whose M is a
+    handled meta-learner (a default ``MetaModel`` wrapper or a plain sklearn estimator; see
+    :func:`_meta_learner`). Returns ``(branches, meta_learner)`` (the bare sklearn estimator) when matched.
+    ANY deviation returns ``None`` so the bridge / the loud #10 path fires — never a silent-wrong run.
+    Specifically REJECTED (fall through to loud):
+
+    * a fusion/avg merge or a concat merge (those are the duplication-fusion / separation paths);
+    * a per-branch predictions config (model-selection/aggregation semantics not honored — stays #10);
+    * a missing downstream model, more than one branch/merge/model, or a model BEFORE the merge;
+    * a top-level operator/transform/``tag``/``y_processing``/``exclude`` beside the branch (only each
+      branch body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
+    * a sub-pipeline without a model (the base level needs a model to produce OOF);
+    * a MetaModel carrying unhandled options (non-default source_models/use_proba/selector/finetune/config);
+    * a meta-model step carrying a sibling param (``{"model": Ridge(), "alpha": 0.2}``) or a generator
+      (``{"model": Ridge(), "alpha": {"_range_": [...]}}``): the meta-model node is lowered as a bare
+      estimator, so ``_apply_model_params`` / native generation never run for it — the param/sweep would
+      be silently ignored. A tuned/swept meta-model is a later slice.
+    """
+    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
+
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    merge_steps = [step for step in pipeline if _is_simple_predictions_merge_step(step)]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1:
+        return None
+    branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
+
+    # The meta-model step must be a BARE {"model": <estimator>} (plus harmless reserved keys like name):
+    # any extra non-reserved sibling param OR a param-generator on the meta step is silently dropped by the
+    # bare-estimator lowering, so reject it (fail loud) rather than run the meta-model with the option lost.
+    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
+        return None
+
+    # The merge must come BEFORE the model (the model is the meta-learner over the merged OOF), and the
+    # pipeline must be EXACTLY {splitter, branch, merge, model} — no other top-level steps (a top-level
+    # transform / tag / y_processing / exclude would be silently dropped, since only branch bodies are
+    # lowered). Order + membership are both enforced.
+    order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
+    if order != [branch_step, merge_step, model_step]:
+        return None
+    for step in pipeline:
+        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+            continue
+        return None
+
+    branches = branch_step["branch"]
+    if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
+        return None
+    meta_learner = _meta_learner(model_step)
+    if meta_learner is None:
+        return None
+    return branches, meta_learner
+
+
 def run_via_dagml(
     pipeline: Any,
     dataset: Any,
@@ -695,6 +821,7 @@ def run_via_dagml(
     # unsupported combination BEFORE any non-group dispatch path (branch/augmentation/exclude) runs.
     detected = _detect_separation_branch(list(pipeline))
     detected_duplication = _detect_duplication_branch(list(pipeline))
+    detected_stacking = _detect_stacking_branch(list(pipeline))
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
     # REPETITIONS (sample-grain grouping): when the dataset declares a repetition column, several stored
@@ -710,7 +837,7 @@ def run_via_dagml(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
-        if augmentation_steps or detected is not None or detected_duplication is not None or any(_is_exclude_step(step) for step in pipeline):
+        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or any(_is_exclude_step(step) for step in pipeline):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
                 "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
@@ -733,15 +860,25 @@ def run_via_dagml(
         branches, aggregate = detected_duplication
         return _run_duplication_branch(list(pipeline), branches, aggregate, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "duplication", metric, task_type)
 
-    # A STACKING merge (`{"merge": "predictions"}` / a per-branch predictions config → a meta-model) is a
-    # separate, larger subsystem (backlog #10). It must fail LOUD here, naming #10, rather than reach the
-    # bridge's generic raw-merge error — so the deferral is explicit and a duplication branch with a
-    # stacking merge is never mistaken for a fusion ensemble.
+    # STACKING (backlog #10): a duplication branch (`{"branch": [[A], [B], …]}`) + `{"merge": "predictions"}`
+    # + a downstream meta-model (`{"model": MetaModel(Ridge())}` or a plain `{"model": Ridge()}`) → ONE
+    # native dag-ml run: each base branch model is FIT_CV on the full fold-train and predicts the full
+    # fold-validation (held-out Validation OOF); the meta-node consumes those branches' Validation OOF
+    # (via requires_oof+requires_fold_alignment edges, leakage-safe — train predictions are refused), fits
+    # the meta-learner on the per-fold OOF meta-feature matrix and emits its own scored OOF.
+    if detected_stacking is not None:
+        branches, meta_learner = detected_stacking
+        return _run_stacking_branch(list(pipeline), branches, meta_learner, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "stacking", metric, task_type)
+
+    # A STACKING merge that is NOT the handled shape above (a per-branch predictions config, a missing /
+    # mis-ordered meta-model, a MetaModel carrying unhandled options) must fail LOUD here, naming #10,
+    # rather than reach the bridge's generic raw-merge error — so the deferral stays explicit.
     if any(_is_stacking_merge_step(step) for step in pipeline) and any(_is_duplication_branch_step(step) for step in pipeline):
         raise NotImplementedError(
-            "engine='dag-ml' does not yet support a STACKING merge ({'merge': 'predictions'} → a "
-            "meta-model over branch OOF); that is backlog #10 (the next slice). Use {'merge': 'mean'} "
-            "for an averaging (fusion) ensemble instead."
+            "engine='dag-ml' supports STACKING only as a duplication branch + {'merge': 'predictions'} + "
+            "a downstream meta-model ({'model': MetaModel(Ridge())} or {'model': Ridge()}) with default "
+            "options; this richer stacking shape is not yet wired (backlog #10). Use {'merge': 'mean'} for "
+            "an averaging (fusion) ensemble instead."
         )
 
     # `sample_augmentation` → run nirs4all's REAL augmentation machinery to create the synthetic TRAIN
@@ -1384,6 +1521,95 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     # ensemble's `cv_best_score`); `best_rmse` (final-test) stays NaN (no merged refit-test report).
     model_label = "+".join(_model_name(branch) for branch in branches)
     return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
+
+
+_META_NODE_ID = "merge:stack"
+
+
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
+
+    Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
+    model node gets the FULL fold data view) + a ``merge_model`` meta-node carrying the meta-learner (its
+    FQN as ``operator.class`` so the node runner instantiates it) bound to ``controller:nirs4all.meta_model``
+    (which declares ``consumes_oof_predictions``, so dag-ml's planner permits the base→meta ``requires_oof``
+    edges). dag-ml runs ONE native CV+refit:
+
+    * each base branch model is FIT_CV on the full fold-train and predicts the full fold-validation
+      (held-out Validation OOF);
+    * the meta-node receives the base branches' **Validation OOF** per fold (Option A: the runtime delivers
+      ``prediction_inputs[*].values`` aligned by sample_id, sourced ONLY from Validation blocks — the
+      ``requires_oof`` edge refuses any train block), builds the per-fold meta-feature matrix (columns in
+      deterministic producer order), fits the meta-learner and emits its own scored Validation OOF.
+
+    The meta producer's cross-fold OOF average is ``cv_best_score`` — the stacking ensemble's CV score.
+    ``best_rmse`` (final test) stays NaN: dag-ml delivers the meta-node only Validation OOF in REFIT too
+    (no base refit-TEST predictions), so the refit meta-model has no test meta-features to predict — the
+    same NaN shape as the fusion/concat merges (delivering best_rmse natively needs a dag-ml change; see
+    the run report's STOP-and-report gap).
+
+    LEAKAGE INVARIANT: only Validation OOF feeds the meta-feature matrix (the ``requires_oof`` edge +
+    ``collect_oof_prediction_input`` enforce Validation-only); a base model's own train/refit predictions
+    NEVER enter the FIT_CV meta-features.
+    """
+    import dag_ml
+
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
+    from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
+
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    if splitter is None:
+        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+
+    identity = mint_identity(spectro)
+    # The handled shape rejects any exclude step, so the CV universe is the full train pool.
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool)
+
+    # Canonical DSL: one duplication branch with N base sub-pipelines (each on the FULL data) + a
+    # merge_model meta-node. The meta-node carries the bare sklearn meta-learner (FQN + params) and the
+    # _META_MODEL_REF (so its dedicated manifest is not a generic model-kind catch-all) and binds to the
+    # meta-model controller via metadata.controller_id.
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-stacking",
+        "steps": [
+            {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch(branch, index) for index, branch in enumerate(branches)]},
+            {
+                "kind": "merge_model",
+                "id": _META_NODE_ID,
+                "operator": {"class": _qualname(meta_learner), "ref": _META_MODEL_REF},
+                "params": _json_safe_params(meta_learner),
+                "metadata": {"controller_id": _META_MODEL_CONTROLLER_ID},
+            },
+        ],
+    }
+
+    manifests = controller_manifests()
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]
+    if len(base_model_ids) < 2:
+        raise RuntimeError("stacking compile produced fewer than two base model nodes")
+    if _META_NODE_ID not in model_ids:
+        raise RuntimeError("stacking compile produced no meta-model node")
+
+    # One data_binding per BASE model node (each binds its `x` to the full source). The meta-node has NO
+    # data binding: its features are the base branches' OOF, delivered as prediction_inputs (not data).
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(base_model_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+
+    outcome = run_cv_refit_bundle(
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+    )
+    if outcome["returncode"] != 0:
+        raise RuntimeError(f"dag-ml stacking run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+
+    bundle = json.loads((run_dir / "bundle.json").read_text())
+    # The meta-node producer's reports carry the full-universe cross-fold OOF average (the stacking
+    # ensemble's `cv_best_score`); `best_rmse` (final-test) stays NaN (no base refit-test meta-features).
+    model_label = f"MetaModel_{type(meta_learner).__name__}"
+    return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_META_NODE_ID)
 
 
 def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str, metric: str = "rmse", task_type: str = "regression", producer: str | None = None) -> RunResult:

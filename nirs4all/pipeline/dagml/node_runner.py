@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from sklearn.pipeline import make_pipeline
 
+from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID
+
 from .operator_routing import route_graph_node
 
 if TYPE_CHECKING:
@@ -352,6 +354,107 @@ def run_model_node(
     return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
 
 
+def run_meta_model_node(
+    task: dict[str, Any],
+    resolver: MaterializationResolver,
+    node_lookup: Callable[[str], dict[str, Any]],
+    model_store: MutableMapping[int, Any],
+) -> dict[str, Any]:
+    """Execute a STACKING meta-model node from its base branches' OOF (backlog #10).
+
+    The meta-node is a ``model``-kind node whose ``x`` is not data but the base branches'
+    *Validation* OOF, delivered by dag-ml as ``prediction_inputs`` (Option A: each spec carries
+    ``values`` aligned 1:1 with ``sample_ids``, sourced ONLY from Validation OOF blocks — the
+    ``requires_oof`` edge refuses any train block, so the meta-feature matrix is leakage-safe by
+    construction). The meta-feature matrix has one column block per base producer in **deterministic
+    producer order** (the sorted ``prediction_inputs`` key order, mirroring dag-ml's own
+    ``join_oof_features`` column ordering), aligned by ``sample_id``.
+
+    * FIT_CV (fold K): build ``X_meta`` from the fold-K Validation OOF the spec carries, fit the
+      MetaModel on ``(X_meta, y_train)`` (``y`` via ``resolver.resolve_targets`` on the same
+      sample_ids), predict those rows, and emit the meta-model's own OOF (``partition=validation``,
+      ``fold_id=foldK``) + ``regression_targets`` so dag-ml scores it. The cross-fold OOF average of
+      the meta producer is ``cv_best_score``.
+    * REFIT: dag-ml delivers the FULL Validation OOF (all folds, ``fold_id=None``); fit + persist the
+      meta-model on it. dag-ml does NOT deliver the base models' refit-TEST predictions to the meta-node
+      (the ``requires_oof`` edge is Validation-only in REFIT too — see runtime ``validate_refit_oof_edge``),
+      so the meta-node has no test meta-features to predict → no ``(test, final)`` block is emitted and
+      ``best_rmse`` stays NaN (the same shape as the fusion/concat merges). Producing best_rmse natively
+      would require a dag-ml change to deliver base refit-test predictions (reported as a gap).
+    """
+    node_plan = task["node_plan"]
+    node_id = node_plan["node_id"]
+    controller_id = node_plan["controller_id"]
+    phase = task["phase"]
+    variant_label = task.get("variant_id") or "base"
+    fold_label = task.get("fold_id") or "nofold"
+
+    prediction_inputs = task.get("prediction_inputs") or {}
+    if not prediction_inputs:
+        raise ValueError(f"meta-model node {node_id!r} received no prediction_inputs (no base branch OOF)")
+    if phase == "PREDICT":
+        # PREDICT for a stacking meta-node needs base PREDICT-set predictions as meta-features; dag-ml
+        # delivers Validation OOF only, so the stacking PREDICT path is not wired (parity is the FIT_CV
+        # OOF-scored cv_best_score). Fail loud rather than predict from the wrong features.
+        raise NotImplementedError("engine='dag-ml' stacking PREDICT phase is not wired (no base predict-set meta-features); backlog #10 follow-up")
+
+    # Deterministic producer order: sorted prediction-input keys (dag-ml's BTreeMap key order, the same
+    # order `join_oof_features` concatenates producer columns). Each spec's sample_ids/values are aligned
+    # 1:1; all specs cover the same fold's OOF samples, so the meta-feature rows align by sample_id.
+    specs = [prediction_inputs[key] for key in sorted(prediction_inputs)]
+    sample_ids = list(specs[0]["sample_ids"])
+    rows_by_sample: dict[str, list[float]] = {sample_id: [] for sample_id in sample_ids}
+    for spec in specs:
+        spec_rows = {sample_id: [float(value) for value in row] for sample_id, row in zip(spec["sample_ids"], spec["values"], strict=True)}
+        for sample_id in sample_ids:
+            row = spec_rows.get(sample_id)
+            if row is None:
+                raise ValueError(f"meta-model node {node_id!r}: base producer {spec.get('producer_node')!r} is missing OOF for sample {sample_id!r}")
+            rows_by_sample[sample_id].extend(row)
+    x_meta = np.asarray([rows_by_sample[sample_id] for sample_id in sample_ids], dtype=float)
+    y_meta = np.asarray(resolver.resolve_targets(sample_ids)["values"], dtype=float)
+
+    artifact_id = _artifact_id(node_id, variant_label)
+    artifact_handle = _stable_handle(artifact_id)
+    estimator: Any = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+    estimator.fit(x_meta, y_meta)
+
+    predictions: list[dict[str, Any]] = []
+    regression_targets: list[dict[str, Any]] = []
+    # FIT_CV emits the meta-model's own OOF for this fold's samples (scored → cv_best_score). REFIT only
+    # fits + persists: there are no base refit-test meta-features to predict (best_rmse stays NaN).
+    if phase == "FIT_CV":
+        pred = np.asarray(estimator.predict(x_meta), dtype=float).reshape(len(sample_ids), -1)
+        predictions.append(
+            {
+                "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:validation",
+                "producer_node": node_id,
+                "partition": "validation",
+                "fold_id": task.get("fold_id"),
+                "sample_ids": sample_ids,
+                "values": [[float(value) for value in row] for row in pred],
+                "target_names": ["y"],
+            }
+        )
+        regression_targets.append(
+            {
+                "level": "sample",
+                "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in sample_ids],
+                "values": [[float(value)] for value in y_meta],
+                "target_names": ["y"],
+            }
+        )
+
+    artifacts: list[dict[str, Any]] = []
+    artifact_handles: dict[str, Any] = {}
+    if phase == "REFIT":
+        model_store[artifact_handle] = {"estimator": estimator, "y_transform": None}
+        artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
+        artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
+
+    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
+
+
 def run_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
@@ -363,16 +466,21 @@ def run_node(
 ) -> dict[str, Any]:
     """Dispatch a ``NodeTask`` by node kind.
 
-    ``model``/``tuner`` execute and (with ``edges``/``y_transform_node``) apply their upstream
-    X-transform chain + target scaling; ``transform``/``y_transform`` are passthrough
-    output-handles (the model node reconstructs the chain), so each preprocessing step is
+    A STACKING meta-model node (a ``model``-kind node bound to ``controller:nirs4all.meta_model``,
+    recognised by its ``prediction_inputs`` of base-branch OOF) runs the meta-model over those OOF
+    meta-features. Other ``model``/``tuner`` nodes execute and (with ``edges``/``y_transform_node``)
+    apply their upstream X-transform chain + target scaling; ``transform``/``y_transform`` are
+    passthrough output-handles (the model node reconstructs the chain), so each preprocessing step is
     applied exactly once, at the model node. A ``prediction_join`` (concat-merge) node is also a
     passthrough here — the dag-ml runtime reassembles it natively before any controller runs.
 
     ``sample_metadata`` (``{wire_id: {col: value}}``) honors separation-branch ``branch_view``
     selectors so each fanned model node sees only its partition.
     """
-    kind = task["node_plan"]["kind"]
+    node_plan = task["node_plan"]
+    kind = node_plan["kind"]
     if kind in ("model", "tuner"):
+        if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
+            return run_meta_model_node(task, resolver, node_lookup, model_store)
         return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
     return _build_result(task, [], [], {})
