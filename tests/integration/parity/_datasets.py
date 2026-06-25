@@ -45,6 +45,9 @@ PARSER_FIXTURES: dict[str, Path] = {
     "aggregate_mean": _SAMPLE_DATASETS / "E04_aggregate_mean",
     "aggregate_outliers": _SAMPLE_DATASETS / "E05_aggregate_outliers",
     "custom_folds": _SAMPLE_DATASETS / "D05_custom_folds",
+    # Single-source regression corpus carrying a per-sample `group` metadata column — the
+    # partition key a by_metadata separation branch fans out on.
+    "with_metadata": _SAMPLE_DATASETS / "C04_with_metadata",
 }
 
 

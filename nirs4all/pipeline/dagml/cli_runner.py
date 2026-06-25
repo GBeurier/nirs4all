@@ -45,22 +45,30 @@ def model_node_id(pipeline: list[Any], *, dsl_id: str = "nirs4all-pipeline") -> 
     return str(next(node["id"] for node in plan["graph_plan"]["graph"]["nodes"] if node["kind"] == "model"))
 
 
+def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID) -> dict[str, Any]:
+    """A DataBinding on one model node's ``x`` input, carrying the envelope's fingerprints."""
+    return {
+        "node_id": model_id,
+        "input_name": "x",
+        "request_id": envelope["plan"]["id"],
+        "schema_fingerprint": envelope["schema_fingerprint"],
+        "plan_fingerprint": envelope["plan_fingerprint"],
+        "relation_fingerprint": envelope["relation_fingerprint"],
+        "output_representation": "tabular_numeric",
+        "feature_set_id": "x",
+        "source_ids": [source_id],
+        "require_relations": True,
+    }
+
+
 def data_bindings_for(model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID) -> list[dict[str, Any]]:
     """One DataBinding on the model node's ``x`` input, carrying the envelope's fingerprints."""
-    return [
-        {
-            "node_id": model_id,
-            "input_name": "x",
-            "request_id": envelope["plan"]["id"],
-            "schema_fingerprint": envelope["schema_fingerprint"],
-            "plan_fingerprint": envelope["plan_fingerprint"],
-            "relation_fingerprint": envelope["relation_fingerprint"],
-            "output_representation": "tabular_numeric",
-            "feature_set_id": "x",
-            "source_ids": [source_id],
-            "require_relations": True,
-        }
-    ]
+    return [_data_binding(model_id, envelope, source_id=source_id)]
+
+
+def data_bindings_for_nodes(model_ids: list[str], envelope: dict[str, Any], *, source_id: str = _SOURCE_ID) -> list[dict[str, Any]]:
+    """One DataBinding per model node — the N per-partition model nodes of a separation branch."""
+    return [_data_binding(model_id, envelope, source_id=source_id) for model_id in model_ids]
 
 
 def split_invocation_for(identity: IdentityMap, folds: list[tuple[list[int], list[int]]], *, n_splits: int, shuffle: bool = True) -> dict[str, Any]:
@@ -103,6 +111,7 @@ def run_cv_refit_bundle(
     dagml_cli: str,
     venv_python: str,
     selection_metric: str = "rmse",
+    sample_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Write inputs + shim, run ``dag-ml-cli run-process-dsl-cv-refit-bundle``, return outputs.
 
@@ -113,6 +122,10 @@ def run_cv_refit_bundle(
     DSL compiles to multiple ``plan.variants`` (native param-level generation) and no variant is
     pinned, dag-ml runs single-variant FIT_CV per variant, scores each variant's cross-fold OOF
     average, and refits the best — so ``bundle.scores`` reflects the natively-selected winner.
+
+    ``sample_metadata`` (``{wire_id: {col: value}}``) is written for the adapter to honor
+    separation-branch ``branch_view`` selectors (each fanned model fits/predicts only its
+    partition). Omit it for non-branch pipelines.
     """
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "dsl.json").write_text(json.dumps(dsl))
@@ -128,6 +141,9 @@ def run_cv_refit_bundle(
         "N4A_DAGML_GRAPH_PATH": str(workdir / "graph.json"),
         "N4A_DAGML_RESULT_CAPTURE": str(capture),
     }
+    if sample_metadata is not None:
+        (workdir / "sample_meta.json").write_text(json.dumps(sample_metadata))
+        env["N4A_DAGML_SAMPLE_META_PATH"] = str(workdir / "sample_meta.json")
     proc = subprocess.run(
         [
             dagml_cli, "run-process-dsl-cv-refit-bundle",

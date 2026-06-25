@@ -248,6 +248,26 @@ def controller_manifests() -> list[dict[str, Any]]:
             "rng_policy": "uses_core_seed",
             "artifact_policy": "serializable",
         },
+        {
+            # Separation-branch concat merge. The merge node is a PredictionJoin handled NATIVELY by
+            # the dag-ml runtime (it reassembles the per-partition OOF blocks into one full-universe
+            # OOF), but the PLAN phase still requires a controller manifest for the node kind — this
+            # is that plan-time declaration. No process-adapter command runs for it: the runtime
+            # intercepts the PredictionJoin(merge_mode=concat) node before the controller path.
+            "controller_id": "controller:nirs4all.merge_concat",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "prediction_join",
+            "priority": 20,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "output_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"}],
+            "data_requirements": None,
+            "capabilities": ["deterministic", "thread_safe", "process_safe", "consumes_oof_predictions", "emits_predictions"],
+            "operator_selectors": [],  # empty => bind any prediction_join-kind node
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
     ]
 
 

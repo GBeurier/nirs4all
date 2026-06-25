@@ -47,10 +47,51 @@ def _view_by_partition(task: dict[str, Any], partition: str) -> dict[str, Any] |
     return None
 
 
-def _sample_ids(view: dict[str, Any] | None) -> list[str]:
-    if view is None or not view.get("sample_ids"):
+def _sample_ids(view: dict[str, Any] | None, *, allow_empty: bool = False) -> list[str]:
+    if view is None:
+        raise ValueError("data view is missing")
+    ids = view.get("sample_ids")
+    if not ids and not allow_empty:
         raise ValueError("data view is missing sample_ids")
-    return list(view["sample_ids"])
+    return list(ids or [])
+
+
+def _branch_view_keep(sample_id: str, selector: dict[str, Any], sample_metadata: dict[str, dict[str, Any]]) -> bool:
+    """Whether ``sample_id`` matches a branch view selector (by_metadata equality / by_tag membership)."""
+    meta = sample_metadata.get(sample_id, {})
+    for key, value in (selector.get("metadata") or {}).items():
+        if meta.get(key) != value:
+            return False
+    tags = selector.get("tags") or []
+    return not (tags and not (set(tags) & set(meta.get("__tags__", []))))
+
+
+def _filter_by_branch_view(view: dict[str, Any] | None, sample_metadata: dict[str, dict[str, Any]] | None) -> None:
+    """Restrict a data view's ``sample_ids`` to those matching its ``branch_view`` selector, in place.
+
+    A separation-branch fan-out gives each per-partition model node a ``branch_view`` selector
+    (``{"metadata": {key: value}}`` / ``{"tags": [...]}``), but the runtime delivers the FULL
+    fold's sample_ids — the host data provider is expected to apply the selector. The process
+    adapter applies it here, using a ``sample_id → metadata`` map, so each branch model fits and
+    predicts ONLY its partition (else every branch covers the full fold → the native concat-merge
+    handler rejects the overlap). A no-op when the view carries no ``branch_view``.
+    """
+    if view is None or sample_metadata is None:
+        return
+    branch_view = view.get("branch_view")
+    if not branch_view:
+        return
+    selector = branch_view.get("selector") or {}
+    view["sample_ids"] = [sample_id for sample_id in (view.get("sample_ids") or []) if _branch_view_keep(sample_id, selector, sample_metadata)]
+
+
+def _branch_selector(task: dict[str, Any]) -> dict[str, Any] | None:
+    """The branch_view selector shared by this task's data views (None for a non-branch node)."""
+    for view in task.get("data_views", {}).values():
+        branch_view = view.get("branch_view")
+        if branch_view:
+            return cast("dict[str, Any]", branch_view.get("selector") or {})
+    return None
 
 
 def _variant_overrides(task: dict[str, Any], node_id: str) -> dict[str, Any]:
@@ -66,16 +107,31 @@ def _variant_overrides(task: dict[str, Any], node_id: str) -> dict[str, Any]:
     return overrides
 
 
-def _train_predict_ids(task: dict[str, Any]) -> tuple[list[str], list[str]]:
-    """(train_sample_ids, predict_sample_ids) for the task's phase, by partition."""
+def _train_predict_ids(task: dict[str, Any], sample_metadata: dict[str, dict[str, Any]] | None = None) -> tuple[list[str], list[str]]:
+    """(train_sample_ids, predict_sample_ids) for the task's phase, by partition.
+
+    Each view's sample_ids are first restricted to its ``branch_view`` selector (a no-op for a
+    non-branch node), so a separation-branch model fits/predicts only its partition.
+    """
     phase = task["phase"]
+    # A branch (fanned) node carries a branch_view: after filtering, a partition can be empty for a
+    # given fold (e.g. a small group has no validation sample in one fold), which is legitimate — emit
+    # empty predictions for that scope. A non-branch node with an empty fold is a real error.
+    is_branch = _branch_selector(task) is not None
     if phase == "FIT_CV":
-        return _sample_ids(_view_by_partition(task, "fold_train")), _sample_ids(_view_by_partition(task, "fold_validation"))
+        train_view, val_view = _view_by_partition(task, "fold_train"), _view_by_partition(task, "fold_validation")
+        _filter_by_branch_view(train_view, sample_metadata)
+        _filter_by_branch_view(val_view, sample_metadata)
+        return _sample_ids(train_view, allow_empty=is_branch), _sample_ids(val_view, allow_empty=is_branch)
     if phase == "REFIT":
-        train = _sample_ids(_view_by_partition(task, "full_train"))
+        train_view = _view_by_partition(task, "full_train")
+        _filter_by_branch_view(train_view, sample_metadata)
+        train = _sample_ids(train_view, allow_empty=is_branch)
         return train, train
     if phase == "PREDICT":
-        return [], _sample_ids(_view_by_partition(task, "predict"))
+        predict_view = _view_by_partition(task, "predict")
+        _filter_by_branch_view(predict_view, sample_metadata)
+        return [], _sample_ids(predict_view)
     raise ValueError(f"unsupported phase {phase!r}")
 
 
@@ -173,6 +229,7 @@ def run_model_node(
     model_store: MutableMapping[int, Any],
     edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
+    sample_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``.
 
@@ -182,6 +239,10 @@ def run_model_node(
     ``y_transform_node`` (a nirs4all ``y_processing`` step — a floating graph node with no edge
     to the model) is fit on fold-train ``y``, applied before fitting, and **inverse-transformed**
     over the predictions, exactly reproducing nirs4all target scaling.
+
+    ``sample_metadata`` (``{wire_id: {col: value}}``) lets a separation-branch model honor its
+    ``branch_view`` selector: train/predict ids are restricted to the partition, and the held-out
+    TEST prediction (the refit best_rmse path) is likewise restricted to the branch's partition.
     """
     node_plan = task["node_plan"]
     node_id = node_plan["node_id"]
@@ -190,9 +251,15 @@ def run_model_node(
     variant_label = task.get("variant_id") or "base"
     fold_label = task.get("fold_id") or "nofold"
 
-    train_ids, predict_ids = _train_predict_ids(task)
+    train_ids, predict_ids = _train_predict_ids(task, sample_metadata)
     artifact_id = _artifact_id(node_id, variant_label)
     artifact_handle = _stable_handle(artifact_id)
+
+    # An empty fold-train can only happen for a separation-branch partition with no sample in this
+    # fold (the branch_view filtered it out). The model cannot fit, so emit an empty NodeResult — the
+    # other partitions cover the fold, and the native concat-merge reassembles full coverage.
+    if phase != "PREDICT" and not train_ids:
+        return _build_result(task, [], [], {}, [])
 
     estimator: Any
     y_transform: Any
@@ -222,14 +289,22 @@ def run_model_node(
     specs: list[tuple[list[str], str, str | None]] = [(predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None)]
     if phase == "REFIT":
         test_ids = resolver.partition_wire_ids("test")
+        # A separation-branch refit model only ever trained on its partition, so its TEST prediction
+        # must be restricted to that partition too (the test ids are fetched directly, not via a view).
+        selector = _branch_selector(task)
+        if selector is not None and sample_metadata is not None:
+            test_ids = [sample_id for sample_id in test_ids if _branch_view_keep(sample_id, selector, sample_metadata)]
         if test_ids:
             specs.append((test_ids, "test", "final"))
 
     # One prediction block per spec, each paired 1:1 with an exactly-matching y_true block (dag-ml
     # scoring requires target units == prediction units). dag-ml matches block↔target by unit set.
+    # Skip an empty spec (a branch partition with no validation sample in this fold).
     predictions: list[dict[str, Any]] = []
     regression_targets: list[dict[str, Any]] = []
     for spec_ids, partition, spec_fold in specs:
+        if not spec_ids:
+            continue
         predictions.append(
             {
                 "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
@@ -268,15 +343,20 @@ def run_node(
     model_store: MutableMapping[int, Any],
     edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
+    sample_metadata: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Dispatch a ``NodeTask`` by node kind.
 
     ``model``/``tuner`` execute and (with ``edges``/``y_transform_node``) apply their upstream
     X-transform chain + target scaling; ``transform``/``y_transform`` are passthrough
     output-handles (the model node reconstructs the chain), so each preprocessing step is
-    applied exactly once, at the model node.
+    applied exactly once, at the model node. A ``prediction_join`` (concat-merge) node is also a
+    passthrough here — the dag-ml runtime reassembles it natively before any controller runs.
+
+    ``sample_metadata`` (``{wire_id: {col: value}}``) honors separation-branch ``branch_view``
+    selectors so each fanned model node sees only its partition.
     """
     kind = task["node_plan"]["kind"]
     if kind in ("model", "tuner"):
-        return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node)
+        return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
     return _build_result(task, [], [], {})
