@@ -766,3 +766,136 @@ def test_resolve_exclude_all_excluded_guard_keeps_one() -> None:
     _remaining, pool, envelope_excluded = _resolve_exclude([{"exclude": _ExcludeAll(method="iqr")}], dataset)
     assert len(pool) == 1, pool
     assert envelope_excluded == set()  # default mode marks nothing excluded in the envelope
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_separation_branch_by_metadata() -> None:
+    """A by_metadata separation branch + concat merge on engine="dag-ml" scores natively.
+
+    The native path fans the branch into one model node per distinct `group` value (discovered from
+    the envelope relation metadata), runs per-partition FIT_CV, and the native concat-merge handler
+    reassembles a full-universe OOF. Asserts `cv_best_score` matches a DIRECT sklearn-per-partition
+    OOF baseline (one model per group, each CV'd on its partition's folds, OOF reassembled to the full
+    universe, scored) within 1e-3.
+
+    PARITY BASELINE = direct sklearn, NOT legacy. Legacy nirs4all by_metadata branch + concat-merge is
+    BROKEN here: the disjoint concat reassembly raises `MERGE-E003` ("Branch 0 source 0 has N samples,
+    expected M") for both the model-in-branch and SNV-only shapes (the branch's whole-dataset feature
+    snapshot is scattered into a partition-sized slot). So the dag-ml native path is a CORRECTION, and
+    the parity target is the direct computation — like exclude's legacy get_best best_rmse quirk.
+
+    `best_rmse` is NOT asserted: the native concat-merge handler scores the FIT_CV cross-fold OOF (the
+    separation branch's primary result) but does not reassemble the per-partition REFIT test
+    predictions, so `best_rmse` is NaN — which also matches legacy (top-level best_rmse is NaN for a
+    branch+merge pipeline). cv_best_score is the score a separation branch is meant to produce.
+    """
+    import nirs4all
+
+    n_comp, n_splits = 2, 3
+    pipeline = [
+        KFold(n_splits=n_splits, shuffle=True, random_state=42),
+        {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression(n_components=n_comp)}]}},
+        {"merge": "concat"},
+    ]
+    result = nirs4all.run(pipeline, dataset_path("with_metadata"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("with_metadata")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    group_of = {int(s): str(v) for s, v in zip(train, dataset.metadata_column("group", {"partition": "train"}), strict=True)}
+    groups = sorted(set(group_of.values()))
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
+
+    # DIRECT sklearn-per-partition OOF: one PLS per group, each fit on its partition's fold-train and
+    # validated on its partition's fold-validation; OOF reassembled to the full universe and scored.
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        for value in groups:
+            part_train = [s for s in train_ints if group_of[int(s)] == value]
+            part_val = [s for s in val_ints if group_of[int(s)] == value]
+            if not part_train or not part_val:  # a small group can be absent from a fold's validation
+                continue
+            model = PLSRegression(n_components=n_comp)
+            model.fit(np.asarray(dataset.x({"sample": part_train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": part_train}), dtype=float))
+            pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": part_val}, layout="2d"), dtype=float))).ravel()
+            true = np.asarray(dataset.y({"sample": part_val}), dtype=float).ravel()
+            for position, sample_int in enumerate(part_val):
+                oof_pred[int(sample_int)] = float(pred[position])
+                oof_true[int(sample_int)] = float(true[position])
+    from sklearn.metrics import mean_squared_error
+
+    keys = sorted(oof_pred)
+    baseline = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - baseline) < 1e-3, (result.cv_best_score, baseline)
+
+
+def test_separation_branch_detection() -> None:
+    """The branch detector consumes only the handled separation+concat shape; others fall through.
+
+    `_detect_separation_branch` returns the (branch_step, body) tuple for a by_metadata/by_tag
+    separation branch with a model in its `steps` and a following `{"merge": "concat"}`; everything
+    else (a duplication branch, a different merge mode, a model after the merge) returns None so the
+    bridge's raw-branch NotImplementedError still guards it. No CLI needed (pure host-side logic)."""
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _detect_separation_branch
+
+    splitter = KFold(n_splits=3, shuffle=True, random_state=42)
+
+    # Handled: by_metadata separation branch (model in branch) + concat merge.
+    handled = [splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}]
+    detected = _detect_separation_branch(handled)
+    assert detected is not None
+    branch_step, body = detected
+    assert "by_metadata" in branch_step["branch"]
+    assert any(isinstance(step, dict) and "model" in step for step in body)
+
+    branch = {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression(n_components=2)}]}}
+    # Not handled (each must fall through to the bridge's loud raw-branch error):
+    # a duplication branch (a list, not a by_metadata/by_tag dict).
+    assert _detect_separation_branch([splitter, {"branch": [[PLSRegression(n_components=2)]]}, {"merge": "predictions"}]) is None
+    # a separation branch but a non-concat merge.
+    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}, {"merge": "predictions"}]) is None
+    # a model placed AFTER the concat merge (a different shape).
+    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [StandardNormalVariate()]}}, {"merge": "concat"}, {"model": PLSRegression()}]) is None
+    # no merge at all.
+    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}]) is None
+    # a top-level transform beside the branch (only the branch body is lowered → would be dropped).
+    assert _detect_separation_branch([StandardNormalVariate(), splitter, branch, {"merge": "concat"}]) is None
+    # a top-level y_processing / tag step beside the branch.
+    assert _detect_separation_branch([splitter, {"y_processing": StandardNormalVariate()}, branch, {"merge": "concat"}]) is None
+    # an exclude step beside the branch (the exclusion would be silently lost — out of scope).
+    assert _detect_separation_branch([{"exclude": StandardNormalVariate()}, splitter, branch, {"merge": "concat"}]) is None
+    # unhandled branch options: explicit `values` grouping / `min_samples` cardinality drop.
+    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "values": {"a": ["group_0"]}, "steps": [{"model": PLSRegression()}]}}, {"merge": "concat"}]) is None
+    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "min_samples": 5, "steps": [{"model": PLSRegression()}]}}, {"merge": "concat"}]) is None
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_separation_branch_unsupported_shapes_fail_loud() -> None:
+    """Out-of-scope branch shapes raise NotImplementedError end-to-end — never silently mishandled.
+
+    The detector admits ONLY the exact handled shape; anything `_run_separation_branch` does not honor
+    (a top-level preprocessing step that would be dropped, an `exclude` whose exclusion would be lost,
+    a `values`/`min_samples` branch whose grouping is not applied) must fall through to the bridge's
+    raw-branch NotImplementedError (the coverage-boundary fail-loud guarantee). These are known
+    limitations for follow-up slices (top-level preproc+branch, exclude+branch, values/min_samples)."""
+    import nirs4all
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    def branch() -> dict:
+        return {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression(n_components=2)}]}}
+
+    def split() -> KFold:
+        return KFold(n_splits=3, shuffle=True, random_state=42)
+
+    rejected = {
+        "top_level_transform": [StandardNormalVariate(), split(), branch(), {"merge": "concat"}],
+        "exclude_plus_branch": [{"exclude": YOutlierFilter(method="iqr", threshold=1.0)}, split(), branch(), {"merge": "concat"}],
+        "values_branch": [split(), {"branch": {"by_metadata": "group", "values": {"a": ["group_0"]}, "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}],
+        "min_samples_branch": [split(), {"branch": {"by_metadata": "group", "min_samples": 5, "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}],
+    }
+    for label, pipeline in rejected.items():
+        with pytest.raises(NotImplementedError):
+            nirs4all.run(pipeline, dataset_path("with_metadata"), engine="dag-ml")
+        assert label  # name surfaced in the failure if the raise is missing

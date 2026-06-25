@@ -117,6 +117,7 @@ def sample_relations(
     source_id: str = _DEFAULT_SOURCE_ID,
     sample_ints: list[int] | None = None,
     excluded_sample_ints: set[int] | None = None,
+    metadata_by_sample: dict[str, dict[int, Any]] | None = None,
 ) -> dict[str, Any]:
     """The ``SampleRelationTable`` rows, optionally scoped to a sample-int subset.
 
@@ -128,8 +129,15 @@ def sample_relations(
     drops them from each fold's TRAIN view while keeping them in validation/OOF and predict.
     Omit it (the default) and every row is ``excluded: false`` — the legacy mode removes
     excluded samples from the CV universe entirely (they are simply absent from the pool).
+
+    Pass ``metadata_by_sample`` (``{column: {sample_int: value}}``) to emit per-sample
+    metadata onto each relation (Slice 1 ``metadata`` field). The native
+    ``fan_out_data_aware_branches`` discovers a separation branch's partition values from
+    these relation metadata values, so a ``by_metadata`` branch criterion column must be
+    present here. Omit it and every row carries empty ``metadata``.
     """
     excluded = excluded_sample_ints or set()
+    metadata_columns = metadata_by_sample or {}
     chosen = identity.identities if sample_ints is None else [identity.identities[i] for i in _positions(identity, sample_ints)]
     return {
         "rows": [
@@ -143,7 +151,7 @@ def sample_relations(
                 "repetition_id": None,
                 "augmented": sample.augmented,
                 "excluded": sample.sample_int in excluded,
-                "metadata": {},
+                "metadata": {column: values[sample.sample_int] for column, values in metadata_columns.items() if sample.sample_int in values},
             }
             for sample in chosen
         ]
@@ -162,6 +170,7 @@ def build_envelope(
     source_id: str = _DEFAULT_SOURCE_ID,
     sample_ints: list[int] | None = None,
     excluded_sample_ints: set[int] | None = None,
+    metadata_by_sample: dict[str, dict[int, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build the validated ``CoordinatorDataPlanEnvelope``.
 
@@ -175,6 +184,10 @@ def build_envelope(
     bit drops them from fold TRAIN but keeps them in validation/OOF. Default (``None``) marks
     every row not-excluded.
 
+    Pass ``metadata_by_sample`` (``{column: {sample_int: value}}``) to emit per-sample
+    metadata onto each relation — the native ``fan_out_data_aware_branches`` reads a
+    ``by_metadata`` separation branch's partition values from these relation metadata values.
+
     The wheel computes all fingerprints and derives ``coordinator_relations``; a successful
     return means the envelope is contract-valid (the materialize-time fingerprint gate
     will accept it).
@@ -184,7 +197,7 @@ def build_envelope(
     envelope = dag_ml_data.build_coordinator_data_plan_envelope(
         _dataset_schema(dataset, source_id, [sample.sample_id for sample in chosen]),
         _data_plan(dataset, source_id),
-        sample_relations(identity, source_id=source_id, sample_ints=sample_ints, excluded_sample_ints=excluded_sample_ints),
+        sample_relations(identity, source_id=source_id, sample_ints=sample_ints, excluded_sample_ints=excluded_sample_ints, metadata_by_sample=metadata_by_sample),
     )
     return dict(envelope.to_dict())
 

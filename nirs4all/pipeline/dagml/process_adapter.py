@@ -103,8 +103,16 @@ def _build_handler() -> NodeHandler:
     edges = graph.get("edges", [])
     # Linear-pipeline y_processing: a single floating y_transform node applies to the model.
     y_transform_node = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
+    # Optional sample_id -> metadata map: lets a separation-branch model honor its branch_view
+    # selector (the runtime delivers the full fold + the selector; the adapter applies it). Absent
+    # for non-branch pipelines, where every NodeTask data view carries no branch_view (a no-op).
+    sample_metadata = None
+    meta_path = os.environ.get("N4A_DAGML_SAMPLE_META_PATH")
+    if meta_path:
+        with open(meta_path, encoding="utf-8") as handle:
+            sample_metadata = json.load(handle)
     store: dict[int, Any] = {}
-    return lambda task: run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node)
+    return lambda task: run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)
 
 
 class _Tee:

@@ -253,6 +253,68 @@ def _generation_kind(pipeline: list[Any]) -> str:
     return "param_model" if has_param_model else "none"
 
 
+def _is_separation_branch_step(step: Any) -> bool:
+    """True for a separation branch by metadata/tag: ``{"branch": {"by_metadata"|"by_tag": ...}}``."""
+    return isinstance(step, dict) and isinstance(step.get("branch"), dict) and bool({"by_metadata", "by_tag"} & set(step["branch"]))
+
+
+def _is_concat_merge_step(step: Any) -> bool:
+    return isinstance(step, dict) and step.get("merge") == "concat"
+
+
+# Keys recognised inside a separation-branch criterion dict. `run_backend` honors ONLY the criterion
+# (by_metadata/by_tag) + the shared `steps` body; `values` (explicit grouping), `min_samples`
+# (cardinality drop) and per-branch selectors are NOT honored, so a branch carrying them must fall
+# through to the loud bridge error rather than be silently run with default behavior.
+_HANDLED_BRANCH_KEYS = frozenset({"by_metadata", "by_tag", "steps"})
+
+
+def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list[Any]] | None:
+    """Detect the EXACT handled shape, else return ``None`` (fail-loud via the bridge).
+
+    Admits ONLY a pipeline that is exactly: the splitter + ONE by_metadata/by_tag separation branch
+    (a single shared ``steps`` body containing the model) + ONE ``{"merge": "concat"}`` — nothing
+    that ``_run_separation_branch`` does not actually honor. Returns ``(branch_step, branch_body)``
+    when matched. ANY deviation returns ``None`` so the bridge's raw-branch ``NotImplementedError``
+    fires (the coverage-boundary fail-loud guarantee), never a silent-wrong run. Specifically REJECTED:
+
+    * a top-level operator/transform/``tag``/``y_processing`` step beside the branch (only the branch
+      body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
+    * an ``exclude`` step anywhere (the folds are built over the full pool with no excluded bit, so the
+      exclusion would be silently lost) — exclude+branch is a follow-up slice;
+    * an unhandled branch option (``values`` / ``min_samples`` / a per-branch ``selector`` / any key
+      outside ``by_metadata``/``by_tag``/``steps``) — those grouping semantics are not honored;
+    * a per-value dict ``steps`` (different sub-pipeline per partition), a missing model in the body,
+      a model after the merge, a non-concat merge, or more than one branch/merge.
+    """
+    branch_steps = [step for step in pipeline if _is_separation_branch_step(step)]
+    merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
+    if len(branch_steps) != 1 or len(merge_steps) != 1:
+        return None
+    branch_step, merge_step = branch_steps[0], merge_steps[0]
+
+    # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps. A top-level
+    # transform / tag / y_processing / exclude / model would be silently ignored (only the branch body
+    # is lowered), so its presence rejects the match → fail-loud.
+    for step in pipeline:
+        if step is branch_step or step is merge_step or hasattr(step, "split"):
+            continue
+        return None
+
+    criterion = branch_step["branch"]
+    # Only the criterion (by_metadata/by_tag) + the shared `steps` body are honored. Any other branch
+    # option (values/min_samples/per-branch selector/...) is not → reject.
+    if set(criterion) - _HANDLED_BRANCH_KEYS:
+        return None
+
+    body = criterion.get("steps")
+    # Only the shared-body LIST form (one sub-pipeline applied per partition) with a model inside is
+    # supported. The per-value dict form and a body without a model fall through to the bridge error.
+    if not isinstance(body, list) or not any(isinstance(sub, dict) and "model" in sub for sub in body):
+        return None
+    return branch_step, body
+
+
 def run_via_dagml(
     pipeline: Any,
     dataset: Any,
@@ -285,17 +347,25 @@ def run_via_dagml(
     dataset_arg = str(spectro.dataset_path) if hasattr(spectro, "dataset_path") else str(dataset)
     base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
 
+    is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
+    metric = "accuracy" if is_classification else "rmse"
+    task_type = "classification" if is_classification else "regression"
+
+    # Separation branch (by_metadata/by_tag) + concat merge → ONE native fan-out run: dag-ml fans the
+    # branch into one model node per partition value (discovered from the envelope metadata/tags),
+    # runs per-partition FIT_CV, and the native concat-merge handler reassembles a full-universe OOF.
+    # Detected on the ORIGINAL pipeline (before exclude consumption) so an exclude step beside the
+    # branch is still visible — exclude+branch is rejected (out of scope) rather than silently dropped.
+    detected = _detect_separation_branch(list(pipeline))
+    if detected is not None:
+        branch_step, branch_body = detected
+        return _run_separation_branch(list(pipeline), branch_step, branch_body, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "branch", metric, task_type)
+
     # Consume the `exclude` step (if any) BEFORE generator handling: run the SampleFilter operator(s)
     # in Python on the full CV train pool to get the excluded sample ints, then choose the CV universe
     # per the `keep_in_oof` mode. `cv_pool` is the sample-int universe the splitter runs over;
     # `excluded` is non-empty only in the opt-in (keep_in_oof=True) leakage-pure mode.
     pipeline, cv_pool, excluded = _resolve_exclude(list(pipeline), spectro)
-
-    # Task type sets the selection metric: classification ranks by accuracy (higher is better),
-    # regression by RMSE (lower is better). dag-ml emits both natively in every score report.
-    is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
-    metric = "accuracy" if is_classification else "rmse"
-    task_type = "classification" if is_classification else "regression"
 
     # Param-level model sweeps (`_range_`/`_log_range_`/`_grid_` on a model step) run as ONE native
     # dag-ml run: the bridge lowers them to native `generators`, the compiler expands variants, and
@@ -418,8 +488,119 @@ def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
 
 
-def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str, metric: str = "rmse", task_type: str = "regression") -> RunResult:
+_MERGE_NODE_ID = "merge:concat"
+
+
+def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """Run a by_metadata/by_tag separation branch + concat merge as ONE native dag-ml fan-out run.
+
+    Lowers the branch to an ``auto_separate`` template (one branch carrying the criterion + the
+    model sub-pipeline) followed by a concat ``PredictionJoin`` merge, builds the envelope with the
+    criterion column's per-sample metadata so the **native** ``fan_out_data_aware_branches`` discovers
+    the partition values, compiles the fanned graph (one model node per value), and drives dag-ml-cli.
+    The native concat-merge handler reassembles the per-partition OOF into one full-universe OOF
+    attributed to the merge node — its cross-fold average is ``cv_best_score``.
+
+    The criterion column's metadata is emitted onto the relations; the adapter honors each fanned
+    model's ``branch_view`` selector (via the sample→metadata map) so each model fits/predicts only
+    its partition. The legacy nirs4all concat-merge reassembly is broken here (MERGE-E003), so this
+    native path is a correction — the parity baseline is a direct sklearn-per-partition OOF.
+    """
+    import dag_ml
+
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
+
+    criterion = branch_step["branch"]
+    mode, key = ("by_metadata", criterion["by_metadata"]) if "by_metadata" in criterion else ("by_tag", criterion["by_tag"])
+
+    # The splitter lives at the top level (before the branch); the branch body is the model
+    # sub-pipeline applied per partition. Drop the splitter from the body if it slipped in.
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    if splitter is None:
+        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    body_steps = [step for step in branch_body if not hasattr(step, "split")]
+
+    identity = mint_identity(spectro)
+    # The handled shape rejects any exclude step, so the CV universe is the full train pool.
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, pool, set())
+
+    # Per-sample criterion values: the first map seeds the envelope relations (native fan-out reads
+    # partition values from it); the second is the adapter's sample_id→metadata map for branch_view.
+    metadata_by_sample, sample_metadata = _branch_metadata(spectro, identity, mode, key)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, metadata_by_sample=metadata_by_sample)
+
+    # Compat auto_separate template: ONE branch (the model sub-pipeline) carrying the criterion +
+    # mode, marked auto_separate; the native fan-out expands it into N per-partition branches.
+    template = {"id": "per_partition", "steps": [_branch_compat_step(step) for step in body_steps]}
+    # Always by_metadata mode: the criterion (whether nirs4all by_metadata or by_tag) is emitted as a
+    # metadata column on the relations, so the native fan-out discovers its values from there.
+    compat_dsl = {
+        "id": "nirs4all-separation-branch",
+        "pipeline": [
+            {"branch": {"branches": [template]}, "mode": "by_metadata", "selector": {"metadata_key": key}, "metadata": {"auto_separate": True}},
+            {"merge": "concat", "output_as": "predictions", "id": _MERGE_NODE_ID},
+        ],
+    }
+
+    # NATIVE fan-out (no Python suffix replication): dag-ml reads the partition values from the
+    # envelope relations and expands one branch per sorted value, owning the node-id suffixing.
+    fanned_dsl = dag_ml.fan_out_data_aware_branches(compat_dsl, envelope).to_dict()
+    manifests = controller_manifests()
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(fanned_dsl, manifests).graph.to_dict()
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if not model_ids:
+        raise RuntimeError("separation-branch fan-out produced no per-partition model nodes")
+
+    # Per-partition data_bindings (one per fanned model node) + the materialized fold set. The CLI's
+    # own fan-out is a no-op on the already-fanned DSL (the auto_separate marker is consumed).
+    fanned_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+    fanned_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+
+    outcome = run_cv_refit_bundle(
+        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata
+    )
+    if outcome["returncode"] != 0:
+        raise RuntimeError(f"dag-ml separation-branch run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+
+    bundle = json.loads((run_dir / "bundle.json").read_text())
+    # The concat-merge producer's reports carry the full-universe cross-fold OOF average — that is the
+    # separation branch's `cv_best_score`. `best_rmse` (final-test) stays NaN: the native concat-merge
+    # handler reassembles the FIT_CV validation OOF, not the per-partition REFIT test predictions, so
+    # no merged `(test, final)` report exists — which also matches legacy (top-level best_rmse is NaN
+    # for a branch+merge pipeline). cv_best_score is the score a separation branch is meant to produce.
+    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID)
+
+
+def _branch_compat_step(step: Any) -> dict[str, Any]:
+    """Lower one branch-body step (transform / {"model": M} / {"y_processing": op}) to compat DSL."""
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    return _step_to_dsl(step)
+
+
+def _branch_metadata(spectro: Any, identity: Any, mode: str, key: str) -> tuple[dict[str, dict[int, Any]], dict[str, dict[str, Any]]]:
+    """Build the criterion's per-sample metadata: ``({col: {sample_int: value}}, {wire_id: {col: value}})``.
+
+    The first map seeds the envelope relations (native fan-out reads partition values from it); the
+    second is the adapter's ``sample_id → metadata`` map for honoring each branch's ``branch_view``.
+    A ``by_tag`` criterion is represented as a metadata column (the tag value per sample), matching
+    the envelope's metadata-carried relations.
+    """
+    sample_ints = [int(value) for value in spectro.index_column("sample", {})]
+    values = spectro.metadata_column(key, {}) if mode == "by_metadata" else spectro.get_tag(key, {})
+    by_int = {sample_int: (str(value) if value is not None else None) for sample_int, value in zip(sample_ints, values, strict=True)}
+    metadata_by_sample = {key: dict(by_int)}
+    sample_metadata = {identity.to_wire(sample_int): {key: value} for sample_int, value in by_int.items()}
+    return metadata_by_sample, sample_metadata
+
+
+def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str, metric: str = "rmse", task_type: str = "regression", producer: str | None = None) -> RunResult:
     """Map a dag-ml ScoreSet into a RunResult, mirroring nirs4all's entry shape.
+
+    ``producer`` filters to one ``producer_node`` — e.g. a separation branch's concat-merge node,
+    whose reports carry the full-universe OOF average (``cv_best_score``); ``None`` keeps all
+    reports (the single-model path, where exactly one producer scores).
 
     dag-ml emits one report per (partition, fold). nirs4all's RunResult expects per-fold validation
     entries + a single combined **refit/final** entry that carries val (the CV score), test and train
@@ -428,7 +609,8 @@ def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, mode
     (`fold_id="final"`, `partition="test"`) with val_score=OOF-average, test_score=final-test,
     train_score=final-train, and a combined `scores` dict.
     """
-    by_key = {(report["partition"], report.get("fold_id")): {name: float(value) for name, value in report["metrics"].items()} for report in (scores or {}).get("reports", [])}
+    reports = [report for report in (scores or {}).get("reports", []) if producer is None or report.get("producer_node") == producer]
+    by_key = {(report["partition"], report.get("fold_id")): {name: float(value) for name, value in report["metrics"].items()} for report in reports}
 
     def add(fold_id: str | None, partition: str, scores_map: dict[str, dict[str, float]], *, val: float | None = None, test: float | None = None, train: float | None = None) -> None:
         predictions.add_prediction(dataset_name=dataset_name, model_name=model_name, fold_id=fold_id, partition=partition, metric=metric, task_type=task_type, scores=scores_map, val_score=val, test_score=test, train_score=train)
