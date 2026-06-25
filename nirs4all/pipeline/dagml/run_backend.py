@@ -40,6 +40,25 @@ def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     return steps, splitter
 
 
+def _reloadable_dataset_path(dataset: Any, spectro: Any) -> str:
+    """A path the process adapter can reload via ``DatasetConfigs(path).get_dataset_at(0)``.
+
+    The adapter re-materializes the dataset from ``N4A_DAGML_DATASET_PATH`` (and re-mints the
+    identity map, which must match the host's). A raw path string ``dataset`` is reloadable as-is;
+    an already-built :class:`DatasetConfigs` (e.g. ``DatasetConfigs(folder, repetition="col")``,
+    the way a repetition column is declared) exposes its source files in ``configs[0]`` — the
+    folder-style dataset reloads from the common parent directory of those files. The repetition
+    *flag* need not survive the reload: the adapter only resolves features/targets by sample id
+    (it never groups); group construction is entirely host-side.
+    """
+    if isinstance(dataset, DatasetConfigs):
+        config_dict = dataset.configs[0][0]
+        train_x = config_dict.get("train_x")
+        if isinstance(train_x, str) and train_x:
+            return str(Path(train_x).parent)
+    return str(spectro.dataset_path) if getattr(spectro, "dataset_path", None) else str(dataset)
+
+
 def _is_exclude_step(step: Any) -> bool:
     return isinstance(step, dict) and "exclude" in step
 
@@ -212,6 +231,76 @@ def _split_pool(splitter: Any, spectro: Any, pool: list[int]) -> list[tuple[Any,
         if targets.size:
             kwargs["y"] = targets
     return list(splitter.split(features, **kwargs))
+
+
+def _is_repetition_dataset(spectro: Any) -> bool:
+    """True when the dataset declares a repetition column (sample-grain grouping of replicate rows)."""
+    return bool(getattr(spectro, "repetition", None))
+
+
+def _repetition_groups_for_pool(spectro: Any, pool: list[int]) -> np.ndarray:
+    """Per-row group value for ``pool`` (the repetition column), aligned to ``pool`` order.
+
+    ``compute_effective_groups`` returns the group vector in ASCENDING STORAGE order (the
+    metadata column order); re-key it to ``pool`` request order so it aligns 1:1 with the
+    ``_pool_features``/``_pool_targets`` matrices the splitter sees — the storage-vs-request
+    trap the resolver guards against. The result is the ``groups`` vector a group-aware
+    splitter (or ``GroupedSplitterWrapper``) consumes so all replicates of a sample stay
+    together on one fold side.
+    """
+    from nirs4all.controllers.splitters.split import compute_effective_groups
+
+    groups_all = compute_effective_groups(spectro)
+    if groups_all is None:
+        raise ValueError("repetition dataset has no effective groups (no repetition/group_by column)")
+    stored = spectro.index_column("sample", {})
+    group_of_sample = {int(sample_int): groups_all[row] for row, sample_int in enumerate(stored)}
+    return np.array([group_of_sample[sample_int] for sample_int in pool], dtype=object)
+
+
+def _repetition_grain(spectro: Any, pool: list[int]) -> dict[int, str]:
+    """``{sample_int: group_value}`` for ``pool`` — the ``group_id`` emitted onto the relations.
+
+    The group value is stringified so it is a stable dag-ml-data id token; dag-ml-data then
+    refuses any fold that splits a group across train/validation (native group-leakage check).
+    """
+    groups = _repetition_groups_for_pool(spectro, pool)
+    return {sample_int: str(group) for sample_int, group in zip(pool, groups, strict=True)}
+
+
+def _build_group_folds(splitter: Any, spectro: Any, pool: list[int]) -> list[tuple[list[int], list[int]]]:
+    """Group-aware folds over ``pool``: all repetitions of a sample land on the SAME fold side.
+
+    Mirrors the legacy :class:`CrossValidatorController` fold construction for a repetition /
+    group-by dataset: resolve the per-row group vector, wrap an index-only splitter with
+    :class:`GroupedSplitterWrapper` (a native group splitter — ``GroupKFold`` etc. — consumes
+    ``groups`` directly), split the REAL X/y (in ``pool`` order, so a distance/supervised
+    splitter still partitions on real data), and map the positional fold indices back to ``pool``
+    sample ints. Each repetition ROW is its own sample int in the resulting folds; because a
+    group is never split, every rep row is validated exactly once → a clean OOF partition that
+    dag-ml-data accepts, with the group constraint enforced by the emitted ``group_id``.
+    """
+    from nirs4all.controllers.splitters.split import _needs, get_split_grouping_capability
+    from nirs4all.operators.splitters import GroupedSplitterWrapper
+
+    groups = _repetition_groups_for_pool(spectro, pool)
+    features = _pool_features(spectro, pool)
+    needs_y, _ = _needs(splitter)
+
+    op = splitter
+    if get_split_grouping_capability(splitter).group_handling == "wrapper":
+        op = GroupedSplitterWrapper(splitter=splitter)
+
+    kwargs: dict[str, Any] = {"groups": groups}
+    if needs_y:
+        targets = _pool_targets(spectro, pool)
+        if targets.size:
+            kwargs["y"] = targets
+
+    return [
+        ([pool[i] for i in train_idx], [pool[i] for i in val_idx])
+        for train_idx, val_idx in op.split(features, **kwargs)
+    ]
 
 
 def _build_folds(splitter: Any, spectro: Any, pool: list[int], excluded: set[int]) -> list[tuple[list[int], list[int]]]:
@@ -414,20 +503,48 @@ def run_via_dagml(
     from nirs4all.core import detect_task_type
     from nirs4all.pipeline.config.generator import expand_spec
 
-    spectro = DatasetConfigs(dataset).get_dataset_at(0)
-    dataset_arg = str(spectro.dataset_path) if hasattr(spectro, "dataset_path") else str(dataset)
+    # Accept an already-built DatasetConfigs (the way a repetition column is declared:
+    # `DatasetConfigs(path, repetition="col")`) so that declaration reaches the materialized dataset;
+    # otherwise wrap the raw path/config.
+    configs = dataset if isinstance(dataset, DatasetConfigs) else DatasetConfigs(dataset)
+    spectro = configs.get_dataset_at(0)
+    dataset_arg = _reloadable_dataset_path(dataset, spectro)
     base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
 
     is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
     metric = "accuracy" if is_classification else "rmse"
     task_type = "classification" if is_classification else "regression"
 
+    # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
+    # unsupported combination BEFORE any non-group dispatch path (branch/augmentation/exclude) runs.
+    detected = _detect_separation_branch(list(pipeline))
+    augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
+
+    # REPETITIONS (sample-grain grouping): when the dataset declares a repetition column, several stored
+    # rows share one physical sample. The split must be GROUP-aware — all replicates of a sample land on
+    # the SAME fold side — and each rep row is scored individually (the repetition grain), which is what
+    # nirs4all's `cv_best_score`/`best_rmse` report (the sample-level `_agg` aggregation is a separate twin
+    # entry, NOT those scores). Folds are over the rep ROWS, group-grouped (a clean OOF partition), and the
+    # envelope emits `group_id` so dag-ml-data refuses any fold that splits a group. The first slice handles
+    # the supported transform+model+splitter shape only.
+    #
+    # This guard runs BEFORE the branch/augmentation/exclude dispatch below: those paths build folds
+    # WITHOUT the group constraint, so a repetition dataset reaching them could split a sample's reps
+    # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
+    # rather than taking a non-group path and running wrong.
+    if _is_repetition_dataset(spectro):
+        if augmentation_steps or detected is not None or any(_is_exclude_step(step) for step in pipeline):
+            raise NotImplementedError(
+                "engine='dag-ml' does not yet support a repetition dataset combined with "
+                "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
+            )
+        return _run_repetition(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type)
+
     # Separation branch (by_metadata/by_tag) + concat merge → ONE native fan-out run: dag-ml fans the
     # branch into one model node per partition value (discovered from the envelope metadata/tags),
     # runs per-partition FIT_CV, and the native concat-merge handler reassembles a full-universe OOF.
     # Detected on the ORIGINAL pipeline (before exclude consumption) so an exclude step beside the
     # branch is still visible — exclude+branch is rejected (out of scope) rather than silently dropped.
-    detected = _detect_separation_branch(list(pipeline))
     if detected is not None:
         branch_step, branch_body = detected
         return _run_separation_branch(list(pipeline), branch_step, branch_body, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "branch", metric, task_type)
@@ -444,7 +561,6 @@ def run_via_dagml(
     # would leak into the synthetic children. Only stateless per-sample augmentation is consumed natively;
     # anything else falls through to the bridge's raw `sample_augmentation` NotImplementedError (fail-loud).
     # Fold-local augmentation (to support the stateful case leakage-safely) is a follow-up slice.
-    augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
     if augmentation_steps and all(_augmentation_is_leakage_free(step) for step in augmentation_steps):
         return _run_augmentation(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "augment", metric, task_type)
 
@@ -570,6 +686,71 @@ def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+
+    bundle = json.loads((run_dir / "bundle.json").read_text())
+    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
+
+
+def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """Run a REPETITION (sample-grain grouped) pipeline as ONE native dag-ml CV+refit run.
+
+    The CV universe is the repetition ROWS of the train partition (each stored row is its own
+    sample int / sample_id — repetitions are NOT collapsed). Folds are GROUP-aware
+    (:func:`_build_group_folds`): all replicates of a sample land on the same fold side, so every
+    rep row is validated exactly once (a clean OOF partition) while a group is never split. The
+    envelope carries each row's ``group_id`` (the repetition column value), and dag-ml-data's
+    ``validate_fold_set_against_sample_relations`` refuses any fold that splits a group — the
+    native group-leakage guarantee. Each rep row is scored individually (the repetition grain),
+    which is exactly what nirs4all's ``cv_best_score``/``best_rmse`` report; the sample-level
+    aggregation (the ``_agg`` twin) is a separate score nirs4all does not surface on RunResult,
+    so no aggregation reducer is needed.
+
+    Generators are expanded in Python (operator-level via ``expand_spec``; a param-level model
+    sweep also goes through ``expand_spec`` here for simplicity) and each concrete variant runs
+    through the group-aware path, selecting the best by its CV score — mirroring nirs4all.
+    """
+    from nirs4all.pipeline.config.generator import expand_spec
+
+    variants = expand_spec(pipeline)
+    results = [
+        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type)
+        for index, variant in enumerate(variants)
+    ]
+    if len(results) == 1:
+        return results[0]
+    maximize = metric in ("accuracy", "r2")
+
+    def _cv_rank(result: RunResult) -> float:
+        score = result.cv_best_score
+        if score != score:  # NaN ranks last
+            return float("inf")
+        return -score if maximize else score
+
+    return min(results, key=_cv_rank)
+
+
+def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """One concrete repetition variant: group-aware folds + a ``group_id``-carrying envelope."""
+    steps, splitter = _split_pipeline(pipeline)
+    if splitter is None:
+        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    steps = _apply_model_params(steps)
+
+    identity = mint_identity(spectro)
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_group_folds(splitter, spectro, pool)
+    group_by_sample = _repetition_grain(spectro, pool)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=group_by_sample)
+    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
+
+    import dag_ml
+
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+    )
+    if outcome["returncode"] != 0:
+        raise RuntimeError(f"dag-ml repetition run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)

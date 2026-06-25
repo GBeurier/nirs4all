@@ -24,7 +24,7 @@ from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_ref
 from nirs4all.pipeline.dagml.envelope import build_envelope
 from nirs4all.pipeline.dagml.identity import mint_identity
 
-from ._datasets import dataset_path
+from ._datasets import PARSER_FIXTURES, dataset_path
 
 pytestmark = [pytest.mark.parity]
 
@@ -1489,3 +1489,146 @@ def test_public_run_engine_dagml_mcuve() -> None:
     result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
     assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
     assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
+
+
+# ---------------------------------------------------------------------------
+# Repetitions (sample-grain grouping — replicate spectra share one sample). Backlog #21.
+# ---------------------------------------------------------------------------
+
+_REPETITION_DS = PARSER_FIXTURES["aggregate_mean"]  # Mcal.csv carries `sample_id` (3 reps/sample)
+_REP_COL = "sample_id"
+
+
+def _group_aware_oof_and_test(dataset, splitter, n_components: int = 5) -> tuple[float, float]:
+    """Direct GROUP-aware sklearn OOF + final-test at the REPETITION grain, sample-id aligned.
+
+    Mirrors `_run_repetition`: build the SAME group-aware folds (`_build_group_folds`), then per fold
+    fit PLS on the fold-train repetition rows and validate on the fold-val rows; every X/y read is by
+    sample int via `x_rows` / re-keyed `y` (never the storage-vs-request order trap). Each rep row is
+    scored individually — exactly what nirs4all's `cv_best_score`/`best_rmse` report (the sample-level
+    `_agg` aggregation is a separate twin, NOT those two scores). Returns `(cv_oof_rmse, test_rmse)`.
+    """
+    from sklearn.metrics import mean_squared_error
+
+    from nirs4all.pipeline.dagml.run_backend import _build_group_folds
+
+    train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
+    folds = _build_group_folds(splitter, dataset, train)
+
+    def xof(ids):
+        return np.asarray(dataset.x_rows(ids, layout="2d"), dtype=float)
+
+    def yof(ids):
+        block = np.asarray(dataset.y({"sample": ids}, include_augmented=False), dtype=float)
+        stored = dataset.index_column("sample", {"sample": ids})
+        row = {int(s): r for r, s in enumerate(stored)}
+        return block[[row[int(s)] for s in ids]].ravel()
+
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ids, val_ids in folds:
+        model = PLSRegression(n_components=n_components)
+        model.fit(xof(train_ids), yof(train_ids))
+        preds = np.asarray(model.predict(xof(val_ids))).ravel()
+        true = yof(val_ids)
+        for sample_int, pred, target in zip(val_ids, preds, true, strict=True):
+            oof_pred[sample_int], oof_true[sample_int] = float(pred), float(target)
+    keys = sorted(oof_pred)
+    cv_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+
+    final = PLSRegression(n_components=n_components)
+    final.fit(xof(train), yof(train))
+    test_rmse = float(np.sqrt(mean_squared_error(yof(test), np.asarray(final.predict(xof(test))).ravel())))
+    return cv_oof, test_rmse
+
+
+def test_build_group_folds_keeps_repetitions_together() -> None:
+    """Group-aware folds never split a sample's replicates across train/val (the leakage invariant).
+
+    Verified for BOTH an index-only splitter (KFold, wrapped by GroupedSplitterWrapper) and a native
+    group-REQUIRED splitter (BinnedStratifiedGroupKFold) — the latter is the splitter the non-rep path
+    rejects loud (#25/#21); a repetition column now supplies its group so it runs group-leakage-safe.
+    """
+    from nirs4all.operators.splitters import BinnedStratifiedGroupKFold
+    from nirs4all.pipeline.dagml.run_backend import _build_group_folds, _repetition_groups_for_pool
+
+    dataset = DatasetConfigs(str(_REPETITION_DS), repetition=_REP_COL).get_dataset_at(0)
+    pool = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    assert len(pool) > len({str(g) for g in _repetition_groups_for_pool(dataset, pool)}), "fixture must have >1 rep per sample"
+
+    for splitter in (KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), BinnedStratifiedGroupKFold(n_splits=_N_SPLITS, n_bins=3)):
+        folds = _build_group_folds(splitter, dataset, pool)
+        groups = _repetition_groups_for_pool(dataset, pool)
+        pos = {sample_int: index for index, sample_int in enumerate(pool)}
+        # Every rep row validated exactly once (a clean OOF partition over the rep universe).
+        validated = [sample_int for _train, val in folds for sample_int in val]
+        assert sorted(validated) == sorted(pool), f"{splitter.__class__.__name__}: OOF must cover every rep row once"
+        # No sample's group spans train/val in any fold (group-leakage-safe).
+        for train_ids, val_ids in folds:
+            train_groups = {groups[pos[s]] for s in train_ids}
+            val_groups = {groups[pos[s]] for s in val_ids}
+            assert not (train_groups & val_groups), f"{splitter.__class__.__name__}: a sample's reps leaked across train/val"
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_repetitions() -> None:
+    """engine="dag-ml" runs a REPETITION dataset group-aware == direct group-aware sklearn OOF (#21).
+
+    A repetition dataset (`sample_id` groups 3 replicate spectra per physical sample) runs through the
+    native repetition path: folds are GROUP-aware (all reps of a sample on one fold side), the envelope
+    emits each row's `group_id`, and dag-ml-data refuses any fold that splits a group. Each rep row is
+    scored individually — the repetition grain that `cv_best_score`/`best_rmse` report (sample-level
+    `_agg` aggregation is a separate twin, not these scores), so NO aggregation reducer is needed.
+
+    Asserts the native `cv_best_score` and `best_rmse` match a direct group-aware sklearn OOF + final-test
+    within 1e-3. (Parity is vs the direct group-aware computation, not legacy: legacy's in-memory RunResult
+    has no `fold_id="avg"` OOF entry for this path, so its `cv_best_score` degenerates to the final-test
+    value — dag-ml is the correction, the same pattern as augmentation #14 and branch+merge.)
+    """
+    import nirs4all
+
+    dataset = DatasetConfigs(str(_REPETITION_DS), repetition=_REP_COL).get_dataset_at(0)
+    cv_oof, test_rmse = _group_aware_oof_and_test(dataset, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42))
+
+    pipeline = [{"model": PLSRegression(n_components=5)}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)]
+    result = nirs4all.run(pipeline, DatasetConfigs(str(_REPETITION_DS), repetition=_REP_COL), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_repetition_unsupported_composition_fails_loud() -> None:
+    """A repetition dataset combined with a branch or augmentation FAILS LOUD (the bypass is closed).
+
+    The repetition guard in `run_via_dagml` runs BEFORE the separation-branch and augmentation dispatch
+    (both of which build folds WITHOUT the group constraint, so a rep dataset reaching them could split a
+    sample's replicates across train/val = silent group leakage). This pins that closure: each composition
+    must raise `NotImplementedError` naming `repetition`/`#21` rather than silently take the group-free path.
+
+    The branch/augmentation steps are real shapes (`_detect_separation_branch` / `_is_augmentation_step`
+    recognise them) so the guard is exercised on the actual dispatch — the guard raises before any CLI
+    subprocess, so no real run happens despite the binary being present.
+    """
+    from nirs4all.operators.augmentation import GaussianAdditiveNoise
+    from nirs4all.pipeline.dagml.run_backend import _detect_separation_branch, _is_augmentation_step, run_via_dagml
+
+    configs = DatasetConfigs(str(_REPETITION_DS), repetition=_REP_COL)
+
+    branch_pipeline = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression(n_components=5)}]}},
+        {"merge": "concat"},
+    ]
+    assert _detect_separation_branch(branch_pipeline) is not None, "branch step must reach the dispatch for this to be a real lock"
+    with pytest.raises(NotImplementedError, match=r"repetition.*#21"):
+        run_via_dagml(branch_pipeline, configs, dagml_cli=str(_DAGML_CLI))
+
+    aug_pipeline = [
+        {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1, "selection": "all", "random_state": 42}},
+        {"model": PLSRegression(n_components=5)},
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+    ]
+    assert any(_is_augmentation_step(step) for step in aug_pipeline), "augmentation step must reach the dispatch for this to be a real lock"
+    with pytest.raises(NotImplementedError, match=r"repetition.*#21"):
+        run_via_dagml(aug_pipeline, configs, dagml_cli=str(_DAGML_CLI))
