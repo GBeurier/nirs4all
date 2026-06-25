@@ -138,6 +138,29 @@ class SpectroDataset:
         """
         return self._feature_accessor.x(selector, layout, concat_source, include_augmented, include_excluded)
 
+    def x_rows(self, sample_ints: list[int], layout: Layout = "2d", concat_source: bool = True) -> OutputData:
+        """
+        Get feature data for an EXACT set of stored rows, addressed by their own sample int.
+
+        Unlike :meth:`x`, this bypasses the two-phase base-keyed selection: each sample int
+        (base OR augmented) addresses its own storage row directly, and rows are returned in
+        request order. The dag-ml resolver uses it to materialize a view whose ids may include
+        augmented children, which the base-keyed ``x`` path filters out.
+
+        Args:
+            sample_ints: Stored-row sample ints to retrieve, in the desired output order.
+            layout: Output layout ("2d" or "3d").
+            concat_source: If True, concatenate multiple sources along the feature axis.
+
+        Returns:
+            Feature data array(s), one row per requested sample int, in request order.
+
+        Example:
+            >>> # Materialize a train view containing base + augmented rows, in a given order
+            >>> X = dataset.x_rows([0, 6, 7, 1, 8, 9])
+        """
+        return self._feature_accessor.x_rows(sample_ints, layout, concat_source)
+
     # def x_train(self, layout: Layout = "2d", concat_source: bool = True) -> OutputData:
     #     selector = {"partition": "train"}
     #     return self.x(selector, layout, concat_source)

@@ -26,6 +26,7 @@ Scope: single-source / no-repetition baseline.
 
 from __future__ import annotations
 
+import hashlib
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -34,6 +35,16 @@ if TYPE_CHECKING:
     from .identity import IdentityMap
 
 _DEFAULT_SOURCE_ID = "src0"
+
+
+def _params_fingerprint(transform_id: str) -> str:
+    """Deterministic 64-hex digest for an augmentation transform (sorted-params discipline).
+
+    Only the transform id is available at the relation grain, so the digest is over it; it is
+    stable across runs and satisfies the dag-ml-data contract (``params_fingerprint`` must be a
+    64-character hex digest).
+    """
+    return hashlib.sha256(transform_id.encode("utf-8")).hexdigest()
 
 
 def _import_dag_ml_data() -> Any:
@@ -118,6 +129,7 @@ def sample_relations(
     sample_ints: list[int] | None = None,
     excluded_sample_ints: set[int] | None = None,
     metadata_by_sample: dict[str, dict[int, Any]] | None = None,
+    augmentation_by_sample: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """The ``SampleRelationTable`` rows, optionally scoped to a sample-int subset.
 
@@ -135,27 +147,38 @@ def sample_relations(
     ``fan_out_data_aware_branches`` discovers a separation branch's partition values from
     these relation metadata values, so a ``by_metadata`` branch criterion column must be
     present here. Omit it and every row carries empty ``metadata``.
+
+    Augmented rows (``identity`` minted on a dataset that already holds the synthetic rows)
+    emit ``origin_id`` = the origin row's ``observation_id`` (``to_wire(origin_int)``, distinct
+    from the child's own ``observation_id``); their ``sample_id`` stays the origin's grouping
+    key. Pass ``augmentation_by_sample`` (``{sample_int: transform_id}``) to attach the
+    structured ``augmentation`` metadata (``{transform_id, params_fingerprint}``) for those
+    rows. Base rows keep ``origin_id = None`` and no augmentation metadata (the dag-ml-data
+    contract rejects an origin or augmentation on a non-augmented row).
     """
     excluded = excluded_sample_ints or set()
     metadata_columns = metadata_by_sample or {}
+    augmentation_ids = augmentation_by_sample or {}
     chosen = identity.identities if sample_ints is None else [identity.identities[i] for i in _positions(identity, sample_ints)]
-    return {
-        "rows": [
-            {
-                "observation_id": sample.observation_id,
-                "sample_id": sample.sample_id,
-                "source_id": source_id,
-                "target_id": "y",
-                "group_id": None,
-                "origin_id": None,
-                "repetition_id": None,
-                "augmented": sample.augmented,
-                "excluded": sample.sample_int in excluded,
-                "metadata": {column: values[sample.sample_int] for column, values in metadata_columns.items() if sample.sample_int in values},
-            }
-            for sample in chosen
-        ]
-    }
+    rows: list[dict[str, Any]] = []
+    for sample in chosen:
+        row: dict[str, Any] = {
+            "observation_id": sample.observation_id,
+            "sample_id": sample.sample_id,
+            "source_id": source_id,
+            "target_id": "y",
+            "group_id": None,
+            "origin_id": (identity.to_wire(sample.origin_int) if sample.augmented else None),
+            "repetition_id": None,
+            "augmented": sample.augmented,
+            "excluded": sample.sample_int in excluded,
+            "metadata": {column: values[sample.sample_int] for column, values in metadata_columns.items() if sample.sample_int in values},
+        }
+        if sample.augmented and sample.sample_int in augmentation_ids:
+            transform_id = augmentation_ids[sample.sample_int]
+            row["augmentation"] = {"transform_id": transform_id, "params_fingerprint": _params_fingerprint(transform_id)}
+        rows.append(row)
+    return {"rows": rows}
 
 
 def _positions(identity: IdentityMap, sample_ints: list[int]) -> list[int]:
@@ -171,6 +194,7 @@ def build_envelope(
     sample_ints: list[int] | None = None,
     excluded_sample_ints: set[int] | None = None,
     metadata_by_sample: dict[str, dict[int, Any]] | None = None,
+    augmentation_by_sample: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Build the validated ``CoordinatorDataPlanEnvelope``.
 
@@ -188,6 +212,10 @@ def build_envelope(
     metadata onto each relation — the native ``fan_out_data_aware_branches`` reads a
     ``by_metadata`` separation branch's partition values from these relation metadata values.
 
+    Pass ``augmentation_by_sample`` (``{sample_int: transform_id}``) to attach the structured
+    ``augmentation`` metadata to augmented rows (their ``origin_id`` is always emitted from the
+    identity grain).
+
     The wheel computes all fingerprints and derives ``coordinator_relations``; a successful
     return means the envelope is contract-valid (the materialize-time fingerprint gate
     will accept it).
@@ -195,9 +223,20 @@ def build_envelope(
     dag_ml_data = _import_dag_ml_data()
     chosen = identity.identities if sample_ints is None else [identity.identities[i] for i in _positions(identity, sample_ints)]
     envelope = dag_ml_data.build_coordinator_data_plan_envelope(
-        _dataset_schema(dataset, source_id, [sample.sample_id for sample in chosen]),
+        # The schema's sample axis is the SAMPLE grain (one entry per distinct sample, which
+        # must be unique); augmented children share their origin's sample_id, so dedup
+        # order-preservingly. The observation grain (one row per stored row) lives in the
+        # relations, not the schema.
+        _dataset_schema(dataset, source_id, list(dict.fromkeys(sample.sample_id for sample in chosen))),
         _data_plan(dataset, source_id),
-        sample_relations(identity, source_id=source_id, sample_ints=sample_ints, excluded_sample_ints=excluded_sample_ints, metadata_by_sample=metadata_by_sample),
+        sample_relations(
+            identity,
+            source_id=source_id,
+            sample_ints=sample_ints,
+            excluded_sample_ints=excluded_sample_ints,
+            metadata_by_sample=metadata_by_sample,
+            augmentation_by_sample=augmentation_by_sample,
+        ),
     )
     return dict(envelope.to_dict())
 

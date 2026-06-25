@@ -271,13 +271,15 @@ def run_model_node(
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
         estimator = make_pipeline(*upstream, model) if upstream else model
         y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None
-        x_train = np.asarray(resolver.resolve_features(train_ids)["values"], dtype=float)
+        # Fit views materialize TRAINING rows (FIT_CV fold_train, REFIT full_train): augmented
+        # children belong here, so include_augmented=True. Non-fit views below default to False.
+        x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=True)["values"], dtype=float)
         y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
         y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
         estimator.fit(x_train, y_fit)
 
-    def _predict(ids: list[str]) -> list[list[float]]:
-        x = np.asarray(resolver.resolve_features(ids)["values"], dtype=float)
+    def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
+        x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"], dtype=float)
         pred = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
@@ -286,7 +288,18 @@ def run_model_node(
     # so dag-ml scores the final model's test RMSE (nirs4all's best_rmse). The CV fold set does not
     # cover test, but dag-ml only scope-checks `validation` blocks (runtime validate_prediction_scope),
     # so a `test`/`final` block for the refit model is accepted and scored natively.
-    specs: list[tuple[list[str], str, str | None]] = [(predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None)]
+    #
+    # include_augmented per spec mirrors the leakage guard: it is True ONLY when the predicted ids are
+    # TRAINING rows — REFIT predicting its own full_train ("final"-train score), where augmented children
+    # legitimately appear. FIT_CV's validation/OOF view, the REFIT held-out TEST, and PREDICT are non-fit
+    # holdout views, so include_augmented=False makes resolve_features REFUSE any augmented child there.
+    # (Today no augmentation runs, so predict_ids carry no augmented ids and these flags are a no-op; the
+    # END-TO-END leakage test — an augmented child kept out of validation through node_runner — belongs to
+    # the augmentation run-path slice #8, where real augmented children exist.)
+    predict_is_train = phase == "REFIT"  # REFIT predict_ids == full_train (training rows); FIT_CV/PREDICT are holdout
+    specs: list[tuple[list[str], str, str | None, bool]] = [
+        (predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
+    ]
     if phase == "REFIT":
         test_ids = resolver.partition_wire_ids("test")
         # A separation-branch refit model only ever trained on its partition, so its TEST prediction
@@ -295,14 +308,14 @@ def run_model_node(
         if selector is not None and sample_metadata is not None:
             test_ids = [sample_id for sample_id in test_ids if _branch_view_keep(sample_id, selector, sample_metadata)]
         if test_ids:
-            specs.append((test_ids, "test", "final"))
+            specs.append((test_ids, "test", "final", False))
 
     # One prediction block per spec, each paired 1:1 with an exactly-matching y_true block (dag-ml
     # scoring requires target units == prediction units). dag-ml matches block↔target by unit set.
     # Skip an empty spec (a branch partition with no validation sample in this fold).
     predictions: list[dict[str, Any]] = []
     regression_targets: list[dict[str, Any]] = []
-    for spec_ids, partition, spec_fold in specs:
+    for spec_ids, partition, spec_fold, spec_include_augmented in specs:
         if not spec_ids:
             continue
         predictions.append(
@@ -312,7 +325,7 @@ def run_model_node(
                 "partition": partition,
                 "fold_id": spec_fold,
                 "sample_ids": spec_ids,
-                "values": _predict(spec_ids),
+                "values": _predict(spec_ids, spec_include_augmented),
                 "target_names": ["y"],
             }
         )
