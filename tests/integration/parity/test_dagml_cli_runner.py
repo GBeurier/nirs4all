@@ -1141,3 +1141,189 @@ def test_run_cv_refit_bundle_drops_stale_pickle_env(tmp_path, monkeypatch) -> No
         dataset_pickle=str(tmp_path / "augmented.pkl"),
     )
     assert captured["env"]["N4A_DAGML_DATASET_PICKLE"] == str(tmp_path / "augmented.pkl")
+
+
+# ---------------------------------------------------------------------------
+# Group/domain calibration splitters (backlog #25): the host `_build_folds` must feed the splitter
+# the REAL X (and y for supervised) it partitions on, not the sample-int pool. KFold/ShuffleSplit are
+# index-only (covered above); KennardStone/SPXY/KMeans/SPXYFold/KBinsStratified are distance/supervised
+# NIRS splitters. These run wheel-free (no CLI) — they exercise `_build_folds` against the legacy feed.
+# ---------------------------------------------------------------------------
+
+
+def test_build_folds_feeds_real_xy_to_distance_splitters() -> None:
+    """`_build_folds` partitions distance/supervised splitters on REAL X/y == the legacy controller.
+
+    Before the fix `_build_folds` passed the sample-int `pool` AS X, so KennardStone/KMeans raised on
+    `cdist`/KMeans (1-D), and SPXY/SPXYFold/KBinsStratified raised "y required". The fix fetches the real
+    spectra (`x_rows`, request order) and targets (re-keyed to pool order) and feeds them exactly like
+    the legacy `CrossValidatorController`. This pins fold-for-fold identity with the legacy split,
+    wheel-free (no dag-ml-cli)."""
+    import warnings
+
+    from nirs4all.operators.splitters import (
+        KBinsStratifiedSplitter,
+        KennardStoneSplitter,
+        KMeansSplitter,
+        SPXYFold,
+        SPXYSplitter,
+    )
+    from nirs4all.pipeline.dagml.run_backend import _build_folds
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    pool = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    real_x = np.asarray(dataset.x_rows(pool, layout="2d"))
+    y_block = np.asarray(dataset.y({"sample": pool}))
+    stored = dataset.index_column("sample", {"sample": pool})
+    row_of = {int(s): r for r, s in enumerate(stored)}
+    real_y = y_block[[row_of[int(s)] for s in pool]].ravel()
+
+    def legacy(splitter, needs_y: bool):
+        kwargs = {"y": real_y} if needs_y else {}
+        return [(sorted(pool[i] for i in tr), sorted(pool[i] for i in va)) for tr, va in splitter.split(real_x, **kwargs)]
+
+    def via_build_folds(splitter):
+        return [(sorted(tr), sorted(va)) for tr, va in _build_folds(splitter, dataset, pool, set())]
+
+    # (name, factory, needs_y) — a fresh instance per call since `.split` returns a one-shot generator.
+    cases = [
+        ("KennardStone", lambda: KennardStoneSplitter(test_size=0.25), False),
+        ("SPXY", lambda: SPXYSplitter(test_size=0.25), True),
+        ("KMeans", lambda: KMeansSplitter(test_size=0.25, random_state=42), False),
+        ("SPXYFold", lambda: SPXYFold(n_splits=_N_SPLITS), True),
+        ("KBinsStratified", lambda: KBinsStratifiedSplitter(test_size=0.25, random_state=42, n_bins=5), True),
+    ]
+    for name, factory, needs_y in cases:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            expected = legacy(factory(), needs_y)
+            actual = via_build_folds(factory())
+        assert actual == expected, f"{name}: _build_folds folds diverge from the legacy real-X/y split"
+
+
+def test_build_folds_rejects_group_required_splitter_loud() -> None:
+    """A group-REQUIRED splitter fails loud (the dag-ml path has no group source yet — backlog #21).
+
+    `BinnedStratifiedGroupKFold` cannot run without a group; the engine path carries no
+    group_by/repetition group source, so it must raise a clear NotImplementedError naming #21 rather
+    than silently splitting without the group constraint."""
+    from nirs4all.operators.splitters import BinnedStratifiedGroupKFold
+    from nirs4all.pipeline.dagml.run_backend import _build_folds
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    pool = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    with pytest.raises(NotImplementedError, match="#21"):
+        _build_folds(BinnedStratifiedGroupKFold(n_splits=3, n_bins=3), dataset, pool, set())
+
+
+def _host_split_oof_and_test(dataset, make_splitter, n_components: int = 5) -> tuple[float, float]:
+    """Direct host-split (the same `_build_folds`) + per-fold sklearn OOF + final-test, sample-aligned.
+
+    Mirrors `run_via_dagml`'s pipeline (SNV → PLS) per fold; every X/y read is by sample int via
+    `x_rows`/re-keyed `y` so the baseline never falls into the storage-vs-request order trap. Returns
+    `(cv_oof_rmse, final_test_rmse)` — what dag-ml's native `cv_best_score`/`best_rmse` must reproduce.
+    """
+    import warnings
+
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _build_folds
+
+    train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        folds = _build_folds(make_splitter(), dataset, train, set())
+
+    def xof(ids):
+        return np.asarray(dataset.x_rows(ids, layout="2d"), dtype=float)
+
+    def yof(ids):
+        block = np.asarray(dataset.y({"sample": ids}), dtype=float)
+        stored = dataset.index_column("sample", {"sample": ids})
+        row = {int(s): r for r, s in enumerate(stored)}
+        return block[[row[int(s)] for s in ids]].ravel()
+
+    acc: dict[int, float] = {}
+    cnt: dict[int, int] = {}
+    tru: dict[int, float] = {}
+    for train_ids, val_ids in folds:
+        if not val_ids:
+            continue
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_components))
+        model.fit(xof(train_ids), yof(train_ids))
+        preds = np.asarray(model.predict(xof(val_ids))).ravel()
+        true = yof(val_ids)
+        for sample_int, pred, target in zip(val_ids, preds, true):
+            acc[sample_int] = acc.get(sample_int, 0.0) + float(pred)
+            cnt[sample_int] = cnt.get(sample_int, 0) + 1
+            tru[sample_int] = float(target)
+    keys = sorted(acc)
+    cv_oof = float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
+
+    final = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_components))
+    final.fit(xof(train), yof(train))
+    test_rmse = float(np.sqrt(mean_squared_error(yof(test), np.asarray(final.predict(xof(test))).ravel())))
+    return cv_oof, test_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_kennard_stone() -> None:
+    """engine="dag-ml" runs a KennardStone (single train/val, X-distance) split == direct host OOF.
+
+    KennardStone is a DISTANCE splitter — it selects the train subset by max-min spectral distance, so
+    the host must feed it the real spectra. The engine's native single-fold OOF (`cv_best_score`) and
+    final-test (`best_rmse`) match the direct host-split + sklearn baseline."""
+    import nirs4all
+    from nirs4all.operators.splitters import KennardStoneSplitter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    cv_oof, test_rmse = _host_split_oof_and_test(dataset, lambda: KennardStoneSplitter(test_size=0.25))
+
+    pipeline = [StandardNormalVariate(), KennardStoneSplitter(test_size=0.25), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3
+    assert abs(result.best_rmse - test_rmse) < 1e-3
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_spxy() -> None:
+    """engine="dag-ml" runs an SPXY (single train/val, joint X+Y distance) split == direct host OOF.
+
+    SPXY is a SUPERVISED distance splitter — it partitions on joint feature+target distance, so the host
+    must feed it real X AND y (the index-only feed raised "y required" before the fix). The engine's
+    native OOF (`cv_best_score`) and final-test (`best_rmse`) match the direct host-split baseline."""
+    import nirs4all
+    from nirs4all.operators.splitters import SPXYSplitter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    cv_oof, test_rmse = _host_split_oof_and_test(dataset, lambda: SPXYSplitter(test_size=0.25))
+
+    pipeline = [StandardNormalVariate(), SPXYSplitter(test_size=0.25), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3
+    assert abs(result.best_rmse - test_rmse) < 1e-3
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_spxy_fold() -> None:
+    """engine="dag-ml" runs an SPXYFold K-fold (joint X+Y distance, OOF partition) == direct host OOF.
+
+    SPXYFold assigns each sample to one of K folds by joint X+Y distance — a clean OOF partition (so
+    dag-ml's cross-fold `avg` report scores it). The native cross-fold OOF average (`cv_best_score`) and
+    final-test (`best_rmse`) match the direct host-split + sklearn OOF baseline."""
+    import nirs4all
+    from nirs4all.operators.splitters import SPXYFold
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    cv_oof, test_rmse = _host_split_oof_and_test(dataset, lambda: SPXYFold(n_splits=_N_SPLITS))
+
+    pipeline = [StandardNormalVariate(), SPXYFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3
+    assert abs(result.best_rmse - test_rmse) < 1e-3
