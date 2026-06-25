@@ -130,6 +130,7 @@ def sample_relations(
     excluded_sample_ints: set[int] | None = None,
     metadata_by_sample: dict[str, dict[int, Any]] | None = None,
     augmentation_by_sample: dict[int, str] | None = None,
+    group_by_sample: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """The ``SampleRelationTable`` rows, optionally scoped to a sample-int subset.
 
@@ -148,6 +149,13 @@ def sample_relations(
     these relation metadata values, so a ``by_metadata`` branch criterion column must be
     present here. Omit it and every row carries empty ``metadata``.
 
+    Pass ``group_by_sample`` (``{sample_int: group_value}``) to emit ``group_id`` for a
+    **repetition** dataset — several stored rows that share one physical sample carry the same
+    group value (their repetition column). dag-ml-data's
+    ``validate_fold_set_against_sample_relations`` then refuses any fold that splits a group
+    across train/validation (native group-leakage validation), so all repetitions of a sample
+    must stay on the same fold side. Omit it and every row keeps ``group_id = None``.
+
     Augmented rows (``identity`` minted on a dataset that already holds the synthetic rows)
     emit ``origin_id`` = the origin row's ``observation_id`` (``to_wire(origin_int)``, distinct
     from the child's own ``observation_id``); their ``sample_id`` stays the origin's grouping
@@ -159,6 +167,7 @@ def sample_relations(
     excluded = excluded_sample_ints or set()
     metadata_columns = metadata_by_sample or {}
     augmentation_ids = augmentation_by_sample or {}
+    group_ids = group_by_sample or {}
     chosen = identity.identities if sample_ints is None else [identity.identities[i] for i in _positions(identity, sample_ints)]
     rows: list[dict[str, Any]] = []
     for sample in chosen:
@@ -167,7 +176,7 @@ def sample_relations(
             "sample_id": sample.sample_id,
             "source_id": source_id,
             "target_id": "y",
-            "group_id": None,
+            "group_id": group_ids.get(sample.sample_int),
             "origin_id": (identity.to_wire(sample.origin_int) if sample.augmented else None),
             "repetition_id": None,
             "augmented": sample.augmented,
@@ -195,6 +204,7 @@ def build_envelope(
     excluded_sample_ints: set[int] | None = None,
     metadata_by_sample: dict[str, dict[int, Any]] | None = None,
     augmentation_by_sample: dict[int, str] | None = None,
+    group_by_sample: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Build the validated ``CoordinatorDataPlanEnvelope``.
 
@@ -216,6 +226,12 @@ def build_envelope(
     ``augmentation`` metadata to augmented rows (their ``origin_id`` is always emitted from the
     identity grain).
 
+    Pass ``group_by_sample`` (``{sample_int: group_value}``) to emit ``group_id`` on each
+    relation for a **repetition** dataset — repetitions of one physical sample share a group
+    value, and dag-ml-data refuses a fold that splits a group across train/validation. For a
+    repetition dataset every relation is its own ``sample_id`` (each stored row is scored
+    individually at the repetition grain), so the schema's sample axis is one entry per row.
+
     The wheel computes all fingerprints and derives ``coordinator_relations``; a successful
     return means the envelope is contract-valid (the materialize-time fingerprint gate
     will accept it).
@@ -236,6 +252,7 @@ def build_envelope(
             excluded_sample_ints=excluded_sample_ints,
             metadata_by_sample=metadata_by_sample,
             augmentation_by_sample=augmentation_by_sample,
+            group_by_sample=group_by_sample,
         ),
     )
     return dict(envelope.to_dict())
