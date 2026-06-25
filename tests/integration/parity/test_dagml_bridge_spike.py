@@ -60,11 +60,11 @@ def test_unsupported_step_is_flagged() -> None:
 
 
 def test_vertical_slice_controller_manifests_validate() -> None:
-    """The three node-kind manifests validate individually and as a list."""
+    """The node-kind manifests validate individually and as a list."""
     import dag_ml
 
     manifests = controller_manifests()
-    assert sorted(m["operator_kind"] for m in manifests) == ["model", "transform", "y_transform"]
+    assert sorted(m["operator_kind"] for m in manifests) == ["model", "prediction_join", "transform", "y_transform"]
     for manifest in manifests:
         dag_ml.ControllerManifest(manifest)  # raises on an invalid manifest
     dag_ml.ControllerManifests(manifests)  # raises on an invalid list / duplicate controller_id
