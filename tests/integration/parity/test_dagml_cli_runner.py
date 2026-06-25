@@ -1327,3 +1327,165 @@ def test_public_run_engine_dagml_spxy_fold() -> None:
     result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
     assert abs(result.cv_best_score - cv_oof) < 1e-3
     assert abs(result.best_rmse - test_rmse) < 1e-3
+
+
+# ---------------------------------------------------------------------------
+# Supervised + column-changing X-transforms (backlog #24): OSC/EPO are SUPERVISED
+# orthogonalizations (fit on X AND a second signal); CARS/MCUVE are feature SELECTORS that CHANGE the
+# column count. All four are TransformerMixin X-transforms, so the model node's upstream X-chain
+# (`make_pipeline(transform, model)`) already runs them leakage-safe: sklearn's `Pipeline.fit` passes
+# the fold-train `y` to each transform's `fit_transform` (so OSC sees the supervised signal, fit on
+# fold-train only), and the column-count change propagates cleanly through fold-train fit / fold-val +
+# test apply. VERIFIED-NATIVE: no host X-chain change was needed — these tests pin that.
+#
+# CARS/MCUVE `fit` is RNG Monte-Carlo and therefore ROW-ORDER sensitive: the selected feature set
+# depends on the training row order. dag-ml's fold-train / full-train ordering is its own identity-keyed
+# pool order (fold-encounter order), NOT sorted-train, so the parity baseline must replicate it — exactly
+# like the distance-splitter baselines above use `x_rows` in request order. `_dagml_fold_order` derives
+# that order from the same folds the KFold splitter feeds, with no dag-ml internals.
+# ---------------------------------------------------------------------------
+
+
+def _dagml_fold_order(dataset, n_splits: int = _N_SPLITS) -> tuple[list[tuple[list[int], list[int]]], list[int]]:
+    """The folds + full-train pool in dag-ml's OWN row order, for an order-sensitive transform baseline.
+
+    Returns ``(folds, full_train_pool)`` where each fold is ``(train_ints, validation_ints)`` in the
+    KFold split order dag-ml's ``build_fold_set`` preserves, and ``full_train_pool`` is the fold-encounter
+    order ``build_fold_set`` uses for the REFIT ``full_train`` view (first appearance of each sample across
+    each fold's train+validation, in fold order). Mirrors ``envelope.build_fold_set`` exactly so an
+    order-sensitive selector (CARS/MCUVE) reproduces the engine's selection without touching dag-ml.
+    """
+    train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
+    pool: list[int] = []
+    seen: set[int] = set()
+    for train_ints, validation_ints in folds:
+        for sample_int in (*train_ints, *validation_ints):
+            if sample_int not in seen:
+                seen.add(sample_int)
+                pool.append(sample_int)
+    return folds, pool
+
+
+def _transform_oof_and_test(dataset, make_transform, n_components: int = 5) -> tuple[float, float]:
+    """Direct sklearn OOF + final-test for ``make_pipeline(transform, PLS)`` in dag-ml's row order.
+
+    Per fold: fit ``make_pipeline(transform, PLS)`` on the fold-train rows, predict the fold-validation
+    rows; reassemble the OOF and score it (``cv_best_score``). Refit on the full-train pool (dag-ml's
+    fold-encounter order) and score the held-out test (``best_rmse``). Every X/y read is by sample int
+    via ``x_rows`` / re-keyed ``y`` so the baseline shares dag-ml's exact row order — required for the
+    order-sensitive selectors. Returns ``(cv_oof_rmse, final_test_rmse)``.
+    """
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    folds, pool = _dagml_fold_order(dataset)
+    test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
+
+    def xof(ids: list[int]) -> np.ndarray:
+        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"), dtype=float)
+
+    def yof(ids: list[int]) -> np.ndarray:
+        ids = [int(i) for i in ids]
+        block = np.asarray(dataset.y({"sample": ids}), dtype=float)
+        stored = dataset.index_column("sample", {"sample": ids})
+        row = {int(s): r for r, s in enumerate(stored)}
+        return block[[row[int(s)] for s in ids]].ravel()
+
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ids, val_ids in folds:
+        model = make_pipeline(make_transform(), PLSRegression(n_components=n_components))
+        model.fit(xof(train_ids), yof(train_ids))
+        preds = np.asarray(model.predict(xof(val_ids))).ravel()
+        true = yof(val_ids)
+        for sample_int, pred, target in zip(val_ids, preds, true, strict=True):
+            oof_pred[int(sample_int)] = float(pred)
+            oof_true[int(sample_int)] = float(target)
+    keys = sorted(oof_pred)
+    cv_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+
+    final = make_pipeline(make_transform(), PLSRegression(n_components=n_components))
+    final.fit(xof(pool), yof(pool))
+    test_rmse = float(np.sqrt(mean_squared_error(yof(test), np.asarray(final.predict(xof(test))).ravel())))
+    return cv_oof, test_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_osc() -> None:
+    """engine="dag-ml" runs OSC (SUPERVISED orthogonalization) == direct sklearn Pipeline(OSC, PLS).
+
+    OSC's `fit(X, y)` needs the target to find Y-orthogonal variation to remove; the X-chain runs it as
+    `make_pipeline(OSC, PLS)`, so sklearn passes the fold-train `y` to `OSC.fit_transform` (leakage-safe —
+    train only) and re-applies the stored deflation at fold-val/test. The native OOF (`cv_best_score`) and
+    final-test (`best_rmse`) match the direct baseline, proving the supervised signal reaches OSC's fit."""
+    import nirs4all
+    from nirs4all.operators.transforms.orthogonalization import OSC
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    cv_oof, test_rmse = _transform_oof_and_test(dataset, lambda: OSC(n_components=2))
+
+    pipeline = [OSC(n_components=2), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_epo() -> None:
+    """engine="dag-ml" runs EPO (orthogonalization, fit on a second signal) == sklearn Pipeline(EPO, PLS).
+
+    EPO orthogonalizes X against a second `fit(X, d)` argument (the X-chain feeds it the fold-train `y`
+    via sklearn's Pipeline), so it exercises the same supervised-fit path as OSC. The native OOF
+    (`cv_best_score`) and final-test (`best_rmse`) match the direct `make_pipeline(EPO, PLS)` baseline."""
+    import nirs4all
+    from nirs4all.operators.transforms.orthogonalization import EPO
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    cv_oof, test_rmse = _transform_oof_and_test(dataset, lambda: EPO())
+
+    pipeline = [EPO(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_cars() -> None:
+    """engine="dag-ml" runs CARS (feature SELECTION — CHANGES the column count) == sklearn Pipeline(CARS, PLS).
+
+    CARS's `fit(X, y)` selects a wavelength subset; the model then sees FEWER columns. The X-chain runs
+    `make_pipeline(CARS, PLS)`, so the column-count reduction propagates leakage-safe through fold-train
+    fit / fold-val + test apply (CARS fits the mask on fold-train only). The baseline uses dag-ml's own
+    row order (`_dagml_fold_order`) because CARS's RNG Monte-Carlo selection is row-order sensitive — the
+    native OOF (`cv_best_score`) and final-test (`best_rmse`) then match it exactly."""
+    import nirs4all
+    from nirs4all.operators.transforms.feature_selection import CARS
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    cv_oof, test_rmse = _transform_oof_and_test(dataset, lambda: CARS(n_components=5, n_sampling_runs=20, random_state=42))
+
+    pipeline = [CARS(n_components=5, n_sampling_runs=20, random_state=42), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_mcuve() -> None:
+    """engine="dag-ml" runs MC-UVE (feature SELECTION — CHANGES the column count) == sklearn Pipeline(MCUVE, PLS).
+
+    MC-UVE's `fit(X, y)` eliminates uninformative wavelengths against a noise baseline, so the model sees
+    FEWER columns. Same column-changing X-chain path as CARS, leakage-safe (mask fit on fold-train only),
+    same row-order-sensitive RNG selection — so the baseline uses dag-ml's own row order. The native OOF
+    (`cv_best_score`) and final-test (`best_rmse`) match the direct `make_pipeline(MCUVE, PLS)` baseline."""
+    import nirs4all
+    from nirs4all.operators.transforms.feature_selection import MCUVE
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    cv_oof, test_rmse = _transform_oof_and_test(dataset, lambda: MCUVE(n_components=5, n_iterations=40, random_state=42))
+
+    pipeline = [MCUVE(n_components=5, n_iterations=40, random_state=42), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
