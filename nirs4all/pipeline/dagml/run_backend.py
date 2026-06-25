@@ -63,8 +63,45 @@ def _is_exclude_step(step: Any) -> bool:
     return isinstance(step, dict) and "exclude" in step
 
 
+def _taggers_from_step(step: Any) -> list[tuple[str, Any]] | None:
+    """Parse a handled ``{"tag": SampleFilter}`` step, else return ``None`` for bridge fail-loud."""
+    if not isinstance(step, dict) or "tag" not in step:
+        return None
+
+    from nirs4all.controllers.data.tag import TagController
+
+    try:
+        taggers = TagController()._parse_taggers(step.get("tag", {}))  # noqa: SLF001 - reuse production parsing/name rules
+    except (TypeError, ValueError):
+        return None
+    return taggers or None
+
+
+def _is_tag_step(step: Any) -> bool:
+    return _taggers_from_step(step) is not None
+
+
 def _is_augmentation_step(step: Any) -> bool:
     return isinstance(step, dict) and "sample_augmentation" in step
+
+
+def _filter_data_for_pool(spectro: Any, pool_ints: list[int]) -> tuple[np.ndarray, np.ndarray | None]:
+    """X/y for SampleFilter fitting, aligned exactly to ``pool_ints`` order."""
+    x_pool = np.asarray(spectro.x({"sample": list(pool_ints)}, layout="2d", concat_source=True, include_augmented=False))
+    y_values = spectro.y({"sample": list(pool_ints)}, include_augmented=False)
+    y_pool = None if y_values is None else np.asarray(y_values)
+
+    # `spectro.x/y({"sample": ids})` returns ascending storage order, not request order; re-key so
+    # masks align to `pool_ints` exactly (the storage-vs-request trap the resolver also guards against).
+    stored = spectro.index_column("sample", {"sample": list(pool_ints)})
+    row_of = {int(sample_int): row for row, sample_int in enumerate(stored)}
+    order = [row_of[int(sample_int)] for sample_int in pool_ints]
+    x_pool = x_pool[order]
+    if y_pool is not None and y_pool.size:
+        y_pool = y_pool[order]
+        if y_pool.ndim > 1:
+            y_pool = y_pool.flatten()
+    return x_pool, y_pool
 
 
 def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: list[int]) -> set[int]:
@@ -95,18 +132,9 @@ def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: l
     if not pool_ints:
         return set()
 
-    x_pool = np.asarray(spectro.x({"sample": list(pool_ints)}, layout="2d", concat_source=True, include_augmented=False))
-    y_pool = np.asarray(spectro.y({"sample": list(pool_ints)}, include_augmented=False))
-    if y_pool.ndim > 1:
-        y_pool = y_pool.flatten()
-    if y_pool.size == 0:
+    x_pool, y_pool = _filter_data_for_pool(spectro, pool_ints)
+    if y_pool is None or y_pool.size == 0:
         return set()
-    # `spectro.x/y({"sample": ids})` returns ascending storage order, not request order; re-key so the
-    # mask aligns to `pool_ints` exactly (the storage-vs-request trap the resolver also guards against).
-    stored = spectro.index_column("sample", {"sample": list(pool_ints)})
-    row_of = {int(sample_int): row for row, sample_int in enumerate(stored)}
-    order = [row_of[int(sample_int)] for sample_int in pool_ints]
-    x_pool, y_pool = x_pool[order], y_pool[order]
 
     masks: list[np.ndarray] = []
     for filter_obj in filters:
@@ -170,6 +198,49 @@ def _resolve_exclude(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list
     # Default (legacy): drop excluded from the CV universe entirely; envelope marks nothing excluded.
     pool = [sample_int for sample_int in train_ints if sample_int not in excluded]
     return remaining, pool, set()
+
+
+def _resolve_tags(pipeline: list[Any], spectro: Any, pool: list[int]) -> tuple[list[Any], dict[int, list[str]] | None]:
+    """Consume handled ``tag`` steps and return ``(pipeline_without_tag, tags_by_sample)``.
+
+    Each tag filter is fit once on the CV train pool only (leakage-safe, matching TagController's
+    train-context fit) and marks the samples it flags, i.e. ``SampleFilter.get_mask`` false values.
+    Unlike ``exclude``, this never changes the CV universe: the same ``pool`` is returned to the
+    splitter and model training path, with tag labels carried only on the envelope relations.
+    """
+    parsed_steps: list[tuple[int, list[tuple[str, Any]]]] = []
+    for index, step in enumerate(pipeline):
+        taggers = _taggers_from_step(step)
+        if taggers is not None:
+            parsed_steps.append((index, taggers))
+    if not parsed_steps:
+        return pipeline, None
+
+    consumed = {index for index, _ in parsed_steps}
+    remaining = [step for index, step in enumerate(pipeline) if index not in consumed]
+    if not pool:
+        return remaining, None
+
+    x_pool, y_pool = _filter_data_for_pool(spectro, pool)
+    tags_by_sample: dict[int, list[str]] = {}
+    for _, taggers in parsed_steps:
+        for tag_name, filter_obj in taggers:
+            try:
+                filter_obj.fit(x_pool, y_pool)
+                mask = np.asarray(filter_obj.get_mask(x_pool, y_pool), dtype=bool)
+            except ValueError:
+                # TagController skips a filter that cannot be applied (e.g. insufficient data).
+                continue
+            if mask.shape[0] != len(pool):
+                raise ValueError(f"tag filter {filter_obj.__class__.__name__} returned {mask.shape[0]} masks for {len(pool)} samples")
+            for sample_int, keep in zip(pool, mask, strict=True):
+                if keep:
+                    continue
+                labels = tags_by_sample.setdefault(int(sample_int), [])
+                if tag_name not in labels:
+                    labels.append(str(tag_name))
+
+    return remaining, tags_by_sample or None
 
 
 def _pool_features(spectro: Any, pool: list[int]) -> np.ndarray:
@@ -569,6 +640,9 @@ def run_via_dagml(
     # per the `keep_in_oof` mode. `cv_pool` is the sample-int universe the splitter runs over;
     # `excluded` is non-empty only in the opt-in (keep_in_oof=True) leakage-pure mode.
     pipeline, cv_pool, excluded = _resolve_exclude(list(pipeline), spectro)
+    # Consume handled `tag` steps AFTER the CV universe is known: tags fit on that train pool and are
+    # emitted onto relations, but do not remove samples from the splitter/model pool.
+    pipeline, tags_by_sample = _resolve_tags(list(pipeline), spectro, cv_pool)
 
     # Param-level model sweeps (`_range_`/`_log_range_`/`_grid_` on a model step) run as ONE native
     # dag-ml run: the bridge lowers them to native `generators`, the compiler expands variants, and
@@ -576,7 +650,7 @@ def run_via_dagml(
     # generators (`_or_`/`_cartesian_`, multi-model) stay on the Python `expand_spec` path below.
     if _generation_kind(list(pipeline)) == "param_model":
         return _run_native_generation(
-            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded
+            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample
         )
 
     # Expand operator-level generators (_or_/_cartesian_/...) into concrete pipelines in Python
@@ -584,7 +658,7 @@ def run_via_dagml(
     # select the best by its CV score — mirroring nirs4all selecting the best variant by its metric.
     variants = expand_spec(pipeline)
     results = [
-        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type, cv_pool, excluded)
+        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type, cv_pool, excluded, tags_by_sample)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -599,7 +673,19 @@ def run_via_dagml(
     return min(results, key=_cv_rank)
 
 
-def _run_native_generation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, cv_pool: list[int] | None = None, excluded: set[int] | None = None) -> RunResult:
+def _run_native_generation(
+    pipeline: list[Any],
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str,
+    task_type: str,
+    cv_pool: list[int] | None = None,
+    excluded: set[int] | None = None,
+    tags_by_sample: dict[int, list[str]] | None = None,
+) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
 
     The model step keeps its generator dict so the bridge lowers it to native ``generators``; we
@@ -618,7 +704,7 @@ def _run_native_generation(pipeline: list[Any], spectro: Any, dataset_arg: str, 
     identity = mint_identity(spectro)
     pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, excluded or set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml
@@ -661,7 +747,19 @@ def _apply_plain_model_params(steps: list[Any]) -> list[Any]:
     return out
 
 
-def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str = "rmse", task_type: str = "regression", cv_pool: list[int] | None = None, excluded: set[int] | None = None) -> RunResult:
+def _run_concrete(
+    pipeline: Any,
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str = "rmse",
+    task_type: str = "regression",
+    cv_pool: list[int] | None = None,
+    excluded: set[int] | None = None,
+    tags_by_sample: dict[int, list[str]] | None = None,
+) -> RunResult:
     """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores.
 
     ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
@@ -675,7 +773,7 @@ def _run_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_
     identity = mint_identity(spectro)
     pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, excluded or set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml

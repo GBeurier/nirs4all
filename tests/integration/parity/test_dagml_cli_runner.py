@@ -668,6 +668,59 @@ def _excluded_train_ints(dataset, train: list[int], threshold: float) -> set[int
     return {int(s) for s, keep in zip(train, filt.get_mask(x_train, y_train), strict=True) if not keep}
 
 
+def _xy_for_sample_order(dataset, sample_ints: list[int]) -> tuple[np.ndarray, np.ndarray]:
+    """Real X/y for ``sample_ints`` in request order, avoiding storage-order coupling."""
+    sample_ints = [int(s) for s in sample_ints]
+    x = np.asarray(dataset.x_rows(sample_ints, layout="2d"), dtype=float)
+    y_block = np.asarray(dataset.y({"sample": sample_ints}, include_augmented=False), dtype=float)
+    stored = dataset.index_column("sample", {"sample": sample_ints})
+    row_of = {int(sample_int): row for row, sample_int in enumerate(stored)}
+    y = y_block[[row_of[int(sample_int)] for sample_int in sample_ints]]
+    return x, y.ravel()
+
+
+def _flagged_by_filter(dataset, sample_ints: list[int], filter_obj) -> set[int]:  # noqa: ANN001
+    """Sample ints where ``SampleFilter.get_mask`` is false (the tag/exclude polarity)."""
+    x, y = _xy_for_sample_order(dataset, sample_ints)
+    filter_obj.fit(x, y)
+    mask = filter_obj.get_mask(x, y)
+    return {int(sample_int) for sample_int, keep in zip(sample_ints, mask, strict=True) if not keep}
+
+
+def _direct_exclude_oof_and_test(dataset, filter_obj, n_components: int = 5) -> tuple[float, float, set[int]]:  # noqa: ANN001
+    """Direct sklearn baseline for default exclude: remove flagged samples from the CV universe."""
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
+    excluded = _flagged_by_filter(dataset, train, filter_obj)
+    kept = [sample_int for sample_int in train if sample_int not in excluded]
+    folds = [([kept[i] for i in tr], [kept[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(kept)]
+
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_components))
+        x_train, y_train = _xy_for_sample_order(dataset, train_ints)
+        model.fit(x_train, y_train)
+        pred = np.asarray(model.predict(_xy_for_sample_order(dataset, val_ints)[0])).ravel()
+        true = _xy_for_sample_order(dataset, val_ints)[1]
+        for sample_int, value, target in zip(val_ints, pred, true, strict=True):
+            oof_pred[int(sample_int)] = float(value)
+            oof_true[int(sample_int)] = float(target)
+    keys = sorted(oof_pred)
+    cv_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+
+    final = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_components))
+    final.fit(*_xy_for_sample_order(dataset, kept))
+    x_test, y_test = _xy_for_sample_order(dataset, test)
+    test_rmse = float(np.sqrt(mean_squared_error(y_test, np.asarray(final.predict(x_test)).ravel())))
+    return cv_oof, test_rmse, excluded
+
+
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_public_run_engine_dagml_exclude_default_legacy_parity() -> None:
     """exclude (DEFAULT mode, keep_in_oof=False) on engine="dag-ml" == legacy: excluded removed from CV.
@@ -712,6 +765,67 @@ def test_public_run_engine_dagml_exclude_default_legacy_parity() -> None:
     test_pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel()
     refit_test_rmse = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), test_pred)))
     assert abs(dagml.best_rmse - refit_test_rmse) < 1e-3, (dagml.best_rmse, refit_test_rmse)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_tag_round_trip(tmp_path) -> None:
+    """`tag` runs non-destructively: relation tags are emitted and the CV pool stays full."""
+    from nirs4all.operators.filters.y_outlier import YOutlierFilter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    n_comp = 5
+    tag_name = "dagml_y_iqr_outlier"
+    pipeline = [
+        {"tag": YOutlierFilter(method="iqr", threshold=1.0, tag_name=tag_name)},
+        StandardNormalVariate(),
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=n_comp)},
+    ]
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path)
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    identity = mint_identity(dataset)
+    train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    expected_tagged = _flagged_by_filter(dataset, train, YOutlierFilter(method="iqr", threshold=1.0, tag_name=tag_name))
+    assert expected_tagged, "tag filter must flag samples for this round-trip test"
+
+    envelope = json.loads((tmp_path / "variant0" / "envelope.json").read_text())
+    records = envelope["coordinator_relations"]["records"]
+    assert len(records) == len(train), "tag must not remove samples from the CV relation universe"
+    by_int = {identity.to_int(record["observation_id"]): record for record in records}
+    tagged = {sample_int for sample_int, record in by_int.items() if tag_name in record.get("tags", [])}
+    assert tagged == expected_tagged
+    assert all(record.get("tags") for record in records if "tags" in record)
+
+    avg = [report for report in json.loads((tmp_path / "variant0" / "bundle.json").read_text())["scores"]["reports"] if report["partition"] == "validation" and report["fold_id"] == "avg"]
+    assert len(avg) == 1 and avg[0]["row_count"] == len(train), "tagged samples must stay in the OOF"
+    cv_oof, test_rmse = _host_split_oof_and_test(dataset, lambda: KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), n_components=n_comp)
+    assert abs(result.cv_best_score - cv_oof) < 1e-3
+    assert abs(result.best_rmse - test_rmse) < 1e-3
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_exclude_x_outlier_direct_sklearn_parity() -> None:
+    """Default exclude with XOutlierFilter matches direct sklearn OOF/final-test on the kept pool."""
+    import nirs4all
+    from nirs4all.operators.filters import XOutlierFilter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    n_comp = 5
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    cv_oof, test_rmse, excluded = _direct_exclude_oof_and_test(dataset, XOutlierFilter(), n_components=n_comp)
+    assert excluded, "XOutlierFilter must exclude at least one sample for this parity lock"
+
+    pipeline = [
+        {"exclude": XOutlierFilter()},
+        StandardNormalVariate(),
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=n_comp)},
+    ]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
