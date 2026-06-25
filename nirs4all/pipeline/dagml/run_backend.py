@@ -546,6 +546,111 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     return branch_step, body
 
 
+def _is_duplication_branch_step(step: Any) -> bool:
+    """True for a DUPLICATION branch: ``{"branch": [[A], [B], ...]}`` (the list-of-lists form).
+
+    Legacy nirs4all (``BranchController._detect_branch_mode``) treats *list* branch syntax as ALWAYS
+    duplication — N parallel sub-pipelines, each seeing the FULL data (no sample partitioning). The
+    dict form (``{"by_metadata": ...}``/named branches) is separation/other and is NOT matched here.
+    Each inner element must itself be a list (a sub-pipeline of steps).
+    """
+    if not isinstance(step, dict):
+        return False
+    branch = step.get("branch")
+    return isinstance(branch, list) and len(branch) >= 2 and all(isinstance(sub, list) for sub in branch)
+
+
+# The cross-branch fusion (avg / proba-mean) merge tokens this backend maps to dag-ml's native fusion
+# merge handler. Simple-string ``"mean"``/``"average"`` (a NEW token — legacy MergeConfigParser rejects
+# it, so there is no collision) average the branches' held-out OOF per sample into ONE final prediction;
+# the explicit-aggregation dict form reuses nirs4all's established aggregation vocabulary
+# (``AggregationStrategy.MEAN``/``PROBA_MEAN``). A STACKING merge (``{"merge": "predictions"}`` →
+# MetaModel, backlog #10) is deliberately NOT a fusion token and falls through to the loud bridge error.
+_FUSION_MERGE_STRINGS = frozenset({"mean", "average"})
+
+
+def _fusion_merge_aggregate(step: Any) -> str | None:
+    """The fusion aggregation if ``step`` is a handled avg/mean fusion merge, else ``None``.
+
+    Returns ``"mean"`` (value average → dag-ml ``merge_mode: "fusion"``) or ``"proba_mean"``
+    (class-probability average → ``"fusion_proba_mean"``) for the two recognized spellings:
+
+    * ``{"merge": "mean"}`` / ``{"merge": "average"}`` → ``"mean"``;
+    * ``{"merge": {"predictions": "all", "aggregate": "mean"|"proba_mean"}}`` — the explicit
+      aggregation-vocabulary form (``predictions`` collection + an ``aggregate`` reducer), with NO
+      other keys (no per-branch ``select``/``metric``, no ``features``, no downstream model implied).
+
+    Everything else (``"predictions"`` stacking, ``"concat"``, ``"features"``, a per-branch config,
+    ``weighted_mean``, ``separate``) returns ``None`` so the bridge fails loud.
+    """
+    if not isinstance(step, dict) or "merge" not in step:
+        return None
+    spec = step["merge"]
+    if isinstance(spec, str):
+        return "mean" if spec in _FUSION_MERGE_STRINGS else None
+    if isinstance(spec, dict):
+        # Only the exact {"predictions": "all", "aggregate": <mean|proba_mean>} shape — nothing else.
+        if set(spec) != {"predictions", "aggregate"} or spec.get("predictions") not in ("all", True):
+            return None
+        aggregate = spec.get("aggregate")
+        return aggregate if aggregate in ("mean", "proba_mean") else None
+    return None
+
+
+def _is_stacking_merge_step(step: Any) -> bool:
+    """True for a STACKING merge (``{"merge": "predictions"}`` or a per-branch predictions config).
+
+    Stacking turns the branch OOF into meta-features for a downstream meta-model — a separate, larger
+    subsystem (backlog #10). It is detected only to fail LOUD with a clear #10 message, never run.
+    """
+    if not isinstance(step, dict) or "merge" not in step:
+        return False
+    spec = step["merge"]
+    if spec == "predictions":
+        return True
+    return isinstance(spec, dict) and ("predictions" in spec) and _fusion_merge_aggregate(step) is None
+
+
+def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], str] | None:
+    """Detect the EXACT duplication-branch + avg/mean fusion-merge shape, else ``None`` (fail-loud).
+
+    Admits ONLY a pipeline that is exactly: the splitter + ONE duplication branch
+    (``{"branch": [[A], [B], ...]}`` with N≥2 sub-pipelines, each containing a model) + ONE avg/mean
+    fusion merge (:func:`_fusion_merge_aggregate`). Returns ``(branches, aggregate)`` when matched
+    (``aggregate`` is ``"mean"`` or ``"proba_mean"``). ANY deviation returns ``None`` so the bridge's
+    raw-branch / raw-merge ``NotImplementedError`` fires. Specifically REJECTED (fall through to loud):
+
+    * a STACKING merge (``{"merge": "predictions"}`` / a per-branch predictions config → a meta-model,
+      backlog #10) — raised loud naming #10 by the caller, never silently averaged;
+    * a separation (dict-form) branch — handled by :func:`_detect_separation_branch`, not here;
+    * a sub-pipeline without a model (fusion averages MODEL predictions);
+    * a top-level operator/transform/``tag``/``y_processing``/``exclude`` beside the branch (only each
+      branch body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
+    * a model after the merge, more than one branch/merge, or any unrecognized merge spelling.
+    """
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    merge_aggregates = [(step, agg) for step in pipeline if (agg := _fusion_merge_aggregate(step)) is not None]
+    if len(branch_steps) != 1 or len(merge_aggregates) != 1:
+        return None
+    branch_step = branch_steps[0]
+    merge_step, aggregate = merge_aggregates[0]
+
+    # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps. A top-level
+    # transform / tag / y_processing / exclude / model would be silently ignored (each branch body is
+    # lowered, not the top level), so its presence rejects the match → fail-loud.
+    for step in pipeline:
+        if step is branch_step or step is merge_step or hasattr(step, "split"):
+            continue
+        return None
+
+    branches = branch_step["branch"]
+    # Every sub-pipeline must contain a model — fusion averages MODEL predictions; a modelless branch
+    # (features only) is not the supported shape.
+    if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
+        return None
+    return branches, aggregate
+
+
 def run_via_dagml(
     pipeline: Any,
     dataset: Any,
@@ -589,6 +694,7 @@ def run_via_dagml(
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
     # unsupported combination BEFORE any non-group dispatch path (branch/augmentation/exclude) runs.
     detected = _detect_separation_branch(list(pipeline))
+    detected_duplication = _detect_duplication_branch(list(pipeline))
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
     # REPETITIONS (sample-grain grouping): when the dataset declares a repetition column, several stored
@@ -604,7 +710,7 @@ def run_via_dagml(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
-        if augmentation_steps or detected is not None or any(_is_exclude_step(step) for step in pipeline):
+        if augmentation_steps or detected is not None or detected_duplication is not None or any(_is_exclude_step(step) for step in pipeline):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
                 "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
@@ -619,6 +725,24 @@ def run_via_dagml(
     if detected is not None:
         branch_step, branch_body = detected
         return _run_separation_branch(list(pipeline), branch_step, branch_body, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "branch", metric, task_type)
+
+    # Duplication branch (`{"branch": [[A], [B], …]}`) + avg/mean fusion merge → ONE native run: each
+    # branch is a full-data model node (NO fan-out / NO branch_view); dag-ml's native fusion merge handler
+    # averages the branches' held-out Validation OOF per sample (leakage-safe) into one full-universe OOF.
+    if detected_duplication is not None:
+        branches, aggregate = detected_duplication
+        return _run_duplication_branch(list(pipeline), branches, aggregate, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "duplication", metric, task_type)
+
+    # A STACKING merge (`{"merge": "predictions"}` / a per-branch predictions config → a meta-model) is a
+    # separate, larger subsystem (backlog #10). It must fail LOUD here, naming #10, rather than reach the
+    # bridge's generic raw-merge error — so the deferral is explicit and a duplication branch with a
+    # stacking merge is never mistaken for a fusion ensemble.
+    if any(_is_stacking_merge_step(step) for step in pipeline) and any(_is_duplication_branch_step(step) for step in pipeline):
+        raise NotImplementedError(
+            "engine='dag-ml' does not yet support a STACKING merge ({'merge': 'predictions'} → a "
+            "meta-model over branch OOF); that is backlog #10 (the next slice). Use {'merge': 'mean'} "
+            "for an averaging (fusion) ensemble instead."
+        )
 
     # `sample_augmentation` → run nirs4all's REAL augmentation machinery to create the synthetic TRAIN
     # rows in the dataset, then run ONE native dag-ml CV+refit: base-grain folds (the synthetic children
@@ -1146,6 +1270,120 @@ def _branch_metadata(spectro: Any, identity: Any, mode: str, key: str) -> tuple[
     metadata_by_sample = {key: dict(by_int)}
     sample_metadata = {identity.to_wire(sample_int): {key: value} for sample_int, value in by_int.items()}
     return metadata_by_sample, sample_metadata
+
+
+_FUSION_MERGE_NODE_ID = "merge:fusion"
+
+
+def _canonical_branch_step(step: Any, node_id: str) -> dict[str, Any]:
+    """Lower one branch-body step to a CANONICAL pipeline-DSL step (``kind`` + ``operator.class``).
+
+    The duplication-fusion path emits a *canonical* ``steps`` DSL (not the compat ``pipeline`` form):
+    dag-ml's nirs4all-compat importer whitelists merge modes (``concat``/``predictions``/… only) and
+    REFUSES ``fusion`` — but the canonical ``PipelineDslMergeStep.merge_mode`` is a free-form string the
+    runtime reads verbatim, so the fusion merge must be expressed canonically. The branch bodies must
+    therefore also be canonical. This reuses the verified compat lowering
+    (:func:`~nirs4all.pipeline.dagml_bridge._step_to_dsl` — operator FQN + JSON-safe params +
+    native param-generator entries) and re-keys it into the canonical ``{"kind", "id", "operator":
+    {"class": …}, "params": …}`` shape per node kind (transform / y_transform / model), assigning the
+    explicit ``node_id`` so each branch's nodes are uniquely named.
+    """
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    compat = _step_to_dsl(step)
+    if "model" in compat:
+        out: dict[str, Any] = {"kind": "model", "id": node_id, "operator": {"class": compat["model"]}, "params": compat.get("params", {})}
+        if "generators" in compat:
+            out["generators"] = compat["generators"]
+        return out
+    if "y_processing" in compat:
+        inner = compat["y_processing"]
+        return {"kind": "y_transform", "id": node_id, "operator": {"class": inner["class"]}, "params": inner.get("params", {})}
+    # Bare transform: compat is {"class": FQN, "params": {...}}.
+    return {"kind": "transform", "id": node_id, "operator": {"class": compat["class"]}, "params": compat.get("params", {})}
+
+
+def _canonical_branch(branch_body: list[Any], branch_index: int) -> dict[str, Any]:
+    """Lower one duplication sub-pipeline (a list of steps) to a canonical branch with unique node ids."""
+    steps = [step for step in branch_body if not hasattr(step, "split")]
+    return {
+        "id": f"branch_{branch_index}",
+        "steps": [_canonical_branch_step(step, f"branch:{branch_index}.node:{node_index}") for node_index, step in enumerate(steps)],
+    }
+
+
+def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """Run a duplication branch (``[[A], [B], …]``) + avg/mean fusion merge as ONE native dag-ml run.
+
+    Lowers each inner sub-pipeline to a canonical branch (``mode: "duplication"`` — every branch model
+    node gets the FULL fold data view: NO fan-out, NO ``auto_separate``, NO ``branch_view``,
+    NO ``sample_metadata``) and a fusion merge node (``merge_mode: "fusion"`` for the value mean,
+    ``output_as: "predictions"``). dag-ml runs ONE native CV+refit: each branch model is FIT_CV on the
+    full fold-train and predicts the full fold-validation (held-out OOF); the native fusion merge handler
+    averages the branches' per-sample Validation OOF (leakage-safe — train predictions never enter the
+    average) into one full-universe OOF attributed to the merge node, whose cross-fold average is
+    ``cv_best_score``.
+
+    ``best_rmse`` (final test) stays NaN: the fusion merge handler reassembles the FIT_CV validation OOF,
+    not the per-branch REFIT test predictions, so no merged ``(test, final)`` report exists — exactly as
+    for the separation concat merge. ``cv_best_score`` is the score a fusion ensemble is meant to produce.
+
+    Classification (``fusion_proba_mean``) is NOT wired: the node runner emits scalar value predictions,
+    not per-class probability rows, so a probability-mean fusion has no proba blocks to average — it
+    fails loud rather than averaging class labels (which is not what ``proba_mean`` means).
+    """
+    import dag_ml
+
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
+
+    if aggregate == "proba_mean":
+        raise NotImplementedError(
+            "engine='dag-ml' does not yet support proba-mean fusion (classification): the process adapter "
+            "emits class-label predictions, not per-class probability rows; backlog #20-avg (proba)."
+        )
+    merge_mode = "fusion"
+
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    if splitter is None:
+        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+
+    identity = mint_identity(spectro)
+    # The handled shape rejects any exclude step, so the CV universe is the full train pool.
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool)
+
+    # Canonical DSL: one duplication branch with N sub-pipelines (each on the FULL data) + a fusion merge.
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-duplication-fusion",
+        "steps": [
+            {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch(branch, index) for index, branch in enumerate(branches)]},
+            {"kind": "merge", "id": _FUSION_MERGE_NODE_ID, "merge_mode": merge_mode, "output_as": "predictions"},
+        ],
+    }
+
+    manifests = controller_manifests()
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if len(model_ids) < 2:
+        raise RuntimeError("duplication-fusion compile produced fewer than two model nodes")
+
+    # One data_binding per branch model node (each binds its `x` to the full source) + the materialized
+    # fold set. Every model node sees the full fold view — no branch_view/sample_metadata (duplication).
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+
+    outcome = run_cv_refit_bundle(
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+    )
+    if outcome["returncode"] != 0:
+        raise RuntimeError(f"dag-ml duplication-fusion run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+
+    bundle = json.loads((run_dir / "bundle.json").read_text())
+    # The fusion-merge producer's reports carry the full-universe cross-fold OOF average (the fused
+    # ensemble's `cv_best_score`); `best_rmse` (final-test) stays NaN (no merged refit-test report).
+    model_label = "+".join(_model_name(branch) for branch in branches)
+    return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
 
 
 def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str, metric: str = "rmse", task_type: str = "regression", producer: str | None = None) -> RunResult:
