@@ -118,6 +118,28 @@ class FeatureAccessor:
         indices = self._indexer.x_indices(selector_dict, include_augmented, include_excluded)
         return self._block.x(indices, layout, concat_source)
 
+    def x_rows(self,
+               sample_ints: list[int],
+               layout: Layout = "2d",
+               concat_source: bool = True) -> OutputData:
+        """
+        Get feature data for an EXACT set of stored rows, addressed by their own sample int.
+
+        Unlike :meth:`x`, this bypasses the two-phase base-keyed selection: each sample int
+        (base OR augmented) addresses its own storage row directly, and rows are returned in
+        the order requested. Used by the dag-ml resolver to materialize a view whose ids may
+        include augmented children, which the base-keyed ``x`` path filters out.
+
+        Args:
+            sample_ints: Stored-row sample ints to retrieve, in the desired output order.
+            layout: Output layout ("2d" or "3d").
+            concat_source: If True, concatenate multiple sources along the feature axis.
+
+        Returns:
+            Feature data array(s), one row per requested sample int, in request order.
+        """
+        return self._block.x(np.asarray(sample_ints, dtype=np.int64), layout, concat_source)
+
     def add_samples(self,
                     data: InputData,
                     indexes: IndexDict | None = None,

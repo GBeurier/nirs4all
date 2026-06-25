@@ -10,15 +10,18 @@ It is the real ``sample_id → X/y`` fetch that the shipped conformance adapters
 (they synthesize features by hashing sample ids). Two correctness invariants, both
 verified against the live ``SpectroDataset``:
 
-* **Order is restored to the caller's request.** ``SpectroDataset.x({"sample": ids})``
-  returns rows in ascending storage order, *not* request order, so a naive pass-through
-  would silently misalign dag-ml's identity join. The resolver re-keys the returned
-  block by the authoritative fetch order (``index_column("sample", …)``) and re-emits
-  rows in the requested order — identity-keyed, never positional.
-* **Real spectra, not a hash.** Values come from ``SpectroDataset.x``/``.y``.
+* **Order is the caller's request, by identity.** Features are fetched with
+  :meth:`SpectroDataset.x_rows`, which addresses each stored row by its own ``sample`` int
+  (base *or* augmented) and returns rows in request order — identity-keyed, never
+  positional. (The base-keyed ``x`` path expands base→augmented and returns ascending
+  storage order, dropping augmented-only ids; ``x_rows`` is the observation-grain read.)
+* **Real spectra, not a hash.** Values come from ``SpectroDataset.x_rows``/``.y``.
 
-Scope: single-source / no-repetition baseline. A request whose stored-row count differs
-from its unique-sample count (augmentation / repetitions) raises rather than guessing.
+Augmented rows are observation-grain: a train view's ``observation_ids`` may include
+augmented children; a validation/predict view (``include_augmented=False``) must not — the
+resolver refuses an augmented child in such a view (the origin-boundary leakage guard at the
+host boundary, mirroring exclude's ``include_excluded`` discipline). A child's *target* is
+its origin's y, so ``resolve_targets`` is keyed by the origin's ``sample_id`` (a base id).
 """
 
 from __future__ import annotations
@@ -39,6 +42,9 @@ class MaterializationResolver:
     def __init__(self, dataset: SpectroDataset, identity: IdentityMap) -> None:
         self._dataset = dataset
         self._identity = identity
+        self._augmented_observation_ids = frozenset(
+            sample.observation_id for sample in identity.identities if sample.augmented
+        )
 
     def partition_wire_ids(self, partition: str) -> list[str]:
         """Wire sample ids for a dataset partition (e.g. ``"test"``), empty if none.
@@ -49,16 +55,6 @@ class MaterializationResolver:
         """
         return [self._identity.to_wire(sample_int) for sample_int in self._dataset.index_column("sample", {"partition": partition})]
 
-    def _ordered_rows(self, sample_ints: list[int], block: np.ndarray, returned: list[int]) -> list[int]:
-        """Row index in ``block`` for each requested sample int, restoring request order."""
-        if len(returned) != block.shape[0]:
-            raise NotImplementedError(
-                "resolver baseline supports one stored row per sample (single-source, no augmentation/repetition); "
-                f"got {block.shape[0]} rows for {len(returned)} samples"
-            )
-        row_of = {sample_int: row for row, sample_int in enumerate(returned)}
-        return [row_of[sample_int] for sample_int in sample_ints]
-
     def resolve_features(
         self,
         observation_ids: list[str],
@@ -66,16 +62,27 @@ class MaterializationResolver:
         include_augmented: bool = True,
         include_excluded: bool = False,
     ) -> dict[str, Any]:
-        """Return ``{feature_set_id, observation_ids, values}`` for the requested view, in order."""
+        """Return ``{feature_set_id, observation_ids, values}`` for the requested view, in order.
+
+        Each observation id addresses its own stored row (base or augmented) via
+        :meth:`SpectroDataset.x_rows`, so rows come back in request order with no
+        positional re-keying. When ``include_augmented`` is ``False`` (a validation/predict
+        view) an augmented observation id in the request is refused — an augmented child must
+        never reach a validation/OOF view (the origin-boundary leakage guard).
+        """
+        if not include_augmented:
+            leaked = [oid for oid in observation_ids if oid in self._augmented_observation_ids]
+            if leaked:
+                raise ValueError(
+                    "augmented observation ids in a non-augmented (validation/predict) view "
+                    f"would leak across the origin boundary: {leaked}"
+                )
         sample_ints = [self._identity.to_int(observation_id) for observation_id in observation_ids]
-        uniq = list(dict.fromkeys(sample_ints))
-        returned = self._dataset.index_column("sample", {"sample": uniq})
-        block = np.asarray(self._dataset.x({"sample": uniq}, layout="2d", include_augmented=include_augmented, include_excluded=include_excluded))
-        rows = self._ordered_rows(sample_ints, block, returned)
+        block = np.asarray(self._dataset.x_rows(sample_ints, layout="2d"))
         return {
             "feature_set_id": "features",
             "observation_ids": list(observation_ids),
-            "values": block[rows].tolist(),
+            "values": block.tolist(),
         }
 
     def resolve_targets(
@@ -85,12 +92,18 @@ class MaterializationResolver:
         target_id: str = "y",
         include_excluded: bool = False,
     ) -> dict[str, Any]:
-        """Return ``{target_id, sample_ids, values}`` for the requested samples, in order."""
+        """Return ``{target_id, sample_ids, values}`` for the requested samples, in order.
+
+        Keyed by ``sample_id`` (the origin's id for an augmented child), so a child's target
+        is its origin's y. Base sample ids fetch one stored row each; the request order is
+        restored by re-keying the storage-ordered block.
+        """
         sample_ints = [self._identity.to_int(sample_id) for sample_id in sample_ids]
         uniq = list(dict.fromkeys(sample_ints))
         returned = self._dataset.index_column("sample", {"sample": uniq})
         block = np.asarray(self._dataset.y({"sample": uniq}, include_augmented=False, include_excluded=include_excluded)).reshape(len(returned), -1)
-        rows = self._ordered_rows(sample_ints, block, returned)
+        row_of = {sample_int: row for row, sample_int in enumerate(returned)}
+        rows = [row_of[sample_int] for sample_int in sample_ints]
         return {
             "target_id": target_id,
             "sample_ids": list(sample_ids),

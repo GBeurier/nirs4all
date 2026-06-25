@@ -10,9 +10,12 @@ dag-ml view (which speaks wire ids) with the right ``SpectroDataset`` rows.
 Wire ids use ``.`` separators: dag-ml-data ids validate as ``[A-Za-z0-9_.-]`` (≤128
 bytes) and **reject** ``:`` (that is dag-ml's graph-id style, not a data id).
 
-Scope: the single-source / no-repetition baseline. The observation grain (feature-level)
-and the sample grain (target-level) coincide here; they diverge once repetitions or
-augmentation land, which is a later slice.
+The two grains diverge for augmented rows: an augmented child gets its own
+``observation_id`` (feature-level, one per stored row) while its ``sample_id`` stays the
+origin's grouping key, so the origin-boundary check sees the child grouped with its base.
+For a base row the grains coincide (``origin == sample``). ``mint_identity`` covers
+augmented rows when run on a dataset that already holds them. Repetitions are the same
+divergence (several stored rows share one ``sample_id``) and reuse this machinery.
 """
 
 from __future__ import annotations
