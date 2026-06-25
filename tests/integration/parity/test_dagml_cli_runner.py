@@ -1746,3 +1746,156 @@ def test_repetition_unsupported_composition_fails_loud() -> None:
     assert any(_is_augmentation_step(step) for step in aug_pipeline), "augmentation step must reach the dispatch for this to be a real lock"
     with pytest.raises(NotImplementedError, match=r"repetition.*#21"):
         run_via_dagml(aug_pipeline, configs, dagml_cli=str(_DAGML_CLI))
+
+
+def test_duplication_branch_detection() -> None:
+    """The duplication detector consumes ONLY the list-branch + avg/mean fusion-merge shape.
+
+    `_detect_duplication_branch` returns `(branches, aggregate)` for a `{"branch": [[A], [B], …]}`
+    list-of-lists (each sub-pipeline with a model) followed by an avg/mean fusion merge; everything else
+    (a separation branch, a stacking/concat merge, a modelless or single branch, a top-level step beside
+    the branch) returns None so the fail-loud paths still guard it. `_fusion_merge_aggregate` /
+    `_is_stacking_merge_step` distinguish the fusion tokens from a stacking merge. No CLI needed."""
+    from sklearn.linear_model import Ridge
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import (
+        _detect_duplication_branch,
+        _detect_separation_branch,
+        _fusion_merge_aggregate,
+        _is_stacking_merge_step,
+    )
+
+    splitter = KFold(n_splits=3, shuffle=True, random_state=42)
+
+    # Handled: two models on the full data + a mean fusion merge (and its spellings).
+    handled = [splitter, {"branch": [[{"model": PLSRegression(n_components=5)}], [{"model": Ridge(alpha=1.0)}]]}, {"merge": "mean"}]
+    detected = _detect_duplication_branch(handled)
+    assert detected is not None
+    branches, aggregate = detected
+    assert len(branches) == 2 and aggregate == "mean"
+    assert _detect_duplication_branch([splitter, {"branch": [[{"model": PLSRegression()}], [{"model": Ridge()}]]}, {"merge": "average"}]) is not None
+    explicit = _detect_duplication_branch([splitter, {"branch": [[{"model": PLSRegression()}], [{"model": Ridge()}]]}, {"merge": {"predictions": "all", "aggregate": "mean"}}])
+    assert explicit is not None and explicit[1] == "mean"
+
+    # The fusion token mapping (mean->mean value-average, proba_mean->probability-average) vs stacking.
+    assert _fusion_merge_aggregate({"merge": "mean"}) == "mean"
+    assert _fusion_merge_aggregate({"merge": {"predictions": "all", "aggregate": "proba_mean"}}) == "proba_mean"
+    assert _fusion_merge_aggregate({"merge": "predictions"}) is None  # stacking, not fusion
+    assert _fusion_merge_aggregate({"merge": {"predictions": "all", "aggregate": "weighted_mean"}}) is None
+    assert _is_stacking_merge_step({"merge": "predictions"}) is True
+    assert _is_stacking_merge_step({"merge": {"predictions": [{"branch": 0, "select": "best"}]}}) is True
+    assert _is_stacking_merge_step({"merge": "mean"}) is False  # a fusion merge is not stacking
+
+    # Not handled (each falls through to a loud path):
+    branch = {"branch": [[{"model": PLSRegression()}], [{"model": Ridge()}]]}
+    # a STACKING merge (predictions → meta-model) — #10, never fusion.
+    assert _detect_duplication_branch([splitter, branch, {"merge": "predictions"}]) is None
+    # a concat merge (separation reassembly), not a fusion average.
+    assert _detect_duplication_branch([splitter, branch, {"merge": "concat"}]) is None
+    # a separation (dict-form) branch is NOT a duplication branch.
+    assert _detect_duplication_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}, {"merge": "mean"}]) is None
+    # a single branch (need ≥2 to fuse).
+    assert _detect_duplication_branch([splitter, {"branch": [[{"model": PLSRegression()}]]}, {"merge": "mean"}]) is None
+    # a modelless branch (fusion averages model predictions).
+    assert _detect_duplication_branch([splitter, {"branch": [[StandardNormalVariate()], [{"model": Ridge()}]]}, {"merge": "mean"}]) is None
+    # a top-level transform beside the branch (would be silently dropped).
+    assert _detect_duplication_branch([StandardNormalVariate(), splitter, branch, {"merge": "mean"}]) is None
+    # no merge / no branch at all.
+    assert _detect_duplication_branch([splitter, branch]) is None
+    assert _detect_duplication_branch([splitter, {"merge": "mean"}]) is None
+    # the separation detector must NOT claim a list-form (duplication) branch.
+    assert _detect_separation_branch(handled) is None
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_duplication_branch_fusion() -> None:
+    """A duplication branch (2 DIFFERENT models on the FULL data) + avg/mean fusion merge scores natively.
+
+    The native path runs each branch model on the full fold data (no fan-out, no branch_view — every model
+    sees the full view), and dag-ml's fusion merge handler AVERAGES the branches' held-out Validation OOF
+    per sample (leakage-safe) into one full-universe OOF. Asserts `cv_best_score` == a DIRECT avg-ensemble
+    sklearn baseline (per fold: fit each branch on fold-train, average their fold-val per-sample
+    predictions; OOF reassembled, scored) within 1e-3, AND that the fused score DIFFERS from either branch
+    alone (proves the merge averages, not passes through).
+
+    `best_rmse` is NOT asserted: the fusion merge reassembles the FIT_CV validation OOF, not the per-branch
+    REFIT test predictions, so the merge producer has no `(test, final)` report → `best_rmse` is NaN (the
+    same shape as the separation concat merge). `cv_best_score` is the score a fusion ensemble produces.
+    """
+    from sklearn.linear_model import Ridge
+    from sklearn.metrics import mean_squared_error
+
+    import nirs4all
+
+    n_splits, n_comp, alpha = 3, 5, 1.0
+    pipeline = [
+        KFold(n_splits=n_splits, shuffle=True, random_state=42),
+        {"branch": [[{"model": PLSRegression(n_components=n_comp)}], [{"model": Ridge(alpha=alpha)}]]},
+        {"merge": "mean"},
+    ]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
+
+    def branch_oof(model_factory) -> dict[int, float]:  # noqa: ANN001
+        pred: dict[int, float] = {}
+        for train_ints, val_ints in folds:
+            model = model_factory()
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            p = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+            for position, sample_int in enumerate(val_ints):
+                pred[int(sample_int)] = float(p[position])
+        return pred
+
+    true: dict[int, float] = {}
+    for _train_ints, val_ints in folds:
+        yv = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
+        for position, sample_int in enumerate(val_ints):
+            true[int(sample_int)] = float(yv[position])
+
+    pls_oof = branch_oof(lambda: PLSRegression(n_components=n_comp))
+    ridge_oof = branch_oof(lambda: Ridge(alpha=alpha))
+    keys = sorted(true)
+    rmse_pls = float(np.sqrt(mean_squared_error([true[k] for k in keys], [pls_oof[k] for k in keys])))
+    rmse_ridge = float(np.sqrt(mean_squared_error([true[k] for k in keys], [ridge_oof[k] for k in keys])))
+    rmse_avg = float(np.sqrt(mean_squared_error([true[k] for k in keys], [(pls_oof[k] + ridge_oof[k]) / 2 for k in keys])))
+
+    # The fused OOF == the direct avg-ensemble OOF (the merge averages the branches' held-out predictions).
+    assert abs(result.cv_best_score - rmse_avg) < 1e-3, (result.cv_best_score, rmse_avg)
+    # And it DIFFERS from either branch alone — proving the merge averages, not passes one branch through.
+    assert abs(result.cv_best_score - rmse_pls) > 1e-3, (result.cv_best_score, rmse_pls)
+    assert abs(result.cv_best_score - rmse_ridge) > 1e-3, (result.cv_best_score, rmse_ridge)
+    # The two branches genuinely differ, so averaging is a real reduction (not a degenerate no-op).
+    assert abs(rmse_pls - rmse_ridge) > 1e-3, (rmse_pls, rmse_ridge)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_duplication_branch_unsupported_merge_fails_loud() -> None:
+    """A duplication branch with a STACKING merge fails LOUD naming #10; proba-mean fusion fails loud too.
+
+    A `{"branch": [[A], [B]]}` followed by `{"merge": "predictions"}` is STACKING (meta-model over branch
+    OOF) — the next slice (#10), not this one — and must raise `NotImplementedError` naming #10 rather than
+    silently averaging. A `proba_mean` fusion (classification probability average) has no proba blocks from
+    the value-only process adapter, so it also fails loud rather than averaging class labels."""
+    from sklearn.linear_model import Ridge
+
+    import nirs4all
+
+    stacking = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {"branch": [[{"model": PLSRegression(n_components=5)}], [{"model": Ridge(alpha=1.0)}]]},
+        {"merge": "predictions"},
+    ]
+    with pytest.raises(NotImplementedError, match="#10"):
+        nirs4all.run(stacking, dataset_path("regression"), engine="dag-ml")
+
+    proba = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {"branch": [[{"model": PLSRegression(n_components=5)}], [{"model": Ridge(alpha=1.0)}]]},
+        {"merge": {"predictions": "all", "aggregate": "proba_mean"}},
+    ]
+    with pytest.raises(NotImplementedError, match="proba"):
+        nirs4all.run(proba, dataset_path("regression"), engine="dag-ml")
