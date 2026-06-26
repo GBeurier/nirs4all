@@ -37,9 +37,23 @@ if TYPE_CHECKING:
 
 
 class MaterializationResolver:
-    """Resolve dag-ml view identity refs to real ``SpectroDataset`` X/y, in request order."""
+    """Resolve dag-ml view identity refs to real ``SpectroDataset`` X/y, in request order.
 
-    def __init__(self, dataset: SpectroDataset, identity: IdentityMap) -> None:
+    ``fold_children`` (``{fold_label: {origin_sample_int: [child_sample_int, ...]}}``) carries
+    **fold-local** augmentation: a stateful/supervised/balanced augmenter fits inside each fold's
+    train only, so each fold has its OWN synthetic children (different per fold). When supplied, the
+    fit-view expansion is keyed by the task's ``fold_id`` (the ``"refit"`` key for the full-train
+    refit), so a fold's children only ever join that fold's fit-train and never another fold's
+    holdout. Omitted (``None``) for the GLOBAL stateless slice (#8): the children are dataset-global
+    and discovered from the identity grain (every augmented row, regardless of fold).
+    """
+
+    def __init__(
+        self,
+        dataset: SpectroDataset,
+        identity: IdentityMap,
+        fold_children: dict[str, dict[int, list[int]]] | None = None,
+    ) -> None:
         self._dataset = dataset
         self._identity = identity
         self._augmented_observation_ids = frozenset(
@@ -58,6 +72,14 @@ class MaterializationResolver:
             self._sample_id_of_observation[sample.observation_id] = sample.sample_id
             if sample.augmented:
                 self._children_of_origin.setdefault(sample.origin_int, []).append(sample.observation_id)
+        # Fold-local children: per (fold_label, origin) → child observation ids (the fold's own
+        # synthetic rows). Translated from sample ints to wire observation ids once here.
+        self._fold_children: dict[str, dict[int, list[str]]] | None = None
+        if fold_children is not None:
+            self._fold_children = {
+                fold_label: {origin_int: [self._identity.to_wire(child_int) for child_int in child_ints] for origin_int, child_ints in by_origin.items()}
+                for fold_label, by_origin in fold_children.items()
+            }
 
     def target_sample_ids(self, observation_ids: list[str]) -> list[str]:
         """Map observation ids to their target grain's ``sample_id`` (an augmented child → its origin).
@@ -68,17 +90,31 @@ class MaterializationResolver:
         """
         return [self._sample_id_of_observation[observation_id] for observation_id in observation_ids]
 
-    def expand_with_augmented_children(self, observation_ids: list[str]) -> list[str]:
+    def expand_with_augmented_children(self, observation_ids: list[str], fold_label: str | None = None) -> list[str]:
         """Append each base id's augmented children, preserving order (base id, then its children).
 
         The fit (training) materialization for a base-grain fold/full-train view: dag-ml keeps the
         view base-grain (so the FoldSet is a clean OOF partition) and signals ``include_augmented=true``;
         the host expands it. A no-op when no augmentation ran (the children map is empty). Already-augmented
         ids pass through unchanged (they carry no further children).
+
+        With **fold-local** augmentation, ``fold_label`` (the task's ``fold_id``, or ``"refit"`` for the
+        full-train refit) selects that fold's OWN children — each fold has different children because the
+        augmenter was fit inside that fold's train only. A fold with no entry expands to no children (a
+        base-only view); a global (non-fold-local) augmentation ignores ``fold_label`` and uses the
+        dataset-wide children map. Required when fold-local: a base id requested for a fold with no fold
+        children map is an internal error (the run never built one).
         """
+        if self._fold_children is not None:
+            by_origin = self._fold_children.get(fold_label or "", {})
+            expanded: list[str] = []
+            for observation_id in observation_ids:
+                expanded.append(observation_id)
+                expanded.extend(by_origin.get(self._identity.to_int(observation_id), []))
+            return expanded
         if not self._children_of_origin:
             return list(observation_ids)
-        expanded: list[str] = []
+        expanded = []
         for observation_id in observation_ids:
             expanded.append(observation_id)
             expanded.extend(self._children_of_origin.get(self._identity.to_int(observation_id), []))
