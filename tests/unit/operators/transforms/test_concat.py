@@ -94,3 +94,17 @@ def test_empty_operations_rejected(X):
         FeatureConcat(operations=[]).fit(X)
     with pytest.raises(ValueError, match="non-empty"):
         FeatureConcat().fit(X)
+
+
+def test_passthrough_channel_keeps_raw_layer_first(X):
+    """A ``None`` entry emits the un-transformed (raw) columns first — the feature_augmentation extend/add layer.
+
+    ``FeatureConcat([None, StandardScaler])`` is the extend/add lowering ``[raw, scaler(raw)]``: the raw
+    columns come first (in spec order), then the transformed ones, matching the ``FLAT_2D`` materialization
+    a 2D model sees for ``[raw, op(raw)]``.
+    """
+    fc = FeatureConcat(operations=[None, _spec("sklearn.preprocessing._data.StandardScaler")])
+    out = fc.fit_transform(X)
+    assert out.shape == (20, 16)  # 8 raw + 8 scaled
+    assert np.allclose(out[:, :8], X)  # raw layer unchanged, first
+    assert np.allclose(out[:, 8:], StandardScaler().fit_transform(X))

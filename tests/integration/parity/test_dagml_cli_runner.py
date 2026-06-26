@@ -49,10 +49,11 @@ def test_dagml_engine_coverage_boundary() -> None:
 
     SUPPORTED today (each has its own e2e parity test above): regression + classification, KFold +
     ShuffleSplit, single + multi-model, any sklearn estimator, preprocessing chains, y_processing,
-    generators (_or_/_range_/_grid_), hyperparameter sweeps. UNSUPPORTED features must fail LOUDLY
-    (a clear NotImplementedError from the bridge) — never silently produce a wrong result — so the
-    default can only be flipped to dag-ml once these are covered. This test pins that boundary; drop
-    a keyword from `unsupported` as each gets implemented.
+    generators (_or_/_range_/_grid_), hyperparameter sweeps, concat_transform, single-source
+    feature_augmentation (extend/add/replace → flat feature-axis concat, S6). UNSUPPORTED features must
+    fail LOUDLY (a clear NotImplementedError from the bridge) — never silently produce a wrong result —
+    so the default can only be flipped to dag-ml once these are covered. This test pins that boundary;
+    drop a keyword from `unsupported` as each gets implemented.
     """
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.preprocessing import MinMaxScaler
@@ -64,12 +65,16 @@ def test_dagml_engine_coverage_boundary() -> None:
         "exclude": {"exclude": {"partition": "val"}},
         "branch": {"branch": [[StandardNormalVariate()], [MinMaxScaler()]]},
         "sample_augmentation": {"sample_augmentation": StandardNormalVariate()},
-        "feature_augmentation": {"feature_augmentation": StandardNormalVariate()},
         "merge": {"merge": "predictions"},
     }
     for keyword, step in unsupported.items():
         with pytest.raises(NotImplementedError, match=keyword):
             pipeline_to_dsl([step, {"model": PLSRegression(n_components=5)}], "boundary")
+
+    # A single-source feature_augmentation feeding directly into the model IS now supported (S6): it
+    # lowers to one FeatureConcat node (the augmented processing layers hstacked onto the feature axis).
+    dsl = pipeline_to_dsl([{"feature_augmentation": StandardNormalVariate()}, {"model": PLSRegression(n_components=5)}], "boundary")
+    assert dsl["pipeline"][0]["class"] == "nirs4all.operators.transforms.concat.FeatureConcat"
 
 
 def test_assembled_dsl_binds_data_and_materializes_folds() -> None:
@@ -1796,9 +1801,6 @@ def test_concat_transform_3d_shapes_fail_loud() -> None:
     ):
         with pytest.raises(NotImplementedError, match="#29/#31"):
             _step_to_dsl(step)
-    # feature_augmentation (the 3D processing axis itself) stays fail-loud at the generic boundary.
-    with pytest.raises(NotImplementedError, match="feature_augmentation"):
-        _step_to_dsl({"feature_augmentation": PCA(n_components=5)})
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -1849,6 +1851,177 @@ def test_public_run_engine_dagml_concat_transform_with_chain() -> None:
     result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
     assert abs(result.cv_best_score - cv_oof) < 1e-6, (result.cv_best_score, cv_oof)
     assert abs(result.best_rmse - test_rmse) < 1e-6, (result.best_rmse, test_rmse)
+
+
+# ---------------------------------------------------------------------------
+# feature_augmentation (backlog #31 / slice S6): extend/add/replace grow the dataset's PROCESSING axis
+# (parallel preprocessing layers on the same samples). For a 2D model that axis is materialized by the
+# FLAT_2D layout — an `np.hstack` of the layers in processing order (layout_transformer.py) — so the
+# model sees the SAME matrix as a `FeatureUnion` over the layer transformers. The bridge lowers a
+# single-source feature_augmentation to ONE `FeatureConcat` X-transform node (the augmentation
+# sub-transformers fit fold-train, applied fold-val/test — leakage-safe, like concat_transform):
+#   * extend/add → `[raw, op1(raw), …]` = FeatureConcat([None, op1, …]) (raw pass-through layer first),
+#   * replace    → `[op1(raw), …]`      = FeatureConcat([op1, …])        (raw layer dropped).
+# The processing axis is a FEATURE axis (no new SAMPLE rows — distinct from sample_augmentation), so
+# sample-keying is preserved. Parity uses ROW-INDEPENDENT transforms (SNV / SavitzkyGolay derivative)
+# for exact, order-insensitive agreement. The 3D shapes that must deliver parallel processing CHANNELS
+# to a DL model (stacked feature_augmentation / a per-layer step after it) stay fail-loud (#29/#31).
+# ---------------------------------------------------------------------------
+
+
+def _feature_aug_oof_and_test(dataset, make_aug_step, n_components: int = 15) -> tuple[float, float]:
+    """Direct sklearn OOF + final-test for the `FeatureConcat` the bridge lowers `make_aug_step()` to.
+
+    Builds the SAME host `FeatureConcat` operator the bridge emits (so the baseline runs the identical
+    hstack the engine runs) and scores it per dag-ml's fold/refit row order. Returns
+    `(cv_oof_rmse, final_test_rmse)`.
+    """
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.pipeline.dagml.operator_routing import route_operator
+    from nirs4all.pipeline.dagml_bridge import _lower_feature_augmentation
+
+    lowered = _lower_feature_augmentation(make_aug_step())
+
+    def make_concat():
+        return route_operator("transform", lowered["class"], lowered["params"])
+
+    folds, pool = _dagml_fold_order(dataset)
+    test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
+
+    def xof(ids):
+        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"), dtype=float)
+
+    def yof(ids):
+        ids = [int(i) for i in ids]
+        block = np.asarray(dataset.y({"sample": ids}), dtype=float)
+        stored = dataset.index_column("sample", {"sample": ids})
+        row = {int(s): r for r, s in enumerate(stored)}
+        return block[[row[int(s)] for s in ids]].ravel()
+
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ids, val_ids in folds:
+        model = make_pipeline(make_concat(), PLSRegression(n_components=n_components))
+        model.fit(xof(train_ids), yof(train_ids))
+        preds = np.asarray(model.predict(xof(val_ids))).ravel()
+        for sample_int, pred, target in zip(val_ids, preds, yof(val_ids), strict=True):
+            oof_pred[int(sample_int)] = float(pred)
+            oof_true[int(sample_int)] = float(target)
+    keys = sorted(oof_pred)
+    cv_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+
+    final = make_pipeline(make_concat(), PLSRegression(n_components=n_components))
+    final.fit(xof(pool), yof(pool))
+    test_rmse = float(np.sqrt(mean_squared_error(yof(test), np.asarray(final.predict(xof(test))).ravel())))
+    return cv_oof, test_rmse
+
+
+def test_feature_augmentation_bridge_lowers_to_feature_concat() -> None:
+    """The bridge lowers each action mode to ONE `FeatureConcat` node with the right layer set.
+
+    extend/add keep the raw pass-through layer first (`None` → "passthrough"); replace drops it. The
+    sub-transformers serialize to `{class, params}` specs (a chain entry stays a nested list).
+    """
+    from nirs4all.operators.transforms.nirs import SavitzkyGolay
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    snv = "nirs4all.operators.transforms.scalers.StandardNormalVariate"
+    sg = "nirs4all.operators.transforms.nirs.SavitzkyGolay"
+
+    for action in ("extend", "add"):
+        dsl = _step_to_dsl({"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(window_length=11, polyorder=2, deriv=1)], "action": action})
+        assert dsl["class"] == "nirs4all.operators.transforms.concat.FeatureConcat"
+        ops = dsl["params"]["operations"]
+        assert ops[0] is None  # raw pass-through layer first
+        assert [op["class"] for op in ops[1:]] == [snv, sg]
+
+    dsl = _step_to_dsl({"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(window_length=11, polyorder=2, deriv=1)], "action": "replace"})
+    ops = dsl["params"]["operations"]
+    assert None not in ops  # replace drops the raw layer
+    assert [op["class"] for op in ops] == [snv, sg]
+
+
+def test_feature_augmentation_3d_shapes_fail_loud() -> None:
+    """The shapes that need the 3D data-plane (parallel processing channels) fail loud naming #29/#31.
+
+    A `feature_augmentation` followed by another X-side step (a bare transform, a `concat_transform`, or
+    a second `feature_augmentation`) would have the legacy path apply that step PER processing layer,
+    which the flat hstack cannot express; the generator dict form must be expanded upstream; a nested
+    concat_transform / dict operation is a multi-block construct. All must raise, never silently mis-lower.
+    """
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.decomposition import PCA
+    from sklearn.preprocessing import MinMaxScaler
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl, pipeline_to_dsl
+
+    # A generator-form (unexpanded) feature_augmentation must not be flattened.
+    with pytest.raises(NotImplementedError, match="#29/#31|generator"):
+        _step_to_dsl({"feature_augmentation": {"_or_": [StandardNormalVariate(), MinMaxScaler()], "pick": 2}})
+    # A nested concat_transform / dict operation is a multi-block construct.
+    with pytest.raises(NotImplementedError, match="#29/#31"):
+        _step_to_dsl({"feature_augmentation": [{"concat_transform": [PCA(n_components=3)]}]})
+
+    model = {"model": PLSRegression(n_components=5)}
+    # Stacked feature_augmentation (multiplicative processing-axis growth) → fail loud at pipeline level.
+    with pytest.raises(NotImplementedError, match="#29/#31"):
+        pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"feature_augmentation": [MinMaxScaler()]}, model], "boundary")
+    # feature_augmentation then a per-processing X-transform / concat_transform → fail loud.
+    with pytest.raises(NotImplementedError, match="#29/#31"):
+        pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, MinMaxScaler(), model], "boundary")
+    with pytest.raises(NotImplementedError, match="#29/#31"):
+        pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"concat_transform": [MinMaxScaler()]}, model], "boundary")
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_feature_augmentation_replace() -> None:
+    """engine="dag-ml" runs feature_augmentation REPLACE (hstack of the augmented layers, no raw) == sklearn.
+
+    `replace` keeps only `[SNV(raw), SG(raw)]` → FeatureConcat([SNV, SG]). Each layer is row-independent,
+    so the OOF and final-test scores match the direct hstack→PLS baseline EXACTLY."""
+    import nirs4all
+    from nirs4all.operators.transforms.nirs import SavitzkyGolay
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+
+    def make_step():
+        return {"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(window_length=11, polyorder=2, deriv=1)], "action": "replace"}
+
+    cv_oof, test_rmse = _feature_aug_oof_and_test(dataset, make_step)
+
+    pipeline = [make_step(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=15)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_feature_augmentation_extend() -> None:
+    """engine="dag-ml" runs feature_augmentation EXTEND (raw kept + augmented layers) == sklearn hstack.
+
+    `extend` keeps `[raw, SNV(raw), SG(raw)]` → FeatureConcat([None, SNV, SG]); the raw pass-through layer
+    rides beside the transformed ones — exactly the FLAT_2D materialization a 2D model sees. Both native
+    scores match the direct baseline (row-independent transforms)."""
+    import nirs4all
+    from nirs4all.operators.transforms.nirs import SavitzkyGolay
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+
+    def make_step():
+        return {"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(window_length=11, polyorder=2, deriv=1)], "action": "extend"}
+
+    cv_oof, test_rmse = _feature_aug_oof_and_test(dataset, make_step)
+
+    pipeline = [make_step(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=15)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-3, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-3, (result.best_rmse, test_rmse)
 
 
 # ---------------------------------------------------------------------------

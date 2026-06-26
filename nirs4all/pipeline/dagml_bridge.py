@@ -46,12 +46,16 @@ _UNSUPPORTED_STEP_KEYS = frozenset({
     "tag",
     "exclude",
     "sample_augmentation",
-    "feature_augmentation",
     "rep_to_sources",
     "rep_to_pp",
     "finetune_params",
     "train_params",
 })
+
+# feature_augmentation action modes (mirrors FeatureAugmentationController.VALID_ACTIONS). The default
+# is "add" (FeatureAugmentationController.execute), which for a single base "raw" processing keeps the
+# raw layer beside the new ones — same column set as "extend"; "replace" drops the raw layer.
+_FEATURE_AUGMENTATION_ACTIONS = frozenset({"extend", "add", "replace"})
 
 # `FeatureConcat` is the single-source replace-mode lowering of `concat_transform` (backlog #27):
 # nirs4all hstacks several sub-transformers' outputs into one wider 2D feature matrix, which is exactly
@@ -217,6 +221,59 @@ def _lower_concat_transform(step: dict[str, Any]) -> dict[str, Any]:
     return {"class": _FEATURE_CONCAT_CLASS, "params": {"operations": [_concat_operation_spec(op) for op in operations]}}
 
 
+def _lower_feature_augmentation(step: dict[str, Any]) -> dict[str, Any]:
+    """Lower a supported (single-source, 2D-model) ``feature_augmentation`` step to a ``FeatureConcat`` node.
+
+    ``feature_augmentation`` grows the dataset's processing axis: each operation runs on the base
+    ("raw") processing, producing one new parallel preprocessing layer ``op(raw)``
+    (``FeatureAugmentationController._execute_*_mode`` → ``add_features``). For a 2D model that axis is
+    materialized by the ``FLAT_2D`` layout, an ``np.hstack`` of the layers in processing order
+    (``layout_transformer.py``) — so the model sees the SAME matrix as a ``FeatureUnion`` over the
+    layers. The action mode selects which layers survive:
+
+    * **extend / add** — keep the raw layer beside the new ones: ``[raw, op1(raw), …, opN(raw)]`` →
+      ``FeatureConcat([None, op1, …, opN])`` (the ``None`` pass-through is the raw layer).
+    * **replace** — drop the raw layer: ``[op1(raw), …, opN(raw)]`` → ``FeatureConcat([op1, …, opN])``
+      (identical to a ``concat_transform``).
+
+    The ``FeatureConcat`` node lives in the model's upstream X-chain, so each augmentation
+    sub-transformer is fit on fold-train only (leakage-safe) and re-applied to fold-val/test, exactly
+    like ``concat_transform``. The processing axis is a FEATURE axis, not a sample axis — no new
+    SAMPLE rows are created (distinct from ``sample_augmentation``), so sample-keying is preserved.
+
+    Out of scope here (fail loud, needs the 3D data-plane / a DL operator — backlog #29/#31): operations
+    that are a nested ``concat_transform`` or a dict (a multi-block construct), and the generator dict
+    form (``{"_or_": …, "pick": …}``) which the Python ``expand_spec`` path must expand upstream. The
+    single-source 2D model is what the host resolver materializes; a 3D/CNN model that genuinely needs
+    the parallel processing channels is a Python-only DL slice, not this host-concat lowering.
+    """
+    operations = step["feature_augmentation"]
+    action = step.get("action", "add")
+    if action not in _FEATURE_AUGMENTATION_ACTIONS:
+        raise ValueError(f"invalid feature_augmentation action {action!r}; must be one of {sorted(_FEATURE_AUGMENTATION_ACTIONS)}")
+    if isinstance(operations, dict):
+        # The generator dict form ({"_or_": [...], "pick": n, "count": m}) builds the operation set by
+        # combinatorial selection — the Python expand_spec path owns it (it is expanded BEFORE this
+        # bridge runs); a dict reaching here is an unexpanded generator, never a flat operation list.
+        raise NotImplementedError(
+            "dag-ml bridge does not lower a generator-form `feature_augmentation` (the `{_or_, pick, count}` "
+            "spec); the Python expand path expands operator-level generators before lowering"
+        )
+    if not isinstance(operations, list):
+        # A single transformer instance (e.g. {"feature_augmentation": SNV()}) is one augmentation layer.
+        operations = [operations]
+    layers = [op for op in operations if op is not None]
+    if not layers:
+        raise NotImplementedError(
+            "dag-ml bridge does not lower an empty `feature_augmentation` (no operations to add)"
+        )
+    specs = [_concat_operation_spec(op) for op in layers]
+    if action in ("extend", "add"):
+        # Prepend the raw pass-through layer (FeatureConcat lowers None → sklearn "passthrough").
+        specs = [None, *specs]
+    return {"class": _FEATURE_CONCAT_CLASS, "params": {"operations": specs}}
+
+
 def _step_to_dsl(step: Any) -> dict[str, Any]:
     """Lower one nirs4all pipeline step to a compat-DSL step object."""
     if isinstance(step, dict):
@@ -254,6 +311,12 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             # Single-source replace-mode `concat_transform` lowers to one `FeatureConcat` X-transform
             # node (hstack of sub-transformers); the 3D processing-axis shapes fail loud naming #29/#31.
             return _lower_concat_transform(step)
+        if "feature_augmentation" in step:
+            # Single-source 2D-model `feature_augmentation` (extend/add/replace) lowers to one
+            # `FeatureConcat` X-transform node — the augmented processing layers hstacked onto the
+            # feature axis (the FLAT_2D materialization a 2D model already sees). The 3D/multi-source
+            # shapes (parallel channels to a DL model) fail loud naming the data-plane (#29/#31).
+            return _lower_feature_augmentation(step)
         offending = sorted(set(step) & _UNSUPPORTED_STEP_KEYS) or sorted(step)
         raise NotImplementedError(
             f"dag-ml bridge spike does not yet serialize step keyword(s) {offending}; "
@@ -264,12 +327,45 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
     return {"class": _qualname(step), "params": _json_safe_params(step)}
 
 
+def _is_x_node_step(step: Any) -> bool:
+    """True if ``step`` becomes an X-side graph node that re-reads the (flattened) feature matrix.
+
+    A bare transformer instance, a ``concat_transform``, or a ``feature_augmentation`` all operate on
+    the X feature matrix. After a ``feature_augmentation`` has grown the processing axis, the LEGACY
+    path applies such a step PER processing layer (``TransformerMixinController`` loops over the 3D
+    processing axis), whereas the flat ``FeatureConcat`` lowering would apply it to the already-hstacked
+    wide matrix — a different result. Splitters (campaign-level, no node), ``y_processing`` (operates on
+    y), and ``model`` (consumes the flat 2D) are NOT per-processing X ops, so they compose correctly.
+    """
+    if isinstance(step, dict):
+        return "concat_transform" in step or "feature_augmentation" in step
+    # A bare splitter has a ``split`` method and lowers to a campaign controller call, not an X node.
+    return not hasattr(step, "split")
+
+
 def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> dict[str, Any]:
     """Serialize a live nirs4all pipeline list into dag-ml compat DSL JSON.
+
+    The single-source ``feature_augmentation`` lowering (S6) hstacks the augmented processing layers
+    into one flat 2D matrix (the ``FLAT_2D`` materialization a 2D model already sees). That flattening
+    is only behaviour-preserving when no LATER step must still see the per-layer processing axis — a
+    bare X-transform, a ``concat_transform``, or a second ``feature_augmentation`` after it would be
+    applied per-layer by the legacy path but to the hstacked matrix by the flat lowering. Such a stack
+    needs the 3D data-plane (parallel processing channels), so it fails loud here naming #29/#31; a
+    ``feature_augmentation`` feeding directly into the model (the canonical case) lowers cleanly.
 
     Raises:
         NotImplementedError: if a step uses a construct the spike does not yet cover.
     """
+    for index, step in enumerate(pipeline):
+        if isinstance(step, dict) and "feature_augmentation" in step and any(_is_x_node_step(later) for later in pipeline[index + 1 :]):
+            raise NotImplementedError(
+                "dag-ml bridge does not lower a `feature_augmentation` followed by another X-side step "
+                "(a bare transform / `concat_transform` / second `feature_augmentation`): the grown "
+                "processing axis must stay per-layer for that step, which needs the 3D data-plane "
+                "(parallel processing channels); see backlog #29/#31. A feature_augmentation feeding "
+                "directly into the model lowers as a flat feature-axis concat."
+            )
     return {"id": dsl_id, "pipeline": [_step_to_dsl(step) for step in pipeline]}
 
 
