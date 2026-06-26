@@ -297,7 +297,16 @@ def run_model_node(
     # What to predict: the phase's own partition; and — at REFIT — also the held-out TEST partition
     # so dag-ml scores the final model's test RMSE (nirs4all's best_rmse). The CV fold set does not
     # cover test, but dag-ml only scope-checks `validation` blocks (runtime validate_prediction_scope),
-    # so a `test`/`final` block for the refit model is accepted and scored natively.
+    # so a `test` block for the refit model is accepted and scored natively.
+    #
+    # The TEST block is emitted with `fold_id=None` (the OFF-FOLD convention dag-ml keys on): a REFIT
+    # runs `fold_id=None`, and dag-ml's `reassemble_branch_merge_off_fold` /
+    # `collect_off_fold_prediction_input` read each base producer's `partition=Test`, `fold_id=None`
+    # block (`fold_id.is_none()`). Emitting `fold_id=None` therefore makes a base/branch model's TEST
+    # prediction reach the concat/fusion merge producer (a scored Test block → best_rmse) and the
+    # stacking meta-node (the `...oof:refit` off-fold input → it predicts the holdout). A single
+    # (non-branch) model reaches no merge node — its `(test, None)` block is read straight back by
+    # `_scores_to_run_result` for best_rmse, exactly like the prior `(test, "final")` block.
     #
     # include_augmented per spec mirrors the leakage guard: it is True ONLY when the predicted ids are
     # TRAINING rows — REFIT predicting its own full_train ("final"-train score). The predict ids are the
@@ -317,7 +326,7 @@ def run_model_node(
         if selector is not None and sample_metadata is not None:
             test_ids = [sample_id for sample_id in test_ids if _branch_view_keep(sample_id, selector, sample_metadata)]
         if test_ids:
-            specs.append((test_ids, "test", "final", False))
+            specs.append((test_ids, "test", None, False))
 
     # One prediction block per spec, each paired 1:1 with an exactly-matching y_true block (dag-ml
     # scoring requires target units == prediction units). dag-ml matches block↔target by unit set.
@@ -358,33 +367,81 @@ def run_model_node(
     return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
 
 
+def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[list[str], np.ndarray]:
+    """Build ``(sample_ids, X_meta)`` from base prediction-input specs, concatenated per producer.
+
+    One column block per base producer in the order ``specs`` is given (the caller passes them in the
+    deterministic sorted-producer order), aligned by ``sample_id`` — the first spec's sample order is
+    canonical and every other spec must cover the same samples (a missing one is a hard error, never a
+    silent zero). Mirrors dag-ml's own ``join_oof_features`` column ordering.
+    """
+    sample_ids = list(specs[0]["sample_ids"])
+    rows_by_sample: dict[str, list[float]] = {sample_id: [] for sample_id in sample_ids}
+    for spec in specs:
+        spec_rows = {sample_id: [float(value) for value in row] for sample_id, row in zip(spec["sample_ids"], spec["values"], strict=True)}
+        for sample_id in sample_ids:
+            row = spec_rows.get(sample_id)
+            if row is None:
+                raise ValueError(f"meta-model node {node_id!r}: base producer {spec.get('producer_node')!r} is missing prediction for sample {sample_id!r}")
+            rows_by_sample[sample_id].extend(row)
+    return sample_ids, np.asarray([rows_by_sample[sample_id] for sample_id in sample_ids], dtype=float)
+
+
+def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None) -> list[dict[str, Any]]:
+    """The meta-node's base specs in canonical producer order, selecting one delivery kind.
+
+    dag-ml keys each base producer's Validation OOF under ``"{producer}.{port}"`` and its off-fold
+    (REFIT-test / PREDICT) block under ``"{producer}.{port}:refit"`` / ``":predict"`` (see runtime
+    ``collect_off_fold_prediction_input``). ``suffix=None`` selects the Validation OOF inputs (FIT_CV
+    training + the REFIT fit pool); ``suffix="refit"`` / ``"predict"`` selects the off-fold inputs.
+
+    Ordering is by the **base OOF key** (the suffix stripped) so the meta-feature columns line up
+    one-for-one with the FIT_CV matrix regardless of which delivery kind is selected — the column for
+    ``branch:0.node:0`` is always first whether read from ``…oof`` or ``…oof:refit``.
+    """
+    tag = f":{suffix}" if suffix is not None else None
+    selected: dict[str, dict[str, Any]] = {}
+    for key, spec in prediction_inputs.items():
+        if tag is None:
+            if not (key.endswith(":refit") or key.endswith(":predict")):
+                selected[key] = spec
+        elif key.endswith(tag):
+            selected[key[: -len(tag)]] = spec
+    return [selected[base_key] for base_key in sorted(selected)]
+
+
 def run_meta_model_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
     model_store: MutableMapping[int, Any],
 ) -> dict[str, Any]:
-    """Execute a STACKING meta-model node from its base branches' OOF (backlog #10).
+    """Execute a STACKING meta-model node from its base branches' OOF + off-fold predictions (#10).
 
-    The meta-node is a ``model``-kind node whose ``x`` is not data but the base branches'
-    *Validation* OOF, delivered by dag-ml as ``prediction_inputs`` (Option A: each spec carries
-    ``values`` aligned 1:1 with ``sample_ids``, sourced ONLY from Validation OOF blocks — the
-    ``requires_oof`` edge refuses any train block, so the meta-feature matrix is leakage-safe by
-    construction). The meta-feature matrix has one column block per base producer in **deterministic
-    producer order** (the sorted ``prediction_inputs`` key order, mirroring dag-ml's own
-    ``join_oof_features`` column ordering), aligned by ``sample_id``.
+    The meta-node is a ``model``-kind node whose ``x`` is not data but the base branches' predictions,
+    delivered by dag-ml as ``prediction_inputs`` (Option A: each spec carries ``values`` aligned 1:1
+    with ``sample_ids``). dag-ml delivers two delivery kinds, keyed by suffix
+    (:func:`_ordered_oof_specs`):
 
-    * FIT_CV (fold K): build ``X_meta`` from the fold-K Validation OOF the spec carries, fit the
-      MetaModel on ``(X_meta, y_train)`` (``y`` via ``resolver.resolve_targets`` on the same
-      sample_ids), predict those rows, and emit the meta-model's own OOF (``partition=validation``,
-      ``fold_id=foldK``) + ``regression_targets`` so dag-ml scores it. The cross-fold OOF average of
-      the meta producer is ``cv_best_score``.
-    * REFIT: dag-ml delivers the FULL Validation OOF (all folds, ``fold_id=None``); fit + persist the
-      meta-model on it. dag-ml does NOT deliver the base models' refit-TEST predictions to the meta-node
-      (the ``requires_oof`` edge is Validation-only in REFIT too — see runtime ``validate_refit_oof_edge``),
-      so the meta-node has no test meta-features to predict → no ``(test, final)`` block is emitted and
-      ``best_rmse`` stays NaN (the same shape as the fusion/concat merges). Producing best_rmse natively
-      would require a dag-ml change to deliver base refit-test predictions (reported as a gap).
+    * ``"{producer}.{port}"`` — the base producer's **Validation OOF** (the ``requires_oof`` edge
+      refuses any train block, so it is leakage-safe). This is what the meta-learner trains on.
+    * ``"{producer}.{port}:refit"`` / ``":predict"`` — the base producer's **off-fold** block (REFIT
+      held-out Test / PREDICT new-data Final, ``fold_id=None``), delivered ONLY in REFIT/PREDICT and
+      used ONLY to PREDICT the holdout, never to train.
+
+    The meta-feature matrix has one column block per base producer in **deterministic producer order**
+    (sorted base key), aligned by ``sample_id``, mirroring dag-ml's ``join_oof_features``.
+
+    * FIT_CV (fold K): build ``X_meta`` from the fold-K Validation OOF, fit the MetaModel on
+      ``(X_meta, y_train)``, predict those rows, emit the meta-model's own OOF
+      (``partition=validation``, ``fold_id=foldK``) + targets. The cross-fold OOF average of the meta
+      producer is ``cv_best_score``.
+    * REFIT: fit + persist the meta-model on the FULL Validation OOF (all folds), then build the TEST
+      meta-feature matrix from the base ``:refit`` off-fold inputs (the base models' held-out Test
+      predictions), predict the holdout, and emit a scored ``(test, fold_id=None)`` block + targets so
+      dag-ml scores ``best_rmse``. LEAKAGE INVARIANT: the meta-model is fit on Validation OOF ONLY (the
+      ``:refit`` Test predictions never enter the fit); the Test meta-features come from the base
+      models' Test predictions, never their OOF/train.
     """
     node_plan = task["node_plan"]
     node_id = node_plan["node_id"]
@@ -396,67 +453,88 @@ def run_meta_model_node(
     prediction_inputs = task.get("prediction_inputs") or {}
     if not prediction_inputs:
         raise ValueError(f"meta-model node {node_id!r} received no prediction_inputs (no base branch OOF)")
-    if phase == "PREDICT":
-        # PREDICT for a stacking meta-node needs base PREDICT-set predictions as meta-features; dag-ml
-        # delivers Validation OOF only, so the stacking PREDICT path is not wired (parity is the FIT_CV
-        # OOF-scored cv_best_score). Fail loud rather than predict from the wrong features.
-        raise NotImplementedError("engine='dag-ml' stacking PREDICT phase is not wired (no base predict-set meta-features); backlog #10 follow-up")
 
-    # Deterministic producer order: sorted prediction-input keys (dag-ml's BTreeMap key order, the same
-    # order `join_oof_features` concatenates producer columns). Each spec's sample_ids/values are aligned
-    # 1:1; all specs cover the same fold's OOF samples, so the meta-feature rows align by sample_id.
-    specs = [prediction_inputs[key] for key in sorted(prediction_inputs)]
-    sample_ids = list(specs[0]["sample_ids"])
-    rows_by_sample: dict[str, list[float]] = {sample_id: [] for sample_id in sample_ids}
-    for spec in specs:
-        spec_rows = {sample_id: [float(value) for value in row] for sample_id, row in zip(spec["sample_ids"], spec["values"], strict=True)}
-        for sample_id in sample_ids:
-            row = spec_rows.get(sample_id)
-            if row is None:
-                raise ValueError(f"meta-model node {node_id!r}: base producer {spec.get('producer_node')!r} is missing OOF for sample {sample_id!r}")
-            rows_by_sample[sample_id].extend(row)
-    x_meta = np.asarray([rows_by_sample[sample_id] for sample_id in sample_ids], dtype=float)
+    if phase == "PREDICT":
+        # PREDICT replays the persisted meta-learner over the base producers' PREDICT-set predictions
+        # (the `:predict` off-fold inputs); there are no Validation OOF inputs to fit on. dag-ml only
+        # delivers `:predict` inputs here when each base producer emitted a PREDICT block, so a missing
+        # one is a real wiring error.
+        artifact_handle = _stable_handle(_artifact_id(node_id, variant_label))
+        estimator = model_store[artifact_handle]["estimator"]
+        predict_specs = _ordered_oof_specs(prediction_inputs, suffix="predict")
+        if not predict_specs:
+            raise ValueError(f"meta-model node {node_id!r} REFIT/PREDICT received no `:predict` off-fold inputs (no base predict-set predictions)")
+        sample_ids, x_meta = _meta_feature_matrix(predict_specs, node_id)
+        pred = np.asarray(estimator.predict(x_meta), dtype=float).reshape(len(sample_ids), -1)
+        predictions = [_meta_prediction_block(node_id, phase, variant_label, fold_label, "final", None, sample_ids, pred)]
+        true_y = resolver.resolve_targets(sample_ids)["values"]
+        regression_targets = [_meta_target_block(sample_ids, [float(value) for value in true_y])]
+        return _build_result(task, predictions, [], {}, regression_targets)
+
+    # FIT_CV + REFIT both fit on Validation OOF. The OOF specs (no `:refit`/`:predict` suffix) are the
+    # meta-learner's training features; in FIT_CV they are this fold's OOF, in REFIT the full OOF.
+    oof_specs = _ordered_oof_specs(prediction_inputs, suffix=None)
+    if not oof_specs:
+        raise ValueError(f"meta-model node {node_id!r} received no Validation OOF inputs to fit on")
+    sample_ids, x_meta = _meta_feature_matrix(oof_specs, node_id)
     y_meta = np.asarray(resolver.resolve_targets(sample_ids)["values"], dtype=float)
 
     artifact_id = _artifact_id(node_id, variant_label)
     artifact_handle = _stable_handle(artifact_id)
-    estimator: Any = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
-    estimator.fit(x_meta, y_meta)
+    fit_estimator: Any = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+    fit_estimator.fit(x_meta, y_meta)
 
-    predictions: list[dict[str, Any]] = []
-    regression_targets: list[dict[str, Any]] = []
-    # FIT_CV emits the meta-model's own OOF for this fold's samples (scored → cv_best_score). REFIT only
-    # fits + persists: there are no base refit-test meta-features to predict (best_rmse stays NaN).
+    fold_predictions: list[dict[str, Any]] = []
+    fold_targets: list[dict[str, Any]] = []
     if phase == "FIT_CV":
-        pred = np.asarray(estimator.predict(x_meta), dtype=float).reshape(len(sample_ids), -1)
-        predictions.append(
-            {
-                "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:validation",
-                "producer_node": node_id,
-                "partition": "validation",
-                "fold_id": task.get("fold_id"),
-                "sample_ids": sample_ids,
-                "values": [[float(value) for value in row] for row in pred],
-                "target_names": ["y"],
-            }
-        )
-        regression_targets.append(
-            {
-                "level": "sample",
-                "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in sample_ids],
-                "values": [[float(value)] for value in y_meta],
-                "target_names": ["y"],
-            }
-        )
+        # The meta-model's own OOF for this fold's samples (scored → cv_best_score).
+        pred = np.asarray(fit_estimator.predict(x_meta), dtype=float).reshape(len(sample_ids), -1)
+        fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), sample_ids, pred))
+        fold_targets.append(_meta_target_block(sample_ids, [float(value) for value in y_meta]))
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
-        model_store[artifact_handle] = {"estimator": estimator, "y_transform": None}
+        model_store[artifact_handle] = {"estimator": fit_estimator, "y_transform": None}
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
-    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
+        # Predict the held-out TEST set from the base producers' `:refit` off-fold predictions (their
+        # held-out Test predictions). The meta-model was fit on Validation OOF ONLY (above), so this is
+        # leakage-safe: the Test meta-features come from base Test predictions, never OOF/train. Emit a
+        # `(test, fold_id=None)` block so dag-ml scores best_rmse (off-fold convention, like a base model).
+        test_specs = _ordered_oof_specs(prediction_inputs, suffix="refit")
+        if test_specs:
+            test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
+            test_pred = np.asarray(fit_estimator.predict(x_test), dtype=float).reshape(len(test_ids), -1)
+            fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", None, test_ids, test_pred))
+            test_true = resolver.resolve_targets(test_ids)["values"]
+            fold_targets.append(_meta_target_block(test_ids, [float(value) for value in test_true]))
+
+    return _build_result(task, fold_predictions, artifacts, artifact_handles, fold_targets)
+
+
+def _meta_prediction_block(node_id: str, phase: str, variant_label: str, fold_label: str, partition: str, fold_id: str | None, sample_ids: list[str], values: np.ndarray) -> dict[str, Any]:
+    """A meta-node prediction block for one partition (validation OOF / test / final)."""
+    return {
+        "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
+        "producer_node": node_id,
+        "partition": partition,
+        "fold_id": fold_id,
+        "sample_ids": sample_ids,
+        "values": [[float(value) for value in row] for row in values],
+        "target_names": ["y"],
+    }
+
+
+def _meta_target_block(sample_ids: list[str], true_y: list[float]) -> dict[str, Any]:
+    """The y_true block paired 1:1 with a meta-node prediction block (dag-ml scores against it)."""
+    return {
+        "level": "sample",
+        "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in sample_ids],
+        "values": [[value] for value in true_y],
+        "target_names": ["y"],
+    }
 
 
 def run_node(
