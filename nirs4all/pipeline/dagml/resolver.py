@@ -171,6 +171,12 @@ class MaterializationResolver:
         Keyed by ``sample_id`` (the origin's id for an augmented child), so a child's target
         is its origin's y. Base sample ids fetch one stored row each; the request order is
         restored by re-keying the storage-ordered block.
+
+        ``values`` shape follows the target width: a **single-target** dataset returns a flat
+        ``[y0, y1, …]`` list (byte-identical to the legacy ``.ravel()``); a **multi-target**
+        dataset (``num_targets>1``) returns the ``(n, n_targets)`` block as a list-of-rows so the
+        per-target columns ride inside one sample-keyed block (S0 multi-target emit). The fold/OOF
+        partition is over SAMPLES, so per-target columns stay leakage-safe by construction.
         """
         sample_ints = [self._identity.to_int(sample_id) for sample_id in sample_ids]
         uniq = list(dict.fromkeys(sample_ints))
@@ -178,8 +184,10 @@ class MaterializationResolver:
         block = np.asarray(self._dataset.y({"sample": uniq}, include_augmented=False, include_excluded=include_excluded)).reshape(len(returned), -1)
         row_of = {sample_int: row for row, sample_int in enumerate(returned)}
         rows = [row_of[sample_int] for sample_int in sample_ints]
+        ordered = block[rows]
+        values = ordered.ravel().tolist() if ordered.shape[1] == 1 else ordered.tolist()
         return {
             "target_id": target_id,
             "sample_ids": list(sample_ids),
-            "values": block[rows].ravel().tolist(),
+            "values": values,
         }
