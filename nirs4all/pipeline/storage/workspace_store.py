@@ -31,6 +31,7 @@ import random
 import sqlite3
 import threading
 import time
+import weakref
 import zipfile
 from collections.abc import Callable, Generator, Mapping
 from datetime import UTC, datetime
@@ -213,6 +214,14 @@ def _format_to_ext(fmt: str) -> str:
     """Map serialisation format to file extension."""
     return {"joblib": "joblib", "pickle": "pkl", "cloudpickle": "pkl"}.get(fmt, "bin")
 
+
+def _close_weak_workspace_store(store_ref: weakref.ReferenceType[WorkspaceStore]) -> None:
+    """Close a live WorkspaceStore referenced by an atexit callback."""
+    store = store_ref()
+    if store is not None:
+        store.close()
+
+
 class WorkspaceStore:
     """SQLite-backed workspace storage.
 
@@ -260,6 +269,7 @@ class WorkspaceStore:
         self._workspace_path = Path(workspace_path)
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
+        self._atexit_callback: Callable[[], None] | None = None
 
         sqlite_path = self._workspace_path / "store.sqlite"
         duckdb_path = self._workspace_path / "store.duckdb"
@@ -294,8 +304,11 @@ class WorkspaceStore:
         self._artifacts_dir = self._workspace_path / "artifacts"
         self._artifacts_dir.mkdir(parents=True, exist_ok=True)
 
-        # Register atexit so the connection is closed before interpreter shutdown.
-        atexit.register(self.close)
+        # Register a weak atexit callback so live stores close before interpreter
+        # shutdown without making notebook sessions retain every store ever opened.
+        store_ref = weakref.ref(self)
+        self._atexit_callback = lambda: _close_weak_workspace_store(store_ref)
+        atexit.register(self._atexit_callback)
 
         # Parquet-backed array storage
         self._array_store = ArrayStore(self._workspace_path)
@@ -450,6 +463,11 @@ class WorkspaceStore:
         will raise ``RuntimeError``.
         """
         with self._lock:
+            if self._atexit_callback is not None:
+                callback = self._atexit_callback
+                self._atexit_callback = None
+                with contextlib.suppress(Exception):
+                    atexit.unregister(callback)
             if self._conn is not None:
                 self._conn.close()
                 self._conn = None
@@ -460,9 +478,7 @@ class WorkspaceStore:
         if sys.is_finalizing():
             return
         with contextlib.suppress(Exception):
-            if self._conn is not None:
-                self._conn.close()
-                self._conn = None
+            self.close()
 
     def __enter__(self) -> WorkspaceStore:
         return self
