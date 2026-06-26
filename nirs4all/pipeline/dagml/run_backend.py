@@ -85,6 +85,36 @@ def _is_augmentation_step(step: Any) -> bool:
     return isinstance(step, dict) and "sample_augmentation" in step
 
 
+# `rep_to_sources` / `rep_to_pp` are one-time HOST dataset RESHAPES (RepToSourcesController /
+# RepToPPController, priority 3 — applied BEFORE the CV splitter). `rep_to_sources` turns each
+# replicate of a physical sample into a separate feature SOURCE (N reps → N sources × n_unique
+# samples), and `rep_to_pp` stacks each replicate into the PROCESSING axis (N reps → n_pp×N
+# processing layers × n_unique samples). After the reshape the unit of analysis is the physical
+# SAMPLE (not the rep row), so folds/OOF are sample-grain — distinct from a PLAIN repetition
+# dataset (#21, which keeps the rep rows and scores at the rep grain).
+_REP_FUSION_KEYS = ("rep_to_sources", "rep_to_pp")
+
+
+def _is_rep_fusion_step(step: Any) -> bool:
+    return isinstance(step, dict) and any(key in step for key in _REP_FUSION_KEYS)
+
+
+def _detect_rep_fusion(pipeline: list[Any]) -> dict[str, Any] | None:
+    """The single ``rep_to_sources`` / ``rep_to_pp`` reshape step, else ``None`` (fail-loud elsewhere).
+
+    Returns the reshape step only for the EXACTLY-supported shape — one reshape step plus the
+    ordinary ``transform* + splitter + model`` body. More than one reshape, or a reshape combined
+    with a branch / exclude / sample_augmentation (compositions the reshaped sample-grain folds
+    cannot honor here), returns ``None`` so the bridge's generic fail-loud path names #31.
+    """
+    rep_steps: list[dict[str, Any]] = [step for step in pipeline if _is_rep_fusion_step(step)]
+    if len(rep_steps) != 1:
+        return None
+    if any(_is_augmentation_step(step) or _is_exclude_step(step) or (isinstance(step, dict) and "branch" in step) for step in pipeline):
+        return None
+    return rep_steps[0]
+
+
 def _filter_data_for_pool(spectro: Any, pool_ints: list[int]) -> tuple[np.ndarray, np.ndarray | None]:
     """X/y for SampleFilter fitting, aligned exactly to ``pool_ints`` order."""
     x_pool = np.asarray(spectro.x({"sample": list(pool_ints)}, layout="2d", concat_source=True, include_augmented=False))
@@ -884,7 +914,20 @@ def run_via_dagml(
     detected_duplication = _detect_duplication_branch(list(pipeline))
     detected_stacking = _detect_stacking_branch(list(pipeline))
     detected_by_source = _detect_by_source_branch(list(pipeline), spectro.features_sources())
+    detected_rep_fusion = _detect_rep_fusion(list(pipeline))
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
+
+    # REP FUSION (`rep_to_sources` / `rep_to_pp`, #31): a one-time HOST RESHAPE that turns each replicate
+    # of a physical sample into a feature SOURCE (→ MULTI-SOURCE early fusion S3 / MB-PLS S5) or a
+    # PROCESSING layer (→ the feature-axis concat S6). After the reshape the unit of analysis is the
+    # physical SAMPLE (folds/OOF sample-grain — distinct from the plain repetition rep-grain path #21,
+    # below). Detected BEFORE the repetition guard because the reshape CONSUMES the rep grouping (the
+    # reshaped dataset is no longer a repetition dataset); the reshape feeds the already-native
+    # multi-source / feature-concat materialization, pickled for the adapter (the on-disk dataset has no
+    # such structure). A reshape combined with branch/exclude/augmentation is rejected by `_detect_rep_fusion`
+    # (returns None) and falls through to the bridge's fail-loud path naming #31.
+    if detected_rep_fusion is not None:
+        return _run_rep_fusion(list(pipeline), detected_rep_fusion, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "rep_fusion", metric, task_type)
 
     # REPETITIONS (sample-grain grouping): when the dataset declares a repetition column, several stored
     # rows share one physical sample. The split must be GROUP-aware — all replicates of a sample land on
@@ -1184,6 +1227,122 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
+
+
+def _reshape_for_rep_fusion(rep_step: dict[str, Any], spectro: Any) -> None:
+    """Run nirs4all's REAL repetition reshape (``rep_to_sources`` / ``rep_to_pp``) in place.
+
+    Reuses the production operator (:class:`RepetitionConfig`) + the dataset's own reshape methods
+    (``reshape_reps_to_sources`` / ``reshape_reps_to_preprocessings``) — no reshape logic is
+    reimplemented here. The reshape collapses the N replicate ROWS of a physical sample into either
+    N sample-aligned feature SOURCES (``rep_to_sources``) or N stacked PROCESSING layers
+    (``rep_to_pp``), reducing the dataset to ``n_unique`` physical samples.
+
+    The ``repetition`` flag is cleared afterwards: it named the rep grouping of the ORIGINAL rows,
+    which no longer exists once the replicates have become sources/processings — the reshaped
+    dataset's unit of analysis is the physical sample, so the downstream folds must be sample-grain
+    (the plain-repetition group-fold path, #21, must NOT fire on the reshaped dataset).
+    """
+    from nirs4all.operators.data.repetition import RepetitionConfig
+
+    if "rep_to_sources" in rep_step:
+        config = RepetitionConfig.from_step_value(rep_step["rep_to_sources"])
+        spectro.reshape_reps_to_sources(config)
+    else:
+        config = RepetitionConfig.from_step_value(rep_step["rep_to_pp"])
+        spectro.reshape_reps_to_preprocessings(config)
+    spectro._repetition = None  # noqa: SLF001 - the rep grouping was consumed by the reshape
+
+
+def _run_rep_fusion(pipeline: list[Any], rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """Run a ``rep_to_sources`` / ``rep_to_pp`` pipeline as ONE native dag-ml CV+refit run (S7).
+
+    REP FUSION is a one-time host RESHAPE feeding an already-native multimodal path:
+
+    * ``rep_to_sources`` — each replicate becomes a feature SOURCE, so the reshaped dataset is
+      MULTI-SOURCE; the envelope auto-emits a ``feature_block_set`` (S3 early fusion), and an MB-PLS
+      model takes the per-source block list (S5 intermediate fusion) — both already native.
+    * ``rep_to_pp`` — each replicate becomes a PROCESSING layer, so the reshaped dataset is
+      single-source with N stacked layers; the FLAT_2D materialization hstacks them by processing
+      order (the feature-axis concat S6 already does), which the legacy ``tabular_numeric`` path runs.
+
+    The reshaped dataset lives only in host memory (the on-disk dataset has no such structure), so it
+    is PICKLED for the adapter (the same mechanism ``sample_augmentation`` uses) — the adapter resolves
+    the exact reshaped sources/processings, identity-keyed by the physical sample_id.
+
+    LEAKAGE: after the reshape the unit of analysis is the physical SAMPLE (N reps → N sources/layers
+    of ONE sample), so folds/OOF are over SAMPLES — distinct from a plain repetition dataset (#21,
+    rep-grain). A sample's N source-blocks (or N processing layers) all ride ONE row and therefore the
+    SAME fold side by construction; per-source / per-layer preprocessing fits on fold-train only (the
+    per-block X-chain, like the multi-source path). No cross-sample mixing.
+
+    Generators are expanded in Python (operator-level via ``expand_spec``), each concrete variant runs
+    through the reshaped early-fusion path, and the best is selected by its CV score — mirroring nirs4all.
+    """
+    import pickle
+
+    from nirs4all.pipeline.config.generator import expand_spec
+
+    body = [step for step in pipeline if not _is_rep_fusion_step(step)]
+    variants = expand_spec(body)
+    run_dir.mkdir(parents=True, exist_ok=True)
+    results = [
+        _run_rep_fusion_concrete(variant, rep_step, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, pickle)
+        for index, variant in enumerate(variants)
+    ]
+    if len(results) == 1:
+        return results[0]
+    maximize = metric in ("accuracy", "r2")
+
+    def _cv_rank(result: RunResult) -> float:
+        score = result.cv_best_score
+        if score != score:  # NaN ranks last
+            return float("inf")
+        return -score if maximize else score
+
+    return min(results, key=_cv_rank)
+
+
+def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, pickle: Any) -> RunResult:
+    """One concrete rep-fusion variant: reshape a fresh dataset copy, then the sample-grain CV+refit."""
+    import copy
+
+    steps, splitter = _split_pipeline(body)
+    if splitter is None:
+        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    steps = _apply_model_params(steps)
+
+    # Reshape a FRESH copy per variant so each variant's pickled dataset is independent (and the
+    # caller's spectro stays the original rep dataset, unmutated, for any later use).
+    reshaped = copy.deepcopy(spectro)
+    _reshape_for_rep_fusion(rep_step, reshaped)
+
+    identity = mint_identity(reshaped)
+    # The reshape leaves every physical sample in `partition: train` (the splitter follows the reshape),
+    # so the CV universe is the full reshaped sample set. Folds are sample-grain — a sample's N
+    # source-blocks / processing-layers ride ONE row, so they cannot split across the fold boundary.
+    pool = reshaped.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, reshaped, pool, set())
+    envelope = build_envelope(reshaped, identity, sample_ints=pool)
+    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
+
+    import dag_ml
+
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+
+    run_dir.mkdir(parents=True, exist_ok=True)
+    pickle_path = run_dir / "reshaped_dataset.pkl"
+    pickle_path.write_bytes(pickle.dumps(reshaped))
+
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path)
+    )
+    if outcome["returncode"] != 0:
+        raise RuntimeError(f"dag-ml rep-fusion run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+
+    bundle = json.loads((run_dir / "bundle.json").read_text())
+    rep_key = "rep_to_sources" if "rep_to_sources" in rep_step else "rep_to_pp"
+    return _scores_to_run_result(bundle.get("scores"), reshaped.name, f"{rep_key}_{_model_name(steps)}", metric, task_type)
 
 
 def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:

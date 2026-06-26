@@ -2167,6 +2167,217 @@ def test_repetition_unsupported_composition_fails_loud() -> None:
         run_via_dagml(aug_pipeline, configs, dagml_cli=str(_DAGML_CLI))
 
 
+# ---------------------------------------------------------------------------
+# Rep fusion: rep_to_sources / rep_to_pp (#31, the last multimodal slice). A one-time HOST RESHAPE
+# that turns the replicate axis into either the SOURCE axis (→ S3 early fusion / S5 MB-PLS) or the
+# PROCESSING axis (→ S6 feature-concat). After the reshape the unit of analysis is the physical
+# SAMPLE (folds/OOF sample-grain), distinct from the plain repetition rep-grain path (#21 above).
+# ---------------------------------------------------------------------------
+
+_REP_PHYS, _REP_REPS, _REP_FEAT = 12, 3, 20  # 12 physical samples × 3 equal replicates × 20 features
+
+
+def _equal_rep_dataset():
+    """A synthetic EQUAL-rep dataset: ``_REP_PHYS`` physical samples × ``_REP_REPS`` replicate rows.
+
+    Built from the regression corpus (real spectra) with a ``sample_id`` metadata column grouping
+    every ``_REP_REPS`` consecutive rows into one physical sample. Equal rep counts (no NaN padding),
+    so the reshape is clean and the direct-sklearn parity arithmetic is exact. All rows land in
+    ``partition: train`` — the rep reshape happens BEFORE the CV splitter (the controller's priority-3
+    placement), so the splitter runs over the reshaped physical samples (no separate test partition,
+    exactly as the legacy rep_to_sources/rep_to_pp pipelines)."""
+    import polars as pl
+
+    from nirs4all.data.dataset import SpectroDataset
+
+    base = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = [int(s) for s in base.index_column("sample", {"partition": "train"})]
+    n_rows = _REP_PHYS * _REP_REPS
+    x = np.asarray(base.x_rows(train, layout="2d"), dtype=float)[:n_rows, :_REP_FEAT]
+    y = np.asarray(base.y({"sample": train}), dtype=float).ravel()[:n_rows]
+    sample_ids = [f"p{phys}" for phys in range(_REP_PHYS) for _ in range(_REP_REPS)]
+
+    dataset = SpectroDataset("rep_fusion_synth")
+    headers = [str(i) for i in range(_REP_FEAT)]
+    dataset.add_samples([x], {"partition": "train"}, headers=[headers], header_unit="nm")
+    dataset.add_targets(y.reshape(-1, 1))
+    dataset.add_metadata(pl.DataFrame({"sample_id": sample_ids}))
+    return dataset
+
+
+def test_detect_rep_fusion_consumes_only_the_supported_shape() -> None:
+    """`_detect_rep_fusion` returns the reshape step ONLY for the supported single-reshape body.
+
+    A `rep_to_sources` / `rep_to_pp` step + the ordinary transform/splitter/model body is detected;
+    two reshape steps, or a reshape combined with a branch / exclude / sample_augmentation (the
+    reshaped sample-grain folds cannot honor those compositions), return None so the bridge's
+    fail-loud path names #31. The reshape step keyword is consumed BEFORE the dataset's repetition
+    guard — the reshape turns the replicate axis into sources/processings, so the reshaped dataset is
+    no longer a (rep-grain) repetition dataset. No CLI needed."""
+    from nirs4all.pipeline.dagml.run_backend import _detect_rep_fusion
+
+    splitter = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
+    model = {"model": PLSRegression(n_components=5)}
+
+    assert _detect_rep_fusion([{"rep_to_sources": "sample_id"}, splitter, model]) == {"rep_to_sources": "sample_id"}
+    assert _detect_rep_fusion([{"rep_to_pp": "sample_id"}, splitter, model]) == {"rep_to_pp": "sample_id"}
+    # No reshape step → None (the ordinary single-source path owns it).
+    assert _detect_rep_fusion([splitter, model]) is None
+    # Two reshape steps → None (ambiguous; not the supported single-reshape shape).
+    assert _detect_rep_fusion([{"rep_to_sources": "sample_id"}, {"rep_to_pp": "sample_id"}, splitter, model]) is None
+    # A reshape combined with a branch / exclude → None (out of scope; fail-loud via the bridge).
+    assert _detect_rep_fusion([{"rep_to_sources": "sample_id"}, {"branch": [[model]]}, splitter, model]) is None
+    assert _detect_rep_fusion([{"rep_to_sources": "sample_id"}, {"exclude": object()}, splitter, model]) is None
+
+
+def test_rep_to_sources_reshapes_replicates_to_sources() -> None:
+    """The host reshape turns N replicates into N sample-aligned SOURCES, clearing the rep grain.
+
+    `rep_to_sources` collapses the ``_REP_PHYS × _REP_REPS`` replicate rows into ``_REP_PHYS`` physical
+    samples × ``_REP_REPS`` feature sources (each per-source block is one replicate's spectrum), and the
+    `repetition` flag is cleared so the reshaped dataset takes the sample-grain early-fusion path, not the
+    rep-grain group-fold path (#21). The hstacked per-source blocks equal the original replicate rows
+    arranged by sample — the early-fusion matrix the engine fuses by sample_id. No CLI needed."""
+    from nirs4all.pipeline.dagml.run_backend import _reshape_for_rep_fusion
+
+    dataset = _equal_rep_dataset()
+    assert dataset.num_samples == _REP_PHYS * _REP_REPS
+    assert dataset.features_sources() == 1
+
+    _reshape_for_rep_fusion({"rep_to_sources": "sample_id"}, dataset)
+    assert dataset.num_samples == _REP_PHYS, "N replicates collapse into one physical sample"
+    assert dataset.features_sources() == _REP_REPS, "each replicate becomes a feature source"
+    assert getattr(dataset, "repetition", None) is None, "the rep grain is consumed by the reshape (sample-grain folds)"
+    # All physical samples land in train (the splitter follows the reshape) — no separate test partition.
+    assert len(dataset.index_column("sample", {"partition": "train"})) == _REP_PHYS
+    assert len(dataset.index_column("sample", {"partition": "test"})) == 0
+    # The per-source blocks hstack to a (_REP_PHYS, _REP_REPS*_REP_FEAT) early-fusion matrix, NaN-free.
+    fused = np.asarray(dataset.x({"sample": dataset.index_column("sample", {})}, layout="2d", concat_source=True), dtype=float)
+    assert fused.shape == (_REP_PHYS, _REP_REPS * _REP_FEAT)
+    assert not np.isnan(fused).any()
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_rep_to_sources() -> None:
+    """engine="dag-ml" runs a `rep_to_sources` pipeline == direct sklearn early-fusion OOF (#31, S7).
+
+    The host RESHAPES each replicate into a feature SOURCE, then the EXISTING multi-source early-fusion
+    path (S3) runs: the engine fuses the ``_REP_REPS`` per-source blocks by sample_id (host-side,
+    identity-keyed) and the model sees the fused matrix. ``cv_best_score`` == a direct sklearn OOF on the
+    host-concatenated (early-fused) replicate matrix within 1e-3 — proving the reshape feeds the native
+    fusion path behavior-preservingly.
+
+    LEAKAGE: folds/OOF over physical SAMPLES (sample-grain, NOT the rep-grain of #21); a sample's
+    ``_REP_REPS`` source-blocks all ride ONE reshaped row, so they cannot split across the fold boundary.
+    No separate test partition survives the reshape (the splitter follows it), so ``best_rmse`` is NaN —
+    exactly the legacy rep_to_sources behavior; the parity is over the CV OOF."""
+    import sys
+
+    from sklearn.metrics import mean_squared_error
+
+    from nirs4all.pipeline.dagml.run_backend import _detect_rep_fusion, _run_rep_fusion
+
+    dataset = _equal_rep_dataset()
+    splitter = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
+    pipeline = [{"rep_to_sources": "sample_id"}, splitter, {"model": PLSRegression(n_components=5)}]
+
+    import tempfile
+
+    rep_step = _detect_rep_fusion(pipeline)
+    assert rep_step == {"rep_to_sources": "sample_id"}
+    with tempfile.TemporaryDirectory() as work:
+        result = _run_rep_fusion(pipeline, rep_step, dataset, "UNUSED", str(_DAGML_CLI), sys.executable, Path(work), "rmse", "regression")
+
+    # Direct sklearn early-fusion OOF: reshape host-side, KFold over the physical samples, fit PLS on the
+    # fused (concat_source=True) matrix per fold, validate. Same reshape the engine consumed.
+    from nirs4all.pipeline.dagml.run_backend import _build_folds, _reshape_for_rep_fusion
+
+    reshaped = _equal_rep_dataset()
+    _reshape_for_rep_fusion({"rep_to_sources": "sample_id"}, reshaped)
+    pool = reshaped.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, reshaped, pool, set())
+
+    def fused_x(sample_ints: list[int]) -> np.ndarray:
+        return np.asarray(reshaped.x({"sample": list(sample_ints)}, layout="2d", concat_source=True), dtype=float)
+
+    def y(sample_ints: list[int]) -> np.ndarray:
+        block = np.asarray(reshaped.y({"sample": list(sample_ints)}), dtype=float)
+        stored = reshaped.index_column("sample", {"sample": list(sample_ints)})
+        row_of = {int(s): r for r, s in enumerate(stored)}
+        return block[[row_of[int(s)] for s in sample_ints]].ravel()
+
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        model = PLSRegression(n_components=5)
+        model.fit(fused_x(train_ints), y(train_ints))
+        pred = np.asarray(model.predict(fused_x(val_ints))).ravel()
+        true = y(val_ints)
+        for sample_int, value, target in zip(val_ints, pred, true, strict=True):
+            oof_pred[int(sample_int)], oof_true[int(sample_int)] = float(value), float(target)
+    keys = sorted(oof_pred)
+    sklearn_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - sklearn_oof) < 1e-3, (result.cv_best_score, sklearn_oof)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_rep_to_pp() -> None:
+    """engine="dag-ml" runs a `rep_to_pp` pipeline == direct sklearn flat-OOF (#31, S7).
+
+    The host RESHAPES each replicate into a PROCESSING layer (single source, ``_REP_REPS`` stacked
+    layers); the FLAT_2D materialization hstacks the layers by processing order (the feature-axis concat
+    S6 already runs), and the ordinary single-source ``tabular_numeric`` path consumes it. ``cv_best_score``
+    == a direct sklearn OOF on that flattened ``(_REP_PHYS, _REP_REPS*_REP_FEAT)`` matrix within 1e-3.
+
+    LEAKAGE: identical to rep_to_sources — folds/OOF over physical SAMPLES; the ``_REP_REPS`` processing
+    layers ride ONE reshaped row (the processing axis is a FEATURE axis, not a sample axis), so no
+    cross-sample mixing. No test partition survives the reshape (``best_rmse`` NaN), parity over the OOF."""
+    import sys
+    import tempfile
+
+    from sklearn.metrics import mean_squared_error
+
+    from nirs4all.pipeline.dagml.run_backend import _build_folds, _detect_rep_fusion, _reshape_for_rep_fusion, _run_rep_fusion
+
+    dataset = _equal_rep_dataset()
+    splitter = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
+    pipeline = [{"rep_to_pp": "sample_id"}, splitter, {"model": PLSRegression(n_components=5)}]
+
+    rep_step = _detect_rep_fusion(pipeline)
+    assert rep_step == {"rep_to_pp": "sample_id"}
+    with tempfile.TemporaryDirectory() as work:
+        result = _run_rep_fusion(pipeline, rep_step, dataset, "UNUSED", str(_DAGML_CLI), sys.executable, Path(work), "rmse", "regression")
+
+    reshaped = _equal_rep_dataset()
+    _reshape_for_rep_fusion({"rep_to_pp": "sample_id"}, reshaped)
+    assert reshaped.features_sources() == 1, "rep_to_pp stays single-source (replicates become processings)"
+    assert len(reshaped.features_processings(0)) == _REP_REPS, "each replicate becomes a processing layer"
+    pool = reshaped.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, reshaped, pool, set())
+
+    def flat_x(sample_ints: list[int]) -> np.ndarray:
+        return np.asarray(reshaped.x({"sample": list(sample_ints)}, layout="2d", concat_source=True), dtype=float)
+
+    def y(sample_ints: list[int]) -> np.ndarray:
+        block = np.asarray(reshaped.y({"sample": list(sample_ints)}), dtype=float)
+        stored = reshaped.index_column("sample", {"sample": list(sample_ints)})
+        row_of = {int(s): r for r, s in enumerate(stored)}
+        return block[[row_of[int(s)] for s in sample_ints]].ravel()
+
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        model = PLSRegression(n_components=5)
+        model.fit(flat_x(train_ints), y(train_ints))
+        pred = np.asarray(model.predict(flat_x(val_ints))).ravel()
+        true = y(val_ints)
+        for sample_int, value, target in zip(val_ints, pred, true, strict=True):
+            oof_pred[int(sample_int)], oof_true[int(sample_int)] = float(value), float(target)
+    keys = sorted(oof_pred)
+    sklearn_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - sklearn_oof) < 1e-3, (result.cv_best_score, sklearn_oof)
+
+
 def test_duplication_branch_detection() -> None:
     """The duplication detector consumes ONLY the list-branch + avg/mean fusion-merge shape.
 
