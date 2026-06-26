@@ -3206,10 +3206,13 @@ def test_by_source_branch_detection() -> None:
     """The by_source detector admits ONLY the handled by_source-branch + fusion-merge shape on a
     multi-source dataset; everything else falls through to the bridge's loud raw-branch error.
 
-    `_detect_by_source_branch` returns the shared body (model sub-pipeline) for a
-    `{"branch": {"by_source": True, "steps": [...model...]}}` + an avg/mean fusion merge when n_sources>=2;
-    a single-source dataset, a non-fusion merge, a body without a model, an unhandled branch option, the
-    per-source dict body, or a top-level step beside the branch all return None. No CLI (pure host-side)."""
+    `_detect_by_source_branch` returns `(body, aggregate)` — the shared body (model sub-pipeline) AND
+    the fusion aggregate — for a `{"branch": {"by_source": True, "steps": [...model...]}}` + an avg/mean
+    fusion merge when n_sources>=2; a single-source dataset, a non-fusion merge, a body without a model,
+    an unhandled branch option, the per-source dict body, or a top-level step beside the branch all
+    return None. The aggregate is RETURNED (not dropped) so the runner rejects proba_mean fail-loud (the
+    H-P0-1 fix); a proba_mean merge is DETECTED here (it is a valid fusion shape) but rejected at run.
+    No CLI (pure host-side)."""
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
     from nirs4all.pipeline.dagml.run_backend import _detect_by_source_branch
 
@@ -3217,11 +3220,17 @@ def test_by_source_branch_detection() -> None:
 
     # Handled: by_source separation branch (model in shared body) + mean fusion merge on >1 source.
     handled = [splitter, {"branch": {"by_source": True, "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "mean"}]
-    body = _detect_by_source_branch(handled, n_sources=3)
-    assert body is not None
+    detected = _detect_by_source_branch(handled, n_sources=3)
+    assert detected is not None
+    body, aggregate = detected
     assert any(isinstance(step, dict) and "model" in step for step in body)
+    assert aggregate == "mean"
     # "auto" is the other accepted flag spelling; {"merge": "average"} the other fusion spelling.
     assert _detect_by_source_branch([splitter, {"branch": {"by_source": "auto", "steps": [{"model": PLSRegression()}]}}, {"merge": "average"}], n_sources=2) is not None
+    # A proba_mean merge IS detected (it is a valid fusion aggregate) — the aggregate is carried through
+    # so the RUNNER can reject it fail-loud, NOT silently dropped to run as a value (regression) fusion.
+    proba = _detect_by_source_branch([splitter, {"branch": {"by_source": True, "steps": [{"model": PLSRegression()}]}}, {"merge": {"predictions": "all", "aggregate": "proba_mean"}}], n_sources=3)
+    assert proba is not None and proba[1] == "proba_mean"
 
     branch = {"branch": {"by_source": True, "steps": [{"model": PLSRegression(n_components=2)}]}}
     # Not handled (each must fall through to the bridge's loud raw-branch error):
@@ -3461,6 +3470,105 @@ def test_by_source_genuinely_restricts_to_one_source(tmp_path) -> None:
             early_fusion[int(sample_int)] = float(pred[position])
     early_fusion_cv = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [early_fusion[k] for k in keys])))
     assert abs(engine_cv - early_fusion_cv) > 1e-2, (engine_cv, early_fusion_cv, "by_source must differ from early fusion on distinct sources")
+
+
+def test_by_source_proba_mean_fails_loud() -> None:
+    """A by_source branch + a proba_mean fusion merge FAILS LOUD (audit H-P0-1) — not a silent value run.
+
+    `_detect_by_source_branch` accepts a `proba_mean` aggregate (it IS a valid fusion shape), but the
+    process adapter emits scalar value predictions, not per-class probability rows — so a probability-mean
+    fusion has no proba blocks to average. The detector therefore CARRIES the aggregate through (rather
+    than dropping it), and `_run_by_source_branch` rejects `proba_mean` with a CATCHABLE
+    `NotImplementedError` BEFORE any run — exactly as the duplication-fusion path does. The bug it guards:
+    accepting proba_mean but hardcoding `merge_mode: "fusion"` would silently run it as a regression
+    (value) average. No CLI needed — the rejection is up front, before dag-ml-cli is invoked."""
+    import nirs4all
+
+    proba = [
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"branch": {"by_source": True, "steps": [{"model": PLSRegression(n_components=2)}]}},
+        {"merge": {"predictions": "all", "aggregate": "proba_mean"}},
+    ]
+    with pytest.raises(NotImplementedError, match="proba"):
+        nirs4all.run(proba, _two_source_distinct_dataset(), engine="dag-ml")
+
+
+def test_multiple_models_fails_loud() -> None:
+    """Several top-level {"model": ...} steps in ONE pipeline FAIL LOUD up front (BUG-2, cutover-safety).
+
+    The dag-ml CV+refit binds the data source to a SINGLE model node; multiple model nodes leave the
+    non-first ones with an empty data view and crash mid-run inside the adapter (`node_runner._sample_ids`
+    → "data view is missing" → a bare rc=1). `run_via_dagml` now detects >1 top-level model step UP FRONT
+    and raises a CATCHABLE `NotImplementedError` instead of letting it reach that mid-exec crash. Covers
+    both the plain multi-model shape and the U02 feature_augmentation-generator + 3-models shape (each
+    augmentation variant still carries all three model steps). No CLI needed — rejected before dispatch."""
+    from sklearn.linear_model import Ridge
+    from sklearn.model_selection import ShuffleSplit
+    from sklearn.preprocessing import MinMaxScaler
+
+    import nirs4all
+    from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, Haar, SavitzkyGolay, StandardNormalVariate
+
+    plain = [
+        StandardNormalVariate(),
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=5)},
+        {"model": Ridge(alpha=1.0)},
+    ]
+    with pytest.raises(NotImplementedError, match="ONE model"):
+        nirs4all.run(plain, dataset_path("regression"), engine="dag-ml")
+
+    # The U02_basic_regression shape: a feature_augmentation generator + three PLS model steps. The
+    # generator expands to one feature_augmentation per variant, but EACH variant still has all three
+    # model steps — so every variant must fail loud the same way (was the node_runner mid-exec crash).
+    u02 = [
+        MinMaxScaler(),
+        {"y_processing": MinMaxScaler()},
+        {"feature_augmentation": {"_or_": [Detrend, FirstDerivative, Gaussian, SavitzkyGolay, Haar], "pick": 2, "count": 3}},
+        ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+        {"name": "PLS-5", "model": PLSRegression(n_components=5)},
+        {"name": "PLS-10", "model": PLSRegression(n_components=10)},
+        {"name": "PLS-15", "model": PLSRegression(n_components=15)},
+    ]
+    with pytest.raises(NotImplementedError, match="ONE model"):
+        nirs4all.run(u02, dataset_path("regression"), engine="dag-ml")
+
+
+def test_no_splitter_fails_loud() -> None:
+    """A pipeline with NO cross-validator step FAILS LOUD catchably (cutover-safety) — not a bare ValueError.
+
+    The dag-ml CV+refit needs an outer fold set; a pipeline without a splitter (e.g. a bare model, or a
+    merge/features shape) used to raise a bare `ValueError` the `except NotImplementedError` fallback would
+    NOT catch (→ a hard production failure). It now raises a CATCHABLE `NotImplementedError`
+    (`DagMlUnsupported`), so the fallback redirects the pipeline to the legacy engine. No CLI needed."""
+    import nirs4all
+    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported
+
+    with pytest.raises(DagMlUnsupported, match="cross-validator"):
+        nirs4all.run([{"model": PLSRegression(n_components=5)}], dataset_path("regression"), engine="dag-ml")
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_dagml_result_export_fails_loud() -> None:
+    """`.export()` on a dag-ml RunResult FAILS LOUD catchably (cutover-safety) — not a bare RuntimeError.
+
+    The dag-ml backend returns native scores with NO workspace (no SQLite store / artifacts), so a `.n4a`
+    export has nothing to bundle. It used to raise a bare `RuntimeError` ("no workspace path available")
+    the `except NotImplementedError` fallback would not catch; it now raises a CATCHABLE
+    `NotImplementedError` naming the unsupported export, so the cutover redirects export to legacy. A
+    legacy (workspace) result keeps the original RuntimeError on genuine misuse (asserted elsewhere)."""
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    result = nirs4all.run(
+        [StandardNormalVariate(), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
+        dataset_path("regression"),
+        engine="dag-ml",
+    )
+    with pytest.raises(NotImplementedError, match="export"):
+        result.export("model.n4a")
+    with pytest.raises(NotImplementedError, match="export"):
+        result.export_model("model.joblib")
 
 
 # ---------------------------------------------------------------------------------------------------
