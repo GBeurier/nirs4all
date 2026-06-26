@@ -1474,11 +1474,11 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
         raise RuntimeError(f"dag-ml separation-branch run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
-    # The concat-merge producer's reports carry the full-universe cross-fold OOF average — that is the
-    # separation branch's `cv_best_score`. `best_rmse` (final-test) stays NaN: the native concat-merge
-    # handler reassembles the FIT_CV validation OOF, not the per-partition REFIT test predictions, so
-    # no merged `(test, final)` report exists — which also matches legacy (top-level best_rmse is NaN
-    # for a branch+merge pipeline). cv_best_score is the score a separation branch is meant to produce.
+    # The concat-merge producer's reports carry both the full-universe cross-fold OOF average
+    # (`cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`): dag-ml's native
+    # off-fold merge handler reassembles each per-partition refit model's held-out TEST prediction
+    # (the node runner emits it with `fold_id=None`) into one full-universe test block under the merge
+    # node. Both scores are the separation branch's, surfaced by `_scores_to_run_result`.
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID)
 
 
@@ -1557,9 +1557,11 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     average) into one full-universe OOF attributed to the merge node, whose cross-fold average is
     ``cv_best_score``.
 
-    ``best_rmse`` (final test) stays NaN: the fusion merge handler reassembles the FIT_CV validation OOF,
-    not the per-branch REFIT test predictions, so no merged ``(test, final)`` report exists — exactly as
-    for the separation concat merge. ``cv_best_score`` is the score a fusion ensemble is meant to produce.
+    ``best_rmse`` (final test) is also native: each branch's REFIT predicts the held-out TEST set
+    (the node runner emits it with ``fold_id=None``), and dag-ml's off-fold fusion handler
+    (``reassemble_branch_merge_off_fold``) averages those base test predictions per sample into one
+    scored ``(test, fold_id=None)`` block under the merge node — the same average as ``cv_best_score``
+    but over the held-out test set.
 
     Classification (``fusion_proba_mean``) is NOT wired: the node runner emits scalar value predictions,
     not per-class probability rows, so a probability-mean fusion has no proba blocks to average — it
@@ -1614,7 +1616,8 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     # The fusion-merge producer's reports carry the full-universe cross-fold OOF average (the fused
-    # ensemble's `cv_best_score`); `best_rmse` (final-test) stays NaN (no merged refit-test report).
+    # ensemble's `cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`, the
+    # branches' test predictions averaged per sample). Both are surfaced by `_scores_to_run_result`.
     model_label = "+".join(_model_name(branch) for branch in branches)
     return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
 
@@ -1639,14 +1642,15 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
       deterministic producer order), fits the meta-learner and emits its own scored Validation OOF.
 
     The meta producer's cross-fold OOF average is ``cv_best_score`` — the stacking ensemble's CV score.
-    ``best_rmse`` (final test) stays NaN: dag-ml delivers the meta-node only Validation OOF in REFIT too
-    (no base refit-TEST predictions), so the refit meta-model has no test meta-features to predict — the
-    same NaN shape as the fusion/concat merges (delivering best_rmse natively needs a dag-ml change; see
-    the run report's STOP-and-report gap).
+    ``best_rmse`` (final test) is also native: in REFIT dag-ml delivers each base producer's held-out
+    TEST prediction to the meta-node as a SEPARATE off-fold input keyed ``…oof:refit`` (partition Test,
+    ``fold_id=None``), alongside the full Validation OOF the meta fits on. The refit meta-model predicts
+    the test set from those base TEST meta-features and emits a scored ``(test, fold_id=None)`` block.
 
-    LEAKAGE INVARIANT: only Validation OOF feeds the meta-feature matrix (the ``requires_oof`` edge +
-    ``collect_oof_prediction_input`` enforce Validation-only); a base model's own train/refit predictions
-    NEVER enter the FIT_CV meta-features.
+    LEAKAGE INVARIANT: the meta-learner is fit on Validation OOF ONLY (the ``requires_oof`` edge +
+    ``collect_oof_prediction_input`` enforce Validation-only); the TEST meta-features come from the base
+    models' TEST predictions (the ``:refit`` off-fold input, phase-gated to REFIT), never their OOF/train,
+    and never enter the FIT_CV meta-features.
     """
     import dag_ml
 
@@ -1703,7 +1707,8 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     # The meta-node producer's reports carry the full-universe cross-fold OOF average (the stacking
-    # ensemble's `cv_best_score`); `best_rmse` (final-test) stays NaN (no base refit-test meta-features).
+    # ensemble's `cv_best_score`) AND a `(test, fold_id=None)` block (`best_rmse`): the refit meta-model
+    # predicting the held-out test from the base producers' REFIT-test predictions (`…oof:refit`).
     model_label = f"MetaModel_{type(meta_learner).__name__}"
     return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_META_NODE_ID)
 
@@ -1711,15 +1716,18 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
 def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str, metric: str = "rmse", task_type: str = "regression", producer: str | None = None) -> RunResult:
     """Map a dag-ml ScoreSet into a RunResult, mirroring nirs4all's entry shape.
 
-    ``producer`` filters to one ``producer_node`` — e.g. a separation branch's concat-merge node,
-    whose reports carry the full-universe OOF average (``cv_best_score``); ``None`` keeps all
-    reports (the single-model path, where exactly one producer scores).
+    ``producer`` filters to one ``producer_node`` — e.g. a separation/duplication/stacking merge node,
+    whose reports carry the full-universe OOF average (``cv_best_score``) and — since dag-ml routes the
+    base branches' REFIT-test predictions to the merge node (``reassemble_branch_merge_off_fold`` for
+    concat/fusion; the ``:refit`` off-fold input for stacking) — a reassembled ``(test, fold_id=None)``
+    block (``best_rmse``); ``None`` keeps all reports (the single-model path, where exactly one producer
+    scores).
 
     dag-ml emits one report per (partition, fold). nirs4all's RunResult expects per-fold validation
     entries + a single combined **refit/final** entry that carries val (the CV score), test and train
     scores together — that combined entry is what `best`/`best_rmse`/`best_final` resolve. We build
-    exactly that: per-fold `val` entries, an `avg` CV entry (`cv_best_score`), and one `final` entry
-    (`fold_id="final"`, `partition="test"`) with val_score=OOF-average, test_score=final-test,
+    exactly that: an `avg` CV entry (`cv_best_score`), and one `final` entry (`fold_id="final"`,
+    `partition="val"`) with val_score=OOF-average, test_score from the producer's `(test, None)` block,
     train_score=final-train, and a combined `scores` dict.
     """
     reports = [report for report in (scores or {}).get("reports", []) if producer is None or report.get("producer_node") == producer]
@@ -1747,7 +1755,11 @@ def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, mode
         validation_folds = [value for (partition, fold_id), value in by_key.items() if partition == "validation"]
         if len(validation_folds) == 1:
             avg = validation_folds[0]
-    test = by_key.get(("test", "final"))
+    # The held-out TEST score (best_rmse) is the producer's `(test, fold_id=None)` block: the off-fold
+    # convention the node runner emits for a model's REFIT test prediction AND that dag-ml's native
+    # concat/fusion/stacking merge handlers reassemble under the merge producer. `producer` already
+    # scopes `by_key` to the right node (the merge node for a merge pipeline; the single model otherwise).
+    test = by_key.get(("test", None))
     train = by_key.get(("final", None))
     if avg is not None:
         add("avg", "val", {"val": avg}, val=avg.get(metric))

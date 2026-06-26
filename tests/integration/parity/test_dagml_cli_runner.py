@@ -265,8 +265,9 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
     assert avg[0]["row_count"] == len(keys)
 
     # dag-ml also produces + scores the FINAL model's TEST predictions natively (best_rmse) — the
-    # refit model (fit on full train) predicts the held-out test partition in the same run.
-    final_test = [r for r in scores["reports"] if r["partition"] == "test" and r["fold_id"] == "final"]
+    # refit model (fit on full train) predicts the held-out test partition in the same run. The block
+    # carries `fold_id=None` (the off-fold convention dag-ml keys on for REFIT-test / merge reassembly).
+    final_test = [r for r in scores["reports"] if r["partition"] == "test" and r["fold_id"] is None]
     assert len(final_test) == 1, "dag-ml must emit a native final-test score (best_rmse)"
     test_ints = dataset.index_column("sample", {"partition": "test"})
     final_model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
@@ -970,10 +971,11 @@ def test_public_run_engine_dagml_separation_branch_by_metadata() -> None:
     snapshot is scattered into a partition-sized slot). So the dag-ml native path is a CORRECTION, and
     the parity target is the direct computation — like exclude's legacy get_best best_rmse quirk.
 
-    `best_rmse` is NOT asserted: the native concat-merge handler scores the FIT_CV cross-fold OOF (the
-    separation branch's primary result) but does not reassemble the per-partition REFIT test
-    predictions, so `best_rmse` is NaN — which also matches legacy (top-level best_rmse is NaN for a
-    branch+merge pipeline). cv_best_score is the score a separation branch is meant to produce.
+    `best_rmse` is now also native: each per-partition refit model predicts its partition's held-out
+    TEST samples (`fold_id=None`), and dag-ml's off-fold concat handler reassembles those into one
+    full-universe `(test, fold_id=None)` block. Asserts `best_rmse` == a DIRECT sklearn-per-partition
+    TEST baseline (refit one PLS per group on its partition's full train, predict its partition's test
+    samples, concat, score) within 1e-3.
     """
     import nirs4all
 
@@ -987,7 +989,9 @@ def test_public_run_engine_dagml_separation_branch_by_metadata() -> None:
 
     dataset = DatasetConfigs(dataset_path("with_metadata")).get_dataset_at(0)
     train = dataset.index_column("sample", {"partition": "train"})
+    test = dataset.index_column("sample", {"partition": "test"})
     group_of = {int(s): str(v) for s, v in zip(train, dataset.metadata_column("group", {"partition": "train"}), strict=True)}
+    group_of_test = {int(s): str(v) for s, v in zip(test, dataset.metadata_column("group", {"partition": "test"}), strict=True)}
     groups = sorted(set(group_of.values()))
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
 
@@ -1013,6 +1017,27 @@ def test_public_run_engine_dagml_separation_branch_by_metadata() -> None:
     keys = sorted(oof_pred)
     baseline = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
     assert abs(result.cv_best_score - baseline) < 1e-3, (result.cv_best_score, baseline)
+
+    # DIRECT sklearn-per-partition TEST: one PLS per group refit on its partition's FULL train, predict
+    # its partition's test samples; concat to the full test universe, score. This is what dag-ml's
+    # off-fold concat handler reassembles from each partition model's `(test, fold_id=None)` REFIT block.
+    test_pred: dict[int, float] = {}
+    test_true: dict[int, float] = {}
+    for value in groups:
+        part_train = [s for s in train if group_of[int(s)] == value]
+        part_test = [s for s in test if int(s) in group_of_test and group_of_test[int(s)] == value]
+        if not part_train or not part_test:
+            continue
+        model = PLSRegression(n_components=n_comp)
+        model.fit(np.asarray(dataset.x({"sample": part_train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": part_train}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": part_test}, layout="2d"), dtype=float))).ravel()
+        true = np.asarray(dataset.y({"sample": part_test}), dtype=float).ravel()
+        for position, sample_int in enumerate(part_test):
+            test_pred[int(sample_int)] = float(pred[position])
+            test_true[int(sample_int)] = float(true[position])
+    test_keys = sorted(test_pred)
+    test_baseline = float(np.sqrt(mean_squared_error([test_true[k] for k in test_keys], [test_pred[k] for k in test_keys])))
+    assert abs(result.best_rmse - test_baseline) < 1e-3, (result.best_rmse, test_baseline)
 
 
 def test_separation_branch_detection() -> None:
@@ -1888,9 +1913,10 @@ def test_public_run_engine_dagml_duplication_branch_fusion() -> None:
     predictions; OOF reassembled, scored) within 1e-3, AND that the fused score DIFFERS from either branch
     alone (proves the merge averages, not passes through).
 
-    `best_rmse` is NOT asserted: the fusion merge reassembles the FIT_CV validation OOF, not the per-branch
-    REFIT test predictions, so the merge producer has no `(test, final)` report → `best_rmse` is NaN (the
-    same shape as the separation concat merge). `cv_best_score` is the score a fusion ensemble produces.
+    `best_rmse` is now also native: each branch's REFIT predicts the held-out TEST set (`fold_id=None`),
+    and dag-ml's off-fold fusion handler averages those base test predictions per sample into one scored
+    `(test, fold_id=None)` block under the merge node. Asserts `best_rmse` == a DIRECT avg-ensemble test
+    baseline (refit each branch on FULL train, average their test predictions, score) within 1e-3.
     """
     from sklearn.linear_model import Ridge
     from sklearn.metrics import mean_squared_error
@@ -1907,6 +1933,7 @@ def test_public_run_engine_dagml_duplication_branch_fusion() -> None:
 
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     train = dataset.index_column("sample", {"partition": "train"})
+    test = dataset.index_column("sample", {"partition": "test"})
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
 
     def branch_oof(model_factory) -> dict[int, float]:  # noqa: ANN001
@@ -1939,6 +1966,19 @@ def test_public_run_engine_dagml_duplication_branch_fusion() -> None:
     assert abs(result.cv_best_score - rmse_ridge) > 1e-3, (result.cv_best_score, rmse_ridge)
     # The two branches genuinely differ, so averaging is a real reduction (not a degenerate no-op).
     assert abs(rmse_pls - rmse_ridge) > 1e-3, (rmse_pls, rmse_ridge)
+
+    # best_rmse == a DIRECT avg-ensemble TEST baseline: refit each branch on the FULL train, average
+    # their held-out test predictions per sample, score. dag-ml's off-fold fusion handler reassembles
+    # exactly that from the branches' `(test, fold_id=None)` REFIT blocks.
+    def test_pred(model_factory) -> np.ndarray:  # noqa: ANN001
+        model = model_factory()
+        model.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+        return np.asarray(model.predict(np.asarray(dataset.x({"sample": test}, layout="2d"), dtype=float))).ravel()
+
+    y_test = np.asarray(dataset.y({"sample": test}), dtype=float).ravel()
+    avg_test = (test_pred(lambda: PLSRegression(n_components=n_comp)) + test_pred(lambda: Ridge(alpha=alpha))) / 2
+    rmse_avg_test = float(np.sqrt(mean_squared_error(y_test, avg_test)))
+    assert abs(result.best_rmse - rmse_avg_test) < 1e-3, (result.best_rmse, rmse_avg_test)
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -2040,11 +2080,14 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
     scored) within 1e-3, AND that the stacked score DIFFERS from either base branch alone (the meta-model
     genuinely combines).
 
-    `best_rmse` is NaN: dag-ml delivers the meta-node only Validation OOF in REFIT too (no base refit-TEST
-    predictions), so the refit meta-model has no test meta-features to predict — the same NaN shape as the
-    fusion/concat merges. Producing best_rmse natively needs a dag-ml change (the meta-node would have to
-    receive the base models' refit-test predictions); the FIT_CV OOF-scored cv_best_score is what stacking
-    is meant to produce.
+    `best_rmse` is now also native: in REFIT dag-ml delivers each base producer's held-out TEST
+    prediction to the meta-node as a SEPARATE off-fold input keyed `…oof:refit` (partition Test,
+    `fold_id=None`), alongside the full Validation OOF the meta fits on. The refit meta-model predicts
+    the test set from those base TEST meta-features and emits a scored `(test, fold_id=None)` block.
+    Asserts `best_rmse` == a DIRECT sklearn stacking TEST baseline (refit each base on FULL train,
+    predict test → meta-features; refit meta on the FULL OOF; predict test, score) within 1e-3.
+    LEAKAGE: the meta-model is fit on Validation OOF ONLY; the test meta-features come from the base
+    models' TEST predictions, never their OOF/train.
     """
     from sklearn.linear_model import Ridge
     from sklearn.metrics import mean_squared_error
@@ -2062,6 +2105,7 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
 
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     train = dataset.index_column("sample", {"partition": "train"})
+    test = dataset.index_column("sample", {"partition": "test"})
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
 
     def x(ints):  # noqa: ANN001, ANN202
@@ -2106,8 +2150,17 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
     # And it DIFFERS from either base branch alone (the meta-model genuinely combines, not a passthrough).
     assert abs(result.cv_best_score - rmse_pls) > 1e-3, (result.cv_best_score, rmse_pls)
     assert abs(result.cv_best_score - rmse_ridge) > 1e-3, (result.cv_best_score, rmse_ridge)
-    # best_rmse is NaN — the REFIT meta-node receives no base test predictions (documented dag-ml gap).
-    assert result.best_rmse != result.best_rmse, result.best_rmse
+
+    # best_rmse == a DIRECT sklearn stacking TEST baseline. The meta-model is fit on the FULL Validation
+    # OOF (sorted-key column order: PLS then Ridge, matching the meta-node's deterministic producer
+    # order); the test meta-features come from each base model REFIT on the FULL train predicting test.
+    oof_keys = sorted(truth)
+    meta = Ridge(alpha=meta_alpha).fit(np.array([[pls_oof[s], ridge_oof[s]] for s in oof_keys]), np.array([truth[s] for s in oof_keys]))
+    pls_test = np.asarray(PLSRegression(n_components=n_comp).fit(x(train), y(train)).predict(x(test))).ravel()
+    ridge_test = np.asarray(Ridge(alpha=base_alpha).fit(x(train), y(train)).predict(x(test))).ravel()
+    stack_test = np.asarray(meta.predict(np.column_stack([pls_test, ridge_test]))).ravel()
+    rmse_stack_test = float(np.sqrt(mean_squared_error(y(test), stack_test)))
+    assert abs(result.best_rmse - rmse_stack_test) < 1e-3, (result.best_rmse, rmse_stack_test)
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
