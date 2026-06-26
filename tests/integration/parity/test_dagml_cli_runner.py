@@ -3461,3 +3461,279 @@ def test_by_source_genuinely_restricts_to_one_source(tmp_path) -> None:
             early_fusion[int(sample_int)] = float(pred[position])
     early_fusion_cv = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [early_fusion[k] for k in keys])))
     assert abs(engine_cv - early_fusion_cv) > 1e-2, (engine_cv, early_fusion_cv, "by_source must differ from early fusion on distinct sources")
+
+
+# ---------------------------------------------------------------------------------------------------
+# Crash-path coverage gate (cutover-readiness #12): the generator `param:`-keyed dialect, the
+# `_cartesian_` / `_or_`+`pick` operator generators, and the multi-source baseline must NEVER crash on
+# engine="dag-ml" — each either RUNS (a finite best_rmse) or raises a clean NotImplementedError so the
+# try-dag-ml / except-NotImplementedError → legacy fallback can catch it. A bare crash is the only
+# unacceptable outcome (a crash is not a NotImplementedError, so the fallback would not catch it).
+#
+# These pipelines exercise the canonical generator placement from CLAUDE.md (the generator keyword at
+# the TOP level of the step dict beside `param` + a CLASS `model`), which `expand_spec` did not expand
+# (leaving a bare class that `clone` rejected), and the nested-sub-pipeline shapes that lowered an inner
+# `[]` to a `builtins.list` node (→ `make_pipeline([], model)`). `run_backend._expand_operator_generators`
+# now serializes → expands → deserializes + flattens, so the variants are flat lists of live instances.
+
+def _gen_case(name: str, _dataset_key: str = "regression") -> list[Any]:
+    """Build a fresh pipeline for parity case `name` from the case registry (single source of truth).
+
+    The eight crash cases live as `PipelineCase`s in `cases_generators` / `cases_multi_source`; importing
+    the modules registers them. Using the registry keeps the test pipelines byte-identical to the cert's.
+    """
+    from . import cases_generators, cases_multi_source  # noqa: F401 - import registers the cases
+    from ._registry import get as _get_case
+
+    return _get_case(name).pipeline_factory()
+
+
+def _shuffle_folds(dataset):
+    """The ShuffleSplit(n_splits=3, random_state=42) host folds the generator cases declare (in pool order)."""
+    from sklearn.model_selection import ShuffleSplit
+
+    train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    return train, [([train[i] for i in tr], [train[i] for i in va]) for tr, va in ShuffleSplit(n_splits=3, random_state=42).split(train)]
+
+
+def _variant_oof_and_test(dataset, folds, train, test, transforms, model) -> tuple[float, float]:
+    """OOF-concat CV (a sample validated in K folds is AVERAGED) + final-test RMSE for one concrete variant.
+
+    Mirrors what `run_backend._run_concrete` computes per variant: an sklearn Pipeline of the variant's
+    transforms + model, fit on each fold-train (real spectra, sample-keyed) for the OOF, then refit on
+    the full train for the held-out-test RMSE. This is the dag-ml/sklearn OOF aggregation — the metric the
+    engine SELECTs on (distinct from legacy's ShuffleSplit non-OOF resample).
+    """
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    def xof(ids):
+        return np.asarray(dataset.x_rows(ids, layout="2d"), dtype=float)
+
+    def yof(ids):
+        block = np.asarray(dataset.y({"sample": ids}), dtype=float)
+        stored = dataset.index_column("sample", {"sample": ids})
+        row = {int(s): r for r, s in enumerate(stored)}
+        return block[[row[int(s)] for s in ids]].ravel()
+
+    acc: dict[int, float] = {}
+    cnt: dict[int, int] = {}
+    tru: dict[int, float] = {}
+    for train_ids, val_ids in folds:
+        pipe = make_pipeline(*[t() for t in transforms], model())
+        pipe.fit(xof(train_ids), yof(train_ids))
+        preds = np.asarray(pipe.predict(xof(val_ids))).ravel()
+        for sample_int, pred, target in zip(val_ids, preds, yof(val_ids), strict=True):
+            acc[sample_int] = acc.get(sample_int, 0.0) + float(pred)
+            cnt[sample_int] = cnt.get(sample_int, 0) + 1
+            tru[sample_int] = float(target)
+    keys = sorted(acc)
+    cv = float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
+
+    final = make_pipeline(*[t() for t in transforms], model())
+    final.fit(xof(train), yof(train))
+    test_rmse = float(np.sqrt(mean_squared_error(yof(test), np.asarray(final.predict(xof(test))).ravel())))
+    return cv, test_rmse
+
+
+def _best_variant_test_rmse(dataset, variants) -> float:
+    """Final-test RMSE of the best-by-OOF-concat-CV variant — what dag-ml's best_rmse must reproduce.
+
+    `variants` is a list of `(transforms, model_factory)` where `transforms` are zero-arg factories and
+    `model_factory` builds the swept model instance; the lowest OOF-concat CV wins (the engine's SELECT),
+    and its full-train refit final-test RMSE is the headline `best_rmse`.
+    """
+    train, folds = _shuffle_folds(dataset)
+    test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
+    scored = [(_variant_oof_and_test(dataset, folds, train, test, transforms, model)) for transforms, model in variants]
+    return min(scored, key=lambda cv_test: cv_test[0])[1]
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_generator_range_param_keyed() -> None:
+    """`{_range_: [5,25,5], param: n_components, model: PLSRegression}` (CLASS model) runs + parity, no crash.
+
+    The canonical param-keyed sweep: the generator + `param` + a CLASS `model` at the step's top level.
+    This used to crash (`clone(<class>)`) because `expand_spec` left it unexpanded; the bridge now routes
+    it through the same nested-form expansion the sibling list-form uses. The selected variant's final-test
+    RMSE must match the best-OOF-concat n_components computed directly with sklearn."""
+    from sklearn.cross_decomposition import PLSRegression as _PLS
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = _gen_case("generator_range_n_components")
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert result.best_rmse == result.best_rmse, "must run (finite best_rmse), not crash"  # noqa: PLR0124
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    variants = [([StandardNormalVariate], (lambda nc=nc: _PLS(n_components=nc))) for nc in (5, 10, 15, 20, 25)]
+    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_generator_log_range_param_keyed() -> None:
+    """`{_log_range_: [1e-4,1e0,5], param: alpha, model: Ridge}` (CLASS model) runs + parity, no crash."""
+    from sklearn.linear_model import Ridge
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = _gen_case("generator_log_range_alpha")
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert result.best_rmse == result.best_rmse, "must run (finite best_rmse), not crash"  # noqa: PLR0124
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    alphas = [1e-4, 1e-3, 1e-2, 1e-1, 1e0]  # _log_range_ [1e-4, 1e0, 5] geometric, end-inclusive
+    variants = [([StandardNormalVariate], (lambda a=a: Ridge(alpha=a))) for a in alphas]
+    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_generator_grid_param_keyed() -> None:
+    """`{_grid_: {n_components:[…], scale:[…]}, model: PLSRegression}` (CLASS model) runs + parity, no crash."""
+    from itertools import product
+
+    from sklearn.cross_decomposition import PLSRegression as _PLS
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = _gen_case("generator_grid_n_components_scale")
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert result.best_rmse == result.best_rmse, "must run (finite best_rmse), not crash"  # noqa: PLR0124
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    variants = [([StandardNormalVariate], (lambda nc=nc, sc=sc: _PLS(n_components=nc, scale=sc))) for nc, sc in product((5, 10, 15), (True, False))]
+    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_generator_zip_param_keyed() -> None:
+    """`{_zip_: {n_components:[…], scale:[…]}, model: PLSRegression}` (CLASS model) runs + parity, no crash."""
+    from sklearn.cross_decomposition import PLSRegression as _PLS
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = _gen_case("generator_zip_paired")
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert result.best_rmse == result.best_rmse, "must run (finite best_rmse), not crash"  # noqa: PLR0124
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    pairs = list(zip((5, 10, 15), (True, False, True), strict=True))  # _zip_ pairs the columns by position
+    variants = [([StandardNormalVariate], (lambda nc=nc, sc=sc: _PLS(n_components=nc, scale=sc))) for nc, sc in pairs]
+    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_generator_sample_param_keyed() -> None:
+    """`{_sample_: {log_uniform…}, param: alpha, model: Ridge}` (CLASS model) runs, no crash.
+
+    `_sample_` draws the swept values from an RNG-seeded distribution, so the exact variant set is not
+    fixed here — the guarantee that matters for the cutover is that it RUNS (a finite best_rmse) instead
+    of crashing on `clone(<class>)`. A finite headline score means the sweep expanded, every variant ran
+    natively, and the best was selected."""
+    import nirs4all
+
+    pipeline = _gen_case("generator_sample_log_uniform_alpha")
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert np.isfinite(result.best_rmse), "_sample_ sweep must run (finite best_rmse), not crash"
+    assert np.isfinite(result.cv_best_score)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_generator_cartesian_stages() -> None:
+    """`{_cartesian_: [{_or_: [...]}, {_or_: [...]}]}` runs + parity, no crash (nested-list flatten fix).
+
+    `_cartesian_` expands a stage product into a nested SUB-PIPELINE list per variant (`[[A, B], …]`);
+    the bridge used to lower the inner list to a `builtins.list` node → `make_pipeline([], model)` crash.
+    `_expand_operator_generators` now flattens the sub-pipeline, so each variant is a flat 2-stage chain.
+    The best-OOF-concat stage combination's final-test RMSE must match dag-ml's."""
+    from itertools import product
+
+    from sklearn.cross_decomposition import PLSRegression as _PLS
+
+    import nirs4all
+    from nirs4all.operators.transforms import Detrend, FirstDerivative
+    from nirs4all.operators.transforms import MultiplicativeScatterCorrection as _MSC
+    from nirs4all.operators.transforms import StandardNormalVariate as _SNV
+
+    pipeline = _gen_case("generator_cartesian_stages")
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert result.best_rmse == result.best_rmse, "must run (finite best_rmse), not crash"  # noqa: PLR0124
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    variants = [([a, b], (lambda: _PLS(n_components=10))) for a, b in product((_SNV, _MSC), (Detrend, FirstDerivative))]
+    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_generator_or_with_pick() -> None:
+    """`{_or_: [...], pick: 2}` runs + parity, no crash (nested-list flatten fix).
+
+    `_or_`+`pick` builds C(4,2) unordered preprocessing PAIRS, each a nested sub-pipeline list — the same
+    `builtins.list` crash as `_cartesian_`. After flattening, dag-ml runs all 6 pairs and selects the
+    best by OOF-concat CV; that pair's final-test RMSE must match the direct-sklearn baseline."""
+    from itertools import combinations
+
+    from sklearn.cross_decomposition import PLSRegression as _PLS
+
+    import nirs4all
+    from nirs4all.operators.transforms import Detrend, FirstDerivative
+    from nirs4all.operators.transforms import MultiplicativeScatterCorrection as _MSC
+    from nirs4all.operators.transforms import StandardNormalVariate as _SNV
+
+    pipeline = _gen_case("generator_or_with_pick")
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert result.best_rmse == result.best_rmse, "must run (finite best_rmse), not crash"  # noqa: PLR0124
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    variants = [(list(pair), (lambda: _PLS(n_components=10))) for pair in combinations((_SNV, _MSC, Detrend, FirstDerivative), 2)]
+    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_multi_source_baseline() -> None:
+    """`[SNV, ShuffleSplit, PLSR]` on the 3-source `multi` corpus runs + parity, no crash.
+
+    The multi-source baseline (per-source SNV → early-fusion concat → PLSR) must re-materialize in the
+    process-adapter subprocess and run natively. Its final-test RMSE matches a direct sklearn baseline on
+    the concatenated sources within 1e-3."""
+    from sklearn.cross_decomposition import PLSRegression as _PLS
+    from sklearn.metrics import mean_squared_error
+    from sklearn.model_selection import ShuffleSplit
+    from sklearn.pipeline import make_pipeline
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    result = nirs4all.run(_gen_case("multi_source_baseline_snv_plsr", "multi"), dataset_path("multi"), engine="dag-ml")
+    assert result.best_rmse == result.best_rmse, "must run (finite best_rmse), not crash"  # noqa: PLR0124
+
+    dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
+    test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
+
+    def fused(ids):
+        return np.asarray(dataset.x({"sample": [int(s) for s in ids]}, layout="2d", concat_source=True), dtype=float)
+
+    def yof(ids):
+        block = np.asarray(dataset.y({"sample": [int(s) for s in ids]}), dtype=float)
+        stored = dataset.index_column("sample", {"sample": [int(s) for s in ids]})
+        row = {int(s): r for r, s in enumerate(stored)}
+        return block[[row[int(s)] for s in ids]].ravel()
+
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in ShuffleSplit(n_splits=3, random_state=42).split(train)]
+    acc: dict[int, float] = {}
+    cnt: dict[int, int] = {}
+    for train_ids, val_ids in folds:
+        model = make_pipeline(StandardNormalVariate(), _PLS(n_components=10))
+        model.fit(fused(train_ids), yof(train_ids))
+        for sample_int, pred in zip(val_ids, np.asarray(model.predict(fused(val_ids))).ravel(), strict=True):
+            acc[sample_int] = acc.get(sample_int, 0.0) + float(pred)
+            cnt[sample_int] = cnt.get(sample_int, 0) + 1
+    final = make_pipeline(StandardNormalVariate(), _PLS(n_components=10))
+    final.fit(fused(train), yof(train))
+    baseline_test = float(np.sqrt(mean_squared_error(yof(test), np.asarray(final.predict(fused(test))).ravel())))
+    assert abs(result.best_rmse - baseline_test) < 1e-3, (result.best_rmse, baseline_test)

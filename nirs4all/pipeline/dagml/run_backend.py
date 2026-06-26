@@ -445,12 +445,95 @@ def _apply_model_params(steps: list[Any]) -> list[Any]:
             params = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS}
             if params:
                 model = step["model"]
+                # A class-model (e.g. ``PLSRegression`` rather than ``PLSRegression()``) must be
+                # instantiated before clone — ``clone`` rejects a class. The expansion path normally
+                # instantiates it (:func:`_expand_operator_generators`); this guards the remaining
+                # bare-class shape rather than crashing on ``clone(<class>)``.
+                if isinstance(model, type):
+                    model = model()
                 model = clone(model) if hasattr(model, "set_params") else model
                 model.set_params(**params)
                 step = {key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS}
                 step["model"] = model
         out.append(step)
     return out
+
+
+def _flatten_steps(steps: list[Any]) -> list[Any]:
+    """Flatten nested-list pipeline steps into a single top-level step list.
+
+    Operator-level generators expand a stage into a SUB-PIPELINE of steps held inside a list
+    (``_cartesian_`` builds ``[[A, B], splitter, model]`` and ``_or_``+``pick`` builds
+    ``[[A, B], …]``). The legacy executor flattens such nested lists into consecutive steps; the
+    dag-ml bridge lowers one step at a time and would otherwise lower the inner list to a
+    ``builtins.list`` node (→ ``make_pipeline([], model)`` crash), so flatten here first.
+    """
+    out: list[Any] = []
+    for step in steps:
+        if isinstance(step, list):
+            out.extend(_flatten_steps(step))
+        else:
+            out.append(step)
+    return out
+
+
+# Step keywords whose value is the operator a top-level param-keyed sweep targets (mirrors the
+# generator core's ``_OPERATOR_WRAPPER_KEYS``). When the step carries a top-level generator keyword
+# (``_range_``/``_grid_``/…) over such an operator, the operator must be a ``{"class": …}`` dict for
+# ``expand_spec``'s ``_normalize_param_sweep``/``_normalize_param_grid`` to expand it.
+_OPERATOR_WRAPPER_KEYS = ("model", "y_processing")
+
+
+def _wrap_param_keyed_operator(step: Any) -> Any:
+    """Wrap a bare-string operator into a ``{"class": …}`` dict for a top-level param-keyed sweep.
+
+    The canonical generator dialect places the generator keyword at the TOP level of the step dict
+    beside ``param`` (the attribute) and ``model`` (the operator), e.g.
+    ``{"_range_": [5, 25, 5], "param": "n_components", "model": PLSRegression}``. After
+    ``serialize_component`` the operator is a bare string (``"sklearn…PLSRegression"``), but
+    ``expand_spec``'s sweep/grid normalizers only fire on a ``{"class": …}`` dict (or a top-level
+    ``class`` key) — a bare string is left unexpanded (1 variant), then ``clone`` crashes on the
+    class. Wrapping the string in ``{"class": …}`` routes the sweep through the same nested-form
+    expansion the list-form already uses. Steps without a top-level generator are returned unchanged.
+    """
+    from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS
+
+    if not isinstance(step, dict) or not (GENERATION_KEYWORDS & set(step)):
+        return step
+    wrapped = dict(step)
+    for opkw in _OPERATOR_WRAPPER_KEYS:
+        operator = wrapped.get(opkw)
+        if isinstance(operator, str):
+            wrapped[opkw] = {"class": operator}
+    return wrapped
+
+
+def _expand_operator_generators(pipeline: list[Any]) -> list[list[Any]]:
+    """Expand operator-level generators into concrete, flat pipelines of live operator instances.
+
+    Mirrors nirs4all's production expansion (``PipelineConfigs``): ``serialize_component`` the
+    pipeline to its canonical form FIRST so a bare-class/instance operator and the param-keyed sweep
+    dialect (``_range_``/``_log_range_``/``_grid_``/``_zip_``/``_sample_`` beside ``param``/``model``)
+    normalize and expand identically to legacy; then ``deserialize_component`` each variant back to
+    live instances and flatten any nested sub-pipeline lists (``_cartesian_``/``_or_``+``pick``). The
+    result is what ``_run_concrete`` expects — a flat ``[transform…, splitter, model]`` list with no
+    nested lists and no bare classes — so the bridge lowers it cleanly instead of crashing on a
+    ``clone(<class>)`` or a ``builtins.list`` intermediate step.
+
+    A generator-free pipeline is returned unchanged (one variant of the original live operators) —
+    the serialize/deserialize round-trip is reserved for the generator path so the common
+    transform+model shape keeps its exact operator instances.
+    """
+    from nirs4all.pipeline.config._generator.keywords import has_nested_generator_keywords
+    from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
+    from nirs4all.pipeline.config.generator import expand_spec
+
+    if not has_nested_generator_keywords(pipeline):
+        return [pipeline]
+
+    serialized = serialize_component(pipeline)
+    normalized = [_wrap_param_keyed_operator(step) for step in serialized]
+    return [_flatten_steps(deserialize_component(variant)) for variant in expand_spec(normalized)]
 
 
 def _model_name(steps: list[Any]) -> str:
@@ -894,7 +977,6 @@ def run_via_dagml(
         raise FileNotFoundError(f"dag-ml-cli binary not found at {cli}; build it (cargo build -p dag-ml-cli --release)")
 
     from nirs4all.core import detect_task_type
-    from nirs4all.pipeline.config.generator import expand_spec
 
     # Accept an already-built DatasetConfigs (the way a repetition column is declared:
     # `DatasetConfigs(path, repetition="col")`) so that declaration reaches the materialized dataset;
@@ -1028,10 +1110,11 @@ def run_via_dagml(
             list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample
         )
 
-    # Expand operator-level generators (_or_/_cartesian_/...) into concrete pipelines in Python
-    # (nirs4all's own expansion), run each through the verified single-variant dag-ml path, then
-    # select the best by its CV score — mirroring nirs4all selecting the best variant by its metric.
-    variants = expand_spec(pipeline)
+    # Expand operator-level generators (_or_/_cartesian_/param-keyed _range_/_grid_/...) into concrete,
+    # flat pipelines of live operator instances (nirs4all's own serialize → expand → deserialize +
+    # flatten), run each through the verified single-variant dag-ml path, then select the best by its
+    # CV score — mirroring nirs4all selecting the best variant by its metric.
+    variants = _expand_operator_generators(list(pipeline))
     results = [
         _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type, cv_pool, excluded, tags_by_sample)
         for index, variant in enumerate(variants)
