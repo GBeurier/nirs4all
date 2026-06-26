@@ -856,6 +856,31 @@ class RunResult:
 
     # --- Export methods ---
 
+    def _is_dagml_engine(self) -> bool:
+        """True when this result came from the dag-ml backend (``run(engine="dag-ml")``).
+
+        The dag-ml backend builds an in-memory :class:`Predictions` with native scores and NO workspace
+        (no SQLite store, no artifacts dir), tagging ``per_dataset[name]["engine"] == "dag-ml"``. Export
+        (.n4a bundle) needs the workspace artifacts, so it is not yet available on a dag-ml result — the
+        export entry points use this to fail loud CATCHABLY (a ``NotImplementedError`` the planned
+        try-dag-ml/except-NotImplementedError→legacy cutover catches) instead of a bare ``RuntimeError``.
+        """
+        return any(isinstance(info, dict) and info.get("engine") == "dag-ml" for info in self.per_dataset.values())
+
+    def _no_workspace_export_error(self) -> Exception:
+        """The right fail-loud error when an export has no workspace path.
+
+        A dag-ml result → a CATCHABLE :class:`NotImplementedError` naming the unsupported shape (so the
+        cutover fallback redirects export to the legacy engine); a genuinely detached/misused legacy
+        result → the original :class:`RuntimeError` (a real misuse, not a fall-back-able dag-ml gap).
+        """
+        if self._is_dagml_engine():
+            return NotImplementedError(
+                "engine='dag-ml' does not yet support .n4a export: the dag-ml backend returns native scores "
+                "with no workspace artifacts to bundle; run the export-bound pipeline on the legacy engine."
+            )
+        return RuntimeError("Cannot export: no workspace path available (result was not created from a workspace run)")
+
     def _open_store_for_export(self):
         """Open a temporary WorkspaceStore for export operations.
 
@@ -868,7 +893,7 @@ class RunResult:
 
         # Detached mode: open a fresh store
         if self._workspace_path is None:
-            raise RuntimeError("Cannot export: no workspace path available (result was not created from a workspace run)")
+            raise self._no_workspace_export_error()
 
         from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
@@ -943,7 +968,7 @@ class RunResult:
         # Detached mode: create BundleGenerator with temporary store
         workspace_path = self._workspace_path
         if workspace_path is None:
-            raise RuntimeError("Cannot export: no workspace path available")
+            raise self._no_workspace_export_error()
 
         from nirs4all.pipeline.bundle import BundleGenerator
 
@@ -987,7 +1012,7 @@ class RunResult:
         # Detached mode: replicate runner.export_model logic with temporary store
         workspace_path = self._workspace_path
         if workspace_path is None:
-            raise RuntimeError("Cannot export: no workspace path available")
+            raise self._no_workspace_export_error()
 
         from nirs4all.pipeline.resolver import PredictionResolver
         from nirs4all.pipeline.storage.artifacts.artifact_persistence import to_bytes

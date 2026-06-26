@@ -33,6 +33,56 @@ from .identity import mint_identity
 _DEFAULT_CLI = Path(__file__).resolve().parents[4] / "dag-ml" / "target" / "release" / "dag-ml-cli"
 
 
+class DagMlUnsupported(NotImplementedError):
+    """A pipeline shape (or a dag-ml-cli run of one) the dag-ml backend cannot execute.
+
+    A subclass of ``NotImplementedError`` so the planned cutover fallback
+    (``try dag-ml; except NotImplementedError → legacy``) catches it: an unsupported-or-failed
+    dag-ml shape must NEVER escape ``run_via_dagml`` as a bare ``RuntimeError``/``ValueError``
+    (which the fallback would not catch and would hard-fail in production). Raised both for shapes
+    rejected UP FRONT (no splitter, multiple model nodes, …) and for a dag-ml-cli run that failed
+    mid-execution — in either case the fallback redirects the pipeline to the legacy engine.
+    """
+
+
+def _cli_child_error(stdout: str) -> str:
+    """The child adapter's actual error line(s) from a dag-ml-cli failure, for an informative message.
+
+    The captured ``stdout``+``stderr`` ends with the process-adapter traceback; the last
+    ``Error:``/``ValueError:``/``…Error:`` line is the real cause (e.g. ``ValueError: data view is
+    missing``). Surfacing it beats the bare ``rc=1`` (the legacy E-QUALITY message names the cause),
+    and lets the reader see WHY the shape failed. Falls back to the trailing slice when no error line
+    is found, so nothing is ever hidden.
+    """
+    lines = [line.strip() for line in stdout.splitlines() if line.strip()]
+    causes = [line for line in lines if line.startswith("Error:") or ("Error:" in line and not line.startswith("File "))]
+    return causes[-1] if causes else stdout[-800:]
+
+
+def _reject_multi_model(steps: list[Any]) -> None:
+    """Reject a concrete pipeline carrying MORE THAN ONE ``{"model": ...}`` step (fail loud UP FRONT).
+
+    The dag-ml CV+refit assembly (:func:`assemble_cv_refit_dsl` → ``model_node_id``) binds the data
+    source to exactly ONE model node; several top-level model steps compile to several model nodes,
+    only the first of which gets a data binding, so the others reach the runtime with an empty data
+    view and crash mid-execution inside the adapter (``node_runner._sample_ids`` → ``data view is
+    missing`` → a bare ``rc=1``). Detecting it here turns that into a CATCHABLE up-front error.
+
+    Several models in one nirs4all pipeline (e.g. ``U02``'s three ``{"model": PLS(n)}`` steps) is a
+    legacy multi-model run — the legacy engine fans them out into separate chains; the dag-ml backend
+    runs ONE model per pipeline (a model sweep uses ``{"model": {"_or_": [...]}}``, which expands to
+    one model PER variant). Until per-model fan-out is wired, this shape falls back to legacy.
+    """
+    model_steps = [step for step in steps if isinstance(step, dict) and "model" in step]
+    if len(model_steps) > 1:
+        raise DagMlUnsupported(
+            f"engine='dag-ml' runs ONE model per pipeline, but this pipeline has {len(model_steps)} "
+            "top-level {'model': ...} steps; the dag-ml CV+refit binds data to a single model node, so "
+            "multiple model nodes crash mid-run (data view is missing). Use a model sweep "
+            "({'model': {'_or_': [...]}}) — which runs one model per variant — or the legacy engine."
+        )
+
+
 def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     """Separate the cross-validator step (the object exposing ``.split``) from the operator steps."""
     splitter = next((step for step in pipeline if hasattr(step, "split")), None)
@@ -800,14 +850,19 @@ def _is_by_source_branch_step(step: Any) -> bool:
     return step["branch"].get("by_source") in (True, "auto")
 
 
-def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> list[Any] | None:
+def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> tuple[list[Any], str] | None:
     """Detect the EXACT handled by_source shape, else ``None`` (fail-loud via the bridge).
 
     Admits ONLY: the splitter + ONE ``{"branch": {"by_source": True|"auto", "steps": [...model...]}}``
     (a single shared body LIST containing the model, applied per source) + ONE avg/mean fusion merge
-    (:func:`_fusion_merge_aggregate`) on a MULTI-source dataset (``n_sources >= 2``). Returns the shared
-    branch body (the model sub-pipeline) when matched. ANY deviation returns ``None`` so the bridge's
-    raw-branch ``NotImplementedError`` fires — never a silent-wrong run. Specifically REJECTED:
+    (:func:`_fusion_merge_aggregate`) on a MULTI-source dataset (``n_sources >= 2``). Returns
+    ``(body, aggregate)`` when matched — the shared branch body (the model sub-pipeline) AND the fusion
+    aggregate (``"mean"`` or ``"proba_mean"``), mirroring :func:`_detect_duplication_branch`. The
+    aggregate is RETURNED (not dropped) so the runner can reject ``proba_mean`` fail-loud, exactly as
+    duplication does — accepting ``proba_mean`` here while hardcoding value-fusion in the runner would
+    silently run a probability-mean merge as a regression-fusion (audit H-P0-1). ANY deviation returns
+    ``None`` so the bridge's raw-branch ``NotImplementedError`` fires — never a silent-wrong run.
+    Specifically REJECTED:
 
     * a single-source dataset (by_source on one source is a no-op — there is nothing to fuse);
     * the per-source DICT body (``{"src0": [...], "src1": [...]}`` — different model per source) — a
@@ -822,7 +877,7 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> list[Any] |
     if len(branch_steps) != 1 or len(merge_aggregates) != 1 or n_sources < 2:
         return None
     branch_step = branch_steps[0]
-    merge_step = merge_aggregates[0][0]
+    merge_step, aggregate = merge_aggregates[0]
 
     # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps (a top-level
     # transform / tag / y_processing / exclude / model would be silently dropped, since only the branch
@@ -839,7 +894,7 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> list[Any] |
     # Only the shared-body LIST form (one model sub-pipeline applied per source) is supported here.
     if not isinstance(body, list) or not any(isinstance(sub, dict) and "model" in sub for sub in body):
         return None
-    return body
+    return body, aggregate
 
 
 def _is_duplication_branch_step(step: Any) -> bool:
@@ -1178,7 +1233,8 @@ def run_via_dagml(
     # per sample into one full-universe OOF. Each branch sees ALL samples but only ITS source's columns
     # (a feature-axis selection, not a sample partition like by_metadata).
     if detected_by_source is not None:
-        return _run_by_source_branch(list(pipeline), detected_by_source, spectro.features_sources(), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "by_source", metric, task_type, dataset_pickle=host_pickle)
+        by_source_body, by_source_aggregate = detected_by_source
+        return _run_by_source_branch(list(pipeline), by_source_body, by_source_aggregate, spectro.features_sources(), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "by_source", metric, task_type, dataset_pickle=host_pickle)
 
     # STACKING (backlog #10): a duplication branch (`{"branch": [[A], [B], …]}`) + `{"merge": "predictions"}`
     # + a downstream meta-model (`{"model": MetaModel(Ridge())}` or a plain `{"model": Ridge()}`) → ONE
@@ -1281,7 +1337,8 @@ def _run_native_generation(
     """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    _reject_multi_model(steps)
     steps = _apply_plain_model_params(steps)
 
     identity = mint_identity(spectro)
@@ -1297,7 +1354,7 @@ def _run_native_generation(
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml engine run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
@@ -1351,7 +1408,8 @@ def _run_concrete(
     """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    _reject_multi_model(steps)
     steps = _apply_model_params(steps)
 
     identity = mint_identity(spectro)
@@ -1367,7 +1425,7 @@ def _run_concrete(
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml engine run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
@@ -1415,7 +1473,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     """One concrete repetition variant: group-aware folds + a ``group_id``-carrying envelope."""
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     steps = _apply_model_params(steps)
 
     identity = mint_identity(spectro)
@@ -1432,7 +1490,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml repetition run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml repetition run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
@@ -1518,7 +1576,7 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
 
     steps, splitter = _split_pipeline(body)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     steps = _apply_model_params(steps)
 
     # Reshape a FRESH copy per variant so each variant's pickled dataset is independent (and the
@@ -1547,7 +1605,7 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path)
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml rep-fusion run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml rep-fusion run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     rep_key = "rep_to_sources" if "rep_to_sources" in rep_step else "rep_to_pp"
@@ -1782,7 +1840,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     rest = [step for step in pipeline if not _is_augmentation_step(step)]
     steps, splitter = _split_pipeline(rest)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     steps = _apply_model_params(steps)
 
     base_train = [int(s) for s in spectro.index_column("sample", {"partition": "train"})]
@@ -1831,7 +1889,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path)
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml augmentation run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml augmentation run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
@@ -1866,7 +1924,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     # sub-pipeline applied per partition. Drop the splitter from the body if it slipped in.
     splitter = next((step for step in pipeline if hasattr(step, "split")), None)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     body_steps = [step for step in branch_body if not hasattr(step, "split")]
 
     identity = mint_identity(spectro)
@@ -1899,7 +1957,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(fanned_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if not model_ids:
-        raise RuntimeError("separation-branch fan-out produced no per-partition model nodes")
+        raise DagMlUnsupported("separation-branch fan-out produced no per-partition model nodes")
 
     # Per-partition data_bindings (one per fanned model node) + the materialized fold set. The CLI's
     # own fan-out is a no-op on the already-fanned DSL (the auto_separate marker is consumed).
@@ -1910,7 +1968,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
         dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml separation-branch run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml separation-branch run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     # The concat-merge producer's reports carry both the full-universe cross-fold OOF average
@@ -2000,7 +2058,7 @@ def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[
     return branch
 
 
-def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
+def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate: str, n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
     """Run a by_source separation branch + avg/mean fusion merge as ONE native dag-ml run (S4).
 
     LATE fusion BY SOURCE: fans the shared body into one canonical branch PER feature source
@@ -2022,14 +2080,25 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources
     selection, never a sample partition); per-source per-fold preprocessing fits on fold-train only
     (the per-branch X-chain is fit inside the fold's train materialization, like the single-block path);
     the fusion merge is OOF-safe. No cross-sample mixing.
+
+    Classification (``fusion_proba_mean``) is NOT wired (identical to the duplication-fusion path): the
+    node runner emits scalar value predictions, not per-class probability rows, so a probability-mean
+    fusion has no proba blocks to average — it fails loud rather than silently running ``proba_mean`` as
+    a value (regression) fusion (audit H-P0-1).
     """
     import dag_ml
 
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
 
+    if aggregate == "proba_mean":
+        raise DagMlUnsupported(
+            "engine='dag-ml' does not yet support proba-mean fusion (classification) for a by_source branch: "
+            "the process adapter emits class-label predictions, not per-class probability rows; backlog #20-avg (proba)."
+        )
+
     splitter = next((step for step in pipeline if hasattr(step, "split")), None)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
     identity = mint_identity(spectro)
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
@@ -2054,7 +2123,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if len(model_ids) != n_sources:
-        raise RuntimeError(f"by_source compile produced {len(model_ids)} model nodes, expected {n_sources}")
+        raise DagMlUnsupported(f"by_source compile produced {len(model_ids)} model nodes, expected {n_sources}")
 
     # One data_binding per per-source model node (each binds its `x` to the full source set; the node
     # runner selects its own source's block by metadata.source_index) + the materialized fold set.
@@ -2065,7 +2134,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml by_source run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml by_source run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     model_label = f"by_source_{_model_name(branch_body)}x{n_sources}"
@@ -2107,7 +2176,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
 
     splitter = next((step for step in pipeline if hasattr(step, "split")), None)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
     identity = mint_identity(spectro)
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
@@ -2128,7 +2197,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     if len(model_ids) < 2:
-        raise RuntimeError("duplication-fusion compile produced fewer than two model nodes")
+        raise DagMlUnsupported("duplication-fusion compile produced fewer than two model nodes")
 
     # One data_binding per branch model node (each binds its `x` to the full source) + the materialized
     # fold set. Every model node sees the full fold view — no branch_view/sample_metadata (duplication).
@@ -2139,7 +2208,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml duplication-fusion run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml duplication-fusion run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     # The fusion-merge producer's reports carry the full-universe cross-fold OOF average (the fused
@@ -2186,7 +2255,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
 
     splitter = next((step for step in pipeline if hasattr(step, "split")), None)
     if splitter is None:
-        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
     identity = mint_identity(spectro)
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
@@ -2217,9 +2286,9 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]
     if len(base_model_ids) < 2:
-        raise RuntimeError("stacking compile produced fewer than two base model nodes")
+        raise DagMlUnsupported("stacking compile produced fewer than two base model nodes")
     if _META_NODE_ID not in model_ids:
-        raise RuntimeError("stacking compile produced no meta-model node")
+        raise DagMlUnsupported("stacking compile produced no meta-model node")
 
     # One data_binding per BASE model node (each binds its `x` to the full source). The meta-node has NO
     # data binding: its features are the base branches' OOF, delivered as prediction_inputs (not data).
@@ -2230,7 +2299,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
-        raise RuntimeError(f"dag-ml stacking run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+        raise DagMlUnsupported(f"dag-ml stacking run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
     bundle = json.loads((run_dir / "bundle.json").read_text())
     # The meta-node producer's reports carry the full-universe cross-fold OOF average (the stacking
