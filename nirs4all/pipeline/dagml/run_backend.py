@@ -40,23 +40,145 @@ def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     return steps, splitter
 
 
-def _reloadable_dataset_path(dataset: Any, spectro: Any) -> str:
-    """A path the process adapter can reload via ``DatasetConfigs(path).get_dataset_at(0)``.
+def _materialize_dataset(dataset: Any) -> Any:
+    """Materialize the host ``SpectroDataset`` from ANY input ``nirs4all.run()`` accepts.
 
-    The adapter re-materializes the dataset from ``N4A_DAGML_DATASET_PATH`` (and re-mints the
-    identity map, which must match the host's). A raw path string ``dataset`` is reloadable as-is;
-    an already-built :class:`DatasetConfigs` (e.g. ``DatasetConfigs(folder, repetition="col")``,
-    the way a repetition column is declared) exposes its source files in ``configs[0]`` — the
-    folder-style dataset reloads from the common parent directory of those files. The repetition
-    *flag* need not survive the reload: the adapter only resolves features/targets by sample id
-    (it never groups); group construction is entirely host-side.
+    ``run_via_dagml`` must accept the SAME dataset arg as legacy ``run()``: a path / config dict /
+    JSON-YAML file (via :class:`DatasetConfigs`), an already-built :class:`DatasetConfigs`, a live
+    :class:`SpectroDataset` (e.g. ``nirs4all.generate.regression(...)``), a single feature array, or
+    an ``(X, y[, partition_info])`` tuple. ``DatasetConfigs`` SILENTLY SKIPS the in-memory inputs
+    (its normalizer returns ``None`` for a ``SpectroDataset`` / ``ndarray`` / ``tuple``), leaving
+    ``configs`` empty so ``get_dataset_at(0)`` raises a misleading ``IndexError`` — so those inputs
+    are wrapped HERE with the SAME normalization the legacy orchestrator uses
+    (:meth:`PipelineOrchestrator._wrap_dataset`), never handed to ``DatasetConfigs`` raw.
+
+    A list of datasets is rejected loud: the dag-ml backend runs ONE dataset (the cartesian product
+    over datasets stays a legacy-orchestrator concern).
     """
+    from nirs4all.data.dataset import SpectroDataset
+
+    if isinstance(dataset, DatasetConfigs):
+        return dataset.get_dataset_at(0)
+    if isinstance(dataset, SpectroDataset):
+        return dataset
+    if isinstance(dataset, list):
+        raise NotImplementedError("engine='dag-ml' runs a single dataset; pass one dataset, not a list of datasets")
+    if isinstance(dataset, (np.ndarray, tuple)):
+        return _wrap_in_memory_arrays(dataset)
+    return DatasetConfigs(dataset).get_dataset_at(0)
+
+
+def _wrap_in_memory_arrays(dataset: np.ndarray | tuple) -> Any:
+    """Build a ``SpectroDataset`` from a feature array or ``(X, y[, partition_info])`` tuple.
+
+    Mirrors the legacy :meth:`PipelineOrchestrator._wrap_dataset` array/tuple branch exactly (public
+    ``add_samples`` / ``add_targets``), so the dag-ml backend materializes the IDENTICAL dataset the
+    legacy engine would for the same input. A bare array goes to the ``test`` partition (prediction
+    shape); an ``(X, y)`` tuple goes to ``train`` with targets; an optional third element is a
+    partition map (``{"train": 80}`` / explicit slices / index lists).
+    """
+    from nirs4all.data.dataset import SpectroDataset
+
+    spectro = SpectroDataset(name="array_dataset")
+    if isinstance(dataset, np.ndarray):
+        spectro.add_samples(dataset, indexes={"partition": "test"})
+        return spectro
+
+    x = dataset[0]
+    y = dataset[1] if len(dataset) > 1 else None
+    partition_info = dataset[2] if len(dataset) > 2 else None
+    if partition_info is None:
+        spectro.add_samples(x, indexes={"partition": "train"})
+        if y is not None:
+            spectro.add_targets(y)
+    else:
+        _split_and_add_in_memory(spectro, x, y, partition_info)
+    return spectro
+
+
+def _split_and_add_in_memory(spectro: Any, x: np.ndarray, y: np.ndarray | None, partition_info: dict[str, Any]) -> None:
+    """Add ``(X, y)`` to ``spectro`` per ``partition_info`` — the legacy ``_split_and_add_data`` rules.
+
+    ``partition_info`` values: an int (``{"train": 80}`` = first N samples), a ``slice``/list/array of
+    indices. If only ``train`` is given, the remaining rows become ``test``. Mirrors
+    :meth:`PipelineOrchestrator._split_and_add_data` so the materialized dataset is identical.
+    """
+    n_samples = x.shape[0]
+    partition_indices: dict[str, slice | list[Any] | np.ndarray] = {}
+    for partition_name, partition_spec in partition_info.items():
+        if isinstance(partition_spec, int):
+            partition_indices[partition_name] = slice(0, partition_spec)
+        elif isinstance(partition_spec, (slice, list, np.ndarray)):
+            partition_indices[partition_name] = partition_spec
+        else:
+            raise ValueError(f"Invalid partition spec for '{partition_name}': {partition_spec}")
+
+    if "train" in partition_indices and "test" not in partition_indices:
+        train_spec = partition_indices["train"]
+        if isinstance(train_spec, slice):
+            train_end = train_spec.stop if train_spec.stop is not None else train_spec.start
+        else:
+            train_array = np.array(train_spec)
+            train_end = int(train_array.max()) + 1 if len(train_array) > 0 else 0
+        if train_end < n_samples:
+            partition_indices["test"] = slice(train_end, n_samples)
+
+    for partition_name, indices_spec in partition_indices.items():
+        x_partition = x[indices_spec]
+        y_partition = y[indices_spec] if y is not None else None
+        if len(x_partition) > 0:
+            spectro.add_samples(x_partition, indexes={"partition": partition_name})
+            if y_partition is not None:
+                spectro.add_targets(y_partition)
+
+
+def _dataset_inputs(dataset: Any, spectro: Any, base_dir: Path) -> tuple[str, str | None]:
+    """Resolve how the adapter materializes ``spectro``: ``(dataset_path, dataset_pickle)``.
+
+    The adapter (in a subprocess) must materialize the EXACT dataset the host built the
+    envelope/identity from — the wire ids are ``f"{content_hash()}.s{sample_int}"``, so any drift in
+    the re-loaded dataset's content hash or sample order makes the run wrong (host-audit H-P1-1).
+
+    Prefer the cheap path re-load when it is provably faithful: for a file-path / config input that
+    exposes a reloadable path, re-load ``DatasetConfigs(path).get_dataset_at(0)`` IN-PROCESS and keep
+    the path ONLY if its identity fingerprint matches the host's. If the input is in-memory (a
+    ``SpectroDataset`` / array / tuple, with no reloadable path) OR the path re-load diverges, PICKLE
+    the host ``spectro`` and ship it via the existing ``N4A_DAGML_DATASET_PICKLE`` channel — the
+    adapter then loads the byte-identical dataset (the same mechanism augmentation/rep-fusion use).
+    """
+    path = _reloadable_path(dataset)
+    if path is not None:
+        try:
+            reloaded = DatasetConfigs(path).get_dataset_at(0)
+            if mint_identity(reloaded).fingerprint == mint_identity(spectro).fingerprint:
+                return path, None
+        except (IndexError, ValueError, OSError):
+            pass  # path not faithfully reloadable — fall through to pickle
+
+    base_dir.mkdir(parents=True, exist_ok=True)
+    pickle_path = base_dir / "host_dataset.pkl"
+    import pickle
+
+    pickle_path.write_bytes(pickle.dumps(spectro))
+    return (path or str(pickle_path)), str(pickle_path)
+
+
+def _reloadable_path(dataset: Any) -> str | None:
+    """A filesystem path the adapter can reload via ``DatasetConfigs(path)``, or ``None``.
+
+    A raw path string / ``Path`` is reloadable as-is; an already-built :class:`DatasetConfigs` (e.g.
+    ``DatasetConfigs(folder, repetition="col")``) exposes its source files in ``configs[0]`` — the
+    folder-style dataset reloads from the common parent directory of the ``train_x`` file. In-memory
+    inputs (``SpectroDataset`` / array / tuple) have no reloadable path and return ``None``.
+    """
+    if isinstance(dataset, (str, Path)):
+        return str(dataset)
     if isinstance(dataset, DatasetConfigs):
         config_dict = dataset.configs[0][0]
         train_x = config_dict.get("train_x")
         if isinstance(train_x, str) and train_x:
             return str(Path(train_x).parent)
-    return str(spectro.dataset_path) if getattr(spectro, "dataset_path", None) else str(dataset)
+    return None
 
 
 def _is_exclude_step(step: Any) -> bool:
@@ -978,13 +1100,15 @@ def run_via_dagml(
 
     from nirs4all.core import detect_task_type
 
-    # Accept an already-built DatasetConfigs (the way a repetition column is declared:
-    # `DatasetConfigs(path, repetition="col")`) so that declaration reaches the materialized dataset;
-    # otherwise wrap the raw path/config.
-    configs = dataset if isinstance(dataset, DatasetConfigs) else DatasetConfigs(dataset)
-    spectro = configs.get_dataset_at(0)
-    dataset_arg = _reloadable_dataset_path(dataset, spectro)
+    # Materialize the host dataset from ANY input legacy `run()` accepts (path / config /
+    # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
+    # skips the in-memory ones, so `_materialize_dataset` wraps them with the legacy normalization.
+    spectro = _materialize_dataset(dataset)
     base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
+    # `dataset_arg` is the reloadable path (clean file-path datasets, no pickle — fast); `host_pickle`
+    # is set only when the adapter cannot faithfully reload from a path (in-memory inputs, or a path
+    # whose re-load diverges from the host identity), and ships the byte-identical host dataset.
+    dataset_arg, host_pickle = _dataset_inputs(dataset, spectro, base_dir / "host")
 
     is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
     metric = "accuracy" if is_classification else "rmse"
@@ -1029,7 +1153,7 @@ def run_via_dagml(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
                 "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
             )
-        return _run_repetition(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type)
+        return _run_repetition(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type, dataset_pickle=host_pickle)
 
     # Separation branch (by_metadata/by_tag) + concat merge → ONE native fan-out run: dag-ml fans the
     # branch into one model node per partition value (discovered from the envelope metadata/tags),
@@ -1038,14 +1162,14 @@ def run_via_dagml(
     # branch is still visible — exclude+branch is rejected (out of scope) rather than silently dropped.
     if detected is not None:
         branch_step, branch_body = detected
-        return _run_separation_branch(list(pipeline), branch_step, branch_body, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "branch", metric, task_type)
+        return _run_separation_branch(list(pipeline), branch_step, branch_body, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "branch", metric, task_type, dataset_pickle=host_pickle)
 
     # Duplication branch (`{"branch": [[A], [B], …]}`) + avg/mean fusion merge → ONE native run: each
     # branch is a full-data model node (NO fan-out / NO branch_view); dag-ml's native fusion merge handler
     # averages the branches' held-out Validation OOF per sample (leakage-safe) into one full-universe OOF.
     if detected_duplication is not None:
         branches, aggregate = detected_duplication
-        return _run_duplication_branch(list(pipeline), branches, aggregate, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "duplication", metric, task_type)
+        return _run_duplication_branch(list(pipeline), branches, aggregate, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "duplication", metric, task_type, dataset_pickle=host_pickle)
 
     # by_source separation branch (`{"branch": {"by_source": True, "steps": [...model...]}}`) + avg/mean
     # fusion merge on a MULTI-source dataset → ONE native run: dag-ml fans the shared body into one
@@ -1054,7 +1178,7 @@ def run_via_dagml(
     # per sample into one full-universe OOF. Each branch sees ALL samples but only ITS source's columns
     # (a feature-axis selection, not a sample partition like by_metadata).
     if detected_by_source is not None:
-        return _run_by_source_branch(list(pipeline), detected_by_source, spectro.features_sources(), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "by_source", metric, task_type)
+        return _run_by_source_branch(list(pipeline), detected_by_source, spectro.features_sources(), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "by_source", metric, task_type, dataset_pickle=host_pickle)
 
     # STACKING (backlog #10): a duplication branch (`{"branch": [[A], [B], …]}`) + `{"merge": "predictions"}`
     # + a downstream meta-model (`{"model": MetaModel(Ridge())}` or a plain `{"model": Ridge()}`) → ONE
@@ -1064,7 +1188,7 @@ def run_via_dagml(
     # the meta-learner on the per-fold OOF meta-feature matrix and emits its own scored OOF.
     if detected_stacking is not None:
         branches, meta_learner = detected_stacking
-        return _run_stacking_branch(list(pipeline), branches, meta_learner, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "stacking", metric, task_type)
+        return _run_stacking_branch(list(pipeline), branches, meta_learner, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "stacking", metric, task_type, dataset_pickle=host_pickle)
 
     # A STACKING merge that is NOT the handled shape above (a per-branch predictions config, a missing /
     # mis-ordered meta-model, a MetaModel carrying unhandled options) must fail LOUD here, naming #10,
@@ -1107,7 +1231,7 @@ def run_via_dagml(
     # generators (`_or_`/`_cartesian_`, multi-model) stay on the Python `expand_spec` path below.
     if _generation_kind(list(pipeline)) == "param_model":
         return _run_native_generation(
-            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample
+            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle
         )
 
     # Expand operator-level generators (_or_/_cartesian_/param-keyed _range_/_grid_/...) into concrete,
@@ -1116,7 +1240,7 @@ def run_via_dagml(
     # CV score — mirroring nirs4all selecting the best variant by its metric.
     variants = _expand_operator_generators(list(pipeline))
     results = [
-        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type, cv_pool, excluded, tags_by_sample)
+        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -1143,6 +1267,7 @@ def _run_native_generation(
     cv_pool: list[int] | None = None,
     excluded: set[int] | None = None,
     tags_by_sample: dict[int, list[str]] | None = None,
+    dataset_pickle: str | None = None,
 ) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
 
@@ -1169,7 +1294,7 @@ def _run_native_generation(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
@@ -1217,6 +1342,7 @@ def _run_concrete(
     cv_pool: list[int] | None = None,
     excluded: set[int] | None = None,
     tags_by_sample: dict[int, list[str]] | None = None,
+    dataset_pickle: str | None = None,
 ) -> RunResult:
     """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores.
 
@@ -1238,7 +1364,7 @@ def _run_concrete(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml engine run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
@@ -1247,7 +1373,7 @@ def _run_concrete(
     return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
 
 
-def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
     """Run a REPETITION (sample-grain grouped) pipeline as ONE native dag-ml CV+refit run.
 
     The CV universe is the repetition ROWS of the train partition (each stored row is its own
@@ -1269,7 +1395,7 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
 
     variants = expand_spec(pipeline)
     results = [
-        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type)
+        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, dataset_pickle=dataset_pickle)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -1285,7 +1411,7 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
     return min(results, key=_cv_rank)
 
 
-def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
     """One concrete repetition variant: group-aware folds + a ``group_id``-carrying envelope."""
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -1303,7 +1429,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml repetition run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
@@ -1714,7 +1840,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
 _MERGE_NODE_ID = "merge:concat"
 
 
-def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
     """Run a by_metadata/by_tag separation branch + concat merge as ONE native dag-ml fan-out run.
 
     Lowers the branch to an ``auto_separate`` template (one branch carrying the criterion + the
@@ -1781,7 +1907,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     fanned_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata
+        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml separation-branch run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
@@ -1874,7 +2000,7 @@ def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[
     return branch
 
 
-def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
     """Run a by_source separation branch + avg/mean fusion merge as ONE native dag-ml run (S4).
 
     LATE fusion BY SOURCE: fans the shared body into one canonical branch PER feature source
@@ -1936,7 +2062,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml by_source run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
@@ -1946,7 +2072,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources
     return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
 
 
-def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
     """Run a duplication branch (``[[A], [B], …]``) + avg/mean fusion merge as ONE native dag-ml run.
 
     Lowers each inner sub-pipeline to a canonical branch (``mode: "duplication"`` — every branch model
@@ -2010,7 +2136,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml duplication-fusion run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
@@ -2026,7 +2152,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
 _META_NODE_ID = "merge:stack"
 
 
-def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
     Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
@@ -2101,7 +2227,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
     )
     if outcome["returncode"] != 0:
         raise RuntimeError(f"dag-ml stacking run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
