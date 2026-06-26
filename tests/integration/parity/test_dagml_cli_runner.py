@@ -2659,3 +2659,131 @@ def test_public_run_engine_dagml_multi_source_early_fusion() -> None:
     keys = sorted(oof_pred)
     sklearn_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
     assert abs(result.cv_best_score - sklearn_oof) < 1e-3, (result.cv_best_score, sklearn_oof)
+
+
+def test_resolve_feature_blocks_are_sample_aligned_and_hstack_to_early_fusion() -> None:
+    """S5 per-source block delivery: ``resolve_feature_blocks`` returns one block per source, each
+    sample-aligned to the request order, and their hstack BYTE-EQUALS the early-fusion concat matrix
+    (``resolve_features``) — the structural payoff for intermediate fusion (blocks, not a concat).
+    A single-source dataset yields a ONE-element list equal to its concat (the degenerate block). No CLI."""
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml.resolver import MaterializationResolver
+
+    multi = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    assert multi.features_sources() == 3
+    identity = mint_identity(multi)
+    resolver = MaterializationResolver(multi, identity)
+    assert resolver.is_multi_source()
+
+    train = multi.index_column("sample", {"partition": "train"})[:12]
+    wire = [identity.to_wire(int(s)) for s in train]
+    result = resolver.resolve_feature_blocks(wire)
+    blocks = [np.asarray(block, dtype=float) for block in result["blocks"]]
+    assert len(blocks) == 3, "one block per feature source"
+    assert all(block.shape[0] == len(train) for block in blocks), "every block is sample-aligned to the request"
+
+    # The per-source blocks hstack to the exact early-fusion concat (identity-keyed, same sample order).
+    concat = np.asarray(resolver.resolve_features(wire)["values"], dtype=float)
+    assert np.array_equal(np.hstack(blocks), concat), "hstacked blocks must equal the early-fusion concat"
+
+    # Single-source: a one-element list equal to its concat (no source asymmetry).
+    single = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    single_identity = mint_identity(single)
+    single_resolver = MaterializationResolver(single, single_identity)
+    assert not single_resolver.is_multi_source()
+    single_wire = [single_identity.to_wire(int(s)) for s in single.index_column("sample", {"partition": "train"})[:6]]
+    single_blocks = single_resolver.resolve_feature_blocks(single_wire)["blocks"]
+    assert len(single_blocks) == 1
+    assert np.array_equal(np.asarray(single_blocks[0], dtype=float), np.asarray(single_resolver.resolve_features(single_wire)["values"], dtype=float))
+
+
+def test_multi_block_routing_only_for_mbpls_on_multi_source() -> None:
+    """S5 gating: the intermediate-fusion (block-list) path triggers ONLY for a multi-block model
+    (MB-PLS) on a >1-source dataset. A single-source MB-PLS, and a multi-source ordinary model (PLS),
+    both stay on the early-fusion concat path — so S0/S3 and every single-source parity is unchanged.
+    No CLI: this pins the host's detection predicate (``_is_multi_block_model`` & ``is_multi_source``)."""
+    from sklearn.cross_decomposition import PLSRegression
+
+    from nirs4all.operators.models.sklearn.mbpls import MBPLS
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml.node_runner import _is_multi_block_model
+    from nirs4all.pipeline.dagml.resolver import MaterializationResolver
+
+    multi = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    single = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    multi_resolver = MaterializationResolver(multi, mint_identity(multi))
+    single_resolver = MaterializationResolver(single, mint_identity(single))
+
+    # The model predicate: only MB-PLS is multi-block.
+    assert _is_multi_block_model(MBPLS(n_components=5))
+    assert not _is_multi_block_model(PLSRegression(n_components=5))
+
+    # The full gate = multi-block model AND multi-source dataset.
+    assert _is_multi_block_model(MBPLS()) and multi_resolver.is_multi_source(), "MB-PLS on multi → block list"
+    assert not (_is_multi_block_model(MBPLS()) and single_resolver.is_multi_source()), "MB-PLS on single → concat"
+    assert not (_is_multi_block_model(PLSRegression()) and multi_resolver.is_multi_source()), "PLS on multi → early-fusion concat"
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_mbpls_intermediate_fusion() -> None:
+    """engine="dag-ml" runs an MB-PLS pipeline as INTERMEDIATE fusion (S5): the host delivers the N
+    per-source blocks as a LIST (``concat_source=False``), applies the X-chain PER block, and MB-PLS
+    fuses them internally (``MBPLS.fit([X1,X2,X3], y)``) — NOT the early-fusion concat.
+
+    SNV → MB-PLS on the 3-source `multi` corpus. ``cv_best_score`` + ``best_rmse`` == a direct MB-PLS
+    run OUTSIDE the engine (per-source SNV fit on fold-train, ``MBPLS.fit([X1,X2,X3], y)``, per-fold
+    OOF) within 1e-3 — proving the engine drives the genuine multi-block path. LEAKAGE: folds/OOF over
+    SAMPLES (unchanged); the per-source blocks are sample-aligned; each block's SNV fits on fold-train
+    only (a per-fold per-block fit); no cross-sample mixing."""
+    from sklearn.base import clone
+    from sklearn.metrics import mean_squared_error
+
+    import nirs4all
+    from nirs4all.operators.models.sklearn.mbpls import MBPLS
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    n_comp = 5
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": MBPLS(n_components=n_comp)}]
+    result = nirs4all.run(pipeline, dataset_path("multi"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    assert dataset.features_sources() == 3, "this exercises the >1-source intermediate-fusion path"
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    def blocks(ids: list[int]) -> list[np.ndarray]:
+        """The per-source feature blocks for ``ids`` (concat_source=False), as a list — what MB-PLS fuses."""
+        return [np.asarray(block, dtype=float) for block in dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)]
+
+    def y(ids: list[int]) -> np.ndarray:
+        """y for ``ids`` in REQUEST order (re-keyed off ascending storage order, the storage-vs-request trap)."""
+        stored = dataset.index_column("sample", {"sample": [int(s) for s in ids]})
+        row_of = {int(s): r for r, s in enumerate(stored)}
+        block = np.asarray(dataset.y({"sample": [int(s) for s in ids]}), dtype=float).reshape(len(stored), -1)
+        return block[[row_of[int(s)] for s in ids], 0]
+
+    def mbpls_predict(train_ids: list[int], predict_ids: list[int]) -> np.ndarray:
+        """Direct MB-PLS multi-block: per-source SNV fit on train, MBPLS.fit([X1,X2,X3], y), predict."""
+        x_train_blocks, x_pred_blocks = blocks(train_ids), blocks(predict_ids)
+        snvs = [clone(StandardNormalVariate()) for _ in x_train_blocks]
+        x_train_t = [snv.fit_transform(block) for snv, block in zip(snvs, x_train_blocks, strict=True)]
+        x_pred_t = [snv.transform(block) for snv, block in zip(snvs, x_pred_blocks, strict=True)]
+        model = MBPLS(n_components=n_comp)
+        model.fit(x_train_t, y(train_ids))
+        return np.asarray(model.predict(x_pred_t)).ravel()
+
+    # best_rmse == direct MB-PLS final-test (refit on full train, predict test).
+    direct_best = float(np.sqrt(mean_squared_error(y(test_ints), mbpls_predict(train, test_ints))))
+    assert abs(result.best_rmse - direct_best) < 1e-3, (result.best_rmse, direct_best)
+
+    # cv_best_score == direct MB-PLS per-fold OOF concat.
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        pred = mbpls_predict(train_ints, val_ints)
+        for sample_int, value, target in zip(val_ints, pred, y(val_ints), strict=True):
+            oof_pred[sample_int], oof_true[sample_int] = float(value), float(target)
+    keys = sorted(oof_pred)
+    direct_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - direct_oof) < 1e-3, (result.cv_best_score, direct_oof)
