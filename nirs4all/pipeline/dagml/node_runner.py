@@ -285,7 +285,13 @@ def run_model_node(
         fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label)
         x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"], dtype=float)
         y_train = np.asarray(resolver.resolve_targets(resolver.target_sample_ids(fit_ids))["values"], dtype=float)
-        y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
+        # MULTI-TARGET (S0): resolve_targets returns a 2D (n, n_targets) block, so y_train is already 2D
+        # — pass it through unraveled (PLSRegression(n_targets>1)/MultiOutputRegressor consume 2D y) and
+        # scale per-column. SINGLE-TARGET stays 1D (byte-identical legacy reshape(-1,1).ravel()).
+        if y_train.ndim > 1 and y_train.shape[1] > 1:
+            y_fit = y_transform.fit_transform(y_train) if y_transform is not None else y_train
+        else:
+            y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
         estimator.fit(x_train, y_fit)
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
@@ -336,6 +342,13 @@ def run_model_node(
     for spec_ids, partition, spec_fold, spec_include_augmented in specs:
         if not spec_ids:
             continue
+        # MULTI-TARGET (S0): resolve_targets returns list-of-rows (n, n_targets); _predict already builds
+        # 2D rows, so both blocks widen to k columns and carry per-target names (rmse:y0/rmse:y1 keys +
+        # macro-mean). SINGLE-TARGET stays a flat list → [[v]] rows + ["y"] (BYTE-IDENTICAL legacy emit).
+        true_y = resolver.resolve_targets(spec_ids)["values"]
+        multi_target = bool(true_y) and isinstance(true_y[0], list)
+        names = [f"y{i}" for i in range(len(true_y[0]))] if multi_target else ["y"]
+        true_values = [[float(value) for value in row] for row in true_y] if multi_target else [[float(value)] for value in true_y]
         predictions.append(
             {
                 "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
@@ -344,16 +357,15 @@ def run_model_node(
                 "fold_id": spec_fold,
                 "sample_ids": spec_ids,
                 "values": _predict(spec_ids, spec_include_augmented),
-                "target_names": ["y"],
+                "target_names": names,
             }
         )
-        true_y = resolver.resolve_targets(spec_ids)["values"]
         regression_targets.append(
             {
                 "level": "sample",
                 "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in spec_ids],
-                "values": [[float(value)] for value in true_y],
-                "target_names": ["y"],
+                "values": true_values,
+                "target_names": names,
             }
         )
 

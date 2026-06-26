@@ -60,6 +60,57 @@ def _num_wavelengths(dataset: SpectroDataset) -> int:
     return int(num_features if isinstance(num_features, int) else num_features[0])
 
 
+def num_targets(dataset: SpectroDataset) -> int:
+    """The number of target columns (``y`` width). 1 for the single-target baseline."""
+    return int(dataset._target_accessor._block.num_targets)
+
+
+def target_names(dataset: SpectroDataset) -> list[str]:
+    """Per-target names ``["y0", "y1", …]`` — nirs4all stores no target headers, so they are
+    synthesized positionally. Used as the per-target metric suffix (``rmse:y0``/``rmse:y1``)."""
+    return [f"y{i}" for i in range(num_targets(dataset))]
+
+
+def _target_representation(dataset: SpectroDataset, n_samples: int) -> dict[str, Any]:
+    """The ``targets.y`` representation spec.
+
+    Single-target keeps the legacy ``tabular_numeric`` table (BYTE-IDENTICAL); a multi-target
+    dataset (``num_targets>1``) emits ``target_numeric_matrix`` / ``target_categorical_matrix``
+    (per ``is_classification``) with a ``target`` axis of width ``num_targets`` — mirroring
+    nirs4all-io-dagml ``target_matrix_representation`` (lib.rs:256-269). The per-target columns ride
+    inside this one sample-keyed block, so the fold/OOF partition (over samples) stays leakage-safe.
+    """
+    k = num_targets(dataset)
+    if k <= 1:
+        return {
+            "id": "tabular_numeric",
+            "type_id": "table",
+            "rank": 2,
+            "axes": [
+                {"name": "sample", "kind": "sample", "unit": None, "size": n_samples, "variable": False},
+                {"name": "target", "kind": "target", "unit": None, "size": 1, "variable": False},
+            ],
+            "container": "dataframe",
+            "dtype": "float64",
+            "sparse": False,
+            "ragged": False,
+        }
+    categorical = dataset.is_classification
+    return {
+        "id": "target_categorical_matrix" if categorical else "target_numeric_matrix",
+        "type_id": "target",
+        "rank": 2,
+        "axes": [
+            {"name": "sample", "kind": "sample", "unit": None, "size": n_samples, "variable": False},
+            {"name": "target", "kind": "target", "unit": None, "size": k, "variable": False},
+        ],
+        "container": "array",
+        "dtype": "string" if categorical else "float64",
+        "sparse": False,
+        "ragged": False,
+    }
+
+
 def _dataset_schema(dataset: SpectroDataset, source_id: str, sample_id_strings: list[str]) -> dict[str, Any]:
     n_samples = len(sample_id_strings)
     return {
@@ -90,21 +141,7 @@ def _dataset_schema(dataset: SpectroDataset, source_id: str, sample_id_strings: 
                 "tags": {},
             }
         ],
-        "targets": {
-            "y": {
-                "id": "tabular_numeric",
-                "type_id": "table",
-                "rank": 2,
-                "axes": [
-                    {"name": "sample", "kind": "sample", "unit": None, "size": n_samples, "variable": False},
-                    {"name": "target", "kind": "target", "unit": None, "size": 1, "variable": False},
-                ],
-                "container": "dataframe",
-                "dtype": "float64",
-                "sparse": False,
-                "ragged": False,
-            }
-        },
+        "targets": {"y": _target_representation(dataset, n_samples)},
         "metadata": {},
     }
 

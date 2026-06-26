@@ -2356,3 +2356,179 @@ def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> Non
     ]
     with pytest.raises(NotImplementedError, match="#10"):
         nirs4all.run(swept_meta, dataset_path("regression"), engine="dag-ml")
+
+
+# ---------------------------------------------------------------------------
+# MULTI-TARGET y emission (nirs4all-migration #30, slice S0): the host un-ravels the y side of the
+# 4-file seam to emit a (sample, target) matrix (target_numeric_matrix) instead of collapsing y to one
+# column. dag-ml is already representation-agnostic + multi-target-aware (PredictionBlock /
+# RegressionMetricReport are width-aware and emit per-target rmse:yK + a macro-mean), so this is
+# HOST-ONLY — no engine change. nirs4all has no multi-target sample_data fixture, so the test
+# SYNTHESIZES a multi-target SpectroDataset (3 targets: y0, y0*2+1, cos(y0)) in memory and hands it to
+# the adapter via the pickle path (N4A_DAGML_DATASET_PICKLE) exactly like sample_augmentation does.
+# ---------------------------------------------------------------------------
+
+
+def _multi_target_dataset(n_targets: int = 3):
+    """A 3-target SpectroDataset built from the regression corpus (X reused, y = [y0, 2*y0+1, cos(y0)]).
+
+    The second target is an affine function of the first, so its per-target RMSE must be ~2x the first's
+    — a built-in check that dag-ml scores each target column independently (not a blended number)."""
+    from nirs4all.data.dataset import SpectroDataset
+
+    base = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = [int(s) for s in base.index_column("sample", {"partition": "train"})]
+    test = [int(s) for s in base.index_column("sample", {"partition": "test"})]
+
+    def _xy(ids: list[int]):
+        x = np.asarray(base.x_rows(ids, layout="2d"), dtype=float)
+        y_block = np.asarray(base.y({"sample": ids}), dtype=float).reshape(len(ids), -1)
+        stored = base.index_column("sample", {"sample": ids})
+        row_of = {int(s): r for r, s in enumerate(stored)}
+        y0 = y_block[[row_of[int(s)] for s in ids], 0]
+        cols = [y0, y0 * 2.0 + 1.0, np.cos(y0)][:n_targets]
+        return x, np.column_stack(cols)
+
+    x_train, y_train = _xy(train)
+    x_test, y_test = _xy(test)
+    dataset = SpectroDataset("multi_target_regression")
+    headers = [str(i) for i in range(x_train.shape[1])]
+    dataset.add_samples(x_train, {"partition": "train"}, headers=headers, header_unit="nm")
+    dataset.add_samples(x_test, {"partition": "test"}, headers=headers, header_unit="nm")
+    dataset.add_targets(np.vstack([y_train, y_test]))
+    return dataset
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_multi_target(tmp_path) -> None:
+    """A PLSRegression(n_targets=3) pipeline on engine="dag-ml" runs natively with per-target OOF +
+    per-target scoring (S0): dag-ml emits rmse:y0/rmse:y1/rmse:y2 + a macro-mean rmse, each matching a
+    hand-computed per-column RMSE within 1e-3, and the macro-mean == the mean of the per-target RMSEs.
+
+    PARITY BASELINE = direct sklearn KFold per-target OOF on the same folds (the engine path is the
+    correction: the legacy .ravel() collapsed y to one column). Drives SELECT off the default macro-mean
+    metric — per-target SELECT (`select on rmse:y2`) is GAP C / slice S1 and out of scope here.
+    """
+    import pickle
+
+    import dag_ml
+    from sklearn.metrics import mean_squared_error
+
+    from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
+    from nirs4all.pipeline.dagml.envelope import build_envelope, num_targets
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml_bridge import controller_manifests
+
+    n_targets = 3
+    dataset = _multi_target_dataset(n_targets)
+    assert num_targets(dataset) == n_targets, "fixture must be genuinely multi-target"
+
+    identity = mint_identity(dataset)
+    train = dataset.index_column("sample", {"partition": "train"})
+    folds = [([train[j] for j in tr], [train[j] for j in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+    envelope = build_envelope(dataset, identity, sample_ints=train)
+    pipeline = [{"model": PLSRegression(n_components=5)}]
+    dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="multi_target", n_splits=_N_SPLITS)
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+
+    # Hand the exact in-memory multi-target dataset to the adapter via the pickle path (the regression
+    # corpus on disk is single-target; the synthetic y columns live only in memory).
+    (tmp_path / "multi_target.pkl").write_bytes(pickle.dumps(dataset))
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path="UNUSED", workdir=tmp_path,
+        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, dataset_pickle=str(tmp_path / "multi_target.pkl"),
+    )
+    assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
+
+    # dag-ml's native cross-fold OOF average report carries per-target + macro-mean keys.
+    reports = json.loads((tmp_path / "bundle.json").read_text())["scores"]["reports"]
+    avg = [r for r in reports if r["partition"] == "validation" and r["fold_id"] == "avg"]
+    assert len(avg) == 1, "dag-ml must emit one native cross-fold OOF average for the multi-target run"
+    metrics = avg[0]["metrics"]
+    assert avg[0]["target_width"] == n_targets, "the scored block must keep the (sample, target) width"
+    assert avg[0]["target_names"] == [f"y{j}" for j in range(n_targets)]
+
+    # Hand-computed per-target OOF RMSE (direct sklearn KFold, same folds, same row-keying as the engine).
+    oof_pred: dict[int, np.ndarray] = {}
+    oof_true: dict[int, np.ndarray] = {}
+    for train_ints, val_ints in folds:
+        model = PLSRegression(n_components=5)
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float)), dtype=float).reshape(len(val_ints), -1)
+        true_block = np.asarray(dataset.y({"sample": val_ints}), dtype=float).reshape(len(val_ints), -1)
+        stored = dataset.index_column("sample", {"sample": val_ints})
+        row_of = {int(s): r for r, s in enumerate(stored)}
+        true = true_block[[row_of[int(s)] for s in val_ints]]
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[int(sample_int)] = pred[position]
+            oof_true[int(sample_int)] = true[position]
+    keys = sorted(oof_pred)
+    pred_matrix = np.array([oof_pred[k] for k in keys])
+    true_matrix = np.array([oof_true[k] for k in keys])
+    per_target = [float(np.sqrt(mean_squared_error(true_matrix[:, j], pred_matrix[:, j]))) for j in range(n_targets)]
+    macro = float(np.mean(per_target))
+
+    # Per-target parity: dag-ml's rmse:yK == hand-computed per-column RMSE; macro-mean == mean of them.
+    for j in range(n_targets):
+        assert abs(metrics[f"rmse:y{j}"] - per_target[j]) < 1e-3, (f"rmse:y{j}", metrics[f"rmse:y{j}"], per_target[j])
+    assert abs(metrics["rmse"] - macro) < 1e-3, (metrics["rmse"], macro)
+    # dag-ml's own macro-mean is exactly the mean of its per-target keys (no blended-column collapse).
+    assert abs(metrics["rmse"] - float(np.mean([metrics[f"rmse:y{j}"] for j in range(n_targets)]))) < 1e-9
+    # The affine target (y1 = 2*y0 + 1) must score ~2x the first target — proof the columns are scored
+    # independently, not collapsed into one number.
+    assert abs(metrics["rmse:y1"] - 2.0 * metrics["rmse:y0"]) < 1e-2, (metrics["rmse:y1"], metrics["rmse:y0"])
+
+
+def test_multi_target_emission_single_target_unchanged() -> None:
+    """The S0 multi-target seam keeps the SINGLE-target path BYTE-IDENTICAL: the schema target
+    representation is the legacy ``tabular_numeric`` literal and ``resolve_targets`` still returns a flat
+    list (so every existing single-target parity test above is unaffected). No CLI needed."""
+    from nirs4all.pipeline.dagml.envelope import _target_representation, num_targets
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml.resolver import MaterializationResolver
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    assert num_targets(dataset) == 1
+
+    # The single-target representation is the exact legacy literal (so schema_fingerprint is unchanged).
+    legacy = {
+        "id": "tabular_numeric", "type_id": "table", "rank": 2,
+        "axes": [
+            {"name": "sample", "kind": "sample", "unit": None, "size": 130, "variable": False},
+            {"name": "target", "kind": "target", "unit": None, "size": 1, "variable": False},
+        ],
+        "container": "dataframe", "dtype": "float64", "sparse": False, "ragged": False,
+    }
+    assert _target_representation(dataset, 130) == legacy
+
+    # resolve_targets returns a FLAT list for single-target (the legacy .ravel() shape).
+    identity = mint_identity(dataset)
+    resolver = MaterializationResolver(dataset, identity)
+    wire = [identity.to_wire(int(s)) for s in dataset.index_column("sample", {"partition": "train"})[:5]]
+    values = resolver.resolve_targets(wire)["values"]
+    assert values and all(not isinstance(v, list) for v in values), "single-target must stay a flat list"
+
+
+def test_multi_target_emission_widens_target_axis() -> None:
+    """A multi-target dataset takes the NEW path: target_numeric_matrix with a target axis of width
+    n_targets, and ``resolve_targets`` returns list-of-rows (the (n, n_targets) block). No CLI needed."""
+    from nirs4all.pipeline.dagml.envelope import _target_representation, num_targets
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml.resolver import MaterializationResolver
+
+    dataset = _multi_target_dataset(3)
+    assert num_targets(dataset) == 3
+
+    rep = _target_representation(dataset, 130)
+    assert rep["id"] == "target_numeric_matrix", "regression multi-target → numeric matrix representation"
+    assert rep["type_id"] == "target" and rep["container"] == "array" and rep["dtype"] == "float64"
+    target_axis = next(axis for axis in rep["axes"] if axis["kind"] == "target")
+    assert target_axis["size"] == 3, "the target axis must widen to n_targets"
+
+    # resolve_targets returns the (n, n_targets) block as list-of-rows.
+    identity = mint_identity(dataset)
+    resolver = MaterializationResolver(dataset, identity)
+    train = dataset.index_column("sample", {"partition": "train"})[:5]
+    wire = [identity.to_wire(int(s)) for s in train]
+    values = resolver.resolve_targets(wire)["values"]
+    assert len(values) == 5 and all(isinstance(row, list) and len(row) == 3 for row in values), "multi-target → list of 3-wide rows"
