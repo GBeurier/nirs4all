@@ -14,6 +14,7 @@ CV (e.g. ``ShuffleSplit``) is not yet supported by the dag-ml ``FoldSet`` (see m
 from __future__ import annotations
 
 import json
+import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -1203,8 +1204,6 @@ def run_via_dagml(
     if not Path(cli).exists():
         raise FileNotFoundError(f"dag-ml-cli binary not found at {cli}; build it (cargo build -p dag-ml-cli --release)")
 
-    from nirs4all.core import detect_task_type
-
     # Materialize the host dataset from ANY input legacy `run()` accepts (path / config /
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
     # skips the in-memory ones, so `_materialize_dataset` wraps them with the legacy normalization.
@@ -1214,6 +1213,35 @@ def run_via_dagml(
     # is set only when the adapter cannot faithfully reload from a path (in-memory inputs, or a path
     # whose re-load diverges from the host identity), and ships the byte-identical host dataset.
     dataset_arg, host_pickle = _dataset_inputs(dataset, spectro, base_dir / "host")
+
+    # When WE allocated `base_dir` (no caller `workdir`), it holds only run scratch — the host pickle,
+    # the per-path shim/JSON artifacts, and dag-ml's bundle.json (read into memory before we return).
+    # Nothing in the returned RunResult points into it (scores are parsed in-memory by
+    # `_scores_to_run_result`), so it is safe to delete on every dispatch return/raise path. A
+    # caller-provided `workdir` is theirs — never delete it.
+    try:
+        return _dispatch_run(pipeline, spectro, base_dir, dataset_arg, host_pickle, cli, venv_python)
+    finally:
+        if workdir is None:
+            shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def _dispatch_run(
+    pipeline: Any,
+    spectro: Any,
+    base_dir: Path,
+    dataset_arg: str,
+    host_pickle: str | None,
+    cli: str,
+    venv_python: str | None,
+) -> RunResult:
+    """Route the materialized run to the matching native dag-ml path and map its scores.
+
+    Extracted from :func:`run_via_dagml` so the many ``return _run_*(...)`` dispatch points all run
+    under the caller's ``try/finally`` temp-dir cleanup (Python runs ``finally`` on every return
+    path). All sub-paths write only under ``base_dir``; the returned RunResult is built in-memory.
+    """
+    from nirs4all.core import detect_task_type
 
     is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
     metric = "accuracy" if is_classification else "rmse"
