@@ -23,7 +23,9 @@ import sys
 from collections.abc import Callable
 from typing import IO, Any, Protocol
 
-from .node_runner import run_node
+# `run_node` is NOT imported at module scope: it pulls sklearn + the whole nirs4all package (~1.4s).
+# The `--describe` handshake answers from a STATIC payload and must pay none of that, so the heavy
+# import is deferred into `_build_handler` (the worker path) — see `main`.
 
 
 class _Writer(Protocol):
@@ -108,6 +110,7 @@ def _build_handler() -> NodeHandler:
     from nirs4all.data.config import DatasetConfigs
 
     from .identity import mint_identity
+    from .node_runner import run_node
     from .resolver import MaterializationResolver
 
     fold_children: dict[str, dict[int, list[int]]] | None = None

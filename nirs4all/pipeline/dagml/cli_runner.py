@@ -110,8 +110,25 @@ def write_launcher_shim(path: Path, venv_python: str) -> Path:
     dag-ml-cli runs a ``.py`` adapter under the *system* python3 (which lacks nirs4all), so the
     adapter must be a non-``.py`` executable. Result frames are captured by the adapter itself
     (``N4A_DAGML_RESULT_CAPTURE``), robust vs ``tee`` pipe-buffer line splitting.
+
+    The ``--describe`` handshake is routed to the adapter run *as a standalone file* rather than
+    ``-m nirs4all.…``: ``python -m`` imports the ``nirs4all`` parent package first (its ``__init__``
+    eagerly pulls sklearn + pandas, ~1.4s) before the module's ``--describe`` short-circuit can fire,
+    so it would re-import the whole library just to print a STATIC capability dict and discard the
+    process. Run by path, the file is ``__main__`` with no package import, so ``--describe`` answers in
+    a few ms. The persistent worker keeps the ``-m`` form because it needs the package's relative
+    imports + the real nirs4all stack to materialize data and fit operators.
     """
-    path.write_text(f'#!/bin/sh\nexec {venv_python} -m nirs4all.pipeline.dagml.process_adapter "$@"\n')
+    from . import process_adapter
+
+    adapter_file = Path(process_adapter.__file__).resolve()
+    path.write_text(
+        "#!/bin/sh\n"
+        'if [ "$1" = "--describe" ]; then\n'
+        f'  exec {venv_python} {adapter_file} "$@"\n'
+        "fi\n"
+        f'exec {venv_python} -m nirs4all.pipeline.dagml.process_adapter "$@"\n'
+    )
     path.chmod(path.stat().st_mode | stat.S_IEXEC | stat.S_IRUSR)
     return path
 
