@@ -1176,20 +1176,17 @@ def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
     assert len(avg) == 1 and avg[0]["row_count"] == len(base_train), "OOF must cover exactly the base train universe"
 
 
-def test_run_via_dagml_stateful_augmentation_fails_loud() -> None:
-    """STATEFUL/SUPERVISED/BALANCED augmentation is REJECTED (NotImplementedError), never silently run.
+def test_stateful_augmentation_routes_fold_local() -> None:
+    """STATEFUL/SUPERVISED/BALANCED augmentation routes to the FOLD-LOCAL path, not a global fit.
 
-    The first slice augments ONCE globally before folds exist — leakage-free ONLY for stateless
-    per-sample augmenters. A stateful augmenter (mixup with stored neighbors, a global-mean scatter
-    reference) or the balanced/supervised mode fits on the whole train (future fold-val included), so
-    it must fall through to the bridge's raw `sample_augmentation` NotImplementedError (fail-loud).
-    Fold-local augmentation to support these leakage-safely is a follow-up slice. No CLI needed — the
-    rejection happens before any dag-ml call. Stateless GaussianNoise stays native (the parity test).
+    A stateless per-sample augmenter is leakage-free globally (`_augmentation_is_leakage_free` True →
+    global path #8). A stateful augmenter (mixup with stored neighbors, a global-mean scatter reference)
+    or the balanced/supervised mode is NOT leakage-free globally (False → fold-local path #32: fit inside
+    each fold's train only). This pins the routing signal; the e2e parity test below exercises the path.
+    No CLI needed — these are pure predicate checks.
     """
-    import nirs4all
     from nirs4all.operators.augmentation import GaussianAdditiveNoise
     from nirs4all.operators.augmentation.spectral import LocalMixupAugmenter, ScatterSimulationMSC
-    from nirs4all.operators.transforms.scalers import StandardNormalVariate
     from nirs4all.pipeline.dagml.run_backend import _augmentation_is_leakage_free, _operator_is_stateless
 
     # Operator-level signal: stateless augmenters pass, stateful ones (learn data state in fit) are flagged.
@@ -1197,21 +1194,93 @@ def test_run_via_dagml_stateful_augmentation_fails_loud() -> None:
     assert not _operator_is_stateless(LocalMixupAugmenter())  # stores X_fit_ neighbors
     assert not _operator_is_stateless(ScatterSimulationMSC(reference_mode="global_mean"))  # stores global_mean_
 
-    # Step-level: balanced/supervised mode and any stateful transformer are NOT leakage-free.
+    # Step-level routing: stateless count-mode → global; balanced/supervised + any stateful → fold-local.
     assert _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1, "selection": "all"}})
     assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "balance": "y", "max_factor": 2}})
     assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [LocalMixupAugmenter()], "count": 1}})
     assert not _augmentation_is_leakage_free({"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01), LocalMixupAugmenter()], "count": 1}})
 
-    # End-to-end: a stateful augmentation pipeline raises NotImplementedError naming sample_augmentation.
-    stateful_pipelines = {
-        "mixup": [StandardNormalVariate(), {"sample_augmentation": {"transformers": [LocalMixupAugmenter()], "count": 1, "selection": "all", "random_state": 42}}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
-        "balanced": [StandardNormalVariate(), {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "balance": "y", "max_factor": 2, "random_state": 42}}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
-    }
-    for label, pipeline in stateful_pipelines.items():
-        with pytest.raises(NotImplementedError, match="sample_augmentation"):
-            nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
-        assert label  # name surfaced in the failure if the raise is missing
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
+    """FOLD-LOCAL stateful augmentation (#32) runs e2e on dag-ml == direct per-fold-augmented sklearn OOF.
+
+    A stateful augmenter (LocalMixup, whose synthetic child interpolates toward a neighbor drawn from the
+    fit X) is fit INSIDE each fold's train only — so each fold has its OWN children and a fold's children
+    never train into another fold (the global #8 path would fit on the whole train, leaking future
+    fold-val neighbors). We assert:
+
+    * `cv_best_score` == a DIRECT per-fold-augmented sklearn OOF (per fold, fit SNV->PLS on base-train +
+      THAT FOLD's children, validate on base-val) — reconstructed from THIS run's pickled augmented
+      dataset + its `fold_children` map (augmentation is stochastic, so the baseline must reuse the exact
+      synthetic rows and per-fold attribution the run used);
+    * it DIFFERS from the no-augmentation OOF (children actually train);
+    * NO augmented child appears in the validation/OOF (the origin-boundary leakage guard).
+    """
+    import pickle
+
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.augmentation.spectral import LocalMixupAugmenter
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    n_comp = 5
+    pipeline = [
+        StandardNormalVariate(),
+        {"sample_augmentation": {"transformers": [LocalMixupAugmenter(k_neighbors=5, random_state=7)], "count": 1, "selection": "all", "random_state": 7}},
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=n_comp)},
+    ]
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path)
+
+    # Reconstruct the EXACT augmented dataset + per-fold children the fold-local run used.
+    payload = pickle.loads((tmp_path / "augment" / "augmented_dataset.pkl").read_bytes())  # noqa: S301 - test-written
+    assert isinstance(payload, dict), "fold-local augmentation must pickle {dataset, fold_children}"
+    aug_ds, fold_children = payload["dataset"], payload["fold_children"]
+    assert set(fold_children) == {f"fold{i}" for i in range(_N_SPLITS)} | {"refit"}
+
+    base_train = [int(s) for s in DatasetConfigs(dataset_path("regression")).get_dataset_at(0).index_column("sample", {"partition": "train"})]
+    all_samples = [int(s) for s in aug_ds.index_column("sample", {})]
+    all_origins = [int(o) for o in aug_ds.index_column("origin", {})]
+    assert any(s != o for s, o in zip(all_samples, all_origins, strict=True)), "augmentation must create synthetic rows"
+    folds = [([base_train[i] for i in tr], [base_train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(base_train)]
+
+    def y_of(sample_int: int) -> float:
+        origin_int = all_origins[all_samples.index(sample_int)]
+        return float(np.asarray(aug_ds.y({"sample": [origin_int]})).ravel()[0])
+
+    # DIRECT per-fold-augmented OOF: per fold, fit on base-train + THAT FOLD's children, val on base-val.
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for fold_index, (train_ints, val_ints) in enumerate(folds):
+        fold_kids = fold_children[f"fold{fold_index}"]
+        fit_ints = list(train_ints) + [child for origin in train_ints for child in fold_kids.get(origin, [])]
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d"), dtype=float), np.asarray([y_of(s) for s in fit_ints], dtype=float))
+        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d"), dtype=float))).ravel()
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), y_of(sample_int)
+    keys = sorted(oof_pred)
+    direct_aug = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - direct_aug) < 1e-3, (result.cv_best_score, direct_aug)
+
+    # NO-augmentation OOF baseline — the fold-local run must DIFFER (the children actually train).
+    no_pred: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model.fit(np.asarray(aug_ds.x_rows(list(train_ints), layout="2d"), dtype=float), np.asarray([y_of(s) for s in train_ints], dtype=float))
+        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d"), dtype=float))).ravel()
+        for position, sample_int in enumerate(val_ints):
+            no_pred[sample_int] = float(pred[position])
+    no_aug = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [no_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - no_aug) > 1e-3, "augmented samples must actually train"
+
+    # The OOF covers base val only — NO augmented child is ever validated (the leakage guard).
+    bundle = json.loads((tmp_path / "augment" / "bundle.json").read_text())
+    avg = [r for r in bundle["scores"]["reports"] if r["partition"] == "validation" and r.get("fold_id") == "avg"]
+    assert len(avg) == 1 and avg[0]["row_count"] == len(base_train), "OOF must cover exactly the base train universe"
 
 
 def test_run_cv_refit_bundle_drops_stale_pickle_env(tmp_path, monkeypatch) -> None:

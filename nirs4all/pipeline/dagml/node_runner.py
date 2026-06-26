@@ -278,7 +278,11 @@ def run_model_node(
         # so the host expands each base id to base + its augmented children — those synthetic rows train.
         # A no-op when no augmentation ran. A child's target is its origin's y (resolve_targets keys by
         # the origin's sample_id). include_augmented=True so the leakage guard permits the children here.
-        fit_ids = resolver.expand_with_augmented_children(train_ids)
+        # FOLD-LOCAL augmentation: a fold's own children only join THAT fold's fit-train — FIT_CV uses
+        # the task's fold_id, REFIT the "refit" key (the full-train pass). A child fit inside fold K's
+        # train is therefore never expanded into fold L's fit, so a stateful augmenter cannot leak.
+        fold_label = task.get("fold_id") if phase == "FIT_CV" else "refit"
+        fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label)
         x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"], dtype=float)
         y_train = np.asarray(resolver.resolve_targets(resolver.target_sample_ids(fit_ids))["values"], dtype=float)
         y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train

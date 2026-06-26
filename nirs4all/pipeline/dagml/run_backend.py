@@ -888,12 +888,12 @@ def run_via_dagml(
     # Detected on the ORIGINAL pipeline so it composes only with the supported transform+model+splitter
     # shape — a branch/exclude beside it is out of scope (the bridge fails loud below).
     #
-    # GATED to LEAKAGE-FREE augmentation: this slice augments ONCE globally before folds exist, so a
-    # STATEFUL/SUPERVISED/BALANCED augmentation (which fits on the whole train, future fold-val included)
-    # would leak into the synthetic children. Only stateless per-sample augmentation is consumed natively;
-    # anything else falls through to the bridge's raw `sample_augmentation` NotImplementedError (fail-loud).
-    # Fold-local augmentation (to support the stateful case leakage-safely) is a follow-up slice.
-    if augmentation_steps and all(_augmentation_is_leakage_free(step) for step in augmentation_steps):
+    # Both leakage regimes run natively (`_run_augmentation` picks the path): a STATELESS augmenter is
+    # augmented ONCE globally (#8, children shared across folds); a STATEFUL/SUPERVISED/BALANCED augmenter
+    # is augmented FOLD-LOCALLY (#32, fit inside each fold's train only + a full-train refit pass), so it
+    # never sees a fold's validation rows. A single augmentation step of either kind is supported here; an
+    # unsupported richer shape still falls through to the bridge's raw `sample_augmentation` error.
+    if augmentation_steps:
         return _run_augmentation(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "augment", metric, task_type)
 
     # Consume the `exclude` step (if any) BEFORE generator handling: run the SampleFilter operator(s)
@@ -1140,6 +1140,77 @@ def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
     SampleAugmentationController().execute(step_info, spectro, context, runtime_context, mode="train")
 
 
+def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list[int]) -> list[tuple[int, np.ndarray]]:
+    """Augment a fold's TRAIN only and return the synthetic children as ``[(origin_int, child_X(1,F)), ...]``.
+
+    A FRESH copy of ``spectro`` is restricted so ``partition: train`` is exactly ``fold_train`` (the
+    rest held out), then nirs4all's real augmentation machinery runs — so a STATEFUL/SUPERVISED/balanced
+    augmenter fits inside this fold's train ONLY (its neighbors / global mean / class balance never see
+    the fold's validation rows). The created children (origin in ``fold_train``) are read back as flat
+    feature rows, in creation order — one tuple per child, so an origin augmented multiple times (``count``
+    > 1 / a balancing factor) yields several. The caller inserts them into the master dataset and records
+    the fold→children map; the fold copy is discarded. Leakage-safe by construction: each fold's children
+    come only from its train.
+    """
+    import copy
+
+    fold_ds = copy.deepcopy(spectro)
+    fold_ds._indexer.update_by_filter({"partition": "train"}, {"partition": "hold"})  # noqa: SLF001
+    fold_ds._indexer.update_by_indices(list(fold_train), {"partition": "train"})  # noqa: SLF001
+    fold_ds._invalidate_content_hash()  # noqa: SLF001
+
+    before = {int(s) for s in fold_ds.index_column("sample", {})}
+    _apply_sample_augmentation(aug_step, fold_ds)
+    samples = [int(s) for s in fold_ds.index_column("sample", {})]
+    origins = [int(o) for o in fold_ds.index_column("origin", {})]
+    children: list[tuple[int, np.ndarray]] = []
+    for sample_int, origin_int in zip(samples, origins, strict=True):
+        if sample_int not in before and sample_int != origin_int:
+            children.append((origin_int, np.asarray(fold_ds.x_rows([sample_int], layout="2d"), dtype=float).reshape(1, -1)))
+    return children
+
+
+def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int]) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
+    """Augment fold-by-fold + a full-train refit pass; insert all children into ``spectro`` in place.
+
+    For each fold (key ``"fold{i}"``, matching :func:`build_fold_set`'s fold ids) and the full-train
+    refit (key ``"refit"``) the augmenter is fit inside that train pool only (:func:`_augment_fold_train`),
+    and the resulting children are appended to the master ``spectro`` as ``partition: train`` rows with
+    their ``origin``. Returns ``(fold_children, augmentation_by_sample)`` where ``fold_children`` is
+    ``{fold_label: {origin_int: [child_int, ...]}}`` (the resolver's fold-local expansion map) and
+    ``augmentation_by_sample`` tags every inserted child for the envelope's augmentation metadata.
+
+    All folds' children coexist in one dataset and one base-grain envelope (each child shares its
+    origin's ``sample_id``, a base train id in the fold set → the origin-boundary contract holds), but
+    they are kept fold-distinct host-side via the returned map — a fold's children only ever join that
+    fold's fit-train (see :meth:`MaterializationResolver.expand_with_augmented_children`).
+    """
+    transform_label = _augmentation_label(aug_step)
+    passes: list[tuple[str, list[int]]] = [(f"fold{index}", train_ints) for index, (train_ints, _val) in enumerate(base_folds)]
+    passes.append(("refit", base_train))
+
+    fold_children: dict[str, dict[int, list[int]]] = {}
+    augmentation_by_sample: dict[int, str] = {}
+    for fold_label, fold_train in passes:
+        children = _augment_fold_train(aug_step, spectro, fold_train)
+        if not children:
+            fold_children[fold_label] = {}
+            continue
+        rows = np.stack([child_x for _origin, child_x in children])  # (n, 1, F), one row per child
+        indexes = [{"partition": "train", "origin": origin_int, "augmentation": f"{transform_label}|{fold_label}"} for origin_int, _x in children]
+        before = {int(s) for s in spectro.index_column("sample", {})}
+        spectro.add_samples_batch(data=rows, indexes_list=indexes)
+        samples = [int(s) for s in spectro.index_column("sample", {})]
+        origins = [int(o) for o in spectro.index_column("origin", {})]
+        by_origin: dict[int, list[int]] = {}
+        for sample_int, origin_int in zip(samples, origins, strict=True):
+            if sample_int not in before and sample_int != origin_int:
+                by_origin.setdefault(origin_int, []).append(sample_int)
+                augmentation_by_sample[sample_int] = transform_label
+        fold_children[fold_label] = by_origin
+    return fold_children, augmentation_by_sample
+
+
 def _augmentation_grain(spectro: Any, transform_label: str) -> tuple[list[int], dict[int, str]]:
     """Post-augmentation grain: ``(augmented_ints, augmentation_by_sample)``.
 
@@ -1219,17 +1290,17 @@ def _operator_is_stateless(operator: Any) -> bool:
 
 
 def _augmentation_is_leakage_free(aug_step: dict[str, Any]) -> bool:
-    """Whether a ``sample_augmentation`` step is safe to run as ONE global pre-fold augmentation.
+    """Whether a ``sample_augmentation`` step is safe to run as ONE GLOBAL pre-fold augmentation.
 
-    True ONLY when neither leakage vector applies to global augmentation:
+    True (→ the GLOBAL path, #8) ONLY when neither leakage vector applies to global augmentation:
 
     * the **balanced/supervised mode** (a ``balance`` key) is NOT used — it fits class/bin targets on
       the whole train y, so the synthetic counts depend on the (future-fold-val-inclusive) label set;
     * EVERY transformer is stateless (:func:`_operator_is_stateless`).
 
-    A stateful/supervised/balanced augmentation needs FOLD-LOCAL augmentation (fit inside each fold's
-    train only) to be leakage-safe — a follow-up slice. Until then it must fail loud, so this returns
-    ``False`` and the caller falls through to the bridge's raw ``sample_augmentation`` NotImplementedError.
+    False (→ the FOLD-LOCAL path, #32) for a stateful/supervised/balanced augmentation: it is fit inside
+    each fold's train only (and a full-train refit pass), so it never sees a fold's validation rows. Both
+    paths are leakage-safe; this only routes which one :func:`_run_augmentation` uses.
     """
     config = aug_step["sample_augmentation"]
     if "balance" in config:
@@ -1249,6 +1320,16 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     fit time — the children TRAIN, the OOF/validation/test never see them. The augmented dataset is
     pickled for the adapter (augmentation is stochastic, not reproducible cross-process).
 
+    Two augmentation regimes, picked by :func:`_augmentation_is_leakage_free`:
+
+    * **GLOBAL** (stateless per-sample augmenter) — augment ONCE on the whole train; the children are
+      shared across folds. Leakage-free because the augmenter learns no data state (#8).
+    * **FOLD-LOCAL** (stateful / supervised / balanced augmenter) — augment inside EACH fold's train
+      (plus a full-train refit pass) separately, so each fold has its own children fit only on that
+      fold's train. A ``fold_children`` map keys the resolver's per-fold expansion; it is pickled with
+      the dataset so the adapter expands the right children per fold (#32). This is what makes the
+      stateful case (mixup neighbors, global-mean scatter, class balancing) leakage-safe.
+
     Only the supported ``transform* + sample_augmentation + splitter + model`` shape runs here; the
     remaining steps are lowered through the bridge (a raw ``sample_augmentation`` still raises, keeping
     the coverage boundary). A branch / exclude / generator beside it is out of scope and fails loud.
@@ -1266,22 +1347,35 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     steps = _apply_model_params(steps)
 
     base_train = [int(s) for s in spectro.index_column("sample", {"partition": "train"})]
+    fold_local = not _augmentation_is_leakage_free(aug_step)
 
-    # Run the REAL augmentation: synthetic rows are inserted into `spectro` as partition=train children.
-    _apply_sample_augmentation(aug_step, spectro)
+    # BASE-grain folds: split the base train pool only; train = base-train, val = base-val. The children
+    # are NEVER listed in a fold (the FoldSet stays a clean base-grain OOF partition); they are pulled
+    # into fit-train by the host expansion keyed on the origin's fold side. The split runs over the BASE
+    # rows only (before any child exists), so the fold partition is identical for both augmentation paths.
+    base_folds = [([base_train[i] for i in train_idx], [base_train[i] for i in val_idx]) for train_idx, val_idx in _split_pool(splitter, spectro, base_train)]
+
+    # GLOBAL stateless augmentation (#8): fit once on the whole train (leakage-free only for stateless
+    # per-sample augmenters), children shared across all folds (resolver discovers them from identity).
+    # FOLD-LOCAL augmentation (#32): a STATEFUL/SUPERVISED/balanced augmenter is fit inside EACH fold's
+    # train only, so each fold (+ the full-train refit) has its OWN children — leakage-safe for the
+    # stateful case. `fold_children` keys the per-fold expansion; it is pickled for the adapter's resolver.
+    fold_children: dict[str, dict[int, list[int]]] | None = None
+    if fold_local:
+        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_step, spectro, base_folds, base_train)
+    else:
+        _apply_sample_augmentation(aug_step, spectro)
+        _augmented_ints, augmentation_by_sample_int = _augmentation_grain(spectro, _augmentation_label(aug_step))
 
     # Identity is minted on the AUGMENTED dataset so children get their own observation_id + the origin's
     # sample_id (augmented=True). The CV universe = base train + the augmented children.
     identity = mint_identity(spectro)
-    augmented_ints, augmentation_by_sample = _augmentation_grain(spectro, _augmentation_label(aug_step))
+    samples = [int(s) for s in spectro.index_column("sample", {})]
+    origins = [int(o) for o in spectro.index_column("origin", {})]
+    augmented_ints = [sample_int for sample_int, origin_int in zip(samples, origins, strict=True) if sample_int != origin_int]
     cv_universe = base_train + augmented_ints
 
-    # BASE-grain folds: split the base train pool only; train = base-train, val = base-val. The children
-    # are NEVER listed in a fold (the FoldSet stays a clean base-grain OOF partition); they are pulled
-    # into fit-train by the host expansion keyed on the origin's fold side.
-    base_folds = [([base_train[i] for i in train_idx], [base_train[i] for i in val_idx]) for train_idx, val_idx in _split_pool(splitter, spectro, base_train)]
-
-    envelope = build_envelope(spectro, identity, sample_ints=cv_universe, augmentation_by_sample=augmentation_by_sample)
+    envelope = build_envelope(spectro, identity, sample_ints=cv_universe, augmentation_by_sample=augmentation_by_sample_int)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, base_folds, dsl_id="nirs4all-augmentation", n_splits=len(base_folds))
 
     import dag_ml
@@ -1290,7 +1384,9 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
 
     run_dir.mkdir(parents=True, exist_ok=True)
     pickle_path = run_dir / "augmented_dataset.pkl"
-    pickle_path.write_bytes(pickle.dumps(spectro))
+    # Fold-local pickles the dataset + the fold→children map (the resolver's per-fold expansion); the
+    # global path pickles the bare dataset (the resolver discovers dataset-global children from identity).
+    pickle_path.write_bytes(pickle.dumps({"dataset": spectro, "fold_children": fold_children} if fold_local else spectro))
 
     outcome = run_cv_refit_bundle(
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path)
