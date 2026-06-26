@@ -47,12 +47,16 @@ _UNSUPPORTED_STEP_KEYS = frozenset({
     "exclude",
     "sample_augmentation",
     "feature_augmentation",
-    "concat_transform",
     "rep_to_sources",
     "rep_to_pp",
     "finetune_params",
     "train_params",
 })
+
+# `FeatureConcat` is the single-source replace-mode lowering of `concat_transform` (backlog #27):
+# nirs4all hstacks several sub-transformers' outputs into one wider 2D feature matrix, which is exactly
+# what this transformer does, so the model node runs it as an ordinary X-chain transform node.
+_FEATURE_CONCAT_CLASS = "nirs4all.operators.transforms.concat.FeatureConcat"
 
 # Keys on a model step that are NOT a swept hyperparameter (mirrors run_backend._RESERVED_STEP_KEYS,
 # itself StepParser.RESERVED_KEYWORDS). Any other sibling is a model hyperparameter — a plain value
@@ -141,6 +145,78 @@ def is_param_generator_spec(spec: Any) -> bool:
     return isinstance(value, list) and len(value) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in value)
 
 
+def _concat_operation_spec(operation: Any) -> Any:
+    """Serialize one ``concat_transform`` sub-operation to ``FeatureConcat``'s JSON ``operations`` form.
+
+    A single transformer instance → ``{"class": FQN, "params": {...}}``; a chain (a list of
+    instances) → a list of those dicts (applied sequentially). The 3D shapes that grow the
+    processing axis fail loud in :func:`_lower_concat_transform`, so this only sees flat sub-ops.
+    """
+    if isinstance(operation, list):
+        return [_concat_operation_spec(item) for item in operation]
+    if isinstance(operation, dict):
+        # A nested {"concat_transform": ...} (concat-of-concat) is a multi-block 3D construct, not a
+        # flat single-matrix concat — defer to the data-plane rather than mis-lower it.
+        raise NotImplementedError(
+            "dag-ml bridge does not yet lower a nested `concat_transform` (concat-of-concat builds a "
+            "multi-block feature representation); needs the multi-source/fusion data-plane (backlog #29/#31)"
+        )
+    if operation is None:
+        # A pass-through "raw" channel keeps the un-transformed processing alongside the new ones —
+        # that is a 3D processing-axis growth, not a flat single-matrix concat.
+        raise NotImplementedError(
+            "dag-ml bridge does not yet lower a `concat_transform` with a pass-through (None) channel "
+            "(it preserves the raw processing as a parallel block); needs the data-plane (backlog #29/#31)"
+        )
+    return {"class": _qualname(operation), "params": _json_safe_params(operation)}
+
+
+def _lower_concat_transform(step: dict[str, Any]) -> dict[str, Any]:
+    """Lower a supported (single-source, replace-mode) ``concat_transform`` step to a transform node.
+
+    Supported host-only shape: the list form ``{"concat_transform": [op, [chain...], ...]}`` (or the
+    equivalent ``{"concat_transform": {"operations": [...]}}`` dict form) of transformer instances /
+    chains, with NO ``name`` / ``source_processing`` (those name a per-processing 3D output) and NO
+    generator (``_or_``) syntax (expanded upstream). It becomes one ``FeatureConcat`` transform node
+    that hstacks the sub-transformers' fold-train-fit outputs — the model node's X-chain runs it like
+    any other column-changing X-transform.
+
+    The 3D shapes (a ``name``/``source_processing`` selector, a nested concat, a pass-through channel,
+    or use inside ``feature_augmentation``'s *add* mode) raise ``NotImplementedError`` naming the
+    multi-source/fusion data-plane (backlog #29/#31).
+    """
+    config = step["concat_transform"]
+    if isinstance(config, dict):
+        if "_or_" in config:
+            raise NotImplementedError(
+                "dag-ml bridge does not lower an unexpanded `_or_` generator inside `concat_transform`; "
+                "the Python expand path handles operator-level generators"
+            )
+        if config.get("name") or config.get("source_processing"):
+            raise NotImplementedError(
+                "dag-ml bridge does not yet lower a `concat_transform` with a `name`/`source_processing` "
+                "selector (it targets a named 3D processing layer); needs the data-plane (backlog #29/#31)"
+            )
+        operations = config.get("operations")
+        if operations is None:
+            raise NotImplementedError(
+                "dag-ml bridge does not yet lower this `concat_transform` dict form; needs the "
+                "multi-source/fusion data-plane (backlog #29/#31)"
+            )
+    elif isinstance(config, list):
+        operations = config
+    else:
+        raise NotImplementedError(
+            f"dag-ml bridge does not yet lower a `concat_transform` of type {type(config).__name__}; "
+            f"needs the multi-source/fusion data-plane (backlog #29/#31)"
+        )
+    if not operations:
+        raise NotImplementedError(
+            "dag-ml bridge does not lower an empty `concat_transform` (no operations to concatenate)"
+        )
+    return {"class": _FEATURE_CONCAT_CLASS, "params": {"operations": [_concat_operation_spec(op) for op in operations]}}
+
+
 def _step_to_dsl(step: Any) -> dict[str, Any]:
     """Lower one nirs4all pipeline step to a compat-DSL step object."""
     if isinstance(step, dict):
@@ -174,6 +250,10 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
         if "y_processing" in step:
             op = step["y_processing"]
             return {"y_processing": {"class": _qualname(op), "params": _json_safe_params(op)}}
+        if "concat_transform" in step:
+            # Single-source replace-mode `concat_transform` lowers to one `FeatureConcat` X-transform
+            # node (hstack of sub-transformers); the 3D processing-axis shapes fail loud naming #29/#31.
+            return _lower_concat_transform(step)
         offending = sorted(set(step) & _UNSUPPORTED_STEP_KEYS) or sorted(step)
         raise NotImplementedError(
             f"dag-ml bridge spike does not yet serialize step keyword(s) {offending}; "
