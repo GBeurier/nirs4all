@@ -1,24 +1,35 @@
 """``FeatureConcat`` — a JSON-spec'd horizontal feature concatenation transformer.
 
-This is the single-source, single-processing ("replace mode") lowering of nirs4all's
-``concat_transform`` step onto the dag-ml engine (backlog #27). nirs4all's
-``ConcatAugmentationController`` ``np.hstack``-es the outputs of several sub-transformers
-(each fit on the training rows) into one wider 2D feature matrix — exactly the semantics of
-``sklearn.pipeline.FeatureUnion``. Expressing it as ONE sklearn-compatible transformer lets the
-dag-ml engine run it as an ordinary X-chain transform node: the model node reconstructs
-``make_pipeline(FeatureConcat(...), model)`` and fits it on fold-train only (leakage-safe), so
-the column-count change propagates through fold-val / test apply just like the supervised /
+This is the single-source, single-processing horizontal-concat lowering of nirs4all's
+``concat_transform`` (backlog #27) and ``feature_augmentation`` (backlog #31 / S6) steps onto the
+dag-ml engine. Both grow the dataset's *processing* axis (parallel preprocessing layers on the same
+samples); for a 2D model nirs4all materializes that axis with the ``FLAT_2D`` layout, which
+``reshape``-flattens ``(samples, processings, features)`` → ``(samples, processings × features)`` —
+i.e. an ``np.hstack`` of the per-processing layers in processing order (``layout_transformer.py``).
+So a 2D model consuming the augmented/concatenated layers sees exactly the same matrix as a
+``FeatureUnion`` over the layer transformers. Expressing it as ONE sklearn-compatible transformer
+lets the dag-ml engine run it as an ordinary X-chain transform node: the model node reconstructs
+``make_pipeline(FeatureConcat(...), model)`` and fits it on fold-train only (leakage-safe), so the
+column-count change propagates through fold-val / test apply just like the supervised /
 column-changing X-transforms (OSC/EPO/CARS/MC-UVE, backlog #24).
 
 The sub-transformer list is carried as a JSON-serializable ``operations`` spec (a list of
 ``{"class": "<FQN>", "params": {...}}`` entries, where an entry may itself be a *chain* —
-a list of such dicts applied sequentially) so the whole node round-trips through the dag-ml
-compat DSL as a single ``{"class", "params"}`` node. The transformers are instantiated lazily at
-``fit`` time, so an unfitted ``FeatureConcat`` stays JSON-cloneable.
+a list of such dicts applied sequentially, or ``None`` for a pass-through "raw" channel) so the
+whole node round-trips through the dag-ml compat DSL as a single ``{"class", "params"}`` node. The
+transformers are instantiated lazily at ``fit`` time, so an unfitted ``FeatureConcat`` stays
+JSON-cloneable.
 
-Scope (host-only, single-source replace mode): the multi-processing 3D ``signal_with_processings``
-and the ``feature_augmentation``-nested *add* mode (which grow the processing axis) are NOT covered
-here — they need the data-plane multi-block representation (backlog #29/#31).
+Pass-through (raw) channel: a ``None`` entry keeps the un-transformed base layer alongside the new
+ones — this is the ``feature_augmentation`` *extend*/*add* modes' raw layer (``[raw, op1(raw),
+op2(raw), …]``), lowered as ``FeatureConcat([None, op1, op2, …])``. *replace* mode drops the raw
+layer (``FeatureConcat([op1, op2, …])``, identical to ``concat_transform``). The raw channel maps to
+``sklearn``'s native ``"passthrough"`` ``FeatureUnion`` member (raw columns first, in spec order).
+
+Scope (host-only, single-source 2D model): the multi-processing 3D ``signal_with_processings``
+delivered as parallel channels to a 3D/CNN model, multi-source feature_augmentation, and the nested
+(concat-of-concat) shapes are NOT covered here — those need the 3D data-plane / a DL operator
+(backlog #29/#31).
 """
 
 from __future__ import annotations
@@ -73,7 +84,11 @@ class _Chain(BaseEstimator, TransformerMixin):
 
 
 def _build_operation(operation: Any) -> Any:
-    """Instantiate one ``operations`` entry: a single ``{class, params}`` or a chain list thereof."""
+    """Instantiate one ``operations`` entry: ``None`` (raw pass-through), a single ``{class, params}``, or a chain list."""
+    if operation is None:
+        # The feature_augmentation extend/add raw layer: keep the base matrix unchanged beside the
+        # transformed layers. sklearn's native FeatureUnion member "passthrough" emits X as-is.
+        return "passthrough"
     if isinstance(operation, list):
         # Chain [A, B, C] → C(B(A(X))), applied sequentially before concatenation.
         return _Chain([_build_operation(item) for item in operation])
@@ -84,16 +99,18 @@ def _build_operation(operation: Any) -> Any:
 class FeatureConcat(BaseEstimator, TransformerMixin):
     """Fit several sub-transformers and horizontally concatenate their transform outputs.
 
-    Mirrors nirs4all's top-level ``concat_transform`` (replace mode) on a single 2D feature matrix:
-    every sub-transformer fits on the same training rows and the per-sample outputs are stacked
-    column-wise. Equivalent to ``sklearn.pipeline.FeatureUnion`` over the supplied operations, but
-    parameterised by a JSON-serializable ``operations`` spec so it serializes as one DSL node.
+    Mirrors nirs4all's ``concat_transform`` (replace mode) and ``feature_augmentation`` (extend/add/
+    replace) on a single 2D feature matrix: every sub-transformer fits on the same training rows and
+    the per-sample outputs are stacked column-wise. Equivalent to ``sklearn.pipeline.FeatureUnion``
+    over the supplied operations, but parameterised by a JSON-serializable ``operations`` spec so it
+    serializes as one DSL node.
 
     Args:
         operations: A list whose entries are each either a single transformer spec
-            (``{"class": "<FQN>", "params": {...}}``) or a *chain* (a list of such specs applied
-            sequentially). ``None`` entries are rejected — a pass-through "raw" channel belongs in
-            the 3D processing-axis path, not this flat single-matrix lowering.
+            (``{"class": "<FQN>", "params": {...}}``), a *chain* (a list of such specs applied
+            sequentially), or ``None`` for a pass-through "raw" channel (the un-transformed base
+            layer — the feature_augmentation extend/add raw layer). The raw channel emits its columns
+            first, in spec order.
     """
 
     _stateless = False
