@@ -193,6 +193,33 @@ class MaterializationResolver:
             "blocks": [np.asarray(block).tolist() for block in blocks],
         }
 
+    def resolve_source_block(
+        self,
+        observation_ids: list[str],
+        source_index: int,
+        *,
+        include_augmented: bool = True,
+        include_excluded: bool = False,
+    ) -> dict[str, Any]:
+        """Return ``{feature_set_id, observation_ids, values}`` for ONE source's block (S4 by_source).
+
+        LATE fusion BY SOURCE: a per-source branch model sees only its own source's features — a
+        feature-axis selection, NOT a sample partition (all samples are present, only the source's
+        columns are kept). This selects block ``source_index`` from the per-source blocks
+        (:meth:`resolve_feature_blocks`), so block ``b``'s rows are one source's rows, sample-aligned
+        to ``observation_ids`` in request order (``x_rows`` addresses each stored row by its own sample
+        int, never positionally). The same origin-boundary leakage guard as :meth:`resolve_features`
+        applies: an augmented child is refused in a non-augmented (validation/predict) view.
+        """
+        blocks = self.resolve_feature_blocks(observation_ids, include_augmented=include_augmented, include_excluded=include_excluded)["blocks"]
+        if not 0 <= source_index < len(blocks):
+            raise ValueError(f"by_source block index {source_index} out of range for {len(blocks)} source(s)")
+        return {
+            "feature_set_id": "features",
+            "observation_ids": list(observation_ids),
+            "values": blocks[source_index],
+        }
+
     def _guard_origin_boundary(self, observation_ids: list[str], include_augmented: bool) -> None:
         """Refuse an augmented child in a non-augmented (validation/predict) view — the leakage guard."""
         if include_augmented:

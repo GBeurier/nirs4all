@@ -13,6 +13,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -2787,3 +2788,292 @@ def test_public_run_engine_dagml_mbpls_intermediate_fusion() -> None:
     keys = sorted(oof_pred)
     direct_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
     assert abs(result.cv_best_score - direct_oof) < 1e-3, (result.cv_best_score, direct_oof)
+
+
+def _two_source_distinct_dataset():
+    """A 2-source SpectroDataset whose sources are GENUINELY DIFFERENT (so by_source is non-degenerate).
+
+    The `multi` corpus on disk has 3 byte-identical NIR sources, so averaging per-source models there is
+    a no-op (by_source == early fusion). To prove the per-source restriction (``metadata.source_index``)
+    is real, this fixture splits the regression corpus' features into two halves and transforms the second
+    (``*3 + 1``) so the two source models are distinct — by_source then DIFFERS from early fusion."""
+    from nirs4all.data.dataset import SpectroDataset
+
+    base = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = [int(s) for s in base.index_column("sample", {"partition": "train"})]
+    test = [int(s) for s in base.index_column("sample", {"partition": "test"})]
+    x_train = np.asarray(base.x_rows(train, layout="2d"), dtype=float)
+    x_test = np.asarray(base.x_rows(test, layout="2d"), dtype=float)
+    half = x_train.shape[1] // 2
+
+    def _two_sources(x: np.ndarray) -> list[np.ndarray]:
+        return [x[:, :half], x[:, half : half * 2] * 3.0 + 1.0]
+
+    dataset = SpectroDataset("two_source_distinct")
+    headers = [str(i) for i in range(half)]
+    dataset.add_samples(_two_sources(x_train), {"partition": "train"}, headers=[headers, headers], header_unit="nm")
+    dataset.add_samples(_two_sources(x_test), {"partition": "test"}, headers=[headers, headers], header_unit="nm")
+    y_all = np.concatenate([np.asarray(base.y({"sample": train}), dtype=float).ravel(), np.asarray(base.y({"sample": test}), dtype=float).ravel()])
+    dataset.add_targets(y_all.reshape(-1, 1))
+    return dataset
+
+
+def test_by_source_branch_detection() -> None:
+    """The by_source detector admits ONLY the handled by_source-branch + fusion-merge shape on a
+    multi-source dataset; everything else falls through to the bridge's loud raw-branch error.
+
+    `_detect_by_source_branch` returns the shared body (model sub-pipeline) for a
+    `{"branch": {"by_source": True, "steps": [...model...]}}` + an avg/mean fusion merge when n_sources>=2;
+    a single-source dataset, a non-fusion merge, a body without a model, an unhandled branch option, the
+    per-source dict body, or a top-level step beside the branch all return None. No CLI (pure host-side)."""
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _detect_by_source_branch
+
+    splitter = KFold(n_splits=3, shuffle=True, random_state=42)
+
+    # Handled: by_source separation branch (model in shared body) + mean fusion merge on >1 source.
+    handled = [splitter, {"branch": {"by_source": True, "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "mean"}]
+    body = _detect_by_source_branch(handled, n_sources=3)
+    assert body is not None
+    assert any(isinstance(step, dict) and "model" in step for step in body)
+    # "auto" is the other accepted flag spelling; {"merge": "average"} the other fusion spelling.
+    assert _detect_by_source_branch([splitter, {"branch": {"by_source": "auto", "steps": [{"model": PLSRegression()}]}}, {"merge": "average"}], n_sources=2) is not None
+
+    branch = {"branch": {"by_source": True, "steps": [{"model": PLSRegression(n_components=2)}]}}
+    # Not handled (each must fall through to the bridge's loud raw-branch error):
+    # a SINGLE-source dataset — by_source on one source is a no-op (nothing to fuse).
+    assert _detect_by_source_branch(handled, n_sources=1) is None
+    # a non-fusion merge (concat / predictions stacking).
+    assert _detect_by_source_branch([splitter, branch, {"merge": "concat"}], n_sources=3) is None
+    assert _detect_by_source_branch([splitter, branch, {"merge": "predictions"}], n_sources=3) is None
+    # no merge at all.
+    assert _detect_by_source_branch([splitter, branch], n_sources=3) is None
+    # a body without a model (fusion averages MODEL predictions).
+    assert _detect_by_source_branch([splitter, {"branch": {"by_source": True, "steps": [StandardNormalVariate()]}}, {"merge": "mean"}], n_sources=3) is None
+    # the per-source DICT body (different model per source) — a later slice, not the shared-body form.
+    assert _detect_by_source_branch([splitter, {"branch": {"by_source": True, "steps": {"src0": [{"model": PLSRegression()}]}}}, {"merge": "mean"}], n_sources=3) is None
+    # an unhandled branch option (values / min_samples / any key outside by_source/steps).
+    assert _detect_by_source_branch([splitter, {"branch": {"by_source": True, "min_samples": 5, "steps": [{"model": PLSRegression()}]}}, {"merge": "mean"}], n_sources=3) is None
+    # a top-level transform / a by_metadata branch (handled by the separation detector, not here).
+    assert _detect_by_source_branch([StandardNormalVariate(), splitter, branch, {"merge": "mean"}], n_sources=3) is None
+    assert _detect_by_source_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}, {"merge": "mean"}], n_sources=3) is None
+
+
+def test_canonical_source_branch_binds_each_model_to_its_source() -> None:
+    """`_canonical_source_branch` binds every MODEL node to its source via `metadata.source_index`, and
+    the node runner's `_source_index` reads it back — the host-only wiring that makes late fusion by
+    source a feature-axis selection (one source's block per branch). No CLI needed (pure host logic)."""
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.node_runner import _source_index
+    from nirs4all.pipeline.dagml.run_backend import _canonical_source_branch
+
+    body = [StandardNormalVariate(), {"model": PLSRegression(n_components=5)}]
+
+    for source_index in range(3):
+        branch = _canonical_source_branch(body, source_index)
+        model_node = next(node for node in branch["steps"] if node["kind"] == "model")
+        assert model_node["metadata"]["source_index"] == source_index
+        # The node runner reads the same source index back from the compiled-node-shaped dict.
+        assert _source_index(model_node) == source_index
+        # A non-model node (the SNV transform) carries no source binding → _source_index is None.
+        transform_node = next(node for node in branch["steps"] if node["kind"] == "transform")
+        assert _source_index(transform_node) is None
+
+
+def test_resolve_source_block_selects_one_source() -> None:
+    """`resolve_source_block(ids, k)` returns ONLY source k's block, sample-aligned to the request, equal
+    to the k-th block of `resolve_feature_blocks` — the feature-axis selection a by_source branch model
+    sees. An out-of-range source index fails loud. No CLI (pure resolver logic)."""
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml.resolver import MaterializationResolver
+
+    multi = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    assert multi.features_sources() == 3
+    identity = mint_identity(multi)
+    resolver = MaterializationResolver(multi, identity)
+
+    train = multi.index_column("sample", {"partition": "train"})[:8]
+    wire = [identity.to_wire(int(s)) for s in train]
+    blocks = [np.asarray(block, dtype=float) for block in resolver.resolve_feature_blocks(wire)["blocks"]]
+    for source_index in range(3):
+        selected = np.asarray(resolver.resolve_source_block(wire, source_index)["values"], dtype=float)
+        assert selected.shape[0] == len(train), "the selected block is sample-aligned to the request"
+        assert np.array_equal(selected, blocks[source_index]), "resolve_source_block(k) == the k-th feature block"
+
+    with pytest.raises(ValueError, match="out of range"):
+        resolver.resolve_source_block(wire, 3)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_by_source_fusion() -> None:
+    """engine="dag-ml" runs a by_source branch + mean fusion merge as LATE fusion by source (S4): one
+    model PER feature source (each fed ONLY that source's block), the per-source held-out predictions
+    averaged per sample.
+
+    Shared-body by_source on the 3-source `multi` corpus. ``cv_best_score`` + ``best_rmse`` == a direct
+    sklearn per-source baseline (per source: a PLS on that source's fold-train block, predict fold-val;
+    average the per-source predictions per sample) within 1e-3. LEAKAGE: folds/OOF over SAMPLES (all
+    branches see all samples, just different source columns); the fusion merge averages held-out
+    Validation OOF (leakage-safe); no cross-sample mixing."""
+    from sklearn.metrics import mean_squared_error
+
+    import nirs4all
+
+    n_comp, n_splits = 5, 3
+    pipeline = [
+        KFold(n_splits=n_splits, shuffle=True, random_state=42),
+        {"branch": {"by_source": True, "steps": [{"model": PLSRegression(n_components=n_comp)}]}},
+        {"merge": "mean"},
+    ]
+    result = nirs4all.run(pipeline, dataset_path("multi"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    n_sources = dataset.features_sources()
+    assert n_sources == 3, "this exercises the by_source per-source fan-out"
+    train = dataset.index_column("sample", {"partition": "train"})
+    test = dataset.index_column("sample", {"partition": "test"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
+
+    def block(ids: list[int], source_index: int) -> np.ndarray:
+        """Source-k block for ``ids`` in request order (x_rows is identity-keyed → already request order)."""
+        return np.asarray(dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)[source_index], dtype=float)
+
+    def y(ids: list[int]) -> np.ndarray:
+        stored = dataset.index_column("sample", {"sample": [int(s) for s in ids]})
+        row_of = {int(s): r for r, s in enumerate(stored)}
+        block_y = np.asarray(dataset.y({"sample": [int(s) for s in ids]}), dtype=float).reshape(len(stored), -1)
+        return block_y[[row_of[int(s)] for s in ids], 0]
+
+    # DIRECT per-source OOF: per source, a PLS fit on the source's fold-train block, predict the source's
+    # fold-val block; AVERAGE the per-source predictions per sample (late fusion by source).
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        per_source = []
+        for source_index in range(n_sources):
+            model = PLSRegression(n_components=n_comp)
+            model.fit(block(train_ints, source_index), y(train_ints))
+            per_source.append(np.asarray(model.predict(block(val_ints, source_index))).ravel())
+        avg = np.mean(per_source, axis=0)
+        yv = y(val_ints)
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[int(sample_int)] = float(avg[position])
+            oof_true[int(sample_int)] = float(yv[position])
+    keys = sorted(oof_pred)
+    baseline_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - baseline_oof) < 1e-3, (result.cv_best_score, baseline_oof)
+
+    # DIRECT per-source TEST: per source, refit on the FULL train block, predict the test block; average.
+    per_source_test = []
+    for source_index in range(n_sources):
+        model = PLSRegression(n_components=n_comp)
+        model.fit(block(train, source_index), y(train))
+        per_source_test.append(np.asarray(model.predict(block(test, source_index))).ravel())
+    baseline_test = float(np.sqrt(mean_squared_error(y(test), np.mean(per_source_test, axis=0))))
+    assert abs(result.best_rmse - baseline_test) < 1e-3, (result.best_rmse, baseline_test)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_by_source_genuinely_restricts_to_one_source(tmp_path) -> None:
+    """by_source on DISTINCT sources proves the per-source restriction is real: the engine OOF/test match
+    a per-source-model-then-average baseline EXACTLY and DIFFER from early fusion (one concat model).
+
+    The `multi` corpus has byte-identical sources (averaging is degenerate there → by_source == early
+    fusion), so this uses a 2-source fixture with genuinely different sources. Driven through the same
+    `_canonical_source_branch` lowering `_run_by_source_branch` uses, via a pickled in-memory dataset
+    (the distinct sources live only in memory). The DIFFERS-from-early-fusion assertion is the load-bearing
+    check that `metadata.source_index` genuinely feeds each branch ONE source's block (not the concat)."""
+    import pickle
+
+    import dag_ml
+    from sklearn.metrics import mean_squared_error
+
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, run_cv_refit_bundle, split_invocation_for
+    from nirs4all.pipeline.dagml.envelope import build_envelope
+    from nirs4all.pipeline.dagml.identity import mint_identity
+    from nirs4all.pipeline.dagml.run_backend import _FUSION_MERGE_NODE_ID, _canonical_source_branch
+    from nirs4all.pipeline.dagml_bridge import controller_manifests
+
+    dataset = _two_source_distinct_dataset()
+    n_sources = dataset.features_sources()
+    assert n_sources == 2
+
+    n_comp, n_splits = 5, 3
+    identity = mint_identity(dataset)
+    pool = dataset.index_column("sample", {"partition": "train"})
+    folds = [([pool[i] for i in tr], [pool[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(pool)]
+    envelope = build_envelope(dataset, identity, sample_ints=pool)
+
+    body = [{"model": PLSRegression(n_components=n_comp)}]
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-by-source-fusion",
+        "steps": [
+            {"kind": "branch", "mode": "duplication", "branches": [_canonical_source_branch(body, source_index) for source_index in range(n_sources)]},
+            {"kind": "merge", "id": _FUSION_MERGE_NODE_ID, "merge_mode": "fusion", "output_as": "predictions"},
+        ],
+    }
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    assert len(model_ids) == n_sources, "one model node per source"
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+
+    (tmp_path / "two_source.pkl").write_bytes(pickle.dumps(dataset))
+    outcome = run_cv_refit_bundle(
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path="UNUSED", workdir=tmp_path,
+        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, selection_metric="rmse", dataset_pickle=str(tmp_path / "two_source.pkl"),
+    )
+    assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
+    reports = [r for r in json.loads((tmp_path / "bundle.json").read_text())["scores"]["reports"] if r.get("producer_node") == _FUSION_MERGE_NODE_ID]
+    engine_cv = next(r for r in reports if r["partition"] == "validation" and r["fold_id"] == "avg")["metrics"]["rmse"]
+    engine_test = next(r for r in reports if r["partition"] == "test" and r.get("fold_id") is None)["metrics"]["rmse"]
+
+    def block(ids: list[int], source_index: int) -> np.ndarray:
+        return np.asarray(dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)[source_index], dtype=float)
+
+    def y(ids: list[int]) -> np.ndarray:
+        stored = dataset.index_column("sample", {"sample": [int(s) for s in ids]})
+        row_of = {int(s): r for r, s in enumerate(stored)}
+        block_y = np.asarray(dataset.y({"sample": [int(s) for s in ids]}), dtype=float).reshape(len(stored), -1)
+        return block_y[[row_of[int(s)] for s in ids], 0]
+
+    test = dataset.index_column("sample", {"partition": "test"})
+    # Per-source-model-then-average baseline (the late-fusion-by-source semantic).
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        per_source = []
+        for source_index in range(n_sources):
+            model = PLSRegression(n_components=n_comp)
+            model.fit(block(train_ints, source_index), y(train_ints))
+            per_source.append(np.asarray(model.predict(block(val_ints, source_index))).ravel())
+        avg = np.mean(per_source, axis=0)
+        yv = y(val_ints)
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[int(sample_int)] = float(avg[position])
+            oof_true[int(sample_int)] = float(yv[position])
+    keys = sorted(oof_pred)
+    baseline_cv = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    per_source_test = []
+    for source_index in range(n_sources):
+        model = PLSRegression(n_components=n_comp)
+        model.fit(block(pool, source_index), y(pool))
+        per_source_test.append(np.asarray(model.predict(block(test, source_index))).ravel())
+    baseline_test = float(np.sqrt(mean_squared_error(y(test), np.mean(per_source_test, axis=0))))
+    assert abs(engine_cv - baseline_cv) < 1e-3, (engine_cv, baseline_cv)
+    assert abs(engine_test - baseline_test) < 1e-3, (engine_test, baseline_test)
+
+    # LOAD-BEARING: by_source must DIFFER from early fusion (one model on the concatenated sources). On
+    # these DISTINCT sources the two diverge — proof each branch genuinely saw ONLY its source's block.
+    def fused(ids: list[int]) -> np.ndarray:
+        return np.asarray(dataset.x({"sample": [int(s) for s in ids]}, layout="2d", concat_source=True), dtype=float)
+
+    early_fusion: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        model = PLSRegression(n_components=n_comp)
+        model.fit(fused(train_ints), y(train_ints))
+        pred = np.asarray(model.predict(fused(val_ints))).ravel()
+        for position, sample_int in enumerate(val_ints):
+            early_fusion[int(sample_int)] = float(pred[position])
+    early_fusion_cv = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [early_fusion[k] for k in keys])))
+    assert abs(engine_cv - early_fusion_cv) > 1e-2, (engine_cv, early_fusion_cv, "by_source must differ from early fusion on distinct sources")
