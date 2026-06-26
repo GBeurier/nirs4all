@@ -42,6 +42,74 @@ if TYPE_CHECKING:
 _PREDICTION_PARTITION = {"FIT_CV": "validation", "REFIT": "final", "PREDICT": "final", "EXPLAIN": "final"}
 
 
+def _is_multi_block_model(model: Any) -> bool:
+    """True when ``model`` natively consumes a LIST of per-source blocks (MB-PLS intermediate fusion).
+
+    The single canonical multi-block consumer is :class:`~nirs4all.operators.models.sklearn.MBPLS`,
+    whose ``fit``/``predict`` branch on ``isinstance(X, list)`` to fuse the blocks internally (per-block
+    standardize + super-score). Detected by class identity (not duck-typing) so an ordinary estimator
+    is never accidentally handed a list. The import is lazy — MBPLS lives behind an optional model
+    subpackage and most pipelines never reference it.
+    """
+    try:
+        from nirs4all.operators.models.sklearn.mbpls import MBPLS
+    except ImportError:  # pragma: no cover - MBPLS is in the core install, but stay defensive
+        return False
+    return isinstance(model, MBPLS)
+
+
+class _MultiBlockEstimator:
+    """Fit a multi-block model on a LIST of per-source blocks, applying the X-chain PER BLOCK (S5).
+
+    INTERMEDIATE fusion = each source's per-block preprocessing runs first, then the multi-block model
+    fuses the transformed blocks. The upstream X-transform chain (e.g. SNV) is a stateful sklearn
+    transformer; for early fusion (concat) one chain fits the whole matrix, but for intermediate fusion
+    each block gets its OWN cloned chain fit on THAT block's fold-train rows — a block's train statistics
+    never touch another block (and never its own validation rows, since the chain is fit inside the
+    fold's train materialization, exactly like the single-block estimator). The fitted per-block chains
+    + the fitted model travel together through the REFIT→PREDICT artifact handle.
+
+    LEAKAGE: identical fold/holdout discipline as the single-block path — every per-block transform is
+    a per-fold fit on fold-train only; block alignment across sources stays identity-keyed (the resolver
+    delivers sample-aligned blocks). The model's own block weights are part of the fitted artifact.
+    """
+
+    def __init__(self, model: Any, chain_template: list[Any]) -> None:
+        self._model = model
+        # The routed upstream X-transform operators in furthest-upstream-first order. One independent
+        # clone of every step is fit per block at fit time (the block count is only known then). Applied
+        # as a bare transform sequence (NOT a sklearn Pipeline): a transforms-only Pipeline has no final
+        # estimator, so its ``check_is_fitted`` would reject ``transform`` for a stateless transformer
+        # like SNV — applying the steps directly matches the operator's own fit/transform contract.
+        self._chain_template = chain_template
+        self._block_chains: list[list[Any]] = []
+
+    def _fit_transform_block(self, steps: list[Any], block: np.ndarray) -> np.ndarray:
+        out = block
+        for step in steps:
+            out = np.asarray(step.fit_transform(out))
+        return out
+
+    @staticmethod
+    def _transform_block(steps: list[Any], block: np.ndarray) -> np.ndarray:
+        out = block
+        for step in steps:
+            out = np.asarray(step.transform(out))
+        return out
+
+    def fit(self, blocks: list[np.ndarray], y: Any) -> _MultiBlockEstimator:
+        from sklearn.base import clone
+
+        self._block_chains = [[clone(step) for step in self._chain_template] for _ in blocks]
+        transformed = [self._fit_transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
+        self._model.fit(transformed, y)
+        return self
+
+    def predict(self, blocks: list[np.ndarray]) -> np.ndarray:
+        transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
+        return np.asarray(self._model.predict(transformed))
+
+
 def _view_by_partition(task: dict[str, Any], partition: str) -> dict[str, Any] | None:
     for view in task.get("data_views", {}).values():
         if view.get("partition") == partition:
@@ -265,13 +333,23 @@ def run_model_node(
 
     estimator: Any
     y_transform: Any
+    # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
+    # the early-fusion concat. ``multi_block`` is true ONLY when BOTH the model is a multi-block consumer
+    # AND the dataset actually has >1 source — a single-source MB-PLS stays the early-fusion concat path
+    # (the degenerate one-block list would be identical, so we keep the simpler concat for it). At PREDICT
+    # the estimator is reloaded; its wrapper type tells us the persisted model was multi-block.
     if phase == "PREDICT":
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
+        multi_block = isinstance(estimator, _MultiBlockEstimator)
     else:
         model = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
-        estimator = make_pipeline(*upstream, model) if upstream else model
+        multi_block = _is_multi_block_model(model) and resolver.is_multi_source()
+        if multi_block:
+            estimator = _MultiBlockEstimator(model, upstream)
+        else:
+            estimator = make_pipeline(*upstream, model) if upstream else model
         y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None
         # Fit views materialize TRAINING rows (FIT_CV fold_train, REFIT full_train): the view carries
         # BASE ids (dag-ml keeps the FoldSet a clean base-grain OOF partition) + include_augmented_train,
@@ -283,7 +361,14 @@ def run_model_node(
         # train is therefore never expanded into fold L's fit, so a stateful augmenter cannot leak.
         fold_label = task.get("fold_id") if phase == "FIT_CV" else "refit"
         fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label)
-        x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"], dtype=float)
+        # MULTI-BLOCK (S5): materialize the per-source blocks as a LIST (concat_source=False); the
+        # wrapper applies the X-chain per block and fits ``model.fit([X1,X2,…], y)``. Otherwise the
+        # single concat matrix (single-source OR early-fusion multi-source) is fit as before.
+        x_train: Any
+        if multi_block:
+            x_train = [np.asarray(block, dtype=float) for block in resolver.resolve_feature_blocks(fit_ids, include_augmented=True)["blocks"]]
+        else:
+            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"], dtype=float)
         y_train = np.asarray(resolver.resolve_targets(resolver.target_sample_ids(fit_ids))["values"], dtype=float)
         # MULTI-TARGET (S0): resolve_targets returns a 2D (n, n_targets) block, so y_train is already 2D
         # — pass it through unraveled (PLSRegression(n_targets>1)/MultiOutputRegressor consume 2D y) and
@@ -295,7 +380,11 @@ def run_model_node(
         estimator.fit(x_train, y_fit)
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
-        x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"], dtype=float)
+        x: Any
+        if multi_block:
+            x = [np.asarray(block, dtype=float) for block in resolver.resolve_feature_blocks(ids, include_augmented=include_augmented)["blocks"]]
+        else:
+            x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"], dtype=float)
         pred = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]

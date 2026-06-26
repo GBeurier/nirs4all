@@ -81,6 +81,15 @@ class MaterializationResolver:
                 for fold_label, by_origin in fold_children.items()
             }
 
+    def is_multi_source(self) -> bool:
+        """Whether the backing dataset has more than one feature source (>1 ``FeatureSource``).
+
+        The node runner consults this to decide intermediate fusion: a multi-block model (MB-PLS) on a
+        multi-source dataset receives the per-source LIST (:meth:`resolve_feature_blocks`); a single-source
+        dataset always keeps the concat path (the one-block list would be identical to early fusion).
+        """
+        return self._dataset.features_sources() > 1
+
     def target_sample_ids(self, observation_ids: list[str]) -> list[str]:
         """Map observation ids to their target grain's ``sample_id`` (an augmented child → its origin).
 
@@ -144,13 +153,7 @@ class MaterializationResolver:
         view) an augmented observation id in the request is refused — an augmented child must
         never reach a validation/OOF view (the origin-boundary leakage guard).
         """
-        if not include_augmented:
-            leaked = [oid for oid in observation_ids if oid in self._augmented_observation_ids]
-            if leaked:
-                raise ValueError(
-                    "augmented observation ids in a non-augmented (validation/predict) view "
-                    f"would leak across the origin boundary: {leaked}"
-                )
+        self._guard_origin_boundary(observation_ids, include_augmented)
         sample_ints = [self._identity.to_int(observation_id) for observation_id in observation_ids]
         block = np.asarray(self._dataset.x_rows(sample_ints, layout="2d"))
         return {
@@ -158,6 +161,48 @@ class MaterializationResolver:
             "observation_ids": list(observation_ids),
             "values": block.tolist(),
         }
+
+    def resolve_feature_blocks(
+        self,
+        observation_ids: list[str],
+        *,
+        include_augmented: bool = True,
+        include_excluded: bool = False,
+    ) -> dict[str, Any]:
+        """Return ``{feature_set_id, observation_ids, blocks}`` — the per-source feature blocks (S5).
+
+        INTERMEDIATE fusion: a multi-block model (MB-PLS) must receive its inputs as a LIST of
+        per-source matrices ``[X_src0, X_src1, …]`` (``concat_source=False``), NOT the early-fusion
+        feature-axis concatenation :meth:`resolve_features` delivers — the model fuses the blocks
+        itself. Each block is one source's rows, sample-aligned to ``observation_ids`` in request
+        order (``x_rows`` addresses each stored row by its own sample int, never positionally), so
+        block ``b``'s row ``i`` and block ``c``'s row ``i`` are the SAME sample — the identity-keyed
+        alignment fusion relies on. A single-source dataset yields a one-element list (the degenerate
+        block == the early-fusion matrix). The same origin-boundary leakage guard as
+        :meth:`resolve_features` applies: an augmented child is refused in a non-augmented view.
+        """
+        self._guard_origin_boundary(observation_ids, include_augmented)
+        sample_ints = [self._identity.to_int(observation_id) for observation_id in observation_ids]
+        per_source = self._dataset.x_rows(sample_ints, layout="2d", concat_source=False)
+        # x_rows(concat_source=False) returns a list of per-source 2D arrays for a multi-source
+        # dataset, or a single 2D array for a single source — normalize to a list either way.
+        blocks = per_source if isinstance(per_source, list) else [per_source]
+        return {
+            "feature_set_id": "features",
+            "observation_ids": list(observation_ids),
+            "blocks": [np.asarray(block).tolist() for block in blocks],
+        }
+
+    def _guard_origin_boundary(self, observation_ids: list[str], include_augmented: bool) -> None:
+        """Refuse an augmented child in a non-augmented (validation/predict) view — the leakage guard."""
+        if include_augmented:
+            return
+        leaked = [oid for oid in observation_ids if oid in self._augmented_observation_ids]
+        if leaked:
+            raise ValueError(
+                "augmented observation ids in a non-augmented (validation/predict) view "
+                f"would leak across the origin boundary: {leaked}"
+            )
 
     def resolve_targets(
         self,
