@@ -1700,6 +1700,157 @@ def test_public_run_engine_dagml_mcuve() -> None:
 
 
 # ---------------------------------------------------------------------------
+# concat_transform (backlog #27): the top-level single-source REPLACE-mode form hstacks several
+# sub-transformers' outputs into one wider 2D feature matrix — exactly `FeatureUnion` semantics. The
+# bridge lowers it to ONE `FeatureConcat` X-transform node, so the model's upstream X-chain runs it
+# leakage-safe (fit fold-train, apply fold-val/test), like the column-changing X-transforms above.
+# Parity is asserted with ROW-INDEPENDENT sub-transformers (SNV / SavitzkyGolay derivative): each row
+# is transformed independently, so the result is deterministic and order-insensitive — unlike a
+# PCA/TruncatedSVD concat, whose randomized/near-degenerate SVD makes EXACT parity meaningless (the
+# components flip/reorder on a hair of row-order or float noise, a property of those reducers, not the
+# concat mechanism). The processing-AXIS shapes (multi-processing, the feature_augmentation `add`
+# mode, a named layer, a pass-through channel) need the multi-block data-plane and stay fail-loud
+# (backlog #29/#31).
+# ---------------------------------------------------------------------------
+
+
+def _concat_oof_and_test(dataset, make_concat_step, n_components: int = 15) -> tuple[float, float]:
+    """Direct sklearn OOF + final-test for `make_pipeline(FeatureConcat-equivalent, PLS)`, dag-ml order.
+
+    Builds the host `FeatureConcat` operator the bridge lowers `make_concat_step()` to (so the baseline
+    runs the SAME hstack the engine runs) and scores it per dag-ml's fold/refit row order. Returns
+    `(cv_oof_rmse, final_test_rmse)`.
+    """
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.pipeline.dagml.operator_routing import route_operator
+    from nirs4all.pipeline.dagml_bridge import _lower_concat_transform
+
+    lowered = _lower_concat_transform(make_concat_step())
+
+    def make_concat():
+        return route_operator("transform", lowered["class"], lowered["params"])
+
+    folds, pool = _dagml_fold_order(dataset)
+    test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
+
+    def xof(ids):
+        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"), dtype=float)
+
+    def yof(ids):
+        ids = [int(i) for i in ids]
+        block = np.asarray(dataset.y({"sample": ids}), dtype=float)
+        stored = dataset.index_column("sample", {"sample": ids})
+        row = {int(s): r for r, s in enumerate(stored)}
+        return block[[row[int(s)] for s in ids]].ravel()
+
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ids, val_ids in folds:
+        model = make_pipeline(make_concat(), PLSRegression(n_components=n_components))
+        model.fit(xof(train_ids), yof(train_ids))
+        preds = np.asarray(model.predict(xof(val_ids))).ravel()
+        true = yof(val_ids)
+        for sample_int, pred, target in zip(val_ids, preds, true, strict=True):
+            oof_pred[int(sample_int)] = float(pred)
+            oof_true[int(sample_int)] = float(target)
+    keys = sorted(oof_pred)
+    cv_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+
+    final = make_pipeline(make_concat(), PLSRegression(n_components=n_components))
+    final.fit(xof(pool), yof(pool))
+    test_rmse = float(np.sqrt(mean_squared_error(yof(test), np.asarray(final.predict(xof(test))).ravel())))
+    return cv_oof, test_rmse
+
+
+def test_concat_transform_bridge_lowers_to_feature_concat() -> None:
+    """The bridge lowers a supported `concat_transform` step to ONE `FeatureConcat` transform node."""
+    from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    dsl = _step_to_dsl({"concat_transform": [StandardScaler(), MinMaxScaler()]})
+    assert dsl["class"] == "nirs4all.operators.transforms.concat.FeatureConcat"
+    ops = dsl["params"]["operations"]
+    assert [op["class"] for op in ops] == ["sklearn.preprocessing._data.StandardScaler", "sklearn.preprocessing._data.MinMaxScaler"]
+
+
+def test_concat_transform_3d_shapes_fail_loud() -> None:
+    """The processing-AXIS shapes raise NotImplementedError naming the data-plane (#29/#31), never silent.
+
+    A `name`/`source_processing` selector targets a named 3D layer; a nested concat and a pass-through
+    (None) channel both build a multi-block representation; the `feature_augmentation`-nested `add`
+    mode grows the processing axis. All need the multi-source/fusion data-plane — they must fail loud.
+    """
+    from sklearn.decomposition import PCA
+
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    for step in (
+        {"concat_transform": {"operations": [PCA(n_components=5)], "name": "fused"}},
+        {"concat_transform": {"operations": [PCA(n_components=5)], "source_processing": "snv"}},
+        {"concat_transform": [PCA(n_components=5), {"concat_transform": [PCA(n_components=3)]}]},
+        {"concat_transform": [None, PCA(n_components=5)]},
+    ):
+        with pytest.raises(NotImplementedError, match="#29/#31"):
+            _step_to_dsl(step)
+    # feature_augmentation (the 3D processing axis itself) stays fail-loud at the generic boundary.
+    with pytest.raises(NotImplementedError, match="feature_augmentation"):
+        _step_to_dsl({"feature_augmentation": PCA(n_components=5)})
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_concat_transform() -> None:
+    """engine="dag-ml" runs concat_transform (REPLACE mode, hstack of 2 transformers) == sklearn FeatureUnion.
+
+    SNV ⧺ SavitzkyGolay(deriv=1) concatenated column-wise (each row-independent → deterministic), fed to
+    PLS. The bridge lowers the step to one `FeatureConcat` node; the model's X-chain runs `make_pipeline(
+    FeatureConcat, PLS)`, fit fold-train, applied fold-val/test. Both native scores (`cv_best_score` OOF
+    and `best_rmse` final-test) match the direct sklearn baseline EXACTLY (row-independent, so no SVD/PCA
+    order instability)."""
+    import nirs4all
+    from nirs4all.operators.transforms.nirs import SavitzkyGolay
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+
+    def make_step():
+        return {"concat_transform": [StandardNormalVariate(), SavitzkyGolay(window_length=11, polyorder=2, deriv=1)]}
+
+    cv_oof, test_rmse = _concat_oof_and_test(dataset, make_step)
+
+    pipeline = [make_step(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=15)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-6, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-6, (result.best_rmse, test_rmse)
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_concat_transform_with_chain() -> None:
+    """engine="dag-ml" runs concat_transform with a CHAIN entry (`[SG, SNV]`) == sklearn sequential hstack.
+
+    A `concat_transform` operation may be a chain (sequential sub-transformers); the lowered `FeatureConcat`
+    applies the chain (`SNV(SG(X))`) before concatenating it beside the single `SNV(X)` channel. Both native
+    scores match the direct baseline exactly (row-independent transforms)."""
+    import nirs4all
+    from nirs4all.operators.transforms.nirs import SavitzkyGolay
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+
+    def make_step():
+        return {"concat_transform": [StandardNormalVariate(), [SavitzkyGolay(window_length=11, polyorder=2, deriv=1), StandardNormalVariate()]]}
+
+    cv_oof, test_rmse = _concat_oof_and_test(dataset, make_step)
+
+    pipeline = [make_step(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=15)}]
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert abs(result.cv_best_score - cv_oof) < 1e-6, (result.cv_best_score, cv_oof)
+    assert abs(result.best_rmse - test_rmse) < 1e-6, (result.best_rmse, test_rmse)
+
+
+# ---------------------------------------------------------------------------
 # Repetitions (sample-grain grouping — replicate spectra share one sample). Backlog #21.
 # ---------------------------------------------------------------------------
 
