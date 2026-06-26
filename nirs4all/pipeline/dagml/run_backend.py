@@ -287,17 +287,35 @@ def _detect_rep_fusion(pipeline: list[Any]) -> dict[str, Any] | None:
     return rep_steps[0]
 
 
-def _filter_data_for_pool(spectro: Any, pool_ints: list[int]) -> tuple[np.ndarray, np.ndarray | None]:
-    """X/y for SampleFilter fitting, aligned exactly to ``pool_ints`` order."""
-    x_pool = np.asarray(spectro.x({"sample": list(pool_ints)}, layout="2d", concat_source=True, include_augmented=False))
-    y_values = spectro.y({"sample": list(pool_ints)}, include_augmented=False)
+def _base_pool_ints(spectro: Any, pool_ints: list[int]) -> list[int]:
+    """The non-augmented (base/origin) subset of ``pool_ints``, preserving order.
+
+    A base sample self-references its ``origin`` (``origin == sample``); an augmented child has
+    ``origin != sample`` (indexer.py:310-312). The legacy ExcludeController fits its SampleFilters on
+    BASE samples only (``include_augmented=False`` at exclude.py:135-137,146-149), so the fitting pool
+    here must drop the augmented children — their exclusion is inherited from their origin (cascade).
+    """
+    origin_of = {int(s): int(o) for s, o in zip(spectro.index_column("sample", {}), spectro.index_column("origin", {}), strict=True)}
+    return [int(sample_int) for sample_int in pool_ints if origin_of.get(int(sample_int), int(sample_int)) == int(sample_int)]
+
+
+def _filter_data_for_pool(spectro: Any, base_ints: list[int]) -> tuple[np.ndarray, np.ndarray | None]:
+    """X/y for SampleFilter fitting, aligned exactly to ``base_ints`` order.
+
+    ``base_ints`` MUST be non-augmented (base/origin) sample ints — see :func:`_base_pool_ints`. The
+    ``include_augmented=False`` X/y rows are base-grain, so requesting only base ints keeps x_pool,
+    y_pool, ``stored`` and ``order`` consistent (a child id in the request would have no base row to
+    map to and crash the re-key).
+    """
+    x_pool = np.asarray(spectro.x({"sample": list(base_ints)}, layout="2d", concat_source=True, include_augmented=False))
+    y_values = spectro.y({"sample": list(base_ints)}, include_augmented=False)
     y_pool = None if y_values is None else np.asarray(y_values)
 
     # `spectro.x/y({"sample": ids})` returns ascending storage order, not request order; re-key so
-    # masks align to `pool_ints` exactly (the storage-vs-request trap the resolver also guards against).
-    stored = spectro.index_column("sample", {"sample": list(pool_ints)})
+    # masks align to `base_ints` exactly (the storage-vs-request trap the resolver also guards against).
+    stored = spectro.index_column("sample", {"sample": list(base_ints)})
     row_of = {int(sample_int): row for row, sample_int in enumerate(stored)}
-    order = [row_of[int(sample_int)] for sample_int in pool_ints]
+    order = [row_of[int(sample_int)] for sample_int in base_ints]
     x_pool = x_pool[order]
     if y_pool is not None and y_pool.size:
         y_pool = y_pool[order]
@@ -307,14 +325,20 @@ def _filter_data_for_pool(spectro: Any, pool_ints: list[int]) -> tuple[np.ndarra
 
 
 def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: list[int]) -> set[int]:
-    """Excluded sample ints from ``pool_ints`` for one ``exclude_step``, mirroring ExcludeController.
+    """Excluded BASE sample ints from ``pool_ints`` for one ``exclude_step``, mirroring ExcludeController.
 
-    Fits each :class:`~nirs4all.operators.filters.base.SampleFilter` on the CURRENT kept pool's X/y
-    (``include_augmented=False``) and combines the per-filter keep-masks by ``mode`` — exactly the
+    Fits each :class:`~nirs4all.operators.filters.base.SampleFilter` on the CURRENT kept pool's BASE
+    X/y (``include_augmented=False``) and combines the per-filter keep-masks by ``mode`` — exactly the
     legacy :class:`~nirs4all.controllers.data.exclude.ExcludeController` mask logic:
 
     * ``mode="any"`` → exclude if ANY filter flags = ``np.all`` of the keep-masks (exclude.py:193);
     * ``mode="all"`` → exclude only if ALL filters flag = ``np.any`` (exclude.py:196).
+
+    The filters fit on the BASE (origin) rows ONLY — :func:`_base_pool_ints` drops any augmented child
+    ids from ``pool_ints`` first, matching legacy (exclude.py:135-137,146-149 select base samples via
+    ``include_augmented=False``). The returned set is therefore base origin ints; the augmented children
+    of a flagged origin are cascaded out by the caller (:func:`_resolve_exclude`), never flagged here on
+    their own — the origin-boundary invariant.
 
     Two legacy edge behaviors are replicated:
 
@@ -331,10 +355,11 @@ def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: l
     filters, filter_mode, _cascade = controller._parse_config(exclude_step)  # noqa: SLF001 - reuse legacy parsing
     if not filters:
         raise ValueError("exclude keyword requires at least one filter")
-    if not pool_ints:
+    base_ints = _base_pool_ints(spectro, pool_ints)
+    if not base_ints:
         return set()
 
-    x_pool, y_pool = _filter_data_for_pool(spectro, pool_ints)
+    x_pool, y_pool = _filter_data_for_pool(spectro, base_ints)
     if y_pool is None or y_pool.size == 0:
         return set()
 
@@ -345,7 +370,7 @@ def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: l
             masks.append(filter_obj.get_mask(x_pool, y_pool))
         except ValueError:
             # exclude.py:175-184 — a filter that can't be applied contributes a neutral keep-all mask.
-            masks.append(np.ones(len(pool_ints), dtype=bool))
+            masks.append(np.ones(len(base_ints), dtype=bool))
 
     if len(masks) == 1:
         keep_mask = masks[0].copy()
@@ -357,7 +382,7 @@ def _excluded_from_pool(exclude_step: dict[str, Any], spectro: Any, pool_ints: l
     if not keep_mask.any():
         keep_mask[0] = True
 
-    return {int(sample_int) for sample_int, keep in zip(pool_ints, keep_mask, strict=True) if not keep}
+    return {int(sample_int) for sample_int, keep in zip(base_ints, keep_mask, strict=True) if not keep}
 
 
 def _resolve_exclude(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list[int], set[int]]:
@@ -380,18 +405,43 @@ def _resolve_exclude(pipeline: list[Any], spectro: Any) -> tuple[list[Any], list
     progressively. The ``keep_in_oof`` flag is honored from any exclude step (consistent across steps
     is the caller's contract). All ``exclude`` steps are removed from the remaining pipeline — none is
     lowered to a dag-ml node (the bridge still raises ``NotImplementedError`` for a raw ``exclude``).
+
+    AUGMENTED CHILDREN — the origin-boundary invariant. Filters fit on BASE samples only (origins);
+    a flagged origin then CASCADES to its augmented children, exactly as legacy ``mark_excluded(...,
+    cascade_to_augmented=True)`` removes a base sample AND its children from the ``include_excluded=
+    False`` train universe (exclude.py:230-234, default ``cascade_to_augmented=True`` at exclude.py:278).
+    A child is therefore never excluded without its origin, and an excluded origin never keeps a child
+    in the pool. ``cascade_to_augmented`` is honored from the exclude steps (caller's contract, like
+    ``keep_in_oof``); cascade is a no-op on a dataset with no augmented children.
     """
     train_ints = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
     exclude_steps = [step for step in pipeline if _is_exclude_step(step)]
     if not exclude_steps:
         return pipeline, train_ints, set()
 
-    keep_in_oof = any(bool(step.get("keep_in_oof", False)) for step in exclude_steps)
-    excluded: set[int] = set()
-    for step in exclude_steps:
-        current_pool = [sample_int for sample_int in train_ints if sample_int not in excluded]
-        excluded |= _excluded_from_pool(step, spectro, current_pool)
+    # {origin_int: [child_int, ...]} over the train universe — base rows self-reference origin
+    # (origin == sample), so only augmented children (origin != sample) populate the map.
+    children_by_origin: dict[int, list[int]] = {}
+    sample_col = [int(s) for s in spectro.index_column("sample", {"partition": "train"})]
+    origin_col = [int(o) for o in spectro.index_column("origin", {"partition": "train"})]
+    for sample_int, origin_int in zip(sample_col, origin_col, strict=True):
+        if sample_int != origin_int:
+            children_by_origin.setdefault(origin_int, []).append(sample_int)
 
+    def _cascade(origins: set[int]) -> set[int]:
+        return origins | {child for origin in origins for child in children_by_origin.get(origin, [])}
+
+    keep_in_oof = any(bool(step.get("keep_in_oof", False)) for step in exclude_steps)
+    cascade_to_augmented = any(bool(step.get("cascade_to_augmented", True)) for step in exclude_steps)
+    excluded_origins: set[int] = set()
+    for step in exclude_steps:
+        # Each step fits on the CURRENT kept train: base origins still kept AND their children that an
+        # earlier step's cascade has not already removed (mirrors legacy include_excluded=False).
+        cascaded = _cascade(excluded_origins) if cascade_to_augmented else excluded_origins
+        current_pool = [sample_int for sample_int in train_ints if sample_int not in cascaded]
+        excluded_origins |= _excluded_from_pool(step, spectro, current_pool)
+
+    excluded = _cascade(excluded_origins) if cascade_to_augmented else excluded_origins
     remaining = [step for step in pipeline if not _is_exclude_step(step)]
     if keep_in_oof:
         # Opt-in: keep excluded in the CV universe; mark them excluded in the envelope (native bit)
