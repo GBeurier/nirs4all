@@ -110,6 +110,19 @@ class _MultiBlockEstimator:
         return np.asarray(self._model.predict(transformed))
 
 
+def _source_index(node: dict[str, Any]) -> int | None:
+    """The ``source_index`` a by_source branch model is bound to (S4), or ``None`` for any other node.
+
+    A by_source separation branch fans out one model node PER SOURCE, each carrying
+    ``metadata.source_index`` so the node materializes only that ONE source's feature block (a
+    feature-axis selection, all samples) instead of the early-fusion concat — late fusion by source.
+    Read from the compiled graph node (available in every phase, so PREDICT selects the same source
+    its REFIT model was fit on). Absent for single-source / duplication / separation-by-metadata nodes.
+    """
+    value = (node.get("metadata") or {}).get("source_index")
+    return int(value) if value is not None else None
+
+
 def _view_by_partition(task: dict[str, Any], partition: str) -> dict[str, Any] | None:
     for view in task.get("data_views", {}).values():
         if view.get("partition") == partition:
@@ -333,6 +346,12 @@ def run_model_node(
 
     estimator: Any
     y_transform: Any
+    # BY_SOURCE (S4): a late-fusion-by-source branch model is bound to ONE source via
+    # ``metadata.source_index`` — it sees only that source's feature block (all samples, that source's
+    # columns), NOT the early-fusion concat or the MB-PLS block list. Read from the graph node so every
+    # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
+    # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
+    source_index = _source_index(node_lookup(node_id))
     # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
     # the early-fusion concat. ``multi_block`` is true ONLY when BOTH the model is a multi-block consumer
     # AND the dataset actually has >1 source — a single-source MB-PLS stays the early-fusion concat path
@@ -362,11 +381,14 @@ def run_model_node(
         fold_label = task.get("fold_id") if phase == "FIT_CV" else "refit"
         fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label)
         # MULTI-BLOCK (S5): materialize the per-source blocks as a LIST (concat_source=False); the
-        # wrapper applies the X-chain per block and fits ``model.fit([X1,X2,…], y)``. Otherwise the
+        # wrapper applies the X-chain per block and fits ``model.fit([X1,X2,…], y)``. BY_SOURCE (S4):
+        # materialize ONLY the bound source's block (one 2D matrix — late fusion by source). Otherwise the
         # single concat matrix (single-source OR early-fusion multi-source) is fit as before.
         x_train: Any
         if multi_block:
             x_train = [np.asarray(block, dtype=float) for block in resolver.resolve_feature_blocks(fit_ids, include_augmented=True)["blocks"]]
+        elif source_index is not None:
+            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True)["values"], dtype=float)
         else:
             x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"], dtype=float)
         y_train = np.asarray(resolver.resolve_targets(resolver.target_sample_ids(fit_ids))["values"], dtype=float)
@@ -383,6 +405,8 @@ def run_model_node(
         x: Any
         if multi_block:
             x = [np.asarray(block, dtype=float) for block in resolver.resolve_feature_blocks(ids, include_augmented=include_augmented)["blocks"]]
+        elif source_index is not None:
+            x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"], dtype=float)
         else:
             x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"], dtype=float)
         pred = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)

@@ -546,6 +546,67 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     return branch_step, body
 
 
+# Keys recognised inside a by_source branch criterion dict. `run_backend` honors ONLY the
+# `by_source` flag + the shared `steps` body (one sub-pipeline applied per source). A per-source
+# dict body (`{"src0": [...], "src1": [...]}`), `values`/`min_samples`, or any other option falls
+# through to the loud bridge error rather than being silently run with default behavior.
+_HANDLED_BY_SOURCE_KEYS = frozenset({"by_source", "steps"})
+
+
+def _is_by_source_branch_step(step: Any) -> bool:
+    """True for a by_source separation branch: ``{"branch": {"by_source": True|"auto", ...}}``.
+
+    LATE fusion BY SOURCE: a branch PER feature source, each branch's model fed ONLY that source's
+    block (a feature-axis selection — all samples, one source's columns), distinct from by_metadata
+    (a SAMPLE partition) and duplication (every branch sees the FULL data).
+    """
+    if not isinstance(step, dict) or not isinstance(step.get("branch"), dict):
+        return False
+    return step["branch"].get("by_source") in (True, "auto")
+
+
+def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> list[Any] | None:
+    """Detect the EXACT handled by_source shape, else ``None`` (fail-loud via the bridge).
+
+    Admits ONLY: the splitter + ONE ``{"branch": {"by_source": True|"auto", "steps": [...model...]}}``
+    (a single shared body LIST containing the model, applied per source) + ONE avg/mean fusion merge
+    (:func:`_fusion_merge_aggregate`) on a MULTI-source dataset (``n_sources >= 2``). Returns the shared
+    branch body (the model sub-pipeline) when matched. ANY deviation returns ``None`` so the bridge's
+    raw-branch ``NotImplementedError`` fires — never a silent-wrong run. Specifically REJECTED:
+
+    * a single-source dataset (by_source on one source is a no-op — there is nothing to fuse);
+    * the per-source DICT body (``{"src0": [...], "src1": [...]}`` — different model per source) — a
+      later slice; only the shared body is honored here;
+    * an unhandled branch option (``values`` / ``min_samples`` / any key outside ``by_source``/``steps``);
+    * a body without a model (late fusion averages MODEL predictions);
+    * a non-fusion merge (``concat`` / ``predictions`` stacking), a top-level step beside the branch,
+      a model after the merge, or more than one branch/merge.
+    """
+    branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
+    merge_aggregates = [(step, agg) for step in pipeline if (agg := _fusion_merge_aggregate(step)) is not None]
+    if len(branch_steps) != 1 or len(merge_aggregates) != 1 or n_sources < 2:
+        return None
+    branch_step = branch_steps[0]
+    merge_step = merge_aggregates[0][0]
+
+    # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps (a top-level
+    # transform / tag / y_processing / exclude / model would be silently dropped, since only the branch
+    # body is lowered per source).
+    for step in pipeline:
+        if step is branch_step or step is merge_step or hasattr(step, "split"):
+            continue
+        return None
+
+    criterion = branch_step["branch"]
+    if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
+        return None
+    body = criterion.get("steps")
+    # Only the shared-body LIST form (one model sub-pipeline applied per source) is supported here.
+    if not isinstance(body, list) or not any(isinstance(sub, dict) and "model" in sub for sub in body):
+        return None
+    return body
+
+
 def _is_duplication_branch_step(step: Any) -> bool:
     """True for a DUPLICATION branch: ``{"branch": [[A], [B], ...]}`` (the list-of-lists form).
 
@@ -822,6 +883,7 @@ def run_via_dagml(
     detected = _detect_separation_branch(list(pipeline))
     detected_duplication = _detect_duplication_branch(list(pipeline))
     detected_stacking = _detect_stacking_branch(list(pipeline))
+    detected_by_source = _detect_by_source_branch(list(pipeline), spectro.features_sources())
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
     # REPETITIONS (sample-grain grouping): when the dataset declares a repetition column, several stored
@@ -837,7 +899,7 @@ def run_via_dagml(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
-        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or any(_is_exclude_step(step) for step in pipeline):
+        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or detected_by_source is not None or any(_is_exclude_step(step) for step in pipeline):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
                 "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
@@ -859,6 +921,15 @@ def run_via_dagml(
     if detected_duplication is not None:
         branches, aggregate = detected_duplication
         return _run_duplication_branch(list(pipeline), branches, aggregate, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "duplication", metric, task_type)
+
+    # by_source separation branch (`{"branch": {"by_source": True, "steps": [...model...]}}`) + avg/mean
+    # fusion merge on a MULTI-source dataset → ONE native run: dag-ml fans the shared body into one
+    # per-source model node (each bound to its source's block via metadata.source_index — LATE fusion
+    # by source), and the native fusion merge handler averages the per-source held-out Validation OOF
+    # per sample into one full-universe OOF. Each branch sees ALL samples but only ITS source's columns
+    # (a feature-axis selection, not a sample partition like by_metadata).
+    if detected_by_source is not None:
+        return _run_by_source_branch(list(pipeline), detected_by_source, spectro.features_sources(), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "by_source", metric, task_type)
 
     # STACKING (backlog #10): a duplication branch (`{"branch": [[A], [B], …]}`) + `{"merge": "predictions"}`
     # + a downstream meta-model (`{"model": MetaModel(Ridge())}` or a plain `{"model": Ridge()}`) → ONE
@@ -1543,6 +1614,94 @@ def _canonical_branch(branch_body: list[Any], branch_index: int) -> dict[str, An
         "id": f"branch_{branch_index}",
         "steps": [_canonical_branch_step(step, f"branch:{branch_index}.node:{node_index}") for node_index, step in enumerate(steps)],
     }
+
+
+def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[str, Any]:
+    """Lower the shared by_source body to a canonical branch BOUND to one source (S4).
+
+    Same lowering as :func:`_canonical_branch` (the shared model sub-pipeline, unique node ids per
+    source), but every MODEL node carries ``metadata.source_index`` so the node runner materializes
+    ONLY that source's feature block — late fusion by source. The branch index IS the source index
+    (one branch per source), so a fold view stays full-sample (all branches see all samples) while
+    each branch's model sees a different source's columns.
+    """
+    branch = _canonical_branch(branch_body, source_index)
+    for node in branch["steps"]:
+        if node["kind"] == "model":
+            node["metadata"] = {**node.get("metadata", {}), "source_index": source_index}
+    return branch
+
+
+def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+    """Run a by_source separation branch + avg/mean fusion merge as ONE native dag-ml run (S4).
+
+    LATE fusion BY SOURCE: fans the shared body into one canonical branch PER feature source
+    (:func:`_canonical_source_branch`), each MODEL node bound to its source via ``metadata.source_index``
+    so the node runner feeds it ONLY that source's block (all samples, that source's columns). The fold
+    set, OOF, and merge are sample-keyed and identical to the duplication-fusion path — the ONLY
+    difference from duplication is the feature-axis (per-source) restriction each branch's model sees.
+
+    dag-ml runs ONE native CV+refit: each per-source branch model is FIT_CV on the full fold-train
+    (its source's columns) and predicts the full fold-validation (held-out OOF); the native fusion
+    merge handler averages the branches' per-sample Validation OOF (leakage-safe — train predictions
+    never enter the average) into one full-universe OOF attributed to the merge node, whose cross-fold
+    average is ``cv_best_score``. ``best_rmse`` (final test) is also native: each branch's REFIT predicts
+    the held-out TEST set (its source's columns, ``fold_id=None``) and dag-ml's off-fold fusion handler
+    averages those per sample into one scored ``(test, fold_id=None)`` block under the merge node.
+
+    LEAKAGE: folds/OOF over SAMPLES (unchanged — all branches see all samples, just different source
+    columns); a sample's blocks all land on the same fold side (the source restriction is a feature-axis
+    selection, never a sample partition); per-source per-fold preprocessing fits on fold-train only
+    (the per-branch X-chain is fit inside the fold's train materialization, like the single-block path);
+    the fusion merge is OOF-safe. No cross-sample mixing.
+    """
+    import dag_ml
+
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
+
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    if splitter is None:
+        raise ValueError("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+
+    identity = mint_identity(spectro)
+    # The handled shape rejects any exclude step, so the CV universe is the full train pool.
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool)
+
+    # Canonical DSL: one duplication-mode branch with N per-source sub-pipelines (each the shared body
+    # bound to its source via metadata.source_index) + a fusion merge. The branch is `duplication` mode
+    # because every branch sees the FULL fold sample view (no fan-out / no branch_view / no
+    # sample_metadata) — the per-source restriction is applied host-side at materialization, not by a
+    # sample-partition branch_view.
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-by-source-fusion",
+        "steps": [
+            {"kind": "branch", "mode": "duplication", "branches": [_canonical_source_branch(branch_body, source_index) for source_index in range(n_sources)]},
+            {"kind": "merge", "id": _FUSION_MERGE_NODE_ID, "merge_mode": "fusion", "output_as": "predictions"},
+        ],
+    }
+
+    manifests = controller_manifests()
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if len(model_ids) != n_sources:
+        raise RuntimeError(f"by_source compile produced {len(model_ids)} model nodes, expected {n_sources}")
+
+    # One data_binding per per-source model node (each binds its `x` to the full source set; the node
+    # runner selects its own source's block by metadata.source_index) + the materialized fold set.
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+
+    outcome = run_cv_refit_bundle(
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric
+    )
+    if outcome["returncode"] != 0:
+        raise RuntimeError(f"dag-ml by_source run failed (rc={outcome['returncode']}):\n{outcome['stdout'][-2000:]}")
+
+    bundle = json.loads((run_dir / "bundle.json").read_text())
+    model_label = f"by_source_{_model_name(branch_body)}x{n_sources}"
+    return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
 
 
 def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
