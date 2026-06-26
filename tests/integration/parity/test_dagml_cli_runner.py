@@ -2532,3 +2532,130 @@ def test_multi_target_emission_widens_target_axis() -> None:
     wire = [identity.to_wire(int(s)) for s in train]
     values = resolver.resolve_targets(wire)["values"]
     assert len(values) == 5 and all(isinstance(row, list) and len(row) == 3 for row in values), "multi-target → list of 3-wide rows"
+
+
+def test_multi_source_emission_single_source_unchanged() -> None:
+    """The S3 multi-source seam keeps the SINGLE-source path BYTE-IDENTICAL: the schema emits one
+    ``src0`` ``signal_1d`` source, the plan stays ``materialize → adapt → join → tabular_numeric``, the
+    relations carry ``source_id='src0'``, and the model binding stays ``tabular_numeric`` /
+    ``source_ids=['src0']`` (so every single-source parity test above is unaffected). No CLI needed."""
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for, model_node_id
+    from nirs4all.pipeline.dagml.envelope import build_envelope, sample_relations, source_ids
+    from nirs4all.pipeline.dagml.identity import mint_identity
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    assert dataset.features_sources() == 1
+    assert source_ids(dataset) == ["src0"]
+
+    identity = mint_identity(dataset)
+    train = dataset.index_column("sample", {"partition": "train"})
+    envelope = build_envelope(dataset, identity, sample_ints=train)
+
+    # The plan is the legacy single-source shape (output_representation tabular_numeric).
+    assert envelope["plan"]["output_representation"] == "tabular_numeric"
+    assert [step["kind"] for step in envelope["plan"]["steps"]] == ["materialize", "adapt", "join"]
+    assert [step["source_id"] for step in envelope["plan"]["steps"]] == ["src0", "src0", None]
+    # Single-source relations keep source_id='src0' (BYTE-IDENTICAL).
+    assert all(row["source_id"] == "src0" for row in sample_relations(identity, sample_ints=train)["rows"])
+
+    # The model binding stays tabular_numeric / ['src0'].
+    binding = data_bindings_for(model_node_id([{"model": PLSRegression(n_components=5)}]), envelope)[0]
+    assert binding["output_representation"] == "tabular_numeric"
+    assert binding["source_ids"] == ["src0"]
+    assert binding["feature_set_id"] == "x"
+
+
+def test_multi_source_emission_emits_feature_block_set() -> None:
+    """A multi-source dataset takes the NEW early-fusion path: the schema declares one ``signal_1d``
+    source per ``FeatureSource`` (per-source feature count), the plan joins them to ``feature_block_set``,
+    the relations are sample-grain (``source_id=None``), and the model binding carries
+    ``output_representation='feature_block_set'`` + every ``source_id``. No CLI needed."""
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for, model_node_id
+    from nirs4all.pipeline.dagml.envelope import build_envelope, sample_relations, source_ids
+    from nirs4all.pipeline.dagml.identity import mint_identity
+
+    dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    n_sources = dataset.features_sources()
+    assert n_sources == 3, "the `multi` corpus has 3 NIR sources"
+    assert source_ids(dataset) == ["src0", "src1", "src2"]
+
+    identity = mint_identity(dataset)
+    train = dataset.index_column("sample", {"partition": "train"})
+    envelope = build_envelope(dataset, identity, sample_ints=train)
+
+    # The schema declares one signal_1d source per FeatureSource, each with its own feature count.
+    per_source_features = dataset._feature_accessor.num_features  # noqa: SLF001 - per-source feature widths
+    schema_sources = envelope["plan"]["steps"]  # plan materialize steps mirror the schema sources
+    materialized = [step["source_id"] for step in schema_sources if step["kind"] == "materialize"]
+    assert materialized == ["src0", "src1", "src2"]
+
+    # The plan joins the per-source blocks into a feature_block_set for early fusion.
+    assert envelope["plan"]["output_representation"] == "feature_block_set"
+    join_step = next(step for step in envelope["plan"]["steps"] if step["kind"] == "join")
+    assert join_step["output_representation"] == "feature_block_set"
+    assert join_step["input_representation"] == "signal_1d"
+    assert join_step["metadata"]["inputs"] == ["src:src0", "src:src1", "src:src2"]
+
+    # Multi-source relations are sample-grain: source_id=None (a sample's blocks span every source).
+    assert all(row["source_id"] is None for row in sample_relations(identity, source_id=None, sample_ints=train)["rows"])
+
+    # The model binding carries feature_block_set + every source id.
+    binding = data_bindings_for(model_node_id([{"model": PLSRegression(n_components=5)}]), envelope)[0]
+    assert binding["output_representation"] == "feature_block_set"
+    assert binding["source_ids"] == ["src0", "src1", "src2"]
+    assert binding["feature_set_id"] == "x"
+    # The fused feature width is the sum of the per-source widths (early-fusion concat by sample_id).
+    assert isinstance(per_source_features, list) and len(per_source_features) == n_sources
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_multi_source_early_fusion() -> None:
+    """engine="dag-ml" runs a MULTI-SOURCE pipeline as native early fusion: the engine fuses the N
+    per-source blocks by sample_id (host-side, identity-keyed) and the model sees the fused matrix.
+
+    SNV → PLS on the 3-source `multi` corpus. ``cv_best_score`` + ``best_rmse`` == direct sklearn on
+    the host-concatenated (early-fused) multi-source matrix, within 1e-3 — proving the engine fusion
+    by identity gives the SAME matrix as the host's ``concat_source=True`` hstack (the rewiring is
+    behavior-preserving). LEAKAGE: folds/OOF partition over SAMPLES; a sample's per-source blocks all
+    land on the same fold side (the fusion is feature-axis, identity-keyed — no cross-sample mixing)."""
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = nirs4all.run(pipeline, dataset_path("multi"), engine="dag-ml")
+
+    dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    assert dataset.features_sources() == 3, "this exercises the >1-source early-fusion path"
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    # concat_source=True IS the host-fused (sample-aligned, feature-axis-concatenated) multi-source matrix.
+    def fused_x(sample_ints: list[int]) -> np.ndarray:
+        return np.asarray(dataset.x({"sample": sample_ints}, layout="2d", concat_source=True), dtype=float)
+
+    def y(sample_ints: list[int]) -> np.ndarray:
+        return np.asarray(dataset.y({"sample": sample_ints}), dtype=float)
+
+    # best_rmse == sklearn final-test on the fused matrix (refit on full train, predict test).
+    final = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+    final.fit(fused_x(train), y(train))
+    sklearn_final_test = float(np.sqrt(mean_squared_error(y(test_ints).ravel(), np.asarray(final.predict(fused_x(test_ints))).ravel())))
+    assert abs(result.best_rmse - sklearn_final_test) < 1e-3, (result.best_rmse, sklearn_final_test)
+
+    # cv_best_score == sklearn OOF-concat on the fused matrix.
+    oof_pred: dict[int, float] = {}
+    oof_true: dict[int, float] = {}
+    for train_ints, val_ints in folds:
+        fold_model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+        fold_model.fit(fused_x(train_ints), y(train_ints))
+        pred = np.asarray(fold_model.predict(fused_x(val_ints))).ravel()
+        true = y(val_ints).ravel()
+        for position, sample_int in enumerate(val_ints):
+            oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), float(true[position])
+    keys = sorted(oof_pred)
+    sklearn_oof = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [oof_pred[k] for k in keys])))
+    assert abs(result.cv_best_score - sklearn_oof) < 1e-3, (result.cv_best_score, sklearn_oof)

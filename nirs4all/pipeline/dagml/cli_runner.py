@@ -45,8 +45,23 @@ def model_node_id(pipeline: list[Any], *, dsl_id: str = "nirs4all-pipeline") -> 
     return str(next(node["id"] for node in plan["graph_plan"]["graph"]["nodes"] if node["kind"] == "model"))
 
 
+def _binding_sources(envelope: dict[str, Any], source_id: str) -> list[str]:
+    """The per-source ids the binding declares, read from the envelope's plan.
+
+    Single-source keeps ``[source_id]`` (BYTE-IDENTICAL); a multi-source (early-fusion) envelope
+    declares one ``materialize`` step per source, so the binding lists every source the engine fuses.
+    """
+    materialized = [step["source_id"] for step in envelope["plan"]["steps"] if step["kind"] == "materialize" and step.get("source_id")]
+    return materialized if len(materialized) > 1 else [source_id]
+
+
 def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID) -> dict[str, Any]:
-    """A DataBinding on one model node's ``x`` input, carrying the envelope's fingerprints."""
+    """A DataBinding on one model node's ``x`` input, carrying the envelope's fingerprints.
+
+    ``output_representation`` follows the envelope's plan output: ``tabular_numeric`` for a single
+    source (BYTE-IDENTICAL) or ``feature_block_set`` for multi-source early fusion (the N per-source
+    blocks are fused by sample_id — host-side in the resolver's ``x_rows(concat_source=True)``).
+    """
     return {
         "node_id": model_id,
         "input_name": "x",
@@ -54,9 +69,9 @@ def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _
         "schema_fingerprint": envelope["schema_fingerprint"],
         "plan_fingerprint": envelope["plan_fingerprint"],
         "relation_fingerprint": envelope["relation_fingerprint"],
-        "output_representation": "tabular_numeric",
+        "output_representation": envelope["plan"]["output_representation"],
         "feature_set_id": "x",
-        "source_ids": [source_id],
+        "source_ids": _binding_sources(envelope, source_id),
         "require_relations": True,
     }
 

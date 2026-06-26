@@ -36,6 +36,22 @@ if TYPE_CHECKING:
 
 _DEFAULT_SOURCE_ID = "src0"
 
+# The dag-ml-data representation id for an early-fusion multi-source model input: the engine
+# (host-side, via the resolver) joins the N per-source blocks by sample_id into one fused matrix.
+_FEATURE_BLOCK_SET = "feature_block_set"
+
+
+def source_ids(dataset: SpectroDataset) -> list[str]:
+    """The per-source ids the schema/plan/binding agree on.
+
+    Single-source keeps the legacy ``["src0"]`` (BYTE-IDENTICAL); a multi-source dataset
+    (``features_sources() > 1``) emits ``["src0", "src1", …]`` — one per ``FeatureSource``.
+    """
+    n_sources = dataset.features_sources()
+    if n_sources <= 1:
+        return [_DEFAULT_SOURCE_ID]
+    return [f"src{k}" for k in range(n_sources)]
+
 
 def _params_fingerprint(transform_id: str) -> str:
     """Deterministic 64-hex digest for an augmentation transform (sorted-params discipline).
@@ -55,9 +71,12 @@ def _import_dag_ml_data() -> Any:
     return dag_ml_data
 
 
-def _num_wavelengths(dataset: SpectroDataset) -> int:
+def _num_wavelengths(dataset: SpectroDataset, source_idx: int = 0) -> int:
+    """Feature count of one source. Single-source ``num_features`` is an int; multi-source a list."""
     num_features = dataset.num_features
-    return int(num_features if isinstance(num_features, int) else num_features[0])
+    if isinstance(num_features, int):
+        return int(num_features)
+    return int(num_features[source_idx])
 
 
 def num_targets(dataset: SpectroDataset) -> int:
@@ -111,50 +130,83 @@ def _target_representation(dataset: SpectroDataset, n_samples: int) -> dict[str,
     }
 
 
-def _dataset_schema(dataset: SpectroDataset, source_id: str, sample_id_strings: list[str]) -> dict[str, Any]:
+def _signal_source(dataset: SpectroDataset, source_id: str, source_idx: int, n_samples: int) -> dict[str, Any]:
+    """One ``signal_1d`` source descriptor for feature source ``source_idx`` (per-source feature count)."""
+    return {
+        "id": source_id,
+        "name": dataset.name,
+        "type_id": "dense_signal",
+        "modality": "spectroscopy",
+        "native_representation": {
+            "id": "signal_1d",
+            "type_id": "dense_signal",
+            "rank": 2,
+            "axes": [
+                {"name": "sample", "kind": "sample", "unit": None, "size": n_samples, "variable": False},
+                {"name": "wavelength", "kind": "wavelength", "unit": None, "size": _num_wavelengths(dataset, source_idx), "variable": False},
+            ],
+            "container": "ndarray",
+            "dtype": "float64",
+            "sparse": False,
+            "ragged": False,
+        },
+        "sample_key": "sample_id",
+        "granularity": "per_sample",
+        "schema": {},
+        "tags": {},
+    }
+
+
+def _dataset_schema(dataset: SpectroDataset, sources: list[str], sample_id_strings: list[str]) -> dict[str, Any]:
+    """The ``DatasetSchema``: one ``signal_1d`` source per feature source (``sources``).
+
+    Single-source emits exactly one ``src0`` (BYTE-IDENTICAL); multi-source emits N per-source
+    ``signal_1d`` sources whose blocks the data plan joins into a ``feature_block_set`` for early
+    fusion — mirroring nirs4all-io-dagml ``build_dag_ml_data_parts`` (lib.rs:486-528).
+    """
     n_samples = len(sample_id_strings)
     return {
         "dataset_id": f"nirs4all.{dataset.name}",
         "sample_ids": sample_id_strings,
-        "sources": [
-            {
-                "id": source_id,
-                "name": dataset.name,
-                "type_id": "dense_signal",
-                "modality": "spectroscopy",
-                "native_representation": {
-                    "id": "signal_1d",
-                    "type_id": "dense_signal",
-                    "rank": 2,
-                    "axes": [
-                        {"name": "sample", "kind": "sample", "unit": None, "size": n_samples, "variable": False},
-                        {"name": "wavelength", "kind": "wavelength", "unit": None, "size": _num_wavelengths(dataset), "variable": False},
-                    ],
-                    "container": "ndarray",
-                    "dtype": "float64",
-                    "sparse": False,
-                    "ragged": False,
-                },
-                "sample_key": "sample_id",
-                "granularity": "per_sample",
-                "schema": {},
-                "tags": {},
-            }
-        ],
+        "sources": [_signal_source(dataset, source_id, source_idx, n_samples) for source_idx, source_id in enumerate(sources)],
         "targets": {"y": _target_representation(dataset, n_samples)},
         "metadata": {},
     }
 
 
-def _data_plan(dataset: SpectroDataset, source_id: str) -> dict[str, Any]:
+def _data_plan(dataset: SpectroDataset, sources: list[str]) -> dict[str, Any]:
+    """The ``DataPlan``: materialize each source, then join.
+
+    SINGLE-SOURCE (BYTE-IDENTICAL): materialize ``signal_1d`` → adapt ``spectra.flatten`` →
+    join to ``tabular_numeric`` (output_representation ``tabular_numeric``).
+
+    MULTI-SOURCE (early fusion): materialize each per-source ``signal_1d``, then a single Join to
+    ``feature_block_set`` — the N per-source blocks are fused by sample_id host-side (the resolver's
+    ``x_rows(concat_source=True)``). Mirrors nirs4all-io-dagml (lib.rs:551-585).
+    """
+    if len(sources) == 1:
+        source_id = sources[0]
+        return {
+            "id": f"plan.{dataset.name}",
+            "steps": [
+                {"kind": "materialize", "source_id": source_id, "adapter_id": None, "input_representation": None, "output_representation": "signal_1d", "fit_scope": "stateless", "requires_user_choice": False, "metadata": {"output": f"src:{source_id}"}},
+                {"kind": "adapt", "source_id": source_id, "adapter_id": "spectra.flatten", "input_representation": "signal_1d", "output_representation": "tabular_numeric", "fit_scope": "stateless", "requires_user_choice": False, "metadata": {"input": f"src:{source_id}", "output": "step:adapt:0"}},
+                {"kind": "join", "source_id": None, "adapter_id": None, "input_representation": "tabular_numeric", "output_representation": "tabular_numeric", "fit_scope": "stateless", "requires_user_choice": False, "metadata": {"inputs": ["step:adapt:0"], "output": "port:X"}},
+            ],
+            "output_representation": "tabular_numeric",
+            "issues": [],
+        }
+    steps: list[dict[str, Any]] = [
+        {"kind": "materialize", "source_id": source_id, "adapter_id": None, "input_representation": None, "output_representation": "signal_1d", "fit_scope": "stateless", "requires_user_choice": False, "metadata": {"output": f"src:{source_id}"}}
+        for source_id in sources
+    ]
+    steps.append(
+        {"kind": "join", "source_id": None, "adapter_id": None, "input_representation": "signal_1d", "output_representation": _FEATURE_BLOCK_SET, "fit_scope": "stateless", "requires_user_choice": False, "metadata": {"inputs": [f"src:{source_id}" for source_id in sources], "output": "port:X"}}
+    )
     return {
         "id": f"plan.{dataset.name}",
-        "steps": [
-            {"kind": "materialize", "source_id": source_id, "adapter_id": None, "input_representation": None, "output_representation": "signal_1d", "fit_scope": "stateless", "requires_user_choice": False, "metadata": {"output": f"src:{source_id}"}},
-            {"kind": "adapt", "source_id": source_id, "adapter_id": "spectra.flatten", "input_representation": "signal_1d", "output_representation": "tabular_numeric", "fit_scope": "stateless", "requires_user_choice": False, "metadata": {"input": f"src:{source_id}", "output": "step:adapt:0"}},
-            {"kind": "join", "source_id": None, "adapter_id": None, "input_representation": "tabular_numeric", "output_representation": "tabular_numeric", "fit_scope": "stateless", "requires_user_choice": False, "metadata": {"inputs": ["step:adapt:0"], "output": "port:X"}},
-        ],
-        "output_representation": "tabular_numeric",
+        "steps": steps,
+        "output_representation": _FEATURE_BLOCK_SET,
         "issues": [],
     }
 
@@ -162,7 +214,7 @@ def _data_plan(dataset: SpectroDataset, source_id: str) -> dict[str, Any]:
 def sample_relations(
     identity: IdentityMap,
     *,
-    source_id: str = _DEFAULT_SOURCE_ID,
+    source_id: str | None = _DEFAULT_SOURCE_ID,
     sample_ints: list[int] | None = None,
     excluded_sample_ints: set[int] | None = None,
     metadata_by_sample: dict[str, dict[int, Any]] | None = None,
@@ -288,16 +340,24 @@ def build_envelope(
     """
     dag_ml_data = _import_dag_ml_data()
     chosen = identity.identities if sample_ints is None else [identity.identities[i] for i in _positions(identity, sample_ints)]
+    # SINGLE-SOURCE: the caller's ``source_id`` (default ``src0``) is the one source, and each
+    # relation carries it (BYTE-IDENTICAL). MULTI-SOURCE (early fusion): one ``signal_1d`` source
+    # per ``FeatureSource`` (``src0..srcK``), the plan joins them to ``feature_block_set``, and each
+    # relation's ``source_id`` is None (a sample's blocks span every source — relations are
+    # sample-grain), mirroring nirs4all-io-dagml.
+    sources = source_ids(dataset)
+    multi_source = len(sources) > 1
+    relation_source_id = None if multi_source else source_id
     envelope = dag_ml_data.build_coordinator_data_plan_envelope(
         # The schema's sample axis is the SAMPLE grain (one entry per distinct sample, which
         # must be unique); augmented children share their origin's sample_id, so dedup
         # order-preservingly. The observation grain (one row per stored row) lives in the
         # relations, not the schema.
-        _dataset_schema(dataset, source_id, list(dict.fromkeys(sample.sample_id for sample in chosen))),
-        _data_plan(dataset, source_id),
+        _dataset_schema(dataset, sources if multi_source else [source_id], list(dict.fromkeys(sample.sample_id for sample in chosen))),
+        _data_plan(dataset, sources if multi_source else [source_id]),
         sample_relations(
             identity,
-            source_id=source_id,
+            source_id=relation_source_id,
             sample_ints=sample_ints,
             excluded_sample_ints=excluded_sample_ints,
             metadata_by_sample=metadata_by_sample,
