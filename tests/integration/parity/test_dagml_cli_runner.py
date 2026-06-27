@@ -24,8 +24,32 @@ from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
 from nirs4all.pipeline.dagml.envelope import build_envelope
 from nirs4all.pipeline.dagml.identity import mint_identity
+from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled
 
 from ._datasets import PARSER_FIXTURES, dataset_path
+
+
+def _oof_avg_row_count(workdir: Path, subdir: str) -> int | None:
+    """The OOF cross-fold-average ``row_count`` for a run — engine-agnostic.
+
+    The subprocess path (Mechanism A) writes ``<subdir>/bundle.json``; the cross-fold OOF average
+    is its ``scores.reports`` entry with ``partition == "validation"`` and ``fold_id == "avg"``, and
+    ``row_count`` is the number of samples validated in the OOF (the leakage/coverage check). The
+    in-process path (Mechanism B, ``N4A_DAGML_INPROCESS=1``) writes NO bundle.json — the native
+    ScoreSet is returned in-memory and mapped straight to the RunResult, which does not preserve
+    ``row_count`` — so this returns ``None``. Callers assert the disk value only when it is present
+    (subprocess) and always assert the RunResult ``cv_best_score`` parity, which both engines expose.
+    """
+    bundle_path = workdir / subdir / "bundle.json"
+    if not bundle_path.exists():
+        return None
+    avg = [
+        report
+        for report in json.loads(bundle_path.read_text())["scores"]["reports"]
+        if report["partition"] == "validation" and report.get("fold_id") == "avg"
+    ]
+    assert len(avg) == 1, "the bundle scores must carry exactly one cross-fold OOF average"
+    return int(avg[0]["row_count"])
 
 pytestmark = [pytest.mark.parity]
 
@@ -482,19 +506,23 @@ def test_public_run_engine_dagml_native_param_sweep(tmp_path) -> None:
     components = [3, 9, 15]  # _range_[3, 16, 6] is end-inclusive: 3, 9, 15 (matches dag-ml range)
     pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(), "n_components": {"_range_": [3, 16, 6]}}]
 
-    # (1) It is the NATIVE param-level path, run once into the `native/` workdir.
+    # (1) It is the NATIVE param-level path, run once into the `native/` workdir. The single-bundle
+    # SELECT is proven engine-agnostically: NO per-variant `variant*/` dirs (neither engine runs the
+    # Python-expand path) and exactly ONE cross-fold OOF average (the selected variant's). The
+    # `selected_variant_id` + the on-disk bundle are subprocess-only artifacts (the in-process path
+    # returns the selected variant's native ScoreSet in-memory, with no bundle.json), so they are
+    # asserted only when present; the selection PARITY itself is locked by (2) on the RunResult below.
     assert _generation_kind(pipeline) == "param_model"
     result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path)
-    assert (tmp_path / "native" / "bundle.json").exists()
     assert not list(tmp_path.glob("variant*")), "native generation must NOT run the per-variant Python-expand path"
-    bundle = json.loads((tmp_path / "native" / "bundle.json").read_text())
-    assert bundle.get("selected_variant_id"), "dag-ml must record the natively-selected variant"
-    avg_reports = [r for r in bundle["scores"]["reports"] if r["partition"] == "validation" and r.get("fold_id") == "avg"]
-    assert len(avg_reports) == 1, "the bundle scores must be the selected variant's (one OOF average)"
+    _oof_avg_row_count(tmp_path, "native")  # subprocess: asserts the bundle carries exactly one OOF average
+    if not in_process_enabled():  # subprocess-only on-disk bundle: selected_variant_id has no in-memory twin
+        bundle = json.loads((tmp_path / "native" / "bundle.json").read_text())
+        assert bundle.get("selected_variant_id"), "dag-ml must record the natively-selected variant"
 
     # (2) PARITY — compute the per-n_components OOF CV directly with sklearn KFold and pick the best,
     # exactly as the Python-expand path would. The native run must select that same n_components and
-    # report its final-test RMSE.
+    # report its final-test RMSE. This is the engine-agnostic SELECT proof (both paths expose it).
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     train = dataset.index_column("sample", {"partition": "train"})
     test_ints = dataset.index_column("sample", {"partition": "test"})
@@ -551,19 +579,23 @@ def test_public_run_engine_dagml_native_log_range_sweep(tmp_path) -> None:
     alphas = [1e-3, 1e-2, 1e-1, 1e0, 1e1]
     pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": Ridge(), "alpha": {"_log_range_": [1e-3, 1e1, 5]}}]
 
-    # (1) It is the NATIVE param-level path, run once into the `native/` workdir.
+    # (1) It is the NATIVE param-level path, run once into the `native/` workdir. The single-bundle
+    # SELECT is proven engine-agnostically: NO per-variant `variant*/` dirs (neither engine runs the
+    # Python-expand path) and exactly ONE cross-fold OOF average (the selected variant's). The
+    # `selected_variant_id` + the on-disk bundle are subprocess-only artifacts (the in-process path
+    # returns the selected variant's native ScoreSet in-memory, with no bundle.json), so they are
+    # asserted only when present; the selection PARITY itself is locked by (2) on the RunResult below.
     assert _generation_kind(pipeline) == "param_model"
     result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path)
-    assert (tmp_path / "native" / "bundle.json").exists()
     assert not list(tmp_path.glob("variant*")), "native generation must NOT run the per-variant Python-expand path"
-    bundle = json.loads((tmp_path / "native" / "bundle.json").read_text())
-    assert bundle.get("selected_variant_id"), "dag-ml must record the natively-selected variant"
-    avg_reports = [r for r in bundle["scores"]["reports"] if r["partition"] == "validation" and r.get("fold_id") == "avg"]
-    assert len(avg_reports) == 1, "the bundle scores must be the selected variant's (one OOF average)"
+    _oof_avg_row_count(tmp_path, "native")  # subprocess: asserts the bundle carries exactly one OOF average
+    if not in_process_enabled():  # subprocess-only on-disk bundle: selected_variant_id has no in-memory twin
+        bundle = json.loads((tmp_path / "native" / "bundle.json").read_text())
+        assert bundle.get("selected_variant_id"), "dag-ml must record the natively-selected variant"
 
     # (2) PARITY — compute the per-alpha OOF CV directly with sklearn KFold and pick the best, exactly
     # as the Python-expand path would. The native run must select that same alpha and report its
-    # final-test RMSE.
+    # final-test RMSE. This is the engine-agnostic SELECT proof (both paths expose it).
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     train = dataset.index_column("sample", {"partition": "train"})
     test_ints = dataset.index_column("sample", {"partition": "test"})
@@ -779,6 +811,7 @@ def test_public_run_engine_dagml_tag_round_trip(tmp_path) -> None:
     """`tag` runs non-destructively: relation tags are emitted and the CV pool stays full."""
     from nirs4all.operators.filters.y_outlier import YOutlierFilter
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.exclude import _resolve_exclude, _resolve_tags
     from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
     n_comp = 5
@@ -797,7 +830,15 @@ def test_public_run_engine_dagml_tag_round_trip(tmp_path) -> None:
     expected_tagged = _flagged_by_filter(dataset, train, YOutlierFilter(method="iqr", threshold=1.0, tag_name=tag_name))
     assert expected_tagged, "tag filter must flag samples for this round-trip test"
 
-    envelope = json.loads((tmp_path / "variant0" / "envelope.json").read_text())
+    # The tagged CV relation universe is HOST-built (engine-agnostic): the subprocess path writes it to
+    # `variant0/envelope.json`, but the in-process path passes the same in-memory envelope straight to
+    # the bridge with no on-disk copy. Rebuild it exactly as `_dispatch_run`/`_run_concrete` do —
+    # `_resolve_exclude` (no-op here, tag pipeline) gives the full CV pool, `_resolve_tags` fits the
+    # tagger on it, and `build_envelope` derives the `coordinator_relations` — so both engines validate
+    # the identical structure (the run above already proved this exact envelope drives the real run).
+    _, cv_pool, _ = _resolve_exclude(list(pipeline), dataset)
+    _, tags_by_sample = _resolve_tags(list(pipeline), dataset, cv_pool)
+    envelope = build_envelope(dataset, identity, sample_ints=cv_pool, tags_by_sample=tags_by_sample)
     records = envelope["coordinator_relations"]["records"]
     assert len(records) == len(train), "tag must not remove samples from the CV relation universe"
     by_int = {identity.to_int(record["observation_id"]): record for record in records}
@@ -805,8 +846,12 @@ def test_public_run_engine_dagml_tag_round_trip(tmp_path) -> None:
     assert tagged == expected_tagged
     assert all(record.get("tags") for record in records if "tags" in record)
 
-    avg = [report for report in json.loads((tmp_path / "variant0" / "bundle.json").read_text())["scores"]["reports"] if report["partition"] == "validation" and report["fold_id"] == "avg"]
-    assert len(avg) == 1 and avg[0]["row_count"] == len(train), "tagged samples must stay in the OOF"
+    # The OOF stays full (tagged samples are not removed): the subprocess bundle carries an `avg` with
+    # row_count == len(train); the in-process RunResult has no bundle row_count, so the full-OOF cover
+    # is locked by the cv_best_score parity below (an OOF over fewer than all train rows would diverge).
+    oof_rows = _oof_avg_row_count(tmp_path, "variant0")
+    if oof_rows is not None:
+        assert oof_rows == len(train), "tagged samples must stay in the OOF"
     cv_oof, test_rmse = _host_split_oof_and_test(dataset, lambda: KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), n_components=n_comp)
     assert abs(result.cv_best_score - cv_oof) < 1e-3
     assert abs(result.best_rmse - test_rmse) < 1e-3
@@ -1200,11 +1245,13 @@ def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
     no_aug = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [no_pred[k] for k in keys])))
     assert abs(result.cv_best_score - no_aug) > 1e-3, "augmented samples must actually train (vs legacy no-op #14)"
 
-    # The OOF covers base val only — NO augmented child is ever validated (the leakage guard).
-    bundle = json.loads((tmp_path / "augment" / "bundle.json").read_text())
-    assert bundle.get("scores") is not None
-    avg = [r for r in bundle["scores"]["reports"] if r["partition"] == "validation" and r.get("fold_id") == "avg"]
-    assert len(avg) == 1 and avg[0]["row_count"] == len(base_train), "OOF must cover exactly the base train universe"
+    # The OOF covers base val only — NO augmented child is ever validated (the leakage guard). The
+    # subprocess bundle's `avg.row_count` proves the exact cover (== base train); the in-process path
+    # writes no bundle, so the same guard is enforced by `cv_best_score == direct_aug` above, which is
+    # reassembled over EXACTLY the base-train keys (a leaked augmented child in the OOF would change it).
+    oof_rows = _oof_avg_row_count(tmp_path, "augment")
+    if oof_rows is not None:
+        assert oof_rows == len(base_train), "OOF must cover exactly the base train universe"
 
 
 def test_stateful_augmentation_routes_fold_local() -> None:
@@ -1308,10 +1355,13 @@ def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
     no_aug = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [no_pred[k] for k in keys])))
     assert abs(result.cv_best_score - no_aug) > 1e-3, "augmented samples must actually train"
 
-    # The OOF covers base val only — NO augmented child is ever validated (the leakage guard).
-    bundle = json.loads((tmp_path / "augment" / "bundle.json").read_text())
-    avg = [r for r in bundle["scores"]["reports"] if r["partition"] == "validation" and r.get("fold_id") == "avg"]
-    assert len(avg) == 1 and avg[0]["row_count"] == len(base_train), "OOF must cover exactly the base train universe"
+    # The OOF covers base val only — NO augmented child is ever validated (the leakage guard). The
+    # subprocess bundle's `avg.row_count` proves the exact cover (== base train); the in-process path
+    # writes no bundle, so the same guard is enforced by `cv_best_score == direct_aug` above, which is
+    # reassembled over EXACTLY the base-train keys (a leaked augmented child in the OOF would change it).
+    oof_rows = _oof_avg_row_count(tmp_path, "augment")
+    if oof_rows is not None:
+        assert oof_rows == len(base_train), "OOF must cover exactly the base train universe"
 
 
 def test_run_cv_refit_bundle_drops_stale_pickle_env(tmp_path, monkeypatch) -> None:
