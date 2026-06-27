@@ -14,6 +14,7 @@ Example:
     >>> print(f"Best RMSE: {result.best_rmse:.4f}")
 """
 
+import warnings
 from pathlib import Path
 from typing import Any, TypeAlias
 
@@ -383,155 +384,180 @@ def run(
         - :func:`nirs4all.session`: Create execution session for resource reuse
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
+
+    def _run_legacy() -> RunResult:
+        """Run the in-process legacy orchestrator path (the engine='legacy' behaviour).
+
+        Defined as a closure over ``run()``'s arguments so both the default path and the
+        dag-ml→legacy cutover fallback re-enter the SAME code without re-passing every parameter.
+        """
+        # Normalize pipelines and datasets to lists
+        pipelines = _normalize_to_list(pipeline, _is_single_pipeline)
+        datasets = _normalize_to_list(dataset, _is_single_dataset)
+
+        # Extract store_run_id before passing runner_kwargs to PipelineRunner
+        caller_store_run_id: str | None = runner_kwargs.pop("store_run_id", None)
+
+        # If session provided, use its runner
+        if session is not None:
+            runner = session.runner
+            # Update runner settings if explicitly provided
+            if verbose != 1:  # Not the default
+                runner.verbose = verbose
+        else:
+            # Build runner kwargs from explicit params + extras
+            all_kwargs = {
+                "verbose": verbose,
+                "save_artifacts": save_artifacts,
+                "save_charts": save_charts,
+                "plots_visible": plots_visible,
+                "report_naming": report_naming,
+                **runner_kwargs
+            }
+            if random_state is not None:
+                all_kwargs["random_state"] = random_state
+
+            runner = PipelineRunner(**all_kwargs)
+
+        # Set cache config on runner (flows to orchestrator -> runtime_context).
+        # Default path keeps step cache disabled while enabling CoW snapshots.
+        runner.cache_config = cache if cache is not None else CacheConfig()
+
+        # Execute the cartesian product: each pipeline × each dataset
+        all_predictions = Predictions()
+        all_per_dataset: dict[str, Any] = {}
+        total_combos = len(pipelines) * len(datasets)
+
+        # When multiple combos or caller provided a store_run_id, group all
+        # pipeline×dataset executions under a single store run.
+        shared_run_id: str | None = caller_store_run_id
+        caller_owns_run = caller_store_run_id is not None  # Caller manages lifecycle
+        multi_run = total_combos > 1 or shared_run_id is not None
+
+        if multi_run and shared_run_id is None:
+            # Pre-create a single store run for the whole batch
+            store = getattr(runner, 'orchestrator', runner).store if hasattr(runner, 'orchestrator') else None
+            if store is None:
+                store = getattr(getattr(runner, 'orchestrator', None), 'store', None)
+            if store is not None and hasattr(store, 'begin_run'):
+                dataset_meta = []
+                for ds in datasets:
+                    if isinstance(ds, str):
+                        dataset_meta.append({"name": Path(ds).stem})
+                    elif hasattr(ds, 'name'):
+                        dataset_meta.append({"name": ds.name})
+                    else:
+                        dataset_meta.append({"name": "dataset"})
+                shared_run_id = store.begin_run(
+                    name=name or "run",
+                    config={"n_pipelines": len(pipelines), "n_datasets": len(datasets)},
+                    datasets=dataset_meta,
+                )
+
+        try:
+            for pipeline_idx, single_pipeline in enumerate(pipelines):
+                for _dataset_idx, single_dataset in enumerate(datasets):
+                    # Generate name with index if multiple pipelines
+                    pipeline_name = f"{name}_p{pipeline_idx}" if name else f"pipeline_{pipeline_idx}" if len(pipelines) > 1 else name
+
+                    # Convert Path to str for compatibility with type hints
+                    pipeline_arg = str(single_pipeline) if isinstance(single_pipeline, Path) else single_pipeline
+                    dataset_arg = str(single_dataset) if isinstance(single_dataset, Path) else single_dataset
+
+                    predictions, per_dataset = runner.run(
+                        pipeline=pipeline_arg,
+                        dataset=dataset_arg,
+                        pipeline_name=pipeline_name,
+                        refit=refit,
+                        store_run_id=shared_run_id,
+                        manage_store_run=not multi_run,
+                    )
+
+                    # Merge predictions from this run
+                    all_predictions.merge_predictions(predictions)
+
+                    # Merge per_dataset info (datasets with same name will be combined)
+                    for ds_name, ds_info in per_dataset.items():
+                        if ds_name not in all_per_dataset:
+                            all_per_dataset[ds_name] = ds_info
+                        else:
+                            # Merge run_predictions from multiple runs on same dataset
+                            existing_run_preds = all_per_dataset[ds_name].get("run_predictions")
+                            new_run_preds = ds_info.get("run_predictions")
+                            if existing_run_preds is not None and new_run_preds is not None:
+                                existing_run_preds.merge_predictions(new_run_preds)
+
+            # Complete the shared store run (only if we created it, not if caller owns it)
+            if multi_run and shared_run_id is not None and not caller_owns_run:
+                store = getattr(getattr(runner, 'orchestrator', None), 'store', None)
+                if store is not None and hasattr(store, 'complete_run'):
+                    summary: dict[str, Any] = {"total_pipelines": total_combos}
+                    if all_predictions.num_predictions > 0:
+                        best = all_predictions.get_best(ascending=None, score_scope="all")
+                        if best:
+                            summary["best_score"] = best.get("test_score")
+                            summary["best_metric"] = best.get("metric")
+                    store.complete_run(shared_run_id, summary)
+
+        except Exception as e:
+            # Fail the shared store run (only if we created it)
+            if multi_run and shared_run_id is not None and not caller_owns_run:
+                store = getattr(getattr(runner, 'orchestrator', None), 'store', None)
+                if store is not None and hasattr(store, 'fail_run'):
+                    store.fail_run(shared_run_id, str(e))
+            raise
+
+        # Extract per-model selections from the orchestrator (if available)
+        orchestrator = getattr(runner, 'orchestrator', None)
+        per_model_selections = getattr(orchestrator, '_per_model_selections', None) if orchestrator else None
+
+        # Tag the run with a project if requested
+        if project is not None and orchestrator is not None:
+            run_id = shared_run_id or getattr(orchestrator, 'last_run_id', None)
+            store = getattr(orchestrator, 'store', None)
+            if run_id and store and hasattr(store, 'get_or_create_project'):
+                project_id = store.get_or_create_project(project)
+                store.set_run_project(run_id, project_id)
+
+        result = RunResult(
+            predictions=all_predictions,
+            per_dataset=all_per_dataset,
+            _runner=runner,
+            _owns_runner=session is None,
+            _workspace_path=runner.workspace_path,
+            _per_model_selections=per_model_selections,
+        )
+
+        # For non-session runs, detach from the runner immediately to release
+        # the DB connection.  Export operations will re-open the store on demand.
+        if session is None:
+            result.detach()
+
+        return result
+
     # ADR-17 backend selector (nirs4all-core -> dag-ml migration). Default is the legacy
     # in-process orchestrator; `engine="dag-ml"` dispatches to the dag-ml-cli backend, which
     # runs the pipeline natively (Rust) and returns a RunResult of dag-ml's native scores.
+    #
+    # Cutover FALLBACK (pre-flip prep): the dag-ml backend covers most — but not all — pipeline
+    # shapes; the ~22 catchable coverage-boundary shapes (no splitter, .n4a export, rich stacking,
+    # …) raise DagMlUnsupported, a NotImplementedError subclass. The flip ("try dag-ml; on a
+    # catchable unsupported-error → fall back to legacy") makes the default 100% safe: when the
+    # dag-ml path declares a shape unsupported we warn and re-run it on the legacy engine, which
+    # runs independently (run_via_dagml cleans its own temp dir in a finally). ONLY
+    # DagMlUnsupported/NotImplementedError are caught — a genuine bug propagates untouched.
     if resolve_engine(engine) == "dag-ml":
+        from nirs4all.pipeline.dagml.errors import DagMlUnsupported
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
-        return run_via_dagml(pipeline, dataset)
-
-    # Normalize pipelines and datasets to lists
-    pipelines = _normalize_to_list(pipeline, _is_single_pipeline)
-    datasets = _normalize_to_list(dataset, _is_single_dataset)
-
-    # Extract store_run_id before passing runner_kwargs to PipelineRunner
-    caller_store_run_id: str | None = runner_kwargs.pop("store_run_id", None)
-
-    # If session provided, use its runner
-    if session is not None:
-        runner = session.runner
-        # Update runner settings if explicitly provided
-        if verbose != 1:  # Not the default
-            runner.verbose = verbose
-    else:
-        # Build runner kwargs from explicit params + extras
-        all_kwargs = {
-            "verbose": verbose,
-            "save_artifacts": save_artifacts,
-            "save_charts": save_charts,
-            "plots_visible": plots_visible,
-            "report_naming": report_naming,
-            **runner_kwargs
-        }
-        if random_state is not None:
-            all_kwargs["random_state"] = random_state
-
-        runner = PipelineRunner(**all_kwargs)
-
-    # Set cache config on runner (flows to orchestrator -> runtime_context).
-    # Default path keeps step cache disabled while enabling CoW snapshots.
-    runner.cache_config = cache if cache is not None else CacheConfig()
-
-    # Execute the cartesian product: each pipeline × each dataset
-    all_predictions = Predictions()
-    all_per_dataset: dict[str, Any] = {}
-    total_combos = len(pipelines) * len(datasets)
-
-    # When multiple combos or caller provided a store_run_id, group all
-    # pipeline×dataset executions under a single store run.
-    shared_run_id: str | None = caller_store_run_id
-    caller_owns_run = caller_store_run_id is not None  # Caller manages lifecycle
-    multi_run = total_combos > 1 or shared_run_id is not None
-
-    if multi_run and shared_run_id is None:
-        # Pre-create a single store run for the whole batch
-        store = getattr(runner, 'orchestrator', runner).store if hasattr(runner, 'orchestrator') else None
-        if store is None:
-            store = getattr(getattr(runner, 'orchestrator', None), 'store', None)
-        if store is not None and hasattr(store, 'begin_run'):
-            import json as _json
-            dataset_meta = []
-            for ds in datasets:
-                if isinstance(ds, str):
-                    dataset_meta.append({"name": Path(ds).stem})
-                elif hasattr(ds, 'name'):
-                    dataset_meta.append({"name": ds.name})
-                else:
-                    dataset_meta.append({"name": "dataset"})
-            shared_run_id = store.begin_run(
-                name=name or "run",
-                config={"n_pipelines": len(pipelines), "n_datasets": len(datasets)},
-                datasets=dataset_meta,
+        try:
+            return run_via_dagml(pipeline, dataset)
+        except (DagMlUnsupported, NotImplementedError) as e:
+            warnings.warn(
+                f"engine='dag-ml' does not support this pipeline shape ({e}); "
+                "falling back to the legacy engine",
+                stacklevel=2,
             )
+            return _run_legacy()
 
-    try:
-        for pipeline_idx, single_pipeline in enumerate(pipelines):
-            for _dataset_idx, single_dataset in enumerate(datasets):
-                # Generate name with index if multiple pipelines
-                pipeline_name = f"{name}_p{pipeline_idx}" if name else f"pipeline_{pipeline_idx}" if len(pipelines) > 1 else name
-
-                # Convert Path to str for compatibility with type hints
-                pipeline_arg = str(single_pipeline) if isinstance(single_pipeline, Path) else single_pipeline
-                dataset_arg = str(single_dataset) if isinstance(single_dataset, Path) else single_dataset
-
-                predictions, per_dataset = runner.run(
-                    pipeline=pipeline_arg,
-                    dataset=dataset_arg,
-                    pipeline_name=pipeline_name,
-                    refit=refit,
-                    store_run_id=shared_run_id,
-                    manage_store_run=not multi_run,
-                )
-
-                # Merge predictions from this run
-                all_predictions.merge_predictions(predictions)
-
-                # Merge per_dataset info (datasets with same name will be combined)
-                for ds_name, ds_info in per_dataset.items():
-                    if ds_name not in all_per_dataset:
-                        all_per_dataset[ds_name] = ds_info
-                    else:
-                        # Merge run_predictions from multiple runs on same dataset
-                        existing_run_preds = all_per_dataset[ds_name].get("run_predictions")
-                        new_run_preds = ds_info.get("run_predictions")
-                        if existing_run_preds is not None and new_run_preds is not None:
-                            existing_run_preds.merge_predictions(new_run_preds)
-
-        # Complete the shared store run (only if we created it, not if caller owns it)
-        if multi_run and shared_run_id is not None and not caller_owns_run:
-            store = getattr(getattr(runner, 'orchestrator', None), 'store', None)
-            if store is not None and hasattr(store, 'complete_run'):
-                summary: dict[str, Any] = {"total_pipelines": total_combos}
-                if all_predictions.num_predictions > 0:
-                    best = all_predictions.get_best(ascending=None, score_scope="all")
-                    if best:
-                        summary["best_score"] = best.get("test_score")
-                        summary["best_metric"] = best.get("metric")
-                store.complete_run(shared_run_id, summary)
-
-    except Exception as e:
-        # Fail the shared store run (only if we created it)
-        if multi_run and shared_run_id is not None and not caller_owns_run:
-            store = getattr(getattr(runner, 'orchestrator', None), 'store', None)
-            if store is not None and hasattr(store, 'fail_run'):
-                store.fail_run(shared_run_id, str(e))
-        raise
-
-    # Extract per-model selections from the orchestrator (if available)
-    orchestrator = getattr(runner, 'orchestrator', None)
-    per_model_selections = getattr(orchestrator, '_per_model_selections', None) if orchestrator else None
-
-    # Tag the run with a project if requested
-    if project is not None and orchestrator is not None:
-        run_id = shared_run_id or getattr(orchestrator, 'last_run_id', None)
-        store = getattr(orchestrator, 'store', None)
-        if run_id and store and hasattr(store, 'get_or_create_project'):
-            project_id = store.get_or_create_project(project)
-            store.set_run_project(run_id, project_id)
-
-    result = RunResult(
-        predictions=all_predictions,
-        per_dataset=all_per_dataset,
-        _runner=runner,
-        _owns_runner=session is None,
-        _workspace_path=runner.workspace_path,
-        _per_model_selections=per_model_selections,
-    )
-
-    # For non-session runs, detach from the runner immediately to release
-    # the DB connection.  Export operations will re-open the store on demand.
-    if session is None:
-        result.detach()
-
-    return result
+    return _run_legacy()
