@@ -30,9 +30,11 @@ def test_resolve_engine_default_is_legacy() -> None:
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_run_dispatches_to_dagml_engine() -> None:
     """`engine="dag-ml"` resolves to the operational backend (no longer gated). With no splitter the
-    dag-ml path fails loudly for the right reason — proving it dispatched rather than raising the old
-    NotImplementedError gate. Needs the CLI binary: run_via_dagml checks for it before the splitter."""
-    with pytest.raises(ValueError, match="cross-validator"):
+    dag-ml path fails loudly for the right reason via the catchable DagMlUnsupported(NotImplementedError) —
+    proving it dispatched and hit the real no-splitter check (the "cross-validator" message), not a generic
+    gate. The catchable type is what the fallback cutover relies on. Needs the CLI binary: run_via_dagml
+    checks for it before the splitter."""
+    with pytest.raises(NotImplementedError, match="cross-validator"):
         nirs4all.run([{"model": PLSRegression(n_components=2)}], dataset_path("regression"), engine="dag-ml")
 
 
