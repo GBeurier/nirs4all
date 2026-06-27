@@ -68,7 +68,7 @@ def _run_native_generation(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml engine run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
@@ -111,7 +111,7 @@ def _run_concrete(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml engine run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
@@ -175,7 +175,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml repetition run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
@@ -289,7 +289,7 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
     pickle_path.write_bytes(pickle.dumps(reshaped))
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path)
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=reshaped
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml rep-fusion run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
@@ -572,7 +572,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     pickle_path.write_bytes(pickle.dumps({"dataset": spectro, "fold_children": fold_children} if fold_local else spectro))
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path)
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=spectro, fold_children=fold_children
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml augmentation run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
@@ -650,7 +650,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     fanned_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle
+        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml separation-branch run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
@@ -815,7 +815,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml by_source run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
@@ -888,7 +888,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml duplication-fusion run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
@@ -978,7 +978,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml stacking run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")

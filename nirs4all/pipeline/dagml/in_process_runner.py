@@ -70,6 +70,8 @@ def run_cv_refit_bundle(
     selection_metric: str = "rmse",
     sample_metadata: dict[str, dict[str, Any]] | None = None,
     dataset_pickle: str | None = None,
+    dataset: Any | None = None,
+    fold_children: dict[str, dict[int, list[int]]] | None = None,
 ) -> dict[str, Any]:
     """Run a CV+refit bundle IN-PROCESS; return ``{returncode, stdout, results, scores}``.
 
@@ -83,6 +85,13 @@ def run_cv_refit_bundle(
     * ``returncode`` / ``stdout`` — always ``0`` / ``""`` on success; a bridge refusal raises
       (``DagMlError``) instead of returning a non-zero code, so the caller's ``returncode != 0`` guard
       is a no-op here (success-path parity).
+
+    ``dataset`` is the host's ALREADY-MATERIALIZED ``SpectroDataset`` (with ``fold_children`` for a
+    fold-local augmentation run): when given, the resolver is built from it directly — no disk reload.
+    ``run_via_dagml`` already materialized this exact dataset (its identity fingerprint equals the
+    reloadable path's, verified in :func:`dataset._dataset_inputs`) and, for augmentation / rep-fusion,
+    it IS the object that was pickled for the subprocess — so the resolver is byte-identical to the
+    reload/pickle path. When ``dataset`` is ``None`` the dataset is loaded per :func:`_load_dataset`.
     """
     import importlib
 
@@ -90,7 +99,8 @@ def run_cv_refit_bundle(
     # ships no stub, so import it dynamically (the facade only wraps the control-plane JSON fns).
     dag_ml_ext = importlib.import_module("dag_ml._dag_ml")
 
-    dataset, fold_children = _load_dataset(dataset_path, dataset_pickle)
+    if dataset is None:
+        dataset, fold_children = _load_dataset(dataset_path, dataset_pickle)
     if sample_metadata is None:
         meta_path = os.environ.get("N4A_DAGML_SAMPLE_META_PATH")
         if meta_path and Path(meta_path).exists():
@@ -134,6 +144,8 @@ def run_cv_refit_bundle_router(
     selection_metric: str = "rmse",
     sample_metadata: dict[str, dict[str, Any]] | None = None,
     dataset_pickle: str | None = None,
+    dataset: Any | None = None,
+    fold_children: dict[str, dict[int, list[int]]] | None = None,
 ) -> dict[str, Any]:
     """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
 
@@ -145,6 +157,11 @@ def run_cv_refit_bundle_router(
 
     Keeping ``workdir`` / ``dagml_cli`` / ``venv_python`` in the signature lets the call sites pass the
     SAME kwargs to either path; the in-process branch ignores those subprocess-only inputs.
+
+    ``dataset`` (the host's already-materialized ``SpectroDataset``, with ``fold_children`` for a
+    fold-local augmentation run) is consumed ONLY by the in-process branch — it builds the resolver from
+    that in-memory dataset, skipping the duplicate disk reload. The subprocess branch ignores it: the
+    adapter re-materializes from ``dataset_path`` / ``dataset_pickle`` (env channel) as before.
     """
     if in_process_enabled():
         return run_cv_refit_bundle(
@@ -155,6 +172,8 @@ def run_cv_refit_bundle_router(
             selection_metric=selection_metric,
             sample_metadata=sample_metadata,
             dataset_pickle=dataset_pickle,
+            dataset=dataset,
+            fold_children=fold_children,
         )
 
     from .cli_runner import run_cv_refit_bundle as _subprocess_run_cv_refit_bundle
