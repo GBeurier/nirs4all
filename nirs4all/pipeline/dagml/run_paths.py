@@ -9,7 +9,6 @@ into a :class:`~nirs4all.api.result.RunResult`.
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +17,13 @@ import numpy as np
 from nirs4all.api.result import RunResult
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
-from .cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
+from .cli_runner import assemble_cv_refit_dsl
 from .detect import _is_augmentation_step, _is_rep_fusion_step
 from .envelope import build_envelope
 from .errors import DagMlUnsupported, _cli_child_error, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
 from .identity import mint_identity
+from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _scores_to_run_result
 from .steps import _apply_model_params, _apply_plain_model_params, _model_name, _split_pipeline
 
@@ -73,8 +73,7 @@ def _run_native_generation(
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml engine run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
 
 
 def _run_concrete(
@@ -117,8 +116,7 @@ def _run_concrete(
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml engine run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
 
 
 def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
@@ -182,8 +180,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml repetition run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
 
 
 def _reshape_for_rep_fusion(rep_step: dict[str, Any], spectro: Any) -> None:
@@ -297,9 +294,8 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml rep-fusion run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
     rep_key = "rep_to_sources" if "rep_to_sources" in rep_step else "rep_to_pp"
-    return _scores_to_run_result(bundle.get("scores"), reshaped.name, f"{rep_key}_{_model_name(steps)}", metric, task_type)
+    return _scores_to_run_result(outcome["scores"], reshaped.name, f"{rep_key}_{_model_name(steps)}", metric, task_type)
 
 
 def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
@@ -581,8 +577,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml augmentation run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(steps), metric, task_type)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
 
 
 _MERGE_NODE_ID = "merge:concat"
@@ -660,13 +655,12 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml separation-branch run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
     # The concat-merge producer's reports carry both the full-universe cross-fold OOF average
     # (`cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`): dag-ml's native
     # off-fold merge handler reassembles each per-partition refit model's held-out TEST prediction
     # (the node runner emits it with `fold_id=None`) into one full-universe test block under the merge
     # node. Both scores are the separation branch's, surfaced by `_scores_to_run_result`.
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID)
 
 
 def _branch_compat_step(step: Any) -> dict[str, Any]:
@@ -826,9 +820,8 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml by_source run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
     model_label = f"by_source_{_model_name(branch_body)}x{n_sources}"
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
+    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
 
 
 def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
@@ -900,12 +893,11 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml duplication-fusion run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
     # The fusion-merge producer's reports carry the full-universe cross-fold OOF average (the fused
     # ensemble's `cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`, the
     # branches' test predictions averaged per sample). Both are surfaced by `_scores_to_run_result`.
     model_label = "+".join(_model_name(branch) for branch in branches)
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
+    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
 
 
 _META_NODE_ID = "merge:stack"
@@ -991,9 +983,8 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     if outcome["returncode"] != 0:
         raise DagMlUnsupported(f"dag-ml stacking run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
 
-    bundle = json.loads((run_dir / "bundle.json").read_text())
     # The meta-node producer's reports carry the full-universe cross-fold OOF average (the stacking
     # ensemble's `cv_best_score`) AND a `(test, fold_id=None)` block (`best_rmse`): the refit meta-model
     # predicting the held-out test from the base producers' REFIT-test predictions (`…oof:refit`).
     model_label = f"MetaModel_{type(meta_learner).__name__}"
-    return _scores_to_run_result(bundle.get("scores"), spectro.name, model_label, metric, task_type, producer=_META_NODE_ID)
+    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_META_NODE_ID)
