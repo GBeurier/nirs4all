@@ -20,12 +20,12 @@ from nirs4all.pipeline.dagml_bridge import controller_manifests
 from .cli_runner import assemble_cv_refit_dsl
 from .detect import _is_augmentation_step, _is_rep_fusion_step
 from .envelope import build_envelope
-from .errors import DagMlUnsupported, _cli_child_error, _reject_multi_model
+from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _scores_to_run_result
-from .steps import _apply_model_params, _apply_plain_model_params, _model_name, _split_pipeline
+from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _model_name, _split_pipeline, _supported_body_steps
 
 
 def _run_native_generation(
@@ -56,6 +56,7 @@ def _run_native_generation(
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     _reject_multi_model(steps)
+    _assert_supported_operators(steps)
     steps = _apply_plain_model_params(steps)
 
     identity = mint_identity(spectro)
@@ -71,7 +72,7 @@ def _run_native_generation(
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml engine run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml engine run failed")
 
     return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
 
@@ -99,6 +100,7 @@ def _run_concrete(
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     _reject_multi_model(steps)
+    _assert_supported_operators(steps)
     steps = _apply_model_params(steps)
 
     identity = mint_identity(spectro)
@@ -114,7 +116,7 @@ def _run_concrete(
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml engine run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml engine run failed")
 
     return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
 
@@ -162,6 +164,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    _assert_supported_operators(steps)
     steps = _apply_model_params(steps)
 
     identity = mint_identity(spectro)
@@ -178,7 +181,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml repetition run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml repetition run failed")
 
     return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
 
@@ -264,6 +267,7 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
     steps, splitter = _split_pipeline(body)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    _assert_supported_operators(steps)
     steps = _apply_model_params(steps)
 
     # Reshape a FRESH copy per variant so each variant's pickled dataset is independent (and the
@@ -292,7 +296,7 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=reshaped
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml rep-fusion run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml rep-fusion run failed")
 
     rep_key = "rep_to_sources" if "rep_to_sources" in rep_step else "rep_to_pp"
     return _scores_to_run_result(outcome["scores"], reshaped.name, f"{rep_key}_{_model_name(steps)}", metric, task_type)
@@ -527,6 +531,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     steps, splitter = _split_pipeline(rest)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    _assert_supported_operators(steps)
     steps = _apply_model_params(steps)
 
     base_train = [int(s) for s in spectro.index_column("sample", {"partition": "train"})]
@@ -575,7 +580,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=spectro, fold_children=fold_children
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml augmentation run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml augmentation run failed")
 
     return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
 
@@ -610,7 +615,8 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     splitter = next((step for step in pipeline if hasattr(step, "split")), None)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
-    body_steps = [step for step in branch_body if not hasattr(step, "split")]
+    # Drop the splitter / None no-ops and reject wavelength-requiring or non-routable ops in the body.
+    body_steps = _supported_body_steps([step for step in branch_body if not hasattr(step, "split")])
 
     identity = mint_identity(spectro)
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
@@ -653,7 +659,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
         dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml separation-branch run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml separation-branch run failed")
 
     # The concat-merge producer's reports carry both the full-universe cross-fold OOF average
     # (`cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`): dag-ml's native
@@ -718,8 +724,13 @@ def _canonical_branch_step(step: Any, node_id: str) -> dict[str, Any]:
 
 
 def _canonical_branch(branch_body: list[Any], branch_index: int) -> dict[str, Any]:
-    """Lower one duplication sub-pipeline (a list of steps) to a canonical branch with unique node ids."""
-    steps = [step for step in branch_body if not hasattr(step, "split")]
+    """Lower one duplication sub-pipeline (a list of steps) to a canonical branch with unique node ids.
+
+    ``None`` no-ops are dropped (never lowered to a ``builtins.NoneType`` node) and wavelength-requiring /
+    non-routable ops in the body raise a catchable :class:`DagMlUnsupported` — same coverage guarantee
+    the top-level path gives, applied here so duplication / by_source / stacking branch bodies are safe.
+    """
+    steps = _supported_body_steps([step for step in branch_body if not hasattr(step, "split")])
     return {
         "id": f"branch_{branch_index}",
         "steps": [_canonical_branch_step(step, f"branch:{branch_index}.node:{node_index}") for node_index, step in enumerate(steps)],
@@ -818,7 +829,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml by_source run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml by_source run failed")
 
     model_label = f"by_source_{_model_name(branch_body)}x{n_sources}"
     return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
@@ -891,7 +902,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml duplication-fusion run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml duplication-fusion run failed")
 
     # The fusion-merge producer's reports carry the full-universe cross-fold OOF average (the fused
     # ensemble's `cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`, the
@@ -981,7 +992,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
     )
     if outcome["returncode"] != 0:
-        raise DagMlUnsupported(f"dag-ml stacking run failed (rc={outcome['returncode']}): {_cli_child_error(outcome['stdout'])}")
+        _raise_run_failure(outcome, "dag-ml stacking run failed")
 
     # The meta-node producer's reports carry the full-universe cross-fold OOF average (the stacking
     # ensemble's `cv_best_score`) AND a `(test, fold_id=None)` block (`best_rmse`): the refit meta-model

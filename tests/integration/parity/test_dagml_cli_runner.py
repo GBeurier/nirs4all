@@ -1140,10 +1140,14 @@ def test_separation_branch_unsupported_shapes_fail_loud() -> None:
     (a top-level preprocessing step that would be dropped, an `exclude` whose exclusion would be lost,
     a `values`/`min_samples` branch whose grouping is not applied) must fall through to the bridge's
     raw-branch NotImplementedError (the coverage-boundary fail-loud guarantee). These are known
-    limitations for follow-up slices (top-level preproc+branch, exclude+branch, values/min_samples)."""
-    import nirs4all
+    limitations for follow-up slices (top-level preproc+branch, exclude+branch, values/min_samples).
+
+    Asserts on the dag-ml backend (`run_via_dagml`) directly: `nirs4all.run(engine="dag-ml")` now wraps
+    it in the cutover fallback (catches the catchable NotImplementedError → re-runs on legacy), so the
+    loud rejection is observable only at the backend, not through the fallback-wrapped public `run`."""
     from nirs4all.operators.filters.y_outlier import YOutlierFilter
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
     def branch() -> dict:
         return {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression(n_components=2)}]}}
@@ -1159,7 +1163,7 @@ def test_separation_branch_unsupported_shapes_fail_loud() -> None:
     }
     for label, pipeline in rejected.items():
         with pytest.raises(NotImplementedError):
-            nirs4all.run(pipeline, dataset_path("with_metadata"), engine="dag-ml")
+            run_via_dagml(pipeline, dataset_path("with_metadata"))
         assert label  # name surfaced in the failure if the raise is missing
 
 
@@ -2577,7 +2581,7 @@ def test_duplication_branch_unsupported_merge_fails_loud() -> None:
     the value-only process adapter, so it also fails loud rather than averaging class labels."""
     from sklearn.linear_model import Ridge
 
-    import nirs4all
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
     stacking = [
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
@@ -2585,7 +2589,7 @@ def test_duplication_branch_unsupported_merge_fails_loud() -> None:
         {"merge": "predictions"},
     ]
     with pytest.raises(NotImplementedError, match="#10"):
-        nirs4all.run(stacking, dataset_path("regression"), engine="dag-ml")
+        run_via_dagml(stacking, dataset_path("regression"))
 
     proba = [
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
@@ -2593,7 +2597,7 @@ def test_duplication_branch_unsupported_merge_fails_loud() -> None:
         {"merge": {"predictions": "all", "aggregate": "proba_mean"}},
     ]
     with pytest.raises(NotImplementedError, match="proba"):
-        nirs4all.run(proba, dataset_path("regression"), engine="dag-ml")
+        run_via_dagml(proba, dataset_path("regression"))
 
 
 def test_stacking_branch_detection() -> None:
@@ -2757,11 +2761,15 @@ def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> Non
     `StackingConfig` field (e.g. `test_aggregation`, which this slice cannot honor at all — best_rmse is NaN)
     and a sibling param / generator on the bare meta-model step (the bare-estimator lowering never runs
     `_apply_model_params` / native generation for it). Each must raise `NotImplementedError` naming #10
-    rather than run with the option silently dropped — the project's never-silently-drop-config discipline."""
+    rather than run with the option silently dropped — the project's never-silently-drop-config discipline.
+
+    Asserts on the dag-ml backend (`run_via_dagml`) directly: the public `nirs4all.run(engine="dag-ml")`
+    now wraps it in the cutover fallback (catchable NotImplementedError → legacy), so the loud rejection
+    is observable at the backend, not through the fallback-wrapped public `run`."""
     from sklearn.linear_model import Ridge
 
-    import nirs4all
     from nirs4all.operators.models.meta import MetaModel, StackingConfig, TestAggregation
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
     branch = {"branch": [[{"model": PLSRegression(n_components=5)}], [{"model": Ridge(alpha=1.0)}]]}
 
@@ -2772,7 +2780,7 @@ def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> Non
         {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(test_aggregation=TestAggregation.WEIGHTED_MEAN))},
     ]
     with pytest.raises(NotImplementedError, match="#10"):
-        nirs4all.run(ignored_config, dataset_path("regression"), engine="dag-ml")
+        run_via_dagml(ignored_config, dataset_path("regression"))
 
     sibling_param = [
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
@@ -2781,7 +2789,7 @@ def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> Non
         {"model": Ridge(), "alpha": 0.2},
     ]
     with pytest.raises(NotImplementedError, match="#10"):
-        nirs4all.run(sibling_param, dataset_path("regression"), engine="dag-ml")
+        run_via_dagml(sibling_param, dataset_path("regression"))
 
     swept_meta = [
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
@@ -2790,7 +2798,7 @@ def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> Non
         {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 3]}},
     ]
     with pytest.raises(NotImplementedError, match="#10"):
-        nirs4all.run(swept_meta, dataset_path("regression"), engine="dag-ml")
+        run_via_dagml(swept_meta, dataset_path("regression"))
 
 
 # ---------------------------------------------------------------------------
@@ -3531,8 +3539,12 @@ def test_by_source_proba_mean_fails_loud() -> None:
     than dropping it), and `_run_by_source_branch` rejects `proba_mean` with a CATCHABLE
     `NotImplementedError` BEFORE any run — exactly as the duplication-fusion path does. The bug it guards:
     accepting proba_mean but hardcoding `merge_mode: "fusion"` would silently run it as a regression
-    (value) average. No CLI needed — the rejection is up front, before dag-ml-cli is invoked."""
-    import nirs4all
+    (value) average. No CLI needed — the rejection is up front, before dag-ml-cli is invoked.
+
+    Asserts on the dag-ml backend (`run_via_dagml`) directly: the public `nirs4all.run(engine="dag-ml")`
+    now wraps it in the cutover fallback (catchable NotImplementedError → legacy), so the loud rejection
+    is observable at the backend, not through the fallback-wrapped public `run`."""
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
     proba = [
         KFold(n_splits=3, shuffle=True, random_state=42),
@@ -3540,7 +3552,7 @@ def test_by_source_proba_mean_fails_loud() -> None:
         {"merge": {"predictions": "all", "aggregate": "proba_mean"}},
     ]
     with pytest.raises(NotImplementedError, match="proba"):
-        nirs4all.run(proba, _two_source_distinct_dataset(), engine="dag-ml")
+        run_via_dagml(proba, _two_source_distinct_dataset())
 
 
 def test_multiple_models_fails_loud() -> None:
@@ -3551,13 +3563,17 @@ def test_multiple_models_fails_loud() -> None:
     → "data view is missing" → a bare rc=1). `run_via_dagml` now detects >1 top-level model step UP FRONT
     and raises a CATCHABLE `NotImplementedError` instead of letting it reach that mid-exec crash. Covers
     both the plain multi-model shape and the U02 feature_augmentation-generator + 3-models shape (each
-    augmentation variant still carries all three model steps). No CLI needed — rejected before dispatch."""
+    augmentation variant still carries all three model steps). No CLI needed — rejected before dispatch.
+
+    Asserts on the dag-ml backend (`run_via_dagml`) directly: the public `nirs4all.run(engine="dag-ml")`
+    now wraps it in the cutover fallback (catchable NotImplementedError → legacy), so the loud rejection
+    is observable at the backend, not through the fallback-wrapped public `run`."""
     from sklearn.linear_model import Ridge
     from sklearn.model_selection import ShuffleSplit
     from sklearn.preprocessing import MinMaxScaler
 
-    import nirs4all
     from nirs4all.operators.transforms import Detrend, FirstDerivative, Gaussian, Haar, SavitzkyGolay, StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
     plain = [
         StandardNormalVariate(),
@@ -3566,7 +3582,7 @@ def test_multiple_models_fails_loud() -> None:
         {"model": Ridge(alpha=1.0)},
     ]
     with pytest.raises(NotImplementedError, match="ONE model"):
-        nirs4all.run(plain, dataset_path("regression"), engine="dag-ml")
+        run_via_dagml(plain, dataset_path("regression"))
 
     # The U02_basic_regression shape: a feature_augmentation generator + three PLS model steps. The
     # generator expands to one feature_augmentation per variant, but EACH variant still has all three
@@ -3581,7 +3597,7 @@ def test_multiple_models_fails_loud() -> None:
         {"name": "PLS-15", "model": PLSRegression(n_components=15)},
     ]
     with pytest.raises(NotImplementedError, match="ONE model"):
-        nirs4all.run(u02, dataset_path("regression"), engine="dag-ml")
+        run_via_dagml(u02, dataset_path("regression"))
 
 
 def test_no_splitter_fails_loud() -> None:
@@ -3590,12 +3606,362 @@ def test_no_splitter_fails_loud() -> None:
     The dag-ml CV+refit needs an outer fold set; a pipeline without a splitter (e.g. a bare model, or a
     merge/features shape) used to raise a bare `ValueError` the `except NotImplementedError` fallback would
     NOT catch (→ a hard production failure). It now raises a CATCHABLE `NotImplementedError`
-    (`DagMlUnsupported`), so the fallback redirects the pipeline to the legacy engine. No CLI needed."""
-    import nirs4all
-    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported
+    (`DagMlUnsupported`), so the fallback redirects the pipeline to the legacy engine. No CLI needed.
+
+    Asserts on the dag-ml backend (`run_via_dagml`) directly: the public `nirs4all.run(engine="dag-ml")`
+    now wraps it in the cutover fallback (catches DagMlUnsupported → re-runs on legacy), so the loud
+    rejection is observable at the backend, not through the fallback-wrapped public `run`."""
+    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
 
     with pytest.raises(DagMlUnsupported, match="cross-validator"):
-        nirs4all.run([{"model": PLSRegression(n_components=5)}], dataset_path("regression"), engine="dag-ml")
+        run_via_dagml([{"model": PLSRegression(n_components=5)}], dataset_path("regression"))
+
+
+def test_or_none_variant_is_handled_as_passthrough() -> None:
+    """P0: a ``None`` (no-op) variant inside ``_or_`` runs as a pass-through (NOT a NoneType-node crash).
+
+    ``[{"_or_": [None, Scaler()]}, KFold, {model}]`` expands a variant with a bare ``None`` transform step.
+    The dag-ml bridge would lower ``None`` to a ``builtins.NoneType`` node the runtime cannot instantiate
+    (``module 'builtins' has no attribute 'NoneType'``); the host drops the no-op step so the variant runs,
+    byte-identical to the explicit no-preprocessing pipeline (the legacy ``None``-step semantic)."""
+    from sklearn.preprocessing import StandardScaler
+
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    none_variant = run_via_dagml([None, KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    no_preproc = run_via_dagml([KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    assert abs(none_variant.cv_best_score - no_preproc.cv_best_score) < 1e-9, (none_variant.cv_best_score, no_preproc.cv_best_score)
+    assert abs(none_variant.best_rmse - no_preproc.best_rmse) < 1e-9, (none_variant.best_rmse, no_preproc.best_rmse)
+    # The full sweep (None + a real scaler) runs both variants and selects — no crash.
+    swept = run_via_dagml([{"_or_": [None, StandardScaler()]}, KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    assert swept.cv_best_score == swept.cv_best_score  # not NaN
+
+
+def test_wavelength_and_custom_operators_fail_loud_catchably() -> None:
+    """P0: a wavelength-requiring op and a non-sklearn custom op raise a CATCHABLE ``DagMlUnsupported``.
+
+    The dag-ml X-chain fits transforms with ``(X, y)`` only (a plain sklearn ``make_pipeline``); two
+    recognizable unsupported shapes are rejected UP FRONT (so :func:`run`'s fallback redirects them to
+    legacy instead of crashing mid-run with a ``DagMlRuntimeError``):
+
+    * a configured :class:`Resampler` (needs ``wavelengths=`` injected into ``fit``); and
+    * a custom NON-sklearn operator (no ``fit``/``transform`` — unroutable by the X-chain).
+    """
+    from nirs4all.operators.transforms.resampler import Resampler
+    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
+
+    wavelength_pipeline = [Resampler(target_wavelengths=[1.0, 2.0, 3.0]), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
+        run_via_dagml(wavelength_pipeline, dataset_path("regression"))
+
+    class _CustomOp:  # non-sklearn: no fit/transform — only a dedicated controller could run it
+        pass
+
+    custom_pipeline = [_CustomOp(), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
+    with pytest.raises(DagMlUnsupported, match="custom controller"):
+        run_via_dagml(custom_pipeline, dataset_path("regression"))
+
+
+def test_supported_operator_precheck_does_not_swallow_real_bugs() -> None:
+    """P0 over-catch guard: a genuine bug must PROPAGATE — never be masked as "unsupported" — on BOTH engines.
+
+    The precheck inspects only X-side transform operators (structurally), never the model — a model that
+    is structurally valid but fails numerically at fit (e.g. ``PLSRegression`` with more components than
+    features) is a REAL bug that must propagate, not be converted to a catchable ``DagMlUnsupported`` that
+    the fallback would swallow. Asserts the precheck passes the bug pipeline (and a normal scaler) through,
+    and that running it surfaces the real error rather than a ``DagMlUnsupported`` — on BOTH the in-process
+    path (raw bridge ``DagMlRuntimeError``) AND the subprocess path (a plain ``RuntimeError``: the adapter
+    marks an operator failure as a genuine bug so :func:`_raise_run_failure` propagates instead of falling
+    back, matching in-process)."""
+    from sklearn.preprocessing import StandardScaler
+
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+    from nirs4all.pipeline.dagml.steps import _assert_supported_operators
+
+    # A normal sklearn transform + a structurally-valid (if numerically-doomed) model: the precheck is a
+    # pure no-op (it never raises) — the model is excluded from the X-side coverage check by design.
+    _assert_supported_operators([StandardScaler(), {"model": PLSRegression(n_components=99999)}])
+
+    # The genuine numerical fit failure propagates as a real error — NOT a DagMlUnsupported the run()
+    # fallback would swallow. Holds on BOTH engines (the test parametrizes the engine via the env flag set
+    # by the parity runner): in-process raises the bridge DagMlRuntimeError, subprocess a RuntimeError.
+    bug = [StandardScaler(), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=99999)}]
+    with pytest.raises(Exception) as exc_info:  # noqa: PT011 - the point is precisely that it is NOT DagMlUnsupported
+        run_via_dagml(bug, dataset_path("regression"))
+    assert not isinstance(exc_info.value, DagMlUnsupported), "a genuine numerical bug must propagate, not be swallowed as unsupported"
+
+
+def test_unsupported_op_inside_branch_and_augmentation_bodies_fail_loud_catchably() -> None:
+    """P0: a wavelength-requiring op INSIDE a branch / by_source / augmentation body raises a catchable error.
+
+    The X-side precheck must reach EVERY leaf/body lowerer, not just the simple/native/repetition paths.
+    A configured ``Resampler`` (needs ``wavelengths=`` injected into ``fit``) buried inside a duplication
+    branch, a by_metadata separation branch, a by_source branch, or a sample_augmentation pipeline used to
+    crash mid-run (uncaught ``DagMlRuntimeError`` in-process → ``run()`` could not fall back). It now raises
+    a catchable ``DagMlUnsupported`` BEFORE any ``estimator.fit`` reaches the runtime, anywhere it appears."""
+    from sklearn.linear_model import Ridge
+
+    from nirs4all.operators.transforms.resampler import Resampler
+    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
+
+    def resampler() -> Resampler:
+        return Resampler(target_wavelengths=[1.0, 2.0, 3.0])
+
+    split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
+
+    duplication = [split, {"branch": [[resampler(), {"model": PLSRegression(n_components=2)}], [{"model": Ridge(alpha=1.0)}]]}, {"merge": "mean"}]
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
+        run_via_dagml(duplication, dataset_path("regression"))
+
+    separation = [split, {"branch": {"by_metadata": "group", "steps": [resampler(), {"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}]
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
+        run_via_dagml(separation, dataset_path("with_metadata"))
+
+    by_source = [split, {"branch": {"by_source": True, "steps": [resampler(), {"model": PLSRegression(n_components=2)}]}}, {"merge": "mean"}]
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
+        run_via_dagml(by_source, dataset_path("multi"))
+
+    augmentation = [
+        resampler(),
+        {"sample_augmentation": {"transformers": ["nirs4all.operators.augmentation.spline.Spline_Smoothing"]}},
+        split,
+        {"model": PLSRegression(n_components=2)},
+    ]
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
+        run_via_dagml(augmentation, dataset_path("regression"))
+
+
+def test_none_step_inside_branch_bodies_is_handled() -> None:
+    """P0: a ``None`` (no-op) step INSIDE a branch body runs — NOT lowered to a ``builtins.NoneType`` node.
+
+    ``_split_pipeline`` drops a top-level ``None``, but branch/sub-pipeline bodies only filtered splitters,
+    so a ``None`` in a branch reached ``_step_to_dsl(None)`` → the ``module 'builtins' has no attribute
+    'NoneType'`` crash. ``None`` is now dropped consistently in branch bodies (legacy skips it everywhere),
+    so a duplication branch with a ``None`` runs identically to the same branch without the ``None``."""
+    from sklearn.linear_model import Ridge
+    from sklearn.preprocessing import StandardScaler
+
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
+    with_none = run_via_dagml(
+        [split, {"branch": [[None, {"model": PLSRegression(n_components=2)}], [StandardScaler(), {"model": Ridge(alpha=1.0)}]]}, {"merge": "mean"}],
+        dataset_path("regression"),
+    )
+    without_none = run_via_dagml(
+        [split, {"branch": [[{"model": PLSRegression(n_components=2)}], [StandardScaler(), {"model": Ridge(alpha=1.0)}]]}, {"merge": "mean"}],
+        dataset_path("regression"),
+    )
+    assert with_none.cv_best_score == with_none.cv_best_score  # not NaN — it ran
+    assert abs(with_none.cv_best_score - without_none.cv_best_score) < 1e-9, (with_none.cv_best_score, without_none.cv_best_score)
+    assert abs(with_none.best_rmse - without_none.best_rmse) < 1e-9, (with_none.best_rmse, without_none.best_rmse)
+
+
+def test_non_reconstructible_custom_transform_fails_loud_catchably() -> None:
+    """P0: a custom transform with ``fit``/``transform`` but no reconstructible class raises a catchable error.
+
+    The dag-ml runtime rebuilds every X-transform from its serialized class FQN + ``get_params()``. A
+    transform whose class is not FQN-importable (a ``<locals>``-defined class) or that lacks ``get_params``
+    passes a fit/transform-only check but then fails (or silently re-instantiates with empty state) at
+    routing — uncaught. The strengthened routability check (FQN-importable AND ``get_params``) rejects both
+    up front as a catchable ``DagMlUnsupported``."""
+    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
+
+    def make_unimportable_transform() -> object:
+        class _LocalTransform:  # defined in <locals> → not FQN-importable by the runtime
+            def fit(self, x, y=None):  # noqa: ARG002
+                return self
+
+            def transform(self, x):
+                return x
+
+            def get_params(self, deep: bool = True) -> dict:  # noqa: ARG002
+                return {}
+
+        return _LocalTransform()
+
+    unimportable = [make_unimportable_transform(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
+    with pytest.raises(DagMlUnsupported, match="reconstructible"):
+        run_via_dagml(unimportable, dataset_path("regression"))
+
+    class _NoGetParams:  # module-importable, has fit/transform, but no get_params → params not reconstructible
+        def fit(self, x, y=None):  # noqa: ARG002
+            return self
+
+        def transform(self, x):
+            return x
+
+    no_get_params = [_NoGetParams(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
+    with pytest.raises(DagMlUnsupported, match="reconstructible"):
+        run_via_dagml(no_get_params, dataset_path("regression"))
+
+
+def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> None:
+    """P0: an unsupported transform NESTED inside concat_transform / feature_augmentation is caught up front.
+
+    ``FeatureConcat`` reconstructs + fits each transform inside a ``concat_transform`` /
+    ``feature_augmentation`` spec (the same import + ``cls(**params)`` round-trip as a bare transform), so a
+    wavelength-requiring or non-reconstructible op nested there used to bypass the dict-skipping precheck
+    and crash uncaught in ``FeatureConcat.fit``. The precheck now recurses into those nested X-ops and
+    raises a catchable ``DagMlUnsupported``."""
+    from sklearn.preprocessing import FunctionTransformer
+
+    from nirs4all.operators.transforms.resampler import Resampler
+    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
+
+    split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
+
+    concat_wavelength = [{"concat_transform": [Resampler(target_wavelengths=[1.0, 2.0, 3.0])]}, split, {"model": PLSRegression(n_components=2)}]
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
+        run_via_dagml(concat_wavelength, dataset_path("regression"))
+
+    feataug_lambda = [{"feature_augmentation": [FunctionTransformer(func=lambda x: x)]}, split, {"model": PLSRegression(n_components=2)}]
+    with pytest.raises(DagMlUnsupported, match="reconstructible"):
+        run_via_dagml(feataug_lambda, dataset_path("regression"))
+
+    # DEEPLY NESTED CHAIN: FeatureConcat recurses chains-of-chains (``_build_operation``), so a transform
+    # buried at any depth (here a Resampler inside a chain inside a chain) is fit + must be checked too —
+    # a one-level flatten would miss it. The precheck recurses to every nesting level.
+    from sklearn.preprocessing import StandardScaler
+
+    nested_chain = [{"concat_transform": [[StandardScaler(), [Resampler(target_wavelengths=[1.0, 2.0, 3.0])]]]}, split, {"model": PLSRegression(n_components=2)}]
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
+        run_via_dagml(nested_chain, dataset_path("regression"))
+
+
+def test_non_serializable_param_transform_fails_loud_catchably() -> None:
+    """P0: a transform with a non-JSON-serializable param (a ``lambda``) raises a catchable error.
+
+    FQN-importability is necessary but not sufficient: the runtime rebuilds the transform with
+    ``cls(**json_params)``, where ``_json_safe_params`` stringifies a non-JSON value (e.g.
+    ``FunctionTransformer(func=lambda x: x)``) via ``default=repr`` — the constructor then receives the
+    ``repr`` STRING and crashes uncaught in ``fit``. The lossless-param guard rejects such a transform up
+    front as a catchable ``DagMlUnsupported``."""
+    from sklearn.preprocessing import FunctionTransformer
+
+    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
+
+    pipeline = [FunctionTransformer(func=lambda x: x), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
+    with pytest.raises(DagMlUnsupported, match="reconstructible"):
+        run_via_dagml(pipeline, dataset_path("regression"))
+
+
+def test_bare_class_and_supported_nested_transform_run_natively() -> None:
+    """P0 no-false-reject guard: a bare-CLASS transform step and a SUPPORTED nested transform still run.
+
+    The reconstructibility checks must not over-reject:
+
+    * a bare CLASS step (``StandardScaler`` the class, not an instance) is reconstructible — ``_qualname``
+      handles class objects, so it must run natively (the FQN-import check used to compare against
+      ``type(StandardScaler)`` = ``type`` and wrongly rejected it); and
+    * a ``concat_transform`` wrapping an ordinary sklearn transform (``StandardScaler()``) is fully
+      supported — the nested-op recursion must accept it, not reject it.
+
+    Both must run on the dag-ml engine (no fallback)."""
+    from sklearn.preprocessing import StandardScaler
+
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
+
+    class_step = run_via_dagml([StandardScaler, split, {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    assert class_step.cv_best_score == class_step.cv_best_score  # not NaN — it ran natively
+
+    nested_supported = run_via_dagml([{"concat_transform": [StandardScaler()]}, split, {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    assert nested_supported.cv_best_score == nested_supported.cv_best_score  # not NaN — it ran natively
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_genuine_bug_propagates_through_public_run_not_swallowed_into_legacy() -> None:
+    """P0 invariant: a genuine bug under ``engine='dag-ml'`` PROPAGATES through ``run()`` — not a legacy fallback.
+
+    Now that the precheck rejects unsupported SHAPES up front, a non-zero result from the actual dag-ml run
+    is a GENUINE bug and must surface — NOT be swallowed into a silent legacy fallback (which would mask the
+    error and run a different pipeline). The adapter classifies the node failure with a structured
+    ``error_kind`` (``"error"`` for a genuine bug, ``"unsupported"`` for a deliberate ``DagMlUnsupported``),
+    so the subprocess path propagates a ``RuntimeError`` for the genuine bug instead of converting rc!=0 →
+    ``DagMlUnsupported``, matching the in-process bridge error. Asserted through the PUBLIC ``run`` so the
+    fallback wrapper is in play: the run must raise (engine selected by the parity runner's env flag) and
+    emit NO fallback warning."""
+    import warnings
+
+    from sklearn.preprocessing import StandardScaler
+
+    import nirs4all
+
+    bug = [StandardScaler(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=99999)}]
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(Exception) as exc_info:  # noqa: PT011 - genuine bug must surface, not be swallowed
+            nirs4all.run(bug, dataset_path("regression"), engine="dag-ml")
+    assert not isinstance(exc_info.value, NotImplementedError), "a genuine bug must NOT be a (caught) NotImplementedError/DagMlUnsupported"
+    assert not any("falling back to the legacy engine" in str(w.message) for w in caught), "a genuine bug must NOT trigger a silent legacy fallback"
+
+
+def test_subprocess_error_classification_adapter_marks_kind_by_exception_type() -> None:
+    """The adapter classifies a node-execution failure by EXCEPTION TYPE into a structured ``error_kind``.
+
+    A deliberate ``DagMlUnsupported`` from ``run_node`` → ``error_kind = "unsupported"`` (the host will
+    fall back); ANY other exception (a genuine bug) → ``error_kind = "error"`` (the host will propagate).
+    The classification is a dedicated structured field on a JSONL error frame written to the result
+    capture — even when the exception's MESSAGE contains the marker words (no free-text spoofing)."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+    from nirs4all.pipeline.dagml.process_adapter import _classifying_handler
+
+    def _last_frame(path: str) -> dict:
+        return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()][-1]
+
+    unsupp_cap = tempfile.mktemp()
+    handler = _classifying_handler(lambda task: (_ for _ in ()).throw(DagMlUnsupported("deliberate unsupported shape")), unsupp_cap)
+    with pytest.raises(DagMlUnsupported):
+        handler({})
+    assert _last_frame(unsupp_cap)["error_kind"] == "unsupported"
+
+    # A genuine bug whose MESSAGE contains the spoof words must still be classified "error".
+    bug_cap = tempfile.mktemp()
+    handler = _classifying_handler(lambda task: (_ for _ in ()).throw(ValueError("error_kind unsupported in the message")), bug_cap)
+    with pytest.raises(ValueError, match="error_kind"):
+        handler({})
+    frame = _last_frame(bug_cap)
+    assert frame["error_kind"] == "error"
+    assert frame["type"] == "error"  # a structured frame, not free text
+
+
+def test_subprocess_error_classification_host_propagates_vs_falls_back_by_structured_kind() -> None:
+    """The host classifies a non-zero subprocess run by the STRUCTURED ``error_kind`` — never by stdout substring.
+
+    * ``error_kind == "unsupported"`` → ``DagMlUnsupported`` (the cutover fallback redirects to legacy);
+    * ``error_kind == "error"`` → ``RuntimeError`` (the genuine bug propagates, not swallowed);
+    * no structured error frame (a CLI/planner-level crash) → ``RuntimeError`` (propagate);
+    * SPOOF — a genuine ``error`` frame whose message/stdout merely CONTAINS the marker words → still
+      ``RuntimeError`` (the structured field, not the text, decides), so a real bug is never masked."""
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported, _raise_run_failure
+
+    def outcome(results: list, stdout: str = "boom") -> dict:
+        return {"returncode": 1, "stdout": stdout, "results": results}
+
+    with pytest.raises(DagMlUnsupported):
+        _raise_run_failure(outcome([{"type": "error", "error_kind": "unsupported", "error": {"message": "x"}}]), "ctx")
+
+    with pytest.raises(RuntimeError):
+        _raise_run_failure(outcome([{"type": "error", "error_kind": "error", "error": {"message": "x"}}]), "ctx")
+
+    with pytest.raises(RuntimeError):  # no structured error frame → propagate
+        _raise_run_failure(outcome([]), "ctx")
+
+    # SPOOF: stdout AND the frame message contain the marker words, but the structured kind is "error".
+    spoof = outcome(
+        [{"type": "error", "error_kind": "error", "error": {"message": "unsupported error_kind unsupported"}}],
+        stdout="Error: unsupported shape; error_kind unsupported everywhere",
+    )
+    with pytest.raises(RuntimeError) as exc_info:
+        _raise_run_failure(spoof, "ctx")
+    assert not isinstance(exc_info.value, DagMlUnsupported), "a spoofed message must NOT flip the classification to DagMlUnsupported"
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")

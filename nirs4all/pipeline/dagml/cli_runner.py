@@ -171,6 +171,11 @@ def run_cv_refit_bundle(
     (workdir / "envelope.json").write_text(json.dumps(envelope))
     (workdir / "graph.json").write_text(json.dumps(graph))
     capture = workdir / "results.jsonl"
+    # Fresh capture per launch: a stale structured error frame from an earlier run in a REUSED workdir
+    # must not be read back as this run's error_kind — that could flip a no-frame CLI/planner crash into a
+    # spurious DagMlUnsupported fallback (P0 round-5 must-fix). The error_kind classification is only sound
+    # over frames written by THIS subprocess.
+    capture.unlink(missing_ok=True)
     shim = write_launcher_shim(workdir / "n4a_adapter", venv_python)
 
     env = {

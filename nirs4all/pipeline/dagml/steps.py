@@ -9,11 +9,234 @@ from __future__ import annotations
 
 from typing import Any
 
+from .errors import DagMlUnsupported
+
+
+def _needs_wavelength_injection(operator: Any) -> bool:
+    """True when ``operator`` *requires* a ``wavelengths=`` injection the dag-ml X-chain cannot provide.
+
+    The dag-ml node runner fits an X-transform with only ``(X, y)`` (a plain sklearn ``make_pipeline``),
+    whereas the legacy ``TransformerMixinController`` extracts wavelengths from ``dataset.headers()`` and
+    passes them to ``fit(..., wavelengths=...)``. Only operators that *hard-require* wavelengths — i.e.
+    ``fit(X, y)`` *raises* without them — are unsupported and converted to a catchable fallback:
+
+    * a :class:`SpectraTransformerMixin` whose ``_requires_wavelengths is True`` (strict); the ``"optional"``
+      family (and feature-selection ops like CARS/MC-UVE, which merely *accept* a ``wavelengths`` kwarg and
+      fall back to index space when it is absent) run natively at parity, so they are NOT flagged; and
+    * a configured :class:`~nirs4all.operators.transforms.Resampler` (``target_wavelengths`` set), which
+      raises ``Wavelengths must be provided to fit()``; an identity Resampler (no target grid) is a
+      pass-through that fits without wavelengths, so it stays supported.
+
+    The signature is *not* used as the trigger (CARS/MC-UVE declare a ``wavelengths`` param but do not
+    require it) — only the explicit strict flag and the Resampler's configured-state contract are.
+    """
+    if getattr(operator, "_requires_wavelengths", False) is True:
+        return True
+    from nirs4all.operators.transforms.resampler import Resampler
+
+    return isinstance(operator, Resampler) and operator.target_wavelengths is not None
+
+
+def _is_fqn_importable(operator: Any) -> bool:
+    """True when ``operator``'s class round-trips through the routing's FQN import (reconstructible class).
+
+    The dag-ml runtime reconstructs every X-transform from its serialized ``module.QualName`` —
+    :func:`~nirs4all.pipeline.dagml_bridge._step_to_dsl` emits the FQN and
+    :func:`~nirs4all.pipeline.dagml.operator_routing._import_class` re-imports it at fit time. A
+    locally-defined class (``__qualname__`` carries ``<locals>``) or one whose module is not importable
+    cannot be re-imported, so routing would crash mid-run with an uncaught error. Mirror exactly what the
+    runtime does (import the FQN, confirm it resolves to the SAME class) so a non-reconstructible operator
+    is caught UP FRONT instead.
+    """
+    from nirs4all.pipeline.dagml.operator_routing import _import_class
+    from nirs4all.pipeline.dagml_bridge import _qualname
+
+    # Mirror ``_qualname``: a step may be a bare CLASS (e.g. ``StandardScaler``) or an INSTANCE; the
+    # reconstructible class is the object itself when it is a class, else its type.
+    cls = operator if isinstance(operator, type) else type(operator)
+    if "<locals>" in cls.__qualname__:
+        return False
+    try:
+        return _import_class(_qualname(operator)) is cls
+    except (ImportError, AttributeError, ValueError, TypeError):
+        return False
+
+
+def _params_losslessly_serializable(operator: Any) -> bool:
+    """True when ``operator``'s ``get_params()`` survive the routing's JSON round-trip with NO information loss.
+
+    The runtime reconstructs an X-transform with ``cls(**json_params)`` where ``json_params`` come from
+    :func:`~nirs4all.pipeline.dagml_bridge._json_safe_params` — ``json.dumps(get_params(), default=repr)``.
+    The ``default=repr`` fallback stringifies any non-JSON value (a callable, a fitted object, an
+    ``np.ufunc`` …) into its ``repr`` — e.g. ``FunctionTransformer(func=lambda x: x)`` becomes
+    ``func="<function <lambda> at 0x…>"``, which the constructor then receives as a STRING, crashing
+    uncaught in ``fit``. So a param set is reconstructible only when it serializes WITHOUT hitting that
+    fallback: ``json.dumps(get_params())`` (no ``default``) must succeed. A bare CLASS step carries no
+    instance params (the bridge emits ``{}`` for it), so it is trivially serializable.
+    """
+    import json
+
+    if isinstance(operator, type):
+        return True
+    try:
+        json.dumps(operator.get_params())
+    except (TypeError, ValueError):
+        return False
+    return True
+
+
+def _is_routable_transform(operator: Any) -> bool:
+    """True when ``operator`` is a sklearn-contract transform the dag-ml X-chain can fit, apply, AND rebuild.
+
+    The X-chain calls ``fit(X, y)`` then ``transform(X)`` on an instance the runtime RECONSTRUCTS from the
+    serialized class + ``get_params()``. An operator is routable only when it satisfies all four:
+
+    * has ``fit`` and ``transform`` (sklearn transform contract); and
+    * exposes ``get_params`` (sklearn param contract — the routing serializes/re-applies params through it);
+      a transform without it serializes empty params and the runtime would re-instantiate it with the bare
+      constructor, silently dropping state — refuse it; and
+    * its class is FQN-importable (:func:`_is_fqn_importable`) so the runtime can re-import it; and
+    * its params are losslessly JSON-serializable (:func:`_params_losslessly_serializable`) so the runtime
+      rebuilds it with the SAME values — a non-JSON param (a ``lambda``, a fitted object) would be passed
+      as its ``repr`` string and crash in ``fit``.
+
+    An operator missing any of these is handled only by a dedicated (non-sklearn) legacy controller the
+    dag-ml path does not implement, or cannot be faithfully reconstructed, so it is unsupported.
+    """
+    return (
+        callable(getattr(operator, "fit", None))
+        and callable(getattr(operator, "transform", None))
+        and callable(getattr(operator, "get_params", None))
+        and _is_fqn_importable(operator)
+        and _params_losslessly_serializable(operator)
+    )
+
+
+def _check_x_operator(operator: Any) -> None:
+    """Raise a catchable :class:`DagMlUnsupported` for one X-side transform the runtime cannot run/rebuild.
+
+    The single per-operator gate the top-level steps AND the nested ``concat_transform`` /
+    ``feature_augmentation`` sub-transforms both pass through, so the wavelength + routability +
+    reconstructibility checks are identical wherever a transform is fit/reconstructed.
+    """
+    if operator is None:
+        return
+    if _needs_wavelength_injection(operator):
+        raise DagMlUnsupported(
+            f"engine='dag-ml' does not inject wavelengths into fit(), but {type(operator).__name__} "
+            "requires them (the dag-ml X-chain fits transforms with (X, y) only). Use the legacy engine."
+        )
+    if not _is_routable_transform(operator):
+        raise DagMlUnsupported(
+            f"engine='dag-ml' cannot route {type(operator).__name__} — it is not a reconstructible "
+            "sklearn-contract transform (needs fit/transform/get_params, an importable class, and "
+            "JSON-serializable params) and requires a custom controller the dag-ml path does not "
+            "implement. Use the legacy engine."
+        )
+
+
+def _flatten_nested_operations(operations: Any) -> list[Any]:
+    """Every transform instance inside a ``concat_transform``/``feature_augmentation`` ops spec, at ANY depth.
+
+    Mirrors :func:`~nirs4all.operators.transforms.concat._build_operation` exactly: a ``list`` is a CHAIN
+    whose members are each themselves an operation (recursed), so a transform nested inside a chain inside a
+    chain (``[[A, [B]]]``) is reconstructed + fit by ``FeatureConcat`` just like a top-level one — and must
+    be checked. ``None`` (the raw pass-through layer) lowers to sklearn ``"passthrough"`` and is skipped; a
+    ``dict`` is a nested ``concat_transform`` (a 3D concat-of-concat) the bridge rejects on its own, so it is
+    not a flat fittable transform here and is skipped.
+    """
+    flat: list[Any] = []
+    for operation in operations:
+        if isinstance(operation, list):
+            flat.extend(_flatten_nested_operations(operation))
+        elif operation is not None and not isinstance(operation, dict):
+            flat.append(operation)
+    return flat
+
+
+def _nested_x_operators(step: dict[str, Any]) -> list[Any]:
+    """The X-side transform instances NESTED inside a ``concat_transform`` / ``feature_augmentation`` step.
+
+    ``FeatureConcat`` reconstructs and FITS each of these (the same serialize → import → ``cls(**params)``
+    round-trip as a bare transform), so they need the SAME checks — but they ride inside a dict step the
+    top-level loop skips. Recursively walks the supported list / chain (nested-list) forms here
+    (:func:`_flatten_nested_operations`, matching :func:`~nirs4all.operators.transforms.concat._build_operation`):
+
+    * ``{"concat_transform": [op, [chain...], ...]}`` or the ``{"concat_transform": {"operations": [...]}}``
+      dict form; and
+    * ``{"feature_augmentation": op}`` / ``{"feature_augmentation": [op, ...]}``.
+
+    Unhandled shapes (a generator dict, a ``name``/``source_processing`` selector, an empty/None config)
+    are left to the bridge's own fail-loud lowering; this only extracts the transform instances (at every
+    nesting level) so a wavelength-requiring or non-reconstructible op nested among them is caught up front.
+    """
+    if "concat_transform" in step:
+        config = step["concat_transform"]
+        operations = config.get("operations") if isinstance(config, dict) else config
+    else:  # feature_augmentation
+        operations = step["feature_augmentation"]
+    if operations is None:
+        return []
+    if not isinstance(operations, list):
+        operations = [operations]
+    return _flatten_nested_operations(operations)
+
+
+def _assert_supported_operators(steps: list[Any]) -> None:
+    """Reject UP FRONT the transform-side operators the dag-ml X-chain cannot run (catchable fallback).
+
+    Inspects the X-side transform operators (never the model — a structurally valid model that fails
+    numerically at fit, e.g. ``PLSRegression`` with too many components, is a REAL bug that must propagate,
+    not a coverage gap). For each it converts the recognizable unsupported shapes to
+    :class:`DagMlUnsupported` so :func:`run.run`'s fallback redirects them to the legacy engine:
+
+    * a wavelength-requiring operator (:func:`_needs_wavelength_injection`); and
+    * a NON-sklearn / non-reconstructible custom operator (:func:`_is_routable_transform` is false) — the
+      dag-ml X-chain has no controller for it, or the runtime cannot rebuild it faithfully.
+
+    Both the BARE transform steps AND the transforms NESTED inside ``concat_transform`` /
+    ``feature_augmentation`` (which ``FeatureConcat`` reconstructs + fits, :func:`_nested_x_operators`) are
+    checked, so an unsupported op anywhere — top-level or nested — raises a catchable error before any
+    ``estimator.fit`` reaches the runtime. Applied to EVERY leaf/body lowerer (the simple/native/repetition
+    paths AND each branch body, augmentation rest, and rep-fusion body).
+    """
+    for operator in steps:
+        if isinstance(operator, dict):
+            # A keyword dict the bridge handles structurally (model / y_processing / …) is validated by its
+            # own lowering path; but concat_transform / feature_augmentation CARRY X-side transforms that
+            # FeatureConcat fits — recurse into those.
+            if "concat_transform" in operator or "feature_augmentation" in operator:
+                for nested in _nested_x_operators(operator):
+                    _check_x_operator(nested)
+            continue
+        _check_x_operator(operator)
+
+
+def _supported_body_steps(steps: list[Any]) -> list[Any]:
+    """Drop ``None`` no-ops and assert the remaining X-side operators are supported — for any body/leaf.
+
+    The single chokepoint every branch body / sub-pipeline / leaf lowerer routes its operator steps
+    through, so the top-level guarantees hold uniformly: a ``None`` (identity no-op) is dropped everywhere
+    legacy skips it (NOT lowered to a ``builtins.NoneType`` node), and a wavelength-requiring or
+    non-reconstructible transform anywhere raises a catchable :class:`DagMlUnsupported`. Returns the
+    cleaned (``None``-free) step list the caller lowers.
+    """
+    cleaned = [step for step in steps if step is not None]
+    _assert_supported_operators(cleaned)
+    return cleaned
+
 
 def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
-    """Separate the cross-validator step (the object exposing ``.split``) from the operator steps."""
+    """Separate the cross-validator step (the object exposing ``.split``) from the operator steps.
+
+    A ``None`` step is a no-op / identity (the legacy executor treats it as a pass-through — the
+    common ``{"_or_": [None, Scaler()]}`` sweep idiom uses ``None`` for the "no preprocessing"
+    variant). The dag-ml bridge would lower it to a ``builtins.NoneType`` node that the runtime
+    cannot instantiate, so drop it here: a dropped identity transform yields a numerically identical
+    pipeline, exactly the legacy no-op semantic.
+    """
     splitter = next((step for step in pipeline if hasattr(step, "split")), None)
-    steps = [step for step in pipeline if step is not splitter]
+    steps = [step for step in pipeline if step is not splitter and step is not None]
     return steps, splitter
 
 
