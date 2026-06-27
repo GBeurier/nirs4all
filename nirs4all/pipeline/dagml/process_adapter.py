@@ -61,6 +61,39 @@ def _error(code: str, message: str) -> dict[str, Any]:
     return {"type": "error", "schema_version": _FRAME_SCHEMA_VERSION, "error": {"code": code, "message": message, "retryable": False}}
 
 
+def _classifying_handler(handle: NodeHandler, capture_path: str | None) -> NodeHandler:
+    """Wrap the node handler so a node-execution exception is CLASSIFIED into a structured error frame.
+
+    A failure inside ``run_node`` is one of two kinds, which the host must NOT conflate (parity with the
+    in-process path, where a deliberately-unsupported condition is catchable and a genuine bug propagates):
+
+    * the node raised :class:`~nirs4all.pipeline.dagml.errors.DagMlUnsupported` (a shape the dag-ml path
+      cannot run) → ``error_kind = "unsupported"`` (the host falls back to legacy); else
+    * ANY other exception (a GENUINE bug — e.g. a model fit failure) → ``error_kind = "error"`` (the host
+      propagates the real error).
+
+    The classification is written as a DEDICATED STRUCTURED FIELD on a JSONL error frame appended to the
+    result-capture file (the channel the host reads as ``outcome["results"]``), NOT free text in stdout —
+    so a genuine error whose message merely *contains* the marker words cannot spoof it. The exception is
+    then re-raised so the adapter still exits non-zero (the CLI surfaces the run failure).
+    """
+    from .errors import ERROR_KIND_GENERIC, ERROR_KIND_UNSUPPORTED, DagMlUnsupported
+
+    def wrapped(task: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return handle(task)
+        except Exception as exc:
+            kind = ERROR_KIND_UNSUPPORTED if isinstance(exc, DagMlUnsupported) else ERROR_KIND_GENERIC
+            if capture_path:
+                frame = _error(type(exc).__name__, str(exc))
+                frame["error_kind"] = kind
+                with open(capture_path, "a", encoding="utf-8") as capture_file:
+                    _emit(capture_file, frame)
+            raise
+
+    return wrapped
+
+
 def run_jsonl_loop(infile: IO[str], outfile: _Writer, handle: NodeHandler) -> None:
     """Drive the control-frame loop: ``init``/``close`` acks, ``task`` results, bare one-shot tasks."""
     for raw in infile:
@@ -165,13 +198,14 @@ def main(argv: list[str]) -> int:
         _emit(sys.stdout, describe())
         return 0
     capture = os.environ.get("N4A_DAGML_RESULT_CAPTURE")
+    handler = _classifying_handler(_build_handler(), capture)
     if capture:
         # Capture frames from inside the (single persistent) adapter — robust vs `tee` pipe
         # buffering that can split a large result frame across reads.
         with open(capture, "a", encoding="utf-8") as capture_file:
-            run_jsonl_loop(sys.stdin, _Tee(sys.stdout, capture_file), _build_handler())
+            run_jsonl_loop(sys.stdin, _Tee(sys.stdout, capture_file), handler)
     else:
-        run_jsonl_loop(sys.stdin, sys.stdout, _build_handler())
+        run_jsonl_loop(sys.stdin, sys.stdout, handler)
     return 0
 
 
