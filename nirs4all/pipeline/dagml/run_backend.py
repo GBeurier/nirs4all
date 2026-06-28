@@ -47,6 +47,7 @@ from .detect import (
 from .errors import DagMlUnsupported
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
+from .result import _scores_to_run_result
 from .run_paths import (
     _FUSION_MERGE_NODE_ID,
     _augmentation_is_leakage_free,
@@ -55,7 +56,7 @@ from .run_paths import (
     _reshape_for_rep_fusion,
     _run_augmentation,
     _run_by_source_branch,
-    _run_concrete,
+    _run_concrete_scores,
     _run_duplication_branch,
     _run_native_generation,
     _run_rep_fusion,
@@ -380,6 +381,33 @@ def _derive_config_name(pipeline: Any, name: str) -> str:
         return ""
 
 
+def _derive_variant_config_names(pipeline: Any, name: str) -> list[str]:
+    """Derive the ORDERED legacy per-variant ``config_name``s for a SWEEP pipeline (#55), else ``[]``.
+
+    For a generator / sweep, legacy assigns each EXPANDED variant its own ``"{label}_{display_hash}"``
+    (``label`` = ``"config"`` unnamed / ``"{name}_p0"`` named), in :class:`PipelineConfigs` expand order.
+    We REUSE that exact mechanism (no hand-rolled hash) — ``PipelineConfigs(steps).names`` IS that ordered
+    list. The per-variant projection (:func:`~nirs4all.pipeline.dagml.result._scores_to_run_result`) maps
+    these onto the CV variants positionally (the winner takes index 0 + the ``"_refit"`` suffix on its
+    refit rows), so a sweep carries the legacy SET + count of config names with a legacy-correct winner
+    label. Returns ``[]`` for a non-generator pipeline (the single path uses :func:`_derive_config_name`)
+    or any underivable form, so the projection falls back to the blank ``config_name`` rather than guess.
+    """
+    try:
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+
+        if isinstance(pipeline, PipelineConfigs):
+            return list(pipeline.names)  # a pre-built PipelineConfigs already carries its per-variant names.
+        steps = PipelineConfigs._load_steps(pipeline)  # noqa: SLF001 - reuse the exact legacy step-loading.
+        label = "" if name == "" else f"{name}_p0"  # "" → the literal "config" prefix (unnamed legacy default).
+        configs = PipelineConfigs(steps, name=label)
+        if configs.expansion_count <= 1:
+            return []  # not a multi-variant sweep — the single derived config_name path applies.
+        return list(configs.names)
+    except Exception:  # noqa: BLE001 - an underivable pipeline drops the labels rather than emit wrong ones.
+        return []
+
+
 def _dispatch_run(
     pipeline: Any,
     spectro: Any,
@@ -412,6 +440,10 @@ def _dispatch_run(
     from nirs4all.core import detect_task_type
 
     config_name = _derive_config_name(pipeline, name)
+    # The ordered legacy per-variant config names for a SWEEP (empty for a single concrete pipeline). The
+    # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
+    # num_predictions parity), labeling them with these (the winner takes index 0 + the "_refit" suffix).
+    variant_config_names = _derive_variant_config_names(pipeline, name)
 
     is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
     metric = "accuracy" if is_classification else "rmse"
@@ -535,25 +567,121 @@ def _dispatch_run(
     # generators (`_or_`/`_cartesian_`, multi-model) stay on the Python `expand_spec` path below.
     if _generation_kind(list(pipeline)) == "param_model":
         return _run_native_generation(
-            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state
+            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, random_state=random_state
         )
 
     # Expand operator-level generators (_or_/_cartesian_/param-keyed _range_/_grid_/...) into concrete,
     # flat pipelines of live operator instances (nirs4all's own serialize → expand → deserialize +
-    # flatten), run each through the verified single-variant dag-ml path, then select the best by its
-    # CV score — mirroring nirs4all selecting the best variant by its metric.
+    # flatten) and run each through the verified single-variant dag-ml path to get its native ScoreSet.
+    # A single variant maps straight through; a sweep COMBINES every variant's ScoreSet into one
+    # per-variant projection (legacy num_predictions parity) — selecting the best by CV (mirroring
+    # nirs4all) and emitting the winner's refit rows only.
     variants = _expand_operator_generators(list(pipeline))
-    results = [
-        _run_concrete(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+    variant_scores = [
+        _run_concrete_scores(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, random_state=random_state)
         for index, variant in enumerate(variants)
     ]
-    if len(results) == 1:
-        return results[0]
+    if len(variant_scores) == 1:
+        scores, model_name = variant_scores[0]
+        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name)
 
-    def _cv_rank(result: RunResult) -> float:
-        score = result.cv_best_score
-        if score != score:  # NaN (no CV score) ranks last
+    return _project_operator_sweep(variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names)
+
+
+def _variant_cv_score(scores: dict[str, Any], metric: str) -> float:
+    """The variant's cross-fold OOF ``metric`` — for SELECT, in the metric's OWN units / direction.
+
+    Reads the REQUESTED ``metric`` (``accuracy`` for classification, ``rmse`` for regression) — NOT a
+    hardcoded ``rmse`` (which is absent / meaningless for a classification sweep, so every variant would
+    tie NaN and the first would win regardless). The score is the cross-fold ``(validation, avg)`` report
+    (the single concrete path emits exactly one, ``variant_id`` ``None``); when there is NO avg (a
+    single-split splitter — KennardStone / SPXY ``n_splits=1`` — emits just the one validation fold), it
+    falls back to that SOLE ``(validation, fold)`` report, so a no-avg sweep still ranks on a real CV
+    score instead of defaulting to variant 0. Returns NaN only when the run produced no validation score.
+    """
+    avg = next((report for report in scores.get("reports", []) if report.get("partition") == "validation" and report.get("fold_id") == "avg"), None)
+    if avg is None:
+        avg = next((report for report in scores.get("reports", []) if report.get("partition") == "validation" and report.get("fold_id") != "avg"), None)
+    return float(avg["metrics"].get(metric, float("nan"))) if avg is not None else float("nan")
+
+
+def _project_operator_sweep(
+    variant_scores: list[tuple[dict[str, Any], str]],
+    dataset_name: str,
+    metric: str,
+    task_type: str,
+    is_classification: bool,
+    variant_config_names: list[str],
+) -> RunResult:
+    """Combine each operator-expanded variant's single-variant ScoreSet into ONE per-variant projection.
+
+    Each variant ran as its own concrete dag-ml run, so its ScoreSet carries the native single-producer
+    tagging (``variant:base`` on the per-fold / refit reports, ``variant_id = None`` on the cross-fold
+    ``avg``). To feed the shared per-variant projection
+    (:func:`~nirs4all.pipeline.dagml.result._scores_to_run_result`), we synthesize the multi-variant
+    ScoreSet that native generation would have emitted: the CV WINNER (best ``metric`` — accuracy MAXIMIZED
+    for classification, rmse MINIMIZED for regression, matching nirs4all's get_best / the native SELECT
+    direction) keeps ALL its reports (incl. the refit ``(final/test, None)`` and the ``None``-tagged avg —
+    only the winner refits); every LOSER keeps only its VALIDATION reports, re-tagged with a distinct
+    ``variant_id`` (its avg re-tagged too, so it no longer claims the winner's ``None`` avg).
+
+    Each variant's rows are labeled by its OWN ``variant_id`` via the ``variant_config_names`` /
+    ``variant_model_names`` maps — the winner gets ITS expansion ``config_name`` (+ ``_refit``) and ITS
+    ``model_name`` (a multi-MODEL ``_or_`` sweep carries a different model per variant; the winner's
+    final/best rows must show the WINNING model, not the first variant's).
+    """
+    scores_by_variant = [scores for scores, _ in variant_scores]
+    model_names = [name for _, name in variant_scores]
+    cv_scores = [_variant_cv_score(scores, metric) for scores in scores_by_variant]
+
+    def _rank(index: int) -> float:
+        score = cv_scores[index]
+        if score != score:  # NaN ranks last
             return float("inf")
         return -score if is_classification else score  # maximize accuracy, minimize RMSE
 
-    return min(results, key=_cv_rank)
+    winner_index = min(range(len(scores_by_variant)), key=_rank)
+    # Winner first, then the losers in expand order — the projection iterates / labels by variant_id, so
+    # the order here only sets which reports lead, not the labels.
+    ordered_indices = [winner_index] + [index for index in range(len(scores_by_variant)) if index != winner_index]
+
+    combined_reports: list[dict[str, Any]] = []
+    variant_config_map: dict[Any, str] = {}
+    variant_model_map: dict[Any, str] = {}
+    for position, index in enumerate(ordered_indices):
+        is_winner = position == 0
+        variant_tag = "variant:base" if is_winner else f"variant:v{index}"
+        # Label this variant's rows with ITS expansion config_name + model_name (by the fold-level id the
+        # projection keys on). The winner's `(final, None)` carries `variant:base`, so the winner's refit
+        # rows resolve to the winner's config_name (+ `_refit`) and model_name too.
+        if variant_config_names:
+            variant_config_map[variant_tag] = variant_config_names[index]
+        variant_model_map[variant_tag] = model_names[index]
+        for report in scores_by_variant[index].get("reports", []):
+            partition, fold_id = report.get("partition"), report.get("fold_id")
+            entry = dict(report)
+            # Re-tag by variant_id so each variant's rows are distinct AND each variant carries its OWN
+            # test / refit-train (a LOSER must show ITS real held-out test + refit-train under ITS
+            # config_name, never the winner's). Every variant ran fully via _run_concrete here, so each has
+            # its own `(final, None)` / `(test, None)`; we KEEP them, re-tagged, so the projection scopes
+            # them per-variant. The winner keeps the native single-producer tagging (`variant:base` on
+            # folds/final/test, the avg's native `None`); a loser is re-tagged on ALL its reports (its avg
+            # too, so it no longer claims the winner's `None` avg). The projection still emits the
+            # standalone `_refit` rows for the WINNER only — a loser's `(final, *)` feeds only its
+            # ensemble-train block, not standalone-refit rows.
+            if is_winner:
+                entry["variant_id"] = None if (partition == "validation" and fold_id == "avg") else variant_tag
+            else:
+                entry["variant_id"] = variant_tag
+            combined_reports.append(entry)
+
+    combined_scores = {**scores_by_variant[winner_index], "reports": combined_reports}
+    return _scores_to_run_result(
+        combined_scores,
+        dataset_name,
+        model_names[winner_index],
+        metric,
+        task_type,
+        variant_config_names=variant_config_map or None,
+        variant_model_names=variant_model_map,
+    )
