@@ -64,7 +64,23 @@ register(
         pipeline_factory=_factory_vertical_slice,
         expected_min_predictions=3,
         tags=_FAST | frozenset({"vertical_slice"}),
-        metric_tolerances={"rmse": 1e-6, "r2": 1e-6},
+        # Gold r2 = 0.54993 is the SELECTED (refit) model's held-out-test R² — the SAME model whose
+        # test RMSE best_rmse reports (sklearn-verified on the refit's raw y_true/y_pred). The prior
+        # gold r2 (0.54259) was a `RunResult.best_r2` BUG, now fixed: best_r2 used to RE-RANK rows by
+        # their VALIDATION r2 and, under CV, the highest-val-r2 row is a CV *fold* model, so it read
+        # THAT fold-model's test r2 — a different model than best_rmse/best_score described. That
+        # rank-by-r2-vs-rank-by-rmse split is exactly why RMSE matched (~7e-6, refit wins on val rmse)
+        # while r2 diverged (~7e-3, a fold-model's test r2). best_rmse/best_r2/best_accuracy now all
+        # read their metric from `best` (the selection winner, see RunResult._selected_metric), so the
+        # scalar shortcuts describe one model on BOTH engines.
+        # (cv_best_score, recorded for context but NOT enforced: dag-ml's 18.918 is the resampled
+        # per-sample-averaged OOF — the sklearn ground truth test_dagml_cli_runner asserts for an
+        # overlapping ShuffleSplit; legacy's 18.756 is a concat-with-duplicate OOF that double-counts
+        # the overlapping sample. That legacy-vs-dag-ml CV gap is a separate, unenforced quirk.)
+        # Tolerance is the dag-ml↔sklearn engine-parity standard used across test_dagml_cli_runner
+        # (1e-3): it absorbs cross-engine PLS float noise (sklearn vs Rust, ~7e-6 on rmse/r2) while
+        # still catching the 7e-3-magnitude best_r2 bug this case now guards against.
+        metric_tolerances={"rmse": 1e-3, "r2": 1e-3},
     )
 )
 

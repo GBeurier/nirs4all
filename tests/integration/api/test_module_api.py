@@ -134,6 +134,73 @@ class TestRunFunction:
         models = result.get_models()
         assert isinstance(models, list)
 
+    def test_metric_shortcuts_describe_selected_model_regression(self, sample_regression_data_path):
+        """best_score / best_rmse / best_r2 all describe the SAME selected (refit) model.
+
+        Locks the cross-validation invariant: ``best_rmse`` equals the selected model's test RMSE
+        (== ``best_score`` for an rmse-selected single model) and ``best_r2`` is THAT model's test
+        R² — not a per-metric-reranked CV fold's. Uses ShuffleSplit so the highest-val-R² fold model
+        differs from the rmse-selected refit (the case that exposed the old ``best_r2`` rerank bug).
+        """
+        from sklearn.cross_decomposition import PLSRegression
+        from sklearn.model_selection import ShuffleSplit
+
+        import nirs4all
+        from nirs4all.operators.transforms import StandardNormalVariate
+
+        pipeline = [
+            StandardNormalVariate(),
+            {"y_processing": MinMaxScaler()},
+            ShuffleSplit(n_splits=3, random_state=42),
+            {"model": PLSRegression(n_components=10)},
+        ]
+        result = nirs4all.run(pipeline=pipeline, dataset=sample_regression_data_path, verbose=0, save_artifacts=False)
+
+        best = result.best
+        assert best, "expected a selected model"
+        selected_rmse = best.get("scores", {}).get("test", {}).get("rmse")
+        selected_r2 = best.get("scores", {}).get("test", {}).get("r2")
+        assert selected_rmse is not None and selected_r2 is not None
+
+        # rmse-selected single model: best_score == best_rmse == the selected model's test rmse.
+        assert result.best_rmse == pytest.approx(result.best_score, abs=1e-9)
+        assert result.best_rmse == pytest.approx(selected_rmse, abs=1e-9)
+        # best_r2 is the SELECTED model's r2 (not a different fold's reranked-by-r2 value).
+        assert result.best_r2 == pytest.approx(selected_r2, abs=1e-9)
+
+    def test_metric_shortcuts_describe_selected_model_classification(self, sample_classification_data_path):
+        """best_score and best_accuracy describe the SAME selected model.
+
+        The classification selection metric (``balanced_accuracy`` on the legacy engine, ``accuracy``
+        on dag-ml) is the model's own ``metric``; ``best_score`` is that metric's value on the
+        selected model, and ``best_accuracy`` must be THAT model's plain accuracy — not a different
+        CV fold reranked by plain accuracy (the old ``best_accuracy`` bug). Asserted engine-agnostic.
+        """
+        from sklearn.ensemble import RandomForestClassifier
+        from sklearn.model_selection import StratifiedKFold
+
+        import nirs4all
+        from nirs4all.operators.transforms import StandardNormalVariate
+
+        pipeline = [
+            StandardNormalVariate(),
+            StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
+            {"model": RandomForestClassifier(n_estimators=30, max_depth=6, random_state=42, n_jobs=1)},
+        ]
+        result = nirs4all.run(pipeline=pipeline, dataset=sample_classification_data_path, verbose=0, save_artifacts=False)
+
+        best = result.best
+        assert best, "expected a selected model"
+        selected_test = best.get("scores", {}).get("test", {})
+        selected_accuracy = selected_test.get("accuracy")
+        assert selected_accuracy is not None
+        # best_score is the selection metric's value on the selected model (engine-defined metric).
+        selection_metric_value = selected_test.get(best.get("metric", ""))
+        assert selection_metric_value is not None
+        assert result.best_score == pytest.approx(selection_metric_value, abs=1e-9)
+        # best_accuracy is the SELECTED model's plain accuracy, not a reranked fold's.
+        assert result.best_accuracy == pytest.approx(selected_accuracy, abs=1e-9)
+
     def test_run_with_runner_kwargs(self, sample_regression_data_path):
         """Test run() passes kwargs to PipelineRunner correctly."""
         import nirs4all
@@ -434,3 +501,18 @@ def sample_regression_data_path():
 
     # If no sample data found, create temporary data
     pytest.skip("Sample regression data not found")
+
+@pytest.fixture
+def sample_classification_data_path():
+    """Path to sample classification data."""
+    candidates = [
+        Path(__file__).parent.parent.parent.parent / "examples" / "sample_data" / "classification",
+        Path("examples/sample_data/classification"),
+        Path("sample_data/classification"),
+    ]
+
+    for path in candidates:
+        if path.exists():
+            return str(path)
+
+    pytest.skip("Sample classification data not found")

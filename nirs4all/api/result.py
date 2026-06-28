@@ -418,9 +418,51 @@ class RunResult:
             return final
         return self.cv_best
 
+    def _selected_metric(self, metric: str, *test_score_aliases: str) -> float:
+        """Read ``metric`` from the SELECTED model — the one ``best``/``best_score`` describe.
+
+        Shared anchor for ``best_rmse`` / ``best_r2`` / ``best_accuracy`` so every scalar
+        shortcut reports the SAME model (the selection-metric winner: the refit/``best_final``
+        entry, or the selected CV entry for a no-refit run), never a per-metric-reranked row.
+
+        Lookup tiers on that one entry: a flat ``metric`` key (from ``display_metrics``), then the
+        per-partition ``scores['test'][metric]`` block, then ``test_score`` when the entry's own
+        selection ``metric`` is one of ``test_score_aliases`` (so e.g. ``best_rmse`` still returns
+        the test score of an rmse-selected entry that carries no expanded ``scores`` dict).
+
+        Re-ranking each shortcut independently via ``get_best(metric=X)`` (the prior behaviour) is
+        a BUG: it ranks rows by their VALIDATION ``X`` and, under cross-validation, the X-best row
+        is a different *fold* model than the selection winner — so ``best_r2`` returned a CV fold's
+        test R² (e.g. a ShuffleSplit fold's 0.5426 instead of the selected model's 0.5499) and
+        ``best_accuracy`` returned a different fold's plain accuracy than the balanced-accuracy-
+        selected model's. Anchoring all of them on ``best`` makes the trio self-consistent.
+        """
+        best = self.best
+        if not best:
+            return float('nan')
+
+        # Flat key first (from display_metrics)
+        if metric in best and best[metric] is not None:
+            return float(best[metric])
+
+        # Nested per-partition scores dict
+        scores = best.get('scores', {})
+        if isinstance(scores, dict):
+            test_scores = scores.get('test', {})
+            if metric in test_scores and test_scores[metric] is not None:
+                return float(test_scores[metric])
+
+        # Fall back to test_score when the selection metric IS this metric (or an alias)
+        if test_score_aliases and best.get('metric', '') in test_score_aliases:
+            test_score = best.get('test_score')
+            if test_score is not None:
+                return float(test_score)
+
+        return float('nan')
+
     @property
     def best_score(self) -> float:
-        """Get best model's primary test score.
+        """Get the selected model's primary test score (the selection-metric value).
 
         Returns:
             The test_score value from best prediction, or NaN if unavailable.
@@ -430,99 +472,41 @@ class RunResult:
 
     @property
     def best_rmse(self) -> float:
-        """Get best model's RMSE score.
+        """Get the SELECTED model's RMSE (the same model ``best_score``/``best_r2`` describe).
 
-        Looks for 'rmse' as a flat key (from display_metrics), then in scores dict,
-        then falls back to test_score if metric is rmse-like.
+        Reads RMSE from :attr:`best` — the selection-metric winner — so the scalar shortcuts are
+        mutually consistent (for an rmse-selected single model this equals ``best_score``). See
+        :meth:`_selected_metric` for why per-shortcut ``get_best(metric=...)`` re-ranking was wrong.
 
         Returns:
             RMSE value or NaN if unavailable.
         """
-        entry = self.predictions.get_best(metric="rmse", task_type="regression", score_scope="all")
-        best = entry if entry else self.best
-        if not best:
-            return float('nan')
-
-        # Try flat 'rmse' key first (from display_metrics)
-        if 'rmse' in best and best['rmse'] is not None:
-            return float(best['rmse'])
-
-        # Try nested per-partition scores dict
-        scores = best.get('scores', {})
-        if isinstance(scores, dict):
-            test_scores = scores.get('test', {})
-            if 'rmse' in test_scores and test_scores['rmse'] is not None:
-                return float(test_scores['rmse'])
-
-        # Fall back to test_score if metric is rmse-like
-        metric = best.get('metric', '')
-        if metric in ('rmse', 'mse'):
-            test_score = best.get('test_score')
-            if test_score is not None:
-                return float(test_score)
-
-        return float('nan')
+        return self._selected_metric('rmse', 'rmse', 'mse')
 
     @property
     def best_r2(self) -> float:
-        """Get best model's R² score.
+        """Get the SELECTED model's R² (the same model ``best_score``/``best_rmse`` describe).
 
-        Looks for 'r2' as a flat key (from display_metrics), then in scores dict.
+        Reads R² from :attr:`best` — the selection-metric winner — instead of re-ranking by R²,
+        which under CV surfaced a different fold model's test R². See :meth:`_selected_metric`.
 
         Returns:
             R² value or NaN if unavailable.
         """
-        entry = self.predictions.get_best(metric="r2", task_type="regression", score_scope="all")
-        best = entry if entry else self.best
-        if not best:
-            return float('nan')
-
-        # Try flat 'r2' key first (from display_metrics)
-        if 'r2' in best and best['r2'] is not None:
-            return float(best['r2'])
-
-        # Try nested per-partition scores dict
-        scores = best.get('scores', {})
-        if isinstance(scores, dict):
-            test_scores = scores.get('test', {})
-            if 'r2' in test_scores and test_scores['r2'] is not None:
-                return float(test_scores['r2'])
-
-        return float('nan')
+        return self._selected_metric('r2', 'r2')
 
     @property
     def best_accuracy(self) -> float:
-        """Get best model's accuracy score (for classification).
+        """Get the SELECTED model's accuracy (the same model ``best_score`` describes).
 
-        Looks for 'accuracy' as a flat key (from display_metrics), then in scores dict.
+        Reads plain ``accuracy`` from :attr:`best` — the selection-metric winner (selection uses
+        ``balanced_accuracy``) — instead of re-ranking by accuracy, which surfaced a different
+        fold model's accuracy than the selected model's. See :meth:`_selected_metric`.
 
         Returns:
             Accuracy value or NaN if unavailable.
         """
-        entry = self.predictions.get_best(metric="accuracy", task_type="classification", score_scope="all")
-        best = entry if entry else self.best
-        if not best:
-            return float('nan')
-
-        # Try flat 'accuracy' key first (from display_metrics)
-        if 'accuracy' in best and best['accuracy'] is not None:
-            return float(best['accuracy'])
-
-        # Try nested per-partition scores dict
-        scores = best.get('scores', {})
-        if isinstance(scores, dict):
-            test_scores = scores.get('test', {})
-            if 'accuracy' in test_scores and test_scores['accuracy'] is not None:
-                return float(test_scores['accuracy'])
-
-        # Fall back to test_score if metric is accuracy
-        metric = best.get('metric', '')
-        if metric == 'accuracy':
-            test_score = best.get('test_score')
-            if test_score is not None:
-                return float(test_score)
-
-        return float('nan')
+        return self._selected_metric('accuracy', 'accuracy')
 
     # --- Refit accessors ---
 

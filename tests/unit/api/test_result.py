@@ -171,6 +171,35 @@ class TestRunResult:
         result = RunResult(predictions=mock_predictions, per_dataset={})
         assert result.best_accuracy == 0.88
 
+    def test_metric_shortcuts_anchor_on_selected_model(self, mock_predictions):
+        """best_rmse / best_r2 / best_accuracy ALL read from the SAME selected entry.
+
+        Locks the invariant: the scalar shortcuts describe the model ``best``/``best_score``
+        selects, NOT a per-metric re-ranked row. ``get_best`` is configured to return a DIFFERENT
+        (lower-rmse / higher-accuracy) entry; if any shortcut re-ranked via ``get_best`` it would
+        return that decoy's value instead of the selected entry's.
+        """
+        selected = {
+            'test_score': 13.5,
+            'metric': 'rmse',
+            'scores': {'test': {'rmse': 13.5, 'r2': 0.55, 'accuracy': 0.20}},
+        }
+        decoy = {
+            'test_score': 11.0,
+            'metric': 'rmse',
+            'scores': {'test': {'rmse': 11.0, 'r2': 0.99, 'accuracy': 0.90}},
+        }
+        # ``best`` (and thus best_score) resolves the selected entry via top(); get_best returns a
+        # decoy that the OLD per-metric-rerank code would have surfaced.
+        mock_predictions.top.return_value = [selected]
+        mock_predictions.get_best.return_value = decoy
+        result = RunResult(predictions=mock_predictions, per_dataset={})
+
+        assert result.best_score == 13.5
+        assert result.best_rmse == 13.5   # selected entry's rmse, NOT the decoy 11.0
+        assert result.best_r2 == 0.55     # selected entry's r2, NOT the decoy 0.99
+        assert result.best_accuracy == 0.20  # selected entry's accuracy, NOT the decoy 0.90
+
     def test_artifacts_path(self, run_result):
         """Test artifacts_path returns runner's workspace_path."""
         assert run_result.artifacts_path == Path('/tmp/workspace')
