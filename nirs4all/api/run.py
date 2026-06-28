@@ -551,7 +551,35 @@ def run(
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
         try:
-            return run_via_dagml(pipeline, dataset)
+            # Forward EVERY run() kwarg that affects the dag-ml run so engine='dag-ml' honors the same
+            # options as legacy (P1b). Two regimes:
+            #   HONORED natively — `random_state` (global seeding, like legacy) and `name` (DERIVED into
+            #     the canonical legacy `config_name` via PipelineConfigs — `config_{hash}` unnamed /
+            #     `{name}_p0_{hash}` named, `_refit` on the refit rows — and carried on the dag-ml
+            #     RunResult predictions; a generator pipeline's winner-only projection carries no
+            #     config_name rather than a wrong one, #55).
+            #   VALIDATED, fall back if un-honorable — `refit`, `session`, `cache`, `project`, and the
+            #     workspace/persistence runner_kwargs are checked against what the scores-only in-memory
+            #     dag-ml path can deliver; a non-default value it cannot satisfy raises DagMlUnsupported
+            #     (caught below → legacy fallback), so no user option is ever silently dropped.
+            # Defaults are honored natively and never trigger a fallback, so a plain engine='dag-ml' run
+            # runs natively. The remaining kwargs are presentation/logging-only for the current
+            # score-only path: `save_artifacts=True` (the default) runs natively — its on-disk persistence
+            # is a deferred-to-P1c gap, NOT a no-op (the dag-ml RunResult.export() raises its catchable
+            # NotImplementedError); `save_charts=True` is accepted only because any chart-producing
+            # pipeline step is itself unsupported→fallback; `verbose`/`plots_visible`/`report_naming`
+            # affect only logging/display of the score-only RunResult, never its scores.
+            return run_via_dagml(
+                pipeline,
+                dataset,
+                name=name,
+                random_state=random_state,
+                refit=refit,
+                project=project,
+                session=session,
+                cache=cache,
+                runner_kwargs=runner_kwargs,
+            )
         except (DagMlUnsupported, NotImplementedError) as e:
             warnings.warn(
                 f"engine='dag-ml' does not support this pipeline shape ({e}); "

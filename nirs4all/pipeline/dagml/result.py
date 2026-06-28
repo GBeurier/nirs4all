@@ -64,7 +64,7 @@ def _legacy_fold_id(native_fold_id: str) -> str:
     return native_fold_id[len("fold"):] if native_fold_id.startswith("fold") and native_fold_id[len("fold"):].isdigit() else native_fold_id
 
 
-def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str, metric: str = "rmse", task_type: str = "regression", producer: str | None = None) -> RunResult:
+def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, model_name: str, metric: str = "rmse", task_type: str = "regression", producer: str | None = None, config_name: str = "") -> RunResult:
     """Project a dag-ml ScoreSet into the full legacy ``Predictions`` table (a labeled compat projection).
 
     ``producer`` filters to one ``producer_node`` — e.g. a separation/duplication/stacking merge node,
@@ -73,6 +73,14 @@ def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, mode
     concat/fusion; the ``:refit`` off-fold input for stacking) — a reassembled ``(test, fold_id=None)``
     block (``best_rmse``); ``None`` keeps all reports (the single-model path, where exactly one producer
     scores).
+
+    ``config_name`` is the CANONICAL legacy config name already DERIVED upstream
+    (:func:`~nirs4all.pipeline.dagml.run_backend._derive_config_name` via ``PipelineConfigs``):
+    ``"config_{hash}"`` for an unnamed run, ``"{name}_p0_{hash}"`` for a named one, or ``""`` for a
+    generator pipeline whose winner is not cleanly variant-mappable (#55). It is applied verbatim to the
+    CV / fold / ensemble rows; the standalone-refit rows get the legacy ``"_refit"`` suffix (see
+    :func:`add`). This makes a named dag-ml run carry the SAME ``config_name`` legacy would set —
+    including the refit suffix — so a run is never stripped of (nor given a wrong) label.
 
     The emitted rows are keyed on ROLE (see the module docstring), so the projection adapts to the
     pipeline shape rather than hardcoding a count: ``n_folds`` per-fold rows, an ``avg``/``w_avg``
@@ -94,7 +102,13 @@ def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, mode
         ``metric`` value so the partition-keyed accessors resolve them. The native blocks are shared
         verbatim — no metric is perturbed — so every reported value (and every accessor that reads it)
         is the true native score.
+
+        The standalone-refit rows (``refit_context == "standalone"``) carry the ``_refit``-suffixed
+        ``config_name`` legacy assigns them (``"{cv_config_name}_refit"`` — see
+        ``execution.refit.executor``); the suffix is skipped for an empty ``config_name`` (a
+        generator / underivable pipeline) so we never emit a bare ``"_refit"``.
         """
+        row_config_name = config_name + "_refit" if refit_context == "standalone" and config_name else config_name
         score_dict: dict[str, dict[str, float]] = {}
         kwargs: dict[str, Any] = {}
         for part in _CV_PARTITIONS:
@@ -105,6 +119,7 @@ def _scores_to_run_result(scores: dict[str, Any] | None, dataset_name: str, mode
             kwargs[f"{part}_score"] = block.get(metric)
         predictions.add_prediction(
             dataset_name=dataset_name,
+            config_name=row_config_name,
             model_name=model_name,
             fold_id=fold_id,
             partition=partition,

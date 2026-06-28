@@ -145,6 +145,7 @@ def run_cv_refit_bundle(
     selection_metric: str = "rmse",
     sample_metadata: dict[str, dict[str, Any]] | None = None,
     dataset_pickle: str | None = None,
+    random_state: int | None = None,
 ) -> dict[str, Any]:
     """Write inputs + shim, run ``dag-ml-cli run-process-dsl-cv-refit-bundle``, return outputs.
 
@@ -164,6 +165,12 @@ def run_cv_refit_bundle(
     via ``N4A_DAGML_DATASET_PICKLE`` so it loads the exact same synthetic rows the DSL/envelope were
     built from (a ``sample_augmentation`` run; augmentation is not reproducible across processes).
     Omit it for non-augmentation pipelines.
+
+    ``random_state`` (the run's seed) is forwarded to the adapter via ``N4A_RANDOM_STATE`` in the
+    PER-CALL child ``env`` dict ONLY (never ``os.environ``), so the fresh-python worker seeds its global
+    RNG (``init_global_random_state``) before fitting — making an unseeded stochastic operator
+    reproducible. Set only for this launch and explicitly dropped otherwise, so no stale seed leaks
+    into a later run or a concurrent dag-ml run.
     """
     workdir.mkdir(parents=True, exist_ok=True)
     (workdir / "dsl.json").write_text(json.dumps(dsl))
@@ -197,6 +204,12 @@ def run_cv_refit_bundle(
         env["N4A_DAGML_SAMPLE_META_PATH"] = str(workdir / "sample_meta.json")
     else:
         env.pop("N4A_DAGML_SAMPLE_META_PATH", None)
+    # Per-call seed for the fresh-python worker (no os.environ mutation): set ONLY for a seeded run,
+    # explicitly DROP it otherwise so a value inherited via {**os.environ} cannot leak a stale seed.
+    if random_state is not None:
+        env["N4A_RANDOM_STATE"] = str(random_state)
+    else:
+        env.pop("N4A_RANDOM_STATE", None)
     proc = subprocess.run(
         [
             dagml_cli, "run-process-dsl-cv-refit-bundle",

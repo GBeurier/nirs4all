@@ -146,6 +146,7 @@ def run_cv_refit_bundle_router(
     dataset_pickle: str | None = None,
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
+    random_state: int | None = None,
 ) -> dict[str, Any]:
     """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
 
@@ -162,6 +163,11 @@ def run_cv_refit_bundle_router(
     fold-local augmentation run) is consumed ONLY by the in-process branch — it builds the resolver from
     that in-memory dataset, skipping the duplicate disk reload. The subprocess branch ignores it: the
     adapter re-materializes from ``dataset_path`` / ``dataset_pickle`` (env channel) as before.
+
+    ``random_state`` is forwarded ONLY to the subprocess branch (it sets ``N4A_RANDOM_STATE`` in the
+    PER-CALL child env so the fresh-python adapter seeds its global RNG before fitting). The in-process
+    branch ignores it: it fits operators in THIS process, whose global RNG ``run_via_dagml`` already
+    seeded — so re-seeding here would be redundant.
     """
     if in_process_enabled():
         return run_cv_refit_bundle(
@@ -189,6 +195,7 @@ def run_cv_refit_bundle_router(
         selection_metric=selection_metric,
         sample_metadata=sample_metadata,
         dataset_pickle=dataset_pickle,
+        random_state=random_state,
     )
     # Lift the native ScoreSet from the bundle the CLI wrote, so the outcome shape matches the
     # in-process branch (the call sites read outcome["scores"], not bundle.json). Only on success;

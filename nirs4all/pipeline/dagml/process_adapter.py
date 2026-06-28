@@ -197,6 +197,17 @@ def main(argv: list[str]) -> int:
     if len(argv) > 1 and argv[1] == "--describe":
         _emit(sys.stdout, describe())
         return 0
+    # Seed the worker's FRESH global RNG the SAME way legacy run(random_state=) does, BEFORE any dataset
+    # materialization or operator fitting. dag-ml-cli re-execs this adapter in a new python whose global
+    # numpy/random state is unseeded, so an UNSEEDED stochastic operator (e.g. RandomForestRegressor())
+    # would otherwise ignore run(random_state=) on the subprocess path. `run_via_dagml` forwards the seed
+    # via N4A_RANDOM_STATE (inherited through cli_runner's child env); absent it, the global RNG is left
+    # alone (an unseeded run, as before).
+    seed = os.environ.get("N4A_RANDOM_STATE")
+    if seed is not None:
+        from nirs4all.pipeline.runner import init_global_random_state
+
+        init_global_random_state(int(seed))
     capture = os.environ.get("N4A_DAGML_RESULT_CAPTURE")
     handler = _classifying_handler(_build_handler(), capture)
     if capture:
