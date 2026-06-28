@@ -3965,26 +3965,47 @@ def test_subprocess_error_classification_host_propagates_vs_falls_back_by_struct
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_dagml_result_export_fails_loud() -> None:
-    """`.export()` on a dag-ml RunResult FAILS LOUD catchably (cutover-safety) — not a bare RuntimeError.
+def test_dagml_result_export_roundtrip(tmp_path: Path) -> None:
+    """`.export()` / `.export_model()` on a dag-ml RunResult SUCCEED via the legacy-refit bridge (P1c).
 
     The dag-ml backend returns native scores with NO workspace (no SQLite store / artifacts), so a `.n4a`
-    export has nothing to bundle. It used to raise a bare `RuntimeError` ("no workspace path available")
-    the `except NotImplementedError` fallback would not catch; it now raises a CATCHABLE
-    `NotImplementedError` naming the unsupported export, so the cutover redirects export to legacy. A
-    legacy (workspace) result keeps the original RuntimeError on genuine misuse (asserted elsewhere)."""
+    export has nothing of its own to bundle. P1c bridges this: `RunResult.export()` re-runs the SAME
+    pipeline through the LEGACY engine on demand (`save_artifacts=True` → a real workspace + chain +
+    artifacts), then delegates to the existing export path. So export now SUCCEEDS — it no longer raises
+    the pre-P1c catchable `NotImplementedError` (the fallback for an unsupported shape).
+
+    Round-trip: the exported `.n4a` loads and predicts finite values on held-out data, and the exported
+    model is a real sklearn estimator. The two engines are at numerical parity (the dag-ml backend's
+    premise), so the exported (legacy-refit) model reproduces the model the dag-ml run scored."""
     import nirs4all
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline import PipelineRunner
 
     result = nirs4all.run(
         [StandardNormalVariate(), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
         dataset_path("regression"),
         engine="dag-ml",
     )
-    with pytest.raises(NotImplementedError, match="export"):
-        result.export("model.n4a")
-    with pytest.raises(NotImplementedError, match="export"):
-        result.export_model("model.joblib")
+    # This must be a native dag-ml result (no silent legacy fallback) for the bridge to be exercised.
+    assert [info.get("engine") for info in result.per_dataset.values()] == ["dag-ml"]
+
+    bundle = result.export(tmp_path / "model.n4a")
+    assert bundle.exists() and bundle.stat().st_size > 0
+
+    model_path = result.export_model(tmp_path / "model.joblib")
+    import joblib
+
+    assert model_path.exists() and isinstance(joblib.load(model_path), PLSRegression)
+
+    # Round-trip: load the exported bundle and predict on the corpus's held-out val split — finite values.
+    predictor = PipelineRunner(save_artifacts=False, verbose=0)
+    preds, _ = predictor.predict(
+        prediction_obj=str(bundle),
+        dataset=DatasetConfigs({"X_test": str(Path(dataset_path("regression")) / "Xval.csv.gz")}),
+        verbose=0,
+    )
+    preds = np.asarray(preds).ravel()
+    assert preds.size > 0 and np.all(np.isfinite(preds))
 
 
 # ---------------------------------------------------------------------------------------------------

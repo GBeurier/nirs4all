@@ -261,10 +261,62 @@ def run_via_dagml(
     # `_scores_to_run_result`), so it is safe to delete on every dispatch return/raise path. A
     # caller-provided `workdir` is theirs — never delete it.
     try:
-        return _dispatch_run(pipeline, spectro, base_dir, dataset_arg, host_pickle, cli, venv_python, name, random_state)
+        result = _dispatch_run(pipeline, spectro, base_dir, dataset_arg, host_pickle, cli, venv_python, name, random_state)
+        _attach_export_spec(result, pipeline, dataset, name, random_state)
+        return result
     finally:
         if workdir is None:
             shutil.rmtree(base_dir, ignore_errors=True)
+
+
+def _attach_export_spec(result: RunResult, pipeline: Any, dataset: Any, name: str, random_state: int | None) -> None:
+    """FREEZE the run inputs on the dag-ml RunResult so .n4a export can re-fit the SAME run on legacy (P1c).
+
+    The dag-ml backend has no workspace/artifacts to bundle, so ``RunResult.export()`` re-runs this exact
+    pipeline through the legacy engine on demand. The replay inputs are FROZEN here, at run time, so a later
+    mutation of the live ``pipeline`` / in-memory ``dataset`` (arrays, SpectroDataset) cannot make the
+    export represent a different run than the one scored:
+
+    * pipeline — ALWAYS deepcopied (cheap; the pipeline list holds mutable estimator instances).
+    * dataset — a RELOADABLE on-disk PATH / file-based ``DatasetConfigs`` (``_reloadable_path`` resolves a
+      path) is kept verbatim, since it replays from disk (on-disk files must be unchanged at export time,
+      documented on ``_dagml_export_spec``). Any NON-reloadable / IN-MEMORY form — a ``SpectroDataset`` /
+      ``ndarray`` / ``tuple``, OR a ``DatasetConfigs`` wrapping a preloaded ``SpectroDataset`` / in-memory
+      arrays (a mutable descriptor that ``_reloadable_path`` returns ``None`` for) — is DEEPCOPIED to
+      snapshot it, so a post-run mutation cannot corrupt the export.
+
+    ``_dagml_export_stochastic`` flags a run whose on-export legacy refit MAY differ from the dag-ml-scored
+    model, so export can WARN. Two signals flag (any → flagged): (a) CERTAIN — a ``sample_augmentation``
+    step (the dag-ml run only kept its augmented snapshot in the now-deleted temp dir, re-augmentation is not
+    reproducible across processes, and the augmenter's own RNG is not covered by ``run(random_state)``);
+    (b) CONSERVATIVE — the outer ``run(random_state) is None`` (nothing globally seeded, so global-RNG-dependent
+    components are not reproducibly seeded across the engine boundary; this MAY over-warn a fully-deterministic
+    pipeline — the safe direction for a "may differ" caveat).
+
+    A per-estimator "is this op unseeded-stochastic" probe is deliberately NOT attempted: ``random_state``
+    use is solver/config-conditional (``Ridge()`` / ``PCA(svd_solver="full")`` carry a DORMANT
+    ``random_state=None`` yet are deterministic — a false alarm — while ``MLPRegressor(shuffle=False)`` is
+    stochastic via weight init, and wrapped estimators like ``MetaModel(model=RandomForestRegressor())``
+    hide theirs), so any static heuristic both over- and under-warns. The export()/export_model() WARNING
+    and docstrings instead document the uncertain middle (a seeded run whose individual component left
+    ``random_state=None``) as a general caveat. The per-run warning is CONSERVATIVE (the ``run-None`` signal
+    may over-warn a fully-deterministic pipeline — the safe direction); the docstring removes the silent surprise.
+    """
+    import copy
+
+    from .dataset import _reloadable_path
+
+    frozen_pipeline = copy.deepcopy(pipeline)
+    # Keep a reloadable on-disk path/config by reference; snapshot anything in-memory (incl. a
+    # DatasetConfigs wrapping a preloaded SpectroDataset / arrays, which is path-less and mutable).
+    frozen_dataset = dataset if _reloadable_path(dataset) is not None else copy.deepcopy(dataset)
+
+    steps = pipeline if isinstance(pipeline, list) else []
+    has_augmentation = any(_is_augmentation_step(step) for step in steps)
+    stochastic = has_augmentation or random_state is None
+
+    result._dagml_export_spec = {"pipeline": frozen_pipeline, "dataset": frozen_dataset, "name": name, "random_state": random_state}  # noqa: SLF001
+    result._dagml_export_stochastic = stochastic  # noqa: SLF001
 
 
 def _derive_config_name(pipeline: Any, name: str) -> str:
