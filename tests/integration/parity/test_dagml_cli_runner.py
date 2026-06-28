@@ -871,11 +871,24 @@ def test_public_run_engine_dagml_exclude_x_outlier_direct_sklearn_parity() -> No
 
     n_comp = 5
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
-    cv_oof, test_rmse, excluded = _direct_exclude_oof_and_test(dataset, XOutlierFilter(), n_components=n_comp)
+
+    # The exclude set is HOST-resolved in-process (run_backend._resolve_exclude fits the filter in the
+    # parent) for BOTH engines, so the parity below is really an excluded-set comparison. On this
+    # (130, 2151) fixture XOutlierFilter's "mahalanobis" dimension reduction calls PCA(n_comp << n_feat),
+    # which sklearn's svd_solver="auto" lowers to the RANDOMIZED solver — and that draws from the GLOBAL
+    # NumPy RNG. An UNSEEDED XOutlierFilter() therefore flags a set that varies with the cumulative global
+    # RNG left by preceding tests (seed 42 -> 10 excluded; seed 111 -> 11, the extra sample shifts the
+    # KFold OOF), so this test passed in isolation but flaked 94/95 in the full run. XOutlierFilter now
+    # threads random_state into that internal PCA, so XOutlierFilter(random_state=42) excludes a
+    # DETERMINISTIC set; using it for the baseline AND the pipeline makes both flag the SAME samples
+    # regardless of order -> stable parity on BOTH engines. (No run(random_state) needed: the variance was
+    # entirely the excluded set; the dag-ml CV/refit scoring on a fixed kept pool is already deterministic.)
+    seed = 42
+    cv_oof, test_rmse, excluded = _direct_exclude_oof_and_test(dataset, XOutlierFilter(random_state=seed), n_components=n_comp)
     assert excluded, "XOutlierFilter must exclude at least one sample for this parity lock"
 
     pipeline = [
-        {"exclude": XOutlierFilter()},
+        {"exclude": XOutlierFilter(random_state=seed)},
         StandardNormalVariate(),
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
         {"model": PLSRegression(n_components=n_comp)},
