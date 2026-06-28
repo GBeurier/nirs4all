@@ -564,11 +564,12 @@ def run(
             #     (caught below → legacy fallback), so no user option is ever silently dropped.
             # Defaults are honored natively and never trigger a fallback, so a plain engine='dag-ml' run
             # runs natively. The remaining kwargs are presentation/logging-only for the current
-            # score-only path: `save_artifacts=True` (the default) runs natively — its on-disk persistence
-            # is a deferred-to-P1c gap, NOT a no-op (the dag-ml RunResult.export() raises its catchable
-            # NotImplementedError); `save_charts=True` is accepted only because any chart-producing
-            # pipeline step is itself unsupported→fallback; `verbose`/`plots_visible`/`report_naming`
-            # affect only logging/display of the score-only RunResult, never its scores.
+            # score-only path: `save_artifacts=True` (the default) runs natively — the dag-ml run keeps no
+            # on-disk artifacts, but .n4a export is now bridged (P1c): RunResult.export() re-fits the same
+            # pipeline on the legacy engine on demand (a documented best-effort for unseeded-stochastic
+            # shapes; exact for deterministic ones via engine parity); `save_charts=True` is accepted only
+            # because any chart-producing pipeline step is itself unsupported→fallback;
+            # `verbose`/`plots_visible`/`report_naming` affect only logging/display, never the scores.
             return run_via_dagml(
                 pipeline,
                 dataset,

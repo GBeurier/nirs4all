@@ -333,6 +333,33 @@ class RunResult:
     _refit_artifact_registry: Any = field(default=None, repr=False)
     _refit_executor: Any = field(default=None, repr=False)
 
+    # dag-ml export bridge (P1c, TRANSITIONAL): the dag-ml backend returns scores in memory with NO
+    # workspace / artifacts, so .n4a export has nothing to bundle. This spec FREEZES the run inputs (a
+    # deepcopy of the pipeline + the dataset deepcopied for in-memory forms / kept as a stable path/config
+    # ref otherwise, plus name/random_state) at dag-ml run time, so an export request re-runs the SAME
+    # frozen pipeline through the LEGACY engine (save_artifacts=True) ON DEMAND — producing the workspace +
+    # chain + artifacts the existing export path needs. ``_dagml_legacy_result`` caches that materialized
+    # legacy RunResult (kept alive so its workspace store stays open for the export, closed on close()).
+    #
+    # PARITY SCOPE (honest, transitional): for a FULLY-SEEDED deterministic run the legacy refit reproduces
+    # the dag-ml-scored model EXACTLY (engine numerical parity); otherwise the export is BEST-EFFORT. A
+    # per-run WARNING fires on the two ``_dagml_export_stochastic`` signals — (a) CERTAIN: a
+    # sample_augmentation step (re-augmentation is non-reproducible across processes and the augmenter's
+    # own RNG is not covered by run(random_state)); (b) CONSERVATIVE: run(random_state) is None (nothing
+    # globally seeded — this may over-warn a fully-deterministic pipeline, the safe direction for a "may
+    # differ" caveat). A per-estimator "unseeded-stochastic?" probe is NOT attempted: random_state use is
+    # solver/config-conditional (Ridge() / PCA(svd_solver="full") carry a DORMANT random_state=None yet are
+    # deterministic → false alarm; MLPRegressor(shuffle=False) is stochastic via weight init; wrapped
+    # estimators hide theirs), so any static heuristic both over- and under-warns. The uncertain middle (a
+    # seeded run whose individual component left random_state=None) is documented in the export()/
+    # export_model() docstrings (general caveat), not warned. P3 (native fitted-model capture) removes the
+    # limitation by exporting the actual scored artifacts. Reloadable on-disk-PATH datasets must be
+    # unchanged at export time (only non-reloadable / in-memory dataset forms are snapshotted; a path/file
+    # config is replayed from disk).
+    _dagml_export_spec: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_legacy_result: RunResult | None = field(default=None, repr=False)
+    _dagml_export_stochastic: bool = field(default=False, repr=False)
+
     # --- Lifecycle ---
 
     def detach(self) -> None:
@@ -354,10 +381,13 @@ class RunResult:
         """Close the underlying WorkspaceStore to release DB resources.
 
         Safe to call multiple times.  For detached results this is a no-op.
-        Session-owned runners are closed by the session.
+        Session-owned runners are closed by the session. A dag-ml export bridge's
+        materialized legacy result (if any) is closed too, releasing its workspace store.
         """
         if self._runner is not None and self._owns_runner:
             self._runner.close()
+        if self._dagml_legacy_result is not None:
+            self._dagml_legacy_result.close()
 
     def __enter__(self) -> RunResult:
         return self
@@ -870,16 +900,70 @@ class RunResult:
     def _no_workspace_export_error(self) -> Exception:
         """The right fail-loud error when an export has no workspace path.
 
-        A dag-ml result → a CATCHABLE :class:`NotImplementedError` naming the unsupported shape (so the
-        cutover fallback redirects export to the legacy engine); a genuinely detached/misused legacy
-        result → the original :class:`RuntimeError` (a real misuse, not a fall-back-able dag-ml gap).
+        A dag-ml result WITHOUT an export spec → a CATCHABLE :class:`NotImplementedError` (so the cutover
+        fallback redirects export to the legacy engine); a genuinely detached/misused legacy result → the
+        original :class:`RuntimeError` (a real misuse, not a fall-back-able dag-ml gap). A dag-ml result
+        WITH a spec never reaches here — :meth:`_dagml_export_delegate` materializes a legacy workspace first.
         """
         if self._is_dagml_engine():
             return NotImplementedError(
-                "engine='dag-ml' does not yet support .n4a export: the dag-ml backend returns native scores "
-                "with no workspace artifacts to bundle; run the export-bound pipeline on the legacy engine."
+                "engine='dag-ml' does not support .n4a export for this run: the dag-ml backend returns native "
+                "scores with no workspace artifacts to bundle, and no export spec was captured to re-run the "
+                "pipeline on the legacy engine; run the export-bound pipeline on the legacy engine."
             )
         return RuntimeError("Cannot export: no workspace path available (result was not created from a workspace run)")
+
+    def _dagml_export_delegate(self) -> RunResult | None:
+        """Materialize (once) a LEGACY RunResult to back .n4a export of a dag-ml run; ``None`` if N/A.
+
+        The dag-ml backend produces no workspace/artifacts, so export of a dag-ml result re-runs the SAME
+        FROZEN pipeline (the deepcopy captured at run time) through the legacy engine with
+        ``save_artifacts=True`` — that legacy run owns a real workspace + chain + artifacts the existing
+        export path consumes. Returns ``None`` for a non-dag-ml result or a dag-ml result with no captured
+        spec (the caller then falls back to the original no-workspace error). The legacy result is cached
+        and kept alive (its store stays open for the export and is closed by :meth:`close`), so repeated
+        exports do not refit.
+
+        PARITY (transitional): this re-fit is EXACT for a fully-seeded deterministic run (the dag-ml and
+        legacy engines are at numerical parity, so the exported model's ``predict()`` matches the dag-ml run
+        within tolerance), but only BEST-EFFORT otherwise — see the export()/export_model() docstrings for
+        the general caveat. A per-run WARNING fires on the two ``_dagml_export_stochastic`` signals — a
+        ``sample_augmentation`` step (CERTAIN), or ``run(random_state) is None`` (CONSERVATIVE — may
+        over-warn a fully-deterministic pipeline, the safe direction); the uncertain middle (a seeded run
+        whose individual component left ``random_state=None``) is documented, not warned. P3 captures the
+        real fitted artifacts natively.
+        """
+        if self._dagml_export_spec is None:
+            return None
+        if self._dagml_legacy_result is None:
+            from nirs4all.api.run import run as _run
+
+            spec = self._dagml_export_spec
+            if self._dagml_export_stochastic:
+                import warnings
+
+                warnings.warn(
+                    "engine='dag-ml' export re-fits this pipeline on the legacy engine, and this run may be "
+                    "nondeterministic (sample_augmentation, or run(random_state) is None), so the dag-ml-scored "
+                    "model and the on-export legacy refit may differ. For an EXACT export set "
+                    "run(random_state=...) AND seed every stochastic component's random_state; P3 will "
+                    "capture the fitted model natively.",
+                    stacklevel=3,
+                )
+            # Re-run the export-bound pipeline on the legacy engine: save_artifacts=True persists the
+            # workspace + chain the export path needs; the same name/random_state keep the refit aligned
+            # with the dag-ml run. verbose=0 keeps the on-demand refit quiet (export is not a training call).
+            self._dagml_legacy_result = _run(
+                spec["pipeline"],
+                spec["dataset"],
+                name=spec.get("name", ""),
+                random_state=spec.get("random_state"),
+                save_artifacts=True,
+                save_charts=False,
+                verbose=0,
+                engine="legacy",
+            )
+        return self._dagml_legacy_result
 
     def _open_store_for_export(self):
         """Open a temporary WorkspaceStore for export operations.
@@ -933,6 +1017,14 @@ class RunResult:
         In detached mode, a temporary store is opened for the export
         and closed immediately after.
 
+        **dag-ml runs (P1c, transitional):** the dag-ml backend keeps no workspace/artifacts, so this
+        re-fits the pipeline via the legacy engine to produce the bundle. For an EXACT export, set
+        ``run(random_state=...)`` AND seed every stochastic component's ``random_state``; otherwise
+        (``sample_augmentation``, an unseeded run, or any unseeded-stochastic component such as
+        ``RandomForest`` / ``MLP`` / ``CARS``) the exported model may differ from the dag-ml-scored model.
+        ``source`` / ``chain_id`` are not supported for a dag-ml run (they reference its non-existent
+        workspace); the run's best model is exported. P3 will capture the fitted model natively.
+
         Args:
             output_path: Path for the exported bundle file.
             format: Export format ('n4a' or 'n4a.py').
@@ -947,7 +1039,26 @@ class RunResult:
         Raises:
             RuntimeError: If no workspace path available.
             ValueError: If no predictions available and source not provided.
+            NotImplementedError: For a dag-ml run, if ``source``/``chain_id`` is given.
         """
+        # dag-ml export bridge (P1c): the dag-ml backend has no workspace, so delegate to a legacy re-run of
+        # the same pipeline (materialized on demand, cached). FAIL-FAST FIRST: an EXPLICIT non-default
+        # ``source`` / ``chain_id`` references the (non-existent) dag-ml workspace, so it cannot be honored
+        # — raise the CATCHABLE NotImplementedError BEFORE materializing the delegate (no wasted refit, no
+        # spurious stochastic warning). The predicate is the cheap spec flag, NOT the delegate (which would
+        # trigger the refit). Otherwise materialize the delegate and export its OWN best/final (the
+        # single-winner the dag-ml run scored).
+        if self._dagml_export_spec is not None:
+            if source is not None or chain_id is not None:
+                raise NotImplementedError(
+                    "engine='dag-ml' export does not support an explicit source=/chain_id= (they reference "
+                    "the dag-ml run's non-existent workspace); export the run's best model with "
+                    "result.export(path) (no source/chain_id)."
+                )
+            delegate = self._dagml_export_delegate()
+            assert delegate is not None  # spec present ⇒ delegate materializes
+            return delegate.export(output_path, format=format)
+
         # Store-based export path
         if chain_id is not None:
             with self._open_store_for_export() as store:
@@ -988,6 +1099,13 @@ class RunResult:
         Unlike export() which creates a full bundle, this exports just the model.
         Works in both attached (runner alive) and detached modes.
 
+        **dag-ml runs (P1c, transitional):** same as :meth:`export` — the model is produced by a legacy
+        re-fit. For an EXACT export, set ``run(random_state=...)`` AND seed every stochastic component's
+        ``random_state``; otherwise (``sample_augmentation``, an unseeded run, or any unseeded-stochastic
+        component such as ``RandomForest`` / ``MLP`` / ``CARS``) the exported model may differ from the
+        dag-ml-scored model. ``source`` is not supported for a dag-ml run (it references its non-existent
+        workspace); ``fold`` is honored (it selects a fold's model from the legacy re-fit's workspace).
+
         Args:
             output_path: Path for the output model file.
             source: Prediction dict to export. If None, exports best model.
@@ -1000,6 +1118,21 @@ class RunResult:
         Raises:
             RuntimeError: If no workspace path available.
         """
+        # dag-ml export bridge (P1c): same as export() — FAIL-FAST on an explicit ``source`` BEFORE
+        # materializing the delegate (no wasted refit / no spurious stochastic warning), using the cheap
+        # spec flag (not the delegate, which would trigger the refit). ``fold`` is FORWARDED (it selects a
+        # fold's model from the delegate's REAL legacy workspace, which does have per-fold artifacts).
+        if self._dagml_export_spec is not None:
+            if source is not None:
+                raise NotImplementedError(
+                    "engine='dag-ml' export_model does not support an explicit source= (it references the "
+                    "dag-ml run's non-existent workspace); export the run's best model with "
+                    "result.export_model(path[, fold=...]) (no source)."
+                )
+            delegate = self._dagml_export_delegate()
+            assert delegate is not None  # spec present ⇒ delegate materializes
+            return delegate.export_model(output_path, format=format, fold=fold)
+
         if source is None:
             source = self.best
             if not source:
