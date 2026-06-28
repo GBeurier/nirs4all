@@ -48,10 +48,15 @@ refit-train report, so it has no ``final`` row — its ``test`` block is the rea
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+import numpy as np
 
 from nirs4all.api.result import RunResult
 from nirs4all.data.predictions import Predictions
+
+if TYPE_CHECKING:
+    from .identity import IdentityMap
 
 # The three CV partitions every fold-grain / ensemble role stores in the legacy table.
 _CV_PARTITIONS = ("train", "val", "test")
@@ -59,6 +64,36 @@ _CV_PARTITIONS = ("train", "val", "test")
 # Sentinel distinguishing "no refit report at all" (a merge producer never refits) from a refit report
 # whose variant_id is legitimately ``None`` — both would otherwise read as ``None``.
 _MISSING = object()
+
+
+def _index_sample_blocks(results: list[dict[str, Any]] | None) -> dict[tuple[str, str, str | None], tuple[dict[str, Any], dict[str, Any] | None]]:
+    """Index the node_results' per-sample prediction blocks for the direct-block row projection (2a-i).
+
+    ``results`` is ``outcome["results"]`` — the per-node ``NodeResult`` frames, identical in shape for
+    BOTH execution mechanisms: the in-process bridge surfaces the bare frames (``payload["node_results"]``),
+    while the subprocess adapter wraps each as ``{"type": "result", "result": <NodeResult>}``. This unwraps
+    a ``{"type": "result"}`` frame to its inner ``NodeResult`` and treats any other frame as a bare
+    ``NodeResult``, so a single index serves both.
+
+    Each ``NodeResult`` carries a ``predictions`` list of ``PredictionBlock``
+    (``{producer_node, partition, fold_id, sample_ids, values, target_names}``) paired POSITION-FOR-POSITION
+    with a ``regression_targets`` list of y_true blocks (same node, same loop, same sample order — see
+    :func:`~nirs4all.pipeline.dagml.node_runner.run_model_node`). The returned index keys each pair by
+    ``(producer_node, partition, fold_id)`` (always sample-level here — the direct blocks the node runner
+    emits), mapping to ``(prediction_block, regression_target_block_or_None)``. For the SINGLE-PIPELINE
+    scope (2a-i) this triple is unique (one producer, one variant); the per-variant sweep scopes
+    (2a-ii/2a-iii) thread their own producer/variant context separately.
+    """
+    index: dict[tuple[str, str, str | None], tuple[dict[str, Any], dict[str, Any] | None]] = {}
+    for frame in results or []:
+        result = frame.get("result") if frame.get("type") == "result" else frame
+        if not result:
+            continue
+        targets = result.get("regression_targets", []) or []
+        for position, block in enumerate(result.get("predictions", []) or []):
+            target = targets[position] if position < len(targets) else None
+            index[(block["producer_node"], block["partition"], block.get("fold_id"))] = (block, target)
+    return index
 
 
 def _legacy_fold_id(native_fold_id: str) -> str:
@@ -107,6 +142,8 @@ def _scores_to_run_result(
     variant_config_names: dict[Any, str] | None = None,
     variant_model_names: dict[Any, str] | None = None,
     skip_refit: bool = False,
+    results: list[dict[str, Any]] | None = None,
+    identity: IdentityMap | None = None,
 ) -> RunResult:
     """Project a dag-ml ScoreSet into the full legacy ``Predictions`` table (a labeled compat projection).
 
@@ -165,7 +202,23 @@ def _scores_to_run_result(
 
     predictions = Predictions()
 
-    def add(fold_id: str, partition: str, partition_blocks: dict[str, dict[str, float] | None], *, row_config_name: str, row_model_name: str, refit_context: str | None = None) -> None:
+    # Per-sample prediction VALUES for the STRICT direct-block rows (2a-i). Threaded only on the
+    # single-pipeline path (`results` + `identity` given); every other call site passes nothing → an
+    # empty index → score-only behavior (empty arrays) unchanged. Keyed by (partition, fold_id) ignoring
+    # the producer node: a single pipeline has exactly one producer, so the triple's producer is fixed.
+    block_index = _index_sample_blocks(results) if results is not None and identity is not None else {}
+    sample_blocks_by_role = {(partition, fold_id): pair for (_producer, partition, fold_id), pair in block_index.items()}
+
+    def add(
+        fold_id: str,
+        partition: str,
+        partition_blocks: dict[str, dict[str, float] | None],
+        *,
+        row_config_name: str,
+        row_model_name: str,
+        refit_context: str | None = None,
+        arrays: tuple[list[int], np.ndarray, np.ndarray] | None = None,
+    ) -> None:
         """Emit one legacy row for a (role, partition) with its full train/val/test ``scores`` dict.
 
         ``partition_blocks`` maps each of train/val/test to its native metric block (``None`` skips that
@@ -173,6 +226,13 @@ def _scores_to_run_result(
         ``metric`` value so the partition-keyed accessors resolve them. The native blocks are shared
         verbatim — no metric is perturbed — so every reported value (and every accessor that reads it)
         is the true native score.
+
+        ``arrays`` (``(sample_indices, y_true, y_pred)``) FILLS the per-sample prediction buffer for the
+        strict direct-block rows (2a-i): the per-fold ``val`` rows, the refit ``(final, train)`` row, and
+        the refit ``(final, test)`` row. It is ``None`` (empty arrays, score-only) for every other row
+        (per-fold train, avg/w_avg, and any non-single-pipeline path) — those stay score-only as before,
+        so ``num_predictions`` is unchanged and the scores still come from ``scores["reports"]``, never
+        recomputed from the arrays.
 
         ``row_config_name`` is the variant's config name (already ``"_refit"``-suffixed by the caller for
         the standalone-refit rows, matching legacy ``"{cv_config_name}_refit"`` — see
@@ -187,6 +247,11 @@ def _scores_to_run_result(
                 continue
             score_dict[part] = block
             kwargs[f"{part}_score"] = block.get(metric)
+        if arrays is not None:
+            sample_indices, y_true, y_pred = arrays
+            kwargs["sample_indices"] = sample_indices
+            kwargs["y_true"] = y_true
+            kwargs["y_pred"] = y_pred
         predictions.add_prediction(
             dataset_name=dataset_name,
             config_name=row_config_name,
@@ -199,6 +264,29 @@ def _scores_to_run_result(
             refit_context=refit_context,
             **kwargs,
         )
+
+    def _row_arrays(partition: str, fold_id: str | None) -> tuple[list[int], np.ndarray, np.ndarray] | None:
+        """``(sample_indices, y_true, y_pred)`` for a direct sample block, mapped BY SAMPLE ID (2a-i).
+
+        Looks up the ``(partition, fold_id)`` prediction block + its paired y_true block from the node
+        results, maps each wire ``sample_id`` to its in-memory ``sample`` int via ``identity.to_int``, and
+        pairs ``y_pred`` (the ``PredictionBlock.values``) with ``y_true`` (the paired
+        ``regression_targets.values``, same sample order). ``None`` when no such block was emitted (so the
+        row stays score-only) — e.g. a no-test run has no ``(test, None)`` block, and a fold-train row has
+        no fold-train block. Single-target blocks are flattened to 1-D arrays (legacy ``.ravel()`` shape).
+        """
+        pair = sample_blocks_by_role.get((partition, fold_id))
+        if pair is None or identity is None:
+            return None
+        block, target = pair
+        sample_indices = [identity.to_int(sample_id) for sample_id in block["sample_ids"]]
+        y_pred = np.asarray(block["values"], dtype=float)
+        y_pred = y_pred.ravel() if y_pred.ndim == 2 and y_pred.shape[1] == 1 else y_pred
+        if target is None:
+            return None
+        y_true = np.asarray(target["values"], dtype=float)
+        y_true = y_true.ravel() if y_true.ndim == 2 and y_true.shape[1] == 1 else y_true
+        return sample_indices, y_true, y_pred
 
     # The refit-train / held-out test blocks are looked up PER-VARIANT below (`(variant_id, final/test,
     # None)`), NOT once globally — a LOSER must NOT borrow the winner's test/train under its own
@@ -264,8 +352,13 @@ def _scores_to_run_result(
         for fold_id in fold_keys:
             fold_block = by_key[(variant_id, "validation", fold_id)]
             fold_blocks: dict[str, dict[str, float] | None] = {"train": fold_block, "val": fold_block, "test": variant_test}
+            # STRICT 2a-i: fill ONLY the `val` row with the real per-fold OOF arrays (the fold's
+            # `(validation, foldN)` PredictionBlock + its paired y_true). The `train` (and any `test`)
+            # fold row stays score-only — dag-ml emits no fold-train block. `_row_arrays` is `None` on
+            # every non-single-pipeline path (no `results`/`identity`), so those rows stay score-only.
             for partition in cv_partitions:
-                add(_legacy_fold_id(fold_id), partition, fold_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name)
+                arrays = _row_arrays("validation", fold_id) if partition == "val" else None
+                add(_legacy_fold_id(fold_id), partition, fold_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name, arrays=arrays)
 
         # --- Ensemble rows: avg + w_avg, each over {train, val[, test]}. Emitted only when dag-ml produced
         #     an OOF average over multiple folds (the legacy avg/w_avg blocks). val carries THIS variant's
@@ -291,10 +384,13 @@ def _scores_to_run_result(
         if is_final_owner and not skip_refit:
             refit_config_name = variant_config_name + "_refit" if variant_config_name else variant_config_name
             final_blocks: dict[str, dict[str, float] | None] = {"train": variant_final_train, "val": avg, "test": variant_test}
+            # STRICT 2a-i: the standalone-refit `(final, train)` row is filled from the refit
+            # `(final, None)` PredictionBlock (refit predicting its own full train), and the
+            # `(final, test)` row from the refit `(test, None)` PredictionBlock (the held-out test).
             if variant_final_train is not None:
-                add("final", "train", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone")
+                add("final", "train", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays("final", None))
             if variant_test is not None:
-                add("final", "test", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone")
+                add("final", "test", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays("test", None))
 
     predictions.flush()
     return RunResult(predictions=predictions, per_dataset={dataset_name: {"engine": "dag-ml"}})
