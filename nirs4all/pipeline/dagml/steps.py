@@ -240,6 +240,30 @@ def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     return steps, splitter
 
 
+def _legacy_skips_refit(splitter: Any) -> bool:
+    """Whether LEGACY would SKIP the standalone refit pass for this splitter (→ no ``(final, *)`` rows).
+
+    The legacy refit gate is NOT "shuffle=False" — it is a SERIALIZATION artifact of
+    ``execution.refit.executor.execute_simple_refit``: it reloads the winning config's ``expanded_steps``
+    and calls ``_step_is_splitter`` on each, which recognizes ONLY a live splitter instance or a
+    ``{"class": ...}`` dict — NOT a bare class-name STRING. ``serialize_component`` collapses a splitter
+    with NO non-default params (``KFold()`` / ``KFold(n_splits=5)`` / ``KFold(shuffle=False)`` /
+    ``ShuffleSplit()`` / ``ShuffleSplit(n_splits=10)`` / …) to that bare string, so legacy finds no
+    splitter, logs "No cross-validation detected … Skipping refit", and emits NO refit ``(final, train)`` /
+    ``(final, test)`` rows. Any non-default param (``KFold(n_splits=3)``, ``ShuffleSplit(n_splits=3,
+    random_state=42)``) serializes to a dict → legacy refits.
+
+    We reproduce the EXACT gate by reusing the SAME ``serialize_component`` (no hand-rolled heuristic):
+    the refit is skipped iff the splitter serializes to a bare string. ``None`` (no splitter) is handled
+    upstream — every CV+refit path requires a splitter — so it conservatively does NOT skip.
+    """
+    if splitter is None:
+        return False
+    from nirs4all.pipeline.config.component_serialization import serialize_component
+
+    return isinstance(serialize_component(splitter), str)
+
+
 def _taggers_from_step(step: Any) -> list[tuple[str, Any]] | None:
     """Parse a handled ``{"tag": SampleFilter}`` step, else return ``None`` for bridge fail-loud."""
     if not isinstance(step, dict) or "tag" not in step:
@@ -365,9 +389,18 @@ def _expand_operator_generators(pipeline: list[Any]) -> list[list[Any]]:
 
 
 def _model_name(steps: list[Any]) -> str:
+    """The legacy display model_name for the model step (matches ``ModelIdentifierGenerator``).
+
+    Legacy ``extract_core_name`` prefers a user-provided ``name`` on the model step over the class
+    name (``name`` > ``function`` > ``class``), so a ``{"name": "RF_Finetuned", "model": RF()}`` step
+    surfaces as ``"RF_Finetuned"`` — not ``"RandomForestRegressor"``. We mirror that exact priority
+    here so a NAMED model (finetune cases, any explicit ``name``) carries the same model_name on the
+    dag-ml engine; an unnamed step falls back to the model class name, byte-identical to legacy.
+    """
     for step in steps:
         if isinstance(step, dict) and "model" in step:
-            return type(step["model"]).__name__
+            name = step.get("name")
+            return str(name) if name else type(step["model"]).__name__
     return "model"
 
 
