@@ -1,4 +1,4 @@
-"""Unit tests for the inert backend-engine selector (ADR-17 migration skeleton)."""
+"""Unit tests for the backend-engine selector (ADR-17 cutover: dag-ml is the default engine)."""
 
 from __future__ import annotations
 
@@ -7,10 +7,11 @@ import pytest
 from nirs4all.pipeline.engine import DEFAULT_ENGINE, ENGINE_ENV_VAR, resolve_engine
 
 
-def test_defaults_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_defaults_to_dagml(monkeypatch: pytest.MonkeyPatch) -> None:
+    # ADR-17 cutover: the default engine is dag-ml (was legacy).
     monkeypatch.delenv(ENGINE_ENV_VAR, raising=False)
-    assert DEFAULT_ENGINE == "legacy"
-    assert resolve_engine() == "legacy"
+    assert DEFAULT_ENGINE == "dag-ml"
+    assert resolve_engine() == "dag-ml"
 
 
 def test_explicit_legacy_case_insensitive() -> None:

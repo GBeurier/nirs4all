@@ -281,10 +281,12 @@ def run(
             Affects column headers in final summary tables. Internal variable names
             use ML conventions regardless of this setting.
 
-        engine: Execution backend (ADR-17 migration selector). ``None``/``"legacy"``
-            (default) runs the in-process orchestrator. ``"dag-ml"``/``"dual"`` select the
-            dag-ml-backed core, which is under construction and currently raises
-            ``NotImplementedError`` — production is unaffected unless explicitly requested.
+        engine: Execution backend (ADR-17 cutover selector). ``None`` (default) resolves to
+            ``"dag-ml"``: the pipeline runs natively on the dag-ml backend (Rust, in-process by
+            default), with a TRANSPARENT fallback to the legacy engine (a warning is emitted) when a
+            pipeline shape is not yet covered or the dag-ml backend is not installed. ``"legacy"``
+            forces the in-process orchestrator. ``"dual"`` (side-by-side comparison) is reserved and
+            raises ``NotImplementedError``. Override the default per-process with ``$N4A_ENGINE``.
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -535,19 +537,23 @@ def run(
 
         return result
 
-    # ADR-17 backend selector (nirs4all-core -> dag-ml migration). Default is the legacy
-    # in-process orchestrator; `engine="dag-ml"` dispatches to the dag-ml-cli backend, which
-    # runs the pipeline natively (Rust) and returns a RunResult of dag-ml's native scores.
+    # ADR-17 backend selector (nirs4all-core -> dag-ml migration, NOW FLIPPED). The DEFAULT engine is
+    # dag-ml: `run()` dispatches to the dag-ml backend, which runs the pipeline natively (Rust,
+    # IN-PROCESS by default via the PyO3 extension) and returns a RunResult of dag-ml's native scores.
+    # `engine="legacy"` forces the in-process legacy orchestrator (`_run_legacy`).
     #
-    # Cutover FALLBACK (pre-flip prep): the dag-ml backend covers most — but not all — pipeline
-    # shapes; the ~22 catchable coverage-boundary shapes (no splitter, .n4a export, rich stacking,
-    # …) raise DagMlUnsupported, a NotImplementedError subclass. The flip ("try dag-ml; on a
-    # catchable unsupported-error → fall back to legacy") makes the default 100% safe: when the
-    # dag-ml path declares a shape unsupported we warn and re-run it on the legacy engine, which
-    # runs independently (run_via_dagml cleans its own temp dir in a finally). ONLY
-    # DagMlUnsupported/NotImplementedError are caught — a genuine bug propagates untouched.
+    # TRANSPARENT LEGACY FALLBACK. The default is 100% safe via two catchable signals, both warned:
+    #   * SHAPE not yet covered — the catchable coverage-boundary shapes (no splitter, .n4a export,
+    #     rich stacking, non-default refit/session/cache/project/workspace, …) raise DagMlUnsupported,
+    #     a NotImplementedError subclass.
+    #   * BACKEND not installed — the dag-ml preflight raises DagMlUnavailable when NEITHER mechanism
+    #     is present (no in-process extension AND no dag-ml-cli). dag-ml is a HARD dependency, but a
+    #     wheel install missing the native backend still degrades gracefully rather than crashing.
+    # In either case we warn and re-run on the legacy engine (run_via_dagml cleans its own temp dir in
+    # a finally). ONLY DagMlUnsupported/NotImplementedError/DagMlUnavailable are caught — a GENUINE
+    # dag-ml runtime/operator bug propagates untouched (never silently swallowed into legacy).
     if resolve_engine(engine) == "dag-ml":
-        from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+        from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
         try:
@@ -581,6 +587,12 @@ def run(
                 cache=cache,
                 runner_kwargs=runner_kwargs,
             )
+        except DagMlUnavailable as e:
+            warnings.warn(
+                f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
+                stacklevel=2,
+            )
+            return _run_legacy()
         except (DagMlUnsupported, NotImplementedError) as e:
             warnings.warn(
                 f"engine='dag-ml' does not support this pipeline shape ({e}); "

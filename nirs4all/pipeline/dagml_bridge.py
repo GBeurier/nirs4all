@@ -16,7 +16,8 @@ Scope (deliberately narrow for the spike):
   multi-source — these raise ``NotImplementedError`` naming the offending step, to
   be filled in against ``dag-ml/docs/design/DSL_NIRS4ALL_PARITY.md``.
 
-dag-ml is an optional dependency (``nirs4all[dagml]``); the import is guarded.
+dag-ml is a CORE dependency since the ADR-17 cutover (the default engine); the import is
+still guarded so this module imports cleanly even if a broken wheel lacks the native backend.
 This is **compile-only** (DSL lowering); execution via host controllers is a
 later migration phase.
 """
@@ -508,13 +509,13 @@ def build_dagml_plan(
     controller is executed and no feature matrix is touched.
 
     Raises:
-        ImportError: if dag-ml is not installed (``pip install nirs4all[dagml]``).
+        ImportError: if the dag-ml core dependency is somehow missing (``pip install nirs4all``).
         NotImplementedError: if the pipeline uses an unsupported construct.
     """
     try:
         import dag_ml
     except ImportError as exc:  # pragma: no cover - exercised only without dag-ml
-        raise ImportError("dag-ml is not installed; install with `pip install nirs4all[dagml]`") from exc
+        raise ImportError("dag-ml is not installed; it is a core dependency — reinstall with `pip install nirs4all`") from exc
     manifests = controller_manifests()
     artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(pipeline_to_dsl(pipeline, dsl_id), manifests)
     return dag_ml.build_execution_plan(plan_id, artifact.graph, artifact.campaign_template, manifests)
@@ -524,11 +525,11 @@ def compile_with_dagml(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -
     """Lower a nirs4all pipeline and compile it to a dag-ml ``CompiledPipelineArtifact``.
 
     Raises:
-        ImportError: if dag-ml is not installed (``pip install nirs4all[dagml]``).
+        ImportError: if the dag-ml core dependency is somehow missing (``pip install nirs4all``).
         NotImplementedError: if the pipeline uses an unsupported construct.
     """
     try:
         import dag_ml
     except ImportError as exc:  # pragma: no cover - exercised only without dag-ml
-        raise ImportError("dag-ml is not installed; install with `pip install nirs4all[dagml]`") from exc
+        raise ImportError("dag-ml is not installed; it is a core dependency — reinstall with `pip install nirs4all`") from exc
     return dag_ml.compile_pipeline_dsl_artifact(pipeline_to_dsl(pipeline, dsl_id))

@@ -31,3 +31,9 @@ kennard-stone>=2.2.0
 ikpls>=1.1.0
 pyopls>=20.0
 trendfitter>=0.0.6
+
+# dag-ml execution core — the DEFAULT engine since the ADR-17 cutover (a hard
+# dependency, not an extra). run() falls back to legacy with a warning only when
+# the native backend is unavailable.
+dag-ml>=0.2.1
+dag-ml-data>=0.2.1

@@ -1,10 +1,11 @@
 """Failure types and fail-loud guards for the dag-ml host backend.
 
 ``DagMlUnsupported`` is the catchable error every unsupported-or-failed dag-ml shape raises;
-``_cli_child_error`` extracts the real cause from a dag-ml-cli failure; ``_raise_run_failure``
-decides propagate-vs-fallback for a non-zero subprocess run from the adapter's structured
-``error_kind`` (:func:`_run_failure_kind`); ``_reject_multi_model`` rejects a multi-model pipeline
-UP FRONT.
+``DagMlUnavailable`` is the narrow error a dag-ml-backend PREFLIGHT raises when NEITHER execution
+mechanism is installed (no in-process PyO3 extension AND no dag-ml-cli binary); ``_cli_child_error``
+extracts the real cause from a dag-ml-cli failure; ``_raise_run_failure`` decides
+propagate-vs-fallback for a non-zero subprocess run from the adapter's structured ``error_kind``
+(:func:`_run_failure_kind`); ``_reject_multi_model`` rejects a multi-model pipeline UP FRONT.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ ERROR_KIND_GENERIC = "error"
 class DagMlUnsupported(NotImplementedError):
     """A pipeline shape (or a dag-ml-cli run of one) the dag-ml backend cannot execute.
 
-    A subclass of ``NotImplementedError`` so the planned cutover fallback
+    A subclass of ``NotImplementedError`` so the cutover fallback
     (``try dag-ml; except NotImplementedError → legacy``) catches it: an unsupported-or-failed
     dag-ml shape must NEVER escape ``run_via_dagml`` as a bare ``RuntimeError``/``ValueError``
     (which the fallback would not catch and would hard-fail in production). Raised both for shapes
@@ -37,6 +38,27 @@ class DagMlUnsupported(NotImplementedError):
     mid-execution because the SHAPE is unsupported — in either case the fallback redirects the
     pipeline to the legacy engine. A GENUINE operator bug (a model fit failure) is NOT this — it
     propagates as a real error (see :func:`_raise_run_failure`).
+    """
+
+
+class DagMlUnavailable(RuntimeError):
+    """NEITHER dag-ml execution mechanism is installed, so the dag-ml backend cannot run at all.
+
+    Raised by the dag-ml-backend availability probes: the run-level PREFLIGHT
+    (:func:`~nirs4all.pipeline.dagml.run_backend.preflight_dagml_backend`) when BOTH mechanisms are
+    missing (the in-process PyO3 extension ``dag_ml._dag_ml`` does not import/load AND the ``dag-ml-cli``
+    binary does not exist), and the in-process/subprocess router's SUBPROCESS branch when in-process is
+    not selected and ``dag-ml-cli`` is absent. Since the ADR-17 cutover made ``dag-ml``
+    the default engine + a hard dependency, ``run()`` catches THIS (alongside ``DagMlUnsupported`` /
+    ``NotImplementedError``) and falls back to the legacy engine WITH A WARNING — so a wheel install
+    that is somehow missing the native backend degrades transparently instead of hard-failing.
+
+    Deliberately NARROW: it is raised only by those explicit availability probes, NEVER by
+    wrapping a run in a blanket ``except ImportError/FileNotFoundError`` (which would swallow a genuine
+    dag-ml bug). A real dag-ml runtime/operator error is NOT this — it propagates untouched.
+
+    NOT a subclass of ``DagMlUnsupported``/``NotImplementedError``: "the backend is not installed" is a
+    distinct condition from "this pipeline shape is unsupported", and ``run()`` catches it explicitly.
     """
 
 

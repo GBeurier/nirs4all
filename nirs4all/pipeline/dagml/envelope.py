@@ -20,7 +20,8 @@ the envelope. That validator enforces a clean OOF **partition** (each sample val
 exactly once): ``KFold`` satisfies it; ``ShuffleSplit`` does not (a known OOF-semantics gap
 flagged for the execution/mechanism phase).
 
-``dag_ml_data`` is an optional dependency (``nirs4all[dagml]``); imports are guarded.
+``dag_ml_data`` is a CORE dependency since the ADR-17 cutover; imports are still guarded so a
+broken wheel missing the native backend surfaces a clear error rather than a raw ImportError.
 Scope: single-source / no-repetition baseline.
 """
 
@@ -67,7 +68,7 @@ def _import_dag_ml_data() -> Any:
     try:
         import dag_ml_data
     except ImportError as exc:  # pragma: no cover - exercised only without the wheel
-        raise ImportError("dag-ml-data is not installed; install with `pip install nirs4all[dagml]`") from exc
+        raise ImportError("dag-ml-data is not installed; it is a core dependency — reinstall with `pip install nirs4all`") from exc
     return dag_ml_data
 
 

@@ -89,6 +89,13 @@ dependencies = [
     "ikpls>=1.1.0",
     "pyopls>=20.0",
     "trendfitter>=0.0.6",
+
+    # dag-ml execution core — the DEFAULT engine since the ADR-17 cutover (the
+    # "nirs4all = the lite skeleton + Python controllers" North Star). A hard
+    # dependency, not an extra: run() dispatches to dag-ml by default and falls
+    # back to legacy with a warning only when the native backend is unavailable.
+    "dag-ml>=0.2.1",
+    "dag-ml-data>=0.2.1",
 ]
 
 [project.optional-dependencies]
@@ -109,11 +116,6 @@ explain = ["shap>=0.42.0", "matplotlib>=3.7.0"]
 
 # Legacy DuckDB workspace migration (only needed for pre-v0.9 workspaces)
 migration = ["duckdb>=1.0.0"]
-
-# dag-ml execution core (in development — see dag-ml/docs/migration-nirs4all/).
-# Inert at the default engine (legacy); only needed to exercise the dag-ml
-# backend path of the nirs4all-core migration. Version pins are provisional.
-dagml = ["dag-ml>=0.2.0", "dag-ml-data>=0.2.0"]
 
 # AutoML
 autogluon = ["autogluon>=1.0.0"]

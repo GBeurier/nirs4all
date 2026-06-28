@@ -123,7 +123,7 @@ def test_route_operator_per_kind_and_overrides() -> None:
 
 def test_route_real_compiled_vertical_slice_nodes() -> None:
     """Every node of the actually-compiled vertical slice routes to its real operator."""
-    pytest.importorskip("dag_ml", reason="dag-ml not installed (nirs4all[dagml])")
+    pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
     from nirs4all.pipeline.dagml_bridge import build_dagml_plan
 
     plan = build_dagml_plan(get("baseline_vertical_slice").pipeline, plan_id="p", dsl_id="vs").to_dict()
@@ -134,7 +134,7 @@ def test_route_real_compiled_vertical_slice_nodes() -> None:
 def test_envelope_builds_and_validates_against_live_contract(regression_dataset) -> None:
     """build_envelope produces a contract-valid CoordinatorDataPlanEnvelope (the wheel
     derives relations + fingerprints; a successful build is itself the gate)."""
-    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not installed (nirs4all[dagml])")
+    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
     identity = mint_identity(regression_dataset)
 
     envelope = build_envelope(regression_dataset, identity)
@@ -155,7 +155,7 @@ def test_envelope_builds_and_validates_against_live_contract(regression_dataset)
 def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:
     """A KFold partition validates against the CV-universe relations; ShuffleSplit (which
     does not validate every sample exactly once) is refused -- a real OOF-semantics gap."""
-    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not installed (nirs4all[dagml])")
+    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
     from sklearn.model_selection import KFold, ShuffleSplit
 
     identity = mint_identity(regression_dataset)
@@ -259,7 +259,7 @@ def test_sample_relations_emit_origin_and_augmentation_for_children(augmented_da
     """Augmented rows carry origin_id == the origin's observation wire id + augmentation
     metadata; base rows keep origin_id None and no augmentation (the Rust contract rejects
     an origin/augmentation on a non-augmented row)."""
-    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not installed (nirs4all[dagml])")
+    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
     identity = mint_identity(augmented_dataset)
     aug_by = {sample.sample_int: "noise" for sample in identity.identities if sample.augmented}
 
@@ -283,7 +283,7 @@ def test_augmented_fold_set_passes_origin_boundary(augmented_dataset) -> None:
     """Folds at the SAMPLE grain (base sample ids only) with augmented children co-grouped
     under their origin pass validate_fold_set_against_sample_relations: the child shares the
     origin's sample_id, so it inherits the origin's partition (origin-boundary green)."""
-    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not installed (nirs4all[dagml])")
+    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
     identity = mint_identity(augmented_dataset)
     aug_by = {sample.sample_int: "noise" for sample in identity.identities if sample.augmented}
 
