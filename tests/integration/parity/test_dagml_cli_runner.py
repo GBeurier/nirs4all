@@ -430,6 +430,99 @@ def test_public_run_engine_dagml_fills_direct_block_predictions(inprocess, monke
     assert sorted(train_rows[0]["sample_indices"]) == sorted(train), "final-train sample_indices == the train partition"
 
 
+@pytest.mark.parametrize(
+    "inprocess",
+    [
+        pytest.param("1", id="in_process"),
+        pytest.param("0", id="subprocess", marks=pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")),
+    ],
+)
+def test_public_run_engine_dagml_sweep_fills_per_variant_predictions(inprocess, monkeypatch, tmp_path) -> None:
+    """An operator (`_or_`) SWEEP FILLS each variant's direct-block y_pred from ITS OWN model (2a-ii).
+
+    The proof of per-variant correctness + NO cross-variant y_pred leakage: a ``{"_or_": [SNV, MinMaxScaler]}``
+    sweep yields two variants whose fold-0 validation predictions DIFFER for the same sample. This asserts
+    the WINNER variant's fold-0 val ``y_pred`` matches a DIRECT sklearn refit of the WINNING pipeline on
+    the fold-0 train (BY SAMPLE ID within 1e-6), AND the LOSER variant's fold-0 val ``y_pred`` matches a
+    direct refit of the LOSER's OWN pipeline — so a variant's row carries its own values, never the other
+    variant's. Runs on BOTH mechanisms (in-process bare ``node_results`` + subprocess
+    ``{"type": "result", ...}`` frames). ``num_predictions`` and the scores are unchanged — only the
+    previously-empty per-fold-val arrays are filled, each from its own variant's PredictionBlocks.
+
+    Drives :func:`run_via_dagml` directly so the subprocess case can point at the built ``dag-ml-cli``;
+    ``N4A_DAGML_INPROCESS`` selects the mechanism.
+    """
+    from sklearn.metrics import mean_squared_error
+    from sklearn.pipeline import make_pipeline
+    from sklearn.preprocessing import MinMaxScaler
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", inprocess)
+
+    preprocessings: list[type] = [StandardNormalVariate, MinMaxScaler]
+    pipeline = [{"_or_": [StandardNormalVariate(), MinMaxScaler()]}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable)
+    assert any(d.get("engine") == "dag-ml" for d in result.per_dataset.values()), "the run must have executed on the dag-ml engine"
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    # The SAME folds the engine built (KFold is index-only on the train pool), in dag-ml's foldN order.
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+    fold0_train, fold0_val = folds[0]
+
+    def predict_one(model: object, sample_int: int) -> float:
+        return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+
+    # Per-variant CV (to pick the winner) + the variant's OWN fold-0 val predictions BY SAMPLE ID.
+    def variant_cv_and_fold0(prep_cls: type) -> tuple[float, dict[int, float]]:
+        acc: dict[int, float] = {}
+        cnt: dict[int, int] = {}
+        tru: dict[int, float] = {}
+        fold0_pred: dict[int, float] = {}
+        for fold_index, (train_ints, val_ints) in enumerate(folds):
+            model = make_pipeline(prep_cls(), PLSRegression(n_components=5))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            for sample_int in val_ints:
+                pred = predict_one(model, sample_int)
+                acc[sample_int] = acc.get(sample_int, 0.0) + pred
+                cnt[sample_int] = cnt.get(sample_int, 0) + 1
+                tru[sample_int] = float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
+                if fold_index == 0:
+                    fold0_pred[sample_int] = pred
+        keys = sorted(acc)
+        cv = float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
+        return cv, fold0_pred
+
+    scored = {cls: variant_cv_and_fold0(cls) for cls in preprocessings}
+    winner_cls = min(scored, key=lambda cls: scored[cls][0])  # lowest CV wins (matches the backend SELECT)
+    loser_cls = next(cls for cls in preprocessings if cls is not winner_cls)
+    assert abs(result.cv_best_score - scored[winner_cls][0]) < 1e-3, "the backend selected the best-CV variant"
+
+    # The two variants' fold-0 predictions MUST differ for some sample (else the leakage test is vacuous).
+    assert any(abs(scored[winner_cls][1][s] - scored[loser_cls][1][s]) > 1e-6 for s in fold0_val), "the two variants must produce distinct fold-0 predictions"
+
+    # There are exactly TWO (fold 0, val) rows — one per variant, each a distinct config_name — and BOTH
+    # are FILLED (a loser ran fully, so its fold-val PredictionBlocks exist). Match each row to the variant
+    # whose direct refit reproduces it BY SAMPLE ID, then assert the winner row == winner refit and the
+    # loser row == loser refit (per-variant correctness; no cross-variant y_pred leakage).
+    val_rows = result.predictions.filter_predictions(partition="val", fold_id="0")
+    assert len(val_rows) == len(preprocessings), "one (fold 0, val) row per swept variant"
+
+    def row_matches(row: dict, expected: dict[int, float]) -> bool:
+        if len(np.asarray(row["y_pred"])) == 0 or sorted(row["sample_indices"]) != sorted(fold0_val):
+            return False
+        by_sample = {int(sid): float(p) for sid, p in zip(row["sample_indices"], np.asarray(row["y_pred"], dtype=float).ravel(), strict=True)}
+        return all(abs(by_sample[s] - expected[s]) < 1e-6 for s in fold0_val)
+
+    winner_rows = [row for row in val_rows if row_matches(row, scored[winner_cls][1])]
+    loser_rows = [row for row in val_rows if row_matches(row, scored[loser_cls][1])]
+    assert len(winner_rows) == 1, "exactly one fold-0 val row carries the WINNER variant's own y_pred (by sample id, 1e-6)"
+    assert len(loser_rows) == 1, "exactly one fold-0 val row carries the LOSER variant's own y_pred (by sample id, 1e-6) — no cross-variant leakage"
+    assert winner_rows[0].get("config_name") != loser_rows[0].get("config_name"), "the two variants carry distinct config_names"
+
+
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_public_run_engine_dagml_shufflesplit() -> None:
     """engine="dag-ml" runs a NON-OOF (ShuffleSplit) CV: dag-ml relaxes the OOF check (Resampled

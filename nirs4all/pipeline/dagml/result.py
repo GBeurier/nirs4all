@@ -143,6 +143,7 @@ def _scores_to_run_result(
     variant_model_names: dict[Any, str] | None = None,
     skip_refit: bool = False,
     results: list[dict[str, Any]] | None = None,
+    results_by_variant: dict[Any, list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
 ) -> RunResult:
     """Project a dag-ml ScoreSet into the full legacy ``Predictions`` table (a labeled compat projection).
@@ -193,6 +194,17 @@ def _scores_to_run_result(
     ``cv_best_score`` (the OOF avg) is unchanged; with no ``final`` row, ``best`` / ``best_score`` (and the
     ``best_rmse`` / ``best_r2`` / ``best_accuracy`` shortcuts, which all read the selected entry via
     :meth:`RunResult._selected_metric`) fall back to ``cv_best`` exactly as legacy does with no refit.
+
+    ``results`` / ``results_by_variant`` (+ ``identity``) FILL the per-sample y_pred/y_true/sample_indices
+    on the strict direct-block rows (2a-i single pipeline / 2a-ii operator sweep). Both resolve to a
+    PER-VARIANT block index ``{variant_id: {(partition, fold_id): (PredictionBlock, y_true_block)}}``,
+    keyed by the SAME synthetic ``variant_id`` the reports carry — so a row's arrays come from THAT
+    variant's OWN PredictionBlocks (NO cross-variant y_pred leakage). The SINGLE-pipeline path passes
+    ``results`` (its sole CV variant's frames), mapped under ``"variant:base"`` (the variant_id its
+    reports carry). An operator SWEEP passes ``results_by_variant`` — each variant's own frames under the
+    tag :func:`_project_operator_sweep` re-stamped its reports with (winner ``"variant:base"``, losers
+    ``"variant:v{index}"``). Every other call site passes neither → an empty index → score-only (empty
+    arrays) unchanged.
     """
     reports = [report for report in (scores or {}).get("reports", []) if producer is None or report.get("producer_node") == producer]
     # Key on (variant_id, partition, fold_id): native generation surfaces every variant's reports and
@@ -202,12 +214,19 @@ def _scores_to_run_result(
 
     predictions = Predictions()
 
-    # Per-sample prediction VALUES for the STRICT direct-block rows (2a-i). Threaded only on the
-    # single-pipeline path (`results` + `identity` given); every other call site passes nothing → an
-    # empty index → score-only behavior (empty arrays) unchanged. Keyed by (partition, fold_id) ignoring
-    # the producer node: a single pipeline has exactly one producer, so the triple's producer is fixed.
-    block_index = _index_sample_blocks(results) if results is not None and identity is not None else {}
-    sample_blocks_by_role = {(partition, fold_id): pair for (_producer, partition, fold_id), pair in block_index.items()}
+    # Per-sample prediction VALUES for the STRICT direct-block rows, indexed PER VARIANT so a row reads
+    # its OWN variant's blocks (NO cross-variant y_pred leakage — see #55). Both the single-pipeline path
+    # (`results`, mapped under the `variant:base` tag its reports carry — 2a-i) and the operator-sweep
+    # path (`results_by_variant`, each variant's frames under the tag `_project_operator_sweep` stamped
+    # its reports with — 2a-ii) resolve to `{variant_id: {(partition, fold_id): pair}}`. The producer node
+    # is dropped from the inner key: each variant ran as its own concrete dag-ml run, so it has exactly
+    # one producer (all variants reuse the SAME node id — keying by producer alone WOULD collide). Every
+    # other call site passes neither → an empty index → score-only (empty arrays) unchanged.
+    sample_blocks_by_variant: dict[Any, dict[tuple[str, str | None], tuple[dict[str, Any], dict[str, Any] | None]]] = {}
+    if identity is not None:
+        variant_results = results_by_variant if results_by_variant is not None else ({"variant:base": results} if results is not None else {})
+        for variant_id, variant_frames in variant_results.items():
+            sample_blocks_by_variant[variant_id] = {(partition, fold_id): pair for (_producer, partition, fold_id), pair in _index_sample_blocks(variant_frames).items()}
 
     def add(
         fold_id: str,
@@ -265,17 +284,19 @@ def _scores_to_run_result(
             **kwargs,
         )
 
-    def _row_arrays(partition: str, fold_id: str | None) -> tuple[list[int], np.ndarray, np.ndarray] | None:
-        """``(sample_indices, y_true, y_pred)`` for a direct sample block, mapped BY SAMPLE ID (2a-i).
+    def _row_arrays(variant_id: Any, partition: str, fold_id: str | None) -> tuple[list[int], np.ndarray, np.ndarray] | None:
+        """``(sample_indices, y_true, y_pred)`` for one VARIANT's direct sample block, BY SAMPLE ID (2a-i/ii).
 
-        Looks up the ``(partition, fold_id)`` prediction block + its paired y_true block from the node
-        results, maps each wire ``sample_id`` to its in-memory ``sample`` int via ``identity.to_int``, and
-        pairs ``y_pred`` (the ``PredictionBlock.values``) with ``y_true`` (the paired
-        ``regression_targets.values``, same sample order). ``None`` when no such block was emitted (so the
-        row stays score-only) — e.g. a no-test run has no ``(test, None)`` block, and a fold-train row has
-        no fold-train block. Single-target blocks are flattened to 1-D arrays (legacy ``.ravel()`` shape).
+        Looks up the ``(partition, fold_id)`` prediction block + its paired y_true block from
+        ``variant_id``'s OWN frames (never another variant's — no cross-variant y_pred leakage), maps each
+        wire ``sample_id`` to its in-memory ``sample`` int via ``identity.to_int``, and pairs ``y_pred``
+        (the ``PredictionBlock.values``) with ``y_true`` (the paired ``regression_targets.values``, same
+        sample order). ``None`` when no such block was emitted for this variant (so the row stays
+        score-only) — e.g. a no-test run has no ``(test, None)`` block, a fold-train row has no fold-train
+        block, and a native loser (no threaded frames) has no blocks at all. Single-target blocks are
+        flattened to 1-D arrays (legacy ``.ravel()`` shape).
         """
-        pair = sample_blocks_by_role.get((partition, fold_id))
+        pair = sample_blocks_by_variant.get(variant_id, {}).get((partition, fold_id))
         if pair is None or identity is None:
             return None
         block, target = pair
@@ -352,12 +373,14 @@ def _scores_to_run_result(
         for fold_id in fold_keys:
             fold_block = by_key[(variant_id, "validation", fold_id)]
             fold_blocks: dict[str, dict[str, float] | None] = {"train": fold_block, "val": fold_block, "test": variant_test}
-            # STRICT 2a-i: fill ONLY the `val` row with the real per-fold OOF arrays (the fold's
-            # `(validation, foldN)` PredictionBlock + its paired y_true). The `train` (and any `test`)
-            # fold row stays score-only — dag-ml emits no fold-train block. `_row_arrays` is `None` on
-            # every non-single-pipeline path (no `results`/`identity`), so those rows stay score-only.
+            # STRICT 2a-i/ii: fill ONLY the `val` row with THIS variant's real per-fold OOF arrays (its
+            # own `(validation, foldN)` PredictionBlock + paired y_true — keyed by `variant_id`, so a
+            # variant's row never borrows another's). The `train` (and any `test`) fold row stays
+            # score-only — dag-ml emits no fold-train block. `_row_arrays` is `None` for a variant with no
+            # threaded frames (no `results`/`results_by_variant`, or a native loser), so those rows stay
+            # score-only.
             for partition in cv_partitions:
-                arrays = _row_arrays("validation", fold_id) if partition == "val" else None
+                arrays = _row_arrays(variant_id, "validation", fold_id) if partition == "val" else None
                 add(_legacy_fold_id(fold_id), partition, fold_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name, arrays=arrays)
 
         # --- Ensemble rows: avg + w_avg, each over {train, val[, test]}. Emitted only when dag-ml produced
@@ -384,13 +407,14 @@ def _scores_to_run_result(
         if is_final_owner and not skip_refit:
             refit_config_name = variant_config_name + "_refit" if variant_config_name else variant_config_name
             final_blocks: dict[str, dict[str, float] | None] = {"train": variant_final_train, "val": avg, "test": variant_test}
-            # STRICT 2a-i: the standalone-refit `(final, train)` row is filled from the refit
-            # `(final, None)` PredictionBlock (refit predicting its own full train), and the
-            # `(final, test)` row from the refit `(test, None)` PredictionBlock (the held-out test).
+            # STRICT 2a-i/ii: the standalone-refit `(final, train)` row is filled from the WINNER's own
+            # refit `(final, None)` PredictionBlock (refit predicting its own full train), and the
+            # `(final, test)` row from its refit `(test, None)` PredictionBlock (the held-out test) — keyed
+            # by `variant_id` (= the winner here), so the refit rows carry the winning variant's own values.
             if variant_final_train is not None:
-                add("final", "train", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays("final", None))
+                add("final", "train", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays(variant_id, "final", None))
             if variant_test is not None:
-                add("final", "test", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays("test", None))
+                add("final", "test", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays(variant_id, "test", None))
 
     predictions.flush()
     return RunResult(predictions=predictions, per_dataset={dataset_name: {"engine": "dag-ml"}})
@@ -420,6 +444,8 @@ def _project_operator_sweep(
     task_type: str,
     is_classification: bool,
     variant_config_names: list[str],
+    results_by_index: list[list[dict[str, Any]]] | None = None,
+    identity: IdentityMap | None = None,
 ) -> RunResult:
     """Combine each operator-expanded variant's single-variant ScoreSet into ONE per-variant projection.
 
@@ -436,6 +462,16 @@ def _project_operator_sweep(
     ``variant_model_names`` maps — the winner gets ITS expansion ``config_name`` (+ ``_refit``) and ITS
     ``model_name`` (a multi-MODEL ``_or_`` sweep carries a different model per variant; the winner's
     final/best rows must show the WINNING model, not the first variant's).
+
+    ``results_by_index`` (+ ``identity``) FILLS the per-sample y_pred/y_true/sample_indices on each
+    variant's direct-block rows (2a-ii): ``results_by_index[i]`` is variant ``i``'s OWN per-node
+    ``NodeResult`` frames (``_run_concrete_scores``'s ``outcome["results"]``; ``identity`` is shared — all
+    variants ran on the same dataset). We re-key them by the SAME synthetic ``variant_id`` tag we stamp on
+    the reports below (winner ``"variant:base"``, losers ``"variant:v{index}"``), so the projection reads a
+    row's arrays from THAT variant's own blocks (winner: its fold-val + refit final/test; a loser: its
+    fold-val rows — every operator variant ran fully, so its validation blocks exist). NO cross-variant
+    y_pred leakage: a variant's blocks are looked up by its tag only. Omitted (rep-fusion sweep) → every
+    row stays score-only (empty arrays), unchanged.
     """
     scores_by_variant = [scores for scores, _, _ in variant_scores]
     model_names = [name for _, name, _ in variant_scores]
@@ -460,6 +496,9 @@ def _project_operator_sweep(
     combined_reports: list[dict[str, Any]] = []
     variant_config_map: dict[Any, str] = {}
     variant_model_map: dict[Any, str] = {}
+    # Per-variant-TAG frames for the direct-block value fill (2a-ii): variant `index`'s own frames keyed
+    # by the SAME tag we stamp its reports with, so a row reads its OWN variant's blocks (no leakage).
+    results_by_variant: dict[Any, list[dict[str, Any]]] = {}
     for position, index in enumerate(ordered_indices):
         is_winner = position == 0
         variant_tag = "variant:base" if is_winner else f"variant:v{index}"
@@ -469,6 +508,8 @@ def _project_operator_sweep(
         if variant_config_names:
             variant_config_map[variant_tag] = variant_config_names[index]
         variant_model_map[variant_tag] = model_names[index]
+        if results_by_index is not None:
+            results_by_variant[variant_tag] = results_by_index[index]
         for report in scores_by_variant[index].get("reports", []):
             partition, fold_id = report.get("partition"), report.get("fold_id")
             entry = dict(report)
@@ -497,4 +538,6 @@ def _project_operator_sweep(
         variant_config_names=variant_config_map or None,
         variant_model_names=variant_model_map,
         skip_refit=skip_refit,
+        results_by_variant=results_by_variant or None,
+        identity=identity,
     )

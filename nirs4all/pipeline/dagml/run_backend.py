@@ -623,7 +623,14 @@ def _dispatch_run(
         scores, model_name, skip_refit, results, identity = variant_runs[0]
         return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, results=results, identity=identity)
 
-    # Operator SWEEP (2a-ii/2a-iii — value fill deferred): the per-variant projection consumes only the
-    # (scores, model_name, skip_refit) triple, so the node results/identity are dropped here.
+    # Operator SWEEP (2a-ii): thread EACH variant's own node results + the (shared) identity into the
+    # per-variant projection so every variant's direct-block rows carry ITS OWN y_pred/y_true/sample_indices
+    # (winner: fold-val + refit final/test; losers: fold-val — every operator variant ran fully). The
+    # projection re-keys the results by the synthetic variant tag it stamps on the reports, so a row's
+    # arrays come from its own variant's blocks (NO cross-variant leakage). All variants ran on the same
+    # `spectro`, so the identity is identical — take the first. The aggregated avg/w_avg rows stay
+    # score-only (deferred to 2a-iii). scores/skip_refit unchanged — num_predictions stays score-set-driven.
     variant_scores = [(scores, model_name, skip_refit) for scores, model_name, skip_refit, _results, _identity in variant_runs]
-    return _project_operator_sweep(variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names)
+    results_by_index = [results for _scores, _model_name, _skip_refit, results, _identity in variant_runs]
+    identity = variant_runs[0][4]
+    return _project_operator_sweep(variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names, results_by_index=results_by_index, identity=identity)
