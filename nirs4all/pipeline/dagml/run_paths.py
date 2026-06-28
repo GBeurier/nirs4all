@@ -24,7 +24,7 @@ from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
-from .result import _native_variant_config_map, _scores_to_run_result
+from .result import _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
 from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _legacy_skips_refit, _model_name, _split_pipeline, _supported_body_steps
 
 
@@ -252,7 +252,21 @@ def _reshape_for_rep_fusion(rep_step: dict[str, Any], spectro: Any) -> None:
     spectro._repetition = None  # noqa: SLF001 - the rep grouping was consumed by the reshape
 
 
-def _run_rep_fusion(pipeline: list[Any], rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_rep_fusion(
+    pipeline: list[Any],
+    rep_step: dict[str, Any],
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str,
+    task_type: str,
+    config_name: str = "",
+    variant_config_names: list[str] | None = None,
+    is_classification: bool = False,
+    random_state: int | None = None,
+) -> RunResult:
     """Run a ``rep_to_sources`` / ``rep_to_pp`` pipeline as ONE native dag-ml CV+refit run (S7).
 
     REP FUSION is a one-time host RESHAPE feeding an already-native multimodal path:
@@ -274,8 +288,17 @@ def _run_rep_fusion(pipeline: list[Any], rep_step: dict[str, Any], spectro: Any,
     SAME fold side by construction; per-source / per-layer preprocessing fits on fold-train only (the
     per-block X-chain, like the multi-source path). No cross-sample mixing.
 
-    Generators are expanded in Python (operator-level via ``expand_spec``), each concrete variant runs
-    through the reshaped early-fusion path, and the best is selected by its CV score — mirroring nirs4all.
+    GENERATORS — an ``_or_`` / ``_cartesian_`` sweep INSIDE the rep-fusion body (e.g.
+    ``[{"rep_to_pp": ...}, {"_or_": [SNV, MSC]}, splitter, model]``) is expanded in Python (the body
+    minus the reshape step via ``expand_spec``), each concrete variant runs through the reshaped
+    early-fusion path returning its raw native ScoreSet, and the per-variant projection (#55,
+    :func:`~nirs4all.pipeline.dagml.result._project_operator_sweep`) combines them into the FULL legacy
+    per-variant table — selecting the CV winner, projecting EVERY variant's CV rows (legacy
+    num_predictions parity) under its OWN ``config_name`` / ``model_name``, and refitting the winner
+    only. ``variant_config_names`` is the ordered legacy per-variant config names (derived by the caller
+    from the FULL pipeline — the reshape step IS part of the legacy config-name hash — in ``expand_spec``
+    order). A single (non-sweep) variant maps straight through the winner-only projection, byte-identical
+    to the pre-#55 shape.
     """
     import pickle
 
@@ -284,25 +307,27 @@ def _run_rep_fusion(pipeline: list[Any], rep_step: dict[str, Any], spectro: Any,
     body = [step for step in pipeline if not _is_rep_fusion_step(step)]
     variants = expand_spec(body)
     run_dir.mkdir(parents=True, exist_ok=True)
-    results = [
-        _run_rep_fusion_concrete(variant, rep_step, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, pickle, config_name=config_name, random_state=random_state)
+    variant_scores = [
+        _run_rep_fusion_concrete_scores(variant, rep_step, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, pickle, random_state=random_state)
         for index, variant in enumerate(variants)
     ]
-    if len(results) == 1:
-        return results[0]
-    maximize = metric in ("accuracy", "r2")
+    if len(variant_scores) == 1:
+        scores, model_name, skip_refit = variant_scores[0]
+        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit)
 
-    def _cv_rank(result: RunResult) -> float:
-        score = result.cv_best_score
-        if score != score:  # NaN ranks last
-            return float("inf")
-        return -score if maximize else score
-
-    return min(results, key=_cv_rank)
+    # A sweep INSIDE the rep-fusion body: combine every reshaped-variant's ScoreSet into the full
+    # per-variant legacy table (#55) — same machinery the main operator-sweep path uses.
+    return _project_operator_sweep(variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names or [])
 
 
-def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, pickle: Any, config_name: str = "", random_state: int | None = None) -> RunResult:
-    """One concrete rep-fusion variant: reshape a fresh dataset copy, then the sample-grain CV+refit."""
+def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, pickle: Any, random_state: int | None = None) -> tuple[dict[str, Any], str, bool]:
+    """One concrete rep-fusion variant: reshape a fresh dataset copy, run the sample-grain CV+refit, return raw scores.
+
+    Returns ``(scores, model_name, skip_refit)`` — the raw native ScoreSet + the model label + the legacy
+    refit-gate flag — so a sweep inside the body can COMBINE every variant's ScoreSet into one per-variant
+    projection (legacy num_predictions parity), exactly like :func:`_run_concrete_scores` on the main path.
+    The single-variant caller wraps this through :func:`_scores_to_run_result` (winner-only projection).
+    """
     import copy
 
     steps, splitter = _split_pipeline(body)
@@ -342,7 +367,7 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
     # Legacy labels the model by the model step's own name/class only — the rep_to_sources / rep_to_pp
     # reshape is a dataset transform, NOT part of the model_name. Emit the bare `_model_name` (e.g.
     # "PLSRegression"), matching legacy get_models() exactly (no "rep_to_sources_" / "rep_to_pp_" prefix).
-    return _scores_to_run_result(outcome["scores"], reshaped.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter))
+    return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter)
 
 
 def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
