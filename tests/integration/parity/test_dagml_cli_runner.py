@@ -774,10 +774,10 @@ def test_public_run_engine_dagml_exclude_default_legacy_parity() -> None:
     Asserts engine="dag-ml"'s ``cv_best_score`` matches the legacy/default engine's on the same pipeline,
     and ``best_rmse`` matches the CLEAN refit-on-kept test score.
 
-    NOTE: legacy's ``best_rmse`` instead carries a get_best quirk (it returns the lowest-val per-fold
-    model's test_score, not the refit's), so it is NOT asserted equal here; the dag-ml engine
-    intentionally reports the clean refit-on-kept final-test (a known RunResult divergence that is not
-    exclude-specific — every dag-ml parity test compares to the clean refit, see the tests above).
+    NOTE: ``best_rmse`` is asserted only on the dag-ml result. Both engines now report the selected
+    model's refit-on-kept final-test for ``best_rmse`` (the former legacy get_best quirk — returning a
+    lowest-val per-fold model's test_score rather than the refit's — was fixed in ``RunResult``: every
+    scalar shortcut now anchors on the selected model, see ``RunResult._selected_metric``).
     """
     from sklearn.metrics import mean_squared_error
     from sklearn.pipeline import make_pipeline
@@ -799,7 +799,8 @@ def test_public_run_engine_dagml_exclude_default_legacy_parity() -> None:
     # cv_best_score: dag-ml default == legacy (both KFold over the kept universe; excluded absent).
     assert abs(dagml.cv_best_score - legacy.cv_best_score) < 1e-3, (dagml.cv_best_score, legacy.cv_best_score)
 
-    # best_rmse: dag-ml == clean refit-on-kept test (the legacy get_best best_rmse quirk is NOT matched).
+    # best_rmse: the selected model's clean refit-on-kept test — both engines now agree
+    # (RunResult._selected_metric anchors best_rmse on the selected model; the old legacy get_best quirk was removed).
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     train = dataset.index_column("sample", {"partition": "train"})
     test_ints = dataset.index_column("sample", {"partition": "test"})
@@ -1038,7 +1039,7 @@ def test_public_run_engine_dagml_separation_branch_by_metadata() -> None:
     BROKEN here: the disjoint concat reassembly raises `MERGE-E003` ("Branch 0 source 0 has N samples,
     expected M") for both the model-in-branch and SNV-only shapes (the branch's whole-dataset feature
     snapshot is scattered into a partition-sized slot). So the dag-ml native path is a CORRECTION, and
-    the parity target is the direct computation — like exclude's legacy get_best best_rmse quirk.
+    the parity target is the direct sklearn computation.
 
     `best_rmse` is now also native: each per-partition refit model predicts its partition's held-out
     TEST samples (`fold_id=None`), and dag-ml's off-fold concat handler reassembles those into one
@@ -4228,12 +4229,12 @@ def test_public_run_engine_dagml_generator_cartesian_stages() -> None:
 
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     variants = [([a, b], (lambda: _PLS(n_components=10))) for a, b in product((_SNV, _MSC), (Detrend, FirstDerivative))]
-    # The SELECTED variant's refit final-test RMSE is `best_score` (the winner's `(final, test)`), NOT
-    # `best_rmse`. Per #55-host each variant now carries its OWN held-out test (a loser no longer borrows
-    # the winner's), so `best_rmse` (get_best ranks the lowest-VAL row across ALL variants' folds and reads
-    # ITS test) can land on a loser fold whose ShuffleSplit val happens to be the lowest — exactly as it
-    # does on LEGACY for this sweep. `best_score` is the winner's refit test and agrees across engines.
-    assert abs(result.best_score - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_score
+    # `best_rmse` describes the SELECTED variant (the lowest-OOF-CV stage combination), reading its refit
+    # final-test RMSE — same model `best_score` describes (RunResult._selected_metric anchors every scalar
+    # shortcut on the selected model). For a single-model sweep best_rmse == best_score == that variant's
+    # test; both agree across engines (legacy + dag-ml subprocess/in-process). The former #55-host quirk —
+    # best_rmse landing on a loser fold via per-metric get_best re-ranking — was removed by the fix.
+    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -4258,11 +4259,11 @@ def test_public_run_engine_dagml_generator_or_with_pick() -> None:
 
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     variants = [(list(pair), (lambda: _PLS(n_components=10))) for pair in combinations((_SNV, _MSC, Detrend, FirstDerivative), 2)]
-    # The SELECTED pair's refit final-test RMSE is `best_score` (the winner's `(final, test)`), NOT
-    # `best_rmse` — see the note in test_public_run_engine_dagml_generator_cartesian_stages. Per #55-host
-    # each variant carries its OWN held-out test, so `best_rmse` (lowest-VAL row across all variants) can
-    # pick a loser fold (as LEGACY does for this sweep); `best_score` is the winner's test, engine-agreed.
-    assert abs(result.best_score - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_score
+    # `best_rmse` describes the SELECTED pair (lowest-OOF-CV), reading its refit final-test RMSE — the same
+    # model `best_score` describes (RunResult._selected_metric anchors every shortcut on the selected
+    # model); for a single-model sweep best_rmse == best_score == that pair's test, agreeing across engines.
+    # The former #55-host quirk (best_rmse landing on a loser fold via per-metric get_best) was removed.
+    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")

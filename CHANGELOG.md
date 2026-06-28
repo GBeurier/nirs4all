@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [Unreleased]
+
+### 🐛 Fixed
+
+- **`RunResult.best_rmse` / `best_r2` / `best_accuracy` now describe the SELECTED model.**
+  These scalar shortcuts previously re-ranked predictions independently per metric
+  (`get_best(metric="rmse"/"r2"/"accuracy")`), which ranks rows by their *validation*
+  score. Under cross-validation the per-metric-best row is often a different CV *fold*
+  model than the one selection chose, so the shortcuts could each report a **different
+  model**: e.g. `best_r2` returned a ShuffleSplit fold's test R² (0.5426) instead of the
+  selected model's (0.5499), and `best_accuracy` returned a non-selected fold's plain
+  accuracy instead of the balanced-accuracy-selected model's. All three now read their
+  metric from `best` (the selection-metric winner that `best_score` describes), so the
+  scalar shortcuts are mutually consistent (for an rmse-selected single model,
+  `best_rmse == best_score`). This is a bugfix, not a contract break — but **CV runs where
+  a metric's validation-rank differs from the selection rank may now report different
+  `best_rmse` / `best_r2` / `best_accuracy` values** (webapp dashboards reading these
+  shortcuts may see changed numbers for such runs).
+
+---
+
 ## [0.10.0] - Heterogeneous source repetitions - 2026-06-13
 
 ### 🎯 Highlights

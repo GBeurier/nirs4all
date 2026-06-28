@@ -34,11 +34,11 @@ and every partition-keyed accessor reads a true native value:
   ``variant_id``), never another variant's. A single pipeline / the selected winner carries the held-out
   test scored at refit (or the reassembled-merge test); in a generator SWEEP each variant carries its own
   held-out test — operator-expanded variants ran fully so they have a real one, while a NATIVE loser that
-  never refit gets a NULL test (the row is still emitted for count parity). So each partition-keyed test
-  accessor reads its row's own native test, mirroring legacy: ``best_rmse`` =
-  ``get_best(score_scope="all")`` ranks on ``val`` across ALL variants then reads that row's test (so a
-  loser fold with the lowest val exposes ITS test — exactly as legacy does), while ``best_score`` is the
-  selected winner's refit ``final`` test.
+  never refit gets a NULL test (the row is still emitted for count parity). Each row's ``test`` key holds
+  that row's own native test, so ``top`` / ``get_best`` / ``score_scope`` rank the full per-variant table
+  correctly; the partition-keyed scalar shortcuts ``best_rmse`` / ``best_r2`` / ``best_accuracy`` all read
+  the SELECTED model's test metric via :meth:`RunResult._selected_metric` — the same model ``best_score``
+  describes — so the four scalars stay mutually consistent.
 
 ``cv_best_score`` stays the native cross-fold OOF average (the winner ``avg`` row's ``val`` score), preserved
 exactly; ``best`` / ``best_final`` resolve to the refit ``final`` through the refit-only
@@ -153,8 +153,9 @@ def _scores_to_run_result(
     → 21 rows, not 23). dag-ml's native bundle ALWAYS refits, so when ``skip_refit`` is set we suppress
     JUST the standalone-refit ``final`` rows from the projection (the per-fold / avg / w_avg test rows are
     unaffected — those come from the dataset's own held-out test partition, which legacy still scores).
-    ``cv_best_score`` (the OOF avg) and ``best_rmse`` (``score_scope="all"`` over the per-fold rows) are
-    unchanged; ``best`` / ``best_score`` then fall back to ``cv_best`` exactly as legacy does with no refit.
+    ``cv_best_score`` (the OOF avg) is unchanged; with no ``final`` row, ``best`` / ``best_score`` (and the
+    ``best_rmse`` / ``best_r2`` / ``best_accuracy`` shortcuts, which all read the selected entry via
+    :meth:`RunResult._selected_metric`) fall back to ``cv_best`` exactly as legacy does with no refit.
     """
     reports = [report for report in (scores or {}).get("reports", []) if producer is None or report.get("producer_node") == producer]
     # Key on (variant_id, partition, fold_id): native generation surfaces every variant's reports and
