@@ -47,7 +47,7 @@ from .detect import (
 from .errors import DagMlUnsupported
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
-from .result import _scores_to_run_result
+from .result import _project_operator_sweep, _scores_to_run_result
 from .run_paths import (
     _FUSION_MERGE_NODE_ID,
     _augmentation_is_leakage_free,
@@ -468,7 +468,7 @@ def _dispatch_run(
     # such structure). A reshape combined with branch/exclude/augmentation is rejected by `_detect_rep_fusion`
     # (returns None) and falls through to the bridge's fail-loud path naming #31.
     if detected_rep_fusion is not None:
-        return _run_rep_fusion(list(pipeline), detected_rep_fusion, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "rep_fusion", metric, task_type, config_name=config_name, random_state=random_state)
+        return _run_rep_fusion(list(pipeline), detected_rep_fusion, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "rep_fusion", metric, task_type, config_name=config_name, variant_config_names=variant_config_names, is_classification=is_classification, random_state=random_state)
 
     # REPETITIONS (sample-grain grouping): when the dataset declares a repetition column, several stored
     # rows share one physical sample. The split must be GROUP-aware — all replicates of a sample land on
@@ -586,108 +586,3 @@ def _dispatch_run(
         return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit)
 
     return _project_operator_sweep(variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names)
-
-
-def _variant_cv_score(scores: dict[str, Any], metric: str) -> float:
-    """The variant's cross-fold OOF ``metric`` — for SELECT, in the metric's OWN units / direction.
-
-    Reads the REQUESTED ``metric`` (``accuracy`` for classification, ``rmse`` for regression) — NOT a
-    hardcoded ``rmse`` (which is absent / meaningless for a classification sweep, so every variant would
-    tie NaN and the first would win regardless). The score is the cross-fold ``(validation, avg)`` report
-    (the single concrete path emits exactly one, ``variant_id`` ``None``); when there is NO avg (a
-    single-split splitter — KennardStone / SPXY ``n_splits=1`` — emits just the one validation fold), it
-    falls back to that SOLE ``(validation, fold)`` report, so a no-avg sweep still ranks on a real CV
-    score instead of defaulting to variant 0. Returns NaN only when the run produced no validation score.
-    """
-    avg = next((report for report in scores.get("reports", []) if report.get("partition") == "validation" and report.get("fold_id") == "avg"), None)
-    if avg is None:
-        avg = next((report for report in scores.get("reports", []) if report.get("partition") == "validation" and report.get("fold_id") != "avg"), None)
-    return float(avg["metrics"].get(metric, float("nan"))) if avg is not None else float("nan")
-
-
-def _project_operator_sweep(
-    variant_scores: list[tuple[dict[str, Any], str, bool]],
-    dataset_name: str,
-    metric: str,
-    task_type: str,
-    is_classification: bool,
-    variant_config_names: list[str],
-) -> RunResult:
-    """Combine each operator-expanded variant's single-variant ScoreSet into ONE per-variant projection.
-
-    Each variant ran as its own concrete dag-ml run, so its ScoreSet carries the native single-producer
-    tagging (``variant:base`` on the per-fold / refit reports, ``variant_id = None`` on the cross-fold
-    ``avg``). To feed the shared per-variant projection
-    (:func:`~nirs4all.pipeline.dagml.result._scores_to_run_result`), we synthesize the multi-variant
-    ScoreSet that native generation would have emitted: the CV WINNER (best ``metric`` — accuracy MAXIMIZED
-    for classification, rmse MINIMIZED for regression, matching nirs4all's get_best / the native SELECT
-    direction) keeps ALL its reports (incl. the refit ``(final/test, None)`` and the ``None``-tagged avg —
-    only the winner refits); every LOSER keeps only its VALIDATION reports, re-tagged with a distinct
-    ``variant_id`` (its avg re-tagged too, so it no longer claims the winner's ``None`` avg).
-
-    Each variant's rows are labeled by its OWN ``variant_id`` via the ``variant_config_names`` /
-    ``variant_model_names`` maps — the winner gets ITS expansion ``config_name`` (+ ``_refit``) and ITS
-    ``model_name`` (a multi-MODEL ``_or_`` sweep carries a different model per variant; the winner's
-    final/best rows must show the WINNING model, not the first variant's).
-    """
-    scores_by_variant = [scores for scores, _, _ in variant_scores]
-    model_names = [name for _, name, _ in variant_scores]
-    cv_scores = [_variant_cv_score(scores, metric) for scores in scores_by_variant]
-
-    def _rank(index: int) -> float:
-        score = cv_scores[index]
-        if score != score:  # NaN ranks last
-            return float("inf")
-        return -score if is_classification else score  # maximize accuracy, minimize RMSE
-
-    winner_index = min(range(len(scores_by_variant)), key=_rank)
-    # The legacy refit gate is the WINNER's, not `any`: a splitter GENERATOR (e.g.
-    # ``{"_or_": [KFold(n_splits=5), KFold(n_splits=3)]}``) yields per-variant gates — the all-default
-    # variant serializes to a bare string (legacy skips its refit) while the non-default one refits — so
-    # ONLY the selected variant's gate decides whether the standalone ``(final, *)`` rows are emitted.
-    skip_refit = variant_scores[winner_index][2]
-    # Winner first, then the losers in expand order — the projection iterates / labels by variant_id, so
-    # the order here only sets which reports lead, not the labels.
-    ordered_indices = [winner_index] + [index for index in range(len(scores_by_variant)) if index != winner_index]
-
-    combined_reports: list[dict[str, Any]] = []
-    variant_config_map: dict[Any, str] = {}
-    variant_model_map: dict[Any, str] = {}
-    for position, index in enumerate(ordered_indices):
-        is_winner = position == 0
-        variant_tag = "variant:base" if is_winner else f"variant:v{index}"
-        # Label this variant's rows with ITS expansion config_name + model_name (by the fold-level id the
-        # projection keys on). The winner's `(final, None)` carries `variant:base`, so the winner's refit
-        # rows resolve to the winner's config_name (+ `_refit`) and model_name too.
-        if variant_config_names:
-            variant_config_map[variant_tag] = variant_config_names[index]
-        variant_model_map[variant_tag] = model_names[index]
-        for report in scores_by_variant[index].get("reports", []):
-            partition, fold_id = report.get("partition"), report.get("fold_id")
-            entry = dict(report)
-            # Re-tag by variant_id so each variant's rows are distinct AND each variant carries its OWN
-            # test / refit-train (a LOSER must show ITS real held-out test + refit-train under ITS
-            # config_name, never the winner's). Every variant ran fully via _run_concrete here, so each has
-            # its own `(final, None)` / `(test, None)`; we KEEP them, re-tagged, so the projection scopes
-            # them per-variant. The winner keeps the native single-producer tagging (`variant:base` on
-            # folds/final/test, the avg's native `None`); a loser is re-tagged on ALL its reports (its avg
-            # too, so it no longer claims the winner's `None` avg). The projection still emits the
-            # standalone `_refit` rows for the WINNER only — a loser's `(final, *)` feeds only its
-            # ensemble-train block, not standalone-refit rows.
-            if is_winner:
-                entry["variant_id"] = None if (partition == "validation" and fold_id == "avg") else variant_tag
-            else:
-                entry["variant_id"] = variant_tag
-            combined_reports.append(entry)
-
-    combined_scores = {**scores_by_variant[winner_index], "reports": combined_reports}
-    return _scores_to_run_result(
-        combined_scores,
-        dataset_name,
-        model_names[winner_index],
-        metric,
-        task_type,
-        variant_config_names=variant_config_map or None,
-        variant_model_names=variant_model_map,
-        skip_refit=skip_refit,
-    )
