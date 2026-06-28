@@ -112,7 +112,10 @@ class XOutlierFilter(SampleFilter):
                          and min(n_samples - 1, n_features, 20) for Mahalanobis methods.
             contamination: Expected proportion of outliers for isolation_forest and lof.
                           Must be in (0, 0.5]. Default 0.1.
-            random_state: Random state for reproducibility (isolation_forest, MinCovDet).
+            random_state: Random state for reproducibility. Threaded into every RNG-using
+                          sub-component: the internal randomized-SVD PCA (mahalanobis dimension
+                          reduction and the pca_residual/pca_leverage solvers), MinCovDet
+                          (robust_mahalanobis), and IsolationForest. None leaves them randomized.
             support_fraction: Fraction of data to use for MinCovDet in robust_mahalanobis.
                              Higher values are faster but less robust. Default None uses
                              sklearn's default ((n_samples + n_features + 1) / 2n_samples).
@@ -233,7 +236,10 @@ class XOutlierFilter(SampleFilter):
 
         if n_features > effective_max:
             n_comp = min(effective_max, n_features)
-            pca = PCA(n_components=n_comp)
+            # When n_comp << n_features sklearn's svd_solver="auto" picks the RANDOMIZED solver, which
+            # draws from the global NumPy RNG; pass random_state so XOutlierFilter(random_state=X) is
+            # deterministic (unseeded stays randomized — sklearn ignores random_state for exact solvers).
+            pca = PCA(n_components=n_comp, random_state=self.random_state)
             X_reduced = pca.fit_transform(X)
             self.pca_ = pca
         else:
@@ -282,7 +288,10 @@ class XOutlierFilter(SampleFilter):
         # Determine number of components
         n_comp = min(self.n_components, n_samples, n_features) if self.n_components is not None else min(n_samples, n_features, 10)
 
-        self.pca_ = PCA(n_components=n_comp)
+        # svd_solver="auto" picks the RANDOMIZED solver (global-RNG) when n_comp << n_features; pass
+        # random_state so pca_residual/pca_leverage honor XOutlierFilter(random_state=X) (unseeded stays
+        # randomized; sklearn ignores random_state for the exact full/covariance solvers).
+        self.pca_ = PCA(n_components=n_comp, random_state=self.random_state)
         self.pca_.fit(X)
         self.center_ = self.pca_.mean_
 
