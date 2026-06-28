@@ -27,7 +27,7 @@ from ._datasets import dataset_path
 
 pytestmark = [pytest.mark.parity]
 
-pytest.importorskip("dag_ml", reason="dag-ml not installed (nirs4all[dagml])")
+pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
 
 
 @pytest.fixture(scope="module")

@@ -1,9 +1,10 @@
 """dag-ml bridge spike: the nirs4all gate-zero pipeline lowers to a dag-ml graph.
 
 Compile-only proof of the nirs4all → dag-ml DSL frontend (migration gap #1). The
-whole module is skipped when dag-ml is not installed (``nirs4all[dagml]``), so it
-never breaks environments without the optional engine. Execution via host
-controllers is a later phase; here we only assert the DSL lowers to a valid graph.
+whole module is skipped when dag-ml is not importable (a core dependency since the
+ADR-17 cutover — only a broken/partial install would lack it), so it degrades to a
+skip rather than erroring. Execution via host controllers is a later phase; here we
+only assert the DSL lowers to a valid graph.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from ._registry import get
 
 pytestmark = [pytest.mark.parity]
 
-pytest.importorskip("dag_ml", reason="dag-ml not installed (nirs4all[dagml])")
+pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
 
 
 def test_vertical_slice_compiles_to_dagml_graph() -> None:

@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### ⚙️ Changed
+
+- **ADR-17 cutover: the default execution engine is now `dag-ml` (was `legacy`).**
+  `nirs4all.run()` dispatches to the dag-ml backend by default — the pipeline runs
+  natively (Rust) and returns a `RunResult` of dag-ml's native scores. This realizes
+  the "nirs4all = the lite skeleton + Python controllers" North Star. Pass
+  `engine="legacy"` (or set `$N4A_ENGINE=legacy`) to force the in-process legacy
+  orchestrator. `predict()` / `explain()` / `retrain()` / `Session.run()` are
+  unaffected — they use `PipelineRunner` directly and never route through the engine
+  selector.
+- **In-process dag-ml execution is now the default mechanism.** The native PyO3 path
+  runs without the per-call subprocess import tax. An unset `N4A_DAGML_INPROCESS` means
+  in-process; set it to one of `0`/`false`/`off` (case-insensitive) to force the
+  subprocess (`dag-ml-cli`) path for debugging/isolation.
+- **`dag-ml` and `dag-ml-data` are now hard (core) dependencies**, no longer the
+  optional `[dagml]` extra (which has been removed). The native backend ships with
+  every install.
+
+### ✨ Added
+
+- **Transparent legacy fallback when the dag-ml backend is unavailable.** A new narrow
+  `DagMlUnavailable` error is raised by a dag-ml-backend preflight when NEITHER mechanism
+  is installed (no in-process `dag_ml._dag_ml` extension AND no `dag-ml-cli` binary).
+  `run()` catches it (alongside the existing `DagMlUnsupported` / `NotImplementedError`
+  coverage-boundary fallback) and re-runs on the legacy engine with a warning — so a
+  wheel install missing the native backend degrades gracefully instead of crashing.
+  GENUINE dag-ml runtime/operator errors still propagate untouched (never swallowed).
+
 ### 🐛 Fixed
 
 - **`RunResult.best_rmse` / `best_r2` / `best_accuracy` now describe the SELECTED model.**

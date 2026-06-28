@@ -34,12 +34,42 @@ from .resolver import MaterializationResolver
 
 
 def in_process_enabled() -> bool:
-    """True when the in-process mechanism (Mechanism B) is opted in via ``N4A_DAGML_INPROCESS=1``.
+    """True when the in-process mechanism (Mechanism B) is selected (ADR-17 cutover: ON by default).
 
-    Default OFF: the router keeps the subprocess :mod:`.cli_runner` path (Mechanism A) until the
-    in-process path is proven at parity across the full shape matrix, so nothing changes by default.
+    Since the ADR-17 cutover the in-process PyO3 path is the DEFAULT: an UNSET ``N4A_DAGML_INPROCESS``
+    means ENABLED (no per-call subprocess import tax). The env var only lets a caller force the
+    SUBPROCESS path (Mechanism A) for debugging / isolation: a value in ``{0, false, off}``
+    (case-insensitive) returns ``False`` (subprocess); ANY other value — incl. ``1``/``true``/``on`` —
+    returns ``True`` (in-process).
+
+    This is the OPT-IN flag's semantics only; whether the in-process path can actually be USED also
+    depends on the ``dag_ml._dag_ml`` extension loading (:func:`_dagml_extension_loads`). The router
+    (:func:`run_cv_refit_bundle_router`) falls back to subprocess when the extension fails to load even
+    if this returns ``True`` — a real in-process RUNTIME error is NOT caught (it propagates).
     """
-    return os.environ.get("N4A_DAGML_INPROCESS") == "1"
+    value = os.environ.get("N4A_DAGML_INPROCESS")
+    if value is None:
+        return True
+    return value.strip().lower() not in {"0", "false", "off"}
+
+
+def _dagml_extension_loads() -> bool:
+    """True when the compiled in-process PyO3 extension ``dag_ml._dag_ml`` imports AND loads.
+
+    The ONLY signal that gates in-process vs subprocess fallback: a wheel install that ships a working
+    extension can run in-process; one missing it (or whose ``.so`` fails to LOAD) cannot, and must use
+    the subprocess CLI instead. Actually IMPORTS the extension (find_spec alone would pass a corrupt
+    ``.so`` that fails on load), but does NOTHING ELSE — it never runs a campaign — so a genuine
+    in-process runtime/operator error (raised later, inside :func:`run_cv_refit_bundle`) is never
+    misread here as "extension unavailable" and silently rerouted to subprocess.
+    """
+    import importlib
+
+    try:
+        importlib.import_module("dag_ml._dag_ml")
+    except ImportError:
+        return False
+    return True
 
 
 def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, dict[str, dict[int, list[int]]] | None]:
@@ -151,10 +181,22 @@ def run_cv_refit_bundle_router(
     """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
 
     Both branches return the SAME outcome shape — ``{returncode, stdout, results, scores}`` — so the
-    ``_run_*`` call sites read ``outcome["scores"]`` uniformly (no ``bundle.json`` re-read). The subprocess
-    branch (the default, Mechanism A) is untouched: it drives :func:`cli_runner.run_cv_refit_bundle` and
-    lifts ``scores`` from the ``bundle.json`` the CLI wrote. The in-process branch (``N4A_DAGML_INPROCESS=1``)
-    drives :func:`run_cv_refit_bundle` here and gets ``scores`` directly from the bridge.
+    ``_run_*`` call sites read ``outcome["scores"]`` uniformly (no ``bundle.json`` re-read). The in-process
+    branch (the DEFAULT since the ADR-17 cutover — :func:`in_process_enabled`) drives
+    :func:`run_cv_refit_bundle` here and gets ``scores`` directly from the bridge. The subprocess branch
+    (Mechanism A) drives :func:`cli_runner.run_cv_refit_bundle` and lifts ``scores`` from the
+    ``bundle.json`` the CLI wrote.
+
+    MECHANISM CASCADE (ADR-17): try in-process when it is selected AND the ``dag_ml._dag_ml`` extension
+    loads (:func:`_dagml_extension_loads`); if the extension does NOT load (a wheel install missing /
+    with a broken ``.so``), fall through to the subprocess CLI; the subprocess branch then requires the
+    ``dag-ml-cli`` binary and raises :class:`DagMlUnavailable` when it is missing too (NEITHER mechanism
+    available → ``run()`` falls back to legacy with a warning). The ``dag-ml-cli`` existence check lives
+    HERE, in the subprocess branch ONLY — so an in-process-capable wheel never needs the sibling CLI.
+
+    Crucially the extension probe gates ONLY the import/LOAD, never the campaign: a real in-process
+    runtime/operator error from :func:`run_cv_refit_bundle` propagates untouched (never silently
+    rerouted to subprocess or swallowed into legacy).
 
     Keeping ``workdir`` / ``dagml_cli`` / ``venv_python`` in the signature lets the call sites pass the
     SAME kwargs to either path; the in-process branch ignores those subprocess-only inputs.
@@ -169,7 +211,7 @@ def run_cv_refit_bundle_router(
     branch ignores it: it fits operators in THIS process, whose global RNG ``run_via_dagml`` already
     seeded — so re-seeding here would be redundant.
     """
-    if in_process_enabled():
+    if in_process_enabled() and _dagml_extension_loads():
         return run_cv_refit_bundle(
             dsl=dsl,
             envelope=envelope,
@@ -180,6 +222,19 @@ def run_cv_refit_bundle_router(
             dataset_pickle=dataset_pickle,
             dataset=dataset,
             fold_children=fold_children,
+        )
+
+    # Subprocess branch (Mechanism A): either in-process was disabled or its extension did not load.
+    # The dag-ml-cli existence check belongs HERE (not at the run() entry) so an in-process-capable
+    # wheel never requires the sibling cargo-built CLI; a missing CLI here means NEITHER mechanism is
+    # available, so raise DagMlUnavailable for run() to fall back to legacy with a warning.
+    from .errors import DagMlUnavailable
+
+    if not Path(dagml_cli).exists():
+        raise DagMlUnavailable(
+            f"the dag-ml backend is not available: the in-process extension 'dag_ml._dag_ml' "
+            f"did not load and the dag-ml-cli binary was not found at {dagml_cli} "
+            "(build it: cargo build -p dag-ml-cli --release)"
         )
 
     from .cli_runner import run_cv_refit_bundle as _subprocess_run_cv_refit_bundle

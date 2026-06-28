@@ -58,7 +58,7 @@ def _oof_avg_row_count(workdir: Path, subdir: str) -> int | None:
 
 pytestmark = [pytest.mark.parity]
 
-pytest.importorskip("dag_ml", reason="dag-ml not installed (nirs4all[dagml])")
+pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
 
 _DAGML_CLI = Path(__file__).resolve().parents[3].parent / "dag-ml" / "target" / "release" / "dag-ml-cli"
 _N_SPLITS = 3
@@ -80,9 +80,10 @@ def test_dagml_engine_coverage_boundary() -> None:
     ShuffleSplit, single + multi-model, any sklearn estimator, preprocessing chains, y_processing,
     generators (_or_/_range_/_grid_), hyperparameter sweeps, concat_transform, single-source
     feature_augmentation (extend/add/replace → flat feature-axis concat, S6). UNSUPPORTED features must
-    fail LOUDLY (a clear NotImplementedError from the bridge) — never silently produce a wrong result —
-    so the default can only be flipped to dag-ml once these are covered. This test pins that boundary;
-    drop a keyword from `unsupported` as each gets implemented.
+    fail LOUDLY (a clear NotImplementedError from the bridge) — never silently produce a wrong result.
+    Since the ADR-17 cutover (dag-ml is the default engine) an unsupported shape falls back to legacy via
+    run() instead of producing a wrong result. This test pins that coverage boundary; drop a keyword from
+    `unsupported` as each gets implemented natively.
     """
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.preprocessing import MinMaxScaler
@@ -793,7 +794,7 @@ def test_public_run_engine_dagml_exclude_default_legacy_parity() -> None:
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
         {"model": PLSRegression(n_components=n_comp)},
     ]
-    legacy = nirs4all.run(pipeline(), dataset_path("regression"))
+    legacy = nirs4all.run(pipeline(), dataset_path("regression"), engine="legacy")
     dagml = nirs4all.run(pipeline(), dataset_path("regression"), engine="dag-ml")
 
     # cv_best_score: dag-ml default == legacy (both KFold over the kept universe; excluded absent).
@@ -993,7 +994,7 @@ def test_public_run_engine_dagml_exclude_sequential() -> None:
             {"model": PLSRegression(n_components=5)},
         ]
 
-    legacy = nirs4all.run(pipeline(), dataset_path("regression"))
+    legacy = nirs4all.run(pipeline(), dataset_path("regression"), engine="legacy")
     dagml = nirs4all.run(pipeline(), dataset_path("regression"), engine="dag-ml")
     assert abs(dagml.cv_best_score - legacy.cv_best_score) < 1e-3, (dagml.cv_best_score, legacy.cv_best_score)
 

@@ -44,7 +44,7 @@ from .detect import (
     _is_exclude_step,
     _is_stacking_merge_step,
 )
-from .errors import DagMlUnsupported
+from .errors import DagMlUnavailable, DagMlUnsupported
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
 from .result import _project_operator_sweep, _scores_to_run_result
@@ -71,6 +71,7 @@ _DEFAULT_CLI = Path(__file__).resolve().parents[4] / "dag-ml" / "target" / "rele
 # Names re-exported for the stable ``nirs4all.pipeline.dagml.run_backend`` import surface (the parity
 # suite and any caller import these private helpers directly from this module).
 __all__ = [
+    "DagMlUnavailable",
     "DagMlUnsupported",
     "_FUSION_MERGE_NODE_ID",
     "_augmentation_is_leakage_free",
@@ -92,6 +93,7 @@ __all__ = [
     "_reshape_for_rep_fusion",
     "_resolve_exclude",
     "_run_rep_fusion",
+    "preflight_dagml_backend",
     "run_via_dagml",
 ]
 
@@ -169,6 +171,36 @@ def _reject_unsupported_run_options(*, refit: Any, project: str | None, session:
         )
 
 
+def preflight_dagml_backend(cli: str) -> None:
+    """Raise :class:`DagMlUnavailable` when NEITHER dag-ml execution mechanism is installed.
+
+    The narrow availability gate the ADR-17 cutover added: ``dag-ml`` is now the default engine + a
+    hard dependency, but a wheel install could still be MISSING the native backend (no compiled
+    in-process extension AND no sibling ``dag-ml-cli`` binary). This probe mirrors the router cascade
+    (:func:`~nirs4all.pipeline.dagml.in_process_runner.run_cv_refit_bundle_router`):
+
+    * the in-process PyO3 extension ``dag_ml._dag_ml`` LOADS (Mechanism B is the default), OR
+    * the ``dag-ml-cli`` binary exists at ``cli`` (Mechanism A, the subprocess fallback).
+
+    Either one available → return (the run proceeds). NEITHER → raise :class:`DagMlUnavailable`, the
+    ONE catchable signal ``run()`` turns into a transparent legacy fallback WITH A WARNING. It is the
+    ONLY place that "backend not installed" is decided — deliberately a narrow up-front probe, NOT a
+    blanket ``except ImportError/FileNotFoundError`` around the run, so a genuine dag-ml bug raised
+    DURING execution propagates untouched instead of being swallowed into a silent legacy fallback.
+    """
+    from .in_process_runner import _dagml_extension_loads, in_process_enabled
+
+    if in_process_enabled() and _dagml_extension_loads():
+        return
+    if Path(cli).exists():
+        return
+    raise DagMlUnavailable(
+        "the dag-ml backend is not available: the in-process extension 'dag_ml._dag_ml' did not load "
+        f"and the dag-ml-cli binary was not found at {cli} (build it: cargo build -p dag-ml-cli --release). "
+        "run() will fall back to the legacy engine."
+    )
+
+
 def run_via_dagml(
     pipeline: Any,
     dataset: Any,
@@ -242,9 +274,12 @@ def run_via_dagml(
 
         init_global_random_state(random_state)
 
+    # PREFLIGHT: fail fast (and CATCHABLY) when NEITHER dag-ml mechanism is installed, so run() can
+    # fall back to legacy with a warning instead of crashing deep in a _run_* path. This narrow probe
+    # mirrors the router cascade (in-process .so, else subprocess CLI) and raises ONLY DagMlUnavailable
+    # — a genuine dag-ml runtime/operator error is NOT caught here (it surfaces later and propagates).
     cli = str(dagml_cli or _DEFAULT_CLI)
-    if not Path(cli).exists():
-        raise FileNotFoundError(f"dag-ml-cli binary not found at {cli}; build it (cargo build -p dag-ml-cli --release)")
+    preflight_dagml_backend(cli)
 
     # Materialize the host dataset from ANY input legacy `run()` accepts (path / config /
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
