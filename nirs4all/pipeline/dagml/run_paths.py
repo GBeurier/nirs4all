@@ -41,6 +41,8 @@ def _run_native_generation(
     excluded: set[int] | None = None,
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
+    config_name: str = "",
+    random_state: int | None = None,
 ) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
 
@@ -69,12 +71,12 @@ def _run_native_generation(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name)
 
 
 def _run_concrete(
@@ -90,6 +92,8 @@ def _run_concrete(
     excluded: set[int] | None = None,
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
+    config_name: str = "",
+    random_state: int | None = None,
 ) -> RunResult:
     """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores.
 
@@ -113,15 +117,15 @@ def _run_concrete(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle, dataset=spectro
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name)
 
 
-def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
+def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a REPETITION (sample-grain grouped) pipeline as ONE native dag-ml CV+refit run.
 
     The CV universe is the repetition ROWS of the train partition (each stored row is its own
@@ -143,7 +147,7 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
 
     variants = expand_spec(pipeline)
     results = [
-        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, dataset_pickle=dataset_pickle)
+        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -159,7 +163,7 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
     return min(results, key=_cv_rank)
 
 
-def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
+def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """One concrete repetition variant: group-aware folds + a ``group_id``-carrying envelope."""
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -178,12 +182,12 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml repetition run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name)
 
 
 def _reshape_for_rep_fusion(rep_step: dict[str, Any], spectro: Any) -> None:
@@ -211,7 +215,7 @@ def _reshape_for_rep_fusion(rep_step: dict[str, Any], spectro: Any) -> None:
     spectro._repetition = None  # noqa: SLF001 - the rep grouping was consumed by the reshape
 
 
-def _run_rep_fusion(pipeline: list[Any], rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_rep_fusion(pipeline: list[Any], rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a ``rep_to_sources`` / ``rep_to_pp`` pipeline as ONE native dag-ml CV+refit run (S7).
 
     REP FUSION is a one-time host RESHAPE feeding an already-native multimodal path:
@@ -244,7 +248,7 @@ def _run_rep_fusion(pipeline: list[Any], rep_step: dict[str, Any], spectro: Any,
     variants = expand_spec(body)
     run_dir.mkdir(parents=True, exist_ok=True)
     results = [
-        _run_rep_fusion_concrete(variant, rep_step, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, pickle)
+        _run_rep_fusion_concrete(variant, rep_step, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, pickle, config_name=config_name, random_state=random_state)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -260,7 +264,7 @@ def _run_rep_fusion(pipeline: list[Any], rep_step: dict[str, Any], spectro: Any,
     return min(results, key=_cv_rank)
 
 
-def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, pickle: Any) -> RunResult:
+def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, pickle: Any, config_name: str = "", random_state: int | None = None) -> RunResult:
     """One concrete rep-fusion variant: reshape a fresh dataset copy, then the sample-grain CV+refit."""
     import copy
 
@@ -293,13 +297,13 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
     pickle_path.write_bytes(pickle.dumps(reshaped))
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=reshaped
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=reshaped, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml rep-fusion run failed")
 
     rep_key = "rep_to_sources" if "rep_to_sources" in rep_step else "rep_to_pp"
-    return _scores_to_run_result(outcome["scores"], reshaped.name, f"{rep_key}_{_model_name(steps)}", metric, task_type)
+    return _scores_to_run_result(outcome["scores"], reshaped.name, f"{rep_key}_{_model_name(steps)}", metric, task_type, config_name=config_name)
 
 
 def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
@@ -496,7 +500,7 @@ def _augmentation_is_leakage_free(aug_step: dict[str, Any]) -> bool:
     return bool(transformers) and all(_operator_is_stateless(transformer) for transformer in transformers)
 
 
-def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str) -> RunResult:
+def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a ``sample_augmentation`` pipeline as ONE native dag-ml CV+refit on augmented train.
 
     Adds the synthetic train rows (real augmentation machinery), builds BASE-grain folds (each base
@@ -577,18 +581,18 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     pickle_path.write_bytes(pickle.dumps({"dataset": spectro, "fold_children": fold_children} if fold_local else spectro))
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=spectro, fold_children=fold_children
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=str(pickle_path), dataset=spectro, fold_children=fold_children, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml augmentation run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name)
 
 
 _MERGE_NODE_ID = "merge:concat"
 
 
-def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
+def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], branch_body: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a by_metadata/by_tag separation branch + concat merge as ONE native dag-ml fan-out run.
 
     Lowers the branch to an ``auto_separate`` template (one branch carrying the criterion + the
@@ -656,7 +660,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     fanned_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle, dataset=spectro
+        dsl=fanned_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, sample_metadata=sample_metadata, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml separation-branch run failed")
@@ -666,7 +670,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     # off-fold merge handler reassembles each per-partition refit model's held-out TEST prediction
     # (the node runner emits it with `fold_id=None`) into one full-universe test block under the merge
     # node. Both scores are the separation branch's, surfaced by `_scores_to_run_result`.
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(body_steps), metric, task_type, producer=_MERGE_NODE_ID, config_name=config_name)
 
 
 def _branch_compat_step(step: Any) -> dict[str, Any]:
@@ -753,7 +757,7 @@ def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[
     return branch
 
 
-def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate: str, n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
+def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate: str, n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a by_source separation branch + avg/mean fusion merge as ONE native dag-ml run (S4).
 
     LATE fusion BY SOURCE: fans the shared body into one canonical branch PER feature source
@@ -826,16 +830,16 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml by_source run failed")
 
     model_label = f"by_source_{_model_name(branch_body)}x{n_sources}"
-    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
+    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID, config_name=config_name)
 
 
-def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
+def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a duplication branch (``[[A], [B], …]``) + avg/mean fusion merge as ONE native dag-ml run.
 
     Lowers each inner sub-pipeline to a canonical branch (``mode: "duplication"`` — every branch model
@@ -899,7 +903,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml duplication-fusion run failed")
@@ -908,13 +912,13 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     # ensemble's `cv_best_score`) AND a reassembled `(test, fold_id=None)` block (`best_rmse`, the
     # branches' test predictions averaged per sample). Both are surfaced by `_scores_to_run_result`.
     model_label = "+".join(_model_name(branch) for branch in branches)
-    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID)
+    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID, config_name=config_name)
 
 
 _META_NODE_ID = "merge:stack"
 
 
-def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None) -> RunResult:
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
     Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
@@ -989,7 +993,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml stacking run failed")
@@ -998,4 +1002,4 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # ensemble's `cv_best_score`) AND a `(test, fold_id=None)` block (`best_rmse`): the refit meta-model
     # predicting the held-out test from the base producers' REFIT-test predictions (`…oof:refit`).
     model_label = f"MetaModel_{type(meta_learner).__name__}"
-    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_META_NODE_ID)
+    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_META_NODE_ID, config_name=config_name)
