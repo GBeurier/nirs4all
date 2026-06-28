@@ -354,6 +354,82 @@ def test_public_run_engine_dagml() -> None:
     assert abs(result.cv_best_score - sklearn_oof) < 1e-3
 
 
+@pytest.mark.parametrize(
+    "inprocess",
+    [
+        pytest.param("1", id="in_process"),
+        pytest.param("0", id="subprocess", marks=pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")),
+    ],
+)
+def test_public_run_engine_dagml_fills_direct_block_predictions(inprocess, monkeypatch, tmp_path) -> None:
+    """The single-pipeline dag-ml projection FILLS real per-sample y_pred/y_true/sample_indices (2a-i).
+
+    Proves the strict direct-block rows — per-fold ``val``, refit ``(final, train)``, refit
+    ``(final, test)`` — carry the dag-ml engine's actual per-sample prediction VALUES (not empty
+    arrays), aligned BY SAMPLE ID to a DIRECT sklearn(SNV+PLS) refit. Runs on BOTH mechanisms (the
+    in-process bridge surfaces bare ``node_results``; the subprocess CLI wraps them as
+    ``{"type": "result", ...}`` frames — the projection's normalizer handles both). The scores and
+    ``num_predictions`` are unchanged — only the previously-empty arrays on the 5 direct rows are filled.
+
+    Drives :func:`run_via_dagml` directly (the seam ``nirs4all.run(engine="dag-ml")`` calls) so the
+    subprocess case can be pointed at the built ``dag-ml-cli`` binary; ``N4A_DAGML_INPROCESS`` selects
+    the mechanism.
+    """
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", inprocess)
+
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable)
+    assert any(d.get("engine") == "dag-ml" for d in result.per_dataset.values()), "the run must have executed on the dag-ml engine"
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    test_ints = dataset.index_column("sample", {"partition": "test"})
+    # Reconstruct the SAME folds the engine built (`_build_folds` → `splitter.split` on the train pool,
+    # KFold is index-only so this is the engine's exact partition), in dag-ml's emitted foldN order.
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    # --- (A) The fold-0 validation row carries real, sample-id-aligned y_pred / y_true / sample_indices.
+    fold0_train, fold0_val = folds[0]
+    val_rows = result.predictions.filter_predictions(partition="val", fold_id="0")
+    assert len(val_rows) == 1, "exactly one (fold 0, val) row"
+    row = val_rows[0]
+    assert len(np.asarray(row["y_pred"])) > 0 and len(np.asarray(row["sample_indices"])) > 0, "the fold-0 val row must be FILLED (not empty)"
+    assert sorted(row["sample_indices"]) == sorted(fold0_val), "fold-0 val sample_indices == the fold-0 validation samples"
+
+    # Direct sklearn(SNV+PLS) on fold-0 TRAIN, predicting the validation samples — matched BY SAMPLE ID.
+    direct = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+    direct.fit(np.asarray(dataset.x({"sample": fold0_train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": fold0_train}), dtype=float))
+    pred_by_sample = {int(sid): float(p) for sid, p in zip(row["sample_indices"], np.asarray(row["y_pred"], dtype=float).ravel(), strict=True)}
+    true_by_sample = {int(sid): float(t) for sid, t in zip(row["sample_indices"], np.asarray(row["y_true"], dtype=float).ravel(), strict=True)}
+    for sample_int in fold0_val:
+        direct_pred = float(np.asarray(direct.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+        assert abs(pred_by_sample[sample_int] - direct_pred) < 1e-6, f"fold-0 val y_pred drift for sample {sample_int}"
+        # y_true equals dataset.y for that sample (matched by sample id, not array position).
+        assert abs(true_by_sample[sample_int] - float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])) < 1e-6
+
+    # --- (B) The final TEST row carries a full-train refit predicting the held-out test, by sample id.
+    test_rows = result.predictions.filter_predictions(partition="test", fold_id="final")
+    assert len(test_rows) == 1, "exactly one (final, test) row"
+    test_row = test_rows[0]
+    assert sorted(test_row["sample_indices"]) == sorted(test_ints), "final-test sample_indices == the test partition"
+    refit = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+    refit.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+    test_pred_by_sample = {int(sid): float(p) for sid, p in zip(test_row["sample_indices"], np.asarray(test_row["y_pred"], dtype=float).ravel(), strict=True)}
+    for sample_int in test_ints:
+        direct_test = float(np.asarray(refit.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+        assert abs(test_pred_by_sample[sample_int] - direct_test) < 1e-6, f"final-test y_pred drift for sample {sample_int}"
+
+    # --- (C) The final TRAIN row is also filled (refit predicting its own full train).
+    train_rows = result.predictions.filter_predictions(partition="train", fold_id="final")
+    assert len(train_rows) == 1, "exactly one (final, train) row"
+    assert sorted(train_rows[0]["sample_indices"]) == sorted(train), "final-train sample_indices == the train partition"
+
+
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_public_run_engine_dagml_shufflesplit() -> None:
     """engine="dag-ml" runs a NON-OOF (ShuffleSplit) CV: dag-ml relaxes the OOF check (Resampled

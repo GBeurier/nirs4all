@@ -98,17 +98,20 @@ def _run_concrete_scores(
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
     random_state: int | None = None,
-) -> tuple[dict[str, Any], str, bool]:
-    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, skip_refit)``.
+) -> tuple[dict[str, Any], str, bool, list[dict[str, Any]], Any]:
+    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, skip_refit, results, identity)``.
 
-    The raw native ScoreSet + the model label + the legacy refit-gate flag, so an operator-level generator
-    sweep can COMBINE every variant's ScoreSet into one per-variant projection (legacy num_predictions
-    parity) — see :func:`~nirs4all.pipeline.dagml.run_backend._dispatch_run`. :func:`_run_concrete` wraps
-    this for the single-variant path. ``skip_refit`` is :func:`~nirs4all.pipeline.dagml.steps._legacy_skips_refit`
-    on the splitter — true when an all-default splitter serializes to a bare string, the case where legacy
-    skips the refit and emits no ``(final, *)`` rows. ``cv_pool`` is the CV sample-int universe (de-excluded
-    pool in legacy mode, full train in opt-in mode); ``excluded`` is marked in the envelope only in the
-    opt-in (``keep_in_oof=True``).
+    The raw native ScoreSet + the model label + the legacy refit-gate flag + the per-node ``NodeResult``
+    frames + the minted ``IdentityMap``. The first three feed both the single-variant projection and the
+    operator-sweep COMBINE (legacy num_predictions parity) — see
+    :func:`~nirs4all.pipeline.dagml.run_backend._dispatch_run`. The last two (``results``, ``identity``)
+    let the single-variant projection fill the strict direct-block per-sample y_pred/y_true/sample_indices
+    (2a-i) — the sweep path ignores them (its per-variant value fill is 2a-ii/2a-iii). :func:`_run_concrete`
+    wraps this for the single-variant path. ``skip_refit`` is
+    :func:`~nirs4all.pipeline.dagml.steps._legacy_skips_refit` on the splitter — true when an all-default
+    splitter serializes to a bare string, the case where legacy skips the refit and emits no ``(final, *)``
+    rows. ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
+    mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``).
     """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -132,7 +135,7 @@ def _run_concrete_scores(
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter)
+    return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter), outcome["results"], identity
 
 
 def _run_concrete(
@@ -156,10 +159,10 @@ def _run_concrete(
     ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
     mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
     """
-    scores, model_name, skip_refit = _run_concrete_scores(
+    scores, model_name, skip_refit, results, identity = _run_concrete_scores(
         pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state
     )
-    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit)
+    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, results=results, identity=identity)
 
 
 def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:

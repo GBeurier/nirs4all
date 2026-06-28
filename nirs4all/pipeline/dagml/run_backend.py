@@ -612,12 +612,18 @@ def _dispatch_run(
     # per-variant projection (legacy num_predictions parity) — selecting the best by CV (mirroring
     # nirs4all) and emitting the winner's refit rows only.
     variants = _expand_operator_generators(list(pipeline))
-    variant_scores = [
+    variant_runs = [
         _run_concrete_scores(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, random_state=random_state)
         for index, variant in enumerate(variants)
     ]
-    if len(variant_scores) == 1:
-        scores, model_name, skip_refit = variant_scores[0]
-        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit)
+    if len(variant_runs) == 1:
+        # SINGLE concrete pipeline: thread the node results + minted identity into the projection so the
+        # strict direct-block rows (per-fold val + refit final/test) carry real y_pred/y_true/sample_indices
+        # (2a-i). scores/skip_refit unchanged — num_predictions and scores are score-set-driven as before.
+        scores, model_name, skip_refit, results, identity = variant_runs[0]
+        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, results=results, identity=identity)
 
+    # Operator SWEEP (2a-ii/2a-iii — value fill deferred): the per-variant projection consumes only the
+    # (scores, model_name, skip_refit) triple, so the node results/identity are dropped here.
+    variant_scores = [(scores, model_name, skip_refit) for scores, model_name, skip_refit, _results, _identity in variant_runs]
     return _project_operator_sweep(variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names)
