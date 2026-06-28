@@ -24,7 +24,7 @@ from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
-from .result import _scores_to_run_result
+from .result import _native_variant_config_map, _scores_to_run_result
 from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _model_name, _split_pipeline, _supported_body_steps
 
 
@@ -42,14 +42,17 @@ def _run_native_generation(
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
     config_name: str = "",
+    variant_config_names: list[str] | None = None,
     random_state: int | None = None,
 ) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
 
     The model step keeps its generator dict so the bridge lowers it to native ``generators``; we
     apply only the plain (non-generator) sibling params to the model, never the sweep. dag-ml
-    expands the variants, scores each by its cross-fold OOF ``metric``, and refits the winner —
-    ``bundle.scores`` is the selected variant's, mapped to a RunResult exactly like the single path.
+    expands the variants, scores EACH by its cross-fold OOF ``metric`` and surfaces every variant's
+    validation reports (#55), refitting only the winner — ``bundle.scores`` is mapped to a RunResult
+    as the full PER-VARIANT legacy table (``variant_config_names`` carries the ordered legacy per-variant
+    config names), so a sweep's num_predictions matches legacy.
 
     ``cv_pool`` is the CV sample-int universe (the de-excluded pool in legacy mode, the full train
     in opt-in mode); ``excluded`` is marked in the envelope only in opt-in (``keep_in_oof=True``).
@@ -76,29 +79,33 @@ def _run_native_generation(
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name)
+    # A native param sweep varies one model's params only (same model class across variants), so only the
+    # per-variant config_name map is needed — model_name is shared, so the projection's scalar fallback is
+    # correct. The map keys each opaque native variant_id to its legacy expand config name (winner-first).
+    variant_config_map = _native_variant_config_map(outcome["scores"], variant_config_names) if variant_config_names else None
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map)
 
 
-def _run_concrete(
+def _run_concrete_scores(
     pipeline: Any,
     spectro: Any,
     dataset_arg: str,
     cli: str,
     venv_python: str,
     run_dir: Path,
-    metric: str = "rmse",
-    task_type: str = "regression",
     cv_pool: list[int] | None = None,
     excluded: set[int] | None = None,
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
-    config_name: str = "",
     random_state: int | None = None,
-) -> RunResult:
-    """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores.
+) -> tuple[dict[str, Any], str]:
+    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name)``.
 
-    ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
-    mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
+    The raw native ScoreSet + the model label, so an operator-level generator sweep can COMBINE every
+    variant's ScoreSet into one per-variant projection (legacy num_predictions parity) — see
+    :func:`~nirs4all.pipeline.dagml.run_backend._dispatch_run`. :func:`_run_concrete` wraps this for the
+    single-variant path. ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full
+    train in opt-in mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``).
     """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -122,7 +129,34 @@ def _run_concrete(
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name)
+    return outcome["scores"], _model_name(steps)
+
+
+def _run_concrete(
+    pipeline: Any,
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str = "rmse",
+    task_type: str = "regression",
+    cv_pool: list[int] | None = None,
+    excluded: set[int] | None = None,
+    tags_by_sample: dict[int, list[str]] | None = None,
+    dataset_pickle: str | None = None,
+    config_name: str = "",
+    random_state: int | None = None,
+) -> RunResult:
+    """Run one concrete (generator-free) pipeline through dag-ml-cli; map its native scores.
+
+    ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
+    mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
+    """
+    scores, model_name = _run_concrete_scores(
+        pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state
+    )
+    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name)
 
 
 def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:

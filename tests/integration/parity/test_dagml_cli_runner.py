@@ -30,26 +30,31 @@ from ._datasets import PARSER_FIXTURES, dataset_path
 
 
 def _oof_avg_row_count(workdir: Path, subdir: str) -> int | None:
-    """The OOF cross-fold-average ``row_count`` for a run — engine-agnostic.
+    """The WINNER's OOF cross-fold-average ``row_count`` for a run — engine-agnostic.
 
     The subprocess path (Mechanism A) writes ``<subdir>/bundle.json``; the cross-fold OOF average
-    is its ``scores.reports`` entry with ``partition == "validation"`` and ``fold_id == "avg"``, and
+    is a ``scores.reports`` entry with ``partition == "validation"`` and ``fold_id == "avg"``, and
     ``row_count`` is the number of samples validated in the OOF (the leakage/coverage check). The
     in-process path (Mechanism B, ``N4A_DAGML_INPROCESS=1``) writes NO bundle.json — the native
     ScoreSet is returned in-memory and mapped straight to the RunResult, which does not preserve
     ``row_count`` — so this returns ``None``. Callers assert the disk value only when it is present
     (subprocess) and always assert the RunResult ``cv_best_score`` parity, which both engines expose.
+
+    A native generation sweep now surfaces EVERY variant's validation reports (dag-ml #55), so the
+    bundle carries one ``avg`` per variant: the WINNER's native re-tagged ``variant_id == None`` plus
+    each LOSER's ``variant_id``-stamped avg. The single SELECTED OOF average is the winner's — the
+    ``variant_id is None`` row — so we assert there is exactly one of THOSE and return its row_count.
     """
     bundle_path = workdir / subdir / "bundle.json"
     if not bundle_path.exists():
         return None
-    avg = [
+    winner_avg = [
         report
         for report in json.loads(bundle_path.read_text())["scores"]["reports"]
-        if report["partition"] == "validation" and report.get("fold_id") == "avg"
+        if report["partition"] == "validation" and report.get("fold_id") == "avg" and report.get("variant_id") is None
     ]
-    assert len(avg) == 1, "the bundle scores must carry exactly one cross-fold OOF average"
-    return int(avg[0]["row_count"])
+    assert len(winner_avg) == 1, "the bundle scores must carry exactly one SELECTED (winner) cross-fold OOF average"
+    return int(winner_avg[0]["row_count"])
 
 pytestmark = [pytest.mark.parity]
 
@@ -4210,7 +4215,12 @@ def test_public_run_engine_dagml_generator_cartesian_stages() -> None:
 
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     variants = [([a, b], (lambda: _PLS(n_components=10))) for a, b in product((_SNV, _MSC), (Detrend, FirstDerivative))]
-    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
+    # The SELECTED variant's refit final-test RMSE is `best_score` (the winner's `(final, test)`), NOT
+    # `best_rmse`. Per #55-host each variant now carries its OWN held-out test (a loser no longer borrows
+    # the winner's), so `best_rmse` (get_best ranks the lowest-VAL row across ALL variants' folds and reads
+    # ITS test) can land on a loser fold whose ShuffleSplit val happens to be the lowest — exactly as it
+    # does on LEGACY for this sweep. `best_score` is the winner's refit test and agrees across engines.
+    assert abs(result.best_score - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_score
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -4235,7 +4245,11 @@ def test_public_run_engine_dagml_generator_or_with_pick() -> None:
 
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     variants = [(list(pair), (lambda: _PLS(n_components=10))) for pair in combinations((_SNV, _MSC, Detrend, FirstDerivative), 2)]
-    assert abs(result.best_rmse - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_rmse
+    # The SELECTED pair's refit final-test RMSE is `best_score` (the winner's `(final, test)`), NOT
+    # `best_rmse` — see the note in test_public_run_engine_dagml_generator_cartesian_stages. Per #55-host
+    # each variant carries its OWN held-out test, so `best_rmse` (lowest-VAL row across all variants) can
+    # pick a loser fold (as LEGACY does for this sweep); `best_score` is the winner's test, engine-agreed.
+    assert abs(result.best_score - _best_variant_test_rmse(dataset, variants)) < 1e-3, result.best_score
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
