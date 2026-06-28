@@ -582,8 +582,8 @@ def _dispatch_run(
         for index, variant in enumerate(variants)
     ]
     if len(variant_scores) == 1:
-        scores, model_name = variant_scores[0]
-        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name)
+        scores, model_name, skip_refit = variant_scores[0]
+        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit)
 
     return _project_operator_sweep(variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names)
 
@@ -606,7 +606,7 @@ def _variant_cv_score(scores: dict[str, Any], metric: str) -> float:
 
 
 def _project_operator_sweep(
-    variant_scores: list[tuple[dict[str, Any], str]],
+    variant_scores: list[tuple[dict[str, Any], str, bool]],
     dataset_name: str,
     metric: str,
     task_type: str,
@@ -630,8 +630,8 @@ def _project_operator_sweep(
     ``model_name`` (a multi-MODEL ``_or_`` sweep carries a different model per variant; the winner's
     final/best rows must show the WINNING model, not the first variant's).
     """
-    scores_by_variant = [scores for scores, _ in variant_scores]
-    model_names = [name for _, name in variant_scores]
+    scores_by_variant = [scores for scores, _, _ in variant_scores]
+    model_names = [name for _, name, _ in variant_scores]
     cv_scores = [_variant_cv_score(scores, metric) for scores in scores_by_variant]
 
     def _rank(index: int) -> float:
@@ -641,6 +641,11 @@ def _project_operator_sweep(
         return -score if is_classification else score  # maximize accuracy, minimize RMSE
 
     winner_index = min(range(len(scores_by_variant)), key=_rank)
+    # The legacy refit gate is the WINNER's, not `any`: a splitter GENERATOR (e.g.
+    # ``{"_or_": [KFold(n_splits=5), KFold(n_splits=3)]}``) yields per-variant gates — the all-default
+    # variant serializes to a bare string (legacy skips its refit) while the non-default one refits — so
+    # ONLY the selected variant's gate decides whether the standalone ``(final, *)`` rows are emitted.
+    skip_refit = variant_scores[winner_index][2]
     # Winner first, then the losers in expand order — the projection iterates / labels by variant_id, so
     # the order here only sets which reports lead, not the labels.
     ordered_indices = [winner_index] + [index for index in range(len(scores_by_variant)) if index != winner_index]
@@ -684,4 +689,5 @@ def _project_operator_sweep(
         task_type,
         variant_config_names=variant_config_map or None,
         variant_model_names=variant_model_map,
+        skip_refit=skip_refit,
     )

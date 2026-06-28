@@ -25,7 +25,7 @@ from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_p
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _native_variant_config_map, _scores_to_run_result
-from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _model_name, _split_pipeline, _supported_body_steps
+from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _legacy_skips_refit, _model_name, _split_pipeline, _supported_body_steps
 
 
 def _run_native_generation(
@@ -83,7 +83,7 @@ def _run_native_generation(
     # per-variant config_name map is needed — model_name is shared, so the projection's scalar fallback is
     # correct. The map keys each opaque native variant_id to its legacy expand config name (winner-first).
     variant_config_map = _native_variant_config_map(outcome["scores"], variant_config_names) if variant_config_names else None
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, skip_refit=_legacy_skips_refit(splitter))
 
 
 def _run_concrete_scores(
@@ -98,14 +98,17 @@ def _run_concrete_scores(
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
     random_state: int | None = None,
-) -> tuple[dict[str, Any], str]:
-    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name)``.
+) -> tuple[dict[str, Any], str, bool]:
+    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, skip_refit)``.
 
-    The raw native ScoreSet + the model label, so an operator-level generator sweep can COMBINE every
-    variant's ScoreSet into one per-variant projection (legacy num_predictions parity) — see
-    :func:`~nirs4all.pipeline.dagml.run_backend._dispatch_run`. :func:`_run_concrete` wraps this for the
-    single-variant path. ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full
-    train in opt-in mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``).
+    The raw native ScoreSet + the model label + the legacy refit-gate flag, so an operator-level generator
+    sweep can COMBINE every variant's ScoreSet into one per-variant projection (legacy num_predictions
+    parity) — see :func:`~nirs4all.pipeline.dagml.run_backend._dispatch_run`. :func:`_run_concrete` wraps
+    this for the single-variant path. ``skip_refit`` is :func:`~nirs4all.pipeline.dagml.steps._legacy_skips_refit`
+    on the splitter — true when an all-default splitter serializes to a bare string, the case where legacy
+    skips the refit and emits no ``(final, *)`` rows. ``cv_pool`` is the CV sample-int universe (de-excluded
+    pool in legacy mode, full train in opt-in mode); ``excluded`` is marked in the envelope only in the
+    opt-in (``keep_in_oof=True``).
     """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -129,7 +132,7 @@ def _run_concrete_scores(
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return outcome["scores"], _model_name(steps)
+    return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter)
 
 
 def _run_concrete(
@@ -153,10 +156,10 @@ def _run_concrete(
     ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
     mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
     """
-    scores, model_name = _run_concrete_scores(
+    scores, model_name, skip_refit = _run_concrete_scores(
         pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state
     )
-    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name)
+    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit)
 
 
 def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
@@ -221,7 +224,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml repetition run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter))
 
 
 def _reshape_for_rep_fusion(rep_step: dict[str, Any], spectro: Any) -> None:
@@ -336,8 +339,10 @@ def _run_rep_fusion_concrete(body: Any, rep_step: dict[str, Any], spectro: Any, 
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml rep-fusion run failed")
 
-    rep_key = "rep_to_sources" if "rep_to_sources" in rep_step else "rep_to_pp"
-    return _scores_to_run_result(outcome["scores"], reshaped.name, f"{rep_key}_{_model_name(steps)}", metric, task_type, config_name=config_name)
+    # Legacy labels the model by the model step's own name/class only — the rep_to_sources / rep_to_pp
+    # reshape is a dataset transform, NOT part of the model_name. Emit the bare `_model_name` (e.g.
+    # "PLSRegression"), matching legacy get_models() exactly (no "rep_to_sources_" / "rep_to_pp_" prefix).
+    return _scores_to_run_result(outcome["scores"], reshaped.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter))
 
 
 def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
@@ -620,7 +625,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml augmentation run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name)
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter))
 
 
 _MERGE_NODE_ID = "merge:concat"

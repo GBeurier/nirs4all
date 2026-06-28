@@ -106,6 +106,7 @@ def _scores_to_run_result(
     config_name: str = "",
     variant_config_names: dict[Any, str] | None = None,
     variant_model_names: dict[Any, str] | None = None,
+    skip_refit: bool = False,
 ) -> RunResult:
     """Project a dag-ml ScoreSet into the full legacy ``Predictions`` table (a labeled compat projection).
 
@@ -144,6 +145,16 @@ def _scores_to_run_result(
     partitions follow the native refit reports. The ``test`` partition is emitted on EVERY role only
     when the run has a held-out test partition (a native ``(test, None)`` report) — a no-test dataset
     drops every ``test`` row, the legacy train+val-only shape.
+
+    ``skip_refit`` REPLICATES the legacy refit gate (see
+    :func:`~nirs4all.pipeline.dagml.steps._legacy_skips_refit`): when the pipeline's splitter serializes
+    to a bare class string (all-default params), legacy's ``execute_simple_refit`` does not recognize it
+    and SKIPS the refit, emitting NO ``(final, train)`` / ``(final, test)`` rows (e.g. ``KFold(n_splits=5)``
+    → 21 rows, not 23). dag-ml's native bundle ALWAYS refits, so when ``skip_refit`` is set we suppress
+    JUST the standalone-refit ``final`` rows from the projection (the per-fold / avg / w_avg test rows are
+    unaffected — those come from the dataset's own held-out test partition, which legacy still scores).
+    ``cv_best_score`` (the OOF avg) and ``best_rmse`` (``score_scope="all"`` over the per-fold rows) are
+    unchanged; ``best`` / ``best_score`` then fall back to ``cv_best`` exactly as legacy does with no refit.
     """
     reports = [report for report in (scores or {}).get("reports", []) if producer is None or report.get("producer_node") == producer]
     # Key on (variant_id, partition, fold_id): native generation surfaces every variant's reports and
@@ -274,8 +285,9 @@ def _scores_to_run_result(
         #     blocks plus its OOF average under val (so it ranks on the same CV axis as the avg).
         #     `best`/`best_final` resolve to a final via score_scope="refit" (refit-only ranking). Degrades
         #     to train-only with no test, or (a merge node, no refit-train report) to test-only. The
-        #     `_refit` suffix is skipped for an empty config name. ---
-        if is_final_owner:
+        #     `_refit` suffix is skipped for an empty config name. SUPPRESSED entirely when `skip_refit` is
+        #     set — the legacy gate did not refit (bare-string splitter), so NO `(final, *)` rows. ---
+        if is_final_owner and not skip_refit:
             refit_config_name = variant_config_name + "_refit" if variant_config_name else variant_config_name
             final_blocks: dict[str, dict[str, float] | None] = {"train": variant_final_train, "val": avg, "test": variant_test}
             if variant_final_train is not None:
