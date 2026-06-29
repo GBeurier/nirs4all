@@ -109,17 +109,20 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     # to make it deterministic and re-evaluate); not a proven fixed divergence.
     "generator_sample_log_uniform_alpha": "unseeded _sample_ (_seed_ not set) → "
     "nondeterministic variant set/winner across engines (Δrmse up to ≈5.3e-1)",
-    # No-test-set rep shapes: the only score they produce is cv_best_score, which
-    # DIVERGES (rep_to_sources 6.6735 vs 6.1906; rep_to_pp 6.1427 vs 6.1906). The
-    # cause is the rep OOF-aggregation difference — legacy concatenates overlapping
-    # rep folds (double-counting per rep variant, so the two rep pipelines give
-    # different cv), while dag-ml aggregates the OOF identically (6.1906 for both).
-    # Documented parity debt, cross-ref the deferred 2a-iii avg/w_avg OOF surface;
-    # enforced (not structurally masked) so it XPASS-flips when 2a-iii lands.
-    "rep_to_sources_basic": "rep OOF cv_best_score aggregation differs legacy↔dag-ml "
-    "(legacy concat-overlapping-folds 6.6735 vs dag-ml OOF-aggregate 6.1906; parity debt 2a-iii)",
-    "rep_to_pp_basic": "rep OOF cv_best_score aggregation differs legacy↔dag-ml "
-    "(legacy concat-overlapping-folds 6.1427 vs dag-ml OOF-aggregate 6.1906; parity debt 2a-iii)",
+    # No-test-set rep shapes: the only score they produce is cv_best_score, a SCALAR
+    # that DIVERGES (rep_to_sources 6.6735 vs 6.1906; rep_to_pp 6.1427 vs 6.1906).
+    # The cause is the rep OOF-aggregation difference — legacy DOUBLE-COUNTS the
+    # overlapping rep folds (ShuffleSplit reps appear in several folds; legacy
+    # concatenates them, so each rep pipeline scores a different cv), while dag-ml
+    # aggregates each sample's OOF exactly ONCE (6.1906 for both). dag-ml is the
+    # CORRECT value; this is a PERMANENT semantic divergence, not a fixable bug.
+    # A2 (2a-iii) surfaced the per-sample OOF avg y_pred but does NOT touch this
+    # scalar — the divergence is in the score's aggregation semantics, not the
+    # per-sample values — so these stay xfailed (measured: still XFAIL after A2).
+    "rep_to_sources_basic": "PERMANENT semantic divergence in cv_best_score: legacy double-counts "
+    "overlapping rep folds (6.6735); dag-ml aggregates each OOF sample once (6.1906, the correct value)",
+    "rep_to_pp_basic": "PERMANENT semantic divergence in cv_best_score: legacy double-counts "
+    "overlapping rep folds (6.1427); dag-ml aggregates each OOF sample once (6.1906, the correct value)",
     # Sample-level aggregation (mean/median/outlier-exclude) now flows the final-(test) y_pred across the
     # bridge at parity (Gap 2 / A1): the repetition concrete path threads the node results + identity into
     # the projection, so the refit's already-aggregated `(test, None)` sample block fills the final-(test)

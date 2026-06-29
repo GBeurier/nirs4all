@@ -430,6 +430,55 @@ def test_public_run_engine_dagml_fills_direct_block_predictions(inprocess, monke
     assert sorted(train_rows[0]["sample_indices"]) == sorted(train), "final-train sample_indices == the train partition"
 
 
+def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> None:
+    """The cross-fold OOF AVERAGE (``avg``/``w_avg``) VAL row now carries per-sample y_pred (2a-iii A2).
+
+    dag-ml computes the per-sample OOF average (each train sample's across-fold mean validation
+    prediction) and now SURFACES it as a sample-level ``aggregated_predictions`` block + id-matched
+    y_true through the in-process bridge; the projection FILLS the ``(val, avg)`` / ``(val, w_avg)``
+    rows from it (they were empty before). Asserts the avg row covers EVERY train sample exactly once
+    and its y_pred equals a DIRECT sklearn KFold OOF mean BY SAMPLE ID within 1e-6 — and that
+    ``avg`` and ``w_avg`` carry the SAME per-sample OOF (legacy invariant). In-process only: the
+    subprocess path surfaces the OOF average as the scalar ``cv_best_score`` (unchanged), not a block.
+    """
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path, dagml_cli="/nonexistent", venv_python=sys.executable)
+
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    train = dataset.index_column("sample", {"partition": "train"})
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
+
+    # Direct sklearn(SNV+PLS) KFold OOF: each train sample's validation prediction from the fold that
+    # held it out — KFold validates every sample exactly once, so this IS the OOF average per sample.
+    sklearn_oof: dict[int, float] = {}
+    for fold_train, fold_val in folds:
+        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+        model.fit(np.asarray(dataset.x({"sample": fold_train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": fold_train}), dtype=float))
+        for sample_int in fold_val:
+            sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+
+    avg_by_sample: dict[str, dict[int, float]] = {}
+    for fold_id in ("avg", "w_avg"):
+        rows = result.predictions.filter_predictions(partition="val", fold_id=fold_id)
+        assert len(rows) == 1, f"exactly one (val, {fold_id}) row"
+        row = rows[0]
+        assert len(np.asarray(row["y_pred"])) > 0, f"the (val, {fold_id}) row must be FILLED (not empty)"
+        assert sorted(row["sample_indices"]) == sorted(train), f"(val, {fold_id}) covers every train sample exactly once (OOF)"
+        avg_by_sample[fold_id] = {int(sid): float(p) for sid, p in zip(row["sample_indices"], np.asarray(row["y_pred"], dtype=float).ravel(), strict=True)}
+        diffs = [abs(avg_by_sample[fold_id][sample_int] - sklearn_oof[sample_int]) for sample_int in sklearn_oof]
+        assert max(diffs) < 1e-6, f"(val, {fold_id}) y_pred drift vs direct sklearn OOF mean: {max(diffs)}"
+
+    # avg and w_avg carry the SAME per-sample OOF (legacy: avg.val == w_avg.val == cv_best_score).
+    assert avg_by_sample["avg"] == avg_by_sample["w_avg"]
+
+
 @pytest.mark.parametrize(
     "inprocess",
     [
