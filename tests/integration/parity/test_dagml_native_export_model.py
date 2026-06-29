@@ -49,10 +49,19 @@ _N_SPLITS = 3
 
 
 def _refit_x(dataset_key: str) -> np.ndarray:
-    """The held-out test feature matrix (2D) — the X the exported model predicts in the exactness check."""
+    """The held-out test feature matrix (2D) — the X the exported model predicts in the exactness check.
+
+    Materialized at the dataset's NATIVE storage dtype (float32, the SpectroDataset contract) — NOT
+    widened to float64. The dag-ml run's scored REFIT model predicts the test partition on this same
+    native-dtype X (the engine resolver feeds the estimator float32, see node_runner ``_predict``), so
+    the exported model — which IS that same captured estimator (the joblib round-trip is bit-exact) —
+    reproduces the run's ``y_pred`` EXACTLY (0.0 diff) on it. A float64 widening here would perturb the
+    SNV+PLS input by ~1e-7 relative and amplify to ~1e-4 in the output (a pure input-dtype artifact, not
+    a model-identity gap), which would defeat the exactness this test asserts.
+    """
     base = DatasetConfigs(dataset_path(dataset_key)).get_dataset_at(0)
     test_ids = [int(s) for s in base.index_column("sample", {"partition": "test"})]
-    return np.asarray(base.x_rows(test_ids, layout="2d"), dtype=float)
+    return np.asarray(base.x_rows(test_ids, layout="2d"))
 
 
 def _final_test_pred(result) -> np.ndarray:

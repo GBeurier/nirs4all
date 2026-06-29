@@ -59,7 +59,8 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "plots_visible: bool = False, random_state: int | None = None, "
         "refit: bool | dict[str, typing.Any] | list[dict[str, typing.Any]] | None = True, "
         "cache: typing.Any | None = None, project: str | None = None, "
-        "report_naming: str = 'nirs', engine: str | None = None, **runner_kwargs: Any) -> "
+        "report_naming: str = 'nirs', engine: str | None = None, "
+        "results_path: str | pathlib.Path | None = None, **runner_kwargs: Any) -> "
         "nirs4all.api.result.RunResult"
     ),
     "predict": (

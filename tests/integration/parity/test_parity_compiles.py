@@ -58,6 +58,12 @@ def test_keyword_coverage_documented() -> None:
         # with missing values; deferred to a follow-up phase.
         "na_policy",
         "fill_value",
+        # _depends_on_ is a DEAD keyword — declared in CONSTRAINT_KEYWORDS but
+        # never consulted by the constraint engine; placing it on a generator
+        # node BREAKS expansion, so it cannot be a runnable parity case. It is
+        # documented via engine-level asserts in
+        # test_generators_conformance_extra.py rather than a runnable case.
+        "_depends_on_",
     }
     coverage = keyword_coverage()
     holes = {kw for kw, cases in coverage.items() if not cases} - intentionally_uncovered
