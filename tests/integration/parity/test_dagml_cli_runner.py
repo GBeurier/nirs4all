@@ -867,6 +867,99 @@ def test_public_run_engine_dagml_classification() -> None:
     assert abs(result.best_accuracy - sklearn_accuracy) < 1e-3
 
 
+@pytest.mark.parametrize(
+    "inprocess",
+    [
+        pytest.param("1", id="in_process"),
+        pytest.param("0", id="subprocess", marks=pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")),
+    ],
+)
+def test_public_run_engine_dagml_classification_cv_score_balanced_accuracy_legacy_parity(inprocess, monkeypatch, tmp_path) -> None:
+    """The classification CV-selection metric on engine="dag-ml" == legacy: BALANCED accuracy (#60).
+
+    Legacy ``Predictions._resolve_effective_metric`` DEFAULTS a classification candidate's ranking
+    metric to ``balanced_accuracy`` (NOT plain ``accuracy``), so its ``cv_best_score`` for a
+    classification sweep is the balanced figure. ``run_backend`` therefore requests
+    ``--selection-metric balanced_accuracy`` (CLI) / ``parse_selection_metric`` (in-process), and
+    dag-ml-core scores the native ``BalancedAccuracy`` kind. This locks the #60 parity: dag-ml's
+    classification ``cv_best_score`` matches legacy's (closing the prior accuracy-vs-balanced_accuracy
+    gap, e.g. ~0.32 plain-accuracy vs the ~0.14 balanced figure both engines now agree on). Runs on
+    BOTH mechanisms (in-process bridge + subprocess CLI) so the rebuilt ``.so`` and binary are both
+    exercised."""
+    from sklearn.linear_model import LogisticRegression
+
+    import nirs4all
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", inprocess)
+
+    pipeline = [KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": LogisticRegression(max_iter=500)}]
+    legacy = nirs4all.run(pipeline, dataset_path("classification"), engine="legacy")
+    dagml = run_via_dagml(pipeline, dataset_path("classification"), workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable)
+    assert any(d.get("engine") == "dag-ml" for d in dagml.per_dataset.values()), "the run must have executed on the dag-ml engine"
+
+    # cv_best_score is the SELECTED model's CV ranking score = balanced_accuracy for classification on
+    # BOTH engines; they must agree (the #60 metric-mismatch is closed).
+    assert abs(dagml.cv_best_score - legacy.cv_best_score) < 1e-3, (dagml.cv_best_score, legacy.cv_best_score)
+
+
+@pytest.mark.parametrize(
+    "inprocess",
+    [
+        pytest.param("1", id="in_process"),
+        pytest.param("0", id="subprocess", marks=pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")),
+    ],
+)
+def test_public_run_engine_dagml_classification_sweep_selects_balanced_accuracy_winner(inprocess, monkeypatch, tmp_path) -> None:
+    """A classification SWEEP where accuracy and balanced_accuracy pick DIFFERENT winners: dag-ml must
+    select the BALANCED_ACCURACY winner, matching legacy — genuinely locking the CV-selection METRIC and
+    its MAXIMIZE direction (#60), not just the reported score of a single candidate.
+
+    On the imbalanced multiclass corpus a ``DummyClassifier(most_frequent)`` scores the HIGHEST plain
+    accuracy (it always predicts the majority class) but a POOR balanced_accuracy, while
+    ``LinearDiscriminantAnalysis`` scores LOWER accuracy yet the HIGHER balanced_accuracy. So an
+    accuracy-ranked sweep would pick Dummy and report balanced_accuracy ~0.14; a balanced_accuracy-ranked
+    sweep picks LDA and reports ~0.20. Asserting dag-ml's ``cv_best_score`` == legacy's (~0.20, the LDA
+    figure) proves dag-ml ranked on balanced_accuracy and maximized it — the wrong-metric or
+    wrong-direction would land on Dummy's ~0.14 instead. Runs on BOTH mechanisms."""
+    from sklearn.discriminant_analysis import LinearDiscriminantAnalysis
+    from sklearn.dummy import DummyClassifier
+    from sklearn.metrics import accuracy_score, balanced_accuracy_score
+
+    import nirs4all
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", inprocess)
+
+    dataset = DatasetConfigs(dataset_path("classification")).get_dataset_at(0)
+    x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d"), dtype=float)
+    y_train = np.asarray(dataset.y({"partition": "train"})).ravel()
+    cv_folds = list(KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(x_train))
+
+    def cv_oof(factory) -> tuple[float, float]:  # noqa: ANN001
+        oof = np.zeros(len(y_train))
+        for tr, va in cv_folds:
+            model = factory().fit(x_train[tr], y_train[tr])
+            oof[va] = model.predict(x_train[va])
+        return float(accuracy_score(y_train, oof)), float(balanced_accuracy_score(y_train, oof))
+
+    dummy_acc, dummy_bal = cv_oof(lambda: DummyClassifier(strategy="most_frequent"))
+    lda_acc, lda_bal = cv_oof(LinearDiscriminantAnalysis)
+    # Precondition: the two metrics MUST disagree on the winner, else the test proves nothing.
+    assert dummy_acc > lda_acc and lda_bal > dummy_bal, (dummy_acc, lda_acc, dummy_bal, lda_bal)
+
+    pipeline = [KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": {"_or_": [DummyClassifier(strategy="most_frequent"), LinearDiscriminantAnalysis()]}}]
+    legacy = nirs4all.run(pipeline, dataset_path("classification"), engine="legacy")
+    dagml = run_via_dagml(pipeline, dataset_path("classification"), workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable)
+    assert any(d.get("engine") == "dag-ml" for d in dagml.per_dataset.values()), "the run must have executed on the dag-ml engine"
+
+    # dag-ml selected the balanced_accuracy winner (LDA, ~lda_bal) and matches legacy — NOT Dummy's
+    # higher-accuracy / lower-balanced_accuracy variant (which would have surfaced ~dummy_bal).
+    assert abs(dagml.cv_best_score - legacy.cv_best_score) < 1e-3, (dagml.cv_best_score, legacy.cv_best_score)
+    assert abs(dagml.cv_best_score - lda_bal) < 1e-3, (dagml.cv_best_score, lda_bal)
+    assert abs(dagml.cv_best_score - dummy_bal) > 1e-2, "must NOT have selected the plain-accuracy winner"
+
+
 def _excluded_train_ints(dataset, train: list[int], threshold: float) -> set[int]:
     """Fit a YOutlierFilter on the full base train pool and return the excluded sample ints.
 

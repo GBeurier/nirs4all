@@ -498,7 +498,12 @@ def _dispatch_run(
     variant_config_names = _derive_variant_config_names(pipeline, name)
 
     is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
-    metric = "accuracy" if is_classification else "rmse"
+    # CV-selection metric MUST mirror legacy Predictions._resolve_effective_metric: its DEFAULT for a
+    # classification candidate is `balanced_accuracy` (NOT plain `accuracy`), so a classification run on
+    # dag-ml ranks/reports the SAME metric legacy does (#60). dag-ml-core exposes a native
+    # `BalancedAccuracy` kind reachable via `--selection-metric balanced_accuracy` (CLI) and the in-process
+    # bridge's `parse_selection_metric`. Regression stays `rmse`.
+    metric = "balanced_accuracy" if is_classification else "rmse"
     task_type = "classification" if is_classification else "regression"
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an

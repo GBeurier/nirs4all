@@ -431,9 +431,11 @@ def _scores_to_run_result(
 def _variant_cv_score(scores: dict[str, Any], metric: str) -> float:
     """The variant's cross-fold OOF ``metric`` — for SELECT, in the metric's OWN units / direction.
 
-    Reads the REQUESTED ``metric`` (``accuracy`` for classification, ``rmse`` for regression) — NOT a
-    hardcoded ``rmse`` (which is absent / meaningless for a classification sweep, so every variant would
-    tie NaN and the first would win regardless). The score is the cross-fold ``(validation, avg)`` report
+    Reads the REQUESTED ``metric`` (``balanced_accuracy`` for classification — legacy's default ranking
+    metric, #60 — ``rmse`` for regression) — NOT a hardcoded ``rmse`` (which is absent / meaningless for a
+    classification sweep, so every variant would tie NaN and the first would win regardless). dag-ml emits
+    BOTH ``accuracy`` and ``balanced_accuracy`` on every classification report, so the requested key is
+    present. The score is the cross-fold ``(validation, avg)`` report
     (the single concrete path emits exactly one, ``variant_id`` ``None``); when there is NO avg (a
     single-split splitter — KennardStone / SPXY ``n_splits=1`` — emits just the one validation fold), it
     falls back to that SOLE ``(validation, fold)`` report, so a no-avg sweep still ranks on a real CV

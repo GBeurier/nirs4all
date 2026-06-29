@@ -185,3 +185,46 @@ def test_dagml_rejects_session_and_cache_under_default() -> None:
 def test_run_rejects_unknown_engine() -> None:
     with pytest.raises(ValueError, match="unknown"):
         nirs4all.run([{"model": PLSRegression(n_components=2)}], dataset_path("regression"), engine="bogus")
+
+
+@pytest.mark.parametrize(
+    ("metric", "winner_index"),
+    [
+        ("balanced_accuracy", 1),  # maximize → highest score wins (the #60 regression fix)
+        ("accuracy", 1),  # maximize
+        ("r2", 1),  # maximize
+        ("rmse", 0),  # minimize → lowest score wins
+    ],
+)
+def test_run_repetition_selects_by_metric_direction(monkeypatch: pytest.MonkeyPatch, metric: str, winner_index: int) -> None:
+    """`_run_repetition`'s multi-variant winner uses the CANONICAL metric direction (core.metrics).
+
+    Locks #60 MUST-FIX 1: ``balanced_accuracy`` (the classification default) is HIGHER-is-better, so the
+    highest-CV variant must win. The old ``metric in ("accuracy", "r2")`` set excluded balanced_accuracy
+    and would have MINIMIZED it (picking the worst variant). Drives the selection directly with two stub
+    variants (scores 0.10 / 0.90) so it asserts the direction without needing a repetition fixture."""
+    from nirs4all.pipeline.config import generator
+    from nirs4all.pipeline.dagml import run_paths
+
+    class _StubResult:
+        def __init__(self, score: float) -> None:
+            self._score = score
+
+        @property
+        def cv_best_score(self) -> float:
+            return self._score
+
+    stub_results = [_StubResult(0.10), _StubResult(0.90)]
+    variants = ["variant_a", "variant_b"]
+    # `_run_repetition` imports `expand_spec` function-locally, so patch it at its source module.
+    monkeypatch.setattr(generator, "expand_spec", lambda _pipeline: variants)
+
+    def _fake_concrete(variant, *_args, **_kwargs):  # noqa: ANN001, ANN002, ANN003
+        return stub_results[variants.index(variant)]
+
+    monkeypatch.setattr(run_paths, "_run_repetition_concrete", _fake_concrete)
+
+    selected = run_paths._run_repetition(
+        ["dummy-pipeline"], spectro=None, dataset_arg="", cli="", venv_python="", run_dir=Path("."), metric=metric, task_type="classification"
+    )
+    assert selected is stub_results[winner_index], (metric, selected._score)
