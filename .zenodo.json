@@ -1,0 +1,28 @@
+{
+  "title": "nirs4all: Open spectroscopy workflows for reproducible NIR chemometrics",
+  "version": "0.10.3",
+  "description": "nirs4all is an open-source Python workflow system for near-infrared spectroscopy and chemometric calibration. It records preprocessing, validation, provenance, prediction and deployment artefacts as declared, content-addressed, re-executable workflow objects.",
+  "creators": [
+    {
+      "name": "Beurier, Gregory",
+      "affiliation": "CIRAD, UMR AGAP Institut"
+    },
+    {
+      "name": "Rouan, Lauriane",
+      "affiliation": "CIRAD, UMR AGAP Institut"
+    },
+    {
+      "name": "Cornet, Denis",
+      "affiliation": "CIRAD, UMR AGAP Institut"
+    }
+  ],
+  "license": "AGPL-3.0-or-later",
+  "keywords": [
+    "near-infrared spectroscopy",
+    "chemometrics",
+    "reproducible workflows",
+    "provenance",
+    "spectral preprocessing"
+  ],
+  "access_right": "open"
+}

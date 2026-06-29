@@ -7,6 +7,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.10.3] - Release metadata and 0.10.2 hardening - 2026-06-29
+
+### Highlights
+
+Patch release used for the CILS article archive. It preserves the 0.10.x public
+API while bundling the post-0.10.2 hardening commits used by the manuscript
+reproducibility replay.
+
+### Added
+
+- `nirs4all.data.selection.sampling` with random, stratified and k-means-based
+  index-selection helpers for subset and preview workflows.
+
+### Fixed
+
+- Raised NumPy and scientific dependency floors to the versions required by the
+  current PLS stack.
+- Avoid retaining workspace stores at interpreter exit.
+- Updated example plotting code for the supported Matplotlib colormap API.
+- Synced release-facing documentation, conda metadata and version guardrails.
+
+---
+
 ## [0.10.0] - Heterogeneous source repetitions - 2026-06-13
 
 ### 🎯 Highlights
