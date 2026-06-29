@@ -300,10 +300,10 @@ def _scores_to_run_result(
 
         ``arrays`` (``(sample_indices, y_true, y_pred)``) FILLS the per-sample prediction buffer for the
         strict direct-block rows (2a-i): the per-fold ``val`` rows, the refit ``(final, train)`` row, and
-        the refit ``(final, test)`` row. It is ``None`` (empty arrays, score-only) for every other row
-        (per-fold train, avg/w_avg, and any non-single-pipeline path) — those stay score-only as before,
-        so ``num_predictions`` is unchanged and the scores still come from ``scores["reports"]``, never
-        recomputed from the arrays.
+        the refit ``(final, test)`` row; the ``avg``/``w_avg`` validation rows carry the native OOF average
+        (2a-iii item A). It is ``None`` (empty arrays, score-only) for the per-fold train rows and any
+        not-yet-wired path, so ``num_predictions`` is unchanged either way (row-count based) and the scores
+        still come from ``scores["reports"]``, never recomputed from the arrays.
 
         ``row_config_name`` is the variant's config name (already ``"_refit"``-suffixed by the caller for
         the standalone-refit rows, matching legacy ``"{cv_config_name}_refit"`` — see
@@ -443,9 +443,18 @@ def _scores_to_run_result(
         #     loser). Matching legacy, where avg.val == w_avg.val == cv_best_score. ---
         if has_avg and avg is not None:
             ensemble_blocks: dict[str, dict[str, float] | None] = {"train": variant_final_train or avg, "val": avg, "test": variant_test}
+            # STRICT 2a-iii (A2): FILL the avg + w_avg `val` rows with THIS variant's per-sample OOF
+            # cross-fold AVERAGE arrays — dag-ml surfaces the `(validation, avg)` SAMPLE-level
+            # AggregatedPredictionBlock + id-matched y_true; `_row_arrays` reads it under the `(validation,
+            # avg)` key (keyed by `variant_id`, so a variant's row never borrows another's). Legacy's avg
+            # and w_avg carry the SAME OOF average per sample, so both `val` rows read the same block. The
+            # `train`/`test` ensemble rows stay score-only (no fold-train/ensemble-test block emitted), and
+            # `num_predictions`/scores are unchanged — only the previously-empty avg/w_avg val arrays fill.
+            avg_arrays = _row_arrays(variant_id, "validation", "avg")
             for fold_id in ("avg", "w_avg"):
                 for partition in cv_partitions:
-                    add(fold_id, partition, ensemble_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name)
+                    arrays = avg_arrays if partition == "val" else None
+                    add(fold_id, partition, ensemble_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name, arrays=arrays)
 
         # --- Refit final rows: (final, train) + (final, test), refit_context="standalone". Emitted only
         #     for the FINAL OWNER — the sweep WINNER (the one variant dag-ml refits), or the sole producer
