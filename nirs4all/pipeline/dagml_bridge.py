@@ -28,6 +28,7 @@ import json
 from typing import Any
 
 from nirs4all import __version__ as _NIRS4ALL_VERSION
+from nirs4all.pipeline.dagml.errors import DagMlUnsupported
 
 # Stacking meta-model wiring (backlog #10). The meta-node is a `model`-kind node bound to a dedicated
 # controller (via `metadata.controller_id`) that declares `consumes_oof_predictions`. The ref is the
@@ -39,6 +40,12 @@ _META_MODEL_REF = "nirs4all.meta_model"
 # to detect a generator-shaped model sibling that this bridge does NOT lower natively, so it can fail
 # loud instead of silently demoting it to a plain param.
 _GENERATION_KEYWORDS = frozenset({"_or_", "_range_", "_log_range_", "_grid_", "_zip_", "_chain_", "_sample_", "_cartesian_"})
+
+# Inert generator-annotation keys (`_tags_` / `_metadata_`) that do NOT change the variant set — they
+# annotate a generator node only (see config._generator). A flat-single operator `_or_` carrying just
+# these still lowers natively (the variant set is the bare `_or_`); any OTHER sibling key forces the
+# Python expand path (see `_lower_operator_generator`).
+_INERT_GENERATOR_ANNOTATION_KEYS = frozenset({"_tags_", "_metadata_", "name"})
 
 # Step keywords recognised by nirs4all but not yet lowered by this spike.
 _UNSUPPORTED_STEP_KEYS = frozenset({
@@ -148,6 +155,227 @@ def is_param_generator_spec(spec: Any) -> bool:
     if key not in ("_range_", "_log_range_"):
         return False
     return isinstance(value, list) and len(value) == 3 and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in value)
+
+
+def _is_bare_operator_choice(choice: Any) -> bool:
+    """True when an ``_or_`` choice is a SINGLE bare operator (a transform instance/class), not a list/dict.
+
+    A flat operator generator the native path lowers is an ``_or_`` whose every choice is one bare
+    operator (``SNV`` / ``MSC()``). A multi-step LIST choice (``[SNV, FirstDerivative]``), a ``{"model":
+    …}`` (multi-model) or any other dict (a nested generator / param spec) is NOT flat-bare — those stay
+    on the Python ``expand_spec`` path (:func:`_lower_operator_generator` raises for them).
+    """
+    return not isinstance(choice, (list, dict))
+
+
+def _lower_operator_generator(step: dict[str, Any]) -> dict[str, Any]:
+    """Lower a FLAT-SINGLE operator ``_or_`` of bare operators to a compat ``{"_or_": [<op>, …]}`` step.
+
+    The dag-ml compat importer lowers ``{"_or_": [op0, op1, …]}`` to a ``PipelineDslStep::Generator``
+    (one branch per choice, each branch a single transform step), which ``compile_operator_variant_models``
+    expands into the operator-variant models the in-process binding scores by CV-OOF + refits the winner
+    of (native operator-SELECT). This emits exactly that compat shape — each ``_or_`` value lowered to the
+    bare-operator ``{"class": FQN, "params": {…}}`` dict :func:`_step_to_dsl` already produces.
+
+    ONLY the flat bare-operator ``_or_`` is accepted (so the variant set is the bare ``_or_`` and each
+    choice lowers to ONE transform step). Anything richer raises :class:`NotImplementedError` so
+    ``run_via_dagml`` falls back to the Python ``expand_spec`` path (which stays on the dag-ml engine):
+
+    * a non-``_or_`` keyword (``_cartesian_`` / ``_grid_`` / ``_chain_`` / ``_zip_`` / ``_sample_``);
+    * a ``pick`` / ``arrange`` / ``then_pick`` / ``then_arrange`` / ``count`` modifier, a ``_weights_`` /
+      ``_seed_`` sampler, or a ``_mutex_`` / ``_requires_`` / ``_exclude_`` constraint;
+    * a multi-step LIST choice or a ``{"model": …}`` (multi-model) choice — only single bare operators.
+
+    Inert annotation keys (``_tags_`` / ``_metadata_`` / ``name``) are no-ops that do not change the
+    variant set, so they are tolerated and dropped (the lowered ``_or_`` carries the choices only).
+    """
+    keywords = _GENERATION_KEYWORDS & set(step)
+    if keywords != {"_or_"}:
+        raise NotImplementedError(
+            f"dag-ml bridge lowers only a flat single `_or_` operator generator natively; "
+            f"{sorted(keywords)} stays on the Python expand path"
+        )
+    extra = set(step) - {"_or_"} - _INERT_GENERATOR_ANNOTATION_KEYS
+    if extra:
+        raise NotImplementedError(
+            f"dag-ml bridge does not lower `_or_` with modifier/constraint key(s) {sorted(extra)} natively; "
+            f"the Python expand path owns pick/arrange/count/_mutex_/_requires_/_exclude_/_weights_/_seed_"
+        )
+    choices = step["_or_"]
+    if not isinstance(choices, list) or not choices or not all(_is_bare_operator_choice(choice) for choice in choices):
+        raise NotImplementedError(
+            "dag-ml bridge lowers `_or_` natively only when every choice is a single bare operator "
+            "(not a multi-step list, a {'model': …} multi-model, or a nested generator)"
+        )
+    return {"_or_": [_operator_choice_dsl(choice) for choice in choices]}
+
+
+def _operator_choice_dsl(choice: Any) -> dict[str, Any]:
+    """One ``_or_`` operator choice lowered to the bare-operator ``{"class": FQN, "params": {…}}`` dict.
+
+    A ``None`` choice (the "no preprocessing" idiom) cannot lower to a transform node, so it forces the
+    Python expand path (where it is dropped); every other choice reuses the bare-operator lowering.
+    """
+    if choice is None:
+        raise NotImplementedError("dag-ml bridge does not lower a `None` (no-op) `_or_` choice natively")
+    return {"class": _qualname(choice), "params": _json_safe_params(choice)}
+
+
+def operator_choice_variant_label(choice: Any, downstream_steps: list[Any]) -> str:
+    """The AUTHORITATIVE ``variant_label`` (hex sha256) for ONE bare-operator ``_or_`` choice + its tail.
+
+    Maps a per-variant dag-ml report back to its operator-choice config (#23 Phase 7). The label is a
+    cross-language CONTENT fingerprint dag-ml stamps on every operator-SELECT report; the host MUST call
+    the dag-ml PyO3 helper (``dag_ml.canonical_operator_variant_label``) — NOT a pure-Python ``json.dumps``
+    + sha256 — because Python's float formatting diverges from Rust's (``1e-05`` / ``1e-7`` / 1-ULP shortest
+    decimals, all common NIRS params), which would SILENTLY mis-key the map. Sharing the one Rust codepath
+    makes the host label byte-identical to the report label by construction.
+
+    The fingerprint is computed over the FULL LOWERED choice sub-sequence — dag-ml's
+    ``lower_operator_variant_model`` activates the chosen ``_or_`` branch PLUS every downstream step the
+    branch flows into (the concrete model, any ``y_processing``), so ``choice.steps`` is the choice's
+    transform step FOLLOWED by the downstream steps. The host therefore builds ``steps_json`` =
+    ``[<choice transform>] + [<lowered downstream steps>]`` in the ``PipelineDslStep`` tagged shape
+    (``{"kind", "id", "operator", "params"}``) — lowering each downstream step from its RAW form via
+    :func:`_label_step_from_raw` (NOT through :func:`_step_to_dsl`'s ``default=repr`` params, which would
+    stringify a non-JSON downstream param BEFORE strict checking). The ``id`` is ignored by the
+    canonicalization (it reads only ``kind`` / operator class / params), but the OPERATOR SHAPE matters: a
+    bare-operator transform choice keeps the object operator ``{"class": FQN}``, while a model keeps the
+    BARE-STRING operator FQN — exactly what dag-ml's lowering produces. ``downstream_steps`` is the lowered
+    pipeline tail after the generator (no splitter, no ``None`` — already split off by the caller).
+
+    The ENTIRE label payload is STRICTLY sanitized (chosen branch + downstream model + y_processing): every
+    step's operator + params is recursively coerced (numpy ``.item()`` / ``.tolist()``) and any NaN / Inf /
+    non-str-key / non-JSON value is REJECTED via :func:`_strict_json_safe` (NOT ``default=repr``, which
+    would emit ``"np.int64(5)"`` strings that break byte-identity, and NOT ``allow_nan=True``, which would
+    pass a non-finite the PyO3 helper then rejects mid-run). ANY failure to construct or fingerprint the
+    label — a non-JSON / non-finite param OR the PyO3 helper raising — is converted to
+    :class:`DagMlUnsupported` so the inner Python-expand fallback fires instead of crashing.
+    """
+    import importlib
+    import json
+
+    choice_step = {"kind": "transform", "id": "operator_choice", "operator": {"class": _qualname(choice)}, "params": _canonical_label_params(choice)}
+    steps = [choice_step, *(_label_step_from_raw(step, index) for index, step in enumerate(downstream_steps))]
+    try:
+        # allow_nan=False is belt-and-braces: _strict_json_safe already rejected non-finite numbers, so a NaN
+        # never reaches here; this guarantees the host never silently emits `NaN` text the helper would reject.
+        steps_json = json.dumps(steps, allow_nan=False)
+        # Call the helper on the compiled `dag_ml._dag_ml` C extension directly (as the in-process runner does
+        # for run_cv_refit_in_process): the facade `.pyi` stub does not declare the native re-exports, so the
+        # dynamic import keeps mypy from flagging the attribute (no `type: ignore` to drift) while binding the
+        # SAME Rust canonicalization codepath dag-ml stamps reports with.
+        dag_ml_ext = importlib.import_module("dag_ml._dag_ml")
+        return str(dag_ml_ext.canonical_operator_variant_label(steps_json))
+    except DagMlUnsupported:
+        raise
+    except Exception as exc:  # noqa: BLE001 - any helper/serialization failure → lowering-unsupported fallback
+        raise DagMlUnsupported(f"dag-ml bridge could not compute the operator variant_label ({type(exc).__name__}: {exc}); the Python expand path owns it") from exc
+
+
+def _label_step_from_raw(step: Any, index: int) -> dict[str, Any]:
+    """Lower one RAW downstream pipeline step to its ``PipelineDslStep`` label shape with STRICT params.
+
+    The ``variant_label`` fingerprint is over ``PipelineDslStep`` objects (``{"kind", "operator",
+    "params"}``). This mirrors :func:`_step_to_dsl`'s operator/params split EXACTLY — a MODEL keeps its
+    bare-string operator FQN, a ``y_processing`` becomes a ``y_transform`` whose object operator carries
+    its params INSIDE (``{"class": FQN, "params": {…}}``, step params ``{}``), and a bare transform keeps
+    the object operator ``{"class": FQN}`` — BUT lowers params via :func:`_canonical_label_params` (STRICT:
+    numpy coerced, NaN / Inf / non-JSON / non-str-key REJECTED → :class:`DagMlUnsupported`) instead of
+    :func:`_step_to_dsl` → :func:`_json_safe_params` (``default=repr``). Lowering from the RAW step is what
+    keeps a non-JSON downstream param from being silently stringified to a ``repr`` BEFORE strict checking.
+
+    Only the step kinds a flat single ``_or_`` sub-sequence can carry — a concrete ``{"model": op[, plain
+    siblings]}`` (no param-generator sibling; the predicate excludes a second generator) or a
+    ``{"y_processing": op}`` — are handled here. A bare transform step (rare in this tail) lowers as an
+    object-operator transform with its strict params.
+    """
+    if isinstance(step, dict) and "model" in step:
+        op = step["model"]
+        params = _canonical_label_params(op)
+        # Plain sibling hyperparameters extend params exactly as _step_to_dsl does — strict-sanitized too,
+        # INCLUDING the sibling KEY: a non-string step-level key (e.g. `{"model": op, 1: "x"}`) breaks JSON
+        # validity / byte-identity, so reject it rather than insert a non-str key into the params dict.
+        for key, value in step.items():
+            if key in _RESERVED_MODEL_KEYS:
+                continue
+            if not isinstance(key, str):
+                raise DagMlUnsupported(f"dag-ml bridge cannot fingerprint a non-string model sibling key `{key!r}` (type {type(key).__name__}) at `downstream{index}` for variant_label; the Python expand path owns it")
+            params[key] = _strict_json_safe(value, f"downstream{index}.{key}")
+        return {"kind": "model", "id": f"downstream{index}", "operator": _qualname(op), "params": params}
+    if isinstance(step, dict) and "y_processing" in step:
+        op = step["y_processing"]
+        # dag-ml's y_processing lowering carries the WHOLE operator object (params INSIDE it) and leaves the
+        # step params empty, so the canonical `class` is the compact JSON of `{"class": FQN, "params": {…}}`.
+        return {"kind": "y_transform", "id": f"downstream{index}", "operator": {"class": _qualname(op), "params": _canonical_label_params(op)}, "params": {}}
+    # A bare downstream transform (operator object + strict params), mirroring _step_to_dsl's bare form.
+    return {"kind": "transform", "id": f"downstream{index}", "operator": {"class": _qualname(step)}, "params": _canonical_label_params(step)}
+
+
+def _canonical_label_params(operator: Any) -> dict[str, Any]:
+    """``get_params()`` STRICTLY sanitized to JSON-native values for the ``variant_label`` fingerprint.
+
+    Unlike :func:`_json_safe_params` (which uses ``default=repr`` — acceptable for the structural compile
+    that never instantiates the operator), the fingerprint must be byte-identical to dag-ml's, so every
+    param value must be a true, FINITE JSON scalar/container. The sanitization (:func:`_strict_json_safe`)
+    recursively unwraps numpy scalars (``.item()``) / arrays (``.tolist()``), rejects NaN/Inf, and rejects
+    any remaining non-JSON value — raising :class:`DagMlUnsupported` (→ the inner Python-expand fallback)
+    rather than emitting a ``repr`` string or letting ``allow_nan`` pass a non-finite that dag-ml then
+    rejects mid-run. A bare CLASS carries no instance params (``{}``).
+    """
+    if isinstance(operator, type) or not hasattr(operator, "get_params"):
+        return {}
+    # Run the WHOLE params dict through _strict_json_safe (not value-by-value), so the TOP-LEVEL keys are
+    # validated too: a non-string top-level key (e.g. a model sibling param `{1: "x"}`) breaks JSON validity
+    # / byte-identity, so it must be REJECTED → DagMlUnsupported, never silently stringified.
+    coerced: dict[str, Any] = _strict_json_safe(operator.get_params(), type(operator).__name__)
+    return coerced
+
+
+def _strict_json_safe(value: Any, label: str) -> Any:
+    """Recursively coerce ``value`` to a FINITE JSON-native value, else raise :class:`DagMlUnsupported`.
+
+    The cross-language ``variant_label`` is a byte-identity contract, so the host's label payload must
+    contain ONLY values dag-ml can fingerprint: finite numbers, bools, strings, ``None``, and JSON
+    arrays/objects of the same. This walks containers recursively, unwraps numpy scalars (``.item()``) /
+    arrays (``.tolist()``), and REJECTS (→ ``DagMlUnsupported``, caught as lowering-unsupported):
+
+    * a NaN / Inf float (``json.dumps(allow_nan=True)`` would silently pass it, then dag-ml's
+      ``reject_non_finite`` raises a ``DagMlValidationError`` mid-run — not caught by the inner fallback);
+    * any value with no JSON-native representation (a callable, a fitted object, an arbitrary object) —
+      ``default=repr`` would emit a ``"<object …>"`` / ``"np.int64(5)"`` string that diverges from the
+      report label.
+    """
+    import math
+
+    import numpy as np
+
+    if isinstance(value, np.generic):
+        value = value.item()
+    elif isinstance(value, np.ndarray):
+        value = value.tolist()
+
+    if isinstance(value, bool) or value is None or isinstance(value, str):
+        return value
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise DagMlUnsupported(f"dag-ml bridge cannot fingerprint a non-finite param `{label}`={value!r} for variant_label; the Python expand path owns it")
+        return value
+    if isinstance(value, (list, tuple)):
+        return [_strict_json_safe(item, f"{label}[{index}]") for index, item in enumerate(value)]
+    if isinstance(value, dict):
+        coerced: dict[str, Any] = {}
+        for key, item in value.items():
+            # JSON objects allow ONLY string keys. Stringifying a non-str key (an int / tuple / object) would
+            # silently diverge from dag-ml's canonical form (and ``json.dumps`` would itself coerce/clash), so
+            # reject it as lowering-unsupported rather than fabricate a key.
+            if not isinstance(key, str):
+                raise DagMlUnsupported(f"dag-ml bridge cannot fingerprint a non-string dict key `{key!r}` (type {type(key).__name__}) at `{label}` for variant_label; the Python expand path owns it")
+            coerced[key] = _strict_json_safe(item, f"{label}.{key}")
+        return coerced
+    raise DagMlUnsupported(f"dag-ml bridge cannot fingerprint a non-JSON param `{label}` of type {type(value).__name__} for variant_label; the Python expand path owns it")
 
 
 def _concat_operation_spec(operation: Any) -> Any:
@@ -318,6 +546,13 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             # feature axis (the FLAT_2D materialization a 2D model already sees). The 3D/multi-source
             # shapes (parallel channels to a DL model) fail loud naming the data-plane (#29/#31).
             return _lower_feature_augmentation(step)
+        if _GENERATION_KEYWORDS & set(step):
+            # A flat single `_or_` of bare operators lowers to a compat `{"_or_": [<op>, …]}` Generator
+            # step — dag-ml compiles it to operator-variant models and the in-process binding scores +
+            # SELECTs natively (#23 Phase 7). Any richer operator generator (`_cartesian_`/`_grid_`/
+            # modifier/constraint/multi-step/multi-model) raises NotImplementedError → the Python expand
+            # path (which stays on the dag-ml engine) owns it.
+            return _lower_operator_generator(step)
         offending = sorted(set(step) & _UNSUPPORTED_STEP_KEYS) or sorted(step)
         raise NotImplementedError(
             f"dag-ml bridge spike does not yet serialize step keyword(s) {offending}; "

@@ -42,9 +42,10 @@ from .detect import (
     _is_augmentation_step,
     _is_duplication_branch_step,
     _is_exclude_step,
+    _is_flat_single_operator_generator,
     _is_stacking_merge_step,
 )
-from .errors import DagMlUnavailable, DagMlUnsupported
+from .errors import DagMlUnavailable, DagMlUnsupported, _OperatorLoweringUnsupported
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
 from .native_results import native_results_enabled, write_native_results
@@ -60,6 +61,7 @@ from .run_paths import (
     _run_concrete_scores,
     _run_duplication_branch,
     _run_native_generation,
+    _run_native_operator_generation,
     _run_rep_fusion,
     _run_repetition,
     _run_separation_branch,
@@ -88,11 +90,13 @@ __all__ = [
     "_fusion_merge_aggregate",
     "_generation_kind",
     "_is_augmentation_step",
+    "_is_flat_single_operator_generator",
     "_is_stacking_merge_step",
     "_operator_is_stateless",
     "_repetition_groups_for_pool",
     "_reshape_for_rep_fusion",
     "_resolve_exclude",
+    "_run_native_operator_generation",
     "_run_rep_fusion",
     "preflight_dagml_backend",
     "run_via_dagml",
@@ -630,6 +634,27 @@ def _dispatch_run(
         return _run_native_generation(
             list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, random_state=random_state
         )
+
+    # FLAT-SINGLE operator `_or_` (a bare-operator preprocessing sweep) → ONE native dag-ml operator-SELECT
+    # run (#23 Phase 7): the bridge lowers the `_or_` to a compat Generator step, dag-ml compiles the
+    # operator-variant models, and the in-process binding scores each choice by CV-OOF, refits the winner
+    # only, and surfaces every variant's validation reports (each carrying a `variant_label` content
+    # fingerprint). A richer `_or_` the lowering cannot handle (a non-flat-bare / non-finite / non-JSON
+    # choice that slips the predicate) raises the DISTINCT `_OperatorLoweringUnsupported` sentinel from
+    # `_run_native_operator_generation`'s narrow LOWERING guard, and we fall through to the Python
+    # `expand_spec` path below (the INNER fallback, which STAYS on the dag-ml engine — it never bubbles to
+    # legacy). Gated on `_generation_kind == "operator"` AND the conservative flat-single predicate so only
+    # the canonical bare-`_or_` shape attempts native. ONLY the lowering sentinel is caught — a RUNTIME error
+    # (incl. a runtime `DagMlUnsupported` from `_raise_run_failure` for a non-zero run classified unsupported,
+    # OR a runtime NotImplementedError from compile / run / result-mapping) PROPAGATES, never silently
+    # reclassified as a lowering gap and masked.
+    if _generation_kind(list(pipeline)) == "operator" and _is_flat_single_operator_generator(list(pipeline)):
+        try:
+            return _run_native_operator_generation(
+                list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native_op", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, random_state=random_state
+            )
+        except _OperatorLoweringUnsupported:
+            pass  # lowering-unsupported `_or_` → fall through to the Python expand path (stays on dag-ml)
 
     # Expand operator-level generators (_or_/_cartesian_/param-keyed _range_/_grid_/...) into concrete,
     # flat pipelines of live operator instances (nirs4all's own serialize → expand → deserialize +

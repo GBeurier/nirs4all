@@ -105,6 +105,82 @@ def _generation_kind(pipeline: list[Any]) -> str:
     return "param_model" if has_param_model else "none"
 
 
+def _is_flat_single_operator_generator(pipeline: list[Any]) -> bool:
+    """True ONLY for the canonical FLAT-SINGLE operator ``_or_`` shape the native operator-SELECT lowers.
+
+    CONSERVATIVE whitelist (#23 Phase 7): native operator generation is taken ONLY when the pipeline has
+    EXACTLY ONE generator step, that step is a bare ``_or_`` of single bare operators, and nothing forces
+    the Python path. The native lowering (:func:`~nirs4all.pipeline.dagml_bridge._lower_operator_generator`)
+    additionally re-validates the choice shape and raises for anything richer, so a slip here is caught by
+    the inner fallback — but keeping the predicate tight avoids a wasted native attempt. ALL of:
+
+    * exactly ONE step carries a top-level generation keyword, and that keyword set is exactly ``{"_or_"}``
+      (NO ``_cartesian_``/``_grid_``/``_chain_``/``_zip_``/``_sample_``, NO second generator, NO multi-model
+      ``{"model": {"_or_": …}}``); AND
+    * every ``_or_`` choice is a single bare operator (not a multi-step list, a ``{"model": …}``, or a dict);
+      a ``None`` choice (the "no preprocessing" idiom) is NOT bare-lowerable, so it forces the Python path; AND
+    * every ``_or_`` choice is a genuinely ROUTABLE X-transform — the SAME routability / FQN-importability /
+      wavelength gate :func:`~nirs4all.pipeline.dagml.steps._assert_supported_operators` applies to every
+      other native path (:func:`~nirs4all.pipeline.dagml.steps._check_x_operator`). A non-routable /
+      non-reconstructible / wavelength-requiring choice would slip into native operator-SELECT and fail at
+      fit (the native run SKIPS the ``_or_`` step in its own support check), so it forces the Python path; AND
+    * the only sibling keys on the ``_or_`` step are inert annotations (``_tags_``/``_metadata_``/``name``) —
+      any modifier/constraint (``pick``/``arrange``/``count``/``_mutex_``/``_requires_``/``_exclude_``/
+      ``_weights_``/``_seed_``) forces the Python path; AND
+    * NO step carries ``finetune_params`` / ``train_params``.
+
+    A non-``_or_`` operator generator, a constrained/modified ``_or_``, a multi-step/multi-model ``_or_``, a
+    non-routable choice, a cartesian/grid, or a finetune/train_params pipeline → ``False`` (stays on the
+    proven Python expand path, still dag-ml-native via that route). When in doubt, this returns ``False``.
+    """
+    from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS, has_nested_generator_keywords
+    from nirs4all.pipeline.dagml_bridge import _INERT_GENERATOR_ANNOTATION_KEYS, _is_bare_operator_choice
+
+    generator_steps = [step for step in pipeline if isinstance(step, dict) and GENERATION_KEYWORDS & set(step)]
+    if len(generator_steps) != 1:
+        return False
+    # No OTHER generator anywhere — a nested generator on a non-generator step (incl. a multi-model
+    # `{"model": {"_or_": …}}`) or finetune/train_params forces the Python path.
+    for step in pipeline:
+        if not isinstance(step, dict):
+            continue
+        if step is not generator_steps[0] and has_nested_generator_keywords(step):
+            return False
+        if _FORCE_PYTHON_STEP_KEYS & set(step):
+            return False
+
+    generator = generator_steps[0]
+    if GENERATION_KEYWORDS & set(generator) != {"_or_"}:
+        return False
+    if set(generator) - {"_or_"} - _INERT_GENERATOR_ANNOTATION_KEYS:
+        return False
+    choices = generator["_or_"]
+    if not (isinstance(choices, list) and bool(choices) and all(choice is not None and _is_bare_operator_choice(choice) for choice in choices)):
+        return False
+    # Every choice must be a genuinely routable X-transform (same gate as the other native paths) — a
+    # non-routable / wavelength-requiring / non-reconstructible choice would otherwise slip into native
+    # operator-SELECT (which skips the `_or_` in its own support check) and crash at fit. Keep it off native.
+    return all(_choice_is_native_routable(choice) for choice in choices)
+
+
+def _choice_is_native_routable(choice: Any) -> bool:
+    """True when an ``_or_`` operator choice passes the native X-transform routability gate (boolean form).
+
+    Wraps :func:`~nirs4all.pipeline.dagml.steps._check_x_operator` (the wavelength + sklearn-contract +
+    FQN-importability + lossless-params gate every other native path enforces) so the flat-single predicate
+    can keep a non-routable choice OFF the native path (→ Python expand) instead of dispatching it to native
+    operator-SELECT where it would fail at fit.
+    """
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+    from nirs4all.pipeline.dagml.steps import _check_x_operator
+
+    try:
+        _check_x_operator(choice)
+    except DagMlUnsupported:
+        return False
+    return True
+
+
 def _is_separation_branch_step(step: Any) -> bool:
     """True for a separation branch by metadata/tag: ``{"branch": {"by_metadata"|"by_tag": ...}}``."""
     return isinstance(step, dict) and isinstance(step.get("branch"), dict) and bool({"by_metadata", "by_tag"} & set(step["branch"]))
