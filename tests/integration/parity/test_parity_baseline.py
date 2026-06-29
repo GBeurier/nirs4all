@@ -56,7 +56,13 @@ def test_legacy_gold_baseline(case: PipelineCase, request: pytest.FixtureRequest
 
     if request.config.getoption("--parity-capture"):
         dataset = DatasetConfigs(dataset_path(case.dataset_key), **case.dataset_kwargs)
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0)
+        # ENGINE PINNED TO LEGACY: the gold is the LEGACY oracle (ADR-01). Since the
+        # ADR-17 flip the DEFAULT engine is dag-ml, so an unqualified ``nirs4all.run``
+        # would capture a DAG-ML observation mislabeled "legacy" — and the enforce
+        # path (also pinned below) would then compare dag-ml↔dag-ml, silently hiding
+        # any legacy↔dag-ml divergence. The dual-engine conformance suite owns the
+        # legacy↔dag-ml comparison; this layer is the legacy non-regression alarm.
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, engine="legacy")
         path = _oracle.save_baseline(case.name, fingerprint, _oracle.observe(result, case.task))
         pytest.skip(f"captured legacy baseline -> {path.name}")
 
@@ -71,7 +77,12 @@ def test_legacy_gold_baseline(case: PipelineCase, request: pytest.FixtureRequest
         )
 
     dataset = DatasetConfigs(dataset_path(case.dataset_key), **case.dataset_kwargs)
-    result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0)
+    # ENGINE PINNED TO LEGACY (matches the legacy-pinned capture above): the gold
+    # is the LEGACY oracle. An unqualified run would resolve to the DEFAULT engine
+    # (dag-ml since the ADR-17 flip) and compare dag-ml↔dag-ml, vacuously passing
+    # for every shape where the two engines diverge. The legacy↔dag-ml comparison
+    # is owned by test_conformance_dual_engine; this is the legacy-only alarm.
+    result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, engine="legacy")
     observed = _oracle.observe(result, case.task)
     violations = _oracle.compare(gold, observed, case.metric_tolerances)
     assert not violations, f"{case.name}: parity violations:\n  " + "\n  ".join(violations)

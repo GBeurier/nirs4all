@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "generator_cartesian_pick",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 11.531458377763093,
+    "cv_best_score": 14.35951714534016,
+    "r2": 0.6609748457186427,
+    "rmse": 11.531458377763093
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 92,
+  "pipeline_fingerprint": "6ba6068634ce030a"
+}

@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "generator_or_preprocessing_kfold",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 10.981204165081259,
+    "cv_best_score": 15.215290861443494,
+    "r2": 0.6925578681195501,
+    "rmse": 10.981204165081259
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 47,
+  "pipeline_fingerprint": "b85d75b54eebe1ee"
+}

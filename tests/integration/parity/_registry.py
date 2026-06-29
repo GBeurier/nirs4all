@@ -75,6 +75,25 @@ CANONICAL_KEYWORDS: frozenset[str] = frozenset({
     "_zip_",
     "_chain_",
     "_sample_",
+    # Generator modifier / constraint keywords (item B surface). `_seed_` makes a
+    # stochastic generator (`_sample_`) deterministic; `_mutex_` / `_requires_` /
+    # `_exclude_` prune the expanded variant set; `_depends_on_` is a DEAD keyword
+    # the constraint engine never consults (documented by a dedicated no-op test).
+    "_seed_",
+    "_mutex_",
+    "_requires_",
+    "_exclude_",
+    "_depends_on_",
+    # Selection / sampling / annotation modifiers. `count` caps the variant set
+    # (with `_seed_` for the subsample RNG); `_weights_` weights random selection;
+    # `then_pick` / `then_arrange` are the second-order selection keywords;
+    # `_tags_` / `_metadata_` are INERT annotations (do not change the variant set).
+    "count",
+    "_weights_",
+    "then_pick",
+    "then_arrange",
+    "_tags_",
+    "_metadata_",
 })
 
 # Free-form operator-family / coverage tags. Not the same as DSL keywords:

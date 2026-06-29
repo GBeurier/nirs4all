@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "generator_or_preprocessing_yprocessing",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 10.981204079962902,
+    "cv_best_score": 14.061376915988818,
+    "r2": 0.6925578728856885,
+    "rmse": 10.981204079962902
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 47,
+  "pipeline_fingerprint": "b39bc9c32f9ff7ba"
+}

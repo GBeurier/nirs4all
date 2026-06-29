@@ -5,7 +5,7 @@
     "classification"
   ],
   "metrics": {
-    "accuracy": 0.1,
+    "accuracy": 0.2,
     "best_score": 0.1603174603174603,
     "cv_best_score": 0.1716006216006216
   },
