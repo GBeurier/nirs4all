@@ -47,6 +47,7 @@ from .detect import (
 from .errors import DagMlUnavailable, DagMlUnsupported
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
+from .native_results import native_results_enabled, write_native_results
 from .result import _project_operator_sweep, _scores_to_run_result
 from .run_paths import (
     _FUSION_MERGE_NODE_ID,
@@ -215,6 +216,7 @@ def run_via_dagml(
     dagml_cli: str | Path | None = None,
     venv_python: str | None = None,
     workdir: str | Path | None = None,
+    results_path: str | Path | None = None,
 ) -> RunResult:
     """Execute ``pipeline`` on ``dataset`` via dag-ml-cli; return a RunResult of dag-ml's native scores.
 
@@ -252,6 +254,12 @@ def run_via_dagml(
         dagml_cli: Path to the ``dag-ml-cli`` binary (defaults to the sibling ``dag-ml`` build).
         venv_python: Python interpreter the process adapter re-execs under (defaults to the current).
         workdir: Scratch directory for the run inputs/outputs (defaults to a temp dir).
+        results_path: Native results output ROOT (P3 Slice 2b-i, OFF by default). When given (or when
+            ``$N4A_NATIVE_RESULTS`` is set) the run additionally writes an ADDITIVE native results
+            directory ``<results_path>/<run_id>/`` (``manifest.json`` + ``score_set.json`` +
+            ``predictions.parquet``); env-only defaults to ``./nirs4all_results/<run_id>/``. ``None`` +
+            unset env → nothing written (behaviorally identical to a pure in-memory run). The writer
+            NEVER touches the legacy workspace store.
 
     Returns:
         A :class:`~nirs4all.api.result.RunResult` whose ``best_rmse`` is the native final-test score
@@ -299,6 +307,15 @@ def run_via_dagml(
     try:
         result = _dispatch_run(pipeline, spectro, base_dir, dataset_arg, host_pickle, cli, venv_python, name, random_state)
         _attach_export_spec(result, pipeline, dataset, name, random_state)
+        # NATIVE RESULTS SEAM (P3 Slice 2b-i): write the ADDITIVE native results directory when enabled
+        # (explicit `results_path` OR $N4A_NATIVE_RESULTS) — OFF by default, so a plain run skips this
+        # and is unchanged. Runs here, AFTER the RunResult projection (so it has the raw ScoreSet
+        # captured on `result._dagml_score_set` + the projected predictions) and BEFORE the temp-dir
+        # rmtree below. The writer reads only in-memory state (the ScoreSet + Predictions); it never
+        # imports/instantiates the legacy WorkspaceStore/ArrayStore, preserving the "dag-ml never touches
+        # the legacy store" property.
+        if native_results_enabled(results_path):
+            write_native_results(result, result._dagml_score_set, results_path)  # noqa: SLF001
         return result
     finally:
         if workdir is None:

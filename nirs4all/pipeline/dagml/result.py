@@ -417,7 +417,15 @@ def _scores_to_run_result(
                 add("final", "test", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays(variant_id, "test", None))
 
     predictions.flush()
-    return RunResult(predictions=predictions, per_dataset={dataset_name: {"engine": "dag-ml"}})
+    run_result = RunResult(predictions=predictions, per_dataset={dataset_name: {"engine": "dag-ml"}})
+    # Carry the RAW native ScoreSet (the canonical object this projection consumed — verbatim
+    # `outcome["scores"]` for a single/native run, or the synthesized multi-variant ScoreSet
+    # `_project_operator_sweep` built for an operator sweep) onto the result so the native-results
+    # writer can persist it VERBATIM at the run_via_dagml seam (P3 Slice 2b-i). Every dag-ml run path
+    # funnels through here, so this is the single capture point; it is in-memory metadata only and OFF
+    # by default (the writer fires solely when native results are enabled), so a plain run is untouched.
+    run_result._dagml_score_set = scores  # noqa: SLF001
+    return run_result
 
 
 def _variant_cv_score(scores: dict[str, Any], metric: str) -> float:

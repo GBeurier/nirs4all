@@ -208,6 +208,7 @@ def run(
     project: str | None = None,
     report_naming: str = "nirs",
     engine: str | None = None,
+    results_path: str | Path | None = None,
     # All other PipelineRunner options
     **runner_kwargs: Any
 ) -> RunResult:
@@ -287,6 +288,15 @@ def run(
             pipeline shape is not yet covered or the dag-ml backend is not installed. ``"legacy"``
             forces the in-process orchestrator. ``"dual"`` (side-by-side comparison) is reserved and
             raises ``NotImplementedError``. Override the default per-process with ``$N4A_ENGINE``.
+
+        results_path: Native results output root (dag-ml engine only, P3 Slice 2b-i; OFF by default).
+            When given, the dag-ml run ADDITIONALLY writes a native results directory
+            ``<results_path>/<run_id>/`` (``manifest.json`` + the verbatim ``score_set.json`` +
+            ``predictions.parquet``); ``$N4A_NATIVE_RESULTS`` enables it env-only, defaulting to
+            ``./nirs4all_results/<run_id>/``. ``None`` + unset env → nothing is written and the run is
+            behaviorally identical to today. The legacy SQLite+Parquet+joblib workspace is untouched;
+            an explicit ``results_path`` is threaded as a named ``run()`` parameter (not a runner_kwarg),
+            so it bypasses the dag-ml runner_kwarg allowlist. It has no effect on ``engine="legacy"``.
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -586,6 +596,7 @@ def run(
                 session=session,
                 cache=cache,
                 runner_kwargs=runner_kwargs,
+                results_path=results_path,
             )
         except DagMlUnavailable as e:
             warnings.warn(
