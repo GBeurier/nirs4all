@@ -163,11 +163,12 @@ def test_fit_cv_applies_upstream_snv_chain(slice_fixture) -> None:
     got = np.asarray(run_node(task, f["resolver"], nodes.__getitem__, {}, graph["edges"])["predictions"][0]["values"], dtype=float)
 
     ds = f["dataset"]
-    # Compare same-dtype (the resolver upcasts ds.x float32 -> float64 via .tolist(); matching
-    # dtype isolates chaining correctness from the float32/float64 native-parity nuance).
+    # Compare on the dataset's NATIVE storage dtype (float32): the resolver/node_runner preserve it
+    # (no .tolist()/float64 widening), so the oracle fits/predicts X at float32 too — matching dtype
+    # AND fold order makes this an exact (FP-level) parity check, not a float32-vs-float64 comparison.
     expected_pipe = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-    expected_pipe.fit(np.asarray(ds.x({"sample": train}, layout="2d"), dtype=float), np.asarray(ds.y({"sample": train}), dtype=float))
-    x_val = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"), dtype=float)[0] for i in val])
+    expected_pipe.fit(np.asarray(ds.x({"sample": train}, layout="2d")), np.asarray(ds.y({"sample": train}), dtype=float))
+    x_val = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"))[0] for i in val])
     expected = np.asarray(expected_pipe.predict(x_val), dtype=float).reshape(len(val), -1)
     assert np.allclose(got, expected, atol=1e-6)  # same dtype + same fold order -> exact up to FP
 
@@ -212,8 +213,10 @@ def test_fit_cv_applies_snv_and_y_processing_chain(slice_fixture) -> None:
     y_train = np.asarray(ds.y({"sample": train}), dtype=float).reshape(-1, 1)
     ytf = PowerTransformer().fit(y_train)
     pipe = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-    pipe.fit(np.asarray(ds.x({"sample": train}, layout="2d"), dtype=float), ytf.transform(y_train).ravel())
-    x_val = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"), dtype=float)[0] for i in val])
+    # X on the dataset's NATIVE storage dtype (float32) — the engine no longer widens to float64, so the
+    # oracle must match it for an exact parity check (y stays float64, as the engine feeds y).
+    pipe.fit(np.asarray(ds.x({"sample": train}, layout="2d")), ytf.transform(y_train).ravel())
+    x_val = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"))[0] for i in val])
     expected = ytf.inverse_transform(np.asarray(pipe.predict(x_val), dtype=float).reshape(len(val), -1))
     assert np.allclose(got, expected, atol=1e-6)
     # Without the y transform the (non-affine) target scaling is missing — predictions differ.

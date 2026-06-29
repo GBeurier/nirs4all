@@ -261,7 +261,7 @@ def _multi_target_dataset(n_targets: int = 3) -> SpectroDataset:
     test = [int(s) for s in base.index_column("sample", {"partition": "test"})]
 
     def _xy(ids: list[int]):
-        x = np.asarray(base.x_rows(ids, layout="2d"), dtype=float)
+        x = np.asarray(base.x_rows(ids, layout="2d"))
         y_block = np.asarray(base.y({"sample": ids}), dtype=float).reshape(len(ids), -1)
         stored = base.index_column("sample", {"sample": ids})
         row_of = {int(s): r for r, s in enumerate(stored)}
@@ -320,7 +320,7 @@ def _refit_x(dataset_key: str) -> np.ndarray:
     """The held-out test feature matrix (2D) — the X a rehydrated estimator predicts in the round-trip."""
     base = DatasetConfigs(dataset_path(dataset_key)).get_dataset_at(0)
     test_ids = [int(s) for s in base.index_column("sample", {"partition": "test"})]
-    return np.asarray(base.x_rows(test_ids, layout="2d"), dtype=float)
+    return np.asarray(base.x_rows(test_ids, layout="2d"))
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -420,7 +420,7 @@ def _equal_rep_dataset() -> SpectroDataset:
     base = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     train = [int(s) for s in base.index_column("sample", {"partition": "train"})]
     n_rows = _REP_PHYS * _REP_REPS
-    x = np.asarray(base.x_rows(train, layout="2d"), dtype=float)[:n_rows, :_REP_FEAT]
+    x = np.asarray(base.x_rows(train, layout="2d"))[:n_rows, :_REP_FEAT]
     y = np.asarray(base.y({"sample": train}), dtype=float).ravel()[:n_rows]
     sample_ids = [f"p{phys}" for phys in range(_REP_PHYS) for _ in range(_REP_REPS)]
     dataset = SpectroDataset("rep_fusion_synth")

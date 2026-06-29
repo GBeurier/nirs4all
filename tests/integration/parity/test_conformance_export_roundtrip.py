@@ -57,10 +57,16 @@ _EXACT_CASES = (_REGRESSION_SINGLE, _CLASSIFICATION, _SWEEP, _Y_PROCESSING)
 
 
 def _test_x(dataset_key: str) -> tuple[list[int], np.ndarray]:
-    """The held-out test sample ids + their 2D feature matrix (raw, pre-preprocessing)."""
+    """The held-out test sample ids + their 2D feature matrix (raw, pre-preprocessing).
+
+    X is returned at the dataset's NATIVE storage dtype (float32) — the same dtype the dag-ml RUN
+    predicts on (the resolver/node_runner no longer widen X to float64). Feeding the reloaded export
+    model float64 would diverge it from the run's final-(test) y_pred (the captured estimator is
+    dtype-faithful; only the test input differs), so the round-trip oracle uses native X.
+    """
     base = DatasetConfigs(dataset_path(dataset_key)).get_dataset_at(0)
     ids = [int(s) for s in base.index_column("sample", {"partition": "test"})]
-    return ids, np.asarray(base.x_rows(ids, layout="2d"), dtype=float)
+    return ids, np.asarray(base.x_rows(ids, layout="2d"))
 
 
 def _final_test_by_sample(result) -> dict[int, np.ndarray]:

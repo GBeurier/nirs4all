@@ -155,11 +155,16 @@ class MaterializationResolver:
         """
         self._guard_origin_boundary(observation_ids, include_augmented)
         sample_ints = [self._identity.to_int(observation_id) for observation_id in observation_ids]
+        # Return the ndarray as-is (no .tolist()): the host must fit on the dataset's NATIVE storage
+        # dtype (x_rows preserves it — float32 for the legacy SpectroDataset contract), not a float64
+        # widening. A .tolist() round-trips to Python doubles, so the estimator would see float64 while
+        # legacy feeds float32; on a fixed-seed tree ensemble that ~1e-7 input shift tips split
+        # thresholds and the fitted trees diverge. Keeping the array preserves byte-level parity.
         block = np.asarray(self._dataset.x_rows(sample_ints, layout="2d"))
         return {
             "feature_set_id": "features",
             "observation_ids": list(observation_ids),
-            "values": block.tolist(),
+            "values": block,
         }
 
     def resolve_feature_blocks(
@@ -187,10 +192,12 @@ class MaterializationResolver:
         # x_rows(concat_source=False) returns a list of per-source 2D arrays for a multi-source
         # dataset, or a single 2D array for a single source — normalize to a list either way.
         blocks = per_source if isinstance(per_source, list) else [per_source]
+        # Preserve each source block's NATIVE storage dtype (no .tolist() widening to float64) — same
+        # parity reason as resolve_features: the host fits on what legacy dataset.x() returns (float32).
         return {
             "feature_set_id": "features",
             "observation_ids": list(observation_ids),
-            "blocks": [np.asarray(block).tolist() for block in blocks],
+            "blocks": [np.asarray(block) for block in blocks],
         }
 
     def resolve_source_block(
