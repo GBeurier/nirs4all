@@ -365,6 +365,15 @@ class RunResult:
     # VERBATIM. In-memory metadata only; ``None`` for a legacy result.
     _dagml_score_set: dict[str, Any] | None = field(default=None, repr=False)
 
+    # The fitted REFIT estimators the dag-ml run produced (P3 Slice 2c-i), captured host-side from the
+    # in-process model store at projection time so the native-results writer can joblib-persist them as
+    # loadable model artifacts (retiring the P1c legacy-refit export bridge). Each entry is
+    # ``{artifact_id, estimator, y_transform, kind, controller_id, backend}``. A LIST (D3: a branch /
+    # stacking / operator-expanded run emits several REFIT artifacts). Empty for the subprocess mechanism
+    # (its child-process models are unreachable) and for a legacy result. In-memory metadata only, OFF by
+    # default (the writer fires solely when native results are enabled).
+    _dagml_refit_artifacts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+
     # --- Lifecycle ---
 
     def detach(self) -> None:

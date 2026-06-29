@@ -154,12 +154,64 @@ def run_cv_refit_bundle(
             selection_metric,
         )
     )
+    node_results = payload.get("node_results", [])
     return {
         "returncode": 0,
         "stdout": "",
-        "results": payload.get("node_results", []),
+        "results": node_results,
         "scores": payload.get("scores"),
+        # The fitted REFIT estimators the run produced, captured HOST-SIDE from the live `store` the
+        # op_callback closed over (P3 Slice 2c-i, D1 — zero ABI change). The store STILL holds the REFIT
+        # estimators keyed by the artifact-handle ints, and each REFIT NodeResult carries those same
+        # handles in `artifact_handles`, so we read the fitted models back without any node_runner / bridge
+        # / Rust change. Captured ONLY for Mechanism B (in-process); the subprocess branch can't reach a
+        # child process's store and returns []. OFF-by-default downstream (the native-results writer fires
+        # solely when results are enabled), so a plain run never touches these.
+        "refit_artifacts": _capture_refit_artifacts(node_results, store),
     }
+
+
+def _capture_refit_artifacts(node_results: list[dict[str, Any]], store: dict[int, Any]) -> list[dict[str, Any]]:
+    """Capture the fitted REFIT estimators from the live in-process model store (P3 Slice 2c-i, D1).
+
+    Each REFIT ``NodeResult`` records its persisted model under ``artifact_handles[artifact_id]`` with the
+    integer ``handle`` that keys :data:`store` (the in-process model store the op_callback closed over, set
+    at REFIT in :func:`~nirs4all.pipeline.dagml.node_runner.run_model_node`), and the matching descriptor
+    in ``artifacts[*]`` (``id`` / ``kind`` / ``controller_id`` / ``backend``). We pair the two by
+    ``artifact_id`` and read ``store[handle]`` (``{estimator, y_transform}``), so the captured payload
+    carries the LIVE fitted ``estimator`` + ``y_transform`` plus the ArtifactRef descriptor fields the
+    writer needs. The store only ever holds REFIT artifacts (FIT_CV/OOF estimators are NEVER stored — see
+    the node runner), so this captures the leakage-safe refit models only.
+
+    MULTIPLE artifacts (D3): a branch / stacking / operator-expanded shape emits several REFIT model nodes,
+    each its own handle in the store, so this returns a LIST (one entry per REFIT artifact). A handle absent
+    from the store (defensive — should not happen for a REFIT artifact) is skipped.
+    """
+    descriptors: dict[str, dict[str, Any]] = {}
+    captured: list[dict[str, Any]] = []
+    for frame in node_results:
+        result = frame.get("result") if frame.get("type") == "result" else frame
+        if not result:
+            continue
+        for descriptor in result.get("artifacts", []) or []:
+            descriptors[descriptor["id"]] = descriptor
+        for artifact_id, handle_ref in (result.get("artifact_handles") or {}).items():
+            handle = handle_ref.get("handle")
+            bundle = store.get(handle) if handle is not None else None
+            if bundle is None:
+                continue
+            descriptor = descriptors.get(artifact_id, {})
+            captured.append(
+                {
+                    "artifact_id": artifact_id,
+                    "estimator": bundle["estimator"],
+                    "y_transform": bundle["y_transform"],
+                    "kind": descriptor.get("kind"),
+                    "controller_id": descriptor.get("controller_id"),
+                    "backend": descriptor.get("backend"),
+                }
+            )
+    return captured
 
 
 def run_cv_refit_bundle_router(
@@ -257,4 +309,8 @@ def run_cv_refit_bundle_router(
     # a non-zero returncode is handled by the caller's guard before scores are ever consumed.
     bundle_path = Path(workdir) / "bundle.json"
     outcome["scores"] = json.loads(bundle_path.read_text()).get("scores") if outcome["returncode"] == 0 and bundle_path.exists() else None
+    # Mechanism A (subprocess) fits the models in a CHILD process whose store this process cannot reach,
+    # so NO fitted estimators are capturable here (P3 Slice 2c-i): an empty list → the writer sets
+    # has_model_artifacts:false and emits no loadable artifacts[] entries (it never fakes a payload).
+    outcome["refit_artifacts"] = []
     return outcome

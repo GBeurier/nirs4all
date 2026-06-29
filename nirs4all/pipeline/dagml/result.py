@@ -145,6 +145,7 @@ def _scores_to_run_result(
     results: list[dict[str, Any]] | None = None,
     results_by_variant: dict[Any, list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
+    refit_artifacts: list[dict[str, Any]] | None = None,
 ) -> RunResult:
     """Project a dag-ml ScoreSet into the full legacy ``Predictions`` table (a labeled compat projection).
 
@@ -425,6 +426,13 @@ def _scores_to_run_result(
     # funnels through here, so this is the single capture point; it is in-memory metadata only and OFF
     # by default (the writer fires solely when native results are enabled), so a plain run is untouched.
     run_result._dagml_score_set = scores  # noqa: SLF001
+    # Carry the captured fitted REFIT estimators (P3 Slice 2c-i) onto the result so the native-results
+    # writer can joblib-persist them as loadable model artifacts. ``outcome["refit_artifacts"]`` is the
+    # list captured host-side from the in-process model store (empty for the subprocess mechanism, which
+    # fits in a child process this one cannot reach). Mirrors the ``_dagml_score_set`` capture above:
+    # in-memory metadata only, OFF by default (the writer fires solely when native results are enabled),
+    # so a plain run is untouched.
+    run_result._dagml_refit_artifacts = refit_artifacts or []  # noqa: SLF001
     return run_result
 
 
@@ -456,6 +464,7 @@ def _project_operator_sweep(
     variant_config_names: list[str],
     results_by_index: list[list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
+    refit_artifacts_by_index: list[list[dict[str, Any]]] | None = None,
 ) -> RunResult:
     """Combine each operator-expanded variant's single-variant ScoreSet into ONE per-variant projection.
 
@@ -482,6 +491,11 @@ def _project_operator_sweep(
     fold-val rows — every operator variant ran fully, so its validation blocks exist). NO cross-variant
     y_pred leakage: a variant's blocks are looked up by its tag only. Omitted (rep-fusion sweep) → every
     row stays score-only (empty arrays), unchanged.
+
+    ``refit_artifacts_by_index`` (P3 Slice 2c-i) is each variant's captured fitted REFIT estimators
+    (``_run_concrete_scores``'s ``outcome["refit_artifacts"]``); ONLY the WINNER's are forwarded for native
+    persistence — the projection refits + describes the winner, so the losers' refit models are not
+    surfaced. ``None`` (rep-fusion sweep) → no artifacts persisted.
     """
     scores_by_variant = [scores for scores, _, _ in variant_scores]
     model_names = [name for _, name, _ in variant_scores]
@@ -550,4 +564,10 @@ def _project_operator_sweep(
         skip_refit=skip_refit,
         results_by_variant=results_by_variant or None,
         identity=identity,
+        # Persist ONLY the WINNER's fitted REFIT estimators (the variant the projection refits + describes).
+        # Every operator-expanded variant refits in its own in-process run (its own store), but the
+        # standalone-refit rows — and therefore the model the RunResult describes — are the winner's, so the
+        # losers' refit models are not surfaced and not persisted. ``None`` (rep-fusion sweep, no capture)
+        # falls back to no artifacts.
+        refit_artifacts=refit_artifacts_by_index[winner_index] if refit_artifacts_by_index is not None else None,
     )
