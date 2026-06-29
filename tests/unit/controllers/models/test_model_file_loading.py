@@ -47,7 +47,7 @@ class TestLoadModelFromFile:
 
     def test_load_pkl_file(self, sklearn_model, tmp_path):
         """Test loading a model from .pkl file."""
-        import cloudpickle
+        cloudpickle = pytest.importorskip("cloudpickle")
 
         # Save model
         model_path = tmp_path / "model.pkl"
