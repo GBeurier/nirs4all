@@ -360,6 +360,11 @@ class RunResult:
     _dagml_legacy_result: RunResult | None = field(default=None, repr=False)
     _dagml_export_stochastic: bool = field(default=False, repr=False)
 
+    # The RAW native dag-ml ScoreSet (the canonical object the projection consumed), captured at
+    # projection time so the native-results writer (P3 Slice 2b-i, OFF by default) can persist it
+    # VERBATIM. In-memory metadata only; ``None`` for a legacy result.
+    _dagml_score_set: dict[str, Any] | None = field(default=None, repr=False)
+
     # --- Lifecycle ---
 
     def detach(self) -> None:
