@@ -103,6 +103,58 @@ def _lineage_by_feature(feature_lineage: Mapping[str, Any], feature: str | int) 
     return dict(lineage) if isinstance(lineage, Mapping) else {}
 
 
+# The on-disk extensions that the legacy ``export_model`` format-inference maps to the joblib serialization
+# backend: a ``.joblib`` (or any UNRECOGNIZED extension, whose ``format_map.get(ext, 'joblib')`` default is
+# joblib). The non-joblib extensions (``.pkl``/``.pickle`` → cloudpickle, ``.h5``/``.hdf5`` → keras_h5,
+# ``.keras`` → tensorflow_keras, ``.pt``/``.pth`` → pytorch_state_dict) are the ones that MUST route through
+# the legacy ``to_bytes`` path instead of the joblib-only native helper.
+_NON_JOBLIB_EXTENSIONS = frozenset({".pkl", ".pickle", ".h5", ".hdf5", ".keras", ".pt", ".pth"})
+
+
+def _request_is_joblib(output_path: str | Path, format: str | None) -> bool:
+    """Whether an ``export_model`` request resolves to the joblib backend (so the native helper may fire).
+
+    Mirrors the legacy ``export_model`` format contract EXACTLY: an EXPLICIT ``format`` is honored verbatim
+    (joblib only when it is the literal ``"joblib"``); with ``format=None`` the extension decides (a
+    ``.joblib`` or any unrecognized extension defaults to joblib via ``format_map.get(ext, 'joblib')``, while
+    the framework extensions in :data:`_NON_JOBLIB_EXTENSIONS` resolve to cloudpickle / keras / torch). Any
+    non-joblib request returns ``False`` so :meth:`RunResult._dagml_native_export_model` defers to the legacy
+    ``to_bytes`` path that actually produces the requested format (no silent joblib-under-foreign-extension).
+    """
+    if format is not None:
+        return format == "joblib"
+    return Path(output_path).suffix.lower() not in _NON_JOBLIB_EXTENSIONS
+
+
+class _DagmlExportedModel:
+    """A predict-capable wrapper over a captured dag-ml REFIT model (P3 Slice 2c-ii, Codex D6).
+
+    The native ``export_model`` exports a model that LOADS + ``.predict()``s (a user-facing model), NOT the
+    raw ``{estimator, y_transform}`` dict the native results reader returns. This wrapper holds the captured
+    sklearn ``Pipeline`` (the X-transform chain + the fitted model, fit on raw ``X``) and the OPTIONAL fitted
+    ``y_transform`` (the y-processing inverse), and reproduces the dag-ml run's predict path EXACTLY: it
+    applies the estimator, then — when a ``y_transform`` was captured — the inverse y-transform, so
+    ``predict`` returns values in the ORIGINAL target space (mirroring the node runner's predict, which
+    inverse-transforms before scoring). The exported model's ``predict`` therefore equals the dag-ml run's
+    scored REFIT model's predictions — it IS that model.
+
+    Module-level (not a closure / nested class) so joblib can pickle + reload it by its stable import path.
+    When ``y_transform`` is ``None`` the wrapper is a pass-through over the estimator (single-target /
+    multi-target shape is preserved by the estimator itself).
+    """
+
+    def __init__(self, estimator: Any, y_transform: Any) -> None:
+        self.estimator = estimator
+        self.y_transform = y_transform
+
+    def predict(self, X: Any) -> np.ndarray:
+        """Predict in the ORIGINAL target space: estimator, then inverse y-transform when present."""
+        pred = np.asarray(self.estimator.predict(X), dtype=float)
+        if self.y_transform is None:
+            return pred
+        return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)), dtype=float)
+
+
 @dataclass
 class ModelRefitResult:
     """Per-model refit result metadata.
@@ -373,6 +425,15 @@ class RunResult:
     # (its child-process models are unreachable) and for a legacy result. In-memory metadata only, OFF by
     # default (the writer fires solely when native results are enabled).
     _dagml_refit_artifacts: list[dict[str, Any]] = field(default_factory=list, repr=False)
+
+    # The on-disk native results directory the 2b-i writer produced for this dag-ml run (recorded by
+    # ``run_via_dagml`` when native results were enabled; ``None`` for an in-memory-only dag-ml run or a
+    # legacy result). It holds ``manifest.json`` + ``score_set.json`` + ``predictions.parquet`` + the
+    # ``artifacts/`` model tree. P3 Slice 2c-ii uses it for a NATIVE ``export_model``: a dag-ml run with
+    # EXACTLY ONE concrete model artifact exports that captured (verify-then-load) estimator DIRECTLY — no
+    # legacy refit, no stochastic warning. Multi-model / branch / stacking runs (≠1 artifact) and the .n4a
+    # ``export()`` still defer to the P1c legacy-refit bridge.
+    _dagml_results_dir: Path | None = field(default=None, repr=False)
 
     # --- Lifecycle ---
 
@@ -1085,6 +1146,75 @@ class RunResult:
             generator = BundleGenerator(workspace_path=workspace_path, verbose=0, store=store)
             return generator.export(source=source, output_path=output_path, format=format)
 
+    def _dagml_native_export_model(self, output_path: str | Path, format: str | None) -> Path | None:
+        """Export the CAPTURED native REFIT model directly when EXACTLY ONE concrete artifact exists (2c-ii).
+
+        The promised replacement of the P1c legacy-refit export bridge for the SINGLE-model case: when this
+        dag-ml run has a native results dir (P3 2b-i) holding EXACTLY ONE model artifact AND the requested
+        export is joblib-compatible, rehydrate the artifact via
+        :func:`~nirs4all.pipeline.dagml.native_results.read_native_results` (the existing verify-then-load
+        reader — backend + content-fingerprint checked before any ``joblib.load``) and export a PREDICT-CAPABLE
+        model (the captured ``Pipeline`` + a :class:`_DagmlExportedModel` applying the y inverse when a
+        ``y_transform`` was captured) — NO legacy refit, NO stochastic warning. The exported model's
+        ``predict`` reproduces the dag-ml run's scored REFIT model EXACTLY (it IS that model).
+
+        Returns the written path on success, or ``None`` to signal the caller to FALL BACK to the legacy
+        bridge whenever the native export is not applicable:
+
+        * no native dir;
+        * the requested export is NOT joblib (an explicit non-joblib ``format`` such as ``cloudpickle`` /
+          ``keras_h5``, or a non-joblib extension such as ``.pkl`` / ``.keras`` / ``.pt`` — the native helper
+          only writes joblib bytes, so any other request must go through the legacy ``to_bytes`` path that
+          honors the requested format, never silently write joblib under a foreign extension);
+        * ≠1 model artifact (multi-model / branch / stacking, which defer to the bridge per Codex D4);
+        * ANY native-read/rehydrate failure — not only the verify-then-load guards' ``ValueError`` /
+          ``FileNotFoundError`` / ``KeyError`` but also a fingerprint-valid yet UNLOADABLE artifact (e.g.
+          ``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError`` / ``ImportError`` / ``AttributeError``
+          from ``joblib.load``, or a parquet read error). The fallback contract is "ANY native-read failure
+          → legacy bridge", so a broad ``except Exception`` is intentional HERE (the bridge is the safe,
+          guaranteed export); it is scoped to ONLY the read+rehydrate attempt so a genuine bug in the export
+          write below is never swallowed.
+
+        A plain ``y_transform``-less model exports a wrapper that is a pass-through over the estimator.
+        """
+        if self._dagml_results_dir is None:
+            return None
+        # FORMAT GATE: the native helper writes ONLY joblib bytes, so it may fire only when the request
+        # resolves to joblib — otherwise return None so the legacy ``to_bytes`` path honors the requested
+        # format/extension (no silent joblib-under-a-foreign-extension regression).
+        if not _request_is_joblib(output_path, format):
+            return None
+        from nirs4all.pipeline.dagml.native_results import read_native_results
+
+        try:
+            artifacts = read_native_results(self._dagml_results_dir)["artifacts"]
+        except Exception as exc:  # noqa: BLE001 -- fallback contract: ANY native-read failure → legacy bridge
+            # A tampered/edited manifest (verify-then-load ValueError), a missing/malformed native dir
+            # (FileNotFoundError/KeyError/parquet error), OR a fingerprint-valid but UNLOADABLE artifact
+            # (EOFError/UnpicklingError/ModuleNotFoundError/ImportError/AttributeError from joblib.load —
+            # bytes that hash correctly but cannot be unpickled/imported in this environment) → fall back to
+            # the legacy bridge. The native fast-path is best-effort; the bridge is the guaranteed export.
+            # The broad catch is SCOPED to the read+rehydrate only, so a real bug in the write below escapes.
+            logger.debug("native dag-ml export_model fell back to the legacy bridge: %s", exc)
+            return None
+        # EXACTLY ONE concrete artifact only (D4): a multi-model / branch / stacking run captures several
+        # REFIT artifacts and is NOT cleanly a single exportable model → defer to the legacy bridge.
+        if len(artifacts) != 1:
+            return None
+
+        artifact = artifacts[0]
+        model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+
+        output_path = Path(output_path)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        # Joblib-serialize the predict-capable wrapper (it holds a sklearn Pipeline + an optional sklearn
+        # y-transform — all joblib-friendly). The captured artifact's backend is "joblib" (the reader only
+        # loads joblib payloads), and the format gate above guaranteed a joblib-compatible request.
+        import joblib
+
+        joblib.dump(model, output_path, compress=3)
+        return output_path
+
     def export_model(
         self,
         output_path: str | Path,
@@ -1097,12 +1227,21 @@ class RunResult:
         Unlike export() which creates a full bundle, this exports just the model.
         Works in both attached (runner alive) and detached modes.
 
-        **dag-ml runs (P1c, transitional):** same as :meth:`export` — the model is produced by a legacy
-        re-fit. For an EXACT export, set ``run(random_state=...)`` AND seed every stochastic component's
-        ``random_state``; otherwise (``sample_augmentation``, an unseeded run, or any unseeded-stochastic
-        component such as ``RandomForest`` / ``MLP`` / ``CARS``) the exported model may differ from the
-        dag-ml-scored model. ``source`` is not supported for a dag-ml run (it references its non-existent
-        workspace); ``fold`` is honored (it selects a fold's model from the legacy re-fit's workspace).
+        **dag-ml runs (P3 Slice 2c-ii — NATIVE single-model export):** when the run captured EXACTLY ONE
+        concrete model artifact in its native results dir (``run(engine="dag-ml", results_path=...)`` or
+        ``$N4A_NATIVE_RESULTS``), this exports that captured REFIT model DIRECTLY — rehydrated via the
+        verify-then-load native reader, wrapped as a PREDICT-CAPABLE model (the estimator + the y inverse
+        when a ``y_transform`` was captured) — with NO legacy refit and NO stochastic warning. The exported
+        model's ``predict`` reproduces the dag-ml run's scored REFIT model EXACTLY (it IS that model).
+
+        **dag-ml runs (P1c bridge — fallback):** without a native dir, or for a multi-model / branch /
+        stacking run (≠1 captured artifact), or when ``fold`` is given, the model is produced by a legacy
+        re-fit. For an EXACT bridge export, set ``run(random_state=...)`` AND seed every stochastic
+        component's ``random_state``; otherwise (``sample_augmentation``, an unseeded run, or any
+        unseeded-stochastic component such as ``RandomForest`` / ``MLP`` / ``CARS``) the bridge-exported
+        model may differ from the dag-ml-scored model. ``source`` is not supported for a dag-ml run (it
+        references its non-existent workspace); ``fold`` is honored by the bridge (it selects a fold's model
+        from the legacy re-fit's workspace) and routes around the native single-artifact path.
 
         Args:
             output_path: Path for the output model file.
@@ -1127,6 +1266,17 @@ class RunResult:
                     "dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export_model(path[, fold=...]) (no source)."
                 )
+            # NATIVE export (P3 Slice 2c-ii): when this dag-ml run captured EXACTLY ONE concrete model
+            # artifact in its native results dir AND the request is joblib-compatible, export that captured
+            # (verify-then-load) REFIT model DIRECTLY — no legacy refit, no stochastic warning. ``fold`` is
+            # incompatible with the native single-artifact export (it would select a fold's model, which
+            # lives only in the legacy workspace), so the native path is attempted only for the default
+            # whole-model export. A ``None`` return means not applicable (no native dir / non-joblib format /
+            # ≠1 artifact / unloadable artifact) → fall through to the legacy bridge below.
+            if fold is None:
+                native = self._dagml_native_export_model(output_path, format)
+                if native is not None:
+                    return native
             delegate = self._dagml_export_delegate()
             assert delegate is not None  # spec present ⇒ delegate materializes
             return delegate.export_model(output_path, format=format, fold=fold)

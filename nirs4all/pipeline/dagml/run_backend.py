@@ -315,7 +315,11 @@ def run_via_dagml(
         # imports/instantiates the legacy WorkspaceStore/ArrayStore, preserving the "dag-ml never touches
         # the legacy store" property.
         if native_results_enabled(results_path):
-            write_native_results(result, result._dagml_score_set, results_path)  # noqa: SLF001
+            # Record the written run dir on the RunResult so a NATIVE export_model (P3 Slice 2c-ii) can
+            # locate the captured fitted REFIT artifact(s) + rehydrate them directly — retiring the P1c
+            # legacy-refit bridge for the single-model case (the bridge stays the fallback when no native
+            # dir exists or the run captured ≠1 loadable artifact).
+            result._dagml_results_dir = write_native_results(result, result._dagml_score_set, results_path)  # noqa: SLF001
         return result
     finally:
         if workdir is None:
