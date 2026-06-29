@@ -6,6 +6,6 @@ En contribuant, vous confirmez que :
   modifier et distribuer votre contribution dans le cadre de la double licence du projet
   (open-source + commerciale).
 
-Si votre organisation exige un CLA signé, merci de contacter : <denis.cornet@cirad.fr>.
+Si votre organisation exige un CLA signé, merci de contacter : <nirs4all-admin@cirad.fr>.
 
 © 2025 CIRAD
