@@ -384,13 +384,18 @@ def run_model_node(
         # wrapper applies the X-chain per block and fits ``model.fit([X1,X2,…], y)``. BY_SOURCE (S4):
         # materialize ONLY the bound source's block (one 2D matrix — late fusion by source). Otherwise the
         # single concat matrix (single-source OR early-fusion multi-source) is fit as before.
+        # X is materialized at the dataset's NATIVE storage dtype (no float64 widening): np.asarray on the
+        # resolver's ndarray is a dtype-preserving no-op (float32 for the legacy SpectroDataset contract).
+        # Legacy feeds the estimator float32; a float64 widening shifts inputs ~1e-7, which tips split
+        # thresholds on a fixed-seed tree ensemble (RF/GBR) and diverges the fitted trees. y stays float
+        # (legacy feeds y as float64).
         x_train: Any
         if multi_block:
-            x_train = [np.asarray(block, dtype=float) for block in resolver.resolve_feature_blocks(fit_ids, include_augmented=True)["blocks"]]
+            x_train = [np.asarray(block) for block in resolver.resolve_feature_blocks(fit_ids, include_augmented=True)["blocks"]]
         elif source_index is not None:
-            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True)["values"], dtype=float)
+            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True)["values"])
         else:
-            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"], dtype=float)
+            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"])
         y_train = np.asarray(resolver.resolve_targets(resolver.target_sample_ids(fit_ids))["values"], dtype=float)
         # MULTI-TARGET (S0): resolve_targets returns a 2D (n, n_targets) block, so y_train is already 2D
         # — pass it through unraveled (PLSRegression(n_targets>1)/MultiOutputRegressor consume 2D y) and
@@ -402,13 +407,15 @@ def run_model_node(
         estimator.fit(x_train, y_fit)
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
+        # Predict X at the dataset's NATIVE storage dtype too (same parity reason as the fit X above):
+        # np.asarray on the resolver's ndarray preserves float32; legacy predicts on float32.
         x: Any
         if multi_block:
-            x = [np.asarray(block, dtype=float) for block in resolver.resolve_feature_blocks(ids, include_augmented=include_augmented)["blocks"]]
+            x = [np.asarray(block) for block in resolver.resolve_feature_blocks(ids, include_augmented=include_augmented)["blocks"]]
         elif source_index is not None:
-            x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"], dtype=float)
+            x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"])
         else:
-            x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"], dtype=float)
+            x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"])
         pred = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]

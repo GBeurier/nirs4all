@@ -55,11 +55,11 @@ pytestmark = [pytest.mark.parity, pytest.mark.slow]
 #   sample_augmentation_after_savgol          16.76066 vs 15.83810  (Δ≈9.2e-1)
 #   feature_augmentation_replace_three_views  12.50608 vs 12.62726  (Δ≈1.2e-1)
 #   concat_transform_pca_svd_plsr             14.13327 vs 15.53153  (Δ≈1.4e0)
-#   baseline_savgol_rf_kfold                  24.29178 vs 24.36652  (Δ≈7.5e-2)
-#   baseline_detrend_firstderiv_gbr          22.15498 vs 21.88759   (Δ≈2.7e-1)
 #   generator_finetune_params_optuna          19.46609 vs 21.12623  (Δ≈1.7e0)
-#   generator_log_range_alpha                 12.13799 vs 12.14032  (Δ≈2.3e-3, SAME winner)
 #   generator_sample_log_uniform_alpha        13.26828 vs 13.79983  (Δ≈5.3e-1, DIFFERENT winner)
+# (baseline_savgol_rf_kfold, baseline_detrend_firstderiv_gbr, generator_log_range_alpha were
+#  here too — the dtype-pin + refit-row-order fix converged them to Δ=0.0 / Δ≈1.3e-7; entries
+#  removed from KNOWN_DIVERGENCES, see the notes there.)
 # ---------------------------------------------------------------------------
 KNOWN_DIVERGENCES: dict[str, str] = {
     # Augmentation expands the train set; legacy vs dag-ml apply the augmentation
@@ -72,35 +72,26 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     # across engines, so the concatenated feature matrix (and the model) differs.
     "feature_augmentation_replace_three_views": "feature-view build order differs (Δrmse≈1.2e-1)",
     "concat_transform_pca_svd_plsr": "concat_transform view order/decomposition differs (Δrmse≈1.4e0)",
-    # Tree ensembles with random_state=42: sklearn RF/GBR are DETERMINISTIC given
-    # identical fit-data ROW ORDER, so this is NOT inherent RNG noise. The cause is
-    # a fold-materialization / row-order divergence — legacy and dag-ml feed the
-    # estimator the training rows in a different order, so the fitted trees differ.
-    # Parity debt in dag-ml's fold materialization, not a stochastic estimator.
-    "baseline_savgol_rf_kfold": "RandomForest fold-materialization/row-order differs "
-    "legacy↔dag-ml (random_state=42 → deterministic given identical order; Δrmse≈7.5e-2)",
-    "baseline_detrend_firstderiv_gbr": "GradientBoosting fold-materialization/row-order differs "
-    "legacy↔dag-ml (random_state=42 → deterministic given identical order; Δrmse≈2.7e-1)",
-    # RF CLASSIFICATION sibling (SAME row-order cause, evidenced): both engines pass
-    # random_state=42 + select balanced_accuracy + see the SAME 10-class space [0..9]
-    # (class 0 is real, not a label-encode bug). But the SELECTED best_score
-    # (balanced_accuracy) DIFFERS — legacy 0.160317 vs dag-ml 0.166667 — and 11/30
-    # per-sample class labels differ, both consequences of the differing training
-    # row order fed to the deterministic RF. Not a dag-ml RF-classification bug
-    # (n_classes + vote aggregation are correct; plain best_accuracy is even equal).
-    "baseline_classification_rf_stratified": "RandomForest fold-materialization/row-order differs "
-    "legacy↔dag-ml (selected balanced_accuracy 0.1603 vs 0.1667; 11/30 sample labels)",
+    # NOTE: the three tree-ensemble cases (baseline_savgol_rf_kfold,
+    # baseline_detrend_firstderiv_gbr, baseline_classification_rf_stratified) were REMOVED
+    # from this dict — they reach Δ=0.0 now. Their old "fold-materialization/row-order"
+    # label was wrong about FOLDS (per-fold train_sample_ids were already byte-identical).
+    # The two real divergences were at the MODEL-FIT DATA BOUNDARY (host-side): (1) the
+    # resolver/node_runner WIDENED X float32→float64 (.tolist() + dtype=float), shifting
+    # SavGol/Detrend inputs ~1e-7 and tipping fixed-seed RF/GBR split thresholds; (2)
+    # build_fold_set ordered the REFIT full-train pool by fold-first-seen, not storage
+    # order, so the fixed-seed bootstrap drew different rows than legacy's storage-order
+    # refit. Pinning the host to the dataset's native dtype + ordering the refit pool by
+    # storage order converged both engines. These are LIVE parity assertions now.
     # Optuna drives its own search; the two engines explore a different trial
     # sequence, so the selected hyperparameters (and final score) differ.
     "generator_finetune_params_optuna": "Optuna trial sequence differs across engines (Δrmse≈1.7e0)",
-    # _log_range_ alpha sweep: the SAME winning alpha is selected on BOTH engines
-    # (config_e2bc756e, stable across runs), but that winner is an ILL-CONDITIONED
-    # Ridge solve (rcond≈2e-8) that amplifies the cross-engine input float noise —
-    # per-sample y_pred wobbles ~8.4e-2 and best_rmse by 2.33e-3 (just over the 1e-3
-    # score tol). A numerical-conditioning divergence (NOT a selection tip — winner
-    # is identical), kept loud until the engines' Ridge solves converge.
-    "generator_log_range_alpha": "ill-conditioned Ridge (rcond≈2e-8) amplifies cross-engine "
-    "float noise; same winner, Δrmse≈2.3e-3 / Δy_pred≈8.4e-2",
+    # NOTE: generator_log_range_alpha was REMOVED from this dict — it reaches parity now
+    # (Δrmse 2.3e-3 → 1.3e-7). It was the ill-conditioned Ridge (rcond≈2e-8) case whose
+    # ONLY divergence was the engine AMPLIFYING the host's float32→float64 widening noise;
+    # the same winning alpha was always selected on both engines. Pinning X to the dataset's
+    # native dtype removed that ~1e-6 input noise, so the two Ridge solves now converge well
+    # under the 1e-3 score tol and the per-sample y_pred tol. A LIVE parity assertion now.
     # _sample_ random-alpha sweep that does NOT set _seed_ → genuinely UNSEEDED
     # stochastic. The random variant set (and therefore the winner) is not
     # reproducible across the two engines' samplers, so best_rmse differs run to

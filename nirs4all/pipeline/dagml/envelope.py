@@ -379,16 +379,21 @@ def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]
     resampling CV (ShuffleSplit / repeated KFold, where a sample is validated 0 or 2+ times) is
     tagged ``"resampled"`` so dag-ml relaxes OOF completeness (the per-fold leakage guard holds).
     """
-    pool: list[int] = []
     seen: set[int] = set()
     validation_counts: dict[int, int] = {}
     for train_ints, validation_ints in folds:
         for sample_int in (*train_ints, *validation_ints):
-            if sample_int not in seen:
-                seen.add(sample_int)
-                pool.append(sample_int)
+            seen.add(sample_int)
         for sample_int in validation_ints:
             validation_counts[sample_int] = validation_counts.get(sample_int, 0) + 1
+    # The CV pool drives the REFIT (FullTrain) materialization ORDER: dag-ml preserves the host order of
+    # fold_set.sample_ids when it materializes the full-train universe (merge.rs). Order the pool by
+    # STORAGE order (ascending sample int == the train partition's storage order), NOT fold-first-seen —
+    # legacy refit trains on `dataset.x(train)` in storage order, so a fold-first-seen pool (sample 0
+    # lands late) would feed a fixed-seed RF/GBR a different bootstrap draw and diverge the refit model.
+    # Same SET as fold-first-seen, just the storage ORDER. Per-fold training uses each fold's own
+    # train_sample_ids (unchanged); OOF coverage reads sample_ids as a set (order-insensitive).
+    pool: list[int] = sorted(seen)
     is_oof_partition = len(validation_counts) == len(pool) and all(count == 1 for count in validation_counts.values())
     fold_set: dict[str, Any] = {
         "id": set_id,

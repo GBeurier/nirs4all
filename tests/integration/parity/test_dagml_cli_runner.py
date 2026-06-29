@@ -195,9 +195,12 @@ def test_end_to_end_cli_snv_pls_chain(tmp_path) -> None:
     sklearn_oof: dict[int, float] = {}
     for train_ints, val_ints in folds:
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        # Native storage dtype (float32) — the engine fits on what dataset.x() returns (no float64 widen);
+        # matching the oracle to it keeps this a true bit-level parity check (cf. the float32-faithful KFold
+        # oracle above), not a float32-vs-float64 noise comparison.
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
         for sample_int in val_ints:
-            sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+            sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"))))[0][0])
 
     diffs = [abs(dagml_oof[k] - sklearn_oof[k]) for k in sklearn_oof]
     assert max(diffs) < 1e-4, f"SNV->PLS chained OOF parity drift {max(diffs)}"
@@ -239,9 +242,12 @@ def test_end_to_end_cli_full_vertical_slice(tmp_path) -> None:
     sklearn_oof: dict[int, float] = {}
     for train_ints, val_ints in folds:
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        # Native storage dtype (float32) — the engine fits on what dataset.x() returns (no float64 widen);
+        # matching the oracle to it keeps this a true bit-level parity check (cf. the float32-faithful KFold
+        # oracle above), not a float32-vs-float64 noise comparison.
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
         for sample_int in val_ints:
-            sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+            sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"))))[0][0])
 
     diffs = [abs(dagml_oof[k] - sklearn_oof[k]) for k in sklearn_oof]
     assert max(diffs) < 1e-4, f"full-vertical-slice OOF parity drift {max(diffs)}"
@@ -276,8 +282,8 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
     # dag-ml's native RMSE matches sklearn fold-for-fold (computed in Rust, not Python).
     for index, (train_ints, val_ints) in enumerate(folds):
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
-        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d")))).ravel()
         true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
         sklearn_rmse = float(np.sqrt(mean_squared_error(true, pred)))
         assert abs(validation[f"fold{index}"] - sklearn_rmse) < 1e-3, f"fold{index} native RMSE drift"
@@ -289,8 +295,8 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
     oof_true: dict[int, float] = {}
     for train_ints, val_ints in folds:
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
-        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d")))).ravel()
         true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
         for position, sample_int in enumerate(val_ints):
             oof_pred[sample_int] = float(pred[position])
@@ -307,8 +313,8 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
     assert len(final_test) == 1, "dag-ml must emit a native final-test score (best_rmse)"
     test_ints = dataset.index_column("sample", {"partition": "test"})
     final_model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-    final_model.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
-    test_pred = np.asarray(final_model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel()
+    final_model.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
+    test_pred = np.asarray(final_model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d")))).ravel()
     test_true = np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel()
     sklearn_final_test = float(np.sqrt(mean_squared_error(test_true, test_pred)))
     assert abs(final_test[0]["metrics"]["rmse"] - sklearn_final_test) < 1e-3, "native final-test RMSE != sklearn"
@@ -334,8 +340,8 @@ def test_public_run_engine_dagml() -> None:
 
     # best_rmse == sklearn final-test (refit on full train, predict test)
     model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-    model.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
-    test_pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel()
+    model.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
+    test_pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d")))).ravel()
     sklearn_final_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), test_pred)))
     assert abs(result.best_rmse - sklearn_final_test) < 1e-3
 
@@ -344,8 +350,8 @@ def test_public_run_engine_dagml() -> None:
     oof_true: dict[int, float] = {}
     for train_ints, val_ints in folds:
         fold_model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-        fold_model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
-        pred = np.asarray(fold_model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+        fold_model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(fold_model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d")))).ravel()
         true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
         for position, sample_int in enumerate(val_ints):
             oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), float(true[position])
@@ -403,11 +409,11 @@ def test_public_run_engine_dagml_fills_direct_block_predictions(inprocess, monke
 
     # Direct sklearn(SNV+PLS) on fold-0 TRAIN, predicting the validation samples — matched BY SAMPLE ID.
     direct = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-    direct.fit(np.asarray(dataset.x({"sample": fold0_train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": fold0_train}), dtype=float))
+    direct.fit(np.asarray(dataset.x({"sample": fold0_train}, layout="2d")), np.asarray(dataset.y({"sample": fold0_train}), dtype=float))
     pred_by_sample = {int(sid): float(p) for sid, p in zip(row["sample_indices"], np.asarray(row["y_pred"], dtype=float).ravel(), strict=True)}
     true_by_sample = {int(sid): float(t) for sid, t in zip(row["sample_indices"], np.asarray(row["y_true"], dtype=float).ravel(), strict=True)}
     for sample_int in fold0_val:
-        direct_pred = float(np.asarray(direct.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+        direct_pred = float(np.asarray(direct.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
         assert abs(pred_by_sample[sample_int] - direct_pred) < 1e-6, f"fold-0 val y_pred drift for sample {sample_int}"
         # y_true equals dataset.y for that sample (matched by sample id, not array position).
         assert abs(true_by_sample[sample_int] - float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])) < 1e-6
@@ -418,10 +424,10 @@ def test_public_run_engine_dagml_fills_direct_block_predictions(inprocess, monke
     test_row = test_rows[0]
     assert sorted(test_row["sample_indices"]) == sorted(test_ints), "final-test sample_indices == the test partition"
     refit = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-    refit.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+    refit.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
     test_pred_by_sample = {int(sid): float(p) for sid, p in zip(test_row["sample_indices"], np.asarray(test_row["y_pred"], dtype=float).ravel(), strict=True)}
     for sample_int in test_ints:
-        direct_test = float(np.asarray(refit.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+        direct_test = float(np.asarray(refit.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
         assert abs(test_pred_by_sample[sample_int] - direct_test) < 1e-6, f"final-test y_pred drift for sample {sample_int}"
 
     # --- (C) The final TRAIN row is also filled (refit predicting its own full train).
@@ -460,9 +466,9 @@ def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> Non
     sklearn_oof: dict[int, float] = {}
     for fold_train, fold_val in folds:
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-        model.fit(np.asarray(dataset.x({"sample": fold_train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": fold_train}), dtype=float))
+        model.fit(np.asarray(dataset.x({"sample": fold_train}, layout="2d")), np.asarray(dataset.y({"sample": fold_train}), dtype=float))
         for sample_int in fold_val:
-            sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+            sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
 
     avg_by_sample: dict[str, dict[int, float]] = {}
     for fold_id in ("avg", "w_avg"):
@@ -522,7 +528,7 @@ def test_public_run_engine_dagml_sweep_fills_per_variant_predictions(inprocess, 
     fold0_train, fold0_val = folds[0]
 
     def predict_one(model: object, sample_int: int) -> float:
-        return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+        return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
 
     # Per-variant CV (to pick the winner) + the variant's OWN fold-0 val predictions BY SAMPLE ID.
     def variant_cv_and_fold0(prep_cls: type) -> tuple[float, dict[int, float]]:
@@ -532,7 +538,7 @@ def test_public_run_engine_dagml_sweep_fills_per_variant_predictions(inprocess, 
         fold0_pred: dict[int, float] = {}
         for fold_index, (train_ints, val_ints) in enumerate(folds):
             model = make_pipeline(prep_cls(), PLSRegression(n_components=5))
-            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
             for sample_int in val_ints:
                 pred = predict_one(model, sample_int)
                 acc[sample_int] = acc.get(sample_int, 0.0) + pred
@@ -594,14 +600,14 @@ def test_public_run_engine_dagml_shufflesplit() -> None:
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in splitter.split(train)]
 
     def predict_one(model: object, sample_int: int) -> float:
-        return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+        return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"))))[0][0])
 
     def true_one(sample_int: int) -> float:
         return float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
 
     # best_rmse == sklearn final-test (refit on full train)
     final = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-    final.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+    final.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
     sklearn_final_test = float(np.sqrt(mean_squared_error([true_one(i) for i in test_ints], [predict_one(final, i) for i in test_ints])))
     assert abs(result.best_rmse - sklearn_final_test) < 1e-3
 
@@ -611,7 +617,7 @@ def test_public_run_engine_dagml_shufflesplit() -> None:
     tru: dict[int, float] = {}
     for train_ints, val_ints in folds:
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
-        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
         for sample_int in val_ints:
             acc[sample_int] = acc.get(sample_int, 0.0) + predict_one(model, sample_int)
             cnt[sample_int] = cnt.get(sample_int, 0) + 1
@@ -644,7 +650,7 @@ def test_public_run_engine_dagml_generator_or() -> None:
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
 
     def predict_one(model: object, sample_int: int) -> float:
-        return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+        return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"))))[0][0])
 
     def variant_scores(prep_cls: type) -> tuple[float, float]:
         acc: dict[int, float] = {}
@@ -652,7 +658,7 @@ def test_public_run_engine_dagml_generator_or() -> None:
         tru: dict[int, float] = {}
         for train_ints, val_ints in folds:
             model = make_pipeline(prep_cls(), PLSRegression(n_components=5))
-            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
             for sample_int in val_ints:
                 acc[sample_int] = acc.get(sample_int, 0.0) + predict_one(model, sample_int)
                 cnt[sample_int] = cnt.get(sample_int, 0) + 1
@@ -660,7 +666,7 @@ def test_public_run_engine_dagml_generator_or() -> None:
         keys = sorted(acc)
         cv = float(np.sqrt(mean_squared_error([tru[k] for k in keys], [acc[k] / cnt[k] for k in keys])))
         final = make_pipeline(prep_cls(), PLSRegression(n_components=5))
-        final.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
+        final.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
         test_rmse = float(np.sqrt(mean_squared_error([float(np.asarray(dataset.y({"sample": [i]}), dtype=float).ravel()[0]) for i in test_ints], [predict_one(final, i) for i in test_ints])))
         return cv, test_rmse
 
@@ -697,9 +703,9 @@ def test_public_run_engine_dagml_param_sweep() -> None:
         tru: dict[int, float] = {}
         for train_ints, val_ints in folds:
             model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_components))
-            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
             for sample_int in val_ints:
-                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"))))[0][0])
                 cnt[sample_int] = cnt.get(sample_int, 0) + 1
                 tru[sample_int] = float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
         keys = sorted(acc)
@@ -758,9 +764,9 @@ def test_public_run_engine_dagml_native_param_sweep(tmp_path) -> None:
         tru: dict[int, float] = {}
         for train_ints, val_ints in folds:
             model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_components))
-            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
             for sample_int in val_ints:
-                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float)))[0][0])
+                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"))))[0][0])
                 cnt[sample_int] = cnt.get(sample_int, 0) + 1
                 tru[sample_int] = float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
         keys = sorted(acc)
@@ -772,8 +778,8 @@ def test_public_run_engine_dagml_native_param_sweep(tmp_path) -> None:
 
     # The selected variant's final-test RMSE (refit on full train, predict held-out test).
     final = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=best_nc))
-    final.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
-    best_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), np.asarray(final.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel())))
+    final.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
+    best_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), np.asarray(final.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d")))).ravel())))
     assert abs(result.best_rmse - best_test) < 1e-3  # and reports that variant's final-test RMSE
 
 
@@ -831,9 +837,9 @@ def test_public_run_engine_dagml_native_log_range_sweep(tmp_path) -> None:
         tru: dict[int, float] = {}
         for train_ints, val_ints in folds:
             model = make_pipeline(StandardNormalVariate(), Ridge(alpha=alpha))
-            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
             for sample_int in val_ints:
-                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"), dtype=float))).ravel()[0])
+                acc[sample_int] = acc.get(sample_int, 0.0) + float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
                 cnt[sample_int] = cnt.get(sample_int, 0) + 1
                 tru[sample_int] = float(np.asarray(dataset.y({"sample": [sample_int]}), dtype=float).ravel()[0])
         keys = sorted(acc)
@@ -845,8 +851,8 @@ def test_public_run_engine_dagml_native_log_range_sweep(tmp_path) -> None:
 
     # The selected variant's final-test RMSE (refit on full train, predict held-out test).
     final = make_pipeline(StandardNormalVariate(), Ridge(alpha=best_alpha))
-    final.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
-    best_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), np.asarray(final.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel())))
+    final.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
+    best_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), np.asarray(final.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d")))).ravel())))
     assert abs(result.best_rmse - best_test) < 1e-3  # and reports that variant's final-test RMSE
 
 
@@ -981,7 +987,7 @@ def test_public_run_engine_dagml_classification_sweep_selects_balanced_accuracy_
     monkeypatch.setenv("N4A_DAGML_INPROCESS", inprocess)
 
     dataset = DatasetConfigs(dataset_path("classification")).get_dataset_at(0)
-    x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d"), dtype=float)
+    x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d"))
     y_train = np.asarray(dataset.y({"partition": "train"})).ravel()
     cv_folds = list(KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(x_train))
 
@@ -1027,7 +1033,7 @@ def _excluded_train_ints(dataset, train: list[int], threshold: float) -> set[int
 def _xy_for_sample_order(dataset, sample_ints: list[int]) -> tuple[np.ndarray, np.ndarray]:
     """Real X/y for ``sample_ints`` in request order, avoiding storage-order coupling."""
     sample_ints = [int(s) for s in sample_ints]
-    x = np.asarray(dataset.x_rows(sample_ints, layout="2d"), dtype=float)
+    x = np.asarray(dataset.x_rows(sample_ints, layout="2d"))
     y_block = np.asarray(dataset.y({"sample": sample_ints}, include_augmented=False), dtype=float)
     stored = dataset.index_column("sample", {"sample": sample_ints})
     row_of = {int(sample_int): row for row, sample_int in enumerate(stored)}
@@ -1118,8 +1124,8 @@ def test_public_run_engine_dagml_exclude_default_legacy_parity() -> None:
     test_ints = dataset.index_column("sample", {"partition": "test"})
     kept = [s for s in train if s not in _excluded_train_ints(dataset, train, threshold)]
     model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
-    model.fit(np.asarray(dataset.x({"sample": kept}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": kept}), dtype=float))
-    test_pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d"), dtype=float))).ravel()
+    model.fit(np.asarray(dataset.x({"sample": kept}, layout="2d")), np.asarray(dataset.y({"sample": kept}), dtype=float))
+    test_pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d")))).ravel()
     refit_test_rmse = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), test_pred)))
     assert abs(dagml.best_rmse - refit_test_rmse) < 1e-3, (dagml.best_rmse, refit_test_rmse)
 
@@ -1272,8 +1278,8 @@ def test_public_run_engine_dagml_exclude_keep_in_oof(tmp_path) -> None:
     oof_true: dict[int, float] = {}
     for train_ints, val_ints in pure_folds:
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
-        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
-        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d")))).ravel()
         true = np.asarray(dataset.y({"sample": val_ints}), dtype=float).ravel()
         for position, sample_int in enumerate(val_ints):
             oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), float(true[position])
@@ -1388,8 +1394,8 @@ def test_public_run_engine_dagml_separation_branch_by_metadata() -> None:
             if not part_train or not part_val:  # a small group can be absent from a fold's validation
                 continue
             model = PLSRegression(n_components=n_comp)
-            model.fit(np.asarray(dataset.x({"sample": part_train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": part_train}), dtype=float))
-            pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": part_val}, layout="2d"), dtype=float))).ravel()
+            model.fit(np.asarray(dataset.x({"sample": part_train}, layout="2d")), np.asarray(dataset.y({"sample": part_train}), dtype=float))
+            pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": part_val}, layout="2d")))).ravel()
             true = np.asarray(dataset.y({"sample": part_val}), dtype=float).ravel()
             for position, sample_int in enumerate(part_val):
                 oof_pred[int(sample_int)] = float(pred[position])
@@ -1411,8 +1417,8 @@ def test_public_run_engine_dagml_separation_branch_by_metadata() -> None:
         if not part_train or not part_test:
             continue
         model = PLSRegression(n_components=n_comp)
-        model.fit(np.asarray(dataset.x({"sample": part_train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": part_train}), dtype=float))
-        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": part_test}, layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(dataset.x({"sample": part_train}, layout="2d")), np.asarray(dataset.y({"sample": part_train}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": part_test}, layout="2d")))).ravel()
         true = np.asarray(dataset.y({"sample": part_test}), dtype=float).ravel()
         for position, sample_int in enumerate(part_test):
             test_pred[int(sample_int)] = float(pred[position])
@@ -1560,8 +1566,8 @@ def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
     for train_ints, val_ints in folds:
         fit_ints = list(train_ints) + [child for origin in train_ints for child in children.get(origin, [])]
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
-        model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d"), dtype=float), np.asarray([y_of(s) for s in fit_ints], dtype=float))
-        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d")), np.asarray([y_of(s) for s in fit_ints], dtype=float))
+        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d")))).ravel()
         for position, sample_int in enumerate(val_ints):
             oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), y_of(sample_int)
     keys = sorted(oof_pred)
@@ -1573,8 +1579,8 @@ def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
     no_pred: dict[int, float] = {}
     for train_ints, val_ints in folds:
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
-        model.fit(np.asarray(aug_ds.x_rows(list(train_ints), layout="2d"), dtype=float), np.asarray([y_of(s) for s in train_ints], dtype=float))
-        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(aug_ds.x_rows(list(train_ints), layout="2d")), np.asarray([y_of(s) for s in train_ints], dtype=float))
+        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d")))).ravel()
         for position, sample_int in enumerate(val_ints):
             no_pred[sample_int] = float(pred[position])
     no_aug = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [no_pred[k] for k in keys])))
@@ -1671,8 +1677,8 @@ def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
         fold_kids = fold_children[f"fold{fold_index}"]
         fit_ints = list(train_ints) + [child for origin in train_ints for child in fold_kids.get(origin, [])]
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
-        model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d"), dtype=float), np.asarray([y_of(s) for s in fit_ints], dtype=float))
-        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d")), np.asarray([y_of(s) for s in fit_ints], dtype=float))
+        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d")))).ravel()
         for position, sample_int in enumerate(val_ints):
             oof_pred[sample_int], oof_true[sample_int] = float(pred[position]), y_of(sample_int)
     keys = sorted(oof_pred)
@@ -1683,8 +1689,8 @@ def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
     no_pred: dict[int, float] = {}
     for train_ints, val_ints in folds:
         model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
-        model.fit(np.asarray(aug_ds.x_rows(list(train_ints), layout="2d"), dtype=float), np.asarray([y_of(s) for s in train_ints], dtype=float))
-        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(aug_ds.x_rows(list(train_ints), layout="2d")), np.asarray([y_of(s) for s in train_ints], dtype=float))
+        pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d")))).ravel()
         for position, sample_int in enumerate(val_ints):
             no_pred[sample_int] = float(pred[position])
     no_aug = float(np.sqrt(mean_squared_error([oof_true[k] for k in keys], [no_pred[k] for k in keys])))
@@ -1837,7 +1843,7 @@ def _host_split_oof_and_test(dataset, make_splitter, n_components: int = 5) -> t
         folds = _build_folds(make_splitter(), dataset, train, set())
 
     def xof(ids):
-        return np.asarray(dataset.x_rows(ids, layout="2d"), dtype=float)
+        return np.asarray(dataset.x_rows(ids, layout="2d"))
 
     def yof(ids):
         block = np.asarray(dataset.y({"sample": ids}), dtype=float)
@@ -1949,20 +1955,17 @@ def _dagml_fold_order(dataset, n_splits: int = _N_SPLITS) -> tuple[list[tuple[li
     """The folds + full-train pool in dag-ml's OWN row order, for an order-sensitive transform baseline.
 
     Returns ``(folds, full_train_pool)`` where each fold is ``(train_ints, validation_ints)`` in the
-    KFold split order dag-ml's ``build_fold_set`` preserves, and ``full_train_pool`` is the fold-encounter
-    order ``build_fold_set`` uses for the REFIT ``full_train`` view (first appearance of each sample across
-    each fold's train+validation, in fold order). Mirrors ``envelope.build_fold_set`` exactly so an
-    order-sensitive selector (CARS/MCUVE) reproduces the engine's selection without touching dag-ml.
+    KFold split order dag-ml's ``build_fold_set`` preserves, and ``full_train_pool`` is the STORAGE order
+    (ascending sample int) ``build_fold_set`` uses for the REFIT ``full_train`` view — matching legacy,
+    which refits on ``dataset.x(train)`` in storage order. Mirrors ``envelope.build_fold_set`` exactly so
+    an order-sensitive selector (CARS/MCUVE) reproduces the engine's selection without touching dag-ml.
     """
     train = [int(s) for s in dataset.index_column("sample", {"partition": "train"})]
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
-    pool: list[int] = []
     seen: set[int] = set()
     for train_ints, validation_ints in folds:
-        for sample_int in (*train_ints, *validation_ints):
-            if sample_int not in seen:
-                seen.add(sample_int)
-                pool.append(sample_int)
+        seen.update((*train_ints, *validation_ints))
+    pool: list[int] = sorted(seen)
     return folds, pool
 
 
@@ -1982,7 +1985,7 @@ def _transform_oof_and_test(dataset, make_transform, n_components: int = 5) -> t
     test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
 
     def xof(ids: list[int]) -> np.ndarray:
-        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"), dtype=float)
+        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"))
 
     def yof(ids: list[int]) -> np.ndarray:
         ids = [int(i) for i in ids]
@@ -2127,7 +2130,7 @@ def _concat_oof_and_test(dataset, make_concat_step, n_components: int = 15) -> t
     test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
 
     def xof(ids):
-        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"), dtype=float)
+        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"))
 
     def yof(ids):
         ids = [int(i) for i in ids]
@@ -2276,7 +2279,7 @@ def _feature_aug_oof_and_test(dataset, make_aug_step, n_components: int = 15) ->
     test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
 
     def xof(ids):
-        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"), dtype=float)
+        return np.asarray(dataset.x_rows([int(i) for i in ids], layout="2d"))
 
     def yof(ids):
         ids = [int(i) for i in ids]
@@ -2435,7 +2438,7 @@ def _group_aware_oof_and_test(dataset, splitter, n_components: int = 5) -> tuple
     folds = _build_group_folds(splitter, dataset, train)
 
     def xof(ids):
-        return np.asarray(dataset.x_rows(ids, layout="2d"), dtype=float)
+        return np.asarray(dataset.x_rows(ids, layout="2d"))
 
     def yof(ids):
         block = np.asarray(dataset.y({"sample": ids}, include_augmented=False), dtype=float)
@@ -2578,7 +2581,7 @@ def _equal_rep_dataset():
     base = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     train = [int(s) for s in base.index_column("sample", {"partition": "train"})]
     n_rows = _REP_PHYS * _REP_REPS
-    x = np.asarray(base.x_rows(train, layout="2d"), dtype=float)[:n_rows, :_REP_FEAT]
+    x = np.asarray(base.x_rows(train, layout="2d"))[:n_rows, :_REP_FEAT]
     y = np.asarray(base.y({"sample": train}), dtype=float).ravel()[:n_rows]
     sample_ids = [f"p{phys}" for phys in range(_REP_PHYS) for _ in range(_REP_REPS)]
 
@@ -2637,7 +2640,7 @@ def test_rep_to_sources_reshapes_replicates_to_sources() -> None:
     assert len(dataset.index_column("sample", {"partition": "train"})) == _REP_PHYS
     assert len(dataset.index_column("sample", {"partition": "test"})) == 0
     # The per-source blocks hstack to a (_REP_PHYS, _REP_REPS*_REP_FEAT) early-fusion matrix, NaN-free.
-    fused = np.asarray(dataset.x({"sample": dataset.index_column("sample", {})}, layout="2d", concat_source=True), dtype=float)
+    fused = np.asarray(dataset.x({"sample": dataset.index_column("sample", {})}, layout="2d", concat_source=True))
     assert fused.shape == (_REP_PHYS, _REP_REPS * _REP_FEAT)
     assert not np.isnan(fused).any()
 
@@ -2683,7 +2686,7 @@ def test_public_run_engine_dagml_rep_to_sources() -> None:
     folds = _build_folds(splitter, reshaped, pool, set())
 
     def fused_x(sample_ints: list[int]) -> np.ndarray:
-        return np.asarray(reshaped.x({"sample": list(sample_ints)}, layout="2d", concat_source=True), dtype=float)
+        return np.asarray(reshaped.x({"sample": list(sample_ints)}, layout="2d", concat_source=True))
 
     def y(sample_ints: list[int]) -> np.ndarray:
         block = np.asarray(reshaped.y({"sample": list(sample_ints)}), dtype=float)
@@ -2741,7 +2744,7 @@ def test_public_run_engine_dagml_rep_to_pp() -> None:
     folds = _build_folds(splitter, reshaped, pool, set())
 
     def flat_x(sample_ints: list[int]) -> np.ndarray:
-        return np.asarray(reshaped.x({"sample": list(sample_ints)}, layout="2d", concat_source=True), dtype=float)
+        return np.asarray(reshaped.x({"sample": list(sample_ints)}, layout="2d", concat_source=True))
 
     def y(sample_ints: list[int]) -> np.ndarray:
         block = np.asarray(reshaped.y({"sample": list(sample_ints)}), dtype=float)
@@ -2861,8 +2864,8 @@ def test_public_run_engine_dagml_duplication_branch_fusion() -> None:
         pred: dict[int, float] = {}
         for train_ints, val_ints in folds:
             model = model_factory()
-            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
-            p = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float))).ravel()
+            model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+            p = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d")))).ravel()
             for position, sample_int in enumerate(val_ints):
                 pred[int(sample_int)] = float(p[position])
         return pred
@@ -2893,8 +2896,8 @@ def test_public_run_engine_dagml_duplication_branch_fusion() -> None:
     # exactly that from the branches' `(test, fold_id=None)` REFIT blocks.
     def test_pred(model_factory) -> np.ndarray:  # noqa: ANN001
         model = model_factory()
-        model.fit(np.asarray(dataset.x({"sample": train}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train}), dtype=float))
-        return np.asarray(model.predict(np.asarray(dataset.x({"sample": test}, layout="2d"), dtype=float))).ravel()
+        model.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
+        return np.asarray(model.predict(np.asarray(dataset.x({"sample": test}, layout="2d")))).ravel()
 
     y_test = np.asarray(dataset.y({"sample": test}), dtype=float).ravel()
     avg_test = (test_pred(lambda: PLSRegression(n_components=n_comp)) + test_pred(lambda: Ridge(alpha=alpha))) / 2
@@ -3030,7 +3033,7 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
 
     def x(ints):  # noqa: ANN001, ANN202
-        return np.asarray(dataset.x({"sample": ints}, layout="2d"), dtype=float)
+        return np.asarray(dataset.x({"sample": ints}, layout="2d"))
 
     def y(ints):  # noqa: ANN001, ANN202
         return np.asarray(dataset.y({"sample": ints}), dtype=float).ravel()
@@ -3155,7 +3158,7 @@ def _multi_target_dataset(n_targets: int = 3):
     test = [int(s) for s in base.index_column("sample", {"partition": "test"})]
 
     def _xy(ids: list[int]):
-        x = np.asarray(base.x_rows(ids, layout="2d"), dtype=float)
+        x = np.asarray(base.x_rows(ids, layout="2d"))
         y_block = np.asarray(base.y({"sample": ids}), dtype=float).reshape(len(ids), -1)
         stored = base.index_column("sample", {"sample": ids})
         row_of = {int(s): r for r, s in enumerate(stored)}
@@ -3227,8 +3230,8 @@ def test_public_run_engine_dagml_multi_target(tmp_path) -> None:
     oof_true: dict[int, np.ndarray] = {}
     for train_ints, val_ints in folds:
         model = PLSRegression(n_components=5)
-        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d"), dtype=float), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
-        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"), dtype=float)), dtype=float).reshape(len(val_ints), -1)
+        model.fit(np.asarray(dataset.x({"sample": train_ints}, layout="2d")), np.asarray(dataset.y({"sample": train_ints}), dtype=float))
+        pred = np.asarray(model.predict(np.asarray(dataset.x({"sample": val_ints}, layout="2d"))), dtype=float).reshape(len(val_ints), -1)
         true_block = np.asarray(dataset.y({"sample": val_ints}), dtype=float).reshape(len(val_ints), -1)
         stored = dataset.index_column("sample", {"sample": val_ints})
         row_of = {int(s): r for r, s in enumerate(stored)}
@@ -3409,7 +3412,7 @@ def test_public_run_engine_dagml_multi_source_early_fusion() -> None:
 
     # concat_source=True IS the host-fused (sample-aligned, feature-axis-concatenated) multi-source matrix.
     def fused_x(sample_ints: list[int]) -> np.ndarray:
-        return np.asarray(dataset.x({"sample": sample_ints}, layout="2d", concat_source=True), dtype=float)
+        return np.asarray(dataset.x({"sample": sample_ints}, layout="2d", concat_source=True))
 
     def y(sample_ints: list[int]) -> np.ndarray:
         return np.asarray(dataset.y({"sample": sample_ints}), dtype=float)
@@ -3528,7 +3531,7 @@ def test_public_run_engine_dagml_mbpls_intermediate_fusion() -> None:
 
     def blocks(ids: list[int]) -> list[np.ndarray]:
         """The per-source feature blocks for ``ids`` (concat_source=False), as a list — what MB-PLS fuses."""
-        return [np.asarray(block, dtype=float) for block in dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)]
+        return [np.asarray(block) for block in dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)]
 
     def y(ids: list[int]) -> np.ndarray:
         """y for ``ids`` in REQUEST order (re-keyed off ascending storage order, the storage-vs-request trap)."""
@@ -3575,8 +3578,8 @@ def _two_source_distinct_dataset():
     base = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     train = [int(s) for s in base.index_column("sample", {"partition": "train"})]
     test = [int(s) for s in base.index_column("sample", {"partition": "test"})]
-    x_train = np.asarray(base.x_rows(train, layout="2d"), dtype=float)
-    x_test = np.asarray(base.x_rows(test, layout="2d"), dtype=float)
+    x_train = np.asarray(base.x_rows(train, layout="2d"))
+    x_test = np.asarray(base.x_rows(test, layout="2d"))
     half = x_train.shape[1] // 2
 
     def _two_sources(x: np.ndarray) -> list[np.ndarray]:
@@ -3718,7 +3721,7 @@ def test_public_run_engine_dagml_by_source_fusion() -> None:
 
     def block(ids: list[int], source_index: int) -> np.ndarray:
         """Source-k block for ``ids`` in request order (x_rows is identity-keyed → already request order)."""
-        return np.asarray(dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)[source_index], dtype=float)
+        return np.asarray(dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)[source_index])
 
     def y(ids: list[int]) -> np.ndarray:
         stored = dataset.index_column("sample", {"sample": [int(s) for s in ids]})
@@ -3811,7 +3814,7 @@ def test_by_source_genuinely_restricts_to_one_source(tmp_path) -> None:
     engine_test = next(r for r in reports if r["partition"] == "test" and r.get("fold_id") is None)["metrics"]["rmse"]
 
     def block(ids: list[int], source_index: int) -> np.ndarray:
-        return np.asarray(dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)[source_index], dtype=float)
+        return np.asarray(dataset.x_rows([int(s) for s in ids], layout="2d", concat_source=False)[source_index])
 
     def y(ids: list[int]) -> np.ndarray:
         stored = dataset.index_column("sample", {"sample": [int(s) for s in ids]})
@@ -3848,7 +3851,7 @@ def test_by_source_genuinely_restricts_to_one_source(tmp_path) -> None:
     # LOAD-BEARING: by_source must DIFFER from early fusion (one model on the concatenated sources). On
     # these DISTINCT sources the two diverge — proof each branch genuinely saw ONLY its source's block.
     def fused(ids: list[int]) -> np.ndarray:
-        return np.asarray(dataset.x({"sample": [int(s) for s in ids]}, layout="2d", concat_source=True), dtype=float)
+        return np.asarray(dataset.x({"sample": [int(s) for s in ids]}, layout="2d", concat_source=True))
 
     early_fusion: dict[int, float] = {}
     for train_ints, val_ints in folds:
@@ -4384,7 +4387,11 @@ def _variant_oof_and_test(dataset, folds, train, test, transforms, model) -> tup
     from sklearn.pipeline import make_pipeline
 
     def xof(ids):
-        return np.asarray(dataset.x_rows(ids, layout="2d"), dtype=float)
+        # Native storage dtype (float32) — NOT a float64 widening: the engine fits on what
+        # dataset.x_rows() returns (the resolver/node_runner no longer .tolist()/cast to float),
+        # so the oracle must too. A float64 widening shifts inputs ~1e-7, which an ill-conditioned
+        # Ridge (rcond≈2e-8) amplifies past the score tol — a spurious oracle mismatch, not a real one.
+        return np.asarray(dataset.x_rows(ids, layout="2d"))
 
     def yof(ids):
         block = np.asarray(dataset.y({"sample": ids}), dtype=float)
@@ -4601,7 +4608,7 @@ def test_public_run_engine_dagml_multi_source_baseline() -> None:
     test = [int(s) for s in dataset.index_column("sample", {"partition": "test"})]
 
     def fused(ids):
-        return np.asarray(dataset.x({"sample": [int(s) for s in ids]}, layout="2d", concat_source=True), dtype=float)
+        return np.asarray(dataset.x({"sample": [int(s) for s in ids]}, layout="2d", concat_source=True))
 
     def yof(ids):
         block = np.asarray(dataset.y({"sample": [int(s) for s in ids]}), dtype=float)
