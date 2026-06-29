@@ -120,21 +120,11 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     "(legacy concat-overlapping-folds 6.6735 vs dag-ml OOF-aggregate 6.1906; parity debt 2a-iii)",
     "rep_to_pp_basic": "rep OOF cv_best_score aggregation differs legacy↔dag-ml "
     "(legacy concat-overlapping-folds 6.1427 vs dag-ml OOF-aggregate 6.1906; parity debt 2a-iii)",
-    # Sample-level aggregation (mean/median/outlier-exclude): dag-ml COMPUTES the
-    # aggregation correctly — cv_best_score (Δ≈4e-6) AND best_rmse AND
-    # num_predictions are all at parity, and the final-(test) ROW exists — but it
-    # does NOT surface the aggregated final-(test) y_pred ARRAY across the bridge
-    # (dag-ml emits 0 per-sample preds vs legacy's 12; the row's y_pred is empty).
-    # Same family as rep_to_* / the deferred 2a-iii avg/w_avg OOF surface. NOT a
-    # crash, NOT mis-aggregation (scores match), NOT dropped rows (num_predictions
-    # parity). Enforced by the y_pred sample-id SET-equality guard so it XPASS-flips
-    # when 2a-iii surfaces the aggregated y_pred.
-    "aggregation_rep_mean": "dag-ml aggregation (mean) final-(test) y_pred not surfaced across "
-    "the bridge (0 vs 12 preds; cv/rmse/num_predictions at parity; parity debt 2a-iii)",
-    "aggregation_rep_median": "dag-ml aggregation (median) final-(test) y_pred not surfaced across "
-    "the bridge (0 vs 12 preds; cv/rmse/num_predictions at parity; parity debt 2a-iii)",
-    "aggregation_rep_outlier_exclude": "dag-ml aggregation (outlier-exclude) final-(test) y_pred not "
-    "surfaced across the bridge (0 vs 12 preds; cv/rmse/num_predictions at parity; parity debt 2a-iii)",
+    # Sample-level aggregation (mean/median/outlier-exclude) now flows the final-(test) y_pred across the
+    # bridge at parity (Gap 2 / A1): the repetition concrete path threads the node results + identity into
+    # the projection, so the refit's already-aggregated `(test, None)` sample block fills the final-(test)
+    # row (12 vs 12 preds, max |Δy_pred| ≈ 3.6e-5). Their entries were removed from KNOWN_DIVERGENCES — they
+    # are LIVE parity assertions now.
 }
 
 
