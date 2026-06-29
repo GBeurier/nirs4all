@@ -80,7 +80,8 @@ class HighLeverageFilter(SampleFilter):
         n_components: int | None = None,
         center: bool = True,
         reason: str | None = None,
-        tag_name: str | None = None
+        tag_name: str | None = None,
+        random_state: int | None = None
     ):
         """
         Initialize the high leverage filter.
@@ -105,6 +106,12 @@ class HighLeverageFilter(SampleFilter):
             reason: Custom exclusion reason. Defaults to filter description.
             tag_name: Name for the tag column when used with TagController.
                      If None, defaults to the exclusion_reason property.
+            random_state: Random state for reproducibility. Threaded into the
+                         internal randomized-SVD PCA used by the "pca" method and
+                         by the "hat" method on wide data (n_features >= n_samples):
+                         when n_comp << n_features sklearn's svd_solver="auto" picks
+                         the RANDOMIZED solver, which draws from the global NumPy RNG.
+                         None leaves it randomized (prior unseeded behavior).
 
         Raises:
             ValueError: If method is not valid.
@@ -117,6 +124,7 @@ class HighLeverageFilter(SampleFilter):
         self.absolute_threshold = absolute_threshold
         self.n_components = n_components
         self.center = center
+        self.random_state = random_state
 
         # Validate parameters
         if method not in ("hat", "pca"):
@@ -237,7 +245,10 @@ class HighLeverageFilter(SampleFilter):
         # Determine number of components
         n_comp = min(self.n_components, n_samples - 1, n_features) if self.n_components is not None else min(n_samples - 1, n_features, 50)
 
-        self.pca_ = PCA(n_components=n_comp)
+        # When n_comp << n_features sklearn's svd_solver="auto" picks the RANDOMIZED solver, which
+        # draws from the global NumPy RNG; pass random_state so HighLeverageFilter(random_state=X) is
+        # deterministic (unseeded stays randomized — sklearn ignores random_state for exact solvers).
+        self.pca_ = PCA(n_components=n_comp, random_state=self.random_state)
         scores = self.pca_.fit_transform(X)
 
         # Compute covariance in score space

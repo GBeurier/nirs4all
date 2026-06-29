@@ -381,6 +381,63 @@ class TestHighLeverageFilterHelperMethods:
         repr_str = repr(filter_obj)
         assert "absolute_threshold=0.5" in repr_str
 
+class TestHighLeverageFilterDeterminism:
+    """Tests that random_state makes the leverage computation reproducible (#62).
+
+    On WIDE data (n_features >> n_samples) the internal PCA's svd_solver="auto"
+    lowers to the RANDOMIZED solver, which draws from the GLOBAL NumPy RNG. Without
+    threading random_state into that PCA, the leverages — and hence the flagged set —
+    drift with the cumulative global RNG state left by preceding code. HighLeverageFilter
+    now passes self.random_state into the PCA, so HighLeverageFilter(random_state=X) is
+    bit-identical regardless of the surrounding global RNG state, while unseeded
+    (random_state=None) stays randomized (the prior behavior).
+    """
+
+    @staticmethod
+    def _fixture():
+        """A wide fixture (n_features 2151 >> n_samples 130) -> PCA picks randomized SVD."""
+        return np.random.RandomState(0).randn(130, 2151)
+
+    def _leverages(self, random_state, global_seed):
+        """Fit the wide fixture under a perturbed GLOBAL RNG and return raw leverages."""
+        X = self._fixture()
+        np.random.seed(global_seed)  # perturb the global RNG the randomized solver draws from
+        filter_obj = HighLeverageFilter(method="pca", n_components=20, random_state=random_state)
+        filter_obj.fit(X)
+        return filter_obj.get_leverages(X)
+
+    def _flagged(self, random_state, global_seed):
+        """Fit the wide fixture and return the set of EXCLUDED sample indices."""
+        X = self._fixture()
+        np.random.seed(global_seed)
+        filter_obj = HighLeverageFilter(method="pca", n_components=20, random_state=random_state)
+        filter_obj.fit(X)
+        return frozenset(np.flatnonzero(~filter_obj.get_mask(X)).tolist())
+
+    def test_seeded_leverages_are_bit_identical_across_global_rng_states(self):
+        """HighLeverageFilter(random_state=X) computes IDENTICAL leverages across global states."""
+        lev_42 = self._leverages(random_state=42, global_seed=42)
+        lev_111 = self._leverages(random_state=42, global_seed=111)
+        lev_222 = self._leverages(random_state=42, global_seed=222)
+
+        np.testing.assert_array_equal(lev_42, lev_111)
+        np.testing.assert_array_equal(lev_42, lev_222)
+
+    def test_seeded_flagged_set_is_stable_across_global_rng_states(self):
+        """The (NON-EMPTY) excluded set is identical across global RNG states under a fixed random_state."""
+        flagged_a = self._flagged(random_state=0, global_seed=1234)
+        flagged_b = self._flagged(random_state=0, global_seed=9999)
+        flagged_c = self._flagged(random_state=0, global_seed=314159)
+        assert flagged_a, "the flagged set must be non-empty, else the stability assertion is vacuous"
+        assert flagged_a == flagged_b == flagged_c
+
+    def test_unseeded_leverages_drift_across_global_rng_states(self):
+        """The bug guard: random_state=None stays randomized (leverages drift) -> unchanged behavior."""
+        lev_a = self._leverages(random_state=None, global_seed=42)
+        lev_b = self._leverages(random_state=None, global_seed=111)
+        # Randomized SVD under different global RNG states yields different leverages.
+        assert not np.array_equal(lev_a, lev_b)
+
 class TestHighLeverageFilterTransform:
     """Tests for transform method (should be no-op)."""
 

@@ -493,7 +493,7 @@ class TestModelFileResolution:
 
     def test_detect_source_type_model_file_pkl(self, resolver, tmp_path):
         """Test detecting .pkl file as MODEL_FILE."""
-        import cloudpickle
+        cloudpickle = pytest.importorskip("cloudpickle")
         from sklearn.linear_model import Ridge
 
         model_path = tmp_path / "model.pkl"

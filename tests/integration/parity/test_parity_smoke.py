@@ -94,6 +94,9 @@ def test_explain_path(case: PipelineCase, tmp_path) -> None:
         # XFAIL, which would mask the legacy fix.
         pytest.skip(f"[{case.skip_kind or 'unknown'}] {case.skip_reason}")
 
+    # nirs4all.explain() builds a ShapAnalyzer, which raises if SHAP is absent.
+    pytest.importorskip("shap")
+
     dataset = _make_dataset(case)
     result = nirs4all.run(
         pipeline=case.pipeline,
