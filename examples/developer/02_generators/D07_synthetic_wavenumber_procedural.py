@@ -410,7 +410,7 @@ ax1.axvspan(900, 2500, alpha=0.1, color='yellow', label='NIR region')
 
 # Plot 2: NIR zones
 ax2 = axes[0, 1]
-zone_colors_cmap = plt.cm.get_cmap('viridis')
+zone_colors_cmap = plt.get_cmap('viridis')
 zone_colors = [zone_colors_cmap(x) for x in np.linspace(0.2, 0.8, len(NIR_ZONES_WAVENUMBER))]
 for y_pos, ((wn_min, wn_max, zone_name), color) in enumerate(zip(NIR_ZONES_WAVENUMBER, zone_colors, strict=False)):
     wl_start = wavenumber_to_wavelength(wn_max)
