@@ -1,0 +1,19 @@
+{
+  "backend": "legacy",
+  "case": "generator_or_models_pls_ridge",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 13.286431643519423,
+    "cv_best_score": 18.75567271603152,
+    "r2": 0.5499298960801484,
+    "rmse": 13.286431643519423
+  },
+  "models": [
+    "PLSRegression",
+    "Ridge"
+  ],
+  "num_predictions": 34,
+  "pipeline_fingerprint": "4bedb0fa1a1260ba"
+}

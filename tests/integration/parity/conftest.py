@@ -23,6 +23,7 @@ from . import (  # noqa: F401
     cases_baseline,
     cases_branches_merges,
     cases_generators,
+    cases_generators_conformance,
     cases_multi_source,
     cases_refit_predict,
     cases_tags_exclude,

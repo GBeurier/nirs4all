@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "generator_range_dict_form",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 13.691632166743267,
+    "cv_best_score": 15.494938344472677,
+    "r2": 0.5220594303691799,
+    "rmse": 13.691632166743267
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 77,
+  "pipeline_fingerprint": "37afeb07d26a35cd"
+}
