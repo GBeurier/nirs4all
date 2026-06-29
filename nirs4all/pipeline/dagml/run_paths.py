@@ -233,7 +233,13 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml repetition run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), refit_artifacts=outcome["refit_artifacts"])
+    # Thread the node results + minted identity into the projection so the strict direct-block rows
+    # (per-fold val + refit final/test) carry real y_pred/y_true/sample_indices — the same 2a-i fill the
+    # single-pipeline path does. For a SAMPLE-LEVEL-aggregation dataset (`aggregate=True`) the refit's
+    # `(test, None)` block dag-ml emits is already the aggregated sample grain (the replicates were
+    # collapsed at materialization), so this surfaces the aggregation's final-(test) y_pred at parity with
+    # legacy (Gap 2). scores/skip_refit unchanged — num_predictions and scores stay score-set-driven.
+    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"])
 
 
 def _reshape_for_rep_fusion(rep_step: dict[str, Any], spectro: Any) -> None:

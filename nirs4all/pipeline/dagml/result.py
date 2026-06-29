@@ -83,6 +83,24 @@ def _index_sample_blocks(results: list[dict[str, Any]] | None) -> dict[tuple[str
     emits), mapping to ``(prediction_block, regression_target_block_or_None)``. For the SINGLE-PIPELINE
     scope (2a-i) this triple is unique (one producer, one variant); the per-variant sweep scopes
     (2a-ii/2a-iii) thread their own producer/variant context separately.
+
+    AGGREGATED final-test surface (Gap 2). When a node natively aggregates its OOF/test predictions to the
+    SAMPLE level (dag-ml scoring's observation→sample reducer, scoring.rs), the per-sample result lands on
+    ``aggregated_predictions`` instead of ``predictions``. Those blocks carry the unit-tagged shape
+    (``unit_ids`` = a list of ``{"level": "sample", "id": ...}`` objects, plus ``level`` / ``values`` /
+    ``target_names``) rather than a flat ``sample_ids`` list. We surface the SAMPLE-level ones under the SAME
+    ``(producer_node, partition, fold_id)`` key, NORMALIZED to the ``sample_ids``/``values`` shape
+    :func:`_row_arrays` reads, paired with the node's matching sample-level ``regression_targets`` block for
+    y_true. A real ``predictions`` block ALWAYS WINS that key (the per-fold-val / refit final-test direct
+    blocks): the aggregated entry is added only when no ``predictions`` block claimed the key, so it fills
+    the AGGREGATED rows (e.g. an aggregation node's collapsed final-test) without clobbering a direct block.
+
+    The aggregated block is paired to its y_true by SAMPLE ID — the sole sample-level ``regression_targets``
+    block whose unit ids are the SAME SET as the block's unit ids — and the y_true row order is realigned to
+    the block's id order before normalizing. Matching by id (not by row count) is required: two sample-level
+    target blocks of EQUAL length but different ids must not cross-pair. When no id-matching target exists,
+    y_true stays ``None`` (the row is score-only) — there is NO count-match fallback, which would attach the
+    wrong y_true.
     """
     index: dict[tuple[str, str, str | None], tuple[dict[str, Any], dict[str, Any] | None]] = {}
     for frame in results or []:
@@ -93,7 +111,40 @@ def _index_sample_blocks(results: list[dict[str, Any]] | None) -> dict[tuple[str
         for position, block in enumerate(result.get("predictions", []) or []):
             target = targets[position] if position < len(targets) else None
             index[(block["producer_node"], block["partition"], block.get("fold_id"))] = (block, target)
+        # Sample-level aggregated blocks fill the AGGREGATED rows under the same key — but never clobber a
+        # `predictions` block (the direct per-fold-val / refit final-test blocks WIN their key). Normalize
+        # the unit-tagged aggregated shape to the flat `sample_ids` shape `_row_arrays` reads.
+        sample_targets = [target for target in targets if target.get("level") == "sample"]
+        for block in result.get("aggregated_predictions", []) or []:
+            if block.get("level") != "sample":
+                continue
+            key = (block["producer_node"], block["partition"], block.get("fold_id"))
+            if key in index:
+                continue
+            unit_ids = [unit["id"] for unit in block.get("unit_ids", [])]
+            target = _id_matched_sample_target(unit_ids, sample_targets)
+            index[key] = ({**block, "sample_ids": unit_ids}, target)
     return index
+
+
+def _id_matched_sample_target(unit_ids: list[str], sample_targets: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """The sample-level y_true block whose unit ids MATCH ``unit_ids`` (a SET), realigned to that order.
+
+    Pairs an aggregated sample block with its ground truth BY SAMPLE ID, never by row count: returns the
+    sole ``sample_targets`` entry whose unit ids are the same SET as ``unit_ids`` (so two equal-length but
+    differently-id'd target blocks never cross-pair), with its ``values`` reordered to ``unit_ids`` order so
+    a downstream zip of y_pred↔y_true aligns per sample. ``None`` when no such block exists (the row stays
+    score-only — there is NO count-match fallback, which would attach the wrong y_true).
+    """
+    requested = set(unit_ids)
+    for target in sample_targets:
+        target_ids = [unit["id"] for unit in target.get("unit_ids", [])]
+        if set(target_ids) != requested or len(target_ids) != len(unit_ids):
+            continue
+        position_by_id = {unit_id: position for position, unit_id in enumerate(target_ids)}
+        values = target.get("values", [])
+        return {**target, "values": [values[position_by_id[unit_id]] for unit_id in unit_ids]}
+    return None
 
 
 def _legacy_fold_id(native_fold_id: str) -> str:
