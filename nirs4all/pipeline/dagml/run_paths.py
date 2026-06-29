@@ -15,6 +15,7 @@ from typing import Any
 import numpy as np
 
 from nirs4all.api.result import RunResult
+from nirs4all.core.metrics import is_higher_better
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
 from .cli_runner import assemble_cv_refit_dsl
@@ -192,7 +193,10 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
     ]
     if len(results) == 1:
         return results[0]
-    maximize = metric in ("accuracy", "r2")
+    # Direction from the SINGLE source of truth (core.metrics), so a classification sweep ranking on
+    # `balanced_accuracy` (the default since #60) is MAXIMIZED, not minimized (which would pick the worst
+    # variant). The old `metric in ("accuracy", "r2")` set silently mis-ranked balanced_accuracy.
+    maximize = is_higher_better(metric)
 
     def _cv_rank(result: RunResult) -> float:
         score = result.cv_best_score
