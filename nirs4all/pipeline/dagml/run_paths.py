@@ -87,6 +87,117 @@ def _run_native_generation(
     return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, skip_refit=_legacy_skips_refit(splitter), refit_artifacts=outcome["refit_artifacts"])
 
 
+def _run_native_operator_generation(
+    pipeline: list[Any],
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str,
+    task_type: str,
+    cv_pool: list[int] | None = None,
+    excluded: set[int] | None = None,
+    tags_by_sample: dict[int, list[str]] | None = None,
+    dataset_pickle: str | None = None,
+    config_name: str = "",
+    variant_config_names: list[str] | None = None,
+    random_state: int | None = None,
+) -> RunResult:
+    """Run a FLAT-SINGLE operator ``_or_`` as ONE native dag-ml operator-SELECT + refit run (#23 Phase 7).
+
+    The generator sits on a TRANSFORM step (the model is concrete): the bridge lowers the ``_or_`` to a
+    compat ``Generator`` step, dag-ml's ``compile_operator_variant_models`` expands the operator-variant
+    models, and the in-process binding scores EACH choice by its cross-fold OOF ``metric``, refits ONLY the
+    winner, and surfaces every variant's validation reports — each stamped with the cross-language
+    ``variant_label`` content fingerprint (the WINNER too). ``bundle.scores`` is mapped to the full
+    PER-VARIANT legacy table, keyed CONTENT-WISE (``variant_label`` → ``config_name``), so a sweep's
+    num_predictions + winner identity match the Python-expand path.
+
+    Differs from :func:`_run_native_generation` (the param-sweep template) in three ways: (1) NO
+    ``_apply_plain_model_params`` — the generator is on the transform, the model is already concrete; (2)
+    the union graph has ONE model node PER choice (Mechanism B namespaces them), so EVERY model node needs
+    a data binding (mirroring the separation-branch fan-out), not just the first; (3) the variant-config
+    map is keyed by ``variant_label``
+    (:func:`~nirs4all.pipeline.dagml.result._native_operator_variant_config_map`), not the positional zip
+    a param sweep uses.
+
+    FALLBACK CONTRACT (the inner Python-expand fallback fires on LOWERING-UNSUPPORTED ONLY): every
+    lowering step — splitter check, the bridge ``_or_`` lowering (:func:`assemble_cv_refit_dsl`), and the
+    per-choice ``variant_label`` fingerprinting (:func:`_native_operator_config_by_label`) — runs inside a
+    narrow guard that converts a lowering refusal (``NotImplementedError`` / :class:`DagMlUnsupported`) into
+    a DISTINCT :class:`~.errors._OperatorLoweringUnsupported` sentinel, which the routing branch catches →
+    Python-expand. Everything AFTER the guard (compile / run / result-mapping) is OUTSIDE it, so a genuine
+    runtime error there PROPAGATES — including a runtime ``DagMlUnsupported`` from :func:`_raise_run_failure`
+    (a non-zero run classified ``error_kind == "unsupported"``), which is a REAL coverage boundary the host
+    did not pre-check, NOT a lowering gap. The routing branch catches ONLY the sentinel, so that runtime
+    ``DagMlUnsupported`` is never silently reclassified as lowering-unsupported and masked.
+    """
+    import dag_ml
+
+    from .cli_runner import data_bindings_for_nodes
+    from .errors import _OperatorLoweringUnsupported
+    from .result import _native_operator_config_by_label, _native_operator_variant_config_map
+
+    # --- LOWERING PHASE (narrow fallback scope) ---------------------------------------------------------
+    # Only a LOWERING refusal demotes to Python-expand. The bridge `_or_` lowering raises NotImplementedError;
+    # the label fingerprinting raises DagMlUnsupported; both are lowering-unsupported, so convert them to the
+    # DISTINCT `_OperatorLoweringUnsupported` sentinel the routing branch catches. A non-lowering error (e.g.
+    # an internal invariant) is NOT a coverage gap — let it propagate.
+    try:
+        steps, splitter = _split_pipeline(pipeline)
+        if splitter is None:
+            raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+        _reject_multi_model(steps)
+        # Reject UP FRONT the transform-side operators the X-chain cannot run — but skip the `_or_` step
+        # itself (its bare-operator choices were already routability-gated by the flat-single predicate, and
+        # are fingerprinted below). The concrete model is validated by its own fit, like every other path.
+        _assert_supported_operators([step for step in steps if not (isinstance(step, dict) and "_or_" in step)])
+
+        identity = mint_identity(spectro)
+        pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
+        folds = _build_folds(splitter, spectro, pool, excluded or set())
+        envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample)
+
+        # The DSL carries the lowered Generator on the transform position. assemble_cv_refit_dsl lowers the
+        # pipeline (raising from the bridge if the `_or_` is not flat-bare). Compute the content-keyed
+        # {variant_label -> config_name} map HERE too (it fingerprints each choice — a lowering step that can
+        # raise DagMlUnsupported on a non-finite / non-JSON param), so a label failure demotes BEFORE the run.
+        dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
+        config_by_label = _native_operator_config_by_label(steps, variant_config_names or [])
+    except (DagMlUnsupported, NotImplementedError) as exc:
+        raise _OperatorLoweringUnsupported(f"operator `_or_` lowering unsupported, demoting to Python expand: {exc}") from exc
+
+    # --- COMPILE / RUN / RESULT-MAPPING (errors PROPAGATE — never reclassified as a coverage gap) --------
+    # The union graph compiles ONE model node per `_or_` choice (Mechanism B namespacing), so bind EVERY
+    # model node — a single binding on the first node would leave the other choices' model nodes with empty
+    # data_views (the separation-branch fan-out path solves the same multi-model-node binding the same way).
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+    )
+    if outcome["returncode"] != 0:
+        _raise_run_failure(outcome, "dag-ml operator-generation run failed")
+
+    # CONTENT-keyed map: every report carries its choice's `variant_label`, so each variant's `variant_id`
+    # resolves to its legacy `config_name` by the pre-computed fingerprint map (NOT a positional zip). The
+    # winner's reports (val + refit) are threaded under its OWN variant_id so its per-fold + final/test rows
+    # carry real per-sample y_pred (2a-i/ii).
+    scores = outcome["scores"]
+    variant_config_map = _native_operator_variant_config_map(scores, config_by_label)
+    winner_variant_id = next(
+        (report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "final" and report.get("fold_id") is None),
+        None,
+    )
+    results_by_variant = {winner_variant_id: outcome["results"]} if winner_variant_id is not None else None
+    return _scores_to_run_result(
+        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, skip_refit=_legacy_skips_refit(splitter), results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+    )
+
+
 def _run_concrete_scores(
     pipeline: Any,
     spectro: Any,

@@ -41,6 +41,18 @@ class DagMlUnsupported(NotImplementedError):
     """
 
 
+class _OperatorLoweringUnsupported(DagMlUnsupported):
+    """A flat-single ``_or_`` whose LOWERING (DSL serialization / variant_label fingerprinting) is unsupported.
+
+    The DISTINCT signal the native operator-generation path (#23 Phase 7) raises from its narrow LOWERING
+    guard ONLY, so the routing branch can catch JUST this and demote to the Python-expand path while a
+    RUNTIME ``DagMlUnsupported`` — e.g. :func:`_raise_run_failure` classifying a non-zero run as
+    ``error_kind == "unsupported"`` AFTER the lowering guard — PROPAGATES untouched. Catching the broad
+    :class:`DagMlUnsupported` at the routing branch would mask such a runtime demotion (a real coverage
+    boundary the host has not pre-checked), so the two are kept separate by type, not by message.
+    """
+
+
 class DagMlUnavailable(RuntimeError):
     """NEITHER dag-ml execution mechanism is installed, so the dag-ml backend cannot run at all.
 

@@ -182,6 +182,60 @@ def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_nam
     return dict(zip(cv_variant_ids, ordered_config_names, strict=False))
 
 
+def _native_operator_config_by_label(steps: list[Any], ordered_config_names: list[str]) -> dict[str, str]:
+    """The ``{variant_label -> legacy config_name}`` map for a flat-single ``_or_`` (the LOWERING half of #23).
+
+    This is the LOWERING-phase half: it fingerprints each expanded ``_or_`` choice (the cross-language
+    ``variant_label`` content fingerprint, via the dag-ml PyO3 helper, byte-identical by construction) and
+    pairs it with that choice's legacy ``config_name``. dag-ml's ``lower_operator_variant_model`` activates
+    the chosen branch PLUS every downstream step, so the fingerprint is over the choice transform FOLLOWED
+    by the lowered pipeline tail after the generator (the concrete model, any ``y_processing``).
+
+    ``steps`` carries ONE flat ``_or_`` of bare operators (the only shape the native path lowers), so its
+    choices are the operator variants in ``_or_`` list order; ``ordered_config_names`` is
+    :class:`PipelineConfigs.names` in the SAME expand order, so choice ``i`` owns ``config_name`` ``i`` — a
+    deterministic content pairing (both follow ``_or_`` order). A SINGLE-choice ``_or_`` has an EMPTY
+    ``ordered_config_names`` (dag-ml ``config_name`` is blank for a 1-variant generator), so the returned
+    map is empty — BUT every choice's label is STILL fingerprinted + strict-validated here (the labels are
+    computed unconditionally, before pairing), so a bad-label single-choice ``_or_`` DEMOTES during this
+    lowering step instead of leaking past it into the native run. RAISES :class:`DagMlUnsupported` (a
+    LOWERING failure) when a choice's label cannot be computed (non-finite / non-str-key / non-JSON param /
+    helper error) — the caller runs this inside its narrow lowering guard so it demotes to Python-expand,
+    never crashes.
+    """
+    from nirs4all.pipeline.dagml_bridge import operator_choice_variant_label
+
+    or_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and "_or_" in step), None)
+    if or_index is None:
+        return {}
+    choices = steps[or_index]["_or_"]
+    downstream = steps[or_index + 1 :]
+    # Fingerprint + strict-validate EVERY choice unconditionally (this is the lowering check that can raise
+    # DagMlUnsupported), so even a single-choice `_or_` with an empty `ordered_config_names` is validated.
+    labels = [operator_choice_variant_label(choice, downstream) for choice in choices]
+    return dict(zip(labels, ordered_config_names, strict=False))
+
+
+def _native_operator_variant_config_map(scores: dict[str, Any] | None, config_by_label: dict[str, str]) -> dict[Any, str]:
+    """Translate a NATIVE operator-SELECT ScoreSet's variant ids → legacy config names BY CONTENT (#23).
+
+    The RUN-phase half (pure dict lookup, NO lowering): given the pre-computed ``{variant_label ->
+    config_name}`` map (:func:`_native_operator_config_by_label`, built in the caller's lowering guard
+    BEFORE the run), each report carries a ``variant_label`` — the cross-language content fingerprint of its
+    operator choice — for BOTH the winner and every loser, so a report resolves to its config by CONTENT,
+    never by report order. Returns ``{variant_id: config_name}`` (the key :func:`_scores_to_run_result`
+    groups on): for each report's ``variant_id`` look up its ``variant_label`` in ``config_by_label``.
+    """
+    variant_config: dict[Any, str] = {}
+    for report in (scores or {}).get("reports", []):
+        variant_id = report.get("variant_id")
+        label = report.get("variant_label")
+        if variant_id is None or label is None or label not in config_by_label:
+            continue
+        variant_config[variant_id] = config_by_label[label]
+    return variant_config
+
+
 def _scores_to_run_result(
     scores: dict[str, Any] | None,
     dataset_name: str,
