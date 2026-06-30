@@ -40,6 +40,7 @@ from .detect import (
     _fusion_merge_aggregate,
     _generation_kind,
     _is_augmentation_step,
+    _is_constrained_operator_generator,
     _is_duplication_branch_step,
     _is_exclude_step,
     _is_flat_single_operator_generator,
@@ -648,13 +649,23 @@ def _dispatch_run(
     # (incl. a runtime `DagMlUnsupported` from `_raise_run_failure` for a non-zero run classified unsupported,
     # OR a runtime NotImplementedError from compile / run / result-mapping) PROPAGATES, never silently
     # reclassified as a lowering gap and masked.
-    if _generation_kind(list(pipeline)) == "operator" and _is_flat_single_operator_generator(list(pipeline)):
+    # A CONSTRAINED operator generator (`_or_`-pick / `_cartesian_` with `_mutex_`/`_requires_`/`_exclude_`)
+    # routes the SAME native operator-SELECT run (#1a + 1b-cartesian): the host expands the pruned survivor
+    # set (`expand_spec`, the constraint source of truth both engines use) and lowers each survivor into ONE
+    # model-terminated canonical Generator branch (`assemble_constrained_cv_refit_dsl`), so dag-ml scores the
+    # SAME pruned set by CV-OOF, refits the winner, and stamps each per-variant report with the multi-op
+    # `variant_label` the host recomputes byte-identically. dag-ml's own native constraint engine
+    # (`prune_sequences_by_constraints`) produces the identical survivor set + labels, so the content-keyed
+    # config map aligns. Both the flat-single and constrained shapes go through the SAME inner LOWERING guard:
+    # a lowering refusal raises the DISTINCT `_OperatorLoweringUnsupported` sentinel and falls through to the
+    # Python `expand_spec` path below (still dag-ml-native), while a RUNTIME error PROPAGATES.
+    if _generation_kind(list(pipeline)) == "operator" and (_is_flat_single_operator_generator(list(pipeline)) or _is_constrained_operator_generator(list(pipeline))):
         try:
             return _run_native_operator_generation(
                 list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native_op", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, random_state=random_state
             )
         except _OperatorLoweringUnsupported:
-            pass  # lowering-unsupported `_or_` → fall through to the Python expand path (stays on dag-ml)
+            pass  # lowering-unsupported generator → fall through to the Python expand path (stays on dag-ml)
 
     # Expand operator-level generators (_or_/_cartesian_/param-keyed _range_/_grid_/...) into concrete,
     # flat pipelines of live operator instances (nirs4all's own serialize → expand → deserialize +
