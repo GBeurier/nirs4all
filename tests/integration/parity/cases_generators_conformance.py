@@ -44,13 +44,19 @@ Verified generator semantics (measured against ``nirs4all.pipeline.config
   ``assert_same_winner`` (which reads ``config_name``) for the relaxed-tolerance
   allowlist, never for these.
 
-KNOWN_DIVERGENCE recorded here: a multi-model ``{"model": {"_or_": [...]}}`` over
-DISTINCT model classes diverges in ``num_predictions`` — legacy refits EVERY
-model variant and stores a ``(model, *, final)`` row per model (34 entries),
-while dag-ml refits ONLY the selected winner (32 entries). The winner identity,
-``best_score``, ``best_rmse`` and the winner's per-sample ``y_pred`` are identical;
-the gap is purely the loser's stored refit rows. Marked strict-xfail in
-``test_conformance_dual_engine.KNOWN_DIVERGENCES`` with this measured cause.
+INTENTIONAL num_predictions divergence recorded here (ADR-17 1c): a multi-model
+``{"model": {"_or_": [...]}}`` over DISTINCT model classes diverges in
+``num_predictions`` — legacy refits EVERY model variant and stores a
+``(model, *, final)`` row per model (34 entries), while dag-ml's operator-SELECT
+refits ONLY the selected winner (32 entries, the correct SELECT semantic). The
+winner identity, ``best_score``, ``best_rmse``, the selected-metric name, the
+top-n model set, and the winner's per-sample ``y_pred`` are all identical; the
+gap is purely the one loser's stored ``(train, final)`` + ``(test, final)`` refit
+rows. dag-ml is RIGHT, so this is NOT a strict-xfail — it is a PASSING parity-note
+in ``test_conformance_dual_engine.NUM_PREDICTIONS_DIVERGENCE``: the conformance
+body asserts winner + full metric/contract parity + winner-scoped ``y_pred``
+parity, and pins the EXACT documented 34-legacy / 32-dag-ml counts (only the
+measured +2 loser-final-row delta passes; any other count FAILS).
 
 Additional coverage (sections 7-14) for genuine exhaustiveness:
 
@@ -566,14 +572,18 @@ register(
 
 
 # =============================================================================
-# 6) MULTI-MODEL _or_ over model classes  (KNOWN_DIVERGENCE)
+# 6) MULTI-MODEL _or_ over model classes  (INTENTIONAL num_predictions divergence — ADR-17 1c)
 # =============================================================================
 # A `{"model": {"_or_": [...]}}` over DISTINCT model classes selects a winner the
 # same way on both engines (identical winner, best_score, best_rmse, winner
-# y_pred), but legacy refits EVERY model variant and stores a (model, *, final)
-# row per model (34 prediction entries) while dag-ml refits ONLY the selected
-# winner (32). The 2-entry gap is purely the LOSER's stored refit rows. Recorded
-# in test_conformance_dual_engine.KNOWN_DIVERGENCES as a measured strict-xfail.
+# y_pred Δ=0.0), but legacy refits EVERY model variant and stores a (model, *,
+# final) row per model (34 prediction entries) while dag-ml's operator-SELECT
+# refits ONLY the selected winner (32, the correct SELECT semantic). The 2-entry
+# gap is purely the LOSER's stored refit rows. dag-ml is RIGHT, so this is an
+# INTENTIONAL native-vs-legacy delta — recorded in
+# test_conformance_dual_engine.NUM_PREDICTIONS_DIVERGENCE as a PASSING parity-note
+# (winner + metric + winner-y_pred parity, num_predictions EXEMPT), NOT a
+# strict-xfail that would wrongly chase the legacy refit-all (34) count.
 
 
 def _factory_or_models_pls_ridge() -> list[Any]:
@@ -589,7 +599,8 @@ register(
         name="generator_or_models_pls_ridge",
         description="Multi-model `{model: {_or_: [PLSR, Ridge]}}` selection over distinct model classes. "
         "Winner/best_score/best_rmse/winner-y_pred match, but num_predictions diverges (legacy refits "
-        "every model -> loser final rows; dag-ml refits the winner only) -> KNOWN_DIVERGENCE strict-xfail.",
+        "every model -> loser final rows: 34; dag-ml operator-SELECT refits the winner only: 32) -> "
+        "INTENTIONAL native-vs-legacy divergence (ADR-17 1c), a PASSING parity-note (num_predictions exempt).",
         keywords=("_or_", "model"),
         capabilities=_CAPS,
         dataset_key="regression",
