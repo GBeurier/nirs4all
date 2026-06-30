@@ -426,6 +426,87 @@ class DatasetConfigs:
             configs._aggregate_exclude_outliers = [aggregate_exclude_outliers]
         return configs
 
+    @classmethod
+    def from_io_infer(
+        cls,
+        inp: Any,
+        *,
+        conventions: list[str] | None = None,
+        hints: dict | None = None,
+        task_type: str = "auto",
+        signal_type: SignalTypeInput | None = None,
+        repetition: str | None = None,
+        aggregate: str | bool | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool | None = None,
+    ) -> "tuple[DatasetConfigs, Any]":
+        """Opt-in: inspect ``inp`` with ``nirs4all-io``'s inference, then load it.
+
+        ``nio.infer`` is a **planning** API, not a loader: it inspects any input
+        and proposes a confidence-scored ``DatasetPlan`` (structure / task type /
+        signal type / column roles / sample-id / coverage audit), each decision
+        carrying an evidence trace. The plan's scores are uncalibrated rankings,
+        not probabilities, so there is **no default-loader oracle** to parity-check
+        against — this method surfaces the plan so a caller can review the
+        recommendations/warnings before materializing.
+
+        The materialization reuses the plan's ``resolved_spec`` (the spec the
+        inference resolved, which ``nio.load`` can execute) through the same
+        :meth:`from_io` wrapping path, so every constructor-level override behaves
+        identically to :meth:`from_io`.
+
+        Args:
+            inp: Any input ``nio.infer`` accepts (a directory, file list/glob,
+                or a single tabular file).
+            conventions: Optional convention-profile names forwarded to
+                ``nio.infer`` (e.g. ``["nirs4all-classic"]`` or ``["bare"]``).
+            hints: Optional inference hints forwarded to ``nio.infer``.
+            task_type: Force task type, overriding io-side inference (as in
+                :meth:`from_io`). ``"auto"`` keeps the inferred type.
+            signal_type: Override spectral signal type on every source.
+            repetition: Column name identifying sample repetitions.
+            aggregate: Prediction-aggregation column (or ``True`` for y-based).
+            aggregate_method: Aggregation method.
+            aggregate_exclude_outliers: Exclude outliers before aggregation.
+
+        Returns:
+            A ``(DatasetConfigs, DatasetPlan)`` pair: the configs wrapping the
+            materialized ``SpectroDataset`` and the scored plan that produced it.
+
+        Raises:
+            ImportError: If ``nirs4all-io`` is not installed.
+            ValueError: If the plan resolved no spec to materialize.
+        """
+        try:
+            import nirs4all_io as nio
+        except ImportError as e:
+            raise ImportError(
+                "DatasetConfigs.from_io_infer requires the optional 'nirs4all-io' package; "
+                "install it from the sibling repository (pip install -e ../nirs4all-io)."
+            ) from e
+
+        plan = nio.infer(inp, conventions=conventions, hints=hints)
+        if plan.resolved_spec is None:
+            raise ValueError(
+                f"nirs4all-io could not resolve a loadable spec for the input "
+                f"(structure={plan.structure.value if plan.structure else 'unknown'}); "
+                f"warnings: {plan.warnings}"
+            )
+
+        # The plan's resolved_spec carries absolute input paths, so from_io needs
+        # no base_dir to re-load it. Reuse the from_io override-threading path so
+        # io-side inference can still be overridden identically.
+        configs = cls.from_io(
+            plan,
+            task_type=task_type,
+            signal_type=signal_type,
+            repetition=repetition,
+            aggregate=aggregate,
+            aggregate_method=aggregate_method,
+            aggregate_exclude_outliers=aggregate_exclude_outliers,
+        )
+        return configs, plan
+
     @staticmethod
     def _io_config_level_settings(
         inp: Any,
