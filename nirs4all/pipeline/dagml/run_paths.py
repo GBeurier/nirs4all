@@ -137,7 +137,7 @@ def _run_native_operator_generation(
 
     from .cli_runner import data_bindings_for_nodes
     from .errors import _OperatorLoweringUnsupported
-    from .result import _native_operator_config_by_label, _native_operator_variant_config_map
+    from .result import _frames_by_variant, _native_operator_config_by_label, _native_operator_variant_config_map
 
     # --- LOWERING PHASE (narrow fallback scope) ---------------------------------------------------------
     # Only a LOWERING refusal demotes to Python-expand. The bridge `_or_` lowering raises NotImplementedError;
@@ -192,7 +192,13 @@ def _run_native_operator_generation(
         (report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "final" and report.get("fold_id") is None),
         None,
     )
-    results_by_variant = {winner_variant_id: outcome["results"]} if winner_variant_id is not None else None
+    # Split the surfaced frames PER VARIANT so a LOSER variant's per-fold val rows fill from ITS OWN
+    # validation (OOF) predictions, not just the winner's. dag-ml surfaces each loser's per-fold val
+    # blocks re-tagged with the loser's variant_id (top-level in-process / `lineage.variant_id`
+    # subprocess); the winner's real per-fold + refit frames carry the winner's id. Untagged frames
+    # (the winner's OOF-average frame) default to the winner. NO cross-variant leakage: a frame routes
+    # to its OWN variant only.
+    results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
     return _scores_to_run_result(
         scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, skip_refit=_legacy_skips_refit(splitter), results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
     )

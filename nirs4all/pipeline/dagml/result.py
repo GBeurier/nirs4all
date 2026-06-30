@@ -127,6 +127,29 @@ def _index_sample_blocks(results: list[dict[str, Any]] | None) -> dict[tuple[str
     return index
 
 
+def _frames_by_variant(results: list[dict[str, Any]] | None, default_variant_id: Any) -> dict[Any, list[dict[str, Any]]]:
+    """Group the node_results frames by the variant each one belongs to, for the per-variant value fill.
+
+    A native operator-SELECT surfaces frames for BOTH the WINNER (its real per-fold FIT_CV + REFIT) and
+    each LOSER (its per-fold VALIDATION OOF predictions, re-tagged with the loser's variant). Each frame
+    carries its variant in one of two ways: dag-ml's in-process binding stamps a top-level ``variant_id``
+    on the synthetic LOSER frames it surfaces, while every adapter-emitted frame (the winner's, and the
+    subprocess path's losers') carries it on ``lineage.variant_id``. A frame with NEITHER tag (e.g. the
+    in-process winner's cross-fold OOF-average frame, which has no lineage) falls back to
+    ``default_variant_id`` (the winner the reports own). Returns ``{variant_id: [frames]}`` keyed by the
+    SAME ``variant_id`` the reports carry, so :func:`_scores_to_run_result` reads each row's arrays from
+    ITS OWN variant's blocks (no cross-variant y_pred leakage).
+    """
+    by_variant: dict[Any, list[dict[str, Any]]] = {}
+    for frame in results or []:
+        result = frame.get("result") if frame.get("type") == "result" else frame
+        if not result:
+            continue
+        variant_id = result.get("variant_id") or (result.get("lineage") or {}).get("variant_id") or default_variant_id
+        by_variant.setdefault(variant_id, []).append(frame)
+    return by_variant
+
+
 def _id_matched_sample_target(unit_ids: list[str], sample_targets: list[dict[str, Any]]) -> dict[str, Any] | None:
     """The sample-level y_true block whose unit ids MATCH ``unit_ids`` (a SET), realigned to that order.
 
