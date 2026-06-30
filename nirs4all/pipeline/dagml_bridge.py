@@ -272,9 +272,21 @@ def lower_constrained_operator_pipeline(steps: list[Any], dsl_id: str = "nirs4al
     if generator_index is None:
         raise NotImplementedError("dag-ml bridge: no operator generator step to lower as a constrained survivor-branch generator")
     generator_node = steps[generator_index]
+    prefix = steps[:generator_index]
     downstream = steps[generator_index + 1 :]
     if not any(isinstance(step, dict) and "model" in step for step in downstream):
         raise NotImplementedError("dag-ml bridge: a constrained operator generator must be followed by a concrete model step")
+
+    # Any concrete steps BEFORE the generator (a preprocessing prefix, e.g. `[FirstDerivative(), _or_pick, model]`)
+    # lower to SHARED upstream nodes placed verbatim before the Generator step — applied ONCE on fold-train and
+    # flowing into every survivor branch — exactly as the FLAT-SINGLE path lowers a prefix (`pipeline_to_dsl`
+    # emits the prefix transform as one upstream node, NOT duplicated per branch). The prefix is OUTSIDE the
+    # generator, so it is NOT part of any survivor's `variant_label` (the host map fingerprints only
+    # `[<survivor transforms>, downstream]`, matching dag-ml's `choice.steps`, which likewise excludes upstream
+    # nodes) — so byte-identity with the dag-ml report label holds for a prefixed pipeline too. Each prefix
+    # step is lowered to its CANONICAL tagged form (the survivor-branch DSL is a canonical `{"id","steps"}`
+    # spec — every step carries `kind`).
+    prefix_steps = [_canonical_branch_step(_step_to_dsl(step), f"prefix{prefix_index}") for prefix_index, step in enumerate(prefix)]
 
     # The downstream tail (model, any y_processing) lowered ONCE — embedded verbatim in every survivor
     # branch so each choice terminates in the model. Reuse _step_to_dsl (the same operator/param split the
@@ -295,7 +307,7 @@ def lower_constrained_operator_pipeline(steps: list[Any], dsl_id: str = "nirs4al
         raise NotImplementedError("dag-ml bridge: constrained operator generator pruned to zero survivors")
 
     generator_dsl = {"kind": "generator", "id": "generator:preproc", "mode": "or", "branches": branches}
-    return {"id": dsl_id, "pipeline": [generator_dsl]}
+    return {"id": dsl_id, "pipeline": [*prefix_steps, generator_dsl]}
 
 
 def _canonical_branch_step(dsl_step: dict[str, Any], step_id: str) -> dict[str, Any]:
