@@ -267,11 +267,6 @@
       "owner_lane": "L5"
     },
     {
-      "case": "preprocessing_explicit_keyword",
-      "shape": "preprocessing_keyword",
-      "owner_lane": "L5"
-    },
-    {
       "case": "preprocessing_fit_on_all",
       "shape": "preprocessing_keyword",
       "owner_lane": "L5"
@@ -397,8 +392,8 @@
     "registered": 95,
     "non_runnable": 8,
     "runnable": 87,
-    "fallback": 11,
-    "native": 76,
+    "fallback": 10,
+    "native": 77,
     "xfail_strict": 11,
     "skip": 6,
     "num_predictions_divergence": 2,
