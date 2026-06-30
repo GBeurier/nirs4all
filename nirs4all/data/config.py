@@ -302,6 +302,12 @@ class DatasetConfigs:
         conventions: list[str] | None = None,
         base_dir: str | None = None,
         name: str | None = None,
+        task_type: str = "auto",
+        signal_type: SignalTypeInput | None = None,
+        repetition: str | None = None,
+        aggregate: str | bool | None = None,
+        aggregate_method: str | None = None,
+        aggregate_exclude_outliers: bool | None = None,
     ) -> "DatasetConfigs":
         """Opt-in: assemble the input via ``nirs4all-io`` (ADR-17 D-io).
 
@@ -314,7 +320,11 @@ class DatasetConfigs:
 
         The materialized ``SpectroDataset`` is wrapped through the existing
         preloaded path (``from_spectrodatasets``), so it drops into the rest of
-        the pipeline unchanged.
+        the pipeline unchanged. The constructor-level overrides are applied
+        post-materialization through the same ``_get_dataset_with_types``
+        machinery the default ``__init__`` uses, so a caller can override
+        io-side inference (e.g. force ``task_type="regression"``) and get the
+        same result the default loader produces for the same override.
 
         Args:
             inp: Any input ``nio.load`` accepts — a directory, file list/glob,
@@ -324,6 +334,19 @@ class DatasetConfigs:
                 ``nio.load`` (e.g. ``["nirs4all-classic"]``).
             base_dir: Optional base directory for relative inputs.
             name: Optional dataset name override.
+            task_type: Force task type, overriding io-side inference. ``"auto"``
+                (default) keeps the inferred type. Same vocabulary as the
+                constructor (``"regression"`` / ``"binary_classification"`` /
+                ``"multiclass_classification"``).
+            signal_type: Override spectral signal type on every source.
+            repetition: Column name identifying sample repetitions.
+            aggregate: Prediction-aggregation column (or ``True`` for y-based).
+            aggregate_method: Aggregation method (``"mean"`` / ``"median"`` /
+                ``"vote"``).
+            aggregate_exclude_outliers: Exclude outliers (Hotelling's T²) before
+                aggregation. ``None`` (default) inherits any config-level value;
+                an explicit ``True``/``False`` overrides it (so ``False`` can
+                cancel a config-level ``True``), matching the constructor.
 
         Returns:
             A ``DatasetConfigs`` wrapping the io-materialized ``SpectroDataset``.
@@ -346,7 +369,89 @@ class DatasetConfigs:
             base_dir=base_dir,
             name=name,
         )
-        return cls.from_spectrodatasets([dataset])
+
+        # nio bakes config-level aggregation/repetition state directly into the
+        # materialized SpectroDataset, whereas __init__'s _load_dataset leaves it
+        # at the dataset defaults and re-derives it through _get_dataset_with_types.
+        # Reset that baked state to the same clean baseline so the threading lists
+        # below are the single source of aggregation state — matching the default
+        # loader exactly (and letting an explicit override, e.g.
+        # aggregate_exclude_outliers=False, cancel a config-level True).
+        dataset.set_aggregate(None)
+        dataset.set_aggregate_method(None)
+        dataset.set_aggregate_exclude_outliers(False)
+        dataset.set_repetition(None)
+
+        configs = cls.from_spectrodatasets([dataset])
+
+        # Faithfully reproduce __init__'s override PRECEDENCE for the single
+        # materialized dataset: config-level value (from the input config), then
+        # the constructor override, then the _get_dataset_with_types auto-
+        # inheritance. The input may carry config-level repetition/aggregate/
+        # task_type keys exactly the way __init__ reads them — extract them via
+        # the same parse_config + key-extraction path __init__ uses (config dict
+        # or JSON/YAML config file); directories / file lists / arrays carry
+        # none, so the config-level values default to None there.
+        cfg_tt, cfg_agg, cfg_meth, cfg_excl, cfg_rep = cls._io_config_level_settings(inp)
+
+        # task_type (mirror lines for the constructor str branch): constructor
+        # value wins unless it is the "auto" sentinel, in which case fall back to
+        # the config-level value (or "auto").
+        if task_type == "auto":
+            configs._task_types = [cfg_tt if cfg_tt is not None else "auto"]
+        else:
+            configs._task_types = [task_type]
+
+        configs._signal_type_overrides = [
+            normalize_signal_type(signal_type) if signal_type is not None else None
+        ]
+
+        # repetition: constructor value wins; else config-level (mirror 250-255).
+        configs._repetitions = [repetition if repetition is not None else cfg_rep]
+
+        # aggregate: constructor value wins; else config-level (mirror 198-201).
+        configs._aggregates = [aggregate if aggregate is not None else cfg_agg]
+
+        # aggregate_method: constructor value wins; else config-level (213-217).
+        configs._aggregate_methods = [
+            aggregate_method if aggregate_method is not None else cfg_meth
+        ]
+
+        # aggregate_exclude_outliers: an explicit bool (incl. False) overrides;
+        # None inherits the config-level value (or False). Mirrors 230-236, and
+        # is why an explicit False can cancel a config-level True.
+        if aggregate_exclude_outliers is None:
+            configs._aggregate_exclude_outliers = [cfg_excl if cfg_excl is not None else False]
+        else:
+            configs._aggregate_exclude_outliers = [aggregate_exclude_outliers]
+        return configs
+
+    @staticmethod
+    def _io_config_level_settings(
+        inp: Any,
+    ) -> tuple[str | None, str | bool | None, str | None, bool | None, str | None]:
+        """Extract config-level (task_type, aggregate, aggregate_method,
+        aggregate_exclude_outliers, repetition) from a ``from_io`` input.
+
+        Mirrors the config-level extraction the default ``__init__`` performs
+        (including the "config aggregate string seeds config repetition" rule),
+        but only for inputs that actually carry such keys — a config dict or a
+        JSON/YAML config file. Directories, file lists and in-memory arrays carry
+        none, so every value is ``None`` (matching ``__init__`` for those forms).
+        """
+        parsed = parse_config(inp)[0]
+        if not isinstance(parsed, dict):
+            return None, None, None, None, None
+        cfg_tt = parsed.get("task_type")
+        cfg_agg = parsed.get("aggregate")
+        cfg_meth = parsed.get("aggregate_method")
+        cfg_excl = parsed.get("aggregate_exclude_outliers")
+        cfg_rep = parsed.get("repetition")
+        # If repetition not in config but aggregate is a string, seed repetition
+        # from it (same rule as __init__).
+        if cfg_rep is None and isinstance(cfg_agg, str):
+            cfg_rep = cfg_agg
+        return cfg_tt, cfg_agg, cfg_meth, cfg_excl, cfg_rep
 
     def iter_datasets(self):
         for idx, (config, name) in enumerate(self.configs):
