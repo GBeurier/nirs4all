@@ -175,6 +175,16 @@ KNOWN_DIVERGENCES: dict[str, str] = {
 #   dag-ml 32 (winner PLS final only). The 2-entry gap is exactly the one loser Ridge's
 #   stored `(test, final)` + `(train, final)` refit rows — losers dag-ml never refits.
 #
+# generator_chain_model_configs (ADR-17 item 5 slice F): the operator-level `_chain_` analogue —
+#   `{"_chain_": [{model: PLSR(5)}, {model: PLSR(10)}, {model: Ridge(1.0)}]}` over distinct model
+#   classes. Both engines select PLSRegression (config_53e81da4_refit, the SAME PLS(10) winner as
+#   the `_or_` case — content-identical config), best_rmse 13.286431643519423 vs …425 (Δ≈2e-15),
+#   winner per-sample y_pred Δ=0.0. The ONLY delta: legacy num_predictions 49 (winner PLS final +
+#   the two loser models' final rows + the chain's extra OOF rows) vs dag-ml 47 (winner-only refit);
+#   the 2-entry gap is exactly one loser model's stored `(test,final)`+`(train,final)` refit rows —
+#   losers dag-ml never refits. Identical mechanism to `generator_or_models_pls_ridge`; `_chain_`
+#   sequential ordering does not affect the SELECTED winner (SELECT picks the single CV-best).
+#
 # Shape: {case_name: {"legacy": <int>, "dagml": <int>, "reason": <str>}}.
 NUM_PREDICTIONS_DIVERGENCE: dict[str, _NumPredDivergence] = {
     "generator_or_models_pls_ridge": {
@@ -182,6 +192,12 @@ NUM_PREDICTIONS_DIVERGENCE: dict[str, _NumPredDivergence] = {
         "dagml": 32,
         "reason": "multi-model `_or_` operator-SELECT refits the WINNER only (32) — legacy refits every "
         "loser model and stores its (train,final)+(test,final) rows (34); winner/best_score/winner-y_pred all match",
+    },
+    "generator_chain_model_configs": {
+        "legacy": 49,
+        "dagml": 47,
+        "reason": "multi-model `_chain_` operator-SELECT refits the WINNER only (47) — legacy refits every "
+        "loser model and stores its (train,final)+(test,final) rows (49); winner/best_score/winner-y_pred all match (slice F)",
     },
 }
 
@@ -275,6 +291,12 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
     "generator_or_multistep_choices",
     "generator_or_multistep_pick",
     "generator_or_nested",
+    # ADR-17 item 5 slice F — param-level `_zip_` (with-model) and operator-level `_chain_` of multi-step
+    # sub-pipelines run NATIVE-via-expand: both are multi-variant FULL-parity cases with a deterministic
+    # winner, so lock that the selected winner config_name matches legacy (the `_chain_` of distinct MODEL
+    # configs is a num_predictions-divergence note, NOT here — its winner is asserted in that branch).
+    "generator_zip_single_param",
+    "generator_chain_multistep_configs",
 })
 
 

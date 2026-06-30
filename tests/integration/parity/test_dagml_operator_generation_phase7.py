@@ -991,3 +991,66 @@ def test_multistep_nested_demoted_shape_matches_legacy_via_python_expand(factory
     assert native is True, "the dag-ml engine runs the demoted slice-D generator via Python-expand (no legacy fallback)"
     assert dagml.num_predictions == legacy.num_predictions
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
+
+
+# --------------------------------------------------------------------------- #
+# Slice F (ADR-17 item 5) — _zip_ / _chain_ stay fail-closed off the DEDICATED
+# in-engine generation paths; they run NATIVE via the host VARIANT-EXPAND path.
+# --------------------------------------------------------------------------- #
+
+
+def test_bridge_demotes_param_zip_off_dedicated_native_path() -> None:
+    """A param-level `_zip_` model sweep is NOT lowered to a dedicated dag-ml `generators` form (slice F).
+
+    The host bridge `_step_to_dsl` DELIBERATELY raises NotImplementedError for a `{"_zip_": {...}, "model": M}`
+    step (it is not a native `param_generators`/`Grid` form) — so it stays on the proven Python variant-expand
+    path (still dag-ml-native via `_expand_operator_generators`), never mis-routed to `_run_native_generation`.
+    Promoting it to dag-ml's native `compat_zip_variants` would be a LARGE host change (a new `variants`
+    emission form + zip-truncation/nested-value parity gaps) for no gain, so it is DEMOTED fail-closed.
+    """
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    step = {"_zip_": {"n_components": [5, 10, 15], "scale": [True, False, True]}, "model": PLSRegression}
+    with pytest.raises(NotImplementedError, match="_zip_"):
+        _step_to_dsl(step)
+
+
+def test_bridge_demotes_operator_chain_off_dedicated_native_path() -> None:
+    """An operator-level `_chain_` is NOT lowered to a dedicated dag-ml operator `Generator` step (slice F).
+
+    The host bridge `_step_to_dsl` only lowers a flat single `_or_` operator generator natively; a `_chain_`
+    raises NotImplementedError naming the `_chain_` keyword, so it stays on the Python variant-expand path
+    (still dag-ml-native), never mis-routed to `_run_native_operator_generation` (which would flip
+    num_predictions to winner-only-refit — a NEW divergence the expand path does not have). DEMOTED fail-closed.
+    """
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    step = {"_chain_": [SNV, MSC, Detrend]}
+    with pytest.raises(NotImplementedError, match="_chain_"):
+        _step_to_dsl(step)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "factory",
+    [
+        # param-level `_zip_` (with-model) → variant-expand → 3 paired variants, FULL parity.
+        lambda: [SNV(), _ss(), {"_zip_": {"n_components": [3, 7, 11]}, "model": PLSRegression}],
+        # operator-level `_chain_` of multi-step sub-pipelines → variant-expand → 2 variants, FULL parity.
+        lambda: [{"_chain_": [[SNV(), FirstDerivative()], [MSC(), Detrend()]]}, _ss(), {"model": PLSRegression(n_components=10)}],
+    ],
+)
+def test_zip_chain_run_native_via_expand_at_full_parity(factory: Any) -> None:
+    """E2E: a param-level `_zip_` and an operator-level `_chain_` run NATIVE-via-expand and match legacy (slice F).
+
+    Both demote off the dedicated in-engine paths (asserted above) but still run on the dag-ml engine via
+    `_expand_operator_generators` (NOT a legacy fallback), reproducing legacy's variant set + winner — so
+    `num_predictions` + `best_score` parity confirm same-set + same-winner. (The multi-model `_chain_` of
+    distinct model classes — the winner-only-refit num_predictions divergence — is covered separately by
+    the conformance oracle's `generator_chain_model_configs` parity-note.)
+    """
+    legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(factory())
+    assert native is True, "an admitted `_zip_`/`_chain_` shape runs NATIVE-via-expand on dag-ml (no legacy fallback)"
+    assert dagml.num_predictions == legacy.num_predictions
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
