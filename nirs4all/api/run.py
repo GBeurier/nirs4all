@@ -209,6 +209,7 @@ def run(
     report_naming: str = "nirs",
     engine: str | None = None,
     results_path: str | Path | None = None,
+    allow_fallback: bool = True,
     # All other PipelineRunner options
     **runner_kwargs: Any
 ) -> RunResult:
@@ -299,6 +300,14 @@ def run(
             behaviorally identical to today. The legacy SQLite+Parquet+joblib workspace is untouched;
             an explicit ``results_path`` is threaded as a named ``run()`` parameter (not a runner_kwarg),
             so it bypasses the dag-ml runner_kwarg allowlist. It has no effect on ``engine="legacy"``.
+
+        allow_fallback: dag-ml fallback policy (``engine="dag-ml"`` only; B-018). ``True`` (default,
+            LOCK-DROP-safe) keeps the TRANSPARENT legacy fallback: a shape dag-ml cannot run / a missing
+            backend warns and re-runs on legacy, AND a structured
+            :class:`~nirs4all.pipeline.dagml.rt.RtError` diagnostic is attached to the returned result
+            (``result.to_rt_result().diagnostics``), so callers can see *"ran legacy because <cause>"*.
+            ``False`` is the opt-in STRICT mode: instead of degrading, the same condition RAISES that
+            ``RtError`` (no silent fallback). No effect on ``engine="legacy"`` (legacy never falls back).
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -569,7 +578,27 @@ def run(
     # dag-ml runtime/operator bug propagates untouched (never silently swallowed into legacy).
     if resolve_engine(engine) == "dag-ml":
         from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
+        from nirs4all.pipeline.dagml.rt import RtError
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+        def _fallback(exc: Exception) -> RunResult:
+            """Resolve a caught dag-ml fallback signal: RAISE a structured RtError (strict) or degrade (default).
+
+            Classifies ``exc`` into an :class:`~nirs4all.pipeline.dagml.rt.RtError` (the RT-003 cause vocab,
+            B-018). ``allow_fallback=False`` re-raises it (the explicit "no silent fallback" boundary);
+            ``allow_fallback=True`` (default, LOCK-DROP-safe) re-runs legacy and ATTACHES the RtError as a
+            diagnostic so callers see *"ran legacy because <cause>"* via ``result.to_rt_result().diagnostics``.
+            The diagnostic is a dynamic attribute carried ONLY by fallback results; ``to_rt_result()`` reads it
+            with an empty default. The distinct per-cause WARNING is emitted by the caller (degrade path only).
+            """
+            rt_error = RtError.from_dagml_error(exc, verb="run")
+            if not allow_fallback:
+                raise rt_error from exc
+            result = _run_legacy()
+            # Dynamic attribute (carried ONLY by fallback results); to_rt_result() reads it via getattr with an
+            # empty default. setattr keeps api/result.py free of a new field (method-level seam only).
+            setattr(result, "_rt_diagnostics", [rt_error])  # noqa: B010 — surfaced via to_rt_result().diagnostics
+            return result
 
         try:
             # Forward EVERY run() kwarg that affects the dag-ml run so engine='dag-ml' honors the same
@@ -604,17 +633,19 @@ def run(
                 results_path=results_path,
             )
         except DagMlUnavailable as e:
-            warnings.warn(
-                f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
-                stacklevel=2,
-            )
-            return _run_legacy()
+            if allow_fallback:
+                warnings.warn(
+                    f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
+                    stacklevel=2,
+                )
+            return _fallback(e)
         except (DagMlUnsupported, NotImplementedError) as e:
-            warnings.warn(
-                f"engine='dag-ml' does not support this pipeline shape ({e}); "
-                "falling back to the legacy engine",
-                stacklevel=2,
-            )
-            return _run_legacy()
+            if allow_fallback:
+                warnings.warn(
+                    f"engine='dag-ml' does not support this pipeline shape ({e}); "
+                    "falling back to the legacy engine",
+                    stacklevel=2,
+                )
+            return _fallback(e)
 
     return _run_legacy()
