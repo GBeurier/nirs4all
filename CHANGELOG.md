@@ -11,21 +11,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚙️ Changed
 
-- **ADR-17 cutover: the default execution engine is now `dag-ml` (was `legacy`).**
-  `nirs4all.run()` dispatches to the dag-ml backend by default — the pipeline runs
-  natively (Rust) and returns a `RunResult` of dag-ml's native scores. This realizes
-  the "nirs4all = the lite skeleton + Python controllers" North Star. Pass
-  `engine="legacy"` (or set `$N4A_ENGINE=legacy`) to force the in-process legacy
-  orchestrator. `predict()` / `explain()` / `retrain()` / `Session.run()` are
-  unaffected — they use `PipelineRunner` directly and never route through the engine
+- **`dag-ml` is now a fully selectable execution backend.** Pass `engine="dag-ml"` (or set
+  `$N4A_ENGINE=dag-ml`) and `nirs4all.run()` dispatches to the dag-ml backend — the pipeline
+  runs natively (Rust) and returns a `RunResult` of dag-ml's native scores. This is the first
+  half of the "nirs4all = the lite skeleton + Python controllers" North Star.
+  **The DEFAULT engine stays `legacy`** — the public-maintained nirs4all remains pure-Python by
+  default until a planned global refactoring, after which the legacy-DROP cutover makes dag-ml
+  the default. (The ADR-17 flip briefly defaulted to dag-ml; it was rolled back to legacy for
+  the public version — see `ADR-17_LEGACY_DROP_HANDOFF.md`.) `predict()` / `explain()` /
+  `retrain()` / `Session.run()` use `PipelineRunner` directly and never route through the engine
   selector.
-- **In-process dag-ml execution is now the default mechanism.** The native PyO3 path
-  runs without the per-call subprocess import tax. An unset `N4A_DAGML_INPROCESS` means
-  in-process; set it to one of `0`/`false`/`off` (case-insensitive) to force the
-  subprocess (`dag-ml-cli`) path for debugging/isolation.
-- **`dag-ml` and `dag-ml-data` are now hard (core) dependencies**, no longer the
-  optional `[dagml]` extra (which has been removed). The native backend ships with
-  every install.
+- **In-process dag-ml execution is the default mechanism for `engine="dag-ml"`.** The native PyO3
+  path runs without the per-call subprocess import tax. An unset `N4A_DAGML_INPROCESS` means
+  in-process; set it to one of `0`/`false`/`off` (case-insensitive) to force the subprocess
+  (`dag-ml-cli`) path for debugging/isolation.
+- **`dag-ml` and `dag-ml-data` are now hard (core) dependencies**, no longer the optional
+  `[dagml]` extra (which has been removed). The native backend ships with every install, so the
+  dag-ml engine is selectable out of the box.
 
 ### ✨ Added
 
@@ -53,6 +55,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a metric's validation-rank differs from the selection rank may now report different
   `best_rmse` / `best_r2` / `best_accuracy` values** (webapp dashboards reading these
   shortcuts may see changed numbers for such runs).
+
+## [0.10.3] - Release metadata and 0.10.2 hardening - 2026-06-29
+
+### Highlights
+
+Patch release used for the CILS article archive. It preserves the 0.10.x public
+API while bundling the post-0.10.2 hardening commits used by the manuscript
+reproducibility replay.
+
+### Added
+
+- `nirs4all.data.selection.sampling` with random, stratified and k-means-based
+  index-selection helpers for subset and preview workflows.
+
+### Fixed
+
+- Raised NumPy and scientific dependency floors to the versions required by the
+  current PLS stack.
+- Avoid retaining workspace stores at interpreter exit.
+- Updated example plotting code for the supported Matplotlib colormap API.
+- Synced release-facing documentation, conda metadata and version guardrails.
 
 ---
 
