@@ -1,0 +1,51 @@
+name: Methods Installed Parity
+
+on:
+  pull_request:
+    paths:
+      - "nirs4all/operators/methods/**"
+      - "tests/unit/operators/methods/**"
+      - "pyproject.toml"
+      - ".github/workflows/methods-installed.yml"
+  workflow_dispatch:
+    inputs:
+      methods_package:
+        description: "Package spec to install for nirs4all-methods"
+        required: false
+        default: "nirs4all-methods"
+
+jobs:
+  n4m-binding:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install nirs4all test environment
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install -e ".[dev]"
+
+      - name: Install nirs4all-methods binding
+        env:
+          METHODS_PACKAGE: ${{ inputs.methods_package || 'nirs4all-methods' }}
+        run: python -m pip install "$METHODS_PACKAGE"
+
+      - name: Verify n4m binding loads
+        run: |
+          python - <<'PY'
+          import n4m
+
+          print("n4m abi:", n4m.abi_version())
+          print("n4m lib:", n4m.library_path())
+          PY
+
+      - name: Run methods parity gate
+        env:
+          NIRS4ALL_REQUIRE_N4M: "1"
+        run: python -m pytest -m methods tests/unit/operators/methods/test_n4m_ops.py -q

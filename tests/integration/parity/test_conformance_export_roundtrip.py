@@ -34,7 +34,9 @@ import numpy as np
 import pytest
 
 import nirs4all
+from nirs4all.api.result import RunResult
 from nirs4all.data import DatasetConfigs
+from nirs4all.data.predictions import Predictions
 
 from . import _conformance_helpers as H
 from ._datasets import dataset_path
@@ -72,6 +74,55 @@ def _test_x(dataset_key: str) -> tuple[list[int], np.ndarray]:
 def _final_test_by_sample(result) -> dict[int, np.ndarray]:
     """Map sample-id → final-(test) y_pred vector for ``result`` (delegates to the helper)."""
     return H._final_test_pred_by_sample(result)  # noqa: SLF001
+
+
+def _minimal_dagml_result(*, export_spec: dict[str, object] | None = None) -> RunResult:
+    """Construct a lightweight dag-ml result for export-surface contract tests."""
+    return RunResult(
+        predictions=Predictions(),
+        per_dataset={"toy": {"engine": "dag-ml"}},
+        _dagml_export_spec=export_spec,
+    )
+
+
+@pytest.mark.parametrize(
+    ("kwargs", "expected_fragment"),
+    [
+        ({"source": {"prediction_id": "p0"}}, "source=/chain_id"),
+        ({"chain_id": "chain-0"}, "source=/chain_id"),
+    ],
+)
+def test_dagml_n4a_export_rejects_workspace_selectors_before_legacy_refit(
+    kwargs: dict[str, object],
+    expected_fragment: str,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Explicit workspace selectors on a dag-ml result fail fast and do not refit.
+
+    ``source=`` and ``chain_id=`` name legacy workspace records. A dag-ml run has
+    no such workspace, so the transitional export bridge must raise a catchable
+    ``NotImplementedError`` before materializing the legacy delegate.
+    """
+    result = _minimal_dagml_result(export_spec={"pipeline": [], "dataset": object()})
+
+    def _unexpected_delegate() -> object:
+        raise AssertionError("dag-ml export delegate must not materialize for explicit workspace selectors")
+
+    monkeypatch.setattr(result, "_dagml_export_delegate", _unexpected_delegate)
+
+    with pytest.raises(NotImplementedError, match=expected_fragment):
+        result.export(tmp_path / "model.n4a", **kwargs)
+
+    assert result._dagml_legacy_result is None  # noqa: SLF001
+
+
+def test_dagml_n4a_export_without_workspace_or_spec_is_catchable(tmp_path: Path) -> None:
+    """A dag-ml result with no export spec raises ``NotImplementedError``, not a legacy misuse error."""
+    result = _minimal_dagml_result()
+
+    with pytest.raises(NotImplementedError, match="engine='dag-ml'.*no workspace artifacts"):
+        result.export(tmp_path / "model.n4a", source={"prediction_id": "p0"})
 
 
 @pytest.mark.parametrize("case_name", _EXACT_CASES)
