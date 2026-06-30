@@ -19,7 +19,7 @@ from nirs4all.core.metrics import is_higher_better
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
 from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
-from .detect import _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step
+from .detect import _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
 from .envelope import build_envelope
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
@@ -227,13 +227,15 @@ def _run_native_operator_generation(
 
         # The DSL carries the lowered Generator on the transform position. A FLAT-SINGLE bare `_or_` lowers
         # via the compat fusion (assemble_cv_refit_dsl → pipeline_to_dsl); a CONSTRAINED `_or_`-pick /
-        # `_cartesian_` lowers each pruned survivor into ONE model-terminated canonical Generator branch
-        # (assemble_constrained_cv_refit_dsl), because dag-ml's compat fusion drops the constraints and its
-        # operator-variant compiler refuses a model-free choice. Both raise from the bridge on an unlowerable
-        # shape. Compute the content-keyed {variant_label -> config_name} map HERE too (it fingerprints each
-        # survivor — a lowering step that can raise DagMlUnsupported on a non-finite / non-JSON param), so a
-        # label failure demotes BEFORE the run.
-        if _is_constrained_operator_generator(pipeline):
+        # `_cartesian_` OR an UNCONSTRAINED pick/arrange/`_cartesian_` (ADR-17 item 5 slice C) lowers each
+        # survivor into ONE model-terminated canonical Generator branch (assemble_constrained_cv_refit_dsl):
+        # both produce multi-op survivor SEQUENCES the compat fusion's operator-variant compiler refuses for a
+        # model-free choice, and the native generator carries the pick/arrange selectors (+ constraints when
+        # present) so dag-ml prunes the byte-identical set. Both raise from the bridge on an unlowerable shape.
+        # Compute the content-keyed {variant_label -> config_name} map HERE too (it fingerprints each survivor
+        # — a lowering step that can raise DagMlUnsupported on a non-finite / non-JSON param), so a label
+        # failure demotes BEFORE the run.
+        if _is_constrained_operator_generator(pipeline) or _is_unconstrained_operator_generator(pipeline):
             dsl = assemble_constrained_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
         else:
             dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))

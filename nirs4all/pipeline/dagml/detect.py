@@ -506,6 +506,132 @@ def _constrained_constraints_well_formed(generator: dict[str, Any]) -> bool:
     return True
 
 
+def _is_unconstrained_operator_generator(pipeline: list[Any]) -> bool:
+    """True ONLY for an UNCONSTRAINED operator generator the native operator-SELECT lowers (ADR-17 item 5 slice C).
+
+    The sibling to :func:`_is_constrained_operator_generator` for the NO-constraint operator-content shapes
+    a bare ``_or_`` cannot express: a ``pick``/``arrange``-combinatorial ``_or_`` (each survivor a multi-op
+    SEQUENCE) or a multi-stage ``_cartesian_`` of ``_or_`` stages — both with NO
+    ``_mutex_``/``_requires_``/``_exclude_``. For the unconstrained case the survivor set is simply ALL
+    pick/arrange/cartesian combinations (no constraint pruning), and dag-ml's
+    ``expand_or_generator_sequences`` / ``expand_cartesian_generator_sequences`` produce EXACTLY that set in
+    legacy ``itertools.combinations``/``permutations`` order — so
+    :func:`~nirs4all.pipeline.dagml_bridge._native_constrained_generator` lowers them with an EMPTY
+    constraints set, dag-ml scores the SAME survivor set by CV-OOF, refits the winner, and stamps each
+    per-variant report with the multi-op ``variant_label`` content fingerprint the host recomputes
+    byte-identically (the ``{variant_label → config_name}`` map aligns by CONTENT, not position).
+
+    CONSERVATIVE whitelist — native is taken ONLY when ALL of (the SAME fail-closed gates as the constrained
+    predicate, MINUS the constraint requirement, PLUS the no-constraint requirement):
+
+    * EXACTLY ONE generator step, and it is a PURE ``_or_`` (keys ⊆ ``PURE_OR_KEYS``) with EXACTLY ONE
+      INTEGER ``pick``/``arrange`` in ``[1, n_options]`` and NO ``then_pick``/``then_arrange``, OR a PURE
+      ``_cartesian_`` (keys ⊆ ``PURE_CARTESIAN_KEYS``) of >=2 ``_or_`` stages with NO ``pick``/``arrange``;
+      a bare ``_or_`` (no selector — that is the FLAT-SINGLE single-op path), a ``then_*`` second-order
+      selection (a different survivor structure), an oversize/zero/range ``pick``, or a ``_cartesian_``
+      ``pick``/``arrange`` (pipeline-PAIR selection, which dag-ml's cartesian mode refuses) all demote; AND
+    * the generator carries NO ``_mutex_``/``_requires_``/``_exclude_`` (a constrained shape is the
+      constrained predicate's job — this admits ONLY the unconstrained survivor enumeration); AND
+    * no OTHER generator anywhere (no nested generator on a non-generator step, no multi-model
+      ``{"model": {"_or_": …}}``), and no ``finetune_params`` / ``train_params``; AND
+    * no ``count`` / ``_seed_`` / ``_weights_`` SAMPLING modifier (legacy SAMPLES the survivors — seeded /
+      weighted / count-truncate — but dag-ml's native ``count`` TRUNCATES a different set; the ``_or_``-pick
+      count path is moreover non-deterministic run-to-run, so it cannot reach strict parity); AND
+    * every leaf operator choice is a genuinely ROUTABLE bare X-transform (the SAME
+      :func:`_constrained_choices_native_routable` gate) — a ``None`` choice, a multi-step list choice (the
+      ``generator_or_multistep_branch`` shape), a ``{"model": …}`` choice, a nested-generator choice, or a
+      non-routable / wavelength-requiring choice forces the Python path; AND
+    * no DUPLICATE operator option across the whole generator (an equal-content option would make two
+      survivors fingerprint-collide, mis-zipping the content-keyed ``{variant_label → config_name}`` map);
+      AND
+    * the pipeline carries exactly one downstream concrete model (the survivor sequence terminates in it).
+
+    Anything richer (a ``then_*``/``count``/``_seed_``/``_weights_`` / oversize-pick ``_or_``, a
+    ``pick``/``arrange``-bearing ``_cartesian_``, a non-pure node, a constrained node, a non-routable / dup
+    option) → ``False`` (stays on the proven Python ``expand_spec`` path, still dag-ml-native via that
+    route). When in doubt, this returns ``False``.
+    """
+    from nirs4all.pipeline.config._generator.keywords import (
+        CONSTRAINT_KEYWORDS,
+        GENERATION_KEYWORDS,
+        has_nested_generator_keywords,
+        is_pure_cartesian_node,
+        is_pure_or_node,
+    )
+
+    generator_steps = [step for step in pipeline if isinstance(step, dict) and GENERATION_KEYWORDS & set(step)]
+    if len(generator_steps) != 1:
+        return False
+    generator = generator_steps[0]
+
+    # No OTHER generator anywhere, and no finetune/train_params — same fail-loud guards as the constrained path.
+    for step in pipeline:
+        if not isinstance(step, dict):
+            continue
+        if step is not generator and has_nested_generator_keywords(step):
+            return False
+        if _FORCE_PYTHON_STEP_KEYS & set(step):
+            return False
+
+    # Exactly one concrete downstream model — the survivor sequence terminates in it.
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(model_steps) != 1:
+        return False
+
+    keys = set(generator)
+
+    # (A) PURITY + STRUCTURE — IDENTICAL to the constrained admit gate (the survivor shape is the same; only
+    #     the constraint prune differs). A PURE `_or_` with one INTEGER `pick`/`arrange` in [1, n] and no
+    #     `then_*`, OR a PURE `_cartesian_` of >=2 `_or_` stages with no `pick`/`arrange`. ARRANGE-ORDER: dag-ml
+    #     `build_permutations` enumerates in the SAME index order as legacy `itertools.permutations`, and the
+    #     config map is content-keyed, so ordered survivors align (verified e2e); arrange therefore ADMITS.
+    if "_cartesian_" in generator:
+        if not is_pure_cartesian_node(generator):
+            return False
+        if "pick" in keys or "arrange" in keys:
+            return False
+        stages = generator["_cartesian_"]
+        if not isinstance(stages, list) or len(stages) < 2:
+            return False
+    elif "_or_" in generator:
+        if not is_pure_or_node(generator):
+            return False
+        if "then_pick" in keys or "then_arrange" in keys:
+            return False
+        options = generator["_or_"]
+        if not isinstance(options, list) or not options:
+            return False
+        selector_keys = {"pick", "arrange"} & keys
+        if len(selector_keys) != 1:
+            return False
+        size = generator[next(iter(selector_keys))]
+        if not isinstance(size, int) or isinstance(size, bool) or not (1 <= size <= len(options)):
+            return False
+    else:
+        return False
+
+    # (B) UNCONSTRAINED scope: NO `_mutex_`/`_requires_`/`_exclude_` (a constrained node is the constrained
+    #     predicate's domain). This is the ONLY gate that differs from `_is_constrained_operator_generator` —
+    #     here the constraint set must be EMPTY, there it must be NON-empty.
+    if CONSTRAINT_KEYWORDS & keys:
+        return False
+
+    # (C) SAMPLING modifiers (`count`/`_seed_`/`_weights_`) DEMOTE: legacy SAMPLES the survivors; dag-ml's
+    #     native `count` TRUNCATES a different set (and the `_or_`-pick count path is non-deterministic
+    #     run-to-run — `generator_or_count_seed` / `generator_or_weights_count_seed` are SKIP cases).
+    if _CONSTRAINED_SAMPLING_MODIFIER_KEYS & keys:
+        return False
+
+    # (D) Every leaf operator choice is a ROUTABLE bare X-transform (no None / model / nested-generator /
+    #     multi-step / non-routable / wavelength-requiring choice). Same walk as the constrained path.
+    if not _constrained_choices_native_routable(generator):
+        return False
+
+    # (E) NO DUPLICATE operator option across the whole generator: two equal-content options would make two
+    #     survivors fingerprint-collide, mis-zipping the content-keyed `{variant_label → config_name}` map.
+    return not _constrained_generator_has_duplicate_options(generator)
+
+
 def _is_separation_branch_step(step: Any) -> bool:
     """True for a separation branch by metadata/tag: ``{"branch": {"by_metadata"|"by_tag": ...}}``."""
     return isinstance(step, dict) and isinstance(step.get("branch"), dict) and bool({"by_metadata", "by_tag"} & set(step["branch"]))

@@ -45,6 +45,7 @@ from .detect import (
     _is_exclude_step,
     _is_flat_single_operator_generator,
     _is_stacking_merge_step,
+    _is_unconstrained_operator_generator,
 )
 from .errors import DagMlUnavailable, DagMlUnsupported, _OperatorLoweringUnsupported
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
@@ -93,6 +94,7 @@ __all__ = [
     "_is_augmentation_step",
     "_is_flat_single_operator_generator",
     "_is_stacking_merge_step",
+    "_is_unconstrained_operator_generator",
     "_operator_is_stateless",
     "_repetition_groups_for_pool",
     "_reshape_for_rep_fusion",
@@ -705,7 +707,15 @@ def _dispatch_run(
     # config map aligns. Both the flat-single and constrained shapes go through the SAME inner LOWERING guard:
     # a lowering refusal raises the DISTINCT `_OperatorLoweringUnsupported` sentinel and falls through to the
     # Python `expand_spec` path below (still dag-ml-native), while a RUNTIME error PROPAGATES.
-    if _generation_kind(list(pipeline)) == "operator" and (_is_flat_single_operator_generator(list(pipeline)) or _is_constrained_operator_generator(list(pipeline))):
+    # An UNCONSTRAINED operator generator (`_or_`-pick/-arrange or a multi-stage `_cartesian_` with NO
+    # `_mutex_`/`_requires_`/`_exclude_`) routes the SAME native operator-SELECT run (ADR-17 item 5 slice C):
+    # its survivor set is simply ALL pick/arrange/cartesian combinations (no constraint prune), which dag-ml's
+    # `expand_or_generator_sequences` / `expand_cartesian_generator_sequences` produce in legacy
+    # `itertools.combinations`/`permutations` order, so the SAME `assemble_constrained_cv_refit_dsl` lowering
+    # (with an EMPTY constraints set) + content-keyed config map align. arrange (ordered permutations) reaches
+    # parity because dag-ml's permutation order matches legacy AND the config map is content-keyed; `then_*` /
+    # `count` / `_seed_` / `_weights_` / oversize-pick / non-routable shapes are demoted by the predicate.
+    if _generation_kind(list(pipeline)) == "operator" and (_is_flat_single_operator_generator(list(pipeline)) or _is_constrained_operator_generator(list(pipeline)) or _is_unconstrained_operator_generator(list(pipeline))):
         try:
             return _run_native_operator_generation(
                 list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native_op", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, random_state=random_state
