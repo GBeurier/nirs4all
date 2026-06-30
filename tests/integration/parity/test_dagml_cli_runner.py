@@ -857,10 +857,11 @@ def test_public_run_engine_dagml_native_log_range_sweep(tmp_path) -> None:
 
 
 def test_generation_kind_routes_conservatively() -> None:
-    """The native router is CONSERVATIVE: only a clean `_range_`/`_log_range_` model sweep goes native;
-    every other generator shape (mixed, finetune_params, _grid_, dict/modifier sweeps, non-model sweep,
-    multi-model) falls back to the Python `expand_spec` path, so no generator is silently dropped.
-    No CLI needed."""
+    """The native router is CONSERVATIVE: a clean `_range_`/`_log_range_` model-param sweep AND a
+    native-representable step-level `_grid_` go native (`param_model`); every other generator shape
+    (mixed, finetune_params, a nested/modifier/non-alphabetical `_grid_`, dict/modifier sweeps,
+    non-model sweep, multi-model) falls back to the Python `expand_spec` path, so no generator is
+    silently dropped / mis-expanded. No CLI needed."""
     from sklearn.linear_model import Ridge
     from sklearn.preprocessing import MinMaxScaler
 
@@ -869,9 +870,11 @@ def test_generation_kind_routes_conservatively() -> None:
 
     splitter = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
-    # The native cases: a pure `_range_` or `_log_range_` list-form sweep on a model step.
+    # The native cases: a pure `_range_` or `_log_range_` list-form sweep on a model step, OR a step-level
+    # `_grid_` over plain, alphabetically-ordered model param lists (the native dag-ml `Grid` generator).
     assert _generation_kind([StandardNormalVariate(), splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}}]) == "param_model"
     assert _generation_kind([StandardNormalVariate(), splitter, {"model": Ridge(), "alpha": {"_log_range_": [0.001, 10.0, 4]}}]) == "param_model"  # _log_range_ now native (dag-ml 2a77a7f)
+    assert _generation_kind([StandardNormalVariate(), splitter, {"_grid_": {"n_components": [5, 10], "scale": [True, False]}, "model": PLSRegression}]) == "param_model"  # native step-level _grid_
     # No generators at all → none.
     assert _generation_kind([StandardNormalVariate(), splitter, {"model": PLSRegression(n_components=5)}]) == "none"
 
@@ -881,13 +884,54 @@ def test_generation_kind_routes_conservatively() -> None:
     assert _generation_kind(mixed) == "operator"  # a sweep on a non-model step alongside the model sweep
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}, "finetune_params": {"n_trials": 5}}]) == "operator"  # finetune_params
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 9, 3]}, "train_params": {"epochs": 1}}]) == "operator"  # train_params
-    assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_grid_": {"n_components": [5, 10]}}}]) == "operator"  # _grid_ (not proven equivalent)
+    assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_grid_": {"n_components": [5, 10]}}}]) == "operator"  # per-param-sibling _grid_ value (not the step-level keyword)
+    assert _generation_kind([splitter, {"_grid_": {"n_components": {"_range_": [5, 15, 5]}, "scale": [True, False]}, "model": PLSRegression}]) == "operator"  # nested-generator grid value (native Grid can't expand it)
+    assert _generation_kind([splitter, {"_grid_": {"scale": [True, False], "n_components": [5, 10]}, "model": PLSRegression}]) == "operator"  # non-alphabetical grid keys (dag-ml BTreeMap order would diverge)
+    assert _generation_kind([splitter, {"_grid_": {"n_components": [5, 10]}, "count": 1, "model": PLSRegression}]) == "operator"  # modifier-bearing grid (`count` subsample)
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": [3, 16, 1], "count": 3}}]) == "operator"  # modifier-bearing range
     assert _generation_kind([splitter, {"model": PLSRegression(), "n_components": {"_range_": {"from": 3, "to": 9}}}]) == "operator"  # dict-form range
     assert _generation_kind([splitter, {"model": Ridge(), "alpha": {"_log_range_": [0.001, 10.0, 4], "count": 3}}]) == "operator"  # modifier-bearing _log_range_ (only the bare list form is native)
     assert _generation_kind([splitter, {"model": Ridge(), "alpha": {"_log_range_": {"from": 0.001, "to": 10.0, "num": 4}}}]) == "operator"  # dict-form _log_range_
     assert _generation_kind([splitter, {"model": {"_or_": [PLSRegression(), PLSRegression(n_components=3)]}}]) == "operator"  # multi-model
     assert _generation_kind([{"_or_": [StandardNormalVariate(), MinMaxScaler()]}, splitter, {"model": PLSRegression()}]) == "operator"  # operator-level _or_ step
+
+
+def test_is_grid_param_generator_spec_fail_closed() -> None:
+    """`is_grid_param_generator_spec` is fully FAIL-CLOSED: a non-str-key grid demotes to Python-expand
+    (returns False) rather than crashing on `sorted()` over mixed key types. No CLI needed."""
+    from nirs4all.pipeline.dagml_bridge import is_grid_param_generator_spec
+
+    # Native-representable grids → True.
+    assert is_grid_param_generator_spec({"n_components": [5, 10], "scale": [True, False]}) is True
+    assert is_grid_param_generator_spec({"alpha": [0.1, 1.0]}) is True  # single param, alphabetical (trivially)
+    # MUST be fail-closed (False, never a TypeError) for a non-str key — the gate demotes to Python-expand.
+    assert is_grid_param_generator_spec({"a": [1], 2: [2]}) is False  # mixed str/int keys (would break sorted())
+    assert is_grid_param_generator_spec({1: [1], 2: [2]}) is False  # all-int keys
+    # Other non-native shapes also demote.
+    assert is_grid_param_generator_spec({"n_components": {"_range_": [5, 15, 5]}}) is False  # nested-generator value
+    assert is_grid_param_generator_spec({"scale": [True, False], "n_components": [5, 10]}) is False  # non-alphabetical
+    assert is_grid_param_generator_spec({"n_components": [float("nan")]}) is False  # non-finite scalar
+    assert is_grid_param_generator_spec({}) is False  # empty
+    assert is_grid_param_generator_spec("not a dict") is False
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_grid_bare_class_with_sibling_param() -> None:
+    """A native `_grid_` over a BARE CLASS model carrying a PLAIN sibling param runs (no clone-of-class crash).
+
+    `{"_grid_": {n_components:[…]}, "model": PLSRegression, "max_iter": 600}` routes `param_model`; the
+    plain `max_iter` sibling must be applied to an INSTANTIATED model (a bare class cannot be cloned), and
+    the swept `n_components` stays a native grid. Regression guard for the bare-class + sibling crash."""
+    from sklearn.cross_decomposition import PLSRegression as _PLS
+
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import _generation_kind
+
+    pipeline = [StandardNormalVariate(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"_grid_": {"n_components": [5, 10]}, "model": _PLS, "max_iter": 600}]
+    assert _generation_kind(pipeline) == "param_model"
+    result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
+    assert result.best_rmse == result.best_rmse, "bare-class _grid_ + plain sibling must run (finite best_rmse), not crash"  # noqa: PLR0124
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")

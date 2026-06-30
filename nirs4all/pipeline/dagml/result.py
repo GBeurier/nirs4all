@@ -180,20 +180,26 @@ def _legacy_fold_id(native_fold_id: str) -> str:
     return native_fold_id[len("fold"):] if native_fold_id.startswith("fold") and native_fold_id[len("fold"):].isdigit() else native_fold_id
 
 
-def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_names: list[str]) -> dict[Any, str]:
+def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_names: list[str], winner_config_name: str | None = None) -> dict[Any, str]:
     """Pair a NATIVE-generation ScoreSet's CV variant ids with the ordered legacy expand config names.
 
     Native generation emits OPAQUE ``variant_id`` hashes with NO params in the reports, so a variant
-    cannot be matched to its param value (hence its specific legacy ``config_name``) by content. dag-ml
-    lays the reports out WINNER-first (the SELECTED variant's reports lead, from the real winner-only
-    FIT_CV), then the losers in generation/expand order. ``ordered_config_names`` is
-    ``PipelineConfigs.names`` in expand order, where index 0 is the config legacy refits for a native
-    param sweep (legacy's native variants are degenerate — same score — so it selects the first). We
-    therefore pair the winner with ``names[0]`` (so the dag-ml winner's ``_refit`` matches legacy's
-    index-0 refit) and the losers with the rest in order. This gives the exact legacy SET + count of
-    config names with a legacy-aligned winner label; the per-loser hash↔variant pairing is positional
-    (param recovery is impossible from the native reports). Returns ``{fold_variant_id: config_name}``
-    keyed by the variant's own (non-``None``) fold-level id — the avg's native ``None`` tag is not a key.
+    cannot be matched to its param value (hence its specific legacy ``config_name``) by report content.
+    dag-ml lays the reports out WINNER-first (the SELECTED variant's reports lead, from the real
+    winner-only FIT_CV), then the losers in generation/expand order. ``ordered_config_names`` is
+    ``PipelineConfigs.names`` in expand order.
+
+    ``winner_config_name`` (when given) is the WINNING variant's config_name, recovered BY CONTENT from
+    the winner's refit model params (:func:`~nirs4all.pipeline.dagml.run_paths._native_param_winner_config_name`)
+    — required for a NON-degenerate sweep (``_grid_``), where legacy expands each variant with its own
+    params and refits the TRUE CV-best, so the winner's config_name is the WINNING variant's name, NOT
+    ``names[0]``. We pair the winner-first ``cv_variant_ids[0]`` with it and the losers with the remaining
+    ``ordered_config_names`` (the winner's name removed, the rest kept in expand order). When ``None`` (a
+    DEGENERATE ``_range_``/``_log_range_`` sweep — legacy's native variants tie, so legacy refits index 0),
+    the winner pairs with ``names[0]`` positionally, matching legacy's index-0 refit. The per-loser
+    hash↔name pairing is positional either way (loser param recovery is impossible from the reports).
+    Returns ``{fold_variant_id: config_name}`` keyed by the variant's own (non-``None``) fold-level id —
+    the avg's native ``None`` tag is not a key.
     """
     cv_variant_ids = list(
         dict.fromkeys(
@@ -202,6 +208,14 @@ def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_nam
             if report["partition"] == "validation" and report.get("fold_id") != "avg"
         )
     )
+    if winner_config_name is not None and cv_variant_ids and winner_config_name in ordered_config_names:
+        # Winner-first: pair cv_variant_ids[0] (the SELECTED variant, whose reports lead) with the
+        # content-recovered winner name; the losers take the remaining names in expand order (winner removed
+        # ONCE so a name reused across degenerate variants is not dropped twice).
+        remaining = list(ordered_config_names)
+        remaining.remove(winner_config_name)
+        ordered = [winner_config_name, *remaining]
+        return dict(zip(cv_variant_ids, ordered, strict=False))
     return dict(zip(cv_variant_ids, ordered_config_names, strict=False))
 
 

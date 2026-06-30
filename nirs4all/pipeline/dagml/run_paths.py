@@ -25,8 +25,52 @@ from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
-from .result import _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
+from .result import _frames_by_variant, _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
 from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _legacy_skips_refit, _model_name, _split_pipeline, _supported_body_steps
+
+
+def _native_param_winner_config_name(
+    refit_artifacts: list[dict[str, Any]] | None,
+    variant_config_names: list[str] | None,
+    variant_model_params: list[dict[str, Any]] | None,
+) -> str | None:
+    """The WINNING param-sweep variant's legacy ``config_name``, recovered BY CONTENT, else ``None``.
+
+    The native run refits the true CV-best variant but emits an opaque variant hash with NO params in the
+    reports, so the winner's specific ``config_name`` cannot be read off the ScoreSet. The fitted REFIT
+    estimator IS authoritative, though — it carries the winning param VALUES. We unwrap its bare model
+    (the last step of the refit sklearn ``Pipeline``, else the estimator itself), then find the variant
+    whose recorded swept-param values (``variant_model_params[i]``, aligned 1:1 with
+    ``variant_config_names``) all match the winner's — returning ``variant_config_names[i]``. Only the
+    SWEPT keys are compared (the keys present in the per-variant param dict), so a default param the
+    estimator also carries does not break the match. Returns ``None`` (→ the positional ``names[0]``
+    fallback) when there is no refit estimator, no per-variant params, or no unambiguous single match —
+    never a wrong label.
+    """
+    from sklearn.pipeline import Pipeline
+
+    if not refit_artifacts or not variant_config_names or not variant_model_params:
+        return None
+    if len(variant_model_params) != len(variant_config_names):
+        return None
+    estimator = refit_artifacts[0].get("estimator")
+    if estimator is None:
+        return None
+    model = estimator.steps[-1][1] if isinstance(estimator, Pipeline) and estimator.steps else estimator
+    if not hasattr(model, "get_params"):
+        return None
+    winner_params = model.get_params()
+    matches = {
+        config_name
+        for config_name, variant_params in zip(variant_config_names, variant_model_params, strict=True)
+        if variant_params and all(key in winner_params and winner_params[key] == value for key, value in variant_params.items())
+    }
+    # A single matched config_name keys the winner. Distinct duplicate variants that share the SAME
+    # swept-param values collapse to ONE config_name (the display hash is the param content), so a grid
+    # like `scale:[True,False,True]` still resolves unambiguously. Only a genuine multi-NAME match (an
+    # ill-posed grid where the winner's params match two DIFFERENT names) or no match falls back to the
+    # positional `names[0]` pairing rather than pick arbitrarily.
+    return next(iter(matches)) if len(matches) == 1 else None
 
 
 def _run_native_generation(
@@ -44,6 +88,7 @@ def _run_native_generation(
     dataset_pickle: str | None = None,
     config_name: str = "",
     variant_config_names: list[str] | None = None,
+    variant_model_params: list[dict[str, Any]] | None = None,
     random_state: int | None = None,
 ) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
@@ -82,9 +127,28 @@ def _run_native_generation(
 
     # A native param sweep varies one model's params only (same model class across variants), so only the
     # per-variant config_name map is needed — model_name is shared, so the projection's scalar fallback is
-    # correct. The map keys each opaque native variant_id to its legacy expand config name (winner-first).
-    variant_config_map = _native_variant_config_map(outcome["scores"], variant_config_names) if variant_config_names else None
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, skip_refit=_legacy_skips_refit(splitter), refit_artifacts=outcome["refit_artifacts"])
+    # correct. The map keys each opaque native variant_id to its legacy expand config name. A NON-degenerate
+    # sweep (`_grid_`) selects the true CV-best, whose config_name is the WINNING variant's name (NOT
+    # index 0): recover it by matching the winner's refit model params against the per-variant model params
+    # (aligned with `variant_config_names`), so the winner is content-paired exactly like the operator path.
+    winner_config_name = _native_param_winner_config_name(outcome["refit_artifacts"], variant_config_names, variant_model_params)
+    variant_config_map = _native_variant_config_map(outcome["scores"], variant_config_names, winner_config_name) if variant_config_names else None
+
+    # FILL the strict direct-block rows with this run's per-sample y_pred/y_true/sample_indices (the
+    # winner's refit `(final, train)` + `(final, test)` + per-fold OOF; each loser's per-fold OOF). dag-ml
+    # emits ONE bundle here with every variant's reports correctly tagged (only the winner refits), so the
+    # NodeResult frames key per-variant exactly like the reports — bucket them with `_frames_by_variant`
+    # under each frame's own `variant_id` (the winner's untagged OOF-avg frame falls back to the winner id,
+    # the `(final, None)`-report owner). The projection then reads each row's arrays from ITS OWN variant's
+    # blocks (no cross-variant y_pred leakage), exactly as the operator-sweep / single-pipeline paths do.
+    winner_variant_id = next(
+        (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", []) if report["partition"] == "final" and report.get("fold_id") is None),
+        None,
+    )
+    results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id)
+    return _scores_to_run_result(
+        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, skip_refit=_legacy_skips_refit(splitter), results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+    )
 
 
 def _run_native_operator_generation(

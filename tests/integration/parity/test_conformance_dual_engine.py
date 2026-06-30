@@ -257,6 +257,11 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
     "generator_or_then_arrange",
     "generator_cartesian_pick",
     "generator_cartesian_count_seed",
+    # NATIVE param-sweep `_grid_` (routes `_run_native_generation`): a non-degenerate grid selects the
+    # TRUE CV-best, so the winner's config_name must be the WINNING variant's name (content-recovered from
+    # the winner's refit model params), NOT names[0]. Locks that the native param path winner matches legacy.
+    "generator_grid_twelve_variants",
+    "generator_grid_n_components_scale",
 })
 
 

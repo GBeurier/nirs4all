@@ -75,7 +75,7 @@ def _generation_kind(pipeline: list[Any]) -> str:
     path). ``"none"`` means no generators at all. When in doubt, this never returns ``"param_model"``.
     """
     from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS, has_nested_generator_keywords
-    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
+    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec, step_has_native_grid
 
     has_param_model = False
     has_other = False
@@ -88,14 +88,24 @@ def _generation_kind(pipeline: list[Any]) -> str:
             # A generator-valued model (multi-model) is operator-level, not a clean param sweep.
             if has_nested_generator_keywords(step["model"]):
                 has_other = True
+            # A step-level `_grid_` over model params the native dag-ml `Grid` generator can represent
+            # (flat Cartesian product of plain, alphabetically-ordered param lists, no variant-changing
+            # modifier sibling). A non-native `_grid_` (nested-generator / modifier-bearing / non-
+            # alphabetical / non-JSON) is caught by the per-sibling generator-keyword check below.
+            native_grid = step_has_native_grid(step)
+            if native_grid:
+                has_param_model = True
             for key, value in step.items():
                 if key in _RESERVED_STEP_KEYS:
                     continue
+                if key == "_grid_" and native_grid:
+                    continue  # the native grid was already counted
                 if is_param_generator_spec(value):
                     has_param_model = True
-                elif has_nested_generator_keywords(value):
-                    # A generator-shaped sibling we cannot lower natively (e.g. `_grid_`, dict-form,
-                    # or a modifier-bearing range) — Python expand owns it.
+                elif has_nested_generator_keywords(value) or key in GENERATION_KEYWORDS:
+                    # A generator-shaped sibling we cannot lower natively (a non-native `_grid_`, the
+                    # dict-form range, a modifier-bearing range, or a nested-generator grid value) —
+                    # Python expand owns it.
                     has_other = True
         elif GENERATION_KEYWORDS & set(step) or has_nested_generator_keywords(step):
             # Any generator on a non-model step (bare `_or_`/`_range_`/... or a nested one).
