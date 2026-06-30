@@ -365,6 +365,39 @@ register(
 )
 
 
+def _factory_or_pick_mutex3() -> list[Any]:
+    # SIZE-3 `_mutex_` [[SNV, MSC, Detrend]] — this is where the legacy "not all co-occur"
+    # (`_satisfies_mutex`: `mutex_set.issubset(combo_set)`) semantic DIVERGES from a naive
+    # "at most one present" reading. pick=3 over 4 ops -> C(4,3)=4 combos; legacy forbids ONLY
+    # the single combo where ALL THREE mutex members co-occur ({SNV,MSC,Detrend}) and keeps every
+    # combo carrying just two of them -> 4 - 1 = 3 survivors. A "<=1 present" rule would instead
+    # forbid every combo with 2+ of the group (all four) -> 0 survivors, so this case pins the
+    # >2 mutex CONTRACT (the dag-ml native rule item 1a must later match). Routes via Python-expand
+    # on BOTH engines today (constraints not native-routed yet), so it locks the LEGACY semantic.
+    return [
+        {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 3, "_mutex_": [[SNV, MSC, Detrend]]},
+        ShuffleSplit(n_splits=3, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ]
+
+
+register(
+    PipelineCase(
+        name="generator_or_pick_mutex3",
+        description="`_or_` pick=3 over 4 preprocessors with a SIZE-3 `_mutex_` [[SNV, MSC, Detrend]] — "
+        "legacy forbids ONLY the all-three-present combo ({SNV,MSC,Detrend}), keeping the three combos "
+        "with just two of them: C(4,3)=4 -> 3 variants x 3 folds. Locks the >2 mutex 'not all co-occur' "
+        "contract (where '<=1 present' would wrongly prune to 0) + the same winner across engines.",
+        keywords=("_or_", "_mutex_", "model"),
+        capabilities=(*_CAPS, "filter"),
+        dataset_key="regression",
+        pipeline_factory=_factory_or_pick_mutex3,
+        expected_min_predictions=45,
+        tags=_GEN,
+    )
+)
+
+
 def _factory_or_pick_requires() -> list[Any]:
     # `_requires_` [[SNV, MSC]]: if SNV is picked, MSC must also be picked. Of the
     # 6 pairs, those containing SNV-without-MSC are removed: {SNV,Detrend},

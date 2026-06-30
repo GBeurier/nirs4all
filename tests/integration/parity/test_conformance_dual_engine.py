@@ -172,12 +172,21 @@ KNOWN_DIVERGENCES: dict[str, str] = {
 #   pick selects PAIRS of complete pipelines including FirstDerivative branches, so y_pred
 #   maxΔ = 2.107e-3 (28/59 over 1e-3) — same FirstDerivative-amplified PLS noise family,
 #   NOT a selection tip (in SAME_WINNER_CASES). Relaxed to 5e-3, above the observed ceiling.
+#
+#   generator_or_pick_mutex3: the SIZE-3 mutex [SNV,MSC,Detrend] forbids only the all-three combo,
+#   so EVERY surviving pick-3 variant necessarily carries FirstDerivative (the one op outside the
+#   mutex group). The engines select the SAME winner (asserted in SAME_WINNER_CASES) at score parity
+#   (well under the 1e-3 score tol) and identical num_predictions; the only gap is the same
+#   FirstDerivative-amplified PLS Rust-vs-sklearn per-sample noise — measured maxΔ = 1.455e-3 (14/59
+#   over 1e-3). NOT a selection tip, NOT a real divergence. Relaxed to 5e-3 (the family ceiling),
+#   under the SAME-winner guard, mirroring generator_or_pick_requires / generator_cartesian_pick.
 Y_PRED_TOL_OVERRIDES: dict[str, float] = {
     "generator_or_with_pick": 5e-3,
     "generator_cartesian_stages": 5e-3,
     "generator_cartesian_with_param_range": 5e-3,
     "generator_or_pick_requires": 5e-3,
     "generator_cartesian_pick": 5e-3,
+    "generator_or_pick_mutex3": 5e-3,
 }
 
 
@@ -194,6 +203,7 @@ Y_PRED_TOL_OVERRIDES: dict[str, float] = {
 # KNOWN_DIVERGENCES cases (which by definition pick a different winner) are excluded.
 SAME_WINNER_CASES: frozenset[str] = frozenset({
     "generator_or_pick_mutex",
+    "generator_or_pick_mutex3",
     "generator_or_pick_exclude",
     "generator_cartesian_exclude",
     "generator_combined_constraints",

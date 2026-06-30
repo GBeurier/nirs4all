@@ -201,6 +201,15 @@ _CONSTRAINT_SURVIVORS: dict[str, set[frozenset[str]]] = {
         _names(MSC, FirstDerivative),
         _names(Detrend, FirstDerivative),
     },
+    # generator_or_pick_mutex3: SIZE-3 mutex [SNV,MSC,Detrend] over pick=3 of 4. C(4,3)=4; legacy
+    # ("not all co-occur" / issubset) forbids ONLY {SNV,MSC,Detrend} (the all-three-present combo)
+    # and KEEPS every combo with just two of the group -> 3 survivors. A "<=1 present" reading would
+    # wrongly prune all four to 0, so this lock catches a >2-mutex over-prune (member-level, not count).
+    "generator_or_pick_mutex3": {
+        _names(SNV, MSC, FirstDerivative),
+        _names(SNV, Detrend, FirstDerivative),
+        _names(MSC, Detrend, FirstDerivative),
+    },
     # generator_or_pick_requires: SNV requires MSC -> SNV-without-MSC pairs drop -> 4.
     "generator_or_pick_requires": {
         _names(SNV, MSC),
