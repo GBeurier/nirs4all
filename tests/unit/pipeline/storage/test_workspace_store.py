@@ -7,8 +7,10 @@ concurrent access.  Every test uses ``tmp_path`` for isolation.
 
 from __future__ import annotations
 
+import gc
 import json
 import threading
+import weakref
 import zipfile
 from datetime import datetime
 from pathlib import Path
@@ -1582,6 +1584,27 @@ class TestClose:
         store.close()
         with pytest.raises(RuntimeError):
             store.begin_run("test", config={}, datasets=[])
+
+    def test_closed_store_is_not_retained_by_atexit(self, tmp_path):
+        """Closing a store unregisters its atexit hook so notebooks do not leak stores."""
+        store = _make_store(tmp_path)
+        store_ref = weakref.ref(store)
+
+        store.close()
+        del store
+        gc.collect()
+
+        assert store_ref() is None
+
+    def test_unclosed_store_is_not_retained_by_atexit(self, tmp_path):
+        """The atexit hook keeps only a weak reference to the store."""
+        store = _make_store(tmp_path)
+        store_ref = weakref.ref(store)
+
+        del store
+        gc.collect()
+
+        assert store_ref() is None
 
 # =========================================================================
 # test_vacuum
