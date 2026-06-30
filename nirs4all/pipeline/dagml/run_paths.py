@@ -18,8 +18,8 @@ from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
-from .cli_runner import assemble_cv_refit_dsl
-from .detect import _is_augmentation_step, _is_rep_fusion_step
+from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
+from .detect import _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step
 from .envelope import build_envelope
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
@@ -145,28 +145,37 @@ def _run_native_operator_generation(
     # DISTINCT `_OperatorLoweringUnsupported` sentinel the routing branch catches. A non-lowering error (e.g.
     # an internal invariant) is NOT a coverage gap — let it propagate.
     try:
+        from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS
+
         steps, splitter = _split_pipeline(pipeline)
         if splitter is None:
             raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
         _reject_multi_model(steps)
-        # Reject UP FRONT the transform-side operators the X-chain cannot run — but skip the `_or_` step
-        # itself (its bare-operator choices were already routability-gated by the flat-single predicate, and
-        # are fingerprinted below). The concrete model is validated by its own fit, like every other path.
-        _assert_supported_operators([step for step in steps if not (isinstance(step, dict) and "_or_" in step)])
+        # Reject UP FRONT the transform-side operators the X-chain cannot run — but skip the generator step
+        # itself (its bare-operator choices were already routability-gated by the predicate, and are
+        # fingerprinted below). The concrete model is validated by its own fit, like every other path.
+        _assert_supported_operators([step for step in steps if not (isinstance(step, dict) and GENERATION_KEYWORDS & set(step))])
 
         identity = mint_identity(spectro)
         pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
         folds = _build_folds(splitter, spectro, pool, excluded or set())
         envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample)
 
-        # The DSL carries the lowered Generator on the transform position. assemble_cv_refit_dsl lowers the
-        # pipeline (raising from the bridge if the `_or_` is not flat-bare). Compute the content-keyed
-        # {variant_label -> config_name} map HERE too (it fingerprints each choice — a lowering step that can
-        # raise DagMlUnsupported on a non-finite / non-JSON param), so a label failure demotes BEFORE the run.
-        dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
+        # The DSL carries the lowered Generator on the transform position. A FLAT-SINGLE bare `_or_` lowers
+        # via the compat fusion (assemble_cv_refit_dsl → pipeline_to_dsl); a CONSTRAINED `_or_`-pick /
+        # `_cartesian_` lowers each pruned survivor into ONE model-terminated canonical Generator branch
+        # (assemble_constrained_cv_refit_dsl), because dag-ml's compat fusion drops the constraints and its
+        # operator-variant compiler refuses a model-free choice. Both raise from the bridge on an unlowerable
+        # shape. Compute the content-keyed {variant_label -> config_name} map HERE too (it fingerprints each
+        # survivor — a lowering step that can raise DagMlUnsupported on a non-finite / non-JSON param), so a
+        # label failure demotes BEFORE the run.
+        if _is_constrained_operator_generator(pipeline):
+            dsl = assemble_constrained_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
+        else:
+            dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
         config_by_label = _native_operator_config_by_label(steps, variant_config_names or [])
     except (DagMlUnsupported, NotImplementedError) as exc:
-        raise _OperatorLoweringUnsupported(f"operator `_or_` lowering unsupported, demoting to Python expand: {exc}") from exc
+        raise _OperatorLoweringUnsupported(f"operator generator lowering unsupported, demoting to Python expand: {exc}") from exc
 
     # --- COMPILE / RUN / RESULT-MAPPING (errors PROPAGATE — never reclassified as a coverage gap) --------
     # The union graph compiles ONE model node per `_or_` choice (Mechanism B namespacing), so bind EVERY

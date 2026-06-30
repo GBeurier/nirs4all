@@ -206,36 +206,53 @@ def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_nam
 
 
 def _native_operator_config_by_label(steps: list[Any], ordered_config_names: list[str]) -> dict[str, str]:
-    """The ``{variant_label -> legacy config_name}`` map for a flat-single ``_or_`` (the LOWERING half of #23).
+    """The ``{variant_label -> legacy config_name}`` map for an operator generator (the LOWERING half of #23 / ADR-17 1a).
 
-    This is the LOWERING-phase half: it fingerprints each expanded ``_or_`` choice (the cross-language
+    This is the LOWERING-phase half: it fingerprints each expanded operator variant (the cross-language
     ``variant_label`` content fingerprint, via the dag-ml PyO3 helper, byte-identical by construction) and
-    pairs it with that choice's legacy ``config_name``. dag-ml's ``lower_operator_variant_model`` activates
-    the chosen branch PLUS every downstream step, so the fingerprint is over the choice transform FOLLOWED
-    by the lowered pipeline tail after the generator (the concrete model, any ``y_processing``).
+    pairs it with that variant's legacy ``config_name``. dag-ml's ``lower_operator_variant_model`` activates
+    the chosen branch PLUS every downstream step, so the fingerprint is over the variant's transform(s)
+    FOLLOWED by the lowered pipeline tail after the generator (the concrete model, any ``y_processing``).
 
-    ``steps`` carries ONE flat ``_or_`` of bare operators (the only shape the native path lowers), so its
-    choices are the operator variants in ``_or_`` list order; ``ordered_config_names`` is
-    :class:`PipelineConfigs.names` in the SAME expand order, so choice ``i`` owns ``config_name`` ``i`` — a
-    deterministic content pairing (both follow ``_or_`` order). A SINGLE-choice ``_or_`` has an EMPTY
-    ``ordered_config_names`` (dag-ml ``config_name`` is blank for a 1-variant generator), so the returned
-    map is empty — BUT every choice's label is STILL fingerprinted + strict-validated here (the labels are
-    computed unconditionally, before pairing), so a bad-label single-choice ``_or_`` DEMOTES during this
-    lowering step instead of leaking past it into the native run. RAISES :class:`DagMlUnsupported` (a
-    LOWERING failure) when a choice's label cannot be computed (non-finite / non-str-key / non-JSON param /
-    helper error) — the caller runs this inside its narrow lowering guard so it demotes to Python-expand,
-    never crashes.
+    Two operator-generator shapes, distinguished by the generator node:
+
+    * FLAT-SINGLE bare ``_or_`` — each raw choice is ONE operator variant in ``_or_`` list order; one label
+      per choice over ``[<choice>, downstream]`` (:func:`operator_choice_variant_label`).
+    * CONSTRAINED ``_or_``-pick / ``_cartesian_`` (ADR-17 1a + 1b-cartesian) — each PRUNED survivor is a
+      multi-operator SEQUENCE (``expand_spec``, the constraint source of truth both engines use); one label
+      per survivor over ``[<survivor transforms>, downstream]`` (:func:`operator_sequence_variant_label`),
+      in expand-spec (survivor) order — which matches dag-ml's stable enumerate-retain order, so the
+      content-keyed map aligns with dag-ml's per-variant reports.
+
+    ``ordered_config_names`` is :class:`PipelineConfigs.names` in the SAME expand order, so variant ``i`` owns
+    ``config_name`` ``i`` — a deterministic content pairing. A SINGLE-variant generator (a degenerate
+    one-choice ``_or_``, or a constraint that prunes to ONE survivor) has an EMPTY ``ordered_config_names``
+    (dag-ml ``config_name`` is blank for a 1-variant generator), so the returned map is empty — BUT every
+    variant's label is STILL fingerprinted + strict-validated here (the labels are computed unconditionally,
+    before pairing), so a bad-label single-variant generator DEMOTES during this lowering step instead of
+    leaking past it into the native run. RAISES :class:`DagMlUnsupported` (a LOWERING failure) when a label
+    cannot be computed (non-finite / non-str-key / non-JSON param / helper error) — the caller runs this
+    inside its narrow lowering guard so it demotes to Python-expand, never crashes.
     """
-    from nirs4all.pipeline.dagml_bridge import operator_choice_variant_label
+    from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS
+    from nirs4all.pipeline.dagml_bridge import _INERT_GENERATOR_ANNOTATION_KEYS, constrained_operator_survivor_sequences, operator_choice_variant_label, operator_sequence_variant_label
 
-    or_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and "_or_" in step), None)
-    if or_index is None:
+    generator_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and GENERATION_KEYWORDS & set(step)), None)
+    if generator_index is None:
         return {}
-    choices = steps[or_index]["_or_"]
-    downstream = steps[or_index + 1 :]
-    # Fingerprint + strict-validate EVERY choice unconditionally (this is the lowering check that can raise
-    # DagMlUnsupported), so even a single-choice `_or_` with an empty `ordered_config_names` is validated.
-    labels = [operator_choice_variant_label(choice, downstream) for choice in choices]
+    generator_node = steps[generator_index]
+    downstream = steps[generator_index + 1 :]
+    if set(generator_node) & GENERATION_KEYWORDS == {"_or_"} and not (set(generator_node) - {"_or_"} - _INERT_GENERATOR_ANNOTATION_KEYS):
+        # FLAT-SINGLE bare `_or_`: each raw choice is one operator variant, in `_or_` list order. One label
+        # per choice paired with its config_name positionally (both follow `_or_` order).
+        choices = generator_node["_or_"]
+        labels = [operator_choice_variant_label(choice, downstream) for choice in choices]
+    else:
+        # CONSTRAINED `_or_`-pick / `_cartesian_`: each pruned SURVIVOR is a multi-op SEQUENCE (expand_spec,
+        # the constraint source of truth). One label per survivor over `[<survivor transforms>, downstream]`,
+        # paired with its config_name in expand-spec (survivor) order. Fingerprints EVERY survivor
+        # unconditionally (the lowering check that raises DagMlUnsupported on a non-finite / non-JSON param).
+        labels = [operator_sequence_variant_label(sequence, downstream) for sequence in constrained_operator_survivor_sequences(generator_node)]
     return dict(zip(labels, ordered_config_names, strict=False))
 
 

@@ -104,6 +104,26 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     return dsl
 
 
+def assemble_constrained_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: dict[str, Any], folds: list[tuple[list[int], list[int]]], *, dsl_id: str = "nirs4all-pipeline", n_splits: int) -> dict[str, Any]:
+    """The executable DSL for a CONSTRAINED operator generator: survivor-branch Generator + fold_set (ADR-17 1a + 1b).
+
+    Lowers the constrained ``_or_``-pick / ``_cartesian_`` pipeline into ONE canonical Generator step whose
+    branches are the pruned survivor sequences (each ``[<transforms>, <model>]``;
+    :func:`~nirs4all.pipeline.dagml_bridge.lower_constrained_operator_pipeline`), then embeds the fold_set.
+    The ``data_bindings`` are deliberately EMPTY here: the survivor-branch graph compiles ONE model node per
+    survivor (Mechanism B namespacing), and the caller (:func:`_run_native_operator_generation`) re-binds
+    EVERY model node after compile — exactly as the flat operator-SELECT path re-binds its per-choice model
+    nodes — so an a-priori single binding (which would also force a wrong-path ``pipeline_to_dsl`` compile in
+    ``model_node_id``) is neither needed nor correct.
+    """
+    from nirs4all.pipeline.dagml_bridge import lower_constrained_operator_pipeline
+
+    dsl = lower_constrained_operator_pipeline(pipeline, dsl_id)
+    dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
+    dsl["data_bindings"] = []
+    return dsl
+
+
 def write_launcher_shim(path: Path, venv_python: str) -> Path:
     """Write a non-``.py`` executable shim that re-execs the adapter under the project venv.
 

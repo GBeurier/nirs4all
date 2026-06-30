@@ -181,6 +181,130 @@ def _choice_is_native_routable(choice: Any) -> bool:
     return True
 
 
+def _is_constrained_operator_generator(pipeline: list[Any]) -> bool:
+    """True ONLY for a CONSTRAINED operator generator the native operator-SELECT lowers (ADR-17 item 1a + 1b-cartesian).
+
+    The constrained sibling to :func:`_is_flat_single_operator_generator`: it admits the operator-content
+    generators a bare ``_or_`` cannot — a ``pick``/``arrange``-combinatorial ``_or_`` with
+    ``_mutex_``/``_requires_``/``_exclude_`` constraints, OR a constrained ``_cartesian_`` of ``_or_`` stages.
+    Each survivor is a multi-operator SEQUENCE (not a single op). The host expands the survivor set with
+    nirs4all's own ``expand_spec`` (the constraint source of truth both engines use) and lowers each survivor
+    into ONE native operator-variant branch, so dag-ml scores the SAME pruned set by CV-OOF, refits the
+    winner, and stamps each per-variant report with the multi-op ``variant_label`` content fingerprint the
+    host recomputes byte-identically (:func:`~nirs4all.pipeline.dagml.result._native_operator_config_by_label`).
+
+    CONSERVATIVE whitelist — native is taken ONLY when ALL of:
+
+    * EXACTLY ONE generator step, and it is a PURE ``_or_`` (keys ⊆ ``PURE_OR_KEYS``) carrying a
+      ``_mutex_``/``_requires_``/``_exclude_`` CONSTRAINT (item 1a, the ``pick``-combinatorial set the
+      constraint prunes), OR a PURE ``_cartesian_`` (keys ⊆ ``PURE_CARTESIAN_KEYS``) carrying a CONSTRAINT
+      (item 1b-cartesian); a NON-pure node (a generator merged with ``class``/``model``/other keys), a bare
+      ``_or_``/``_cartesian_``, or an unconstrained pick/arrange/``_cartesian_`` forces the Python path; AND
+    * no OTHER generator anywhere (no nested generator on a non-generator step, no multi-model
+      ``{"model": {"_or_": …}}``), and no ``finetune_params`` / ``train_params``; AND
+    * every leaf operator choice is a genuinely ROUTABLE bare X-transform (the SAME
+      :func:`_choice_is_native_routable` gate the flat-single predicate enforces) — a ``None`` choice, a
+      ``{"model": …}`` choice, a nested generator choice, or a non-routable / wavelength-requiring choice
+      forces the Python path; AND
+    * the pipeline carries exactly one downstream concrete model (the survivor sequence terminates in it).
+
+    Anything richer (an UNCONSTRAINED pick/arrange/``then_*``/``count``/``_seed_``/``_weights_`` ``_or_`` or
+    a pick-only ``_cartesian_`` — out of the constrained scope; a ``_grid_``/``_zip_``/``_chain_``/
+    ``_sample_`` operator generator; a non-pure node; a non-routable choice) → ``False`` (stays on the proven
+    Python ``expand_spec`` path, still dag-ml-native via that route). When in doubt, this returns ``False``.
+    """
+    from nirs4all.pipeline.config._generator.keywords import (
+        CONSTRAINT_KEYWORDS,
+        GENERATION_KEYWORDS,
+        has_nested_generator_keywords,
+        is_pure_cartesian_node,
+        is_pure_or_node,
+    )
+
+    generator_steps = [step for step in pipeline if isinstance(step, dict) and GENERATION_KEYWORDS & set(step)]
+    if len(generator_steps) != 1:
+        return False
+    generator = generator_steps[0]
+
+    # No OTHER generator anywhere, and no finetune/train_params — same fail-loud guards as the flat path.
+    for step in pipeline:
+        if not isinstance(step, dict):
+            continue
+        if step is not generator and has_nested_generator_keywords(step):
+            return False
+        if _FORCE_PYTHON_STEP_KEYS & set(step):
+            return False
+
+    # Exactly one concrete downstream model — the survivor sequence terminates in it (a multi-model or a
+    # generator-valued model is excluded by the no-other-generator guard above; a missing model is not a
+    # CV+refit shape).
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(model_steps) != 1:
+        return False
+
+    # Admit ONLY a PURE `_or_` carrying a pick/arrange/constraint modifier (so a bare `_or_` stays on the
+    # flat-single path) OR a PURE `_cartesian_` carrying a `_mutex_`/`_requires_`/`_exclude_` CONSTRAINT
+    # (the ADR-17 1b-cartesian scope). A non-pure generator node, a bare `_or_`/`_cartesian_`, or a
+    # `_cartesian_` with only `pick`/`arrange` (a multi-pipeline pair selection, NOT constraint pruning —
+    # its own native survivor labels are not this multi-op-sequence shape) falls to the Python expand path.
+    keys = set(generator)
+    if "_cartesian_" in generator:
+        if not is_pure_cartesian_node(generator):
+            return False
+        # Only a CONSTRAINED cartesian routes here (item 1b-cartesian); plain / pick-only cartesian stays
+        # on the proven Python expand path (still dag-ml-native via that route).
+        if not (CONSTRAINT_KEYWORDS & keys):
+            return False
+    elif "_or_" in generator:
+        if not is_pure_or_node(generator):
+            return False
+        # Only a CONSTRAINED `_or_` routes here (item 1a — the `_mutex_`/`_requires_`/`_exclude_` over the
+        # pick-combinatorial set). A bare `_or_` is the flat-single path; an unconstrained `_or_` carrying
+        # only `pick`/`arrange`/`then_*`/`count`/`_seed_`/`_weights_` stays on the proven Python expand path
+        # (out of the constrained-generator scope, still dag-ml-native via that route).
+        if not (CONSTRAINT_KEYWORDS & keys):
+            return False
+    else:
+        return False
+
+    # Every leaf operator choice must be a routable bare X-transform (no None / model / nested-generator /
+    # non-routable choice). Walk the `_or_` / `_cartesian_`→`_or_` stage choices.
+    return _constrained_choices_native_routable(generator)
+
+
+def _constrained_choices_native_routable(generator: dict[str, Any]) -> bool:
+    """True iff EVERY leaf operator choice of a constrained ``_or_`` / ``_cartesian_`` is a routable bare X-transform.
+
+    Walks the choice leaves: a ``_cartesian_`` of ``{"_or_": [...]}`` stages flattens to every stage's
+    choices; a constrained ``_or_`` is its own choice list. Each leaf must be a single bare operator (NOT a
+    ``None`` no-op, a ``{"model": …}``, a multi-step list, or a nested generator dict) AND pass the native
+    routability gate (:func:`_choice_is_native_routable`) — otherwise the whole generator forces the Python
+    expand path (where the survivor enumeration + per-variant native run cannot run safely).
+    """
+    from nirs4all.pipeline.dagml_bridge import _is_bare_operator_choice
+
+    if "_cartesian_" in generator:
+        stages = generator["_cartesian_"]
+        if not isinstance(stages, list) or not stages:
+            return False
+        choice_lists = []
+        for stage in stages:
+            if not (isinstance(stage, dict) and set(stage) == {"_or_"} and isinstance(stage["_or_"], list) and stage["_or_"]):
+                return False
+            choice_lists.append(stage["_or_"])
+    else:
+        choices = generator["_or_"]
+        if not (isinstance(choices, list) and choices):
+            return False
+        choice_lists = [choices]
+
+    for choices in choice_lists:
+        for choice in choices:
+            if choice is None or not _is_bare_operator_choice(choice) or not _choice_is_native_routable(choice):
+                return False
+    return True
+
+
 def _is_separation_branch_step(step: Any) -> bool:
     """True for a separation branch by metadata/tag: ``{"branch": {"by_metadata"|"by_tag": ...}}``."""
     return isinstance(step, dict) and isinstance(step.get("branch"), dict) and bool({"by_metadata", "by_tag"} & set(step["branch"]))

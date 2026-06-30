@@ -221,6 +221,114 @@ def _operator_choice_dsl(choice: Any) -> dict[str, Any]:
     return {"class": _qualname(choice), "params": _json_safe_params(choice)}
 
 
+def constrained_operator_survivor_sequences(generator_node: dict[str, Any]) -> list[list[Any]]:
+    """The PRUNED survivor SEQUENCES of a constrained operator generator (ADR-17 1a + 1b-cartesian).
+
+    Expands the constrained ``_or_``-pick / ``_cartesian_`` node through nirs4all's own ``expand_spec`` —
+    the SAME constraint source of truth both engines use (and the engine-agnostic survivor lock in
+    ``test_generators_conformance_extra``) — and normalizes each variant to a LIST of operator instances
+    (a single-op variant becomes a one-element list). dag-ml's native operator-SELECT later compiles ONE
+    survivor branch per sequence and, applying pick + ``_mutex_``/``_requires_``/``_exclude_`` during its
+    own sequence-build (``prune_sequences_by_constraints``), produces the byte-identical pruned set, so the
+    per-variant ``variant_label`` fingerprints agree by content (see
+    :func:`operator_choice_variant_label`). The survivor ORDER follows ``expand_spec`` (legacy
+    ``OrStrategy``/``CartesianStrategy`` input order), which matches dag-ml's stable enumerate-retain order
+    — so the ``{variant_label → config_name}`` map (built in expand order) and dag-ml's reports align by
+    content, not position.
+    """
+    from nirs4all.pipeline.config.generator import expand_spec
+
+    sequences: list[list[Any]] = []
+    for variant in expand_spec(generator_node):
+        sequences.append(list(variant) if isinstance(variant, list) else [variant])
+    return sequences
+
+
+def lower_constrained_operator_pipeline(steps: list[Any], dsl_id: str = "nirs4all-pipeline") -> dict[str, Any]:
+    """Lower a CONSTRAINED operator-generator pipeline to a SURVIVOR-BRANCH canonical Generator DSL (ADR-17 1a + 1b).
+
+    ``steps`` is the splitter-free pipeline ``[<constrained generator>, …downstream…]`` (the predicate
+    :func:`~nirs4all.pipeline.dagml.detect._is_constrained_operator_generator` admits exactly one
+    constrained ``_or_``-pick / ``_cartesian_`` generator plus one concrete downstream model, optionally a
+    ``y_processing``). Each PRUNED survivor (:func:`constrained_operator_survivor_sequences`) becomes ONE
+    canonical OR-generator branch whose steps are the survivor's transforms FOLLOWED by the lowered
+    downstream steps (the concrete model / ``y_processing``) — so every choice terminates in a model, which
+    is what dag-ml's operator-variant compiler requires. dag-ml then scores each branch by CV-OOF, refits
+    the winner, and stamps each report with the multi-op ``variant_label`` fingerprint of
+    ``[<survivor transforms>, <downstream>]`` — the EXACT sub-sequence :func:`operator_choice_variant_label`
+    fingerprints host-side.
+
+    Why survivor-branches (not a single ``_or_``+constraints generator + a separate downstream model):
+    dag-ml's compat lowerer FUSES a data-generator with the following model into a constraint-free cartesian
+    (``combine_data_generator_with_following`` → ``generator_to_cartesian_stages`` drops the constraints AND
+    rejects ``pick``), and its native operator-variant compiler refuses a generator choice that produces no
+    model. So the model MUST live inside each choice's steps. Pre-expanding the (already constraint-correct)
+    survivor set into model-terminated branches is the lowering that compiles on the committed dag-ml while
+    keeping the pruning identical and the per-variant labels byte-identical to dag-ml's own. A non-bare /
+    ``None`` / non-routable choice is rejected upstream by the predicate; a survivor sequence still lowers
+    each transform via the strict bare-operator path so a stray non-JSON param fails loud (→ Python expand).
+    """
+    generator_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and _GENERATION_KEYWORDS & set(step)), None)
+    if generator_index is None:
+        raise NotImplementedError("dag-ml bridge: no operator generator step to lower as a constrained survivor-branch generator")
+    generator_node = steps[generator_index]
+    downstream = steps[generator_index + 1 :]
+    if not any(isinstance(step, dict) and "model" in step for step in downstream):
+        raise NotImplementedError("dag-ml bridge: a constrained operator generator must be followed by a concrete model step")
+
+    # The downstream tail (model, any y_processing) lowered ONCE — embedded verbatim in every survivor
+    # branch so each choice terminates in the model. Reuse _step_to_dsl (the same operator/param split the
+    # flat-single path uses); a generator-bearing downstream is impossible here (the predicate forbids a
+    # second generator).
+    downstream_dsl = [_step_to_dsl(step) for step in downstream]
+    downstream_steps = [_canonical_branch_step(dsl_step, f"down{down_index}") for down_index, dsl_step in enumerate(downstream_dsl)]
+
+    branches = []
+    for choice_index, sequence in enumerate(constrained_operator_survivor_sequences(generator_node)):
+        transform_steps = [
+            {"kind": "transform", "id": f"c{choice_index}_t{op_index}", "operator": {"class": _qualname(operator)}, "params": _json_safe_params(operator)}
+            for op_index, operator in enumerate(sequence)
+        ]
+        branch_id = f"variant{choice_index}"
+        branches.append({"id": branch_id, "steps": [*transform_steps, *_renumber_branch_steps(downstream_steps, choice_index)]})
+    if not branches:
+        raise NotImplementedError("dag-ml bridge: constrained operator generator pruned to zero survivors")
+
+    generator_dsl = {"kind": "generator", "id": "generator:preproc", "mode": "or", "branches": branches}
+    return {"id": dsl_id, "pipeline": [generator_dsl]}
+
+
+def _canonical_branch_step(dsl_step: dict[str, Any], step_id: str) -> dict[str, Any]:
+    """Convert a compat ``_step_to_dsl`` step (``{"model"|"y_processing"|"class": …}``) to a canonical branch step.
+
+    A survivor branch carries canonical tagged steps (``{"kind", "id", "operator", "params"}``), so a
+    ``{"model": FQN, "params": …}`` becomes ``{"kind": "model", "operator": FQN, "params": …}``, a
+    ``{"y_processing": {"class": …}}`` becomes a ``y_transform`` whose object operator carries its params,
+    and a bare ``{"class": FQN, "params": …}`` transform becomes a canonical ``transform`` — mirroring the
+    operator/params split dag-ml's compat lowerer itself applies, so the embedded downstream is byte-shape
+    identical to what a separate downstream step would lower to.
+    """
+    if "model" in dsl_step:
+        params = dict(dsl_step.get("params", {}))
+        if "generators" in dsl_step:
+            raise NotImplementedError("dag-ml bridge does not lower a param-generator model inside a constrained survivor branch")
+        return {"kind": "model", "id": step_id, "operator": dsl_step["model"], "params": params}
+    if "y_processing" in dsl_step:
+        return {"kind": "y_transform", "id": step_id, "operator": dsl_step["y_processing"], "params": {}}
+    return {"kind": "transform", "id": step_id, "operator": {"class": dsl_step["class"]}, "params": dict(dsl_step.get("params", {}))}
+
+
+def _renumber_branch_steps(steps: list[dict[str, Any]], choice_index: int) -> list[dict[str, Any]]:
+    """Clone the shared downstream branch steps with per-choice unique ``id``s.
+
+    dag-ml requires unique node ids INSIDE each expanded survivor sequence AND namespaces per choice, but
+    the SHARED downstream steps reuse one id template; prefix the id with the choice index so the
+    pre-namespacing ids stay distinct (the canonical fingerprint ignores ``id``, so this never perturbs the
+    ``variant_label``).
+    """
+    return [{**step, "id": f"c{choice_index}_{step['id']}"} for step in steps]
+
+
 def operator_choice_variant_label(choice: Any, downstream_steps: list[Any]) -> str:
     """The AUTHORITATIVE ``variant_label`` (hex sha256) for ONE bare-operator ``_or_`` choice + its tail.
 
@@ -252,11 +360,31 @@ def operator_choice_variant_label(choice: Any, downstream_steps: list[Any]) -> s
     label — a non-JSON / non-finite param OR the PyO3 helper raising — is converted to
     :class:`DagMlUnsupported` so the inner Python-expand fallback fires instead of crashing.
     """
+    return operator_sequence_variant_label([choice], downstream_steps)
+
+
+def operator_sequence_variant_label(operators: list[Any], downstream_steps: list[Any]) -> str:
+    """The AUTHORITATIVE ``variant_label`` (hex sha256) for a MULTI-OPERATOR survivor sequence + its tail.
+
+    The constrained-generator generalization of :func:`operator_choice_variant_label`: a constrained
+    ``_or_``-pick / ``_cartesian_`` survivor is a SEQUENCE of operators (``[SNV, Detrend]``), not a single
+    choice. dag-ml lowers each survivor branch to ``[<transform op0>, …, <transform opN>] + downstream`` and
+    fingerprints THAT whole sub-sequence (``operator_variant_label(choice.steps)``), so the host builds the
+    SAME ``steps_json`` = ``[<each transform>, <lowered downstream>]`` and fingerprints it via the SAME Rust
+    canonicalization (``dag_ml.canonical_operator_variant_label``) — byte-identical to the report label by
+    construction. Each operator's params are STRICTLY sanitized (:func:`_canonical_label_params`,
+    NaN/Inf/non-JSON/non-str-key REJECTED → :class:`DagMlUnsupported` → the inner Python-expand fallback);
+    the downstream tail is lowered from its RAW form (:func:`_label_step_from_raw`). A single-element
+    ``operators`` reproduces the flat-single label exactly.
+    """
     import importlib
     import json
 
-    choice_step = {"kind": "transform", "id": "operator_choice", "operator": {"class": _qualname(choice)}, "params": _canonical_label_params(choice)}
-    steps = [choice_step, *(_label_step_from_raw(step, index) for index, step in enumerate(downstream_steps))]
+    transform_steps = [
+        {"kind": "transform", "id": f"operator_choice{index}", "operator": {"class": _qualname(operator)}, "params": _canonical_label_params(operator)}
+        for index, operator in enumerate(operators)
+    ]
+    steps = [*transform_steps, *(_label_step_from_raw(step, index) for index, step in enumerate(downstream_steps))]
     try:
         # allow_nan=False is belt-and-braces: _strict_json_safe already rejected non-finite numbers, so a NaN
         # never reaches here; this guarantees the host never silently emits `NaN` text the helper would reject.
