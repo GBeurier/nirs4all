@@ -32,12 +32,22 @@ Slow: each case runs twice (legacy + dag-ml). Gated by the ``slow`` marker.
 
 from __future__ import annotations
 
+from typing import TypedDict
+
 import pytest
 
 from . import _conformance_helpers as H
 from ._registry import PipelineCase, all_cases
 
 pytestmark = [pytest.mark.parity, pytest.mark.slow]
+
+
+class _NumPredDivergence(TypedDict):
+    """The pinned EXACT num_predictions counts (+ cause) for an intentional native-vs-legacy divergence."""
+
+    legacy: int
+    dagml: int
+    reason: str
 
 
 # ---------------------------------------------------------------------------
@@ -57,7 +67,10 @@ pytestmark = [pytest.mark.parity, pytest.mark.slow]
 #   concat_transform_pca_svd_plsr             14.13327 vs 15.53153  (Δ≈1.4e0)
 #   generator_finetune_params_optuna          19.46609 vs 21.12623  (Δ≈1.7e0)
 #   generator_sample_log_uniform_alpha        13.26828 vs 13.79983  (Δ≈5.3e-1, DIFFERENT winner)
-#   generator_or_models_pls_ridge             num_predictions 34 vs 32 (loser refit rows; scores/winner equal)
+# (generator_or_models_pls_ridge was here too — it is NOT a divergence in score/winner/winner-y_pred
+#  (all equal: best_rmse Δ≈2e-15, winner PLSRegression, winner y_pred Δ=0.0); its ONLY delta is
+#  num_predictions 34-legacy vs 32-native, an INTENTIONAL native-vs-legacy refit-policy divergence —
+#  moved to NUM_PREDICTIONS_DIVERGENCE and asserted as a parity-note, not strict-xfailed. See ADR-17 1c.)
 # (baseline_savgol_rf_kfold, baseline_detrend_firstderiv_gbr, generator_log_range_alpha were
 #  here too — the dtype-pin + refit-row-order fix converged them to Δ=0.0 / Δ≈1.3e-7; entries
 #  removed from KNOWN_DIVERGENCES, see the notes there.)
@@ -120,24 +133,56 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     # the projection, so the refit's already-aggregated `(test, None)` sample block fills the final-(test)
     # row (12 vs 12 preds, max |Δy_pred| ≈ 3.6e-5). Their entries were removed from KNOWN_DIVERGENCES — they
     # are LIVE parity assertions now.
-    # Multi-model `{model: {_or_: [PLSR, Ridge]}}` selection over DISTINCT model classes: the engines
-    # agree on the winner (PLSRegression), best_score, best_rmse, and the winner's per-sample y_pred, but
-    # num_predictions DIVERGES — legacy refits EVERY model variant and stores a (model, *, final) row per
-    # model (34 entries), while dag-ml refits ONLY the selected winner (32 entries). The 2-entry gap is
-    # purely the LOSER's (Ridge) stored `(test, final)` + `(train, final)` refit rows. The y_pred assertion
-    # also fails as a downstream symptom: _final_test_pred_by_sample iterates ALL (test, final) rows, so on
-    # legacy the loser Ridge's final row overwrites the winner's (Δ≈1.98e1 — PLS vs Ridge predictions), while
-    # dag-ml's map holds only the winner. A structural num_predictions divergence (legacy refits losers;
-    # dag-ml refits the winner only), NOT float noise. Honest strict-xfail until the engines agree on which
-    # variants get a refit row.
-    "generator_or_models_pls_ridge": "multi-model `_or_` num_predictions diverges — legacy refits every "
-    "model (loser final rows: 34) vs dag-ml refits the winner only (32); winner/best_score/winner-y_pred match",
+    # NOTE: generator_or_models_pls_ridge was REMOVED from this dict (ADR-17 item 1c). It is NOT a
+    # strict-xfail anymore — it is a documented INTENTIONAL num_predictions divergence (see
+    # NUM_PREDICTIONS_DIVERGENCE below). The engines agree on the winner (PLSRegression), best_score,
+    # best_rmse, and the WINNER's per-sample y_pred (Δ=0.0); ONLY num_predictions diverges — legacy refits
+    # EVERY model and stores a loser (Ridge) `(test, final)` + `(train, final)` row (34), while dag-ml refits
+    # the WINNER ONLY (32, the correct operator-SELECT semantic). dag-ml is RIGHT, so this is a permanent
+    # native-vs-legacy delta, not a fixable bug — asserted as a parity-note (winner/score/winner-y_pred), with
+    # num_predictions exempted, rather than a strict-xfail that would wrongly chase the legacy refit-all count.
     # NOTE: generator_or_count_seed / generator_or_weights_count_seed are NOT here — they are registry
     # SKIPs (skip_kind="unknown_semantics"), not strict-xfails. Measured across 3 fresh processes, the `_or_`
     # count/`_weights_` subsample is NONDETERMINISTIC even with `_seed_` (varies run-to-run within ONE engine —
     # `_seed_` is not threaded into OrStrategy's sample_with_seed), so a strict-xfail would FLIP to XPASS
     # whenever the two unseeded draws coincide. A skip-with-evidence makes NO parity claim (not a force-pass);
     # the deterministic `_cartesian_` count path (generator_cartesian_count_seed) IS a live GREEN parity case.
+}
+
+
+# ---------------------------------------------------------------------------
+# INTENTIONAL native-vs-legacy num_predictions divergences (ADR-17 item 1c).
+#
+# A case here runs NATIVE on dag-ml and AGREES with legacy on everything that is a
+# correctness claim — the SELECTED winner (config_name), best_score/best_rmse/best_r2,
+# the selected-metric name, the top-n model set, AND the WINNER's per-sample y_pred —
+# but emits a DIFFERENT num_predictions BY DESIGN, because dag-ml's operator-SELECT
+# refits the WINNER ONLY (the correct SELECT semantic) while the legacy engine refits
+# EVERY model variant and stores the losers' final rows too. This is NOT a bug to be
+# fixed (dag-ml is right) and NOT a strict-xfail (a strict-xfail would assert the WRONG
+# thing — that the engines should converge on the legacy refit-all count — and would
+# XPASS-flip the moment a fix accidentally chased the 34). Instead the case is a
+# documented PARITY-NOTE: the conformance body asserts winner identity + FULL metric /
+# RunResult-contract parity + WINNER-scoped y_pred parity, and pins the num_predictions
+# to the EXACT documented `legacy`/`dagml` counts (NOT merely "exempt", which would let
+# an unrelated 31/32 or 34/40 drift pass) — only the one measured +2 loser-final-row
+# delta is allowed; any other count FAILS.
+#
+# generator_or_models_pls_ridge: `{"model": {"_or_": [PLSRegression(10), Ridge(1.0)]}}`
+#   over distinct model classes. Both engines select PLSRegression (config_53e81da4_refit),
+#   best_rmse 13.286431643519423 vs …425 (Δ≈1.8e-15), winner per-sample y_pred Δ=0.0. The
+#   ONLY delta: legacy num_predictions 34 (winner PLS final + loser Ridge final rows) vs
+#   dag-ml 32 (winner PLS final only). The 2-entry gap is exactly the one loser Ridge's
+#   stored `(test, final)` + `(train, final)` refit rows — losers dag-ml never refits.
+#
+# Shape: {case_name: {"legacy": <int>, "dagml": <int>, "reason": <str>}}.
+NUM_PREDICTIONS_DIVERGENCE: dict[str, _NumPredDivergence] = {
+    "generator_or_models_pls_ridge": {
+        "legacy": 34,
+        "dagml": 32,
+        "reason": "multi-model `_or_` operator-SELECT refits the WINNER only (32) — legacy refits every "
+        "loser model and stores its (train,final)+(test,final) rows (34); winner/best_score/winner-y_pred all match",
+    },
 }
 
 
@@ -250,6 +295,9 @@ def _params() -> list:
     * ``legacy_bug`` registry cases → ``xfail(strict=True)`` (no legacy oracle).
     * ``fixture`` / ``unknown_semantics`` registry cases → ``skip``.
     * ``KNOWN_DIVERGENCES`` cases → ``xfail(strict=True)`` with the measured cause.
+    * ``NUM_PREDICTIONS_DIVERGENCE`` cases get NO mark — they PASS as a documented
+      parity-note (winner + metric + winner-y_pred parity, num_predictions exempt);
+      the conformance body branches on the allowlist (ADR-17 1c).
     """
     params = []
     for case in all_cases():
@@ -333,6 +381,24 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
         # FALLBACK: parity is N/A (legacy-vs-legacy). The boundary (allowlist
         # membership) is enforced by test_native_fallback_boundary, NEVER here —
         # so this test's strict-xfail marker cannot mask a boundary regression.
+        return
+
+    if case.name in NUM_PREDICTIONS_DIVERGENCE:
+        # INTENTIONAL native-vs-legacy num_predictions divergence (ADR-17 1c): dag-ml's
+        # operator-SELECT refits the WINNER ONLY (the correct SELECT semantic) while legacy
+        # refits every loser too. Assert the FULL correctness surface — SAME winner, METRIC +
+        # structure parity, the whole RunResult contract (best_score / best_rmse / best_r2 /
+        # the selected-metric name / the top-n model set), and the WINNER's per-sample y_pred —
+        # and pin num_predictions to the EXACT documented legacy/dag-ml counts (NOT merely
+        # exempt): only the one measured +2 loser-final-row delta passes, any other count is a
+        # regression and FAILS. A PASSING parity-note, NOT a strict-xfail, so it never
+        # XPASS-flips on a spurious convergence to the wrong (34) count.
+        expected = NUM_PREDICTIONS_DIVERGENCE[case.name]
+        H.assert_same_winner(legacy, dagml, case)
+        H.assert_num_predictions_divergence(legacy, dagml, case, expected["legacy"], expected["dagml"])
+        H.assert_score_parity_metrics_only(legacy, dagml, case)
+        H.assert_runresult_contract(legacy, dagml, case, num_predictions_exempt=True)
+        H.assert_winner_y_pred_parity(legacy, dagml, case)
         return
 
     # NATIVE: the real both-engines-agree contract. For a KNOWN_DIVERGENCES case
