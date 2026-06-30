@@ -2,7 +2,7 @@
 
 This is the single contract reference both nirs4all engines must meet: the same
 ``PipelineCase`` is run on the legacy orchestrator (``engine="legacy"``) and on
-the dag-ml backend (the default ``engine=None`` → ``dag-ml``), and the two
+the dag-ml backend (``engine="dag-ml"``, selected EXPLICITLY), and the two
 ``RunResult`` objects are asserted EQUAL within the case's recorded tolerances.
 
 Prior parity tests captured a legacy gold baseline (``_oracle``) or ran the
@@ -12,7 +12,7 @@ engines and asserted equality — these helpers fill that gap and the
 
 LOAD-BEARING fallback detection
 -------------------------------
-``run(engine="dag-ml")`` is the production default but transparently re-runs on
+``run(engine="dag-ml")`` transparently re-runs on
 the LEGACY engine for any pipeline shape the dag-ml path cannot honor yet (the
 P1b/P0 reject→fallback), emitting a ``"falling back to the legacy engine"``
 warning (:mod:`nirs4all.api.run`). A fallback run is legacy-under-the-hood, so
