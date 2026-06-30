@@ -294,6 +294,60 @@ class DatasetConfigs:
         configs._repetitions = [None] * n
         return configs
 
+    @classmethod
+    def from_io(
+        cls,
+        inp: Any,
+        *,
+        conventions: list[str] | None = None,
+        base_dir: str | None = None,
+        name: str | None = None,
+    ) -> "DatasetConfigs":
+        """Opt-in: assemble the input via ``nirs4all-io`` (ADR-17 D-io).
+
+        This is an **additive, opt-in** alternative to the default ``__init__``
+        loader path. It hands dataset assembly to the ``nirs4all-io`` bridge
+        (``nio.load``), which resolves/infers/configures/materializes the input
+        into a ``SpectroDataset`` — the same type the default loader produces.
+        nirs4all does not re-implement IO/parsing here; assembly is owned by
+        ``nirs4all-io`` (which delegates vendor reads to ``nirs4all-formats``).
+
+        The materialized ``SpectroDataset`` is wrapped through the existing
+        preloaded path (``from_spectrodatasets``), so it drops into the rest of
+        the pipeline unchanged.
+
+        Args:
+            inp: Any input ``nio.load`` accepts — a directory, file list/glob,
+                config dict/JSON/YAML, ``DatasetSpec``/``DatasetPlan``, or
+                in-memory arrays.
+            conventions: Optional convention-profile names forwarded to
+                ``nio.load`` (e.g. ``["nirs4all-classic"]``).
+            base_dir: Optional base directory for relative inputs.
+            name: Optional dataset name override.
+
+        Returns:
+            A ``DatasetConfigs`` wrapping the io-materialized ``SpectroDataset``.
+
+        Raises:
+            ImportError: If ``nirs4all-io`` is not installed.
+        """
+        try:
+            import nirs4all_io as nio
+        except ImportError as e:
+            raise ImportError(
+                "DatasetConfigs.from_io requires the optional 'nirs4all-io' package; "
+                "install it from the sibling repository (pip install -e ../nirs4all-io)."
+            ) from e
+
+        dataset: SpectroDataset = nio.load(
+            inp,
+            target="spectrodataset",
+            conventions=conventions,
+            base_dir=base_dir,
+            name=name,
+        )
+        return cls.from_spectrodatasets([dataset])
+
     def iter_datasets(self):
         for idx, (config, name) in enumerate(self.configs):
             dataset = self._get_dataset_with_types(
