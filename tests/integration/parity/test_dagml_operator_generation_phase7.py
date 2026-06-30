@@ -293,6 +293,196 @@ def test_constrained_predicate_admits_concrete_prefix() -> None:
     assert _is_constrained_operator_generator(pipeline) is True
 
 
+@pytest.mark.parametrize(
+    "modifier",
+    [
+        {"count": 3},  # MUST-FIX 1: legacy SAMPLES post-prune; dag-ml `count` TRUNCATES (a different set)
+        {"_seed_": 42},  # seeded subsample — no native analogue
+        {"_weights_": [1, 1, 1, 1]},  # weighted random selection — no native analogue
+    ],
+)
+def test_constrained_predicate_demotes_sampling_modifier(modifier: dict[str, Any]) -> None:
+    """A constrained generator carrying a SAMPLING modifier (`count`/`_seed_`/`_weights_`) DEMOTES (MUST-FIX 1).
+
+    Legacy `expand_spec` samples the post-prune survivors; dag-ml's native `count` truncates a different set
+    (and rejects `count == 0`, where legacy means "no limit"). So a sampling modifier must keep the generator
+    on the Python expand path — `_is_constrained_operator_generator` returns False.
+    """
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    node = {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2, "_mutex_": [[SNV, MSC]], **modifier}
+    pipeline = [node, KFold(n_splits=3), {"model": PLSRegression(n_components=5)}]
+    assert _is_constrained_operator_generator(pipeline) is False
+
+
+def test_constrained_predicate_demotes_duplicate_options() -> None:
+    """A constrained generator with two EQUAL operator options DEMOTES to Python-expand (MUST-FIX 2).
+
+    Legacy constraint matching builds a normalized SET from the selected items, so a duplicate option
+    satisfies the SAME ref; the native per-branch member rule would only prune the first. Demote so the
+    survivor set never silently diverges.
+    """
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    node = {"_or_": [SNV, SNV, MSC], "pick": 2, "_mutex_": [[SNV, MSC]]}
+    pipeline = [node, KFold(n_splits=3), {"model": PLSRegression(n_components=5)}]
+    assert _is_constrained_operator_generator(pipeline) is False
+
+
+def test_constrained_predicate_demotes_non_pair_exclude() -> None:
+    """A NON-pair `_exclude_` (>2 operators, an exact N-combo) DEMOTES — dag-ml `exclude` is a pair only (MUST-FIX 3).
+
+    A 2-operator `_exclude_` lowers 1:1 to dag-ml's `[String; 2]` pair and stays native; a >2 exclude (the
+    legacy exact-combo exclusion) has no native pair form, so it routes Python-expand.
+    """
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    non_pair = {"_or_": [SNV, MSC, Detrend], "pick": 3, "_exclude_": [[SNV, MSC, Detrend]]}
+    pair = {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2, "_exclude_": [[SNV, Detrend]]}
+    model = {"model": PLSRegression(n_components=5)}
+    assert _is_constrained_operator_generator([non_pair, KFold(n_splits=3), model]) is False
+    assert _is_constrained_operator_generator([pair, KFold(n_splits=3), model]) is True
+
+
+def test_constrained_predicate_admits_multi_requires() -> None:
+    """A multi-`_requires_` (>2) stays NATIVE — the host splits it into the `[first, each-subsequent]` pairs (MUST-FIX 3).
+
+    `_requires_=[[A, B, C]]` is "A requires B AND A requires C"; the host lowers it to the two pairs dag-ml's
+    `[String; 2]` `requires` accepts, so it routes native (no demote needed).
+    """
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    node = {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 3, "_requires_": [[SNV, MSC, Detrend]]}
+    pipeline = [node, KFold(n_splits=3), {"model": PLSRegression(n_components=5)}]
+    assert _is_constrained_operator_generator(pipeline) is True
+
+
+def test_constrained_predicate_demotes_cross_stage_duplicate_option() -> None:
+    """An operator identity in DIFFERENT `_cartesian_` stages DEMOTES (MUST-FIX 5).
+
+    The bridge resolves a constraint ref through ONE global identity map to the FIRST branch of that identity,
+    but legacy set-membership should match the ref from ANY stage carrying it. So `_cartesian_
+    [[SNV,MSC],[SNV,Detrend]]` with `_requires_[[SNV,Detrend]]` (SNV in BOTH stages) mis-resolves natively
+    (SNV pinned to stage 0) and must route Python-expand. A `_cartesian_` with NO cross-stage duplicate (the
+    `cartesian_exclude` oracle shape) stays native.
+    """
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    model = {"model": PLSRegression(n_components=5)}
+    cross_stage_dup = {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [SNV, Detrend]}], "_requires_": [[SNV, Detrend]]}
+    no_dup = {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "_exclude_": [[SNV, Detrend]]}
+    assert _is_constrained_operator_generator([cross_stage_dup, KFold(n_splits=3), model]) is False
+    assert _is_constrained_operator_generator([no_dup, KFold(n_splits=3), model]) is True
+
+
+def test_constrained_predicate_demotes_pair_exclude_when_survivor_cardinality_not_two() -> None:
+    """A pair `_exclude_` DEMOTES when the survivor cardinality is not exactly 2 (MUST-FIX 6).
+
+    Legacy `_exclude_` is EXACT-COMBO (drops a survivor only when its full set EQUALS the pair) while dag-ml
+    native `exclude` is SUBSET (drops ANY survivor where both co-occur). They agree ONLY at survivor
+    cardinality 2: `_or_` pick=2 / a 2-stage `_cartesian_` stay native; `_or_` pick=3 or a 3-stage
+    `_cartesian_` (where legacy keeps the >2-combos containing both, but native would prune them) DEMOTE.
+    """
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    model = {"model": PLSRegression(n_components=5)}
+    pick3_pair_exclude = {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 3, "_exclude_": [[SNV, Detrend]]}
+    pick2_pair_exclude = {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2, "_exclude_": [[SNV, Detrend]]}
+    three_stage_pair_exclude = {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}, {"_or_": [SNV, MSC]}], "_exclude_": [[SNV, Detrend]]}
+    assert _is_constrained_operator_generator([pick3_pair_exclude, KFold(n_splits=3), model]) is False
+    assert _is_constrained_operator_generator([pick2_pair_exclude, KFold(n_splits=3), model]) is True
+    # (the 3-stage cartesian ALSO has a cross-stage SNV/MSC duplicate, so it demotes on both MUST-FIX 5 and 6 —
+    # either guard is sufficient; the point is it does NOT route native.)
+    assert _is_constrained_operator_generator([three_stage_pair_exclude, KFold(n_splits=3), model]) is False
+
+
+@pytest.mark.parametrize(
+    "node",
+    [
+        # EDGE A — bare constrained `_or_` (no pick/arrange): legacy `_expand_basic` makes single-op (non-list)
+        # variants and `_apply_constraints` SKIPS them (`not isinstance(results[0], list)`), so the constraint
+        # is IGNORED legacy-side; native applies it. DEMOTE.
+        {"_or_": [SNV, MSC, Detrend], "_requires_": [[SNV, MSC]]},
+        {"_or_": [SNV, MSC, Detrend], "_mutex_": [[SNV, MSC]]},
+        # EDGE B — degenerate / empty / dangling / repeated-ref constraint groups: legacy normalizes to sets and
+        # no-ops a single-ref / self-pair / empty / repeated-ref group (or never matches a dangling ref), native
+        # REJECTS (mutex <2 distinct OR a REPEATED ref, a repeated requires/exclude pair) or CRASHES the bridge
+        # (empty requires). DEMOTE.
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "_mutex_": [[SNV]]},
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "_mutex_": [[SNV, SNV]]},
+        {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 3, "_mutex_": [[SNV, MSC, MSC]]},  # 2 distinct but a REPEATED ref → native rejects ("mutex group repeats an operator")
+        {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "_mutex_": [[SNV, Detrend, Detrend]]},  # repeated ref on a _cartesian_
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "_requires_": [[SNV, SNV]]},
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "_exclude_": [[SNV, SNV]]},
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "_requires_": [[]]},
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "_mutex_": [[SNV, FirstDerivative]]},  # FirstDerivative not an option
+        # EDGE C — zero / oversize / range / second-order selection: legacy skips oversize (`s > n: continue`)
+        # and no-ops zero (`s == 0: append([])`), and `then_*` is a different survivor structure; native
+        # rejects zero / oversize, and the multi-op-sequence shape does not model `then_*`. DEMOTE.
+        {"_or_": [SNV, MSC, Detrend], "pick": 0, "_mutex_": [[SNV, MSC]]},
+        {"_or_": [SNV, MSC, Detrend], "pick": 5, "_mutex_": [[SNV, MSC]]},
+        {"_or_": [SNV, MSC, Detrend], "pick": (1, 2), "_mutex_": [[SNV, MSC]]},
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "then_pick": 1, "_mutex_": [[SNV, MSC]]},
+    ],
+)
+def test_constrained_predicate_fail_closed_demotes_divergent_shape(node: dict[str, Any]) -> None:
+    """The fail-closed predicate DEMOTES every admit-then-diverge shape (EDGE A/B/C) to the Python expand path.
+
+    Each of these is a valid legacy shape where legacy is LENIENT (skips constraints on single-op variants,
+    no-ops degenerate groups, skips oversize / zero selections, second-order selection) but dag-ml native is
+    STRICT — so the predicate must NOT route it native. (The result is still correct via Python-expand on the
+    dag-ml engine; correctness for a representative deterministic edge is checked separately.)
+    """
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    assert _is_constrained_operator_generator([node, KFold(n_splits=3), {"model": PLSRegression(n_components=5)}]) is False
+
+
+@pytest.mark.slow
+def test_constrained_bare_or_edge_a_demotes_and_matches_legacy() -> None:
+    """EDGE A end-to-end: a bare constrained `_or_` (legacy IGNORES the constraint) DEMOTES and matches legacy.
+
+    `{"_or_": [SNV, MSC, Detrend], "_requires_": [[SNV, MSC]]}` — legacy keeps ALL THREE single-op variants
+    (constraints skipped on non-list results); a naive native apply would prune SNV-without-MSC. The predicate
+    demotes it, so the dag-ml engine runs the (correct, all-3) Python-expand and matches the legacy engine.
+    """
+    from sklearn.model_selection import ShuffleSplit
+
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    node = {"_or_": [SNV, MSC, Detrend], "_requires_": [[SNV, MSC]]}
+    model = {"model": PLSRegression(n_components=5)}
+    assert _is_constrained_operator_generator([node, model]) is False
+    pipe = [node, ShuffleSplit(n_splits=3, random_state=42), model]
+    legacy = nirs4all.run(pipeline=pipe, dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(pipe)
+    assert native is True, "the dag-ml engine runs the demoted bare-_or_ via Python-expand (no legacy fallback)"
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
+
+
+@pytest.mark.slow
+def test_constrained_mutex_repeated_ref_demotes_and_matches_legacy() -> None:
+    """A `_mutex_` group with a REPEATED ref DEMOTES and runs correctly (no DagMlValidationError leak).
+
+    `{"_or_": [...], "pick": 3, "_mutex_": [[SNV, MSC, MSC]]}` has 2 DISTINCT refs but a repeated one — legacy
+    normalizes the group to the set `{SNV, MSC}` (a valid pair mutex), but dag-ml native REJECTS the
+    repeated-ref group ("mutex group repeats an operator"). The fail-closed predicate demotes it, so the
+    dag-ml engine runs the (correct) Python-expand and matches the legacy engine — instead of a compile crash.
+    """
+    from sklearn.model_selection import ShuffleSplit
+
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    node = {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 3, "_mutex_": [[SNV, MSC, MSC]]}
+    model = {"model": PLSRegression(n_components=5)}
+    assert _is_constrained_operator_generator([node, model]) is False
+    pipe = [node, ShuffleSplit(n_splits=3, random_state=42), model]
+    legacy = nirs4all.run(pipeline=pipe, dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(pipe)
+    assert native is True, "the dag-ml engine runs the demoted repeated-ref mutex via Python-expand (no crash, no legacy fallback)"
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
+
+
 @pytest.mark.slow
 def test_constrained_prefix_runs_native_and_applies_prefix() -> None:
     """A PREFIXED constrained generator runs NATIVE and APPLIES the prefix (no silent drop).
@@ -324,6 +514,69 @@ def test_constrained_prefix_runs_native_and_applies_prefix() -> None:
     # And the prefix is load-bearing: dropping it changes the score, so a silent drop would NOT have matched.
     no_prefix = nirs4all.run(pipeline=prefix_free(), dataset=_dataset(), verbose=0, engine="legacy")
     assert dagml.best_score != pytest.approx(no_prefix.best_score, abs=1e-6)
+
+
+@pytest.mark.slow
+def test_constrained_count_demotes_to_python_expand_and_runs() -> None:
+    """A `count`-bearing constrained generator DEMOTES off the constrained-native path but still RUNS on dag-ml (MUST-FIX 1).
+
+    `count` would make dag-ml's native operator-SELECT generator TRUNCATE the survivor list, whereas legacy
+    `expand_spec` takes a SEEDED post-prune SAMPLE — a different (and, unseeded, non-deterministic) subset. So
+    the constrained predicate keeps a `count`-bearing generator OFF the constrained-native path; the dag-ml
+    engine still runs it via the Python-expand path (NOT a legacy fallback), proving the demote is a routing
+    guard, not a feature loss. (A cross-engine SCORE comparison is intentionally NOT made: the count sample is
+    randomized, so two independent runs legitimately pick different survivor subsets — that randomness is the
+    very reason this case is demoted.)
+    """
+    from sklearn.model_selection import ShuffleSplit
+
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    # `_or_` over 4 ops, pick 2, `_mutex_[[SNV,MSC]]` -> 5 survivors, then `count` 3 (a post-prune sample) — the
+    # MUST-FIX 1 demote case.
+    node = {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2, "_mutex_": [[SNV, MSC]], "count": 3}
+    model = {"model": PLSRegression(n_components=5)}
+    # The constrained-NATIVE operator-SELECT path is NOT taken (count would diverge the native survivor set).
+    assert _is_constrained_operator_generator([node, model]) is False, "count must keep the generator off the constrained-native path"
+
+    dagml, native = _run_dagml([node, ShuffleSplit(n_splits=3, random_state=42), model])
+    # The dag-ml engine still runs it (Python-expand, NOT a legacy fallback) and yields a finite score.
+    assert native is True, "the dag-ml engine runs the demoted generator via Python-expand (no legacy fallback)"
+    assert math.isfinite(dagml.best_score)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "node",
+    [
+        # MUST-FIX 6: `_or_` pick=3 + pair `_exclude_` — legacy keeps the 3-combos containing both (exact-2-combo
+        # never equals a 3-combo); native subset would wrongly prune them. DEMOTE -> Python-expand must match legacy.
+        {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 3, "_exclude_": [[SNV, Detrend]]},
+        # MUST-FIX 5: cross-stage duplicate operator identity (SNV in both stages) with a `_requires_` ref to it.
+        {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [SNV, Detrend]}], "_requires_": [[SNV, Detrend]]},
+    ],
+)
+def test_constrained_divergent_edge_demotes_and_matches_legacy(node: dict[str, Any]) -> None:
+    """The MUST-FIX 5 / 6 divergent edges DEMOTE to Python-expand and match the legacy engine (deterministic, no sampling).
+
+    Unlike the count case (a randomized sample), these survivor sets are DETERMINISTIC, so the demoted
+    Python-expand run on the dag-ml engine must reproduce the legacy engine's best score exactly — proving the
+    demote routes off the (divergent) constrained-native path WITHOUT losing correctness.
+    """
+    from sklearn.model_selection import ShuffleSplit
+
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    model = {"model": PLSRegression(n_components=5)}
+    # Routes OFF the constrained-native path (the divergent edge is demoted).
+    assert _is_constrained_operator_generator([node, model]) is False
+
+    pipe = [node, ShuffleSplit(n_splits=3, random_state=42), model]
+    legacy = nirs4all.run(pipeline=pipe, dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(pipe)
+    # Python-expand on dag-ml (no legacy fallback) reproduces the legacy best score exactly.
+    assert native is True, "the dag-ml engine runs the demoted generator via Python-expand (no legacy fallback)"
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
 # --------------------------------------------------------------------------- #

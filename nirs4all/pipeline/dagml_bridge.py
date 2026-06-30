@@ -336,33 +336,164 @@ def constrained_operator_survivor_sequences(generator_node: dict[str, Any]) -> l
     return sequences
 
 
+def _operator_option_step(operator: Any, option_id: str) -> dict[str, Any]:
+    """One operator option lowered to a canonical single-transform branch (``{"id", "steps":[transform]}``).
+
+    Each ``_or_`` choice (or ``_cartesian_`` stage option) becomes ONE generator branch carrying ONE
+    transform step. The branch ``id`` is the operator-content identity (``option_id``) the constraint refs
+    resolve against — dag-ml's prune keys its member set + refs on ``sanitize_generation_label(branch.id)``,
+    so equal-identity operators share a branch id and a ``_mutex_``/``_requires_``/``_exclude_`` ref lands on
+    the SAME id. The transform itself carries the real ``{"class": FQN, "params": …}`` (a stray non-JSON
+    param fails loud via :func:`_json_safe_params` → Python expand), so the per-survivor ``variant_label``
+    (computed by dag-ml over operator CONTENT, NOT the branch id) is byte-identical to the host map.
+    """
+    return {"id": option_id, "steps": [{"kind": "transform", "id": f"t:{option_id}", "operator": {"class": _qualname(operator)}, "params": _json_safe_params(operator)}]}
+
+
+def _resolve_constraint_ref(operator: Any, identity: dict[Any, str]) -> str:
+    """Resolve a constraint-ref operator to its option branch id (nirs4all ``_normalize_item`` identity).
+
+    A ref that names no option is a malformed constraint — nirs4all's own ``validate_constraints`` rejects
+    it, so demote to the Python expand path rather than emit a dangling ref dag-ml would also reject.
+    """
+    branch_id = identity.get(_normalize_item_key(operator))
+    if branch_id is None:
+        raise NotImplementedError(f"dag-ml bridge: constraint references operator {operator!r} that is not one of the generator options")
+    return branch_id
+
+
+def _lower_generator_constraints(node: dict[str, Any], identity: dict[Any, str]) -> dict[str, Any]:
+    """Lower the nirs4all ``_mutex_``/``_requires_``/``_exclude_`` refs to dag-ml ``constraints`` over branch ids.
+
+    Keys are passed through unchanged (dag-ml's ``PipelineDslGeneratorConstraints`` reads ``_mutex_`` /
+    ``_requires_`` / ``_exclude_`` via serde aliases); only the operator REFS are rewritten to the option
+    branch ids assigned in :func:`_native_constrained_generator`, so the dag-ml prune matches the same
+    survivor set ``expand_spec`` produces.
+    """
+    constraints: dict[str, Any] = {}
+    # `_mutex_` is any-cardinality `issubset` natively (dag-ml `Vec<Vec<String>>`), so each group passes
+    # through unchanged.
+    if node.get("_mutex_"):
+        constraints["_mutex_"] = [[_resolve_constraint_ref(op, identity) for op in group] for group in node["_mutex_"]]
+    # A multi-`_requires_` `[A, B, C, …]` is legacy "first requires ALL subsequent" (constraints.py
+    # `_satisfies_requires`), but dag-ml's native `requires` is a `[trigger, required]` PAIR only — so SPLIT it
+    # into one pair per subsequent operator (`[A, B], [A, C], …`), which is the EXACT same logical constraint
+    # (each pair independently demands the required operator when the trigger is present). A plain 2-`_requires_`
+    # yields a single pair, byte-identical to before (MUST-FIX 3).
+    if node.get("_requires_"):
+        requires_pairs = []
+        for group in node["_requires_"]:
+            trigger = _resolve_constraint_ref(group[0], identity)
+            for required in group[1:]:
+                requires_pairs.append([trigger, _resolve_constraint_ref(required, identity)])
+        constraints["_requires_"] = requires_pairs
+    # `_exclude_` is a native `[String; 2]` PAIR with SUBSET semantics; the predicate
+    # (`_constrained_exclude_diverges`) demotes upstream unless every group is a 2-operator pair AND the
+    # survivor cardinality is exactly 2 (so native subset == legacy exact-combo), so every group reaching here
+    # is a 2-operator pair the dag-ml prune matches byte-identically.
+    if node.get("_exclude_"):
+        constraints["_exclude_"] = [[_resolve_constraint_ref(op, identity) for op in pair] for pair in node["_exclude_"]]
+    return constraints
+
+
+# Selection modifiers a constrained `_or_` / `_cartesian_` carries verbatim onto the canonical generator (the
+# SAME keys dag-ml's `PipelineDslGeneratorStep` reads). nirs4all `pick`/`arrange` use the identical `int` /
+# `[lo, hi]` selection-size form dag-ml's `PipelineDslSelectionSpec` accepts, so they pass through. `count`
+# is DELIBERATELY excluded: legacy SAMPLES post-prune survivors while dag-ml's `count` TRUNCATES (a different
+# set), so a `count`-bearing constrained generator is demoted to Python-expand by the predicate and never
+# reaches here (MUST-FIX 1).
+_SELECTION_PASSTHROUGH_KEYS = ("pick", "arrange", "then_pick", "then_arrange")
+
+
+def _native_constrained_generator(generator_node: dict[str, Any], tail: list[dict[str, Any]]) -> dict[str, Any]:
+    """Build the ONE native canonical Generator step for a constrained ``_or_``-pick / ``_cartesian_`` (ADR-17 item 5 B).
+
+    Emits a single ``{"kind": "generator", …}`` step that carries the operator-content options as branches
+    (``_or_``) or stages (``_cartesian_``), the ``pick``/``arrange``/``then_*`` selection modifiers verbatim
+    (``count``/``_seed_``/``_weights_`` are sampling modifiers DEMOTED upstream by the predicate, so they never
+    reach here — MUST-FIX 1), the lowered operator-content ``constraints``, and the downstream model (+ any
+    ``y_processing``) as the ``tail`` — and lets dag-ml prune. dag-ml's ``expand_*_generator_sequences`` applies pick + the constraint
+    prune to the SAME survivor set ``expand_spec`` produces (proven byte-identical in ADR-17 1a), appends the
+    ``tail`` to each survivor so every choice terminates in the model, and fingerprints each over
+    ``[<survivor ops>, <tail>]`` — the EXACT sub-sequence :func:`operator_sequence_variant_label` recomputes
+    host-side. This REPLACES the old ``expand_spec`` survivor pre-expansion: the constraints + pick now reach
+    dag-ml's native prune (the CATCH-22 fix), instead of the host pre-pruning into a constraint-free ``_or_``.
+    """
+    generator_dsl: dict[str, Any] = {"kind": "generator", "id": "generator:preproc"}
+    # One branch PER option (1:1 with the nirs4all option list, so dag-ml enumerates the same options in the
+    # same order), each with a POSITIONAL branch id (unique even if two options were equal). The constraint
+    # refs resolve to the FIRST option matching their `_normalize_item` identity — exactly how nirs4all's set
+    # membership matches a ref against the option list — so a `_mutex_`/`_requires_`/`_exclude_` ref lands on
+    # the right branch id and dag-ml prunes the byte-identical survivor set.
+    identity: dict[Any, str] = {}
+    if "_cartesian_" in generator_node:
+        stages = []
+        for stage_index, stage in enumerate(generator_node["_cartesian_"]):
+            if not (isinstance(stage, dict) and set(stage) == {"_or_"}):
+                raise NotImplementedError("dag-ml bridge: a constrained `_cartesian_` stage must be a bare `{'_or_': [...]}` of operator options")
+            branches = []
+            for option_index, operator in enumerate(stage["_or_"]):
+                branch_id = f"s{stage_index}op{option_index}"
+                identity.setdefault(_normalize_item_key(operator), branch_id)
+                branches.append(_operator_option_step(operator, branch_id))
+            stages.append({"id": f"stage{stage_index}", "branches": branches})
+        generator_dsl["mode"] = "cartesian"
+        generator_dsl["stages"] = stages
+    else:
+        branches = []
+        for option_index, operator in enumerate(generator_node["_or_"]):
+            branch_id = f"op{option_index}"
+            identity.setdefault(_normalize_item_key(operator), branch_id)
+            branches.append(_operator_option_step(operator, branch_id))
+        generator_dsl["mode"] = "or"
+        generator_dsl["branches"] = branches
+
+    constraints = _lower_generator_constraints(generator_node, identity)
+    if constraints:
+        generator_dsl["constraints"] = constraints
+    for key in _SELECTION_PASSTHROUGH_KEYS:
+        if key in generator_node:
+            generator_dsl[key] = generator_node[key]
+    if tail:
+        generator_dsl["tail"] = tail
+    return generator_dsl
+
+
+def _normalize_item_key(operator: Any) -> Any:
+    """nirs4all ``_normalize_item`` identity of an operator (the constraint-match key)."""
+    from nirs4all.pipeline.config._generator.constraints import _normalize_item
+
+    return _normalize_item(operator)
+
+
 def lower_constrained_operator_pipeline(steps: list[Any], dsl_id: str = "nirs4all-pipeline") -> dict[str, Any]:
-    """Lower a CONSTRAINED operator-generator pipeline to a SURVIVOR-BRANCH canonical Generator DSL (ADR-17 1a + 1b).
+    """Lower a CONSTRAINED operator-generator pipeline to ONE NATIVE Generator DSL step (ADR-17 item 5 slice B).
 
     ``steps`` is the splitter-free pipeline ``[<constrained generator>, …downstream…]`` (the predicate
-    :func:`~nirs4all.pipeline.dagml.detect._is_constrained_operator_generator` admits exactly one
-    constrained ``_or_``-pick / ``_cartesian_`` generator plus one concrete downstream model, optionally a
-    ``y_processing``). Each PRUNED survivor (:func:`constrained_operator_survivor_sequences`) becomes ONE
-    canonical OR-generator branch whose steps are the survivor's transforms FOLLOWED by the lowered
-    downstream steps (the concrete model / ``y_processing``) — so every choice terminates in a model, which
-    is what dag-ml's operator-variant compiler requires. dag-ml then scores each branch by CV-OOF, refits
-    the winner, and stamps each report with the multi-op ``variant_label`` fingerprint of
-    ``[<survivor transforms>, <downstream>]`` — the EXACT sub-sequence :func:`operator_choice_variant_label`
-    fingerprints host-side.
+    :func:`~nirs4all.pipeline.dagml.detect._is_constrained_operator_generator` admits exactly one constrained
+    ``_or_``-pick / ``_cartesian_`` generator plus one concrete downstream model, optionally a
+    ``y_processing``). The generator lowers to ONE canonical ``{"kind": "generator", …}`` step that carries
+    its operator OPTIONS as branches/stages, its ``pick``/``arrange``/``then_*``/``count`` modifiers, its
+    lowered operator-content ``constraints``, and the downstream model (+ any ``y_processing``) as the
+    ``tail`` — and dag-ml PRUNES (the CATCH-22 fix). dag-ml applies pick + the
+    ``_mutex_``/``_requires_``/``_exclude_`` prune to the SAME survivor set ``expand_spec`` produced (proven
+    byte-identical in ADR-17 1a), appends the ``tail`` so every survivor terminates in the model, and stamps
+    each per-variant report with the multi-op ``variant_label`` fingerprint of ``[<survivor ops>, <tail>]`` —
+    the EXACT sub-sequence :func:`operator_sequence_variant_label` recomputes host-side.
 
-    Why survivor-branches (not a single ``_or_``+constraints generator + a separate downstream model):
-    dag-ml's compat lowerer FUSES a data-generator with the following model into a constraint-free cartesian
-    (``combine_data_generator_with_following`` → ``generator_to_cartesian_stages`` drops the constraints AND
-    rejects ``pick``), and its native operator-variant compiler refuses a generator choice that produces no
-    model. So the model MUST live inside each choice's steps. Pre-expanding the (already constraint-correct)
-    survivor set into model-terminated branches is the lowering that compiles on the committed dag-ml while
-    keeping the pruning identical and the per-variant labels byte-identical to dag-ml's own. A non-bare /
-    ``None`` / non-routable choice is rejected upstream by the predicate; a survivor sequence still lowers
-    each transform via the strict bare-operator path so a stray non-JSON param fails loud (→ Python expand).
+    This REPLACES the previous survivor PRE-EXPANSION (``constrained_operator_survivor_sequences`` →
+    ``expand_spec`` → one ``_or_`` branch per survivor): with the native ``tail`` field on
+    ``PipelineDslGeneratorStep`` and ``compile_operator_variant_models`` reaching the prune for a
+    model-terminated generator, the host no longer pre-prunes — it hands the constraints + pick to dag-ml.
+    The ``{variant_label → config_name}`` map (built in :mod:`...dagml.result` from ``expand_spec``) still
+    aligns because dag-ml prunes the SAME survivor set, in the SAME legacy order. A non-bare / ``None`` /
+    non-routable choice is rejected upstream by the predicate; an option still lowers each transform via the
+    strict bare-operator path so a stray non-JSON param fails loud (→ Python expand), and a constraint ref
+    that names no option (a malformed constraint) likewise demotes.
     """
     generator_index = next((index for index, step in enumerate(steps) if isinstance(step, dict) and _GENERATION_KEYWORDS & set(step)), None)
     if generator_index is None:
-        raise NotImplementedError("dag-ml bridge: no operator generator step to lower as a constrained survivor-branch generator")
+        raise NotImplementedError("dag-ml bridge: no operator generator step to lower as a constrained native generator")
     generator_node = steps[generator_index]
     prefix = steps[:generator_index]
     downstream = steps[generator_index + 1 :]
@@ -376,61 +507,39 @@ def lower_constrained_operator_pipeline(steps: list[Any], dsl_id: str = "nirs4al
     # generator, so it is NOT part of any survivor's `variant_label` (the host map fingerprints only
     # `[<survivor transforms>, downstream]`, matching dag-ml's `choice.steps`, which likewise excludes upstream
     # nodes) — so byte-identity with the dag-ml report label holds for a prefixed pipeline too. Each prefix
-    # step is lowered to its CANONICAL tagged form (the survivor-branch DSL is a canonical `{"id","steps"}`
-    # spec — every step carries `kind`).
+    # step is lowered to its CANONICAL tagged form (every step carries `kind`).
     prefix_steps = [_canonical_branch_step(_step_to_dsl(step), f"prefix{prefix_index}") for prefix_index, step in enumerate(prefix)]
 
-    # The downstream tail (model, any y_processing) lowered ONCE — embedded verbatim in every survivor
-    # branch so each choice terminates in the model. Reuse _step_to_dsl (the same operator/param split the
-    # flat-single path uses); a generator-bearing downstream is impossible here (the predicate forbids a
-    # second generator).
+    # The downstream tail (model, any y_processing) lowered ONCE and carried in the generator `tail` — dag-ml
+    # appends it to each pruned survivor so every choice terminates in the model. Reuse _step_to_dsl (the same
+    # operator/param split the flat-single path uses); a generator-bearing downstream is impossible here (the
+    # predicate forbids a second generator).
     downstream_dsl = [_step_to_dsl(step) for step in downstream]
-    downstream_steps = [_canonical_branch_step(dsl_step, f"down{down_index}") for down_index, dsl_step in enumerate(downstream_dsl)]
+    tail = [_canonical_branch_step(dsl_step, f"down{down_index}") for down_index, dsl_step in enumerate(downstream_dsl)]
 
-    branches = []
-    for choice_index, sequence in enumerate(constrained_operator_survivor_sequences(generator_node)):
-        transform_steps = [
-            {"kind": "transform", "id": f"c{choice_index}_t{op_index}", "operator": {"class": _qualname(operator)}, "params": _json_safe_params(operator)}
-            for op_index, operator in enumerate(sequence)
-        ]
-        branch_id = f"variant{choice_index}"
-        branches.append({"id": branch_id, "steps": [*transform_steps, *_renumber_branch_steps(downstream_steps, choice_index)]})
-    if not branches:
-        raise NotImplementedError("dag-ml bridge: constrained operator generator pruned to zero survivors")
-
-    generator_dsl = {"kind": "generator", "id": "generator:preproc", "mode": "or", "branches": branches}
+    generator_dsl = _native_constrained_generator(generator_node, tail)
     return {"id": dsl_id, "pipeline": [*prefix_steps, generator_dsl]}
 
 
 def _canonical_branch_step(dsl_step: dict[str, Any], step_id: str) -> dict[str, Any]:
-    """Convert a compat ``_step_to_dsl`` step (``{"model"|"y_processing"|"class": …}``) to a canonical branch step.
+    """Convert a compat ``_step_to_dsl`` step (``{"model"|"y_processing"|"class": …}``) to a canonical tagged step.
 
-    A survivor branch carries canonical tagged steps (``{"kind", "id", "operator", "params"}``), so a
-    ``{"model": FQN, "params": …}`` becomes ``{"kind": "model", "operator": FQN, "params": …}``, a
-    ``{"y_processing": {"class": …}}`` becomes a ``y_transform`` whose object operator carries its params,
-    and a bare ``{"class": FQN, "params": …}`` transform becomes a canonical ``transform`` — mirroring the
-    operator/params split dag-ml's compat lowerer itself applies, so the embedded downstream is byte-shape
-    identical to what a separate downstream step would lower to.
+    A canonical prefix step / generator ``tail`` step carries canonical tagged form
+    (``{"kind", "id", "operator", "params"}``), so a ``{"model": FQN, "params": …}`` becomes
+    ``{"kind": "model", "operator": FQN, "params": …}``, a ``{"y_processing": {"class": …}}`` becomes a
+    ``y_transform`` whose object operator carries its params, and a bare ``{"class": FQN, "params": …}``
+    transform becomes a canonical ``transform`` — mirroring the operator/params split dag-ml's compat lowerer
+    itself applies, so the embedded downstream is byte-shape identical to what a separate downstream step
+    would lower to.
     """
     if "model" in dsl_step:
         params = dict(dsl_step.get("params", {}))
         if "generators" in dsl_step:
-            raise NotImplementedError("dag-ml bridge does not lower a param-generator model inside a constrained survivor branch")
+            raise NotImplementedError("dag-ml bridge does not lower a param-generator model inside a constrained generator tail")
         return {"kind": "model", "id": step_id, "operator": dsl_step["model"], "params": params}
     if "y_processing" in dsl_step:
         return {"kind": "y_transform", "id": step_id, "operator": dsl_step["y_processing"], "params": {}}
     return {"kind": "transform", "id": step_id, "operator": {"class": dsl_step["class"]}, "params": dict(dsl_step.get("params", {}))}
-
-
-def _renumber_branch_steps(steps: list[dict[str, Any]], choice_index: int) -> list[dict[str, Any]]:
-    """Clone the shared downstream branch steps with per-choice unique ``id``s.
-
-    dag-ml requires unique node ids INSIDE each expanded survivor sequence AND namespaces per choice, but
-    the SHARED downstream steps reuse one id template; prefix the id with the choice index so the
-    pre-namespacing ids stay distinct (the canonical fingerprint ignores ``id``, so this never perturbs the
-    ``variant_label``).
-    """
-    return [{**step, "id": f"c{choice_index}_{step['id']}"} for step in steps]
 
 
 def operator_choice_variant_label(choice: Any, downstream_steps: list[Any]) -> str:
