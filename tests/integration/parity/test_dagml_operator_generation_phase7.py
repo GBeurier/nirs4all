@@ -34,7 +34,7 @@ from sklearn.model_selection import KFold
 
 import nirs4all
 from nirs4all.data import DatasetConfigs
-from nirs4all.operators.transforms import Detrend, Resampler
+from nirs4all.operators.transforms import Detrend, FirstDerivative, Resampler
 from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
 
@@ -273,6 +273,57 @@ def test_routable_or_runs_native_e2e() -> None:
     result, native = _run_dagml(pipeline)
     assert native is True
     assert result.num_predictions >= 1
+
+
+def test_constrained_predicate_admits_concrete_prefix() -> None:
+    """A concrete preprocessing PREFIX before the constrained generator is still constrained-native.
+
+    The constrained predicate does NOT require the generator to be first — a leading concrete transform
+    (a shared upstream preprocessing step) is supported, lowered to ONE shared upstream node applied to
+    every survivor branch (matching the flat-single path), never silently dropped.
+    """
+    from nirs4all.pipeline.dagml.detect import _is_constrained_operator_generator
+
+    pipeline = [
+        Detrend(),
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "_mutex_": [[SNV, MSC]]},
+        KFold(n_splits=3),
+        {"model": PLSRegression(n_components=5)},
+    ]
+    assert _is_constrained_operator_generator(pipeline) is True
+
+
+@pytest.mark.slow
+def test_constrained_prefix_runs_native_and_applies_prefix() -> None:
+    """A PREFIXED constrained generator runs NATIVE and APPLIES the prefix (no silent drop).
+
+    `[FirstDerivative(), _or_-pick+_mutex_, model]` routes native operator-SELECT (the constrained path
+    lowers the leading `FirstDerivative` to ONE shared upstream transform node feeding every survivor
+    branch — NOT inside the survivor branches, NOT in the per-variant `variant_label`, exactly as the
+    flat-single path lowers a prefix). PARITY vs legacy on the SAME prefixed pipeline proves the prefix is
+    actually applied (a dropped prefix would diverge the scores); the prefix-FREE twin scores DIFFERENTLY,
+    so the prefix is load-bearing here, not a no-op.
+    """
+    from sklearn.model_selection import ShuffleSplit
+
+    def _constrained_node() -> dict[str, Any]:
+        # pick=2 of 3 with `_mutex_[[SNV,MSC]]`: C(3,2)=3 -> the {SNV,MSC} combo is pruned -> 2 survivors.
+        return {"_or_": [SNV, MSC, Detrend], "pick": 2, "_mutex_": [[SNV, MSC]]}
+
+    def prefixed() -> list[Any]:
+        return [FirstDerivative(), _constrained_node(), ShuffleSplit(n_splits=3, random_state=42), {"model": PLSRegression(n_components=5)}]
+
+    def prefix_free() -> list[Any]:
+        return [_constrained_node(), ShuffleSplit(n_splits=3, random_state=42), {"model": PLSRegression(n_components=5)}]
+
+    legacy = nirs4all.run(pipeline=prefixed(), dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(prefixed())
+    assert native is True, "prefixed constrained generator must route NATIVE, not fall back"
+    # The prefix is applied: native matches legacy on the SAME (prefixed) pipeline within score tolerance.
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
+    # And the prefix is load-bearing: dropping it changes the score, so a silent drop would NOT have matched.
+    no_prefix = nirs4all.run(pipeline=prefix_free(), dataset=_dataset(), verbose=0, engine="legacy")
+    assert dagml.best_score != pytest.approx(no_prefix.best_score, abs=1e-6)
 
 
 # --------------------------------------------------------------------------- #
