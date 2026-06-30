@@ -1197,3 +1197,125 @@ register(
         tags=_GEN,
     )
 )
+
+
+# =============================================================================
+# 16) _zip_ + _chain_ generators (ADR-17 item 5 slice F)
+# =============================================================================
+# `_zip_` (PAIRED param iteration) and `_chain_` (SEQUENTIAL ordered configs) are
+# the LAST item-5 surface. CLASSIFICATION (verified end-to-end):
+#
+# * param-level `_zip_` ({"_zip_": {p: [...], q: [...]}, "model": M}) and
+#   operator-level `_chain_` ({"_chain_": [cfg0, cfg1, ...]}) BOTH run NATIVE on the
+#   dag-ml engine at FULL parity — but via the proven host VARIANT-EXPAND path
+#   (`_expand_operator_generators` → each variant through dag-ml's single-variant
+#   CV+refit), NOT the dedicated in-engine generation paths (`_run_native_generation`
+#   for param sweeps / `_run_native_operator_generation` for operator-SELECT). The
+#   host bridge DELIBERATELY raises NotImplementedError for both shapes
+#   (`dagml_bridge._step_to_dsl`: a `_zip_` model param-generator and a `_chain_`
+#   operator generator both fall to the Python-expand path), exactly as slices B/C/D
+#   demote richer `_or_`/`_cartesian_` shapes — so they are dag-ml-NATIVE via expand,
+#   never bubble to legacy. The base keyword cases (`generator_zip_paired`,
+#   `generator_chain_sequential`) + the nested/unequal `_zip_` edges already lock
+#   this; these add the with-MODEL and multi-step/multi-model surface.
+#
+# WHY NOT the dedicated in-engine paths (the LARGE engine change, DEMOTED/DEFERRED):
+#   dag-ml DOES carry native `_zip_` (compat_zip_variants → operator-step `variants`)
+#   and `_chain_` (lowered as an `Or` branch set) primitives, but routing the HOST to
+#   them would (a) need a NEW `variants`-emission form in `_step_to_dsl` (the host only
+#   emits the `param_generators`/`generators` form today) + new winner-config keying,
+#   (b) dag-ml's `compat_zip_variants` REJECTS unequal-length zip (legacy TRUNCATES) and
+#   does NOT expand nested-generator zip values (legacy DOES), and (c) for operator
+#   `_chain_` it would FLIP num_predictions to winner-only-refit — a NEW divergence the
+#   current expand path does NOT have. Net: a large host integration for ZERO (or
+#   negative) parity gain. So the dedicated-path promotion is DEMOTED fail-closed and
+#   left for a future slice; the variant-expand route is the parity-faithful one.
+
+
+def _factory_zip_single_param() -> list[Any]:
+    # param-level `_zip_` over ONE model param (n_components paired across 3 values),
+    # with-model — the minimal paired-iteration form. 3 variants x 3 folds, FULL parity.
+    return [
+        SNV(),
+        ShuffleSplit(n_splits=3, random_state=42),
+        {"_zip_": {"n_components": [3, 7, 11]}, "model": PLSRegression},
+    ]
+
+
+register(
+    PipelineCase(
+        name="generator_zip_single_param",
+        description="param-level `_zip_` over ONE model param (n_components [3,7,11]) with-model — paired "
+        "iteration, 3 variants x 3 folds. NATIVE-via-expand at FULL parity (slice F).",
+        keywords=("_zip_", "model"),
+        capabilities=_CAPS,
+        dataset_key="regression",
+        pipeline_factory=_factory_zip_single_param,
+        expected_min_predictions=45,
+        tags=_GEN,
+    )
+)
+
+
+def _factory_chain_multistep_configs() -> list[Any]:
+    # operator-level `_chain_` over MULTI-STEP sub-pipelines (the `[config0, config1]`
+    # list-of-step-lists form) — sequential ordered, each survivor a 2-op sub-pipeline.
+    # 2 variants x 3 folds, FULL parity (single concrete downstream model).
+    return [
+        {"_chain_": [[SNV(), FirstDerivative()], [MSC(), Detrend()]]},
+        ShuffleSplit(n_splits=3, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ]
+
+
+register(
+    PipelineCase(
+        name="generator_chain_multistep_configs",
+        description="operator-level `_chain_` over MULTI-STEP sub-pipelines [[SNV,1stDer],[MSC,Detrend]] — "
+        "sequential ordered, 2 variants x 3 folds. NATIVE-via-expand at FULL parity (slice F).",
+        keywords=("_chain_", "model"),
+        capabilities=_CAPS,
+        dataset_key="regression",
+        pipeline_factory=_factory_chain_multistep_configs,
+        expected_min_predictions=30,
+        tags=_GEN,
+    )
+)
+
+
+def _factory_chain_model_configs() -> list[Any]:
+    # operator-level `_chain_` over MODEL-config dicts (the canonical `[{model: A},
+    # {model: B}, ...]` with-model form) over DISTINCT model classes (PLS, PLS, Ridge).
+    # Sequential ordered, 3 variants x 3 folds. Multi-model selection → the SAME
+    # num_predictions divergence as `generator_or_models_pls_ridge`: legacy refits every
+    # model (49, loser final rows) while dag-ml operator-SELECT refits the winner only
+    # (47) — winner/best_rmse/winner-y_pred all match (config_53e81da4_refit, the PLS
+    # winner). An INTENTIONAL native-vs-legacy divergence (ADR-17 1c), a PASSING parity-note.
+    return [
+        SNV(),
+        ShuffleSplit(n_splits=3, random_state=42),
+        {
+            "_chain_": [
+                {"model": PLSRegression(n_components=5)},
+                {"model": PLSRegression(n_components=10)},
+                {"model": Ridge(alpha=1.0)},
+            ]
+        },
+    ]
+
+
+register(
+    PipelineCase(
+        name="generator_chain_model_configs",
+        description="operator-level `_chain_` over MODEL configs [{PLSR(5)},{PLSR(10)},{Ridge}] (with-model, "
+        "distinct classes) — sequential ordered, 3 variants x 3 folds. Winner/best_rmse/winner-y_pred match, "
+        "but num_predictions diverges (legacy refits every model: 49; dag-ml operator-SELECT refits the winner "
+        "only: 47) → INTENTIONAL native-vs-legacy divergence (ADR-17 1c), a PASSING parity-note (slice F).",
+        keywords=("_chain_", "model"),
+        capabilities=_CAPS,
+        dataset_key="regression",
+        pipeline_factory=_factory_chain_model_configs,
+        expected_min_predictions=47,
+        tags=_GEN,
+    )
+)
