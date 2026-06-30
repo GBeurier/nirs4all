@@ -56,6 +56,12 @@ def _detect_rep_fusion(pipeline: list[Any]) -> dict[str, Any] | None:
 # pipeline carrying them must NOT be mistaken for a clean param-sweep-only pipeline.
 _FORCE_PYTHON_STEP_KEYS = frozenset({"finetune_params", "train_params"})
 
+# Sampling modifiers that DEMOTE a constrained operator generator to the Python expand path (ADR-17 item 5
+# B MUST-FIX 1): legacy `expand_spec` SAMPLES the post-prune survivors (seeded subsample / weighted random),
+# but dag-ml's native generator `count` TRUNCATES (a different set) and rejects `count == 0` (legacy = "no
+# limit"). Keeping these Python-side avoids a silent survivor-set divergence / compile break.
+_CONSTRAINED_SAMPLING_MODIFIER_KEYS = frozenset({"count", "_seed_", "_weights_"})
+
 
 def _generation_kind(pipeline: list[Any]) -> str:
     """Classify a pipeline's generators: ``"none"``, ``"param_model"`` (native), or ``"operator"``.
@@ -252,34 +258,80 @@ def _is_constrained_operator_generator(pipeline: list[Any]) -> bool:
     if len(model_steps) != 1:
         return False
 
-    # Admit ONLY a PURE `_or_` carrying a pick/arrange/constraint modifier (so a bare `_or_` stays on the
-    # flat-single path) OR a PURE `_cartesian_` carrying a `_mutex_`/`_requires_`/`_exclude_` CONSTRAINT
-    # (the ADR-17 1b-cartesian scope). A non-pure generator node, a bare `_or_`/`_cartesian_`, or a
-    # `_cartesian_` with only `pick`/`arrange` (a multi-pipeline pair selection, NOT constraint pruning —
-    # its own native survivor labels are not this multi-op-sequence shape) falls to the Python expand path.
+    # --- FAIL-CLOSED ADMIT GATE (ADR-17 item 5 B, round-4) ------------------------------------------------
+    # Native operator-SELECT is taken ONLY for the EXACT shapes proven legacy-equivalent below; ANY other
+    # shape demotes to the proven Python `expand_spec` path (still dag-ml-native via that route). The root
+    # pattern of every prior divergence is the SAME: legacy `OrStrategy`/`CartesianStrategy` are LENIENT (skip
+    # constraints on single-op variants, no-op degenerate groups, skip oversize / zero selections, seeded
+    # sample on `count`), while dag-ml's native sequence-build is STRICT (applies constraints, rejects
+    # degenerate groups / zero / oversize). So we whitelist only the strict-==-lenient intersection.
     keys = set(generator)
+
+    # (A) PURITY + STRUCTURE: a PURE `_or_` with an INTEGER `pick`/`arrange` in [1, n_options] and NO
+    #     `then_pick`/`then_arrange`, OR a PURE `_cartesian_` of >=2 routable `_or_` stages with NO
+    #     `pick`/`arrange`/`then_*`. A bare `_or_` (no pick/arrange) makes single-op variants legacy SKIPS
+    #     constraints on (`OrStrategy._apply_constraints`: `not isinstance(results[0], list)` → returned
+    #     unfiltered) while native applies them (EDGE A) — so a constrained `_or_` MUST carry a list-producing
+    #     pick/arrange. A range/tuple `pick` (mixed cardinality), a `then_*` second-order selection (a
+    #     different survivor structure), or a `_cartesian_` `pick`/`arrange` (pipeline-pair selection, not the
+    #     multi-op-sequence shape) all demote.
     if "_cartesian_" in generator:
         if not is_pure_cartesian_node(generator):
             return False
-        # Only a CONSTRAINED cartesian routes here (item 1b-cartesian); plain / pick-only cartesian stays
-        # on the proven Python expand path (still dag-ml-native via that route).
-        if not (CONSTRAINT_KEYWORDS & keys):
+        if "pick" in keys or "arrange" in keys:
+            return False
+        stages = generator["_cartesian_"]
+        if not isinstance(stages, list) or len(stages) < 2:
             return False
     elif "_or_" in generator:
         if not is_pure_or_node(generator):
             return False
-        # Only a CONSTRAINED `_or_` routes here (item 1a — the `_mutex_`/`_requires_`/`_exclude_` over the
-        # pick-combinatorial set). A bare `_or_` is the flat-single path; an unconstrained `_or_` carrying
-        # only `pick`/`arrange`/`then_*`/`count`/`_seed_`/`_weights_` stays on the proven Python expand path
-        # (out of the constrained-generator scope, still dag-ml-native via that route).
-        if not (CONSTRAINT_KEYWORDS & keys):
+        if "then_pick" in keys or "then_arrange" in keys:
+            return False
+        options = generator["_or_"]
+        if not isinstance(options, list) or not options:
+            return False
+        # EXACTLY ONE of pick / arrange, an INTEGER in [1, n_options] (EDGE A: not bare; EDGE C: not 0, not
+        # oversize, not a range/tuple). A bare constrained `_or_` (neither) demotes.
+        selector_keys = {"pick", "arrange"} & keys
+        if len(selector_keys) != 1:
+            return False
+        size = generator[next(iter(selector_keys))]
+        if not isinstance(size, int) or isinstance(size, bool) or not (1 <= size <= len(options)):
             return False
     else:
         return False
 
-    # Every leaf operator choice must be a routable bare X-transform (no None / model / nested-generator /
-    # non-routable choice). Walk the `_or_` / `_cartesian_`→`_or_` stage choices.
-    return _constrained_choices_native_routable(generator)
+    # (B) CONSTRAINED scope: at least one `_mutex_`/`_requires_`/`_exclude_` (a bare pick/arrange `_or_` is the
+    #     flat / unconstrained path).
+    if not (CONSTRAINT_KEYWORDS & keys):
+        return False
+
+    # (C) SAMPLING modifiers (`count`/`_seed_`/`_weights_`) DEMOTE (MUST-FIX 1): legacy SAMPLES the post-prune
+    #     survivors (seeded subsample; `count <= 0` means "no limit"), but dag-ml's native `count` TRUNCATES (a
+    #     different set) and rejects `count == 0`. `_weights_` is weighted random with no native analogue.
+    if _CONSTRAINED_SAMPLING_MODIFIER_KEYS & keys:
+        return False
+
+    # (D) Every leaf operator choice is a ROUTABLE bare X-transform (no None / model / nested-generator /
+    #     non-routable / wavelength-requiring choice). Walk the `_or_` / `_cartesian_`→`_or_` stage choices.
+    if not _constrained_choices_native_routable(generator):
+        return False
+
+    # (E) NO cross-stage/branch DUPLICATE option (MUST-FIX 2 + 5): the bridge resolves each constraint ref
+    #     through ONE global `_normalize_item` identity map to the FIRST branch of that identity, but legacy
+    #     set-membership matches the ref from ANY branch — so a repeated identity across the whole generator
+    #     mis-resolves natively.
+    if _constrained_generator_has_duplicate_options(generator):
+        return False
+
+    # (F) Every CONSTRAINT GROUP is WELL-FORMED + NON-DEGENERATE + its refs resolve to real options (EDGE B +
+    #     MUST-FIX 3/6): legacy normalizes sets and silently no-ops a degenerate group (`_mutex_:[[A]]` /
+    #     `[[A,A]]`, a self-pair, an empty group), and an empty `_requires_` group crashes the bridge, while
+    #     native rejects mutex <2 distinct refs / repeated requires-exclude pairs. `_exclude_` additionally
+    #     routes native ONLY at uniform survivor cardinality == its (pair) cardinality (native SUBSET ==
+    #     legacy EXACT-COMBO only then).
+    return _constrained_constraints_well_formed(generator) and not _constrained_exclude_diverges(generator)
 
 
 def _constrained_choices_native_routable(generator: dict[str, Any]) -> bool:
@@ -312,6 +364,145 @@ def _constrained_choices_native_routable(generator: dict[str, Any]) -> bool:
         for choice in choices:
             if choice is None or not _is_bare_operator_choice(choice) or not _choice_is_native_routable(choice):
                 return False
+    return True
+
+
+def _constrained_generator_all_options(generator: dict[str, Any]) -> list[Any]:
+    """Every operator option of a constrained generator across the WHOLE generator (all ``_cartesian_`` stages, or the ``_or_``).
+
+    The union — the SAME global identity space the bridge resolves constraint refs in (``dagml_bridge``
+    `_native_constrained_generator` uses ONE global `identity.setdefault` keyed by ``_normalize_item``). The
+    duplicate-option check operates on this union so a repeated identity ACROSS stages/branches (not just
+    within one) is caught.
+    """
+    if "_cartesian_" in generator:
+        return [option for stage in generator["_cartesian_"] for option in stage["_or_"]]
+    return list(generator["_or_"])
+
+
+def _constrained_generator_has_duplicate_options(generator: dict[str, Any]) -> bool:
+    """True iff an operator identity appears in MORE THAN ONE branch/stage option of the constrained generator (MUST-FIX 2 + 5).
+
+    A repeated ``_normalize_item`` identity — within ONE stage (MUST-FIX 2) OR across DIFFERENT
+    ``_cartesian_`` stages / branches (MUST-FIX 5) — makes the native lowering diverge from legacy: the bridge
+    resolves a constraint ref through ONE GLOBAL ``identity.setdefault`` to the FIRST branch carrying that
+    identity, but legacy builds a normalized SET from the selected items, so the ref should match ANY branch
+    of that identity. The native per-branch member rule then mis-resolves the ref (e.g. ``_cartesian_
+    [[SNV,MSC],[SNV,Detrend]]`` with ``_requires_[[SNV,Detrend]]``: native pins SNV to stage 0 only). So a
+    generator with ANY operator identity in two or more options DEMOTES to the Python expand path. Identity is
+    nirs4all's own ``_normalize_item`` (the constraint-match key) so the check mirrors how a ref resolves.
+    """
+    from nirs4all.pipeline.config._generator.constraints import _normalize_item
+
+    seen: set[Any] = set()
+    for option in _constrained_generator_all_options(generator):
+        key = _normalize_item(option)
+        if key in seen:
+            return True
+        seen.add(key)
+    return False
+
+
+def _constrained_uniform_survivor_cardinality(generator: dict[str, Any]) -> int | None:
+    """The number of operators EVERY survivor of the constrained generator carries, or ``None`` if it is not uniform/known.
+
+    `_exclude_` parity depends on this: dag-ml native ``exclude`` forbids ANY co-occurrence of the pair
+    (subset), while legacy ``_exclude_`` forbids the EXACT combo equal to the group — these agree ONLY when a
+    survivor's cardinality equals the exclude-group cardinality. The cardinality is uniform and known only for:
+
+    * ``_or_`` with a single-int ``pick`` (== that int) and NO ``arrange`` / ``then_pick`` / ``then_arrange``
+      (a range pick, arrange, or second-order selector yields MIXED or permuted cardinalities); a bare ``_or_``
+      with no selector picks ONE option (cardinality 1);
+    * ``_cartesian_`` with NO ``pick`` / ``arrange`` (which would subsample) — its cardinality is the #stages.
+
+    Anything else returns ``None`` (treated as a parity risk by the ``_exclude_`` guard).
+    """
+    if "_cartesian_" in generator:
+        if "pick" in generator or "arrange" in generator:
+            return None
+        return len(generator["_cartesian_"])
+    # `_or_`
+    if "arrange" in generator or "then_pick" in generator or "then_arrange" in generator:
+        return None
+    pick = generator.get("pick")
+    if pick is None:
+        return 1  # a bare `_or_` selects exactly one option
+    if isinstance(pick, int) and not isinstance(pick, bool):
+        return pick
+    return None  # a range/tuple pick yields mixed cardinalities
+
+
+def _constrained_exclude_diverges(generator: dict[str, Any]) -> bool:
+    """True iff an ``_exclude_`` would prune DIFFERENTLY natively than legacy — so the generator DEMOTES (MUST-FIX 3 + 6).
+
+    Legacy ``_exclude_`` is EXACT-COMBO matching (``apply_exclude_constraint``,
+    ``constraints.py``: ``frozenset(combo) not in exclude_normalized`` — a survivor is dropped ONLY when its
+    full operator set EQUALS the exclude group), whereas dag-ml's native ``exclude`` is a SUBSET rule
+    (``generation.rs`` ``constraints_satisfied``: ``present(left) && present(right)`` — drops ANY survivor
+    where both co-occur). These agree ONLY when every exclude group is an exact 2-operator pair AND the
+    survivor cardinality equals that pair size (2): then "the pair co-occurs" == "the survivor IS exactly that
+    pair". So demote when ANY of:
+
+    * an exclude group is not a 2-operator pair (no native pair form at all — MUST-FIX 3), OR
+    * the survivor cardinality is not a known uniform 2 (e.g. ``_or_`` ``pick`` 3, or a ``_cartesian_`` of 3
+      stages, where the legacy exact-2-combo never matches a 3-operator survivor but native subset would prune
+      every survivor containing both — MUST-FIX 6).
+
+    (``_mutex_`` = ``issubset`` "not all co-occur" MATCHES legacy at any cardinality, and a multi-``_requires_``
+    splits into independent pairs, so only ``_exclude_`` needs this cardinality guard.)
+    """
+    exclude_groups = generator.get("_exclude_", [])
+    if not exclude_groups:
+        return False
+    if any(len(group) != 2 for group in exclude_groups):
+        return True
+    return _constrained_uniform_survivor_cardinality(generator) != 2
+
+
+def _constrained_constraints_well_formed(generator: dict[str, Any]) -> bool:
+    """True iff EVERY constraint group is well-formed, NON-DEGENERATE, and refs resolve to real options (EDGE B).
+
+    Legacy ``apply_all_constraints`` is LENIENT — it normalizes refs into SETS and silently no-ops a
+    degenerate group (``_mutex_:[[A]]`` reduces to ``{A}.issubset(combo)``; ``[[A,A]]`` dedups to ``{A}``; an
+    empty ``_requires_`` pair hits ``len < 2: continue``), and an UNKNOWN ref simply never matches — whereas
+    dag-ml's native sequence-build is STRICT: it REJECTS a mutex group with <2 distinct refs, a
+    requires/exclude pair with equal refs, and an unknown ref, and the bridge lowering crashes on an EMPTY
+    ``_requires_`` group (``group[0]``). So a generator whose constraints are degenerate / repeated / empty /
+    dangling routes the Python expand path. Each constraint type:
+
+    * ``_mutex_``: every group has >=2 refs that are DISTINCT by ``_normalize_item`` identity;
+    * ``_requires_``: every group has >=2 refs (the ``[trigger, each-subsequent]`` split the bridge emits),
+      the trigger DISTINCT from each required ref (no self-require pair);
+    * ``_exclude_``: every group is a 2-ref pair with DISTINCT refs (cardinality handled separately by
+      :func:`_constrained_exclude_diverges`);
+    * EVERY ref (across all three) resolves to a real option of the generator (by ``_normalize_item``).
+    """
+    from nirs4all.pipeline.config._generator.constraints import _normalize_item
+
+    option_identities = {_normalize_item(option) for option in _constrained_generator_all_options(generator)}
+
+    def refs_known(group: list[Any]) -> bool:
+        return all(_normalize_item(ref) in option_identities for ref in group)
+
+    for group in generator.get("_mutex_", []):
+        if not isinstance(group, list) or not refs_known(group):
+            return False
+        distinct = {_normalize_item(ref) for ref in group}
+        # Native rejects a mutex group with <2 DISTINCT refs AND one that REPEATS any ref (generation.rs
+        # `distinct.len() != lowered.len()`), so `[[A, B, B]]` (2 distinct, 3 refs) must DEMOTE, not crash.
+        if len(distinct) < 2 or len(distinct) != len(group):
+            return False
+    for group in generator.get("_requires_", []):
+        if not isinstance(group, list) or len(group) < 2 or not refs_known(group):
+            return False
+        trigger = _normalize_item(group[0])
+        if any(_normalize_item(req) == trigger for req in group[1:]):  # self-require → native rejects the pair
+            return False
+    for group in generator.get("_exclude_", []):
+        if not isinstance(group, list) or len(group) != 2 or not refs_known(group):
+            return False
+        if _normalize_item(group[0]) == _normalize_item(group[1]):  # self-pair → native rejects
+            return False
     return True
 
 
