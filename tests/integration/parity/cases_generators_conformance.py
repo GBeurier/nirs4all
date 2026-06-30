@@ -1097,3 +1097,103 @@ register(
         skip_kind="unknown_semantics",
     )
 )
+
+
+# =============================================================================
+# 15) MULTI-STEP & NESTED operator `_or_` choices (ADR-17 item 5 slice D)
+# =============================================================================
+# SUB-PART 1 — a bare `_or_` whose choices are MULTI-STEP sub-pipelines
+# (`[SNV, Detrend]`) routes NATIVE operator-SELECT: dag-ml already lowers a
+# list-valued `_or_` choice to a MULTI-TRANSFORM branch (compat
+# `lower_pipeline_fragment` → one transform per element) and
+# `expand_or_generator_sequences` carries the whole branch as ONE survivor, so
+# each survivor is exactly that one choice's flat operator list — NO pick/arrange
+# recombination, NO nested-list survivor. The cross-language `variant_label`
+# fingerprints the multi-op sub-sequence, so the content-keyed config map aligns
+# and parity is FULL (member-exact survivors + same winner + num_predictions).
+#
+# SUB-PART 2 — a NESTED operator-generator choice (`_or_: [{_or_: [A,B]}, C]`)
+# DEMOTES fail-closed: dag-ml rejects a generator nested inside another
+# generator's branch (`find_nested_generator`), and native support is a large
+# engine change (the nested generator namespaces in the OUTER's already-namespaced
+# context — see generation.rs `collect_operator_generator_steps`). Legacy
+# `expand_spec` FLATTENS it into the parent's flat choice space (`A, B, C`), so the
+# DEMOTED case runs the proven Python-expand on dag-ml and matches legacy exactly.
+# A multi-step choice COMBINED with `pick` (`generator_or_multistep_pick`) likewise
+# DEMOTES — `pick` over multi-step choices makes NESTED-list survivors
+# (`[[SNV,Detrend], MSC]`) the native single-op-per-branch fingerprint cannot key.
+
+
+def _factory_or_multistep_choices() -> list[Any]:
+    # Each choice is a multi-step sub-pipeline OR a single op; NO selector → each survivor is exactly
+    # one choice's flat operator list. 4 survivors x 3 folds; NATIVE operator-SELECT at full parity.
+    return [
+        {"_or_": [[SNV, FirstDerivative], [MSC, Detrend], SNV, MSC]},
+        ShuffleSplit(n_splits=3, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ]
+
+
+register(
+    PipelineCase(
+        name="generator_or_multistep_choices",
+        description="bare `_or_` of MULTI-STEP choices [[SNV,1stDer],[MSC,Detrend],SNV,MSC] — ADR-17 item 5 "
+        "slice D: routes NATIVE operator-SELECT (each survivor = one choice's flat op list). 4 variants x 3 folds.",
+        keywords=("_or_", "model"),
+        capabilities=_CAPS,
+        dataset_key="regression",
+        pipeline_factory=_factory_or_multistep_choices,
+        expected_min_predictions=60,
+        tags=_GEN,
+    )
+)
+
+
+def _factory_or_multistep_pick() -> list[Any]:
+    # MULTI-STEP choices + pick=2 → NESTED-list survivors (`[[SNV,1stDer], MSC]`) the single-op-per-branch
+    # native fingerprint cannot key; DEMOTES to the proven Python-expand (still dag-ml engine).
+    return [
+        {"_or_": [[SNV, FirstDerivative], MSC, Detrend], "pick": 2},
+        ShuffleSplit(n_splits=3, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ]
+
+
+register(
+    PipelineCase(
+        name="generator_or_multistep_pick",
+        description="MULTI-STEP `_or_` choices + pick=2 — slice D DEMOTE: pick over multi-step choices makes "
+        "nested-list survivors the native fingerprint cannot key, so it runs Python-expand on dag-ml. C(3,2)=3 x 3 folds.",
+        keywords=("_or_", "model"),
+        capabilities=_CAPS,
+        dataset_key="regression",
+        pipeline_factory=_factory_or_multistep_pick,
+        expected_min_predictions=45,
+        tags=_GEN,
+    )
+)
+
+
+def _factory_or_nested() -> list[Any]:
+    # A NESTED operator-generator choice. dag-ml rejects nested generators (large engine change), so this
+    # DEMOTES fail-closed; legacy FLATTENS `{_or_: [SNV,MSC]}` into the parent → survivors SNV, MSC, Detrend.
+    return [
+        {"_or_": [{"_or_": [SNV, MSC]}, Detrend]},
+        ShuffleSplit(n_splits=3, random_state=42),
+        {"model": PLSRegression(n_components=10)},
+    ]
+
+
+register(
+    PipelineCase(
+        name="generator_or_nested",
+        description="NESTED operator-generator `_or_: [{_or_: [SNV,MSC]}, Detrend]` — slice D DEMOTE: dag-ml "
+        "rejects nested generators (large engine change), so it runs Python-expand on dag-ml; legacy flattens to 3 survivors x 3 folds.",
+        keywords=("_or_", "model"),
+        capabilities=_CAPS,
+        dataset_key="regression",
+        pipeline_factory=_factory_or_nested,
+        expected_min_predictions=45,
+        tags=_GEN,
+    )
+)

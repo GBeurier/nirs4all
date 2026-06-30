@@ -269,6 +269,12 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
     # the winner's refit model params), NOT names[0]. Locks that the native param path winner matches legacy.
     "generator_grid_twelve_variants",
     "generator_grid_n_components_scale",
+    # ADR-17 item 5 slice D — MULTI-STEP `_or_` choices route NATIVE operator-SELECT (each survivor = one
+    # choice's flat op list); the DEMOTED nested / multistep-pick shapes select a real winner via
+    # Python-expand. All three are multi-variant, so lock that the selected winner matches legacy.
+    "generator_or_multistep_choices",
+    "generator_or_multistep_pick",
+    "generator_or_nested",
 })
 
 

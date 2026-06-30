@@ -254,10 +254,42 @@ def _is_bare_operator_choice(choice: Any) -> bool:
 
     A flat operator generator the native path lowers is an ``_or_`` whose every choice is one bare
     operator (``SNV`` / ``MSC()``). A multi-step LIST choice (``[SNV, FirstDerivative]``), a ``{"model":
-    …}`` (multi-model) or any other dict (a nested generator / param spec) is NOT flat-bare — those stay
-    on the Python ``expand_spec`` path (:func:`_lower_operator_generator` raises for them).
+    …}`` (multi-model) or any other dict (a nested generator / param spec) is NOT flat-bare. A multi-step
+    LIST choice has its own native lowering (:func:`_is_multistep_operator_choice`); a dict / ``None``
+    choice stays on the Python ``expand_spec`` path (:func:`_lower_operator_generator` raises for them).
     """
     return not isinstance(choice, (list, dict))
+
+
+def _is_multistep_operator_choice(choice: Any) -> bool:
+    """True when an ``_or_`` choice is a MULTI-STEP sub-pipeline of bare operators (``[SNV, Detrend]``) — ADR-17 item 5 slice D.
+
+    A non-empty LIST whose EVERY element is a single bare operator (not a list / dict / ``None``). dag-ml
+    already lowers a list-valued ``_or_`` choice to a MULTI-STEP branch (the compat importer's
+    ``lower_pipeline_fragment`` lowers an array value to ``lower_steps`` → one transform per element, and
+    ``expand_or_generator_sequences`` carries the whole branch ``steps`` Vec as ONE survivor), and the
+    cross-language ``variant_label`` fingerprints the multi-operator sub-sequence — so a bare ``_or_`` of
+    such choices reaches FULL native parity (each survivor = one choice's flat operator list, NO
+    pick/arrange recombination). A NESTED list element (a sub-list — the pick-over-multistep nested-survivor
+    shape) or a dict element (a nested generator / multi-model) is NOT this shape and forces the Python
+    expand path.
+    """
+    return isinstance(choice, list) and bool(choice) and all(_is_bare_operator_choice(element) and element is not None for element in choice)
+
+
+def _operator_choice_operators(choice: Any) -> list[Any]:
+    """The flat operator LIST a native ``_or_`` choice expands to: ``[op]`` for a single op, the list for a multi-step choice.
+
+    A single bare operator is a one-element sequence; a multi-step list choice (``[SNV, Detrend]``) is its
+    own operator list verbatim. The SAME flat operator list dag-ml's survivor carries (one transform per
+    element) and :func:`operator_sequence_variant_label` fingerprints. A ``None`` / dict choice has no
+    native operator list (it is demoted upstream), so this rejects it loudly.
+    """
+    if _is_multistep_operator_choice(choice):
+        return list(choice)
+    if choice is not None and _is_bare_operator_choice(choice):
+        return [choice]
+    raise NotImplementedError(f"dag-ml bridge: `_or_` choice {choice!r} is not a single bare operator or a multi-step bare-operator list")
 
 
 def _lower_operator_generator(step: dict[str, Any]) -> dict[str, Any]:
@@ -269,14 +301,20 @@ def _lower_operator_generator(step: dict[str, Any]) -> dict[str, Any]:
     of (native operator-SELECT). This emits exactly that compat shape — each ``_or_`` value lowered to the
     bare-operator ``{"class": FQN, "params": {…}}`` dict :func:`_step_to_dsl` already produces.
 
-    ONLY the flat bare-operator ``_or_`` is accepted (so the variant set is the bare ``_or_`` and each
-    choice lowers to ONE transform step). Anything richer raises :class:`NotImplementedError` so
-    ``run_via_dagml`` falls back to the Python ``expand_spec`` path (which stays on the dag-ml engine):
+    ONLY the bare-operator ``_or_`` (NO selector / constraint) is accepted. Each choice lowers to a branch:
+    a SINGLE bare operator → a one-transform branch; a MULTI-STEP list choice (``[SNV, Detrend]``) → a
+    MULTI-TRANSFORM branch (ADR-17 item 5 slice D — the compat importer's ``lower_pipeline_fragment``
+    lowers an array choice value to one transform per element, and ``expand_or_generator_sequences``
+    carries the whole branch as ONE survivor, so each survivor stays exactly one ``_or_`` choice with NO
+    pick/arrange recombination). Anything richer raises :class:`NotImplementedError` so ``run_via_dagml``
+    falls back to the Python ``expand_spec`` path (which stays on the dag-ml engine):
 
     * a non-``_or_`` keyword (``_cartesian_`` / ``_grid_`` / ``_chain_`` / ``_zip_`` / ``_sample_``);
     * a ``pick`` / ``arrange`` / ``then_pick`` / ``then_arrange`` / ``count`` modifier, a ``_weights_`` /
-      ``_seed_`` sampler, or a ``_mutex_`` / ``_requires_`` / ``_exclude_`` constraint;
-    * a multi-step LIST choice or a ``{"model": …}`` (multi-model) choice — only single bare operators.
+      ``_seed_`` sampler, or a ``_mutex_`` / ``_requires_`` / ``_exclude_`` constraint (a selector over
+      multi-step choices makes nested-list survivors the native path cannot fingerprint — DEMOTE);
+    * a ``{"model": …}`` (multi-model) choice, a NESTED-generator dict choice, a ``None`` no-op, or a
+      multi-step list that itself nests a list/dict element.
 
     Inert annotation keys (``_tags_`` / ``_metadata_`` / ``name``) are no-ops that do not change the
     variant set, so they are tolerated and dropped (the lowered ``_or_`` carries the choices only).
@@ -294,20 +332,26 @@ def _lower_operator_generator(step: dict[str, Any]) -> dict[str, Any]:
             f"the Python expand path owns pick/arrange/count/_mutex_/_requires_/_exclude_/_weights_/_seed_"
         )
     choices = step["_or_"]
-    if not isinstance(choices, list) or not choices or not all(_is_bare_operator_choice(choice) for choice in choices):
+    if not isinstance(choices, list) or not choices or not all(_is_bare_operator_choice(choice) or _is_multistep_operator_choice(choice) for choice in choices):
         raise NotImplementedError(
-            "dag-ml bridge lowers `_or_` natively only when every choice is a single bare operator "
-            "(not a multi-step list, a {'model': …} multi-model, or a nested generator)"
+            "dag-ml bridge lowers `_or_` natively only when every choice is a single bare operator or a "
+            "multi-step bare-operator list (not a {'model': …} multi-model, a nested generator, or a None no-op)"
         )
     return {"_or_": [_operator_choice_dsl(choice) for choice in choices]}
 
 
-def _operator_choice_dsl(choice: Any) -> dict[str, Any]:
-    """One ``_or_`` operator choice lowered to the bare-operator ``{"class": FQN, "params": {…}}`` dict.
+def _operator_choice_dsl(choice: Any) -> dict[str, Any] | list[dict[str, Any]]:
+    """One ``_or_`` operator choice lowered to a branch FRAGMENT for the compat ``{"_or_": [...]}`` importer.
 
-    A ``None`` choice (the "no preprocessing" idiom) cannot lower to a transform node, so it forces the
-    Python expand path (where it is dropped); every other choice reuses the bare-operator lowering.
+    A SINGLE bare operator lowers to the one bare-operator ``{"class": FQN, "params": {…}}`` dict (the
+    compat importer reads it as a one-transform branch). A MULTI-STEP list choice (``[SNV, Detrend]``)
+    lowers to a LIST of those dicts — the compat importer's ``lower_pipeline_fragment`` reads an array
+    value as ``lower_steps`` → one transform per element, i.e. a MULTI-TRANSFORM branch. A ``None`` choice
+    (the "no preprocessing" idiom) cannot lower to a transform node, so it forces the Python expand path
+    (where it is dropped).
     """
+    if _is_multistep_operator_choice(choice):
+        return [{"class": _qualname(operator), "params": _json_safe_params(operator)} for operator in choice]
     if choice is None:
         raise NotImplementedError("dag-ml bridge does not lower a `None` (no-op) `_or_` choice natively")
     return {"class": _qualname(choice), "params": _json_safe_params(choice)}
@@ -572,8 +616,12 @@ def operator_choice_variant_label(choice: Any, downstream_steps: list[Any]) -> s
     pass a non-finite the PyO3 helper then rejects mid-run). ANY failure to construct or fingerprint the
     label — a non-JSON / non-finite param OR the PyO3 helper raising — is converted to
     :class:`DagMlUnsupported` so the inner Python-expand fallback fires instead of crashing.
+
+    A MULTI-STEP list choice (``[SNV, Detrend]``, ADR-17 item 5 slice D) is its own flat operator SEQUENCE,
+    so the label is over ``[<each transform>, <downstream>]`` — :func:`_operator_choice_operators` unpacks
+    the choice into its operator list, matching dag-ml's multi-transform branch survivor.
     """
-    return operator_sequence_variant_label([choice], downstream_steps)
+    return operator_sequence_variant_label(_operator_choice_operators(choice), downstream_steps)
 
 
 def operator_sequence_variant_label(operators: list[Any], downstream_steps: list[Any]) -> str:
