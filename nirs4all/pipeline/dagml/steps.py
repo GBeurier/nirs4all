@@ -395,36 +395,57 @@ def _model_name(steps: list[Any]) -> str:
     name (``name`` > ``function`` > ``class``), so a ``{"name": "RF_Finetuned", "model": RF()}`` step
     surfaces as ``"RF_Finetuned"`` — not ``"RandomForestRegressor"``. We mirror that exact priority
     here so a NAMED model (finetune cases, any explicit ``name``) carries the same model_name on the
-    dag-ml engine; an unnamed step falls back to the model class name, byte-identical to legacy.
+    dag-ml engine; an unnamed step falls back to the model class name, byte-identical to legacy. A
+    step-level ``_grid_`` sweep over a BARE model CLASS (``{"_grid_": …, "model": PLSRegression}``)
+    keeps the class on the step, so the class name is read from the class itself — ``type(<class>)`` is
+    the metaclass (``ABCMeta``), which would mis-name the model.
     """
     for step in steps:
         if isinstance(step, dict) and "model" in step:
             name = step.get("name")
-            return str(name) if name else type(step["model"]).__name__
+            if name:
+                return str(name)
+            model = step["model"]
+            return model.__name__ if isinstance(model, type) else type(model).__name__
     return "model"
 
 
 def _apply_plain_model_params(steps: list[Any]) -> list[Any]:
     """Apply only the PLAIN (non-generator) sibling hyperparameters to the model, keeping sweeps.
 
-    The native path lowers param-level sweeps (``_range_``/``_log_range_``/``_grid_``) to dag-ml
-    ``generators``, so they must stay on the step dict; plain siblings (e.g. ``scale=False``) are
-    set on a model clone, exactly like ``_apply_model_params`` but leaving the generator dicts in
-    place for the bridge to lower.
+    The native path lowers param-level sweeps (``_range_``/``_log_range_`` siblings, a step-level
+    ``_grid_``) to dag-ml ``generators``, so they must stay on the step dict; plain siblings (e.g.
+    ``scale=False``) are set on a model clone, exactly like ``_apply_model_params`` but leaving the
+    generator specs in place for the bridge to lower. A native step-level ``_grid_`` keyword is kept on
+    the step (NOT a per-param sibling, so it is recognized by KEY, not :func:`is_param_generator_spec`).
     """
     from sklearn.base import clone
 
-    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
+    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec, step_has_native_grid
 
     out: list[Any] = []
     for step in steps:
         if isinstance(step, dict) and "model" in step:
-            plain = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS and not is_param_generator_spec(value)}
+            # The step's native `_grid_` key (if any) is kept on the step for the bridge to lower; a
+            # per-param `_range_`/`_log_range_` sibling is kept too. Everything else non-reserved is a
+            # plain hyperparameter set on the model clone.
+            native_grid = step_has_native_grid(step)
+
+            def _is_native_generator_sibling(key: str, value: Any, _native_grid: bool = native_grid) -> bool:
+                return (key == "_grid_" and _native_grid) or is_param_generator_spec(value)
+
+            plain = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS and not _is_native_generator_sibling(key, value)}
             if plain:
                 model = step["model"]
+                # A class-model (e.g. ``PLSRegression`` not ``PLSRegression()``) — common with a step-level
+                # ``_grid_`` over a bare class — must be instantiated before ``clone`` (``clone`` rejects a
+                # class), mirroring :func:`_apply_model_params`. Without this a bare-class model carrying a
+                # plain sibling param (``{"_grid_": …, "model": PLSRegression, "scale": False}``) crashes.
+                if isinstance(model, type):
+                    model = model()
                 model = clone(model) if hasattr(model, "set_params") else model
                 model.set_params(**plain)
-                kept = {key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS or is_param_generator_spec(value)}
+                kept = {key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS or _is_native_generator_sibling(key, value)}
                 kept["model"] = model
                 step = kept
         out.append(step)

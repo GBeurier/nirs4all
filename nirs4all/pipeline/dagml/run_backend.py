@@ -469,6 +469,48 @@ def _derive_variant_config_names(pipeline: Any, name: str) -> list[str]:
         return []
 
 
+def _native_param_variant_model_params(pipeline: Any, name: str) -> list[dict[str, Any]]:
+    """The per-variant MODEL ``params`` dicts aligned 1:1 with :func:`_derive_variant_config_names`.
+
+    For a NON-degenerate model param sweep (``_grid_``), legacy expands EACH grid variant into its own
+    concrete model with that variant's specific params and selects the TRUE CV-best — so the winner's
+    ``config_name`` is the WINNING variant's name, NOT ``names[0]``. The native dag-ml run likewise refits
+    the true CV-best but emits an OPAQUE variant hash with no params in the reports, so the host recovers
+    the winning variant by CONTENT: it matches the winner's refit model params against THIS ordered list
+    of per-variant model params (the same :class:`PipelineConfigs` expansion ``_derive_variant_config_names``
+    reads ``.names`` from, so element ``i`` is variant ``names[i]``'s model params).
+
+    Each entry is the variant's model-step serialized ``params`` dict (``{"class", "params"}`` form —
+    :func:`~nirs4all.pipeline.config.component_serialization.serialize_component` is what ``PipelineConfigs``
+    stores), so a content match is an exact swept-param-value comparison. Returns ``[]`` for a non-sweep
+    pipeline or any underivable form (the caller then falls back to the positional ``names[0]`` pairing).
+    """
+    try:
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+
+        if isinstance(pipeline, PipelineConfigs):
+            configs = pipeline
+        else:
+            steps = PipelineConfigs._load_steps(pipeline)  # noqa: SLF001 - reuse the exact legacy step-loading.
+            label = "" if name == "" else f"{name}_p0"
+            configs = PipelineConfigs(steps, name=label)
+        if configs.expansion_count <= 1:
+            return []
+        params_per_variant: list[dict[str, Any]] = []
+        for variant_steps in configs.steps:
+            model_params: dict[str, Any] = {}
+            for step in variant_steps:
+                if isinstance(step, dict) and "model" in step:
+                    model = step["model"]
+                    # PipelineConfigs stores the expanded model as the serialized {"class", "params"} dict.
+                    model_params = dict(model["params"]) if isinstance(model, dict) and isinstance(model.get("params"), dict) else (model.get_params() if hasattr(model, "get_params") else {})
+                    break
+            params_per_variant.append(model_params)
+        return params_per_variant
+    except Exception:  # noqa: BLE001 - an underivable pipeline drops the param recovery (positional fallback).
+        return []
+
+
 def _dispatch_run(
     pipeline: Any,
     spectro: Any,
@@ -505,6 +547,10 @@ def _dispatch_run(
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
     # num_predictions parity), labeling them with these (the winner takes index 0 + the "_refit" suffix).
     variant_config_names = _derive_variant_config_names(pipeline, name)
+    # The per-variant MODEL params aligned 1:1 with `variant_config_names` — the native param-sweep path
+    # matches the winner's refit model params against these to recover the WINNING variant's config_name
+    # (a non-degenerate `_grid_` selects the true CV-best, not index 0). Empty for a non-sweep pipeline.
+    variant_model_params = _native_param_variant_model_params(pipeline, name)
 
     is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
     # CV-selection metric MUST mirror legacy Predictions._resolve_effective_metric: its DEFAULT for a
@@ -633,7 +679,7 @@ def _dispatch_run(
     # generators (`_or_`/`_cartesian_`, multi-model) stay on the Python `expand_spec` path below.
     if _generation_kind(list(pipeline)) == "param_model":
         return _run_native_generation(
-            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, random_state=random_state
+            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, variant_model_params=variant_model_params, random_state=random_state
         )
 
     # FLAT-SINGLE operator `_or_` (a bare-operator preprocessing sweep) → ONE native dag-ml operator-SELECT

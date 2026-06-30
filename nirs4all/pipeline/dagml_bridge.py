@@ -114,8 +114,9 @@ def _param_generator(param: str, spec: Any) -> dict[str, Any]:
     """Lower one nirs4all param-level generator sibling to a dag-ml ``generators`` entry.
 
     Only the ``_range_`` and ``_log_range_`` list forms are native (see
-    :func:`is_param_generator_spec`); ``_grid_``, dict-form ranges, and modifier-bearing sweeps stay
-    on the Python path, so this never receives them. Field names verified against
+    :func:`is_param_generator_spec`); the dict-form ranges and modifier-bearing sweeps stay on the
+    Python path, so this never receives them (a step-level ``_grid_`` is lowered by
+    :func:`_grid_param_generator`, not here). Field names verified against
     ``examples/pipeline_dsl_compact_generation.json`` and ``dsl.rs``:
 
     * ``{"_range_": [a, b, s]}`` → ``{"kind": "range", "param", "start": a, "stop": b, "step": s}``
@@ -131,6 +132,97 @@ def _param_generator(param: str, spec: Any) -> dict[str, Any]:
         return {"kind": "log_range", "param": param, "start": start, "stop": stop, "count": int(count)}
     start, stop, step = spec["_range_"]
     return {"kind": "range", "param": param, "start": start, "stop": stop, "step": step}
+
+
+def is_grid_param_generator_spec(grid_map: Any) -> bool:
+    """True ONLY for a ``_grid_`` over MODEL params the native dag-ml ``Grid`` generator can lower at parity.
+
+    A step-level ``{"_grid_": {param: [values], …}, "model": M}`` lowers to one native dag-ml ``Grid``
+    param generator (:func:`_grid_param_generator`). dag-ml's ``Grid`` is a flat Cartesian product of
+    each param's PLAIN value list — its ``PipelineDslGeneratorValue`` is an *untagged literal*, so it
+    does NOT recursively expand a nested generator value. nirs4all's ``GridStrategy`` DOES expand a
+    nested-generator value (``n_components: {"_range_": …}``) BEFORE the product, so only a grid whose
+    every value is a list (or bare scalar) of PLAIN, finite, JSON-native scalars — with NO nested dict
+    (a nested generator / object value) and NO nested-generator list element — is representable natively
+    and produces the identical variant set. ALL of:
+
+    * a non-empty dict of ``str → values`` (the bare ``_grid_`` param-map, NO ``count``/``_seed_``
+      modifier — those reach here only when the caller already split the keyword off, and a modifier
+      changes the variant set vs. ``expand_spec``, so it is excluded by the caller); AND
+    * every value is a list of plain scalars (or a single plain scalar), each scalar finite and
+      JSON-native (``bool``/``int``/``float``/``str``/``None``) — NO dict, NO list-of-dicts (a nested
+      generator the native ``Grid`` cannot expand), NO numpy / non-finite / non-JSON value; AND
+    * the param insertion order is already alphabetical (``list(grid_map) == sorted(grid_map)``):
+      dag-ml's ``Grid`` nests params in ``BTreeMap`` (sorted) order while nirs4all nests in INSERTION
+      order, so a non-alphabetical grid would produce a different variant ENUMERATION order than
+      ``expand_spec`` — keep it on the Python path so the per-variant config map stays aligned.
+
+    Any other shape (a nested-generator value, a modifier-bearing or non-alphabetical grid, a non-list
+    non-scalar value, a non-JSON / non-finite scalar) → ``False`` (stays on the correct Python
+    ``expand_spec`` path, still dag-ml-native via that route). When in doubt, this returns ``False``.
+    """
+    import math
+
+    if not isinstance(grid_map, dict) or not grid_map:
+        return False
+    keys = list(grid_map)
+    # Validate ALL keys are strings BEFORE any ordering comparison — `sorted()` on mixed str/non-str keys
+    # would raise TypeError; the gate must fail CLOSED (demote to Python-expand) on a non-str key, never crash.
+    if not all(isinstance(key, str) for key in keys):
+        return False
+    if keys != sorted(keys):
+        return False
+    for value in grid_map.values():
+        values = value if isinstance(value, list) else [value]
+        if not values:
+            return False
+        for item in values:
+            if isinstance(item, bool) or item is None or isinstance(item, (str, int)):
+                continue
+            if isinstance(item, float) and math.isfinite(item):
+                continue
+            return False
+    return True
+
+
+# Variant-set-changing modifier siblings a `_grid_` model step can carry (a `count` subsample or a
+# `_seed_`). When present beside `_grid_`, the native dag-ml `Grid` does NOT reproduce nirs4all's seeded
+# subsample, so the step stays on the Python expand path. `_tags_`/`_metadata_` are inert (they do not
+# change the variant set), so they do NOT block the native path.
+_GRID_VARIANT_MODIFIER_KEYS = frozenset({"count", "_seed_"})
+
+
+def step_has_native_grid(step: Any) -> bool:
+    """True iff a model ``step`` carries a step-level ``_grid_`` the native dag-ml ``Grid`` can lower at parity.
+
+    A clean native grid is ``{"_grid_": <native param-map>, "model": M[, plain params]}``: a step-level
+    ``_grid_`` whose param-map passes :func:`is_grid_param_generator_spec` AND NO variant-set-changing
+    grid modifier sibling (``count`` / ``_seed_``) — those would subsample/reseed the grid, which the
+    native ``Grid`` does not reproduce, so a modifier-bearing grid stays on the Python expand path. The
+    single recognition point shared by the bridge lowering (:func:`_step_to_dsl`), the generation-kind
+    classifier, and the plain-param application, so the three never disagree on which grids go native.
+    """
+    if not isinstance(step, dict) or "model" not in step or "_grid_" not in step:
+        return False
+    if _GRID_VARIANT_MODIFIER_KEYS & set(step):
+        return False
+    return is_grid_param_generator_spec(step["_grid_"])
+
+
+def _grid_param_generator(grid_map: dict[str, Any]) -> dict[str, Any]:
+    """Lower a native-representable step-level ``_grid_`` param-map to a dag-ml ``Grid`` generator entry.
+
+    ``{"n_components": [5, 8, 11, 14], "scale": [True, False, True]}`` →
+    ``{"kind": "grid", "params": {"n_components": [5, 8, 11, 14], "scale": [True, False, True]}}``. The
+    caller (:func:`is_grid_param_generator_spec`) has already proven every value is a list (or bare
+    scalar) of plain finite JSON scalars, so each value is normalized to a list and emitted verbatim as
+    the ``Grid`` param's value vector (dag-ml's ``PipelineDslGeneratorValue`` reads a bare scalar as a
+    literal value). The ``Grid`` is the flat Cartesian product of these vectors in ``BTreeMap`` (sorted)
+    param order — which equals nirs4all's insertion order because the predicate requires the param keys
+    already be alphabetical, so the variant set AND enumeration order match ``expand_spec``.
+    """
+    params = {key: (value if isinstance(value, list) else [value]) for key, value in grid_map.items()}
+    return {"kind": "grid", "params": params}
 
 
 def is_param_generator_spec(spec: Any) -> bool:
@@ -655,18 +747,29 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             # param-level generator dicts lower to native dag-ml ``generators`` so the compiler
             # expands variants and dag-ml runs generation + SELECT + refit natively (no Python expand).
             generators: list[dict[str, Any]] = []
+            # A step-level `{"_grid_": {param: [vals], …}, "model": M}` over model params lowers to ONE
+            # native dag-ml `Grid` generator (flat Cartesian product) — dag-ml expands + scores + SELECTs +
+            # refits natively. A nested-generator / modifier-bearing / non-alphabetical / non-JSON grid the
+            # native `Grid` cannot represent fails the predicate, so its `_grid_` key hits the
+            # generator-keyword guard below → the Python expand path.
+            native_grid = step_has_native_grid(step)
+            if native_grid:
+                generators.append(_grid_param_generator(step["_grid_"]))
             for key, value in step.items():
                 if key in _RESERVED_MODEL_KEYS:
                     continue
+                if key == "_grid_" and native_grid:
+                    continue  # already lowered to a native Grid generator above
                 if is_param_generator_spec(value):
                     generators.append(_param_generator(key, value))
-                elif isinstance(value, dict) and _GENERATION_KEYWORDS & set(value):
-                    # A generator-shaped sibling the bridge does NOT lower natively (e.g. `_grid_`,
+                elif (key in _GENERATION_KEYWORDS) or (isinstance(value, dict) and _GENERATION_KEYWORDS & set(value)):
+                    # A generator-shaped sibling the bridge does NOT lower natively (a non-native `_grid_`,
                     # the dict range form, or a modifier-bearing sweep). Fail loud rather than silently
                     # treat it as a plain param — run_via_dagml routes these to the Python expand path.
+                    offending = sorted(value) if isinstance(value, dict) else [key]
                     raise NotImplementedError(
-                        f"dag-ml bridge does not lower model param generator {sorted(value)} on `{key}`; "
-                        f"use the Python expand path (operator-level / _grid_ / modifier sweeps)"
+                        f"dag-ml bridge does not lower model param generator {offending} on `{key}`; "
+                        f"use the Python expand path (operator-level / nested-grid / modifier sweeps)"
                     )
                 else:
                     dsl_step["params"][key] = value
