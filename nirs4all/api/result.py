@@ -839,6 +839,24 @@ class RunResult:
         """
         return self.predictions.get_models()
 
+    def to_rt_result(self) -> Any:
+        """Project this result into the runtime ``RtResult`` envelope (``LOCK-RT``); a pure, additive view.
+
+        Returns a :class:`nirs4all.pipeline.dagml.rt.RtResult` — the unified runtime result envelope anchored
+        on the dag-ml ScoreSet. For a ``run(engine="dag-ml")`` result, ``reports`` is the VERBATIM native
+        ``score_set.reports[]`` (read from the captured ``_dagml_score_set``); for a legacy result the
+        envelope is sparse (no native ScoreSet) but still carries the predictions projection and any attached
+        :class:`~nirs4all.pipeline.dagml.rt.RtError` diagnostics (e.g. "ran legacy because <cause>" from the
+        ``run()`` fallback). Pure projection — nothing is recomputed and this ``RunResult`` is not mutated.
+        Studio's ``ChainSummary`` pivot and the Web ``RunResult`` nest are both deterministic views of it.
+
+        Additive 0.9.x-safe seam: it does NOT touch ``RunResult``'s frozen fields, the ``.n4a`` bundle, or
+        the native results format.
+        """
+        from nirs4all.pipeline.dagml.rt import RtResult
+
+        return RtResult.from_run_result(self)
+
     @property
     def relation_replay_manifests(self) -> dict[str, dict[str, Any]]:
         """Return relation replay manifests keyed by chain or prediction id."""
