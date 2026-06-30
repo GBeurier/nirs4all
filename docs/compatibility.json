@@ -359,21 +359,26 @@
     },
     {
       "surface": "n4a_cross_engine",
-      "status": "gap",
+      "status": "exists",
       "tolerance_band": "cross_impl_ypred",
-      "owner_lane": "L17+L5"
+      "owning_test": "tests/integration/parity/test_conformance_n4a_cross_engine.py::test_n4a_bundle_cross_engine_round_trip",
+      "owner_lane": "L17+L5",
+      "note": "pins the transitional legacy-refit export bridge round-trip; tightens to native_export_reproduce when native .n4a export (DML-008/W3) lands"
     },
     {
       "surface": "workspace_cross_engine",
-      "status": "gap",
+      "status": "exists",
       "tolerance_band": "cross_impl_score",
+      "owning_test": "tests/integration/parity/test_conformance_workspace_cross_engine.py::test_native_results_triple_round_trips_and_agrees_cross_engine",
       "owner_lane": "L17+L5"
     },
     {
       "surface": "error_refusal_parity",
-      "status": "gap",
+      "status": "exists",
       "tolerance_band": "n/a_semantic",
-      "owner_lane": "L17"
+      "owning_test": "tests/integration/parity/test_conformance_error_parity.py",
+      "owner_lane": "L17",
+      "note": "dag-ml refusal cause vocab pinned via local RT-003 helper; consumes W7 rt.py RtError.from_dagml_error when B-018/L10 lands"
     },
     {
       "surface": "studio_oracle",
