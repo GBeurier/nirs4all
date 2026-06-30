@@ -513,6 +513,27 @@ def _native_param_variant_model_params(pipeline: Any, name: str) -> list[dict[st
         return []
 
 
+def _unwrap_preprocessing_steps(pipeline: list[Any]) -> list[Any]:
+    """Unwrap a modifier-free ``{"preprocessing": <operator>}`` step to its bare operator.
+
+    Legacy ``StepParser`` accepts the explicit ``{"preprocessing": op}`` keyword wrapper as a pure
+    synonym for a bare transform step (``RESERVED_KEYWORDS`` never includes ``preprocessing``). The dag-ml
+    bridge's :func:`~nirs4all.pipeline.dagml_bridge._step_to_dsl` lowers only bare operator instances and
+    the structural keywords (``model``/``y_processing``/``concat_transform``/``feature_augmentation``/
+    generators), so a ``{"preprocessing": op}`` dict hits its fail-loud "does not serialize step keyword(s)"
+    path → legacy fallback. A wrapper carrying ONLY the ``preprocessing`` key is a pure synonym — the
+    operator fits/transforms identically to the bare form on the native X-chain — so unwrap it here, BEFORE
+    detection/dispatch, to let the canonical concrete path run it natively.
+
+    A wrapper carrying ANY other key (``fit_on_all``/``force_layout``/``na_policy``/``fill_value``/``name``)
+    is left untouched: those modifiers change fit-scope / layout / NA semantics the native X-chain cannot
+    represent, so the step keeps its dict form and still fails loud → legacy fallback (never a silent-wrong
+    native run). The caller derives ``config_name`` from the ORIGINAL (wrapped) pipeline before unwrapping,
+    so the dag-ml ``RunResult`` keeps the legacy-matching config name.
+    """
+    return [step["preprocessing"] if isinstance(step, dict) and set(step) == {"preprocessing"} else step for step in pipeline]
+
+
 def _dispatch_run(
     pipeline: Any,
     spectro: Any,
@@ -562,6 +583,14 @@ def _dispatch_run(
     # bridge's `parse_selection_metric`. Regression stays `rmse`.
     metric = "balanced_accuracy" if is_classification else "rmse"
     task_type = "classification" if is_classification else "regression"
+
+    # Unwrap any modifier-free `{"preprocessing": op}` wrapper to its bare operator BEFORE detection/dispatch
+    # (legacy treats it as a pure synonym for a bare transform, but the bridge only lowers bare operators, so
+    # the wrapper would otherwise fail loud → legacy). A wrapper carrying fit_on_all/force_layout/... keeps its
+    # dict form (those modifiers are not natively representable) and still falls back. `config_name` /
+    # `variant_config_names` / `variant_model_params` were derived from the ORIGINAL pipeline above, so the
+    # dag-ml RunResult keeps the legacy-matching name; `_attach_export_spec` likewise sees the original.
+    pipeline = _unwrap_preprocessing_steps(list(pipeline))
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
     # unsupported combination BEFORE any non-group dispatch path (branch/augmentation/exclude) runs.
