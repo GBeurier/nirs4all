@@ -17,23 +17,31 @@ Covers four things:
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-# Skip the WHOLE module when the native binding is absent. The operator package
-# imports fine without it (it guards the n4m import and sets METHODS_AVAILABLE
-# False), so we must gate on the REAL binding — importorskip("n4m") raises
-# Skipped (not a failure) when libn4m / the n4m wheel is not installed.
-pytest.importorskip("n4m", reason="nirs4all-methods (n4m binding) not installed")
+_REQUIRE_N4M = os.environ.get("NIRS4ALL_REQUIRE_N4M") == "1"
+
+try:
+    import n4m as _n4m_binding  # noqa: F401
+except Exception as exc:  # pragma: no cover - strict failure is exercised in CI without n4m
+    message = f"nirs4all-methods (n4m binding) not installed or not loadable: {exc}"
+    if _REQUIRE_N4M:
+        pytest.fail(message, pytrace=True)
+    pytest.skip(message, allow_module_level=True)
 
 from nirs4all.operators import methods
 
-pytestmark = pytest.mark.skipif(
-    not methods.METHODS_AVAILABLE,
-    reason="nirs4all-methods (n4m binding) not available",
-)
+pytestmark = pytest.mark.methods
+
+if not methods.METHODS_AVAILABLE:
+    message = "nirs4all-methods (n4m binding) imported, but MethodsSNV/MethodsPLS are not available"
+    if _REQUIRE_N4M:
+        pytest.fail(message, pytrace=True)
+    pytest.skip(message, allow_module_level=True)
 
 MethodsSNV = methods.MethodsSNV
 MethodsPLS = methods.MethodsPLS

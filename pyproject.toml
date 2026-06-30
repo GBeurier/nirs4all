@@ -154,6 +154,11 @@ dev = [
     "build>=1.0.0",
     "ruff>=0.1.0",
     "mypy>=1.7.0",
+    # tests/conftest.py imports matplotlib unconditionally (sets the Agg backend
+    # for the whole suite), so it is required for ANY test collection — not just
+    # the viz/explain paths. Carried here so `pip install -e .[dev]` yields a
+    # collectable test tree.
+    "matplotlib>=3.7.0",
 ]
 
 # Documentation
@@ -225,6 +230,7 @@ markers = [
     "stress: memory stress tests (slow, excluded from fast CI)",
     "parity: dag-ml migration parity oracle (legacy gold baseline + future dual-run)",
     "bench: performance benchmarks (legacy vs dag-ml; nightly, not a fast-CI gate)",
+    "methods: tests requiring the nirs4all-methods / n4m native binding",
     "xdist_group(name): mark test to run in a named group for sequential execution with pytest-xdist",
 ]
 

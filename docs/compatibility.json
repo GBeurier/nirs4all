@@ -1,0 +1,407 @@
+{
+  "schema_version": 1,
+  "owner": "nirs4all compatibility ledger",
+  "consumer_of": "dag-ml.nirs4all.parity_oracle.v1",
+  "last_reconciled": {
+    "date": "2026-06-30",
+    "nirs4all_commit": "e41362b4",
+    "dag_ml_commit": "f58d7bf"
+  },
+  "tolerance_bands": [
+    {
+      "band_id": "kernel_snv",
+      "numeric_path": "same_impl_kernel",
+      "metric_class": "y_transform",
+      "abs_tol": 1e-12,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/unit/operators/methods/test_n4m_ops.py"
+    },
+    {
+      "band_id": "kernel_pls",
+      "numeric_path": "same_impl_kernel",
+      "metric_class": "prediction",
+      "abs_tol": 1e-9,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/unit/operators/methods/test_n4m_ops.py"
+    },
+    {
+      "band_id": "native_export_reproduce",
+      "numeric_path": "dagml_native_self",
+      "metric_class": "prediction",
+      "abs_tol": 1e-6,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/integration/parity/test_conformance_export_roundtrip.py"
+    },
+    {
+      "band_id": "per_case_tight",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "score",
+      "abs_tol": 1e-6,
+      "rel_tol": 0.0,
+      "enforced_at": "PipelineCase.metric_tolerances"
+    },
+    {
+      "band_id": "cross_impl_score",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "score",
+      "abs_tol": 0.001,
+      "rel_tol": 0.0,
+      "measured_ceiling": 7e-6,
+      "enforced_at": "tests/integration/parity/_conformance_helpers.py:_DEFAULT_SCORE_TOL"
+    },
+    {
+      "band_id": "cross_impl_ypred",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "prediction",
+      "abs_tol": 0.001,
+      "rel_tol": 0.0,
+      "measured_ceiling": 0.0006,
+      "enforced_at": "tests/integration/parity/_conformance_helpers.py:_DEFAULT_YPRED_TOL"
+    },
+    {
+      "band_id": "cross_impl_ypred_firstderiv",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "prediction",
+      "abs_tol": 0.005,
+      "rel_tol": 0.0,
+      "measured_ceiling": 0.00345,
+      "guard": "assert_same_winner",
+      "enforced_at": "tests/integration/parity/test_conformance_dual_engine.py:Y_PRED_TOL_OVERRIDES"
+    },
+    {
+      "band_id": "classification_label",
+      "numeric_path": "any",
+      "metric_class": "class_label",
+      "abs_tol": 0.0,
+      "rel_tol": 0.0,
+      "enforced_at": "dag-ml/docs/contracts/parity_oracle.v1.json"
+    },
+    {
+      "band_id": "n/a_semantic",
+      "numeric_path": "none",
+      "metric_class": "semantic_divergence",
+      "abs_tol": null,
+      "rel_tol": null,
+      "enforced_at": "strict xfail or skip"
+    },
+    {
+      "band_id": "n/a_rng",
+      "numeric_path": "none",
+      "metric_class": "rng_nondeterminism",
+      "abs_tol": null,
+      "rel_tol": null,
+      "enforced_at": "strict xfail or skip"
+    }
+  ],
+  "authority": [
+    {
+      "case": "sample_augmentation_gaussian",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "augmentation RNG/order differs"
+    },
+    {
+      "case": "sample_augmentation_chained",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "chained augmentation RNG/order differs"
+    },
+    {
+      "case": "sample_augmentation_after_savgol",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "augmentation-after-preprocessing RNG/order differs"
+    },
+    {
+      "case": "feature_augmentation_replace_three_views",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "feature-view build order differs"
+    },
+    {
+      "case": "concat_transform_pca_svd_plsr",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "concat_transform view order/decomposition differs"
+    },
+    {
+      "case": "generator_finetune_params_optuna",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "Optuna trial sequence differs across engines"
+    },
+    {
+      "case": "generator_sample_log_uniform_alpha",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "unseeded _sample_ variant set/winner is nondeterministic"
+    },
+    {
+      "case": "rep_to_sources_basic",
+      "tier": 2,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "legacy double-counts overlapping repetition OOF folds"
+    },
+    {
+      "case": "rep_to_pp_basic",
+      "tier": 2,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "legacy double-counts overlapping repetition OOF folds"
+    },
+    {
+      "case": "branch_separation_by_tag",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "legacy bug prevents an executable oracle"
+    },
+    {
+      "case": "branch_separation_by_filter",
+      "tier": 3,
+      "disposition": "xfail_strict",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "legacy bug prevents an executable oracle"
+    },
+    {
+      "case": "generator_or_models_pls_ridge",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "cross_impl_score",
+      "mechanism": "operator-select refits the winner only; legacy stores loser final rows"
+    },
+    {
+      "case": "generator_chain_model_configs",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "cross_impl_score",
+      "mechanism": "operator-select refits the winner only; legacy stores loser final rows"
+    }
+  ],
+  "coverage_skips": [
+    {
+      "case": "branch_separation_by_metadata_auto",
+      "skip_kind": "fixture"
+    },
+    {
+      "case": "exclude_multi_any_y_and_x",
+      "skip_kind": "fixture"
+    },
+    {
+      "case": "aggregation_classification_vote",
+      "skip_kind": "fixture"
+    },
+    {
+      "case": "generator_or_count_seed",
+      "skip_kind": "unknown_semantics"
+    },
+    {
+      "case": "generator_or_weights_count_seed",
+      "skip_kind": "unknown_semantics"
+    },
+    {
+      "case": "refit_params_use_all_partitions",
+      "skip_kind": "unknown_semantics"
+    }
+  ],
+  "expected_fallback": [
+    {
+      "case": "branch_dup_three_way_merge_predictions",
+      "shape": "branch+merge",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "branch_dup_two_way_merge_features",
+      "shape": "branch+merge",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "branch_dup_named_with_metamodel",
+      "shape": "branch+merge",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "branch_dup_merge_all",
+      "shape": "branch+merge",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "multi_source_by_source_branch_shared_preproc",
+      "shape": "multi_source",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "multi_source_by_source_branch_distinct_preproc",
+      "shape": "multi_source",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "multi_source_per_source_models_stacking",
+      "shape": "multi_source",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "multi_source_sources_concat_then_rf",
+      "shape": "multi_source",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "preprocessing_explicit_keyword",
+      "shape": "preprocessing_keyword",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "preprocessing_fit_on_all",
+      "shape": "preprocessing_keyword",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "preprocessing_force_layout_2d",
+      "shape": "preprocessing_keyword",
+      "owner_lane": "L5"
+    }
+  ],
+  "num_predictions_divergence": [
+    {
+      "case": "generator_or_models_pls_ridge",
+      "legacy": 34,
+      "dagml": 32,
+      "disposition": "pass_parity_note"
+    },
+    {
+      "case": "generator_chain_model_configs",
+      "legacy": 49,
+      "dagml": 47,
+      "disposition": "pass_parity_note"
+    }
+  ],
+  "ypred_tol_overrides": [
+    {
+      "case": "generator_or_with_pick",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_cartesian_stages",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_cartesian_with_param_range",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_or_pick_requires",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_cartesian_pick",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_or_pick_mutex3",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    }
+  ],
+  "same_winner_cases": [
+    "generator_or_pick_mutex",
+    "generator_or_pick_mutex3",
+    "generator_or_pick_exclude",
+    "generator_cartesian_exclude",
+    "generator_combined_constraints",
+    "generator_or_with_pick",
+    "generator_or_arrange_ordered",
+    "generator_cartesian_stages",
+    "generator_or_then_pick",
+    "generator_or_then_arrange",
+    "generator_cartesian_pick",
+    "generator_cartesian_count_seed",
+    "generator_grid_twelve_variants",
+    "generator_grid_n_components_scale",
+    "generator_or_multistep_choices",
+    "generator_or_multistep_pick",
+    "generator_or_nested",
+    "generator_zip_single_param",
+    "generator_chain_multistep_configs"
+  ],
+  "cross_engine_surfaces": [
+    {
+      "surface": "n4a_export_roundtrip",
+      "status": "partial",
+      "tolerance_band": "native_export_reproduce",
+      "owner_lane": "L17"
+    },
+    {
+      "surface": "n4a_cross_engine",
+      "status": "gap",
+      "tolerance_band": "cross_impl_ypred",
+      "owner_lane": "L17+L5"
+    },
+    {
+      "surface": "workspace_cross_engine",
+      "status": "gap",
+      "tolerance_band": "cross_impl_score",
+      "owner_lane": "L17+L5"
+    },
+    {
+      "surface": "error_refusal_parity",
+      "status": "gap",
+      "tolerance_band": "n/a_semantic",
+      "owner_lane": "L17"
+    },
+    {
+      "surface": "studio_oracle",
+      "status": "gap",
+      "tolerance_band": "cross_impl_score",
+      "owner_lane": "L17+L12"
+    },
+    {
+      "surface": "methods_installed",
+      "status": "partial",
+      "tolerance_band": "kernel_pls",
+      "owner_lane": "L17+L9"
+    }
+  ],
+  "coverage_meter": {
+    "registered": 95,
+    "non_runnable": 8,
+    "runnable": 87,
+    "fallback": 11,
+    "native": 76,
+    "xfail_strict": 11,
+    "skip": 6,
+    "num_predictions_divergence": 2,
+    "expected_fallback_target": 0
+  }
+}
