@@ -46,7 +46,7 @@ def test_run_sets_default_cache_config_when_cache_none(monkeypatch):
         pipeline=[{"model": "DummyModel"}],
         dataset="dummy_dataset",
         cache=None,
-        engine="legacy",  # this test exercises legacy PipelineRunner cache wiring (post-ADR-17 the default is dag-ml, which builds no runner)
+        engine="legacy",  # this test exercises legacy PipelineRunner cache wiring (pinned explicitly: the dag-ml path builds no runner)
         verbose=0,
     )
 
@@ -67,7 +67,7 @@ def test_run_uses_explicit_cache_config(monkeypatch):
         pipeline=[{"model": "DummyModel"}],
         dataset="dummy_dataset",
         cache=explicit_cache,
-        engine="legacy",  # legacy PipelineRunner cache wiring (post-ADR-17 the default is dag-ml, which builds no runner)
+        engine="legacy",  # legacy PipelineRunner cache wiring (pinned explicitly: the dag-ml path builds no runner)
         verbose=0,
     )
 
@@ -89,7 +89,7 @@ def test_run_keeps_nested_list_pipeline_as_single_pipeline(monkeypatch):
     run_module.run(
         pipeline=nested_pipeline,
         dataset="dummy_dataset",
-        engine="legacy",  # legacy PipelineRunner pipeline-normalization (post-ADR-17 the default is dag-ml, which builds no runner)
+        engine="legacy",  # legacy PipelineRunner pipeline-normalization (pinned explicitly: the dag-ml path builds no runner)
         verbose=0,
     )
 

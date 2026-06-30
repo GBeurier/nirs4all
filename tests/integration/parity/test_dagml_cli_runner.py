@@ -81,9 +81,9 @@ def test_dagml_engine_coverage_boundary() -> None:
     generators (_or_/_range_/_grid_), hyperparameter sweeps, concat_transform, single-source
     feature_augmentation (extend/add/replace → flat feature-axis concat, S6). UNSUPPORTED features must
     fail LOUDLY (a clear NotImplementedError from the bridge) — never silently produce a wrong result.
-    Since the ADR-17 cutover (dag-ml is the default engine) an unsupported shape falls back to legacy via
-    run() instead of producing a wrong result. This test pins that coverage boundary; drop a keyword from
-    `unsupported` as each gets implemented natively.
+    On the dag-ml engine (`engine="dag-ml"`; selectable — legacy is the interim default) an unsupported
+    shape falls back to legacy via run() instead of producing a wrong result. This test pins that coverage
+    boundary; drop a keyword from `unsupported` as each gets implemented natively.
     """
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.preprocessing import MinMaxScaler

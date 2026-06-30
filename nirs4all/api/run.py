@@ -282,12 +282,14 @@ def run(
             Affects column headers in final summary tables. Internal variable names
             use ML conventions regardless of this setting.
 
-        engine: Execution backend (ADR-17 cutover selector). ``None`` (default) resolves to
-            ``"dag-ml"``: the pipeline runs natively on the dag-ml backend (Rust, in-process by
-            default), with a TRANSPARENT fallback to the legacy engine (a warning is emitted) when a
-            pipeline shape is not yet covered or the dag-ml backend is not installed. ``"legacy"``
-            forces the in-process orchestrator. ``"dual"`` (side-by-side comparison) is reserved and
-            raises ``NotImplementedError``. Override the default per-process with ``$N4A_ENGINE``.
+        engine: Execution backend selector. ``None`` (default) resolves to ``"legacy"``: the
+            public-maintained nirs4all stays pure-Python by default and runs on the in-process
+            orchestrator (interim posture until the planned global refactoring lands). ``"dag-ml"``
+            runs the pipeline natively on the dag-ml backend (Rust, in-process by default), with a
+            TRANSPARENT fallback to the legacy engine (a warning is emitted) when a pipeline shape is
+            not yet covered or the dag-ml backend is not installed. ``"dual"`` (side-by-side
+            comparison) is reserved and raises ``NotImplementedError``. Override the default
+            per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
 
         results_path: Native results output root (dag-ml engine only, P3 Slice 2b-i; OFF by default).
             When given, the dag-ml run ADDITIONALLY writes a native results directory
@@ -547,10 +549,13 @@ def run(
 
         return result
 
-    # ADR-17 backend selector (nirs4all-core -> dag-ml migration, NOW FLIPPED). The DEFAULT engine is
-    # dag-ml: `run()` dispatches to the dag-ml backend, which runs the pipeline natively (Rust,
-    # IN-PROCESS by default via the PyO3 extension) and returns a RunResult of dag-ml's native scores.
-    # `engine="legacy"` forces the in-process legacy orchestrator (`_run_legacy`).
+    # ADR-17 backend selector (nirs4all-core -> dag-ml migration). The DEFAULT engine is LEGACY again
+    # (interim posture: the public-maintained nirs4all stays pure-Python by default until the planned
+    # global refactoring; the legacy-DROP cutover flips it back to dag-ml). dag-ml stays FULLY SELECTABLE
+    # via `engine="dag-ml"` / `$N4A_ENGINE=dag-ml`: it dispatches to the dag-ml backend, which runs the
+    # pipeline natively (Rust, IN-PROCESS by default via the PyO3 extension) and returns a RunResult of
+    # dag-ml's native scores. A plain `run()` (the legacy default) runs the in-process legacy orchestrator
+    # (`_run_legacy`).
     #
     # TRANSPARENT LEGACY FALLBACK. The default is 100% safe via two catchable signals, both warned:
     #   * SHAPE not yet covered — the catchable coverage-boundary shapes (no splitter, .n4a export,
