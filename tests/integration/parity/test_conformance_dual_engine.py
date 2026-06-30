@@ -252,7 +252,14 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
     "generator_or_pick_exclude",
     "generator_cartesian_exclude",
     "generator_combined_constraints",
+    # ADR-17 item 5 slice C — UNCONSTRAINED operator generators now route NATIVE operator-SELECT
+    # (`_is_unconstrained_operator_generator`): a multi-variant pick/arrange/cartesian survivor set selects
+    # a REAL winner config_name natively, so lock that the native winner matches legacy. (`generator_or_then_*`
+    # / `generator_cartesian_pick` / `generator_cartesian_count_seed` stay DEMOTED to Python-expand — they are
+    # listed here for the SAME-winner lock on the Python-expand survivor set, not for native routing.)
+    "generator_or_with_pick",
     "generator_or_arrange_ordered",
+    "generator_cartesian_stages",
     "generator_or_then_pick",
     "generator_or_then_arrange",
     "generator_cartesian_pick",

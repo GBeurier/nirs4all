@@ -51,6 +51,13 @@ def _dataset() -> DatasetConfigs:
     return DatasetConfigs(dataset_path("regression"))
 
 
+def _ss() -> Any:
+    """A fresh seeded ShuffleSplit — fresh per call so a factory can be re-invoked for the legacy + dag-ml legs."""
+    from sklearn.model_selection import ShuffleSplit
+
+    return ShuffleSplit(n_splits=3, random_state=42)
+
+
 def _run_dagml(pipeline: list[Any]) -> tuple[Any, bool]:
     """Run the dag-ml leg; return ``(result, dagml_native)`` (native == no legacy-fallback warning)."""
     with warnings.catch_warnings(record=True) as caught:
@@ -714,3 +721,144 @@ def test_lowering_unsupported_demotes_to_python_expand(monkeypatch: pytest.Monke
     # Demoted to Python-expand but STAYS on the dag-ml engine (no legacy-fallback warning), real result.
     assert native is True
     assert result.num_predictions >= 1
+
+
+# --------------------------------------------------------------------------- #
+# ADR-17 item 5 slice C — UNCONSTRAINED operator generators (pick/arrange/cartesian) route native
+# --------------------------------------------------------------------------- #
+
+
+@pytest.mark.parametrize(
+    "node",
+    [
+        # pure `_or_` with an INTEGER `pick` in [1, n] — survivors are the C(n, pick) combinations.
+        {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2},
+        # pure `_or_` with an INTEGER `arrange` in [1, n] — survivors are the P(n, arrange) ORDERED permutations.
+        {"_or_": [SNV, MSC, Detrend], "arrange": 2},
+        # pure `_cartesian_` of >=2 `_or_` stages, no pick/arrange — survivors are the full stage product.
+        {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}]},
+    ],
+)
+def test_unconstrained_predicate_admits_pick_arrange_cartesian(node: dict[str, Any]) -> None:
+    """The unconstrained predicate ADMITS the pick/arrange/cartesian shapes whose survivor set has no constraint prune.
+
+    dag-ml's `expand_or_generator_sequences` / `expand_cartesian_generator_sequences` produce EXACTLY the
+    unconstrained survivor set (all combinations / permutations / stage products) in legacy
+    `itertools.combinations`/`permutations` order, so `_native_constrained_generator` lowers them with an
+    EMPTY constraints set and dag-ml scores the byte-identical set.
+    """
+    from nirs4all.pipeline.dagml.detect import _is_unconstrained_operator_generator
+
+    pipeline = [node, KFold(n_splits=3), {"model": PLSRegression(n_components=5)}]
+    assert _is_unconstrained_operator_generator(pipeline) is True
+
+
+@pytest.mark.parametrize(
+    "node",
+    [
+        # then_pick / then_arrange — SECOND-ORDER selection (a different survivor structure); DEMOTE.
+        {"_or_": [SNV, MSC, Detrend], "pick": 1, "then_pick": 2},
+        {"_or_": [SNV, MSC, Detrend], "pick": 1, "then_arrange": 2},
+        # `_cartesian_` with `pick` — pipeline-PAIR selection (dag-ml's cartesian mode REFUSES pick/arrange); DEMOTE.
+        {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "pick": 2},
+        # SAMPLING modifiers — legacy SAMPLES survivors; dag-ml `count` TRUNCATES a different set (and the
+        # `_or_`-pick count path is non-deterministic run-to-run). DEMOTE on count / _seed_ / _weights_.
+        {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "count": 2, "_seed_": 7},
+        {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2, "count": 3, "_seed_": 42},
+        {"_or_": [SNV, MSC, Detrend], "pick": 2, "_weights_": [1, 1, 1]},
+        # oversize / zero / range pick — legacy is lenient (skip oversize, no-op zero, mixed-cardinality range);
+        # native rejects. DEMOTE.
+        {"_or_": [SNV, MSC], "pick": 5},
+        {"_or_": [SNV, MSC], "pick": 0},
+        {"_or_": [SNV, MSC, Detrend], "pick": (1, 2)},
+        # a single-stage `_cartesian_` (degenerate — not the >=2-stage product shape). DEMOTE.
+        {"_cartesian_": [{"_or_": [SNV, MSC]}], "pick": 2},
+        # multi-step list choices (the `generator_or_multistep_branch` shape) are NOT bare X-transforms. DEMOTE.
+        {"_or_": [[SNV, FirstDerivative], [MSC, Detrend]], "pick": 1},
+        # a DUPLICATE operator option — two equal-content survivors would fingerprint-collide. DEMOTE.
+        {"_or_": [SNV, SNV, MSC], "pick": 2},
+    ],
+)
+def test_unconstrained_predicate_demotes_divergent_shape(node: dict[str, Any]) -> None:
+    """The fail-closed unconstrained predicate DEMOTES every shape that cannot reach native parity.
+
+    `then_*` (second-order), a cartesian pick/arrange, a count/_seed_/_weights_ sample, an oversize/zero/range
+    pick, a degenerate single-stage cartesian, a non-routable multi-step choice, or a duplicate option all stay
+    on the proven Python-expand path (still dag-ml-native via that route).
+    """
+    from nirs4all.pipeline.dagml.detect import _is_unconstrained_operator_generator
+
+    assert _is_unconstrained_operator_generator([node, KFold(n_splits=3), {"model": PLSRegression(n_components=5)}]) is False
+
+
+def test_unconstrained_predicate_excludes_constrained_and_bare_or() -> None:
+    """The unconstrained predicate does NOT claim a CONSTRAINED node (constrained predicate's job) or a BARE `_or_` (flat-single's).
+
+    A `_mutex_`/`_requires_`/`_exclude_` node belongs to `_is_constrained_operator_generator`; a bare `_or_`
+    with no pick/arrange is the single-op flat path. The three predicates partition the operator-generator
+    space without overlap.
+    """
+    from nirs4all.pipeline.dagml.detect import (
+        _is_constrained_operator_generator,
+        _is_flat_single_operator_generator,
+        _is_unconstrained_operator_generator,
+    )
+
+    model = {"model": PLSRegression(n_components=5)}
+    constrained = {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2, "_mutex_": [[SNV, MSC]]}
+    bare = {"_or_": [SNV, MSC, Detrend]}
+    assert _is_unconstrained_operator_generator([constrained, KFold(n_splits=3), model]) is False
+    assert _is_constrained_operator_generator([constrained, KFold(n_splits=3), model]) is True
+    assert _is_unconstrained_operator_generator([bare, KFold(n_splits=3), model]) is False
+    assert _is_flat_single_operator_generator([bare, KFold(n_splits=3), model]) is True
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "factory",
+    [
+        lambda: [{"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
+        lambda: [{"_or_": [SNV, MSC, Detrend], "arrange": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
+        lambda: [{"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}]}, _ss(), {"model": PLSRegression(n_components=10)}],
+    ],
+)
+def test_unconstrained_runs_native_at_full_parity(factory: Any) -> None:
+    """E2E: an admitted unconstrained pick/arrange/cartesian generator runs NATIVE and matches legacy at FULL parity.
+
+    Member-exact survivor set + same winner (via num_predictions + best_score parity). The ARRANGE case proves
+    dag-ml's ordered-permutation enumeration agrees with legacy `itertools.permutations` (the survivor labels
+    are content-keyed, so ordered survivors align by content) — arrange reaches parity, it does NOT demote.
+    """
+    legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(factory())
+    assert native is True, "an admitted unconstrained generator must route NATIVE, not fall back"
+    assert dagml.num_predictions == legacy.num_predictions
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "factory",
+    [
+        # then_pick / then_arrange (second-order) — deterministic, must match legacy via Python-expand.
+        lambda: [{"_or_": [SNV, MSC, Detrend], "pick": 1, "then_pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
+        lambda: [{"_or_": [SNV, MSC, Detrend], "pick": 1, "then_arrange": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
+        # `_cartesian_` pick — deterministic, must match legacy via Python-expand.
+        lambda: [{"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
+        # a multi-step `_or_` (non-bare choices) — deterministic, must match legacy via Python-expand.
+        lambda: [{"_or_": [[SNV, FirstDerivative], [MSC, Detrend]]}, _ss(), {"model": PLSRegression(n_components=10)}],
+    ],
+)
+def test_unconstrained_demoted_shape_matches_legacy_via_python_expand(factory: Any) -> None:
+    """A DEMOTED unconstrained shape stays on the dag-ml engine (Python-expand, no legacy fallback) and matches legacy.
+
+    These deterministic survivor sets (then_*, cartesian-pick, multi-step choices) demote off native but still
+    run correctly on dag-ml, reproducing the legacy best score — the demote is a routing guard, not feature loss.
+    (count/_seed_/_weights_ are excluded here: their sampled subsets are randomized run-to-run, so no
+    cross-engine score claim is made — that randomness is the very reason they demote.)
+    """
+    legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(factory())
+    assert native is True, "the dag-ml engine runs the demoted generator via Python-expand (no legacy fallback)"
+    assert dagml.num_predictions == legacy.num_predictions
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
