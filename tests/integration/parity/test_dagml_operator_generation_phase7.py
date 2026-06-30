@@ -845,20 +845,149 @@ def test_unconstrained_runs_native_at_full_parity(factory: Any) -> None:
         lambda: [{"_or_": [SNV, MSC, Detrend], "pick": 1, "then_arrange": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
         # `_cartesian_` pick — deterministic, must match legacy via Python-expand.
         lambda: [{"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
-        # a multi-step `_or_` (non-bare choices) — deterministic, must match legacy via Python-expand.
-        lambda: [{"_or_": [[SNV, FirstDerivative], [MSC, Detrend]]}, _ss(), {"model": PLSRegression(n_components=10)}],
+        # NOTE: a bare multi-step `_or_` (`[[SNV, 1stDer], [MSC, Detrend]]`) is NO LONGER a demote — ADR-17 item 5
+        # slice D routes it NATIVE via the flat-single path (`test_multistep_or_runs_native_at_full_parity`).
     ],
 )
 def test_unconstrained_demoted_shape_matches_legacy_via_python_expand(factory: Any) -> None:
     """A DEMOTED unconstrained shape stays on the dag-ml engine (Python-expand, no legacy fallback) and matches legacy.
 
-    These deterministic survivor sets (then_*, cartesian-pick, multi-step choices) demote off native but still
-    run correctly on dag-ml, reproducing the legacy best score — the demote is a routing guard, not feature loss.
+    These deterministic survivor sets (then_*, cartesian-pick) demote off native but still run correctly on
+    dag-ml, reproducing the legacy best score — the demote is a routing guard, not feature loss.
     (count/_seed_/_weights_ are excluded here: their sampled subsets are randomized run-to-run, so no
     cross-engine score claim is made — that randomness is the very reason they demote.)
     """
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
     dagml, native = _run_dagml(factory())
     assert native is True, "the dag-ml engine runs the demoted generator via Python-expand (no legacy fallback)"
+    assert dagml.num_predictions == legacy.num_predictions
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
+
+
+# --------------------------------------------------------------------------- #
+# ADR-17 item 5 slice D — MULTI-STEP `_or_` choices (native) + NESTED generators (demote)
+# --------------------------------------------------------------------------- #
+
+
+def test_multistep_choice_helpers_partition_choice_shapes() -> None:
+    """The choice-shape helpers partition single / multi-step / nested-or-None choices (the slice-D admit boundary)."""
+    from nirs4all.pipeline.dagml_bridge import _is_bare_operator_choice, _is_multistep_operator_choice, _operator_choice_operators
+
+    # single bare op
+    assert _is_bare_operator_choice(SNV) and not _is_multistep_operator_choice(SNV)
+    assert _operator_choice_operators(SNV) == [SNV]
+    # multi-step list of bare ops
+    assert _is_multistep_operator_choice([SNV, Detrend]) and not _is_bare_operator_choice([SNV, Detrend])
+    assert _operator_choice_operators([SNV, Detrend]) == [SNV, Detrend]
+    # NOT multi-step: empty list, a list nesting a list/dict, a dict (nested generator), None
+    assert not _is_multistep_operator_choice([])
+    assert not _is_multistep_operator_choice([SNV, [Detrend, MSC]])  # nested-list element
+    assert not _is_multistep_operator_choice([SNV, {"_or_": [Detrend]}])  # nested-generator element
+    assert not _is_multistep_operator_choice({"_or_": [SNV, MSC]})  # a nested-generator dict choice
+    assert not _is_multistep_operator_choice(None)
+
+
+def test_flat_predicate_admits_multistep_or() -> None:
+    """A bare `_or_` of MULTI-STEP bare-operator choices IS flat-single (slice-D native admit)."""
+    from nirs4all.pipeline.dagml.detect import _is_flat_single_operator_generator
+
+    pipeline = [{"_or_": [[SNV, FirstDerivative], [MSC, Detrend], SNV]}, KFold(n_splits=3), {"model": PLSRegression(n_components=10)}]
+    assert _is_flat_single_operator_generator(pipeline) is True
+
+
+@pytest.mark.parametrize(
+    "node",
+    [
+        # multi-step + pick → nested-list survivors the single-op-per-branch native fingerprint cannot key.
+        {"_or_": [[SNV, FirstDerivative], MSC, Detrend], "pick": 2},
+        # a list element that is itself a list (nested-list multi-step) — not a flat bare-op sub-pipeline.
+        {"_or_": [[SNV, [Detrend, MSC]], FirstDerivative]},
+        # a NESTED operator-generator choice (`{_or_: …}` dict) — SUB-PART 2 hard demote.
+        {"_or_": [{"_or_": [SNV, MSC]}, Detrend]},
+        # a multi-step choice nesting a generator dict.
+        {"_or_": [[SNV, {"_or_": [Detrend, MSC]}], FirstDerivative]},
+    ],
+)
+def test_flat_predicate_demotes_multistep_with_selector_or_nested(node: dict[str, Any]) -> None:
+    """A multi-step `_or_` carrying a selector, a nested-list element, or a NESTED generator DEMOTES off every native path (slice-D fail-closed)."""
+    from nirs4all.pipeline.dagml.detect import (
+        _is_constrained_operator_generator,
+        _is_flat_single_operator_generator,
+        _is_unconstrained_operator_generator,
+    )
+
+    pipeline = [node, KFold(n_splits=3), {"model": PLSRegression(n_components=5)}]
+    assert _is_flat_single_operator_generator(pipeline) is False
+    assert _is_unconstrained_operator_generator(pipeline) is False
+    assert _is_constrained_operator_generator(pipeline) is False
+
+
+def test_nested_generator_demotes_across_all_native_paths() -> None:
+    """A NESTED operator-generator anywhere (bare `_or_`, pick, `_cartesian_` stage, constrained) DEMOTES on EVERY native predicate (SUB-PART 2 fail-closed)."""
+    from nirs4all.pipeline.dagml.detect import (
+        _is_constrained_operator_generator,
+        _is_flat_single_operator_generator,
+        _is_unconstrained_operator_generator,
+    )
+
+    model = {"model": PLSRegression(n_components=5)}
+    cv = KFold(n_splits=3)
+    nested_nodes = [
+        {"_or_": [{"_or_": [SNV, MSC]}, Detrend]},  # bare
+        {"_or_": [{"_or_": [SNV, MSC]}, Detrend, FirstDerivative], "pick": 2},  # pick
+        {"_cartesian_": [{"_or_": [{"_or_": [SNV, MSC]}, Detrend]}, {"_or_": [FirstDerivative, SNV]}]},  # cartesian stage
+        {"_or_": [{"_or_": [SNV, MSC]}, Detrend, FirstDerivative], "pick": 2, "_mutex_": [[Detrend, FirstDerivative]]},  # constrained
+    ]
+    for node in nested_nodes:
+        pipe = [node, cv, model]
+        assert _is_flat_single_operator_generator(pipe) is False
+        assert _is_unconstrained_operator_generator(pipe) is False
+        assert _is_constrained_operator_generator(pipe) is False
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "factory",
+    [
+        # bare multi-step `_or_` (mixed multi-step + single-op choices) — NATIVE operator-SELECT, full parity.
+        lambda: [{"_or_": [[SNV, FirstDerivative], [MSC, Detrend], SNV, MSC]}, _ss(), {"model": PLSRegression(n_components=10)}],
+        # all-multi-step choices.
+        lambda: [{"_or_": [[SNV, FirstDerivative], [MSC, Detrend]]}, _ss(), {"model": PLSRegression(n_components=10)}],
+    ],
+)
+def test_multistep_or_runs_native_at_full_parity(factory: Any) -> None:
+    """E2E: a bare `_or_` of MULTI-STEP choices runs NATIVE operator-SELECT and matches legacy at FULL parity (slice D SUB-PART 1).
+
+    dag-ml lowers each list choice to a MULTI-TRANSFORM branch and carries it as ONE survivor (no pick/arrange
+    recombination), so the survivor set is member-exact and the content-keyed `variant_label` aligns the
+    winner — `num_predictions` + `best_score` parity confirm same-winner + same-set.
+    """
+    legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(factory())
+    assert native is True, "an admitted multi-step `_or_` must route NATIVE, not fall back"
+    assert dagml.num_predictions == legacy.num_predictions
+    assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
+
+
+@pytest.mark.slow
+@pytest.mark.parametrize(
+    "factory",
+    [
+        # multi-step + pick → nested-list survivors → DEMOTE → Python-expand (deterministic, matches legacy).
+        lambda: [{"_or_": [[SNV, FirstDerivative], MSC, Detrend], "pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
+        # a NESTED operator-generator → DEMOTE → Python-expand; legacy flattens `{_or_: [SNV,MSC]}` → SNV, MSC, Detrend.
+        lambda: [{"_or_": [{"_or_": [SNV, MSC]}, Detrend]}, _ss(), {"model": PLSRegression(n_components=10)}],
+    ],
+)
+def test_multistep_nested_demoted_shape_matches_legacy_via_python_expand(factory: Any) -> None:
+    """A DEMOTED slice-D shape (multi-step+pick / nested generator) stays on dag-ml (Python-expand) and matches legacy.
+
+    These deterministic survivor sets demote off native operator-SELECT but still run correctly on the dag-ml
+    engine (NOT a legacy fallback), reproducing the legacy best score — the demote is a routing guard, not
+    feature loss. The nested case proves legacy's FLATTEN (`{_or_: [SNV,MSC]}` → SNV, MSC) is reproduced.
+    """
+    legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    dagml, native = _run_dagml(factory())
+    assert native is True, "the dag-ml engine runs the demoted slice-D generator via Python-expand (no legacy fallback)"
     assert dagml.num_predictions == legacy.num_predictions
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
