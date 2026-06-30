@@ -319,8 +319,11 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     "multi_source_by_source_branch_distinct_preproc",
     "multi_source_per_source_models_stacking",
     "multi_source_sources_concat_then_rf",
-    # the explicit `preprocessing` keyword + fit_on_all + force_layout shapes.
-    "preprocessing_explicit_keyword",
+    # the `preprocessing` keyword shapes that carry a fit-scope / layout MODIFIER the native X-chain
+    # cannot represent (`fit_on_all` fits on train+val+test; `force_layout` pins the tensor layout), so
+    # they still fail loud → legacy. (The modifier-FREE `preprocessing_explicit_keyword` now runs native:
+    # `run_backend._unwrap_preprocessing_steps` lowers a bare `{"preprocessing": op}` wrapper to its
+    # operator, so it left this allowlist — the conformance test now demands full native parity for it.)
     "preprocessing_fit_on_all",
     "preprocessing_force_layout_2d",
 })
