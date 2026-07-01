@@ -534,6 +534,48 @@ def _unwrap_preprocessing_steps(pipeline: list[Any]) -> list[Any]:
     return [step["preprocessing"] if isinstance(step, dict) and set(step) == {"preprocessing"} else step for step in pipeline]
 
 
+def _unsupported_fallback_reason(pipeline: list[Any]) -> str | None:
+    """Why an unhandled raw DSL shape must fall back before the generic concrete path.
+
+    Called only AFTER the native composition detectors have had first refusal. At that point any remaining
+    ``branch`` / ``merge`` / modifier-bearing ``preprocessing`` step is not a plain concrete transform/model
+    pipeline: letting it fall through to ``_run_concrete_scores`` either drops semantics or fails later as an
+    unrelated runtime error. Return a catchable, explicit coverage-boundary reason instead.
+    """
+    for step in pipeline:
+        if isinstance(step, dict) and "preprocessing" in step and set(step) != {"preprocessing"}:
+            modifiers = sorted(set(step) - {"preprocessing"})
+            return (
+                "engine='dag-ml' cannot yet honor modifier-bearing {'preprocessing': ...} steps "
+                f"(modifier key(s): {modifiers}); the native X-chain only supports modifier-free wrappers."
+            )
+
+    for step in pipeline:
+        if isinstance(step, dict) and "branch" in step:
+            return (
+                "engine='dag-ml' does not yet support this raw branch/merge composition: it did not match "
+                "the native separation, by_source-fusion, duplication-fusion, or stacking detectors, so "
+                "running the generic concrete path would drop branch semantics."
+            )
+
+    for step in pipeline:
+        if not (isinstance(step, dict) and "merge" in step):
+            continue
+        spec = step["merge"]
+        if isinstance(spec, dict) and spec.get("sources") == "concat":
+            return (
+                "engine='dag-ml' does not yet support {'merge': {'sources': 'concat'}}: the native "
+                "multi-source path materializes early-fusion blocks directly and cannot reproduce legacy's "
+                "source-concat merge boundary."
+            )
+        return (
+            f"engine='dag-ml' does not yet support raw merge step {spec!r} outside a handled native branch "
+            "composition."
+        )
+
+    return None
+
+
 def _dispatch_run(
     pipeline: Any,
     spectro: Any,
@@ -679,6 +721,9 @@ def _dispatch_run(
             "options; this richer stacking shape is not yet wired (backlog #10). Use {'merge': 'mean'} for "
             "an averaging (fusion) ensemble instead."
         )
+
+    if (reason := _unsupported_fallback_reason(list(pipeline))) is not None:
+        raise DagMlUnsupported(reason)
 
     # `sample_augmentation` → run nirs4all's REAL augmentation machinery to create the synthetic TRAIN
     # rows in the dataset, then run ONE native dag-ml CV+refit: base-grain folds (the synthetic children
