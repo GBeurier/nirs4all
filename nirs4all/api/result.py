@@ -109,6 +109,9 @@ def _lineage_by_feature(feature_lineage: Mapping[str, Any], feature: str | int) 
 # ``.keras`` → tensorflow_keras, ``.pt``/``.pth`` → pytorch_state_dict) are the ones that MUST route through
 # the legacy ``to_bytes`` path instead of the joblib-only native helper.
 _NON_JOBLIB_EXTENSIONS = frozenset({".pkl", ".pickle", ".h5", ".hdf5", ".keras", ".pt", ".pth"})
+_DAGML_FUSION_PRODUCER_NODE = "merge:fusion"
+_DAGML_BRANCH_ARTIFACT_PREFIX = "artifact:branch:"
+_DAGML_BY_SOURCE_MODEL_PREFIX = "by_source_"
 
 
 def _request_is_joblib(output_path: str | Path, format: str | None) -> bool:
@@ -153,6 +156,102 @@ class _DagmlExportedModel:
         if self.y_transform is None:
             return pred
         return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)), dtype=float)
+
+
+class _DagmlNativeFusionModel:
+    """Predict-capable wrapper for a native branch-fusion run's captured REFIT branch models.
+
+    Native duplication-fusion computes its final prediction by averaging each branch model's REFIT
+    prediction in original target space. Each member is therefore the same `_DagmlExportedModel` used by
+    the single-artifact native export; this wrapper only normalizes shapes and averages the member outputs.
+    """
+
+    def __init__(self, members: Sequence[_DagmlExportedModel]) -> None:
+        if not members:
+            raise ValueError("native fusion export requires at least one member model")
+        self.members = list(members)
+
+    def predict(self, X: Any) -> np.ndarray:
+        member_preds: list[np.ndarray] = []
+        for member in self.members:
+            pred = np.asarray(member.predict(X), dtype=float)
+            member_preds.append(pred.reshape(len(pred), -1))
+        shapes = {pred.shape for pred in member_preds}
+        if len(shapes) != 1:
+            raise ValueError(f"native fusion member predictions have incompatible shapes: {sorted(shapes)!r}")
+        return cast(np.ndarray, np.mean(np.stack(member_preds, axis=0), axis=0))
+
+
+def _native_manifest_strings(manifest: Mapping[str, Any], key: str) -> set[str]:
+    value = manifest.get(key)
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return set()
+    return {str(item) for item in value}
+
+
+def _score_set_final_producers(score_set: Mapping[str, Any] | None) -> set[str]:
+    if score_set is None:
+        return set()
+    reports = score_set.get("reports")
+    if not isinstance(reports, Sequence):
+        return set()
+    producers: set[str] = set()
+    for report in reports:
+        if not isinstance(report, Mapping):
+            continue
+        if report.get("fold_id") is None and report.get("partition") in {"final", "test"}:
+            producer = report.get("producer_node")
+            if producer is not None:
+                producers.add(str(producer))
+    return producers
+
+
+def _native_final_producers(native: Mapping[str, Any]) -> set[str]:
+    manifest = native.get("manifest")
+    producers = _native_manifest_strings(manifest, "final_producer_nodes") if isinstance(manifest, Mapping) else set()
+    return producers or _score_set_final_producers(cast(Mapping[str, Any] | None, native.get("score_set")))
+
+
+def _native_model_names(native_manifest: Mapping[str, Any]) -> list[str]:
+    value = native_manifest.get("model_names")
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        return []
+    return [str(item) for item in value]
+
+
+def _dagml_native_bundle_provenance(
+    native_manifest: Mapping[str, Any],
+    *,
+    export_path: str,
+    artifact_count: int,
+    export_shape: str | None = None,
+) -> dict[str, Any]:
+    provenance = {
+        "source_type": "dagml_native",
+        "export_path": export_path,
+        "dagml_run_id": native_manifest.get("run_id"),
+        "dagml_plan_id": native_manifest.get("plan_id"),
+        "dagml_bundle_id": native_manifest.get("bundle_id"),
+        "dagml_selected_variant": native_manifest.get("selected_variant"),
+        "dagml_artifact_count": artifact_count,
+    }
+    if export_shape is not None:
+        provenance["dagml_native_export_shape"] = export_shape
+    return provenance
+
+
+def _is_native_branch_fusion_bundle(native: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether a multi-artifact native result is the narrow duplication-fusion shape export can replay."""
+    if len(artifacts) < 2 or _DAGML_FUSION_PRODUCER_NODE not in _native_final_producers(native):
+        return False
+    if not all(str(artifact.get("artifact_id") or "").startswith(_DAGML_BRANCH_ARTIFACT_PREFIX) for artifact in artifacts):
+        return False
+
+    manifest = native.get("manifest")
+    model_names = _native_model_names(manifest) if isinstance(manifest, Mapping) else []
+    # By-source fusion also uses branch model nodes, but each captured estimator expects only one source's
+    # block, not the raw full feature matrix that `.n4a` prediction receives. Keep that route on the bridge.
+    return not (len(model_names) == 1 and model_names[0].startswith(_DAGML_BY_SOURCE_MODEL_PREFIX))
 
 
 @dataclass
@@ -429,10 +528,10 @@ class RunResult:
     # The on-disk native results directory the 2b-i writer produced for this dag-ml run (recorded by
     # ``run_via_dagml`` when native results were enabled; ``None`` for an in-memory-only dag-ml run or a
     # legacy result). It holds ``manifest.json`` + ``score_set.json`` + ``predictions.parquet`` + the
-    # ``artifacts/`` model tree. P3 Slice 2c-ii uses it for a NATIVE ``export_model``: a dag-ml run with
-    # EXACTLY ONE concrete model artifact exports that captured (verify-then-load) estimator DIRECTLY — no
-    # legacy refit, no stochastic warning. Multi-model / branch / stacking runs (≠1 artifact) and the .n4a
-    # ``export()`` still defer to the P1c legacy-refit bridge.
+    # ``artifacts/`` model tree. P3 Slice 2c-ii uses it for native exports: a dag-ml run with EXACTLY ONE
+    # concrete model artifact exports that captured (verify-then-load) estimator DIRECTLY, and `.n4a`
+    # additionally supports the narrow multi-artifact branch mean-fusion wrapper. Other multi-model /
+    # branch / stacking shapes still defer to the P1c legacy-refit bridge.
     _dagml_results_dir: Path | None = field(default=None, repr=False)
 
     # --- Lifecycle ---
@@ -1094,20 +1193,21 @@ class RunResult:
         In detached mode, a temporary store is opened for the export
         and closed immediately after.
 
-        **dag-ml runs (P3 — NATIVE single-model ``.n4a``):** when the run captured EXACTLY ONE concrete
-        model artifact in its native results dir (``run(engine="dag-ml", results_path=...)`` or
-        ``$N4A_NATIVE_RESULTS``), this builds the ``.n4a`` DIRECTLY from that captured REFIT model
-        (rehydrated via the verify-then-load native reader) — NO legacy refit and NO stochastic warning. A
-        :class:`BundleLoader` reload-predict of the bundle reproduces the dag-ml run's scored REFIT model
-        EXACTLY.
+        **dag-ml runs (P3 — NATIVE ``.n4a``):** when the run captured EXACTLY ONE concrete model artifact in
+        its native results dir (``run(engine="dag-ml", results_path=...)`` or ``$N4A_NATIVE_RESULTS``), this
+        builds the ``.n4a`` DIRECTLY from that captured REFIT model (rehydrated via the verify-then-load
+        native reader). A narrow duplication branch + mean-fusion run with multiple captured branch
+        artifacts also exports natively by embedding a wrapper that averages the captured branch REFIT
+        models. Both native paths avoid legacy refit and stochastic warnings. A :class:`BundleLoader`
+        reload-predict of the bundle reproduces the dag-ml run's scored REFIT model/fusion exactly.
 
-        **dag-ml runs (P1c bridge — fallback):** without a native dir, for a multi-model / branch / stacking
-        run (≠1 captured artifact), or for the ``n4a.py`` portable-script format, the bundle is produced by a
-        legacy re-fit of the pipeline. For an EXACT bridge export, set ``run(random_state=...)`` AND seed
-        every stochastic component's ``random_state``; otherwise (``sample_augmentation``, an unseeded run,
-        or any unseeded-stochastic component such as ``RandomForest`` / ``MLP`` / ``CARS``) the bridge-exported
-        model may differ from the dag-ml-scored model. ``source`` / ``chain_id`` are not supported for a
-        dag-ml run (they reference its non-existent workspace); the run's best model is exported.
+        **dag-ml runs (P1c bridge — fallback):** without a native dir, for unsupported multi-model / branch /
+        stacking shapes, or for the ``n4a.py`` portable-script format, the bundle is produced by a legacy
+        re-fit of the pipeline. For an EXACT bridge export, set ``run(random_state=...)`` AND seed every
+        stochastic component's ``random_state``; otherwise (``sample_augmentation``, an unseeded run, or any
+        unseeded-stochastic component such as ``RandomForest`` / ``MLP`` / ``CARS``) the bridge-exported model
+        may differ from the dag-ml-scored model. ``source`` / ``chain_id`` are not supported for a dag-ml run
+        (they reference its non-existent workspace); the run's best model is exported.
 
         Args:
             output_path: Path for the exported bundle file.
@@ -1139,11 +1239,11 @@ class RunResult:
                     "the dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export(path) (no source/chain_id)."
                 )
-            # NATIVE export (P3): when this dag-ml run captured EXACTLY ONE concrete model artifact in its
+            # NATIVE export (P3): when this dag-ml run captured a replayable native artifact shape in its
             # native results dir AND the request is the default ``n4a`` ZIP bundle, build the ``.n4a``
-            # DIRECTLY from that captured (verify-then-load) REFIT model — no legacy refit, no stochastic
-            # warning. A ``None`` return means not applicable (no native dir / ``n4a.py`` format / ≠1 artifact
-            # / unreadable native dir) → fall through to the P1c legacy-refit bridge below.
+            # DIRECTLY from those captured (verify-then-load) REFIT artifacts — no legacy refit, no
+            # stochastic warning. A ``None`` return means not applicable (no native dir / ``n4a.py`` format /
+            # unsupported multi-artifact shape / unreadable native dir) → fall through to the P1c bridge.
             native = self._dagml_native_export_bundle(output_path, format)
             if native is not None:
                 return native
@@ -1249,18 +1349,22 @@ class RunResult:
         return output_path
 
     def _dagml_native_export_bundle(self, output_path: str | Path, format: str) -> Path | None:
-        """Export a NATIVE ``.n4a`` bundle from the captured refit model when EXACTLY ONE artifact exists (P3).
+        """Export a NATIVE ``.n4a`` bundle from captured dag-ml refit artifacts when safely replayable.
 
-        The ``.n4a`` bundle counterpart of :meth:`_dagml_native_export_model`: when this dag-ml run has a
-        native results dir (P3 2b-i) holding EXACTLY ONE model artifact AND the request is the default
-        ``n4a`` ZIP bundle, rehydrate the artifact via
+        The single-artifact path is the ``.n4a`` bundle counterpart of
+        :meth:`_dagml_native_export_model`: when this dag-ml run has a native results dir (P3 2b-i) holding
+        EXACTLY ONE model artifact AND the request is the default ``n4a`` ZIP bundle, rehydrate the artifact via
         :func:`~nirs4all.pipeline.dagml.native_results.read_native_results` (verify-then-load — backend +
         content-fingerprint checked before any ``joblib.load``), wrap it in the same predict-capable
         :class:`_DagmlExportedModel` the native ``export_model`` uses, and package it into a single-model
         ``.n4a`` via :func:`~nirs4all.pipeline.bundle.write_single_model_bundle`. NO legacy refit, NO
         stochastic warning: a :class:`BundleLoader` reload-predict of the bundle reproduces the dag-ml run's
-        scored REFIT model EXACTLY (it IS that model). This retires the P1c legacy-refit ``.n4a`` bridge for
-        the single-model case; the bridge stays the fallback otherwise.
+        scored REFIT model EXACTLY (it IS that model).
+
+        The narrow multi-artifact path admits duplication branch + mean-fusion only: native manifest
+        metadata must identify the final producer as ``merge:fusion`` and every captured artifact must be a
+        branch model. The exported bundle embeds a small fusion wrapper that averages those captured branch
+        refit models in original target space, matching dag-ml's native fusion merge.
 
         Returns the written path, or ``None`` to signal the caller to FALL BACK to the legacy bridge when the
         native bundle is not applicable:
@@ -1269,8 +1373,7 @@ class RunResult:
         * a non-``n4a`` format (the ``n4a.py`` PORTABLE SCRIPT embeds artifacts through the legacy
           generator's template path and is out of this native single-model slice — it defers to the bridge,
           mirroring the ``export_model`` joblib-only gate; never a silent format substitution);
-        * ≠1 model artifact (multi-model / branch / stacking defer to the bridge, per the ``export_model``
-          Codex D4 contract);
+        * a multi-artifact shape other than the supported branch mean-fusion replay;
         * ANY native-read/rehydrate failure — a tampered/edited manifest (verify-then-load ``ValueError``), a
           missing/malformed native dir (``FileNotFoundError`` / ``KeyError`` / parquet error), OR a
           fingerprint-valid but UNLOADABLE artifact (``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError``
@@ -1295,36 +1398,39 @@ class RunResult:
         except Exception as exc:  # noqa: BLE001 -- fallback contract: ANY native-read failure → legacy bridge
             logger.debug("native dag-ml .n4a export fell back to the legacy bridge: %s", exc)
             return None
-        # EXACTLY ONE concrete artifact only: a multi-model / branch / stacking run captures several REFIT
-        # artifacts and is NOT cleanly a single-model bundle → defer to the legacy bridge (same D4 boundary
-        # the native ``export_model`` enforces).
-        if len(artifacts) != 1:
-            return None
-
-        artifact = artifacts[0]
-        model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
-        native_manifest = native["manifest"]
-        model_names = native_manifest.get("model_names") or []
-        model_label = str(model_names[0]) if model_names else type(artifact["estimator"]).__name__
-        # Additive provenance so the produced bundle is auditable as a native (not bridge/legacy) export and
-        # carries the dag-ml run identity. Unknown manifest keys are ignored by ``BundleMetadata.from_dict``.
-        provenance = {
-            "source_type": "dagml_native",
-            "export_path": "dagml_native",
-            "dagml_run_id": native_manifest.get("run_id"),
-            "dagml_plan_id": native_manifest.get("plan_id"),
-            "dagml_bundle_id": native_manifest.get("bundle_id"),
-            "dagml_selected_variant": native_manifest.get("selected_variant"),
-        }
+        native_manifest = cast(Mapping[str, Any], native["manifest"])
+        model_names = _native_model_names(native_manifest)
         from nirs4all.pipeline.bundle import write_single_model_bundle
 
-        return write_single_model_bundle(
-            model,
-            output_path,
-            model_label=model_label,
-            pipeline_uid=str(native_manifest.get("run_id") or ""),
-            provenance=provenance,
-        )
+        if len(artifacts) == 1:
+            artifact = artifacts[0]
+            model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+            model_label = model_names[0] if model_names else type(artifact["estimator"]).__name__
+            return write_single_model_bundle(
+                model,
+                output_path,
+                model_label=model_label,
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=_dagml_native_bundle_provenance(native_manifest, export_path="dagml_native", artifact_count=1),
+            )
+
+        if _is_native_branch_fusion_bundle(native, artifacts):
+            members = [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in artifacts]
+            model_label = model_names[0] if model_names else "dagml_native_branch_fusion"
+            return write_single_model_bundle(
+                _DagmlNativeFusionModel(members),
+                output_path,
+                model_label=model_label,
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=_dagml_native_bundle_provenance(
+                    native_manifest,
+                    export_path="dagml_native_fusion",
+                    artifact_count=len(artifacts),
+                    export_shape="branch_fusion_mean",
+                ),
+            )
+
+        return None
 
     def export_model(
         self,
