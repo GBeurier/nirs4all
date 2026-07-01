@@ -172,7 +172,7 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (8)
+### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (7)
 
 Shapes the dag-ml host bridge does **not serialize yet**, so `engine="dag-ml"`
 transparently re-runs legacy. These make **no parity claim** — they are pinned by
@@ -188,9 +188,11 @@ Source: `test_conformance_dual_engine.py:310-326`.
 | Shape group | Cases |
 |---|---|
 | branch (duplication) + merge → multi-model | `branch_dup_three_way_merge_predictions`, `branch_dup_two_way_merge_features`, `branch_dup_named_with_metamodel`, `branch_dup_merge_all` |
-| by-source / per-source / source-concat multi-source | `multi_source_by_source_branch_shared_preproc`, `multi_source_by_source_branch_distinct_preproc`, `multi_source_per_source_models_stacking`, `multi_source_sources_concat_then_rf` |
+| by-source / per-source / source-concat multi-source | `multi_source_by_source_branch_distinct_preproc`, `multi_source_per_source_models_stacking`, `multi_source_sources_concat_then_rf` |
 
 `preprocessing_fit_on_all` and `preprocessing_force_layout_2d` now run native for the registered SNV cases: `fit_on_all=True` is equivalent for stateless transforms, and `force_layout='2d'` on a preprocessing step is not consumed by the legacy preprocessing controller.
+
+`multi_source_by_source_branch_shared_preproc` now runs native with per-source shared preprocessing and legacy-compatible prediction bookkeeping.
 
 **`EXPECTED_FALLBACK == ∅` is the `LOCK-DROP` D1 gate, owned by L5 — not a
 `LOCK-PYREF` gate.**
@@ -261,8 +263,8 @@ gate.
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
 | Non-runnable (`skip_reason` set) | **8** | 2 `legacy_bug` (xfail) + 3 `fixture` (skip) + 3 `unknown_semantics` (skip) |
 | Runnable | **87** | 95 − 8 |
-| → fall back to legacy (`EXPECTED_FALLBACK`) | **8** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **79** | full parity asserted |
+| → fall back to legacy (`EXPECTED_FALLBACK`) | **7** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
+| → run native on dag-ml | **80** | full parity asserted |
 | Strict-xfail (documented divergence) | **11** | 9 `KNOWN_DIVERGENCES` + 2 `legacy_bug` — matches ADR-17's "11 xfailed" |
 | `pytest.skip` (fixture + unknown-semantics) | **6** | 3 + 3 |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
@@ -271,7 +273,7 @@ gate.
 > / `runnable = 85`; that grep matched two *comment* lines
 > (`cases_generators_conformance.py:86,1040`). The verified case count is
 > **3** `unknown_semantics` → **6** total skips → **87** runnable. The
-> strict-xfail (11), `EXPECTED_FALLBACK` (8), and
+> strict-xfail (11), `EXPECTED_FALLBACK` (7), and
 > `NUM_PREDICTIONS_DIVERGENCE` (2) figures are unaffected.
 
 ---

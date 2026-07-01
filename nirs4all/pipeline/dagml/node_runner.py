@@ -110,6 +110,52 @@ class _MultiBlockEstimator:
         return np.asarray(self._model.predict(transformed))
 
 
+class _SourceConcatEstimator:
+    """Fit a shared X-chain independently per source, concat blocks, then fit an ordinary model.
+
+    This is the native execution primitive for by_source shared preprocessing followed by
+    ``{"merge": "concat"}`` and one downstream model. It mirrors legacy's feature-axis contract:
+    each source gets its own cloned preprocessing chain fit on the current fold's train rows, the
+    transformed source blocks are hstacked in source order, and the downstream model sees that
+    concatenated matrix.
+    """
+
+    def __init__(self, model: Any, chain_template: list[Any]) -> None:
+        self._model = model
+        self._chain_template = chain_template
+        self._block_chains: list[list[Any]] = []
+
+    @staticmethod
+    def _fit_transform_block(steps: list[Any], block: np.ndarray) -> np.ndarray:
+        out = block
+        for step in steps:
+            out = np.asarray(step.fit_transform(out))
+        return out
+
+    @staticmethod
+    def _transform_block(steps: list[Any], block: np.ndarray) -> np.ndarray:
+        out = block
+        for step in steps:
+            out = np.asarray(step.transform(out))
+        return out
+
+    @staticmethod
+    def _concat(blocks: list[np.ndarray]) -> np.ndarray:
+        return np.hstack(blocks) if len(blocks) > 1 else blocks[0]
+
+    def fit(self, blocks: list[np.ndarray], y: Any) -> _SourceConcatEstimator:
+        from sklearn.base import clone
+
+        self._block_chains = [[clone(step) for step in self._chain_template] for _ in blocks]
+        transformed = [self._fit_transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
+        self._model.fit(self._concat(transformed), y)
+        return self
+
+    def predict(self, blocks: list[np.ndarray]) -> np.ndarray:
+        transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
+        return np.asarray(self._model.predict(self._concat(transformed)))
+
+
 def _source_index(node: dict[str, Any]) -> int | None:
     """The ``source_index`` a by_source branch model is bound to (S4), or ``None`` for any other node.
 
@@ -121,6 +167,11 @@ def _source_index(node: dict[str, Any]) -> int | None:
     """
     value = (node.get("metadata") or {}).get("source_index")
     return int(value) if value is not None else None
+
+
+def _source_concat_x_chain(node: dict[str, Any]) -> bool:
+    """Whether the model should apply its upstream X-chain per source, then concat."""
+    return bool((node.get("metadata") or {}).get("source_concat_x_chain"))
 
 
 def _view_by_partition(task: dict[str, Any], partition: str) -> dict[str, Any] | None:
@@ -351,7 +402,8 @@ def run_model_node(
     # columns), NOT the early-fusion concat or the MB-PLS block list. Read from the graph node so every
     # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
-    source_index = _source_index(node_lookup(node_id))
+    graph_node = node_lookup(node_id)
+    source_index = _source_index(graph_node)
     # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
     # the early-fusion concat. ``multi_block`` is true ONLY when BOTH the model is a multi-block consumer
     # AND the dataset actually has >1 source — a single-source MB-PLS stays the early-fusion concat path
@@ -361,12 +413,16 @@ def run_model_node(
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
         multi_block = isinstance(estimator, _MultiBlockEstimator)
+        source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
-        model = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        model = route_graph_node(graph_node, variant_overrides=_variant_overrides(task, node_id))
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
         multi_block = _is_multi_block_model(model) and resolver.is_multi_source()
+        source_concat = _source_concat_x_chain(graph_node) and resolver.is_multi_source()
         if multi_block:
             estimator = _MultiBlockEstimator(model, upstream)
+        elif source_concat:
+            estimator = _SourceConcatEstimator(model, upstream)
         else:
             estimator = make_pipeline(*upstream, model) if upstream else model
         y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None
@@ -390,7 +446,7 @@ def run_model_node(
         # thresholds on a fixed-seed tree ensemble (RF/GBR) and diverges the fitted trees. y stays float
         # (legacy feeds y as float64).
         x_train: Any
-        if multi_block:
+        if multi_block or source_concat:
             x_train = [np.asarray(block) for block in resolver.resolve_feature_blocks(fit_ids, include_augmented=True)["blocks"]]
         elif source_index is not None:
             x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True)["values"])
@@ -410,7 +466,7 @@ def run_model_node(
         # Predict X at the dataset's NATIVE storage dtype too (same parity reason as the fit X above):
         # np.asarray on the resolver's ndarray preserves float32; legacy predicts on float32.
         x: Any
-        if multi_block:
+        if multi_block or source_concat:
             x = [np.asarray(block) for block in resolver.resolve_feature_blocks(ids, include_augmented=include_augmented)["blocks"]]
         elif source_index is not None:
             x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"])
