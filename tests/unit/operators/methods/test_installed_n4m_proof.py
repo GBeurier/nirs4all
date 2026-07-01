@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib.util
+import zipfile
 from pathlib import Path
 from types import ModuleType
 
@@ -61,6 +62,127 @@ def test_wheel_from_smoke_result_requires_ok_status(tmp_path: Path) -> None:
     wheel.write_bytes(b"wheel")
     with pytest.raises(proof.ProofError, match="did not report OK"):
         proof._wheel_from_smoke_result({"status": "BLOCKED", "wheel": str(wheel)})
+
+
+def _write_wheel(path: Path, member: str, payload: bytes) -> Path:
+    with zipfile.ZipFile(path, "w") as zf:
+        zf.writestr(member, payload)
+    return path
+
+
+def test_wheel_n4m_library_hashes_requires_bundled_library(tmp_path: Path) -> None:
+    wheel = _write_wheel(tmp_path / "nirs4all_methods-1.0.0-py3-none-any.whl", "n4m/__init__.py", b"")
+
+    with pytest.raises(proof.ProofError, match="does not contain a bundled n4m library"):
+        proof._wheel_n4m_library_hashes(wheel)
+
+
+def test_methods_artifact_freshness_accepts_matching_hash_chain(tmp_path: Path) -> None:
+    payload = b"libn4m-binary"
+    input_lib = tmp_path / "input" / "libn4m.so"
+    staged_lib = tmp_path / "staged" / "libn4m.so"
+    smoke_lib = tmp_path / "smoke" / "libn4m.so"
+    proof_lib = tmp_path / "proof" / "libn4m.so"
+    for path in (input_lib, staged_lib, smoke_lib, proof_lib):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(payload)
+    wheel = _write_wheel(tmp_path / "nirs4all_methods-1.0.0-py3-none-any.whl", "n4m/lib/libn4m.so", payload)
+
+    result = proof._assert_methods_artifact_freshness(
+        {
+            "input_lib": str(input_lib),
+            "staged_lib": str(staged_lib),
+            "installed": {"library": str(smoke_lib)},
+        },
+        wheel,
+        {"library_path": str(proof_lib)},
+    )
+
+    expected_hash = proof._sha256_file(input_lib)
+    assert result["status"] == "N4M_WHEEL_ARTIFACT_FRESH"
+    assert result["input_lib_sha256"] == expected_hash
+    assert result["staged_lib_sha256"] == expected_hash
+    assert result["proof_library_sha256"] == expected_hash
+    assert result["wheel_libraries"] == {"n4m/lib/libn4m.so": expected_hash}
+
+
+def test_methods_artifact_freshness_rejects_mismatched_wheel_payload(tmp_path: Path) -> None:
+    input_lib = tmp_path / "input" / "libn4m.so"
+    staged_lib = tmp_path / "staged" / "libn4m.so"
+    proof_lib = tmp_path / "proof" / "libn4m.so"
+    for path in (input_lib, staged_lib, proof_lib):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"expected")
+    wheel = _write_wheel(tmp_path / "nirs4all_methods-1.0.0-py3-none-any.whl", "n4m/lib/libn4m.so", b"stale")
+
+    with pytest.raises(proof.ProofError, match="wheel contains n4m library payloads"):
+        proof._assert_methods_artifact_freshness(
+            {"input_lib": str(input_lib), "staged_lib": str(staged_lib)},
+            wheel,
+            {"library_path": str(proof_lib)},
+        )
+
+
+def test_methods_artifact_freshness_rejects_mismatched_staged_library(tmp_path: Path) -> None:
+    input_lib = tmp_path / "input" / "libn4m.so"
+    staged_lib = tmp_path / "staged" / "libn4m.so"
+    proof_lib = tmp_path / "proof" / "libn4m.so"
+    for path in (input_lib, proof_lib):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"expected")
+    staged_lib.parent.mkdir(parents=True, exist_ok=True)
+    staged_lib.write_bytes(b"other")
+    wheel = _write_wheel(tmp_path / "nirs4all_methods-1.0.0-py3-none-any.whl", "n4m/lib/libn4m.so", b"expected")
+
+    with pytest.raises(proof.ProofError, match="staged_lib"):
+        proof._assert_methods_artifact_freshness(
+            {"input_lib": str(input_lib), "staged_lib": str(staged_lib)},
+            wheel,
+            {"library_path": str(proof_lib)},
+        )
+
+
+def test_methods_artifact_freshness_rejects_mismatched_proof_library(tmp_path: Path) -> None:
+    input_lib = tmp_path / "input" / "libn4m.so"
+    staged_lib = tmp_path / "staged" / "libn4m.so"
+    proof_lib = tmp_path / "proof" / "libn4m.so"
+    for path in (input_lib, staged_lib):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"expected")
+    proof_lib.parent.mkdir(parents=True, exist_ok=True)
+    proof_lib.write_bytes(b"other")
+    wheel = _write_wheel(tmp_path / "nirs4all_methods-1.0.0-py3-none-any.whl", "n4m/lib/libn4m.so", b"expected")
+
+    with pytest.raises(proof.ProofError, match="proof library_path"):
+        proof._assert_methods_artifact_freshness(
+            {"input_lib": str(input_lib), "staged_lib": str(staged_lib)},
+            wheel,
+            {"library_path": str(proof_lib)},
+        )
+
+
+def test_methods_artifact_freshness_rejects_mismatched_smoke_installed_library(tmp_path: Path) -> None:
+    input_lib = tmp_path / "input" / "libn4m.so"
+    staged_lib = tmp_path / "staged" / "libn4m.so"
+    smoke_lib = tmp_path / "smoke" / "libn4m.so"
+    proof_lib = tmp_path / "proof" / "libn4m.so"
+    for path in (input_lib, staged_lib, proof_lib):
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"expected")
+    smoke_lib.parent.mkdir(parents=True, exist_ok=True)
+    smoke_lib.write_bytes(b"other")
+    wheel = _write_wheel(tmp_path / "nirs4all_methods-1.0.0-py3-none-any.whl", "n4m/lib/libn4m.so", b"expected")
+
+    with pytest.raises(proof.ProofError, match="methods smoke installed.library"):
+        proof._assert_methods_artifact_freshness(
+            {
+                "input_lib": str(input_lib),
+                "staged_lib": str(staged_lib),
+                "installed": {"library": str(smoke_lib)},
+            },
+            wheel,
+            {"library_path": str(proof_lib)},
+        )
 
 
 def test_resolve_local_dependency_path_accepts_checkout_root(tmp_path: Path) -> None:

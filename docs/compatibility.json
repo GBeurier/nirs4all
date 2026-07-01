@@ -337,9 +337,23 @@
     },
     {
       "surface": "methods_installed",
-      "status": "partial",
+      "status": "exists",
       "tolerance_band": "kernel_pls",
-      "owner_lane": "L17+L9"
+      "tolerance_bands": [
+        "kernel_snv",
+        "kernel_pls"
+      ],
+      "owning_test": "scripts/prove_installed_n4m.py",
+      "owner_lane": "L17+L9",
+      "note": "release proof builds and installs a fresh nirs4all-methods wheel, strips dev overrides, requires NIRS4ALL_REQUIRE_N4M=1, and runs the focused n4m packaging/SNV/PLS tests"
+    },
+    {
+      "surface": "nirs4all_methods_artifact_freshness",
+      "status": "exists",
+      "tolerance_band": "n/a",
+      "owning_test": "scripts/prove_installed_n4m.py::_assert_methods_artifact_freshness",
+      "owner_lane": "L17+L9",
+      "note": "consumer-side PYREF-011 proof: the source libn4m reported by the methods smoke, the staged wheel payload, and the proof-venv loaded library must have identical SHA-256 hashes; source-to-binary build freshness remains owned by nirs4all-methods"
     }
   ],
   "coverage_meter": {

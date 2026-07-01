@@ -258,8 +258,8 @@ report §4 and SW5 §6 for the concrete test specs).
 | Workspace cross-engine (legacy SQLite/Parquet/manifest read via runtime V1; native-results triple round-trip) | **EXISTS** (PYREF-009b) | `test_conformance_workspace_cross_engine.py::test_native_results_triple_round_trips_and_agrees_cross_engine` (native triple reads back faithfully via `read_native_results` AND agrees with legacy within `cross_impl_*`; legacy workspace inspectable) | `cross_impl_score` | L17 + L5 |
 | Error / refusal parity (same invalid pipeline → same refusal on both engines) | **EXISTS** (PYREF-err) | `test_conformance_error_parity.py` (invalid pipeline refused by BOTH engines; dag-ml refusal → stable `RtError.cause` from CAP-004/RT-003 — local helper until W7 `rt.py` lands) | `n/a_semantic` | L17 |
 | Studio rides the oracle (records resolved engine; one pipeline through both engines) | **GAP** (PYREF-008) | adapter reads native triple correctly, but Studio never passes/records `engine=`; 4 backend routes re-implement nirs4all logic | `cross_impl_score` (target) | L17 + L12 |
-| methods-installed lane (n4m parity) | **PARTIAL** | `test_n4m_ops.py` exists (SNV `1e-12`, PLS `<1e-9`) but is `importorskip("n4m")` and not pinned in CI | `kernel_snv` / `kernel_pls` | L17 + L9 |
-| nirs4all-side wheel / `.so` freshness | **GAP** (PYREF-011) | dag-ml has `scripts/check_so_freshness.py`; nirs4all tracks no artifact and has no consumer-side freshness gate | n/a | L17 + L9 |
+| methods-installed lane (n4m parity) | **EXISTS** | `scripts/prove_installed_n4m.py` builds a fresh `nirs4all-methods` wheel, installs this checkout in a proof venv, strips dev overrides, requires `NIRS4ALL_REQUIRE_N4M=1`, and runs `test_n4m_ops.py` packaging/SNV/PLS slices | `kernel_snv` / `kernel_pls` | L17 + L9 |
+| nirs4all-side wheel / `.so` freshness | **EXISTS** (PYREF-011 consumer-side) | `scripts/prove_installed_n4m.py` verifies SHA-256 identity from the source `libn4m` reported by the methods smoke, to the staged wheel payload, to the library loaded from the proof venv; source-to-binary freshness stays owned by `nirs4all-methods` | n/a | L17 + L9 |
 
 ---
 
