@@ -13,31 +13,30 @@ is not covered by the oracle. The closest existing coverage stops short:
 This module closes that gap for the two registry cases that declare the bundle-IO
 contract (``RunResult.export()`` → ``BundleLoader.load()``).
 
-dag-ml ``.n4a`` export has NO native path: ``RunResult.export(format="n4a")`` for
-a dag-ml run re-fits the frozen pipeline through the legacy engine (the P1c
-bridge — see ``RunResult.export`` / ``run_backend._attach_export_spec``). For a
-fully-seeded deterministic single-model pipeline that refit is EXACT, which lets
-us pin three independent links of the round-trip:
+dag-ml ``.n4a`` export now requires captured native artifacts. This test enables
+native results for the dag-ml leg (``results_path=``), so ``RunResult.export``
+builds the bundle from the captured dag-ml REFIT artifact instead of rerunning
+the pipeline through the legacy engine. For a fully-seeded deterministic
+single-model pipeline, this lets us pin three independent links of the
+round-trip:
 
-* **A — transitional bridge contract.** The dag-ml run's ``.n4a``, reloaded,
+* **A — native dag-ml bundle contract.** The dag-ml run's ``.n4a``, reloaded,
   reproduces the dag-ml run's NATIVE final-(test) ``y_pred`` within the
   cross-engine ``y_pred`` tolerance. This is the real "the exported bundle
-  represents what dag-ml computed" claim (the bridge faithfully reconstructs the
-  native run). Measured Δ ≤ 7.8e-4 (the y_processing-inverse + Ridge shape).
+  represents what dag-ml computed" claim. Measured Δ ≤ 7.8e-4 (the
+  y_processing-inverse + Ridge shape).
 * **B — same-engine bundle-IO fidelity.** The legacy run's ``.n4a``, reloaded,
   reproduces the legacy run's final-(test) ``y_pred`` to float identity (it
   replays the same refit estimator on the same raw test X). Measured Δ = 0.0.
 * **C — cross-engine bundle equivalence.** The legacy ``.n4a`` and the dag-ml
   ``.n4a`` predict identically on the same holdout X. Measured Δ = 0.0.
 
-Skips (not fails) if the dag-ml engine ran the legacy fallback on this build —
-then A/C are legacy-vs-legacy and trivially true; the contract under test is
-dag-ml-native. The native/fallback truth is the suite's own
-``dual_engine_runner`` signal (no fallback warning AND the per_dataset engine
-marker), so this never silently widens the native boundary.
+Skips (not fails) if the dag-ml engine ran the legacy fallback on this build or
+did not write native results; the contract under test is dag-ml-native bundle
+export, not legacy-vs-legacy.
 
-Slow: each case runs on both engines plus a bridge refit at export. Gated by
-``slow``.
+Slow: each case runs on both engines and writes native results for the dag-ml
+leg. Gated by ``slow``.
 
     pytest tests/integration/parity/test_conformance_n4a_bundle_parity.py -q
 """
@@ -49,6 +48,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import nirs4all
 from nirs4all.data import DatasetConfigs
 from nirs4all.pipeline.bundle import BundleLoader
 
@@ -65,17 +65,17 @@ pytestmark = [pytest.mark.parity, pytest.mark.slow]
 # joblib path.
 _BUNDLE_IO_EXACT_TOL = 1e-6
 
-# Cross-engine y_pred tolerance for the bridge / cross-bundle comparisons. Equal
+# Cross-engine y_pred tolerance for the native dag-ml bundle / cross-bundle comparisons. Equal
 # to _conformance_helpers._DEFAULT_YPRED_TOL (the suite's measured cross-engine
 # PLS+inverse noise ceiling); kept as a local literal so this new-file slice does
-# not couple to a constant another lane may retune. Measured deltas here: bridge
-# Δ ≤ 7.8e-4, cross-bundle Δ = 0.0 — both safely under 1e-3.
+# not couple to a constant another lane may retune. Measured deltas here:
+# dag-ml bundle Δ ≤ 7.8e-4, cross-bundle Δ = 0.0 — both safely under 1e-3.
 _CROSS_ENGINE_YPRED_TOL = 1e-3
 
 # The two registry cases that declare the bundle round-trip contract. Both are
 # fully-seeded single-model regression shapes (PLS is deterministic; Ridge and
-# the splitter carry random_state=42), so the dag-ml export bridge refit is exact
-# and the ``.n4a`` is reproducible. Explicit names pin exactly the shapes whose
+# the splitter carry random_state=42), so the native dag-ml ``.n4a`` is
+# reproducible. Explicit names pin exactly the shapes whose
 # deltas were measured, mirroring test_conformance_export_roundtrip's _EXACT_CASES.
 _ROUND_TRIP_CASES = (
     "round_trip_baseline_export_predict",
@@ -121,10 +121,18 @@ def test_n4a_bundle_roundtrip_cross_engine_parity(case_name: str, tmp_path: Path
     case: PipelineCase = get(case_name)
     dataset = H.make_dataset(case)
 
-    duo = H.dual_engine_runner(case, dataset)
-    legacy, dagml, native = duo["legacy"], duo["dag-ml"], duo["dagml_native"]
-    if not native:
+    legacy = nirs4all.run(pipeline=case.pipeline, dataset=dataset, verbose=0, engine="legacy")
+    dagml = nirs4all.run(
+        pipeline=case.pipeline,
+        dataset=dataset,
+        verbose=0,
+        engine="dag-ml",
+        results_path=str(tmp_path / f"dagml_results_{case_name}"),
+    )
+    if not dagml._is_dagml_engine():  # noqa: SLF001
         pytest.skip(f"{case_name}: dag-ml ran legacy fallback on this build; cross-engine .n4a parity N/A")
+    if dagml._dagml_results_dir is None:  # noqa: SLF001
+        pytest.skip(f"{case_name}: dag-ml did not write native results; .n4a export N/A")
 
     ids, x_test = _holdout_test_x(case.dataset_key)
     legacy_bundle = _bundle_predict_by_sample(legacy, tmp_path / "legacy.n4a", ids, x_test)
@@ -141,11 +149,11 @@ def test_n4a_bundle_roundtrip_cross_engine_parity(case_name: str, tmp_path: Path
         f"max Δ = {legacy_fidelity:.3e} > {_BUNDLE_IO_EXACT_TOL:.0e}"
     )
 
-    # A — transitional bridge contract: dag-ml .n4a == dag-ml NATIVE run (cross-engine tol; measured Δ≤7.8e-4).
-    bridge_delta = _max_abs_delta(dagml_bundle, dagml_run)
-    assert bridge_delta <= _CROSS_ENGINE_YPRED_TOL, (
+    # A — native dag-ml bundle contract: dag-ml .n4a == dag-ml NATIVE run (cross-engine tol; measured Δ≤7.8e-4).
+    dagml_bundle_delta = _max_abs_delta(dagml_bundle, dagml_run)
+    assert dagml_bundle_delta <= _CROSS_ENGINE_YPRED_TOL, (
         f"{case_name}: dag-ml .n4a reload-predict != dag-ml NATIVE run final-(test) y_pred; "
-        f"max Δ = {bridge_delta:.3e} > tol {_CROSS_ENGINE_YPRED_TOL:.0e}"
+        f"max Δ = {dagml_bundle_delta:.3e} > tol {_CROSS_ENGINE_YPRED_TOL:.0e}"
     )
 
     # C — cross-engine bundle equivalence: legacy .n4a == dag-ml .n4a (measured Δ=0.0).

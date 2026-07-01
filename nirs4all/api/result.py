@@ -106,13 +106,16 @@ def _lineage_by_feature(feature_lineage: Mapping[str, Any], feature: str | int) 
 # The on-disk extensions that the legacy ``export_model`` format-inference maps to the joblib serialization
 # backend: a ``.joblib`` (or any UNRECOGNIZED extension, whose ``format_map.get(ext, 'joblib')`` default is
 # joblib). The non-joblib extensions (``.pkl``/``.pickle`` → cloudpickle, ``.h5``/``.hdf5`` → keras_h5,
-# ``.keras`` → tensorflow_keras, ``.pt``/``.pth`` → pytorch_state_dict) are the ones that MUST route through
-# the legacy ``to_bytes`` path instead of the joblib-only native helper.
+# ``.keras`` → tensorflow_keras, ``.pt``/``.pth`` → pytorch_state_dict) are the ones the joblib-only native
+# helper must decline; the default dag-ml path then refuses unless explicit legacy-refit compatibility was
+# requested before the helper is attempted.
 _NON_JOBLIB_EXTENSIONS = frozenset({".pkl", ".pickle", ".h5", ".hdf5", ".keras", ".pt", ".pth"})
 _DAGML_FUSION_PRODUCER_NODE = "merge:fusion"
 _DAGML_STACKING_PRODUCER_NODE = "merge:stack"
 _DAGML_BRANCH_ARTIFACT_PREFIX = "artifact:branch:"
 _DAGML_BY_SOURCE_MODEL_PREFIX = "by_source_"
+_DAGML_LEGACY_REFIT_COMPATIBILITY = "legacy-refit"
+_DAGML_EXPORT_UNSUPPORTED_CAPABILITY = "dagml_native_export"
 
 
 def _request_is_joblib(output_path: str | Path, format: str | None) -> bool:
@@ -122,8 +125,8 @@ def _request_is_joblib(output_path: str | Path, format: str | None) -> bool:
     (joblib only when it is the literal ``"joblib"``); with ``format=None`` the extension decides (a
     ``.joblib`` or any unrecognized extension defaults to joblib via ``format_map.get(ext, 'joblib')``, while
     the framework extensions in :data:`_NON_JOBLIB_EXTENSIONS` resolve to cloudpickle / keras / torch). Any
-    non-joblib request returns ``False`` so :meth:`RunResult._dagml_native_export_model` defers to the legacy
-    ``to_bytes`` path that actually produces the requested format (no silent joblib-under-foreign-extension).
+    non-joblib request returns ``False`` so :meth:`RunResult._dagml_native_export_model` refuses unless the
+    caller explicitly opts into legacy-refit compatibility (no silent joblib-under-foreign-extension).
     """
     if format is not None:
         return format == "joblib"
@@ -671,16 +674,17 @@ class RunResult:
     _refit_artifact_registry: Any = field(default=None, repr=False)
     _refit_executor: Any = field(default=None, repr=False)
 
-    # dag-ml export bridge (P1c, TRANSITIONAL): the dag-ml backend returns scores in memory with NO
-    # workspace / artifacts, so .n4a export has nothing to bundle. This spec FREEZES the run inputs (a
-    # deepcopy of the pipeline + the dataset deepcopied for in-memory forms / kept as a stable path/config
-    # ref otherwise, plus name/random_state) at dag-ml run time, so an export request re-runs the SAME
-    # frozen pipeline through the LEGACY engine (save_artifacts=True) ON DEMAND — producing the workspace +
-    # chain + artifacts the existing export path needs. ``_dagml_legacy_result`` caches that materialized
-    # legacy RunResult (kept alive so its workspace store stays open for the export, closed on close()).
+    # dag-ml legacy-refit compatibility inputs: the dag-ml backend returns scores in memory with NO legacy
+    # workspace, so the default V1 export path must use captured native artifacts or refuse. This spec
+    # FREEZES the run inputs (a deepcopy of the pipeline + the dataset deepcopied for in-memory forms / kept
+    # as a stable path/config ref otherwise, plus name/random_state) at dag-ml run time solely for the
+    # explicit ``compatibility="legacy-refit"`` opt-in. That opt-in re-runs the SAME frozen pipeline through
+    # the LEGACY engine (save_artifacts=True), producing the workspace + chain + artifacts the legacy export
+    # path needs. ``_dagml_legacy_result`` caches that materialized legacy RunResult (kept alive so its
+    # workspace store stays open for the export, closed on close()).
     #
-    # PARITY SCOPE (honest, transitional): for a FULLY-SEEDED deterministic run the legacy refit reproduces
-    # the dag-ml-scored model EXACTLY (engine numerical parity); otherwise the export is BEST-EFFORT. A
+    # PARITY SCOPE (explicit compatibility): for a FULLY-SEEDED deterministic run the legacy refit can
+    # reproduce the dag-ml-scored model (engine numerical parity); otherwise the export is BEST-EFFORT. A
     # per-run WARNING fires on the two ``_dagml_export_stochastic`` signals — (a) CERTAIN: a
     # sample_augmentation step (re-augmentation is non-reproducible across processes and the augmenter's
     # own RNG is not covered by run(random_state)); (b) CONSERVATIVE: run(random_state) is None (nothing
@@ -692,8 +696,8 @@ class RunResult:
     # seeded run whose individual component left random_state=None) is documented in the export()/
     # export_model() docstrings (general caveat), not warned. P3 (native fitted-model capture) removes the
     # limitation by exporting the actual scored artifacts. Reloadable on-disk-PATH datasets must be
-    # unchanged at export time (only non-reloadable / in-memory dataset forms are snapshotted; a path/file
-    # config is replayed from disk).
+    # unchanged at explicit compatibility export time (only non-reloadable / in-memory dataset forms are
+    # snapshotted; a path/file config is replayed from disk).
     _dagml_export_spec: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_legacy_result: RunResult | None = field(default=None, repr=False)
     _dagml_export_stochastic: bool = field(default=False, repr=False)
@@ -718,8 +722,8 @@ class RunResult:
     # ``artifacts/`` model tree. P3 Slice 2c-ii uses it for native exports: a dag-ml run with EXACTLY ONE
     # concrete model artifact exports that captured (verify-then-load) estimator DIRECTLY, and `.n4a`
     # additionally supports narrow multi-artifact branch mean-fusion wrappers, including by_source fusion
-    # when branch/source order is recoverable. Other multi-model / stacking shapes still defer to the P1c
-    # legacy-refit bridge.
+    # when branch/source order is recoverable. Other unsupported shapes refuse on the default V1 path unless
+    # the caller explicitly requests ``compatibility="legacy-refit"``.
     _dagml_results_dir: Path | None = field(default=None, repr=False)
 
     # --- Lifecycle ---
@@ -1255,42 +1259,65 @@ class RunResult:
 
         The dag-ml backend builds an in-memory :class:`Predictions` with native scores and NO workspace
         (no SQLite store, no artifacts dir), tagging ``per_dataset[name]["engine"] == "dag-ml"``. Export
-        (.n4a bundle) needs the workspace artifacts, so it is not yet available on a dag-ml result — the
-        export entry points use this to fail loud CATCHABLY (a ``NotImplementedError`` the planned
-        try-dag-ml/except-NotImplementedError→legacy cutover catches) instead of a bare ``RuntimeError``.
+        entry points use this to route through native dag-ml artifacts when present, or to raise a stable
+        runtime export refusal instead of silently building a legacy workspace.
         """
         return any(isinstance(info, dict) and info.get("engine") == "dag-ml" for info in self.per_dataset.values())
 
     def _no_workspace_export_error(self) -> Exception:
         """The right fail-loud error when an export has no workspace path.
 
-        A dag-ml result WITHOUT an export spec → a CATCHABLE :class:`NotImplementedError` (so the cutover
-        fallback redirects export to the legacy engine); a genuinely detached/misused legacy result → the
-        original :class:`RuntimeError` (a real misuse, not a fall-back-able dag-ml gap). A dag-ml result
-        WITH a spec never reaches here — :meth:`_dagml_export_delegate` materializes a legacy workspace first.
+        A dag-ml result without workspace/native export material raises a stable :class:`RtError` refusal; a
+        genuinely detached/misused legacy result keeps the original :class:`RuntimeError` (a real misuse).
         """
         if self._is_dagml_engine():
-            return NotImplementedError(
-                "engine='dag-ml' does not support .n4a export for this run: the dag-ml backend returns native "
-                "scores with no workspace artifacts to bundle, and no export spec was captured to re-run the "
-                "pipeline on the legacy engine; run the export-bound pipeline on the legacy engine."
+            return self._dagml_export_refusal(
+                "export",
+                "the result has no captured native export artifacts and no legacy workspace to read",
             )
         return RuntimeError("Cannot export: no workspace path available (result was not created from a workspace run)")
 
+    def _dagml_export_refusal(self, operation: str, reason: str) -> Exception:
+        """Build the stable V1 dag-ml export refusal envelope."""
+        from nirs4all.pipeline.dagml.rt import RtError
+
+        return RtError(
+            "export",
+            "unsupported_capability",
+            f"engine='dag-ml' {operation} requires captured native artifacts; {reason}. "
+            "The default V1 export path does not rerun the pipeline with engine='legacy'.",
+            mitigation=(
+                "Use nirs4all-tools to convert existing legacy workspaces/artifacts, or pass "
+                f"compatibility='{_DAGML_LEGACY_REFIT_COMPATIBILITY}' to explicitly rerun the frozen "
+                "pipeline with engine='legacy'."
+            ),
+            unsupported_capability=_DAGML_EXPORT_UNSUPPORTED_CAPABILITY,
+        )
+
+    def _legacy_refit_compatibility_requested(self, compatibility: str | None) -> bool:
+        """Validate the explicit dag-ml export compatibility opt-in."""
+        if compatibility is None:
+            return False
+        if compatibility == _DAGML_LEGACY_REFIT_COMPATIBILITY:
+            return True
+        raise ValueError(
+            "unsupported dag-ml export compatibility opt-in "
+            f"{compatibility!r}; expected {_DAGML_LEGACY_REFIT_COMPATIBILITY!r}"
+        )
+
     def _dagml_export_delegate(self) -> RunResult | None:
-        """Materialize (once) a LEGACY RunResult to back .n4a export of a dag-ml run; ``None`` if N/A.
+        """Materialize (once) the explicit legacy-refit compatibility RunResult; ``None`` if unavailable.
 
-        The dag-ml backend produces no workspace/artifacts, so export of a dag-ml result re-runs the SAME
-        FROZEN pipeline (the deepcopy captured at run time) through the legacy engine with
-        ``save_artifacts=True`` — that legacy run owns a real workspace + chain + artifacts the existing
-        export path consumes. Returns ``None`` for a non-dag-ml result or a dag-ml result with no captured
-        spec (the caller then falls back to the original no-workspace error). The legacy result is cached
-        and kept alive (its store stays open for the export and is closed by :meth:`close`), so repeated
-        exports do not refit.
+        The default V1 dag-ml export path never calls this method. It is used only after the caller passes
+        ``compatibility="legacy-refit"`` to request the old compatibility behavior deliberately. The method
+        re-runs the SAME FROZEN pipeline (the deepcopy captured at run time) through the legacy engine with
+        ``save_artifacts=True``; that legacy run owns a real workspace + chain + artifacts the existing
+        export path consumes. The legacy result is cached and kept alive (its store stays open for the export
+        and is closed by :meth:`close`), so repeated explicit compatibility exports do not refit.
 
-        PARITY (transitional): this re-fit is EXACT for a fully-seeded deterministic run (the dag-ml and
-        legacy engines are at numerical parity, so the exported model's ``predict()`` matches the dag-ml run
-        within tolerance), but only BEST-EFFORT otherwise — see the export()/export_model() docstrings for
+        PARITY (compatibility): this re-fit is EXACT for a fully-seeded deterministic run (the dag-ml and
+        legacy engines are at numerical parity, so the exported model's ``predict()`` may match the dag-ml
+        run within tolerance), but only BEST-EFFORT otherwise — see the export()/export_model() docstrings for
         the general caveat. A per-run WARNING fires on the two ``_dagml_export_stochastic`` signals — a
         ``sample_augmentation`` step (CERTAIN), or ``run(random_state) is None`` (CONSERVATIVE — may
         over-warn a fully-deterministic pipeline, the safe direction); the uncertain middle (a seeded run
@@ -1315,8 +1342,8 @@ class RunResult:
                     stacklevel=3,
                 )
             # Re-run the export-bound pipeline on the legacy engine: save_artifacts=True persists the
-            # workspace + chain the export path needs; the same name/random_state keep the refit aligned
-            # with the dag-ml run. verbose=0 keeps the on-demand refit quiet (export is not a training call).
+            # workspace + chain the export path needs; the same name/random_state keep the explicit
+            # compatibility refit aligned with the dag-ml run. verbose=0 keeps the refit quiet.
             self._dagml_legacy_result = _run(
                 spec["pipeline"],
                 spec["dataset"],
@@ -1363,6 +1390,8 @@ class RunResult:
         format: str = "n4a",
         source: dict[str, Any] | None = None,
         chain_id: str | None = None,
+        *,
+        compatibility: str | None = None,
     ) -> Path:
         """Export a model to bundle.
 
@@ -1389,13 +1418,13 @@ class RunResult:
         native paths avoid legacy refit and stochastic warnings. A :class:`BundleLoader` reload-predict of
         the bundle reproduces the dag-ml run's scored REFIT model/composite exactly.
 
-        **dag-ml runs (P1c bridge — fallback):** without a native dir, for unsupported multi-model / branch /
-        stacking shapes, or for the ``n4a.py`` portable-script format, the bundle is produced by a legacy
-        re-fit of the pipeline. For an EXACT bridge export, set ``run(random_state=...)`` AND seed every
-        stochastic component's ``random_state``; otherwise (``sample_augmentation``, an unseeded run, or any
-        unseeded-stochastic component such as ``RandomForest`` / ``MLP`` / ``CARS``) the bridge-exported model
-        may differ from the dag-ml-scored model. ``source`` / ``chain_id`` are not supported for a dag-ml run
-        (they reference its non-existent workspace); the run's best model is exported.
+        **dag-ml refusal / compatibility:** without replayable native artifacts, for unsupported native
+        shapes, or for the ``n4a.py`` portable-script format, the default V1 path raises a structured
+        ``RtError`` that points to ``nirs4all-tools`` conversion or the explicit compatibility opt-in. It
+        never re-runs the pipeline through ``engine="legacy"`` implicitly. To deliberately request the old
+        refit bridge, pass ``compatibility="legacy-refit"``; this re-runs the frozen pipeline through the
+        legacy engine and is best-effort for stochastic pipelines. ``source`` / ``chain_id`` are not
+        supported for a dag-ml run (they reference its non-existent workspace).
 
         Args:
             output_path: Path for the exported bundle file.
@@ -1404,6 +1433,9 @@ class RunResult:
             chain_id: Chain identifier for store-based export.
                 When provided, ``source`` is ignored and the chain is
                 exported directly from the workspace store.
+            compatibility: Optional dag-ml compatibility opt-in. The only supported value is
+                ``"legacy-refit"``, which explicitly reruns the frozen dag-ml pipeline on
+                ``engine="legacy"`` for export. The default is ``None``.
 
         Returns:
             Path to the exported bundle file.
@@ -1413,31 +1445,40 @@ class RunResult:
             ValueError: If no predictions available and source not provided.
             NotImplementedError: For a dag-ml run, if ``source``/``chain_id`` is given.
         """
-        # dag-ml export bridge (P1c): the dag-ml backend has no workspace, so delegate to a legacy re-run of
-        # the same pipeline (materialized on demand, cached). FAIL-FAST FIRST: an EXPLICIT non-default
-        # ``source`` / ``chain_id`` references the (non-existent) dag-ml workspace, so it cannot be honored
-        # — raise the CATCHABLE NotImplementedError BEFORE materializing the delegate (no wasted refit, no
-        # spurious stochastic warning). The predicate is the cheap spec flag, NOT the delegate (which would
-        # trigger the refit). Otherwise materialize the delegate and export its OWN best/final (the
-        # single-winner the dag-ml run scored).
-        if self._dagml_export_spec is not None:
+        legacy_refit_compatibility = self._legacy_refit_compatibility_requested(compatibility)
+
+        # dag-ml exports use captured native artifacts by default. The legacy refit bridge is available
+        # only through the explicit compatibility opt-in above.
+        if self._is_dagml_engine():
             if source is not None or chain_id is not None:
                 raise NotImplementedError(
                     "engine='dag-ml' export does not support an explicit source=/chain_id= (they reference "
                     "the dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export(path) (no source/chain_id)."
                 )
+            if legacy_refit_compatibility:
+                delegate = self._dagml_export_delegate()
+                if delegate is None:
+                    raise self._dagml_export_refusal(
+                        "export",
+                        "legacy-refit compatibility was requested, but no frozen pipeline/dataset inputs were captured",
+                    )
+                return delegate.export(output_path, format=format)
             # NATIVE export (P3): when this dag-ml run captured a replayable native artifact shape in its
             # native results dir AND the request is the default ``n4a`` ZIP bundle, build the ``.n4a``
             # DIRECTLY from those captured (verify-then-load) REFIT artifacts — no legacy refit, no
             # stochastic warning. A ``None`` return means not applicable (no native dir / ``n4a.py`` format /
-            # unsupported multi-artifact shape / unreadable native dir) → fall through to the P1c bridge.
+            # unsupported multi-artifact shape / unreadable native dir) → refuse on the default V1 path.
             native = self._dagml_native_export_bundle(output_path, format)
             if native is not None:
                 return native
-            delegate = self._dagml_export_delegate()
-            assert delegate is not None  # spec present ⇒ delegate materializes
-            return delegate.export(output_path, format=format)
+            raise self._dagml_export_refusal(
+                "export",
+                "no replayable native .n4a bundle artifacts were available for this result and requested format",
+            )
+
+        if legacy_refit_compatibility:
+            raise ValueError("compatibility='legacy-refit' is only valid for engine='dag-ml' export results")
 
         # Store-based export path
         if chain_id is not None:
@@ -1479,47 +1520,46 @@ class RunResult:
         ``y_transform`` was captured) — NO legacy refit, NO stochastic warning. The exported model's
         ``predict`` reproduces the dag-ml run's scored REFIT model EXACTLY (it IS that model).
 
-        Returns the written path on success, or ``None`` to signal the caller to FALL BACK to the legacy
-        bridge whenever the native export is not applicable:
+        Returns the written path on success, or ``None`` to signal that the native export is not applicable.
+        The default caller raises a structured refusal; only ``compatibility="legacy-refit"`` can choose the
+        legacy bridge before this helper is attempted.
 
         * no native dir;
         * the requested export is NOT joblib (an explicit non-joblib ``format`` such as ``cloudpickle`` /
           ``keras_h5``, or a non-joblib extension such as ``.pkl`` / ``.keras`` / ``.pt`` — the native helper
-          only writes joblib bytes, so any other request must go through the legacy ``to_bytes`` path that
-          honors the requested format, never silently write joblib under a foreign extension);
-        * ≠1 model artifact (multi-model / branch / stacking, which defer to the bridge per Codex D4);
+          only writes joblib bytes, so the default path refuses rather than silently writing joblib under a
+          foreign extension);
+        * ≠1 model artifact (multi-model / branch / stacking);
         * ANY native-read/rehydrate failure — not only the verify-then-load guards' ``ValueError`` /
           ``FileNotFoundError`` / ``KeyError`` but also a fingerprint-valid yet UNLOADABLE artifact (e.g.
           ``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError`` / ``ImportError`` / ``AttributeError``
-          from ``joblib.load``, or a parquet read error). The fallback contract is "ANY native-read failure
-          → legacy bridge", so a broad ``except Exception`` is intentional HERE (the bridge is the safe,
-          guaranteed export); it is scoped to ONLY the read+rehydrate attempt so a genuine bug in the export
-          write below is never swallowed.
+          from ``joblib.load``, or a parquet read error). The broad ``except Exception`` is intentional HERE:
+          the default caller must turn any native-read failure into the stable V1 refusal. It is scoped to
+          ONLY the read+rehydrate attempt so a genuine bug in the export write below is never swallowed.
 
         A plain ``y_transform``-less model exports a wrapper that is a pass-through over the estimator.
         """
         if self._dagml_results_dir is None:
             return None
         # FORMAT GATE: the native helper writes ONLY joblib bytes, so it may fire only when the request
-        # resolves to joblib — otherwise return None so the legacy ``to_bytes`` path honors the requested
-        # format/extension (no silent joblib-under-a-foreign-extension regression).
+        # resolves to joblib. Otherwise the default caller refuses unless explicit compatibility was chosen
+        # before this helper was attempted.
         if not _request_is_joblib(output_path, format):
             return None
         from nirs4all.pipeline.dagml.native_results import read_native_results
 
         try:
             artifacts = read_native_results(self._dagml_results_dir)["artifacts"]
-        except Exception as exc:  # noqa: BLE001 -- fallback contract: ANY native-read failure → legacy bridge
+        except Exception as exc:  # noqa: BLE001 -- default contract: ANY native-read failure → stable refusal
             # A tampered/edited manifest (verify-then-load ValueError), a missing/malformed native dir
             # (FileNotFoundError/KeyError/parquet error), OR a fingerprint-valid but UNLOADABLE artifact
             # (EOFError/UnpicklingError/ModuleNotFoundError/ImportError/AttributeError from joblib.load —
-            # bytes that hash correctly but cannot be unpickled/imported in this environment) → fall back to
-            # the legacy bridge. The native fast-path is best-effort; the bridge is the guaranteed export.
+            # bytes that hash correctly but cannot be unpickled/imported in this environment) → refuse.
             # The broad catch is SCOPED to the read+rehydrate only, so a real bug in the write below escapes.
-            logger.debug("native dag-ml export_model fell back to the legacy bridge: %s", exc)
+            logger.debug("native dag-ml export_model is unavailable: %s", exc)
             return None
         # EXACTLY ONE concrete artifact only (D4): a multi-model / branch / stacking run captures several
-        # REFIT artifacts and is NOT cleanly a single exportable model → defer to the legacy bridge.
+        # REFIT artifacts and is NOT cleanly a single exportable model on this lightweight model-only path.
         if len(artifacts) != 1:
             return None
 
@@ -1559,28 +1599,29 @@ class RunResult:
         bundle embeds a wrapper that predicts every base model from raw X, column-stacks those predictions,
         and feeds the captured meta REFIT model.
 
-        Returns the written path, or ``None`` to signal the caller to FALL BACK to the legacy bridge when the
-        native bundle is not applicable:
+        Returns the written path on success, or ``None`` to signal that the native bundle is not applicable.
+        The default caller raises a structured refusal; only ``compatibility="legacy-refit"`` can choose the
+        legacy bridge before this helper is attempted.
 
         * no native dir;
         * a non-``n4a`` format (the ``n4a.py`` PORTABLE SCRIPT embeds artifacts through the legacy
-          generator's template path and is out of this native single-model slice — it defers to the bridge,
-          mirroring the ``export_model`` joblib-only gate; never a silent format substitution);
+          generator's template path and is out of this native writer's scope; the default path refuses
+          rather than silently substituting a ZIP bundle);
         * a multi-artifact shape other than the supported branch / by_source mean-fusion or stacking replay;
         * ANY native-read/rehydrate failure — a tampered/edited manifest (verify-then-load ``ValueError``), a
           missing/malformed native dir (``FileNotFoundError`` / ``KeyError`` / parquet error), OR a
           fingerprint-valid but UNLOADABLE artifact (``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError``
-          / ``ImportError`` / ``AttributeError`` from ``joblib.load``). The fallback contract is "ANY
-          native-read failure → legacy bridge", so the broad ``except Exception`` is intentional HERE (the
-          bridge is the guaranteed export); it is scoped to ONLY the read+rehydrate, so a genuine bug in the
-          bundle write below is never swallowed.
+          / ``ImportError`` / ``AttributeError`` from ``joblib.load``). The broad ``except Exception`` is
+          intentional HERE: the default caller must turn any native-read failure into the stable V1 refusal.
+          It is scoped to ONLY the read+rehydrate, so a genuine bug in the bundle write below is never
+          swallowed.
         """
         if self._dagml_results_dir is None:
             return None
         # FORMAT GATE: the native writer produces the ``.n4a`` ZIP bundle only. A ``n4a.py`` portable-script
-        # request must go through the legacy bridge (which owns the portable-script template), never a silent
-        # ZIP-under-``.n4a.py`` substitution. ``BundleFormat`` is a ``StrEnum`` so ``== "n4a"`` matches both
-        # the bare string and the enum member.
+        # request refuses by default unless explicit compatibility was chosen before this helper was
+        # attempted. ``BundleFormat`` is a ``StrEnum`` so ``== "n4a"`` matches both the bare string and the
+        # enum member.
         if format != "n4a":
             return None
         from nirs4all.pipeline.dagml.native_results import read_native_results
@@ -1588,8 +1629,8 @@ class RunResult:
         try:
             native = read_native_results(self._dagml_results_dir)
             artifacts = native["artifacts"]
-        except Exception as exc:  # noqa: BLE001 -- fallback contract: ANY native-read failure → legacy bridge
-            logger.debug("native dag-ml .n4a export fell back to the legacy bridge: %s", exc)
+        except Exception as exc:  # noqa: BLE001 -- default contract: ANY native-read failure → stable refusal
+            logger.debug("native dag-ml .n4a export is unavailable: %s", exc)
             return None
         native_manifest = cast(Mapping[str, Any], native["manifest"])
         model_names = _native_model_names(native_manifest)
@@ -1674,7 +1715,9 @@ class RunResult:
         output_path: str | Path,
         source: dict[str, Any] | None = None,
         format: str | None = None,
-        fold: int | None = None
+        fold: int | None = None,
+        *,
+        compatibility: str | None = None,
     ) -> Path:
         """Export only the model artifact (lightweight).
 
@@ -1688,20 +1731,22 @@ class RunResult:
         when a ``y_transform`` was captured) — with NO legacy refit and NO stochastic warning. The exported
         model's ``predict`` reproduces the dag-ml run's scored REFIT model EXACTLY (it IS that model).
 
-        **dag-ml runs (P1c bridge — fallback):** without a native dir, or for a multi-model / branch /
-        stacking run (≠1 captured artifact), or when ``fold`` is given, the model is produced by a legacy
-        re-fit. For an EXACT bridge export, set ``run(random_state=...)`` AND seed every stochastic
-        component's ``random_state``; otherwise (``sample_augmentation``, an unseeded run, or any
-        unseeded-stochastic component such as ``RandomForest`` / ``MLP`` / ``CARS``) the bridge-exported
-        model may differ from the dag-ml-scored model. ``source`` is not supported for a dag-ml run (it
-        references its non-existent workspace); ``fold`` is honored by the bridge (it selects a fold's model
-        from the legacy re-fit's workspace) and routes around the native single-artifact path.
+        **dag-ml refusal / compatibility:** without a replayable native single-artifact model, for non-joblib
+        formats, or when ``fold`` is given, the default V1 path raises a structured ``RtError`` that points
+        to ``nirs4all-tools`` conversion or the explicit compatibility opt-in. It never re-runs the pipeline
+        through ``engine="legacy"`` implicitly. To deliberately request the old refit bridge, pass
+        ``compatibility="legacy-refit"``; this re-runs the frozen pipeline through the legacy engine and is
+        best-effort for stochastic pipelines. ``source`` is not supported for a dag-ml run (it references its
+        non-existent workspace).
 
         Args:
             output_path: Path for the output model file.
             source: Prediction dict to export. If None, exports best model.
             format: Model format (inferred from extension if None).
             fold: Fold index to export (default: fold 0).
+            compatibility: Optional dag-ml compatibility opt-in. The only supported value is
+                ``"legacy-refit"``, which explicitly reruns the frozen dag-ml pipeline on
+                ``engine="legacy"`` for export. The default is ``None``.
 
         Returns:
             Path to the exported model file.
@@ -1709,31 +1754,43 @@ class RunResult:
         Raises:
             RuntimeError: If no workspace path available.
         """
-        # dag-ml export bridge (P1c): same as export() — FAIL-FAST on an explicit ``source`` BEFORE
-        # materializing the delegate (no wasted refit / no spurious stochastic warning), using the cheap
-        # spec flag (not the delegate, which would trigger the refit). ``fold`` is FORWARDED (it selects a
-        # fold's model from the delegate's REAL legacy workspace, which does have per-fold artifacts).
-        if self._dagml_export_spec is not None:
+        legacy_refit_compatibility = self._legacy_refit_compatibility_requested(compatibility)
+
+        # dag-ml exports use captured native artifacts by default. The legacy refit bridge is available
+        # only through the explicit compatibility opt-in above.
+        if self._is_dagml_engine():
             if source is not None:
                 raise NotImplementedError(
                     "engine='dag-ml' export_model does not support an explicit source= (it references the "
                     "dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export_model(path[, fold=...]) (no source)."
                 )
+            if legacy_refit_compatibility:
+                delegate = self._dagml_export_delegate()
+                if delegate is None:
+                    raise self._dagml_export_refusal(
+                        "export_model",
+                        "legacy-refit compatibility was requested, but no frozen pipeline/dataset inputs were captured",
+                    )
+                return delegate.export_model(output_path, format=format, fold=fold)
             # NATIVE export (P3 Slice 2c-ii): when this dag-ml run captured EXACTLY ONE concrete model
             # artifact in its native results dir AND the request is joblib-compatible, export that captured
             # (verify-then-load) REFIT model DIRECTLY — no legacy refit, no stochastic warning. ``fold`` is
             # incompatible with the native single-artifact export (it would select a fold's model, which
             # lives only in the legacy workspace), so the native path is attempted only for the default
             # whole-model export. A ``None`` return means not applicable (no native dir / non-joblib format /
-            # ≠1 artifact / unloadable artifact) → fall through to the legacy bridge below.
+            # ≠1 artifact / unloadable artifact) → refuse on the default V1 path.
             if fold is None:
                 native = self._dagml_native_export_model(output_path, format)
                 if native is not None:
                     return native
-            delegate = self._dagml_export_delegate()
-            assert delegate is not None  # spec present ⇒ delegate materializes
-            return delegate.export_model(output_path, format=format, fold=fold)
+            raise self._dagml_export_refusal(
+                "export_model",
+                "no single replayable native joblib model artifact was available for this result, requested format, and fold selector",
+            )
+
+        if legacy_refit_compatibility:
+            raise ValueError("compatibility='legacy-refit' is only valid for engine='dag-ml' export results")
 
         if source is None:
             source = self.best

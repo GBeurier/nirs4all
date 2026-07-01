@@ -13,7 +13,7 @@ critically — proves it is NOT a legacy refit under another name:
   still succeeds and reload-predicts exactly — the export never touches the legacy engine.
 * (3) a ``y_processing`` variant → the inverse ``y_transform`` round-trips through the bundle (original
   target space), still exact.
-* (4) NO native dir → the ``.n4a`` export falls back to the P1c legacy bridge (unchanged behavior).
+* (4) NO native dir → the ``.n4a`` export refuses with a stable RtError and does not call the legacy engine.
 * (5) a duplication branch + mean-fusion run (multiple captured artifacts) WITH a native dir → exports a
   native multi-artifact bundle that averages captured branch REFIT models, without invoking the bridge.
 * (6) a by_source branch + mean-fusion run (one captured artifact per source) WITH a native dir → exports a
@@ -21,8 +21,9 @@ critically — proves it is NOT a legacy refit under another name:
   REFIT models, without invoking the bridge.
 * (7) a branch/stacking run WITH a native replay manifest → exports a native multi-artifact bundle that
   rebuilds base-prediction meta-features from raw X and never invokes the bridge.
-* (8) ``format="n4a.py"`` (portable script) on a native single-artifact run → falls back to the bridge (the
-  native writer produces the ZIP bundle only; never a silent ZIP-under-``.n4a.py``).
+* (8) ``format="n4a.py"`` (portable script) on a native single-artifact run → refuses with a stable RtError
+  and does not call the legacy engine (the native writer produces the ZIP bundle only; never a silent
+  ZIP-under-``.n4a.py``).
 """
 
 from __future__ import annotations
@@ -43,6 +44,7 @@ from sklearn.preprocessing import MinMaxScaler
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.transforms.scalers import StandardNormalVariate as SNV
 from nirs4all.pipeline.bundle import BundleLoader
+from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
 pytestmark = [pytest.mark.parity]
@@ -95,6 +97,28 @@ def _run_native(tmp_path: Path, pipeline, *, random_state, dataset_key: str = "r
 def _read_manifest(bundle_path: Path) -> dict:
     with zipfile.ZipFile(bundle_path) as zf:
         return json.loads(zf.read("manifest.json"))
+
+
+def _poison_legacy_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make any implicit legacy refit fail the test immediately."""
+    run_module = importlib.import_module("nirs4all.api.run")
+
+    def _boom(*_args, **_kwargs):
+        raise AssertionError("default dag-ml .n4a export must not invoke engine='legacy'")
+
+    monkeypatch.setattr(run_module, "run", _boom)
+
+
+def _assert_export_refusal(excinfo: pytest.ExceptionInfo[RtError]) -> None:
+    error = excinfo.value
+    assert isinstance(error, RtError)
+    payload = error.to_dict()
+    assert payload["verb"] == "export"
+    assert payload["cause"] == "unsupported_capability"
+    assert payload["unsupported_capability"] == "dagml_native_export"
+    assert "does not rerun the pipeline with engine='legacy'" in payload["message"]
+    assert "nirs4all-tools" in payload["mitigation"]
+    assert "compatibility='legacy-refit'" in payload["mitigation"]
 
 
 # ---------------------------------------------------------------------------
@@ -196,28 +220,29 @@ def test_native_n4a_export_applies_y_inverse(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (4) NO native dir → legacy bridge (unchanged behavior).
+# (4) NO native dir → stable refusal, no legacy refit.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_no_native_dir_n4a_uses_legacy_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``export(".n4a")`` on a dag-ml run WITHOUT a native results dir falls back to the P1c legacy-refit
-    bridge (it materializes a legacy result + warns on the unseeded run) — the native path is skipped."""
+def test_no_native_dir_n4a_refuses_without_legacy_refit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``export(".n4a")`` on a dag-ml run WITHOUT a native results dir refuses and does not call legacy."""
     monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
     pipeline = [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
         pipeline, dataset_path("regression"), workdir=tmp_path / "work",
         dagml_cli=str(_DAGML_CLI), venv_python=sys.executable,
-        random_state=None,  # unseeded → the bridge fires the CONSERVATIVE stochastic warning
+        random_state=None,
     )
     assert result._dagml_results_dir is None  # noqa: SLF001 -- no native dir was written
 
-    out = tmp_path / "model_bridge.n4a"
-    with pytest.warns(UserWarning, match="nondeterministic"):
+    _poison_legacy_run(monkeypatch)
+    out = tmp_path / "model_refused.n4a"
+    with pytest.raises(RtError) as excinfo:
         result.export(out)
-    assert out.exists()
-    assert result._dagml_legacy_result is not None  # noqa: SLF001 -- the bridge backed the export
+    _assert_export_refusal(excinfo)
+    assert not out.exists()
+    assert result._dagml_legacy_result is None  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
@@ -394,24 +419,23 @@ def test_branch_stacking_n4a_export_never_refits_on_legacy(tmp_path: Path, monke
 
 
 # ---------------------------------------------------------------------------
-# (8) n4a.py portable-script format → legacy bridge (the native writer produces the ZIP bundle only).
+# (8) n4a.py portable-script format → stable refusal, no legacy refit.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_n4a_py_format_falls_back_to_bridge(tmp_path: Path) -> None:
+def test_n4a_py_format_refuses_without_legacy_refit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """``export(format="n4a.py")`` on a native single-artifact run does NOT take the ZIP-only native path — it
-    falls back to the legacy bridge (which owns the portable-script template), so the output is the bridge's
-    ``.n4a.py`` script (NOT a silent ZIP written under a ``.n4a.py`` name)."""
+    refuses by default and does not invoke the legacy bridge."""
     pipeline = [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = _run_native(tmp_path, pipeline, random_state=42)
     # Sanity: with the DEFAULT (n4a) format the native path WOULD fire (exactly one loadable artifact).
     assert result._dagml_results_dir is not None and len(result._dagml_refit_artifacts) == 1  # noqa: SLF001
 
+    _poison_legacy_run(monkeypatch)
     out = tmp_path / "model_portable.n4a.py"
-    returned = result.export(out, format="n4a.py")
-    assert Path(returned).exists()
-    # The native path was SKIPPED (non-n4a request) → the legacy bridge was materialized.
-    assert result._dagml_legacy_result is not None, "a n4a.py format → the legacy bridge backs the export"  # noqa: SLF001
-    # A portable script is Python text, not a ZIP bundle — proving no silent ZIP-under-.n4a.py write happened.
-    assert not zipfile.is_zipfile(returned), "n4a.py must be a portable script, not a native ZIP bundle"
+    with pytest.raises(RtError) as excinfo:
+        result.export(out, format="n4a.py")
+    _assert_export_refusal(excinfo)
+    assert not out.exists()
+    assert result._dagml_legacy_result is None  # noqa: SLF001

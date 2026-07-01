@@ -25,6 +25,7 @@ from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_ref
 from nirs4all.pipeline.dagml.envelope import build_envelope
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled
+from nirs4all.pipeline.dagml.rt import RtError
 
 from ._datasets import PARSER_FIXTURES, dataset_path
 
@@ -4464,47 +4465,39 @@ def test_subprocess_error_classification_host_propagates_vs_falls_back_by_struct
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_dagml_result_export_roundtrip(tmp_path: Path) -> None:
-    """`.export()` / `.export_model()` on a dag-ml RunResult SUCCEED via the legacy-refit bridge (P1c).
+def test_dagml_result_export_refuses_without_native_artifacts(tmp_path: Path) -> None:
+    """Default `.export()` / `.export_model()` on a dag-ml RunResult refuse without native artifacts.
 
-    The dag-ml backend returns native scores with NO workspace (no SQLite store / artifacts), so a `.n4a`
-    export has nothing of its own to bundle. P1c bridges this: `RunResult.export()` re-runs the SAME
-    pipeline through the LEGACY engine on demand (`save_artifacts=True` → a real workspace + chain +
-    artifacts), then delegates to the existing export path. So export now SUCCEEDS — it no longer raises
-    the pre-P1c catchable `NotImplementedError` (the fallback for an unsupported shape).
-
-    Round-trip: the exported `.n4a` loads and predicts finite values on held-out data, and the exported
-    model is a real sklearn estimator. The two engines are at numerical parity (the dag-ml backend's
-    premise), so the exported (legacy-refit) model reproduces the model the dag-ml run scored."""
+    This run does not pass ``results_path`` and therefore has no captured native artifacts to export. The V1
+    contract is native artifacts or stable refusal; the default path must not re-run the pipeline through
+    ``engine="legacy"`` implicitly.
+    """
     import nirs4all
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
-    from nirs4all.pipeline import PipelineRunner
 
     result = nirs4all.run(
         [StandardNormalVariate(), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
         dataset_path("regression"),
         engine="dag-ml",
     )
-    # This must be a native dag-ml result (no silent legacy fallback) for the bridge to be exercised.
+    # This must be a native dag-ml result (no silent legacy fallback) for the export refusal to be exercised.
     assert [info.get("engine") for info in result.per_dataset.values()] == ["dag-ml"]
 
-    bundle = result.export(tmp_path / "model.n4a")
-    assert bundle.exists() and bundle.stat().st_size > 0
-
-    model_path = result.export_model(tmp_path / "model.joblib")
-    import joblib
-
-    assert model_path.exists() and isinstance(joblib.load(model_path), PLSRegression)
-
-    # Round-trip: load the exported bundle and predict on the corpus's held-out val split — finite values.
-    predictor = PipelineRunner(save_artifacts=False, verbose=0)
-    preds, _ = predictor.predict(
-        prediction_obj=str(bundle),
-        dataset=DatasetConfigs({"X_test": str(Path(dataset_path("regression")) / "Xval.csv.gz")}),
-        verbose=0,
-    )
-    preds = np.asarray(preds).ravel()
-    assert preds.size > 0 and np.all(np.isfinite(preds))
+    for call, out in (
+        (result.export, tmp_path / "model.n4a"),
+        (result.export_model, tmp_path / "model.joblib"),
+    ):
+        with pytest.raises(RtError) as excinfo:
+            call(out)
+        payload = excinfo.value.to_dict()
+        assert payload["verb"] == "export"
+        assert payload["cause"] == "unsupported_capability"
+        assert payload["unsupported_capability"] == "dagml_native_export"
+        assert "does not rerun the pipeline with engine='legacy'" in payload["message"]
+        assert "nirs4all-tools" in payload["mitigation"]
+        assert "compatibility='legacy-refit'" in payload["mitigation"]
+        assert not out.exists()
+    assert result._dagml_legacy_result is None  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------------------------------
