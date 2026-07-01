@@ -61,3 +61,25 @@ def test_wheel_from_smoke_result_requires_ok_status(tmp_path: Path) -> None:
     wheel.write_bytes(b"wheel")
     with pytest.raises(proof.ProofError, match="did not report OK"):
         proof._wheel_from_smoke_result({"status": "BLOCKED", "wheel": str(wheel)})
+
+
+def test_resolve_local_dependency_path_accepts_checkout_root(tmp_path: Path) -> None:
+    project = tmp_path / "dag-ml" / "crates" / "dag-ml-py"
+    project.mkdir(parents=True)
+    (project / "pyproject.toml").write_text('[project]\nname = "dag-ml"\n', encoding="utf-8")
+
+    assert proof._resolve_local_dependency_path(tmp_path / "dag-ml", "dag-ml") == project.resolve()
+
+
+def test_resolve_local_dependency_path_rejects_wrong_project_name(tmp_path: Path) -> None:
+    (tmp_path / "pyproject.toml").write_text('[project]\nname = "other-package"\n', encoding="utf-8")
+
+    with pytest.raises(proof.ProofError, match="project.name='other-package'"):
+        proof._resolve_local_dependency_path(tmp_path, "dag-ml")
+
+
+def test_dependency_find_links_requires_existing_path(tmp_path: Path) -> None:
+    missing = tmp_path / "missing-wheels"
+
+    with pytest.raises(proof.ProofError, match="dependency --find-links path does not exist"):
+        proof._dependency_find_links_args([missing])

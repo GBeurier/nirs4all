@@ -28,12 +28,23 @@ import subprocess
 import sys
 import tempfile
 import textwrap
+import tomllib
 from pathlib import Path
 from typing import Any
 
 REPO = Path(__file__).resolve().parents[1]
 DEFAULT_METHODS_REPO = Path(os.environ.get("NIRS4ALL_METHODS_REPO", "/home/delete/nirs4all/nirs4all-methods"))
+DEFAULT_DAG_ML_REPO = Path(os.environ.get("NIRS4ALL_DAG_ML_REPO", "/home/delete/nirs4all/dag-ml"))
+DEFAULT_DAG_ML_DATA_REPO = Path(os.environ.get("NIRS4ALL_DAG_ML_DATA_REPO", "/home/delete/nirs4all/dag-ml-data"))
 METHODS_SMOKE_REL = Path("bindings/python/scripts/smoke_installed_nirs4all_methods.py")
+LOCAL_DAGML_PROJECT_RELS = {
+    "dag-ml": Path("crates/dag-ml-py"),
+    "dag-ml-data": Path("crates/dag-ml-data-py"),
+}
+DEFAULT_LOCAL_DAGML_PATHS = {
+    "dag-ml": DEFAULT_DAG_ML_REPO,
+    "dag-ml-data": DEFAULT_DAG_ML_DATA_REPO,
+}
 DEFAULT_PYTEST_ARGS = [
     "tests/unit/operators/methods/test_n4m_ops.py::TestPackaging",
     "tests/unit/operators/methods/test_n4m_ops.py::TestSNVFixtureParity",
@@ -106,6 +117,105 @@ def _wheel_from_smoke_result(result: dict[str, Any]) -> Path:
     return wheel
 
 
+def _project_name(project_path: Path) -> str | None:
+    pyproject = project_path / "pyproject.toml"
+    try:
+        data = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as exc:
+        raise ProofError(f"could not read local dependency pyproject: {pyproject}\n{exc}") from exc
+    project = data.get("project")
+    if not isinstance(project, dict):
+        return None
+    name = project.get("name")
+    return name if isinstance(name, str) else None
+
+
+def _resolve_local_dependency_path(path: Path, package_name: str) -> Path:
+    resolved = path.expanduser().resolve()
+    if not resolved.exists():
+        raise ProofError(f"local {package_name} dependency path does not exist: {resolved}")
+    if resolved.is_file():
+        if resolved.suffix != ".whl":
+            raise ProofError(f"local {package_name} dependency file is not a wheel: {resolved}")
+        return resolved
+    if (resolved / "pyproject.toml").exists():
+        actual_name = _project_name(resolved)
+        if actual_name != package_name:
+            raise ProofError(f"local {package_name} dependency project has project.name={actual_name!r}, expected {package_name!r}: {resolved / 'pyproject.toml'}")
+        return resolved
+
+    rel = LOCAL_DAGML_PROJECT_RELS[package_name]
+    candidate = resolved / rel
+    if (candidate / "pyproject.toml").exists():
+        actual_name = _project_name(candidate)
+        if actual_name != package_name:
+            raise ProofError(f"local {package_name} dependency project has project.name={actual_name!r}, expected {package_name!r}: {candidate / 'pyproject.toml'}")
+        return candidate
+
+    raise ProofError(
+        f"local {package_name} dependency path is not installable: {resolved}\n"
+        f"Expected a .whl file, a Python project with pyproject.toml and project.name={package_name!r}, "
+        f"or a checkout containing {rel}."
+    )
+
+
+def _dependency_find_links_args(paths: list[Path]) -> list[str]:
+    args: list[str] = []
+    for path in paths:
+        resolved = path.expanduser().resolve()
+        if not resolved.exists():
+            raise ProofError(f"dependency --find-links path does not exist: {resolved}")
+        args.extend(["--find-links", str(resolved)])
+    return args
+
+
+def _local_dependency_specs(args: argparse.Namespace) -> list[str]:
+    specs: list[str] = []
+    local_paths = {
+        "dag-ml": args.dag_ml_path,
+        "dag-ml-data": args.dag_ml_data_path,
+    }
+    for package_name, path in local_paths.items():
+        if path is None:
+            continue
+        specs.append(str(_resolve_local_dependency_path(path, package_name)))
+    return specs
+
+
+def _local_dependency_help() -> str:
+    lines = [
+        "Isolated dependency mode installs this checkout with its declared dependencies.",
+        "dag-ml and dag-ml-data are hard dependencies, but they may be unpublished on the configured pip indexes.",
+        "Provide local inputs explicitly, for example:",
+        f"  {shlex.join([sys.executable, str(REPO / 'scripts' / 'prove_installed_n4m.py'), '--install-deps', '--dag-ml-path', str(DEFAULT_LOCAL_DAGML_PATHS['dag-ml']), '--dag-ml-data-path', str(DEFAULT_LOCAL_DAGML_PATHS['dag-ml-data'])])}",
+        "or point pip at a local wheel directory with repeated --dependency-find-links PATH options.",
+        "Local path preflight on this machine:",
+    ]
+    for package_name, path in DEFAULT_LOCAL_DAGML_PATHS.items():
+        rel = LOCAL_DAGML_PROJECT_RELS[package_name]
+        candidate = path / rel
+        if candidate.exists():
+            lines.append(f"  {package_name}: {candidate} exists")
+        else:
+            lines.append(f"  {package_name}: missing {candidate}")
+    return "\n".join(lines)
+
+
+def _install_project_dependencies(args: argparse.Namespace, pip_base: list[str]) -> None:
+    find_links_args = _dependency_find_links_args(args.dependency_find_links)
+    local_specs = _local_dependency_specs(args)
+    if local_specs:
+        _run([*pip_base, "install", *find_links_args, *local_specs])
+
+
+def _install_checkout_with_dependencies(args: argparse.Namespace, pip_base: list[str]) -> None:
+    find_links_args = _dependency_find_links_args(args.dependency_find_links)
+    try:
+        _run([*pip_base, "install", *find_links_args, "-e", f"{REPO}[dev]"])
+    except ProofError as exc:
+        raise ProofError(f"{exc}\n\n{_local_dependency_help()}") from exc
+
+
 def _build_methods_wheel(args: argparse.Namespace) -> tuple[Path, Path, dict[str, Any]]:
     methods_repo = args.methods_repo.resolve()
     smoke = methods_repo / METHODS_SMOKE_REL
@@ -149,7 +259,8 @@ def _install_proof_venv(args: argparse.Namespace, wheel: Path, proof_tmp: Path) 
     vpy = _venv_python(venv_dir)
     pip_base = [str(vpy), "-m", "pip", "--disable-pip-version-check"]
     if args.install_deps:
-        _run([*pip_base, "install", "-e", f"{REPO}[dev]"])
+        _install_project_dependencies(args, pip_base)
+        _install_checkout_with_dependencies(args, pip_base)
     else:
         _run([*pip_base, "install", "--no-deps", "-e", str(REPO)])
     _run([*pip_base, "install", "--no-deps", "--force-reinstall", str(wheel)])
@@ -271,6 +382,23 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         "--install-deps",
         action="store_true",
         help="Install this checkout as -e .[dev] in an isolated proof venv. Without this, the harness uses --system-site-packages and installs this checkout with --no-deps.",
+    )
+    parser.add_argument(
+        "--dag-ml-path",
+        type=Path,
+        help="Local dag-ml wheel, Python project, or checkout root to install before this checkout in --install-deps mode.",
+    )
+    parser.add_argument(
+        "--dag-ml-data-path",
+        type=Path,
+        help="Local dag-ml-data wheel, Python project, or checkout root to install before this checkout in --install-deps mode.",
+    )
+    parser.add_argument(
+        "--dependency-find-links",
+        action="append",
+        default=[],
+        type=Path,
+        help="Local wheel directory passed to pip install as --find-links during --install-deps dependency resolution. May be repeated.",
     )
     parser.add_argument(
         "--isolated",
