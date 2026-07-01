@@ -33,6 +33,7 @@ from nirs4all.api.result import RunResult
 from .dataset import _dataset_inputs, _materialize_dataset
 from .detect import (
     _detect_by_source_branch,
+    _detect_by_source_concat_shared_preproc,
     _detect_duplication_branch,
     _detect_rep_fusion,
     _detect_separation_branch,
@@ -60,6 +61,7 @@ from .run_paths import (
     _reshape_for_rep_fusion,
     _run_augmentation,
     _run_by_source_branch,
+    _run_by_source_concat_shared_preproc,
     _run_concrete_scores,
     _run_duplication_branch,
     _run_native_generation,
@@ -84,6 +86,7 @@ __all__ = [
     "_build_group_folds",
     "_canonical_source_branch",
     "_detect_by_source_branch",
+    "_detect_by_source_concat_shared_preproc",
     "_detect_duplication_branch",
     "_detect_rep_fusion",
     "_detect_separation_branch",
@@ -640,6 +643,7 @@ def _dispatch_run(
     detected_duplication = _detect_duplication_branch(list(pipeline))
     detected_stacking = _detect_stacking_branch(list(pipeline))
     detected_by_source = _detect_by_source_branch(list(pipeline), spectro.features_sources())
+    detected_by_source_concat = _detect_by_source_concat_shared_preproc(list(pipeline), spectro.features_sources())
     detected_rep_fusion = _detect_rep_fusion(list(pipeline))
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
@@ -668,7 +672,7 @@ def _dispatch_run(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
-        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or detected_by_source is not None or any(_is_exclude_step(step) for step in pipeline):
+        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or detected_by_source is not None or detected_by_source_concat is not None or any(_is_exclude_step(step) for step in pipeline):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
                 "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
@@ -700,6 +704,13 @@ def _dispatch_run(
     if detected_by_source is not None:
         by_source_body, by_source_aggregate = detected_by_source
         return _run_by_source_branch(list(pipeline), by_source_body, by_source_aggregate, spectro.features_sources(), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "by_source", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+
+    # by_source shared preprocessing + concat feature merge + one downstream model → ONE native run:
+    # the downstream model's X-chain is applied independently per source, then hstacked, and the generic
+    # projection is replicated per source to preserve legacy's branch-row bookkeeping.
+    if detected_by_source_concat is not None:
+        preproc_body, downstream_body = detected_by_source_concat
+        return _run_by_source_concat_shared_preproc(list(pipeline), preproc_body, downstream_body, spectro.features_sources(), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "by_source_concat", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
 
     # STACKING (backlog #10): a duplication branch (`{"branch": [[A], [B], …]}`) + `{"merge": "predictions"}`
     # + a downstream meta-model (`{"model": MetaModel(Ridge())}` or a plain `{"model": Ridge()}`) → ONE
