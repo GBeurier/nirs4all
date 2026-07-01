@@ -788,6 +788,11 @@ def _detect_by_source_concat_shared_preproc(pipeline: list[Any], n_sources: int)
     The existing :func:`_detect_by_source_branch` owns by_source MODEL fusion
     (``merge: mean``/``average``). This detector owns feature-axis concat reassembly and returns
     ``(preproc_body, downstream_body)`` for the dedicated runner.
+
+    The per-source DICT body remains intentionally excluded. Exact native lowering needs an
+    explicit source-layout contract (at minimum ``source_layout.source_order`` and the per-source
+    preprocessing output layout) so legacy keys such as ``source_0`` can be mapped to the native
+    ``src0``/block order without guessing.
     """
     branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
     merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
