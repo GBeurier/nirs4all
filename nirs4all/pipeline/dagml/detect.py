@@ -51,6 +51,122 @@ def _detect_rep_fusion(pipeline: list[Any]) -> dict[str, Any] | None:
     return rep_steps[0]
 
 
+def _source_concat_indices(source_spec: Any, n_sources: int) -> list[int] | None:
+    """Resolve a ``{"merge": {"sources": ...}}`` concat spec to source indices, else ``None``.
+
+    This is a deliberately small parser for the native source-concat boundary: it accepts the
+    production shorthand ``"concat"`` and the dict form when the strategy/mode is concat. Source names
+    are the legacy/default ``source_<index>`` names used by ``MergeController`` for unnamed sources.
+    """
+    strategy: Any = "concat"
+    sources: Any = "all"
+    if isinstance(source_spec, str):
+        strategy = source_spec
+    elif isinstance(source_spec, dict):
+        strategy = source_spec.get("strategy", source_spec.get("mode", "concat"))
+        sources = source_spec.get("sources", source_spec.get("select", "all"))
+    else:
+        return None
+
+    if strategy != "concat":
+        return None
+    if sources == "all":
+        return list(range(n_sources))
+    if not isinstance(sources, list) or not sources:
+        return None
+
+    indices: list[int] = []
+    for source in sources:
+        if isinstance(source, int) and not isinstance(source, bool):
+            index = source
+        elif isinstance(source, str) and source.startswith("source_"):
+            try:
+                index = int(source.removeprefix("source_"))
+            except ValueError:
+                return None
+        else:
+            return None
+        if not 0 <= index < n_sources:
+            return None
+        indices.append(index)
+    return indices
+
+
+def _is_stateless_x_transform(step: Any) -> bool:
+    """Whether a pre-merge transform is safe to replay per fold/source for this native boundary."""
+    if isinstance(step, dict) or hasattr(step, "split"):
+        return False
+    if not (hasattr(step, "fit") and hasattr(step, "transform")):
+        return False
+    tags = step._more_tags() if hasattr(step, "_more_tags") else {}
+    return bool(tags.get("stateless"))
+
+
+def _detect_source_concat_merge(pipeline: list[Any], n_sources: int) -> tuple[list[Any], list[Any], list[int]] | None:
+    """Detect the exact top-level source-concat boundary this bridge can reproduce natively.
+
+    Supported shape:
+
+    ``X-transform* -> {"merge": {"sources": "concat"}} -> splitter -> model``
+
+    The merge is a feature-layout boundary, not a model/fusion node: upstream X transforms must be
+    applied independently to each selected source and only then hstacked for the downstream model. Richer
+    compositions stay on the existing fallback path until their layout contracts are proven.
+    """
+    if n_sources <= 1:
+        return None
+
+    merge_hits: list[tuple[int, list[int]]] = []
+    for index, step in enumerate(pipeline):
+        if not isinstance(step, dict) or "merge" not in step:
+            continue
+        merge_config = step["merge"]
+        if not isinstance(merge_config, dict) or "sources" not in merge_config:
+            continue
+        source_indices = _source_concat_indices(merge_config["sources"], n_sources)
+        if source_indices is None or len(source_indices) < 2:
+            return None
+        if source_indices != list(range(n_sources)):
+            return None
+        merge_hits.append((index, source_indices))
+    if len(merge_hits) != 1:
+        return None
+
+    merge_index, source_indices = merge_hits[0]
+    pre_merge = pipeline[:merge_index]
+    post_merge = pipeline[merge_index + 1 :]
+
+    # Keep this native contract narrow: no branch/sample/exclude/rep/generator composition, and the
+    # splitter must live after the source-layout boundary so the downstream model sees the merged matrix.
+    if any(
+        isinstance(step, dict)
+        and (
+            "branch" in step
+            or "sample_augmentation" in step
+            or "exclude" in step
+            or "tag" in step
+            or any(key in step for key in _REP_FUSION_KEYS)
+        )
+        for step in pipeline
+    ):
+        return None
+    if any(hasattr(step, "split") for step in pre_merge):
+        return None
+    if not all(_is_stateless_x_transform(step) for step in pre_merge):
+        return None
+    if not any(hasattr(step, "split") for step in post_merge):
+        return None
+    if any(isinstance(step, dict) and ("model" in step or "y_processing" in step) for step in pre_merge):
+        return None
+    post_body = [step for step in post_merge if not hasattr(step, "split")]
+    if len(post_body) != 1 or not isinstance(post_body[0], dict) or "model" not in post_body[0]:
+        return None
+    if any(isinstance(step, dict) and "merge" in step for step in pre_merge + post_merge):
+        return None
+
+    return pre_merge, post_merge, source_indices
+
+
 # Step keywords whose presence forces the Python path even alongside a model param sweep: Optuna
 # finetune / per-model train kwargs are not part of the native generation+SELECT contract, so a
 # pipeline carrying them must NOT be mistaken for a clean param-sweep-only pipeline.
@@ -1043,6 +1159,8 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
         return None
 
     branches = branch_step["branch"]
+    if not isinstance(branches, list) or not all(isinstance(branch, list) for branch in branches):
+        return None
     if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
         return None
     meta_learner = _meta_learner(model_step)
