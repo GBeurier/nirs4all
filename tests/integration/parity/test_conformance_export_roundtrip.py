@@ -11,11 +11,10 @@ how ``RunResult.export_model`` actually behaves:
   ``y_pred`` EXACTLY (asserted within 1e-6; measured 0.0). The captured model
   embeds the preprocessing, so it predicts on RAW test X.
 
-* **Multi-model / branch dag-ml run** (branch + merge) — the dag-ml path falls
-  back to the legacy-refit bridge (≠1 captured artifact), and ``export_model``
-  produces a model via that bridge. The merged feature space means predict on
-  raw test X is not architecturally meaningful, so the contract here is the
-  weaker "still round-trips": ``export_model`` writes a loadable artifact.
+* **Branch dag-ml run** (branch + merge) — the default dag-ml path either exports
+  a captured single native artifact or refuses when the shape is not a single
+  replayable artifact. The legacy engine still writes a loadable artifact for
+  the same shape.
 
 The legacy engine's ``export_model`` returns the BARE estimator at the model
 step (no preprocessing wrapper), so its ``predict`` on raw X does not reproduce
@@ -37,6 +36,7 @@ import nirs4all
 from nirs4all.api.result import RunResult
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline.dagml.rt import RtError
 
 from . import _conformance_helpers as H
 from ._datasets import dataset_path
@@ -48,7 +48,7 @@ pytestmark = [pytest.mark.parity, pytest.mark.slow]
 # Representative export cases: a regression single, a classification, a sweep,
 # a branch/merge, and one with y_processing. ``exact`` flags the shapes whose
 # native single-model export must reproduce final-(test) y_pred within 1e-6;
-# the branch/merge shape only needs to round-trip (load).
+# the branch/merge shape exercises native-or-refuse without a legacy refit.
 _REGRESSION_SINGLE = "baseline_vertical_slice"
 _CLASSIFICATION = "baseline_classification_rf_stratified"
 _SWEEP = "generator_range_n_components"
@@ -101,8 +101,8 @@ def test_dagml_n4a_export_rejects_workspace_selectors_before_legacy_refit(
     """Explicit workspace selectors on a dag-ml result fail fast and do not refit.
 
     ``source=`` and ``chain_id=`` name legacy workspace records. A dag-ml run has
-    no such workspace, so the transitional export bridge must raise a catchable
-    ``NotImplementedError`` before materializing the legacy delegate.
+    no such workspace, so the export path must raise before materializing the
+    explicit compatibility delegate.
     """
     result = _minimal_dagml_result(export_spec={"pipeline": [], "dataset": object()})
 
@@ -117,12 +117,17 @@ def test_dagml_n4a_export_rejects_workspace_selectors_before_legacy_refit(
     assert result._dagml_legacy_result is None  # noqa: SLF001
 
 
-def test_dagml_n4a_export_without_workspace_or_spec_is_catchable(tmp_path: Path) -> None:
-    """A dag-ml result with no export spec raises ``NotImplementedError``, not a legacy misuse error."""
+def test_dagml_n4a_export_without_workspace_or_spec_is_structured_refusal() -> None:
+    """A dag-ml result with no workspace/native artifacts raises the structured V1 refusal."""
     result = _minimal_dagml_result()
 
-    with pytest.raises(NotImplementedError, match="engine='dag-ml'.*no workspace artifacts"):
-        result.export(tmp_path / "model.n4a", source={"prediction_id": "p0"})
+    error = result._no_workspace_export_error()  # noqa: SLF001
+    assert isinstance(error, RtError)
+    payload = error.to_dict()
+    assert payload["cause"] == "unsupported_capability"
+    assert payload["unsupported_capability"] == "dagml_native_export"
+    assert "nirs4all-tools" in payload["mitigation"]
+    assert "compatibility='legacy-refit'" in payload["mitigation"]
 
 
 @pytest.mark.parametrize("case_name", _EXACT_CASES)
@@ -146,7 +151,7 @@ def test_native_dagml_export_reproduces_final_test_pred(case_name: str, tmp_path
     if not result._is_dagml_engine():  # noqa: SLF001
         pytest.skip(f"{case_name}: dag-ml ran legacy fallback on this build; native export N/A")
     if len(result._dagml_refit_artifacts) != 1:  # noqa: SLF001
-        pytest.skip(f"{case_name}: not a single-artifact native run; covered by the bridge round-trip test")
+        pytest.skip(f"{case_name}: not a single-artifact native run; covered by the refusal test")
 
     ids, x_test = _test_x(case.dataset_key)
     reloaded = H.round_trip_export_reload_predict(result, x_test, tmp_path / "model.joblib")
@@ -163,28 +168,38 @@ def test_native_dagml_export_reproduces_final_test_pred(case_name: str, tmp_path
     )
 
 
-def test_branch_merge_export_round_trips_via_bridge(tmp_path: Path) -> None:
-    """A branch/merge run (multi-model → legacy-refit bridge) still round-trips.
-
-    The branch+merge shape falls back to the legacy engine (≠1 native artifact),
-    so ``export_model`` produces a model via the bridge. Its raw-X predict is not
-    meaningful (the model expects the merged feature space), so the contract is
-    that the export WRITES a loadable artifact on both engines.
-    """
+def test_branch_merge_export_model_uses_native_or_refuses_without_legacy_refit(tmp_path: Path) -> None:
+    """A branch/merge run exports on legacy; dag-ml exports native single-artifact shapes or refuses."""
     case: PipelineCase = get(_BRANCH_MERGE)
     dataset = H.make_dataset(case)
 
-    # Both engines EXPLICIT — "dag-ml" (not None) so $N4A_ENGINE=legacy cannot hijack
-    # the dag-ml leg into running legacy; "legacy" forces the legacy orchestrator.
-    for engine in ("legacy", "dag-ml"):
-        result = nirs4all.run(
-            pipeline=case.pipeline, dataset=dataset, verbose=0, engine=engine,
-            results_path=str(tmp_path / f"res_{engine}"),
-        )
-        out = tmp_path / f"model_{engine}.joblib"
-        path = result.export_model(out)
-        assert Path(path).exists(), f"{_BRANCH_MERGE} (engine={engine!r}): export_model wrote no file"
-        loaded = joblib.load(path)
-        assert hasattr(loaded, "predict"), (
-            f"{_BRANCH_MERGE} (engine={engine!r}): reloaded artifact is not predict-capable"
-        )
+    legacy = nirs4all.run(pipeline=case.pipeline, dataset=dataset, verbose=0, engine="legacy")
+    legacy_out = tmp_path / "model_legacy.joblib"
+    legacy_path = legacy.export_model(legacy_out)
+    assert Path(legacy_path).exists(), f"{_BRANCH_MERGE} (engine='legacy'): export_model wrote no file"
+    assert hasattr(joblib.load(legacy_path), "predict")
+
+    dagml = nirs4all.run(
+        pipeline=case.pipeline,
+        dataset=dataset,
+        verbose=0,
+        engine="dag-ml",
+        results_path=str(tmp_path / "res_dagml"),
+    )
+    if not dagml._is_dagml_engine():  # noqa: SLF001
+        pytest.skip(f"{_BRANCH_MERGE}: dag-ml ran legacy fallback on this build; dag-ml export refusal N/A")
+
+    dagml_out = tmp_path / "model_dagml.joblib"
+    if len(dagml._dagml_refit_artifacts) == 1:  # noqa: SLF001
+        dagml_path = dagml.export_model(dagml_out)
+        assert Path(dagml_path).exists(), f"{_BRANCH_MERGE} (engine='dag-ml'): native export_model wrote no file"
+        assert hasattr(joblib.load(dagml_path), "predict")
+    else:
+        with pytest.raises(RtError) as excinfo:
+            dagml.export_model(dagml_out)
+        payload = excinfo.value.to_dict()
+        assert payload["cause"] == "unsupported_capability"
+        assert payload["unsupported_capability"] == "dagml_native_export"
+        assert "compatibility='legacy-refit'" in payload["mitigation"]
+        assert not dagml_out.exists()
+    assert dagml._dagml_legacy_result is None  # noqa: SLF001
