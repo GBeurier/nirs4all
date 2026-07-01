@@ -301,8 +301,8 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 
 
 # EXPECTED-FALLBACK allowlist: the cases the dag-ml path LEGITIMATELY rejects
-# today (raw branch+merge, by-source/source-concat multi-source, and modifier-bearing
-# `preprocessing` keyword shapes), so engine="dag-ml" transparently re-runs legacy.
+# today (raw branch+merge and by-source/source-concat multi-source shapes), so
+# engine="dag-ml" transparently re-runs legacy.
 # A case that falls back but is NOT on this allowlist is a native-coverage REGRESSION
 # (a shape that used to run native now rejects) and MUST FAIL — never silently pass
 # as a boundary. When dag-ml gains native coverage for one of these, it leaves the
@@ -351,13 +351,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # 21.0678 → merged 21.0960); the native value (on-concat 21.0846) matches NEITHER within tol. Reproducing
     # legacy's exact float round-trip for a chaotic RF is not a maintainable native contract.
     "multi_source_sources_concat_then_rf",
-    # the `preprocessing` keyword shapes that carry a fit-scope / layout MODIFIER the native X-chain cannot
-    # represent (`fit_on_all` fits on train+val+test; `force_layout` pins the tensor layout). W21 rejects
-    # these explicitly in `run_backend._unsupported_fallback_reason`. The modifier-FREE
-    # `preprocessing_explicit_keyword` still runs native: `_unwrap_preprocessing_steps` lowers a bare
-    # `{"preprocessing": op}` wrapper to its operator, so the conformance test demands full native parity.
-    "preprocessing_fit_on_all",
-    "preprocessing_force_layout_2d",
 })
 
 
