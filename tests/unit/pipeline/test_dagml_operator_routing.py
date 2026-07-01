@@ -152,3 +152,20 @@ def test_standard_snv_opt_in_refuses_unsafe_or_unavailable(monkeypatch: pytest.M
                 "params": {"axis": 1, "with_mean": True, "with_std": True, "ddof": 0, "copy": True},
             }
         )
+
+
+def test_pls_short_alias_stays_sklearn_until_methods_route_has_pipeline_parity(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """Automatic PLSRegression -> MethodsPLS routing is intentionally not enabled.
+
+    MethodsPLS is available as an explicit opt-in operator, but replacing a
+    sklearn PLS node requires a dedicated pipeline-parity gate for single-target
+    shape, scaling, fold scope, and native component-selection semantics.
+    """
+    calls: list[dict[str, object]] = []
+    _install_fake_nirs4all(monkeypatch, tmp_path, calls)
+    routing = _load_operator_routing()
+
+    model = routing.route_operator("model", "PLSRegression", {"n_components": 2})
+
+    assert type(model).__name__ == "PLSRegression"
+    assert type(model).__module__.startswith("sklearn.cross_decomposition")

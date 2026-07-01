@@ -14,10 +14,12 @@ path imports the operator by its fully-qualified name and calls
 ``fit`` / ``transform`` / ``predict`` / ``get_params`` exactly like any other
 sklearn estimator.
 
-Import this module only when ``nirs4all-methods`` (the ``n4m`` distribution)
-is installed; importing it without the binding raises a clear ImportError.
+Importing this module is safe even when ``nirs4all-methods`` (the ``n4m``
+distribution) is absent. Use :func:`methods_binding_status` to report the
+installed binding status, or instantiate the operators to get a clear
+``ImportError`` if the binding is unavailable.
 """
 
-from .n4m_ops import METHODS_AVAILABLE, MethodsPLS, MethodsSNV
+from .n4m_ops import METHODS_AVAILABLE, MethodsPLS, MethodsSNV, methods_binding_status
 
-__all__ = ["METHODS_AVAILABLE", "MethodsPLS", "MethodsSNV"]
+__all__ = ["METHODS_AVAILABLE", "MethodsPLS", "MethodsSNV", "methods_binding_status"]

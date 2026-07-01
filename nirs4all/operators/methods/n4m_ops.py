@@ -9,33 +9,121 @@ parameters via ``get_params`` so both nirs4all engines can round-trip them.
 
 from __future__ import annotations
 
+import importlib
+from pathlib import Path
 from typing import Any
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
 
-try:
-    from n4m.transform.scatter import SNV as _N4MSNV
-except ImportError:  # pragma: no cover - older wheel layout fallback
-    try:
-        from n4m.sklearn.preprocessing import SNV as _N4MSNV
-    except ImportError:
-        _N4MSNV = None
 
-try:
-    from n4m.estimators.regression.latent import PLS as _N4MPLS
-except ImportError:  # pragma: no cover - older wheel layout fallback
-    try:
-        from n4m.sklearn.native_sweeps import NativePLSRegressor as _N4MPLS
-    except ImportError:
-        _N4MPLS = None
+def _load_optional_class(primary_fqn: str, fallback_fqn: str) -> tuple[Any | None, BaseException | None]:
+    last_error: BaseException | None = None
+    for fqn in (primary_fqn, fallback_fqn):
+        module_name, _, attr = fqn.rpartition(".")
+        try:
+            return getattr(importlib.import_module(module_name), attr), None
+        except Exception as exc:  # noqa: BLE001 - optional binding boundary
+            last_error = exc
+    return None, last_error
+
+
+_N4MSNV, _N4MSNV_IMPORT_ERROR = _load_optional_class(
+    "n4m.transform.scatter.SNV",
+    "n4m.sklearn.preprocessing.SNV",
+)
+_N4MPLS, _N4MPLS_IMPORT_ERROR = _load_optional_class(
+    "n4m.estimators.regression.latent.PLS",
+    "n4m.sklearn.native_sweeps.NativePLSRegressor",
+)
 
 METHODS_AVAILABLE = _N4MSNV is not None and _N4MPLS is not None
 
-_MISSING_MSG = (
-    "nirs4all-methods (the `n4m` binding) is not installed. Install the "
-    "`nirs4all-methods` wheel to use the MethodsSNV / MethodsPLS operators."
+_MISSING_MSG = "nirs4all-methods (the `n4m` binding) is not installed or not loadable."
+_MISSING_MITIGATION = (
+    "Install a compatible `nirs4all-methods` wheel exposing `n4m.transform.scatter.SNV` "
+    "and `n4m.estimators.regression.latent.PLS`; until then, use the existing Python/sklearn "
+    "operators and keep `N4A_DAGML_METHODS_SNV` unset."
 )
+
+
+def _error_text(exc: BaseException | None) -> str | None:
+    if exc is None:
+        return None
+    return f"{type(exc).__name__}: {exc}"
+
+
+def methods_binding_status() -> dict[str, Any]:
+    """Return the installed ``n4m`` binding status consumed by these operators.
+
+    The result is intentionally JSON-serializable so tests, CLIs, and runtime
+    diagnostics can report a useful blocker without importing or reimplementing
+    any ``nirs4all-methods`` numerical logic.
+    """
+    status: dict[str, Any] = {
+        "available": False,
+        "snv_available": _N4MSNV is not None,
+        "pls_available": _N4MPLS is not None,
+        "abi_version": None,
+        "library_path": None,
+        "module_path": None,
+        "message": "",
+        "mitigation": _MISSING_MITIGATION,
+        "snv_import_error": _error_text(_N4MSNV_IMPORT_ERROR),
+        "pls_import_error": _error_text(_N4MPLS_IMPORT_ERROR),
+    }
+
+    try:
+        n4m = importlib.import_module("n4m")
+    except Exception as exc:  # noqa: BLE001 - optional binding boundary
+        status["message"] = f"{_MISSING_MSG} import n4m failed: {type(exc).__name__}: {exc}. MethodsSNV and MethodsPLS require the binding."
+        return status
+
+    status["module_path"] = getattr(n4m, "__file__", None)
+
+    try:
+        abi_version = n4m.abi_version()
+    except Exception as exc:  # noqa: BLE001 - ABI probe is part of the diagnostic
+        status["message"] = f"{_MISSING_MSG} n4m.abi_version() failed: {type(exc).__name__}: {exc}. MethodsSNV and MethodsPLS require a loadable libn4m."
+        return status
+    if not abi_version:
+        status["message"] = f"{_MISSING_MSG} n4m.abi_version() returned an empty value. MethodsSNV and MethodsPLS require a compatible libn4m."
+        return status
+    status["abi_version"] = list(abi_version) if isinstance(abi_version, tuple) else abi_version
+
+    try:
+        library_path = Path(n4m.library_path())
+    except Exception as exc:  # noqa: BLE001 - library probe is part of the diagnostic
+        status["message"] = f"{_MISSING_MSG} n4m.library_path() failed: {type(exc).__name__}: {exc}. MethodsSNV and MethodsPLS require a loadable libn4m."
+        return status
+    status["library_path"] = str(library_path)
+    if not library_path.exists():
+        status["message"] = f"{_MISSING_MSG} n4m.library_path() points to a missing file: {library_path}. MethodsSNV and MethodsPLS require a loadable libn4m."
+        return status
+
+    missing = []
+    if _N4MSNV is None:
+        missing.append("n4m.transform.scatter.SNV")
+    if _N4MPLS is None:
+        missing.append("n4m.estimators.regression.latent.PLS")
+    if missing:
+        status["message"] = f"{_MISSING_MSG} Missing binding surface(s): {', '.join(missing)}. nirs4all consumes these through MethodsSNV and MethodsPLS."
+        return status
+
+    status["available"] = True
+    status["message"] = "nirs4all-methods (n4m binding) is loadable; nirs4all can consume MethodsSNV and MethodsPLS."
+    status["mitigation"] = ""
+    return status
+
+
+def _missing_methods_message() -> str:
+    status = methods_binding_status()
+    if status["message"]:
+        message = status["message"]
+    else:
+        message = _MISSING_MSG
+    mitigation = status.get("mitigation")
+    return f"{message} {mitigation}".strip()
 
 
 class MethodsSNV(TransformerMixin, BaseEstimator):
@@ -70,7 +158,7 @@ class MethodsSNV(TransformerMixin, BaseEstimator):
 
     def _backend(self) -> Any:
         if _N4MSNV is None:
-            raise ImportError(_MISSING_MSG)
+            raise ImportError(_missing_methods_message())
         return _N4MSNV(
             with_mean=bool(self.with_mean),
             with_std=bool(self.with_std),
@@ -124,7 +212,7 @@ class MethodsPLS(RegressorMixin, BaseEstimator):
 
     def _backend(self) -> Any:
         if _N4MPLS is None:
-            raise ImportError(_MISSING_MSG)
+            raise ImportError(_missing_methods_message())
         # Pin a single candidate so the native CV sweep always selects the
         # requested component count (mirrors a fixed-component sklearn PLS).
         return _N4MPLS(
