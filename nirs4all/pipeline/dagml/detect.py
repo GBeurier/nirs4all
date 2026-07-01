@@ -773,18 +773,38 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> tuple[list[
     return body, aggregate
 
 
-def _is_duplication_branch_step(step: Any) -> bool:
-    """True for a DUPLICATION branch: ``{"branch": [[A], [B], ...]}`` (the list-of-lists form).
+_DUPLICATION_BRANCH_CONFIG_KEYS = frozenset({"parallel", "n_jobs"})
 
-    Legacy nirs4all (``BranchController._detect_branch_mode``) treats *list* branch syntax as ALWAYS
-    duplication — N parallel sub-pipelines, each seeing the FULL data (no sample partitioning). The
-    dict form (``{"by_metadata": ...}``/named branches) is separation/other and is NOT matched here.
-    Each inner element must itself be a list (a sub-pipeline of steps).
+
+def _duplication_branch_bodies(step: Any) -> list[list[Any]] | None:
+    """The ordered duplication branch bodies for list or named-dict syntax, else ``None``.
+
+    Legacy ``BranchController._detect_branch_mode`` treats list syntax and dict syntax without any
+    ``by_*`` separation key as duplication. Dict insertion order is the branch order legacy executes and
+    later merge configs address by integer index, so preserve it exactly while dropping only branch-level
+    config/internal keys that ``BranchController._parse_branch_definitions`` skips.
     """
     if not isinstance(step, dict):
-        return False
+        return None
     branch = step.get("branch")
-    return isinstance(branch, list) and len(branch) >= 2 and all(isinstance(sub, list) for sub in branch)
+    if isinstance(branch, list) and len(branch) >= 2 and all(isinstance(sub, list) for sub in branch):
+        return branch
+    if isinstance(branch, dict):
+        if any(key in branch for key in ("by_source", "by_tag", "by_metadata", "by_filter")):
+            return None
+        bodies = [
+            steps if isinstance(steps, list) else [steps]
+            for name, steps in branch.items()
+            if isinstance(name, str) and not name.startswith("_") and name not in _DUPLICATION_BRANCH_CONFIG_KEYS
+        ]
+        if len(bodies) >= 2:
+            return bodies
+    return None
+
+
+def _is_duplication_branch_step(step: Any) -> bool:
+    """True for a DUPLICATION branch in legacy list or named-dict syntax."""
+    return _duplication_branch_bodies(step) is not None
 
 
 # The cross-branch fusion (avg / proba-mean) merge tokens this backend maps to dag-ml's native fusion
@@ -838,44 +858,95 @@ def _is_stacking_merge_step(step: Any) -> bool:
     return isinstance(spec, dict) and ("predictions" in spec) and _fusion_merge_aggregate(step) is None
 
 
-def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], str] | None:
-    """Detect the EXACT duplication-branch + avg/mean fusion-merge shape, else ``None`` (fail-loud).
+def _simple_duplication_merge_mode(step: Any) -> str | None:
+    """Return a simple legacy duplication merge mode this slice handles, else ``None``."""
+    if not isinstance(step, dict) or "merge" not in step:
+        return None
+    spec = step["merge"]
+    return spec if spec == "features" else None
 
-    Admits ONLY a pipeline that is exactly: the splitter + ONE duplication branch
-    (``{"branch": [[A], [B], ...]}`` with N≥2 sub-pipelines, each containing a model) + ONE avg/mean
-    fusion merge (:func:`_fusion_merge_aggregate`). Returns ``(branches, aggregate)`` when matched
-    (``aggregate`` is ``"mean"`` or ``"proba_mean"``). ANY deviation returns ``None`` so the bridge's
-    raw-branch / raw-merge ``NotImplementedError`` fires. Specifically REJECTED (fall through to loud):
+
+def _model_step_is_plain_estimator(model_step: dict[str, Any]) -> bool:
+    """True for a downstream bare sklearn-style model step, excluding MetaModel-owned W33 shapes."""
+    from nirs4all.operators.models.meta import MetaModel
+    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
+
+    model = model_step.get("model")
+    if isinstance(model, MetaModel):
+        return False
+    if model is None or not (hasattr(model, "fit") and hasattr(model, "predict")):
+        return False
+    return not any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model")
+
+
+def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], str] | None:
+    """Detect the handled duplication-branch merge shapes, else ``None`` (fail-loud).
+
+    Admits:
+
+    * splitter + one duplication branch + avg/mean fusion merge (legacy list or named-dict branch syntax),
+      with every branch containing a model; and
+    * splitter + one duplication branch + ``merge="features"`` + one downstream plain estimator.
+      The branch bodies must be feature-only in this slice; ``merge="all"`` still falls back because its
+      branch-model score projection is not equivalent to native refit-test rows.
+
+    ANY deviation returns ``None`` so the bridge's raw-branch / raw-merge guard fires. Specifically
+    REJECTED (fall through to loud):
 
     * a STACKING merge (``{"merge": "predictions"}`` / a per-branch predictions config → a meta-model,
       backlog #10) — raised loud naming #10 by the caller, never silently averaged;
-    * a separation (dict-form) branch — handled by :func:`_detect_separation_branch`, not here;
-    * a sub-pipeline without a model (fusion averages MODEL predictions);
+    * a separation (``by_*`` dict-form) branch — handled by :func:`_detect_separation_branch`, not here;
+    * a MetaModel or structured/per-branch merge config (left to W33);
     * a top-level operator/transform/``tag``/``y_processing``/``exclude`` beside the branch (only each
       branch body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
-    * a model after the merge, more than one branch/merge, or any unrecognized merge spelling.
+    * more than one branch/merge/model, a model in the wrong place, or any unrecognized merge spelling.
     """
     branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
     merge_aggregates = [(step, agg) for step in pipeline if (agg := _fusion_merge_aggregate(step)) is not None]
-    if len(branch_steps) != 1 or len(merge_aggregates) != 1:
+    simple_merges = [(step, mode) for step in pipeline if (mode := _simple_duplication_merge_mode(step)) is not None]
+    if len(branch_steps) != 1 or len(merge_aggregates) + len(simple_merges) != 1:
         return None
     branch_step = branch_steps[0]
-    merge_step, aggregate = merge_aggregates[0]
+    branches = _duplication_branch_bodies(branch_step)
+    if branches is None:
+        return None
 
-    # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps. A top-level
-    # transform / tag / y_processing / exclude / model would be silently ignored (each branch body is
-    # lowered, not the top level), so its presence rejects the match → fail-loud.
+    if merge_aggregates:
+        merge_step, aggregate = merge_aggregates[0]
+        # The pipeline must be EXACTLY {splitter, branch, merge} — no other top-level steps. A top-level
+        # transform / tag / y_processing / exclude / model would be silently ignored (each branch body is
+        # lowered, not the top level), so its presence rejects the match → fail-loud.
+        for step in pipeline:
+            if step is branch_step or step is merge_step or hasattr(step, "split"):
+                continue
+            return None
+
+        # Every sub-pipeline must contain a model — fusion averages MODEL predictions; a modelless branch
+        # (features only) is not the supported shape.
+        if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
+            return None
+        return branches, aggregate
+
+    merge_step, merge_mode = simple_merges[0]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(model_steps) != 1:
+        return None
+    model_step = model_steps[0]
+    if not _model_step_is_plain_estimator(model_step):
+        return None
+    order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
+    if order != [branch_step, merge_step, model_step]:
+        return None
     for step in pipeline:
-        if step is branch_step or step is merge_step or hasattr(step, "split"):
+        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
             continue
         return None
 
-    branches = branch_step["branch"]
-    # Every sub-pipeline must contain a model — fusion averages MODEL predictions; a modelless branch
-    # (features only) is not the supported shape.
-    if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
+    if merge_mode != "features":
         return None
-    return branches, aggregate
+    if any(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
+        return None
+    return branches, merge_mode
 
 
 def _is_simple_predictions_merge_step(step: Any) -> bool:
@@ -996,6 +1067,8 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
         return None
 
     branches = branch_step["branch"]
+    if not isinstance(branches, list) or not all(isinstance(branch, list) for branch in branches):
+        return None
     if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
         return None
     meta_learner = _meta_learner(model_step)
