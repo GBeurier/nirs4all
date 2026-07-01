@@ -312,12 +312,11 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # RAW branch+merge shapes that do not match a supported native detector. The currently native branch
     # paths are narrow: separation by_metadata/by_tag + concat, by_source/shared-model fusion, duplication
-    # list-of-lists + mean/proba_mean fusion, and default duplication stacking. These four legacy patterns
-    # use named-dict duplication branches plus predictions/features/all/per-branch merge semantics and/or
+    # list-of-lists + mean/proba_mean fusion, feature-only duplication merge, and default duplication
+    # stacking. These three legacy patterns use named-dict duplication branches plus predictions/all or
     # richer MetaModel/concat_transform state, so `run_backend._unsupported_fallback_reason` rejects them
     # before the generic concrete path can drop branch semantics.
     "branch_dup_three_way_merge_predictions",
-    "branch_dup_two_way_merge_features",
     "branch_dup_named_with_metamodel",
     "branch_dup_merge_all",
     # by-source / per-source-models / source-concat multi-source shapes. ROOT GAP (W12, measured on
