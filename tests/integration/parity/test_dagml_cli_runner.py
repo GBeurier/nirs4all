@@ -13,7 +13,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -528,7 +528,7 @@ def test_public_run_engine_dagml_sweep_fills_per_variant_predictions(inprocess, 
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
     fold0_train, fold0_val = folds[0]
 
-    def predict_one(model: object, sample_int: int) -> float:
+    def predict_one(model: Any, sample_int: int) -> float:
         return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
 
     # Per-variant CV (to pick the winner) + the variant's OWN fold-0 val predictions BY SAMPLE ID.
@@ -600,7 +600,7 @@ def test_public_run_engine_dagml_shufflesplit() -> None:
     test_ints = dataset.index_column("sample", {"partition": "test"})
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in splitter.split(train)]
 
-    def predict_one(model: object, sample_int: int) -> float:
+    def predict_one(model: Any, sample_int: int) -> float:
         return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"))))[0][0])
 
     def true_one(sample_int: int) -> float:
@@ -650,7 +650,7 @@ def test_public_run_engine_dagml_generator_or() -> None:
     test_ints = dataset.index_column("sample", {"partition": "test"})
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42).split(train)]
 
-    def predict_one(model: object, sample_int: int) -> float:
+    def predict_one(model: Any, sample_int: int) -> float:
         return float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d"))))[0][0])
 
     def variant_scores(prep_cls: type) -> tuple[float, float]:
@@ -3009,9 +3009,12 @@ def test_stacking_branch_detection() -> None:
     assert plain is not None
     branches, meta_learner = plain
     assert len(branches) == 2 and isinstance(meta_learner, Ridge) and meta_learner.alpha == 0.7
-    # Named-dict duplication stacking stays fallback: legacy skips its refit surface, while the native
-    # stacking path deliberately requires full OOF/refit coverage.
-    assert _detect_stacking_branch([splitter, named_branch, {"merge": "predictions"}, {"model": Ridge(alpha=0.9)}]) is None
+    # Named-dict duplication stacking is admitted for the default stacking shape; the runner requests
+    # dag-ml's CV-only stacking policy and projects the legacy no-refit row surface.
+    named = _detect_stacking_branch([splitter, named_branch, {"merge": "predictions"}, {"model": Ridge(alpha=0.9)}])
+    assert named is not None
+    branches, meta_learner = named
+    assert len(branches) == 2 and isinstance(meta_learner, Ridge) and meta_learner.alpha == 0.9
 
     # Handled: a MetaModel wrapper → its wrapped sklearn model (with its params).
     wrapped = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(alpha=0.3))}])
@@ -3045,6 +3048,41 @@ def test_stacking_branch_detection() -> None:
     assert _detect_stacking_branch([splitter, {"branch": [[StandardNormalVariate()], [{"model": Ridge()}]]}, {"merge": "predictions"}, {"model": Ridge()}]) is None
     # The duplication (fusion) detector must NOT claim the stacking (predictions-merge) shape.
     assert _detect_duplication_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge()}]) is None
+
+
+def test_public_run_engine_dagml_named_dict_stacking_branch_cv_only_matches_legacy() -> None:
+    """Named-dict stacking runs native and projects the exact legacy CV-only no-refit surface."""
+    from sklearn.linear_model import Ridge
+
+    import nirs4all
+
+    pipeline = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {
+            "branch": {
+                "pls": [{"model": PLSRegression(n_components=5)}],
+                "ridge": [{"model": Ridge(alpha=1.0)}],
+            }
+        },
+        {"merge": "predictions"},
+        {"model": Ridge(alpha=0.9)},
+    ]
+
+    native = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml", verbose=0)
+    legacy = nirs4all.run(pipeline, dataset_path("regression"), engine="legacy", verbose=0)
+
+    assert native._is_dagml_engine()  # noqa: SLF001
+    assert not legacy._is_dagml_engine()  # noqa: SLF001
+    assert native.num_predictions == legacy.num_predictions == 45
+    assert native.predictions.filter_predictions(fold_id="final", load_arrays=False) == []
+    assert legacy.predictions.filter_predictions(fold_id="final", load_arrays=False) == []
+    assert abs(native.best_rmse - legacy.best_rmse) < 1e-9
+    assert abs(native.cv_best_score - legacy.cv_best_score) < 1e-9
+
+    native_rows = native.predictions.filter_predictions(load_arrays=False)
+    legacy_rows = legacy.predictions.filter_predictions(load_arrays=False)
+    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "w_avg"]
+    assert sorted({str(row.get("fold_id")) for row in legacy_rows}) == ["0", "1", "2", "avg", "w_avg"]
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -3434,6 +3472,7 @@ def test_multi_source_emission_emits_feature_block_set() -> None:
     assert source_layout["source_order"] == ["source_0", "source_1", "source_2"]
     assert source_layout["source_ids"] == ["src0", "src1", "src2"]
     assert source_layout["concat_layout"]["source_order"] == ["source_0", "source_1", "source_2"]
+    assert isinstance(per_source_features, list) and len(per_source_features) == n_sources
     assert source_layout["concat_layout"]["total_column_count"] == sum(per_source_features)
     assert [block["source_index"] for block in source_layout["blocks"]] == [0, 1, 2]
 
@@ -3445,11 +3484,9 @@ def test_multi_source_emission_emits_feature_block_set() -> None:
     assert binding["output_representation"] == "feature_block_set"
     assert binding["source_ids"] == ["src0", "src1", "src2"]
     assert binding["feature_set_id"] == "x"
-    # The fused feature width is the sum of the per-source widths (early-fusion concat by sample_id).
-    assert isinstance(per_source_features, list) and len(per_source_features) == n_sources
 
 
-def _multi_source_contract_envelope() -> dict[str, Any]:
+def _multi_source_contract_envelope_with_blocks() -> dict[str, Any]:
     dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
     identity = mint_identity(dataset)
     train = dataset.index_column("sample", {"partition": "train"})
@@ -3458,7 +3495,7 @@ def _multi_source_contract_envelope() -> dict[str, Any]:
 
 def test_w54_contract_by_source_distinct_preproc_has_source_layout_order() -> None:
     """W54 by_source dict preprocessing now has explicit legacy-key to native-source mapping."""
-    source_layout = _multi_source_contract_envelope()["plan"].get("source_layout")
+    source_layout = _multi_source_contract_envelope_with_blocks()["plan"].get("source_layout")
     assert isinstance(source_layout, dict), "missing source_layout field"
     assert source_layout["source_order"] == ["source_0", "source_1", "source_2"]
     assert source_layout["source_ids"] == ["src0", "src1", "src2"]
@@ -3479,7 +3516,7 @@ def test_w54_contract_by_source_distinct_preproc_has_source_layout_order() -> No
 
 def test_w54_contract_sources_concat_rf_has_concat_layout() -> None:
     """W54 source-concat RF now has explicit concat/storage boundary metadata."""
-    source_layout = _multi_source_contract_envelope()["plan"].get("source_layout")
+    source_layout = _multi_source_contract_envelope_with_blocks()["plan"].get("source_layout")
     assert isinstance(source_layout, dict), "missing source_layout field"
     concat_layout = source_layout.get("concat_layout")
     assert isinstance(concat_layout, dict), "missing source_layout.concat_layout"
@@ -4150,7 +4187,7 @@ def test_wavelength_and_custom_operators_fail_loud_catchably() -> None:
     from nirs4all.operators.transforms.resampler import Resampler
     from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
 
-    wavelength_pipeline = [Resampler(target_wavelengths=[1.0, 2.0, 3.0]), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
+    wavelength_pipeline = [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0])), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
     with pytest.raises(DagMlUnsupported, match="wavelength"):
         run_via_dagml(wavelength_pipeline, dataset_path("regression"))
 
@@ -4206,7 +4243,7 @@ def test_unsupported_op_inside_branch_and_augmentation_bodies_fail_loud_catchabl
     from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
 
     def resampler() -> Resampler:
-        return Resampler(target_wavelengths=[1.0, 2.0, 3.0])
+        return Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))
 
     split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
@@ -4312,7 +4349,7 @@ def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> Non
 
     split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
-    concat_wavelength = [{"concat_transform": [Resampler(target_wavelengths=[1.0, 2.0, 3.0])]}, split, {"model": PLSRegression(n_components=2)}]
+    concat_wavelength = [{"concat_transform": [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))]}, split, {"model": PLSRegression(n_components=2)}]
     with pytest.raises(DagMlUnsupported, match="wavelength"):
         run_via_dagml(concat_wavelength, dataset_path("regression"))
 
@@ -4325,7 +4362,7 @@ def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> Non
     # a one-level flatten would miss it. The precheck recurses to every nesting level.
     from sklearn.preprocessing import StandardScaler
 
-    nested_chain = [{"concat_transform": [[StandardScaler(), [Resampler(target_wavelengths=[1.0, 2.0, 3.0])]]]}, split, {"model": PLSRegression(n_components=2)}]
+    nested_chain = [{"concat_transform": [[StandardScaler(), [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))]]]}, split, {"model": PLSRegression(n_components=2)}]
     with pytest.raises(DagMlUnsupported, match="wavelength"):
         run_via_dagml(nested_chain, dataset_path("regression"))
 
@@ -4414,7 +4451,7 @@ def test_subprocess_error_classification_adapter_marks_kind_by_exception_type() 
     from nirs4all.pipeline.dagml.process_adapter import _classifying_handler
 
     def _last_frame(path: str) -> dict:
-        return [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()][-1]
+        return cast("dict[Any, Any]", [json.loads(line) for line in Path(path).read_text().splitlines() if line.strip()][-1])
 
     unsupp_cap = tempfile.mktemp()
     handler = _classifying_handler(lambda task: (_ for _ in ()).throw(DagMlUnsupported("deliberate unsupported shape")), unsupp_cap)
