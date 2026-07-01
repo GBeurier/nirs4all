@@ -137,6 +137,8 @@ def test_unexpected_bucket_flags_off_allowlist_fallback() -> None:
 
 def test_observed_fallback_on_allowlist_stays_expected() -> None:
     """An allowlisted case observed falling back is still expected_fallback, not unexpected."""
+    if not EXPECTED_FALLBACK:
+        pytest.skip("EXPECTED_FALLBACK is empty; LOCK-DROP D1 is closed")
     allowlisted = sorted(EXPECTED_FALLBACK)[0]
     report = M.build_report(observed_fallback={allowlisted})
     classified = {c.name: c.bucket for c in report.cases}

@@ -37,6 +37,7 @@ from .detect import (
     _detect_by_source_distinct_preproc_concat,
     _detect_by_source_stacking_branch,
     _detect_duplication_branch,
+    _detect_named_metamodel_feature_stack,
     _detect_rep_fusion,
     _detect_separation_branch,
     _detect_source_concat_merge,
@@ -69,6 +70,7 @@ from .run_paths import (
     _run_by_source_stacking_branch,
     _run_concrete_scores,
     _run_duplication_branch,
+    _run_named_metamodel_feature_stack,
     _run_native_generation,
     _run_native_operator_generation,
     _run_rep_fusion,
@@ -96,6 +98,7 @@ __all__ = [
     "_detect_by_source_distinct_preproc_concat",
     "_detect_by_source_stacking_branch",
     "_detect_duplication_branch",
+    "_detect_named_metamodel_feature_stack",
     "_detect_rep_fusion",
     "_detect_separation_branch",
     "_detect_source_concat_merge",
@@ -679,6 +682,7 @@ def _dispatch_run(
     detected = _detect_separation_branch(list(pipeline))
     detected_duplication = _detect_duplication_branch(list(pipeline))
     detected_stacking = _detect_stacking_branch(list(pipeline))
+    detected_named_metamodel_stack = _detect_named_metamodel_feature_stack(list(pipeline))
     detected_by_source = _detect_by_source_branch(list(pipeline), spectro.features_sources())
     detected_by_source_concat = _detect_by_source_concat_shared_preproc(list(pipeline), spectro.features_sources())
     detected_by_source_distinct_concat = _detect_by_source_distinct_preproc_concat(list(pipeline), spectro.features_sources())
@@ -712,7 +716,7 @@ def _dispatch_run(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
-        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or detected_by_source is not None or detected_by_source_concat is not None or detected_by_source_distinct_concat is not None or detected_by_source_stacking is not None or detected_source_concat is not None or any(_is_exclude_step(step) for step in pipeline):
+        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or detected_named_metamodel_stack is not None or detected_by_source is not None or detected_by_source_concat is not None or detected_by_source_distinct_concat is not None or detected_by_source_stacking is not None or detected_source_concat is not None or any(_is_exclude_step(step) for step in pipeline):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
                 "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
@@ -814,6 +818,24 @@ def _dispatch_run(
     if detected_stacking is not None:
         branches, meta_learner = detected_stacking
         return _run_stacking_branch(list(pipeline), branches, meta_learner, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "stacking", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+
+    # Named duplication branches with a branch-local MetaModel, a structured per-branch best-by-RMSE
+    # prediction merge into features, and one downstream estimator. Legacy emits a CV-only row table
+    # (named-dict stacking skips refit), so this path projects that exact surface and no final rows.
+    if detected_named_metamodel_stack is not None:
+        branch_names, branches, meta_step, prediction_configs, downstream_step = detected_named_metamodel_stack
+        return _run_named_metamodel_feature_stack(
+            list(pipeline),
+            branch_names,
+            branches,
+            meta_step,
+            prediction_configs,
+            downstream_step,
+            spectro,
+            metric,
+            task_type,
+            config_name=config_name,
+        )
 
     # A STACKING merge that is NOT the handled shape above (a per-branch predictions config, a missing /
     # mis-ordered meta-model, a MetaModel carrying unhandled options) must fail LOUD here, naming #10,
