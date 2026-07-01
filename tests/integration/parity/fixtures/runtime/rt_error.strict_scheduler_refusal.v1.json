@@ -1,0 +1,6 @@
+{
+  "verb": "run",
+  "cause": "runtime_error",
+  "message": "execute_campaign_phase_json crashed: scheduler boom",
+  "mitigation": "Set allow_fallback=true to permit a diagnosed libn4m fallback, or keep allow_fallback=false to fail closed."
+}
