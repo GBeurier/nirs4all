@@ -1,12 +1,11 @@
 """Native results persistence for the dag-ml backend (P3 Slice 2b-i, B-C HYBRID).
 
 ADDITIVE, OFF-by-default, native-only on-disk results for ``run(engine="dag-ml")``. The dag-ml path
-is in-memory and touches NO legacy workspace (no SQLite store, no ArrayStore, no joblib artifacts) —
-this writer PRESERVES that: it persists ONLY the things the dag-ml run already produced in memory (the
-native ScoreSet + the projected prediction rows + a run header) and NEVER imports/instantiates
+is in-memory and touches NO legacy workspace (no SQLite store, no ArrayStore); this writer PRESERVES
+that: it persists ONLY the things the dag-ml run already produced in memory (the native ScoreSet, the
+projected prediction rows, captured refit artifacts, and a run header) and NEVER imports/instantiates
 :class:`~nirs4all.pipeline.storage.workspace_store.WorkspaceStore` /
-:class:`~nirs4all.pipeline.storage.array_store.ArrayStore`. Model artifacts are OUT of scope here
-(deferred to 2c — the ``has_model_artifacts`` capability flag is ``false``).
+:class:`~nirs4all.pipeline.storage.array_store.ArrayStore`.
 
 Layout (one directory per run, default ``./nirs4all_results/<run_id>/``):
 
@@ -29,7 +28,7 @@ Layout (one directory per run, default ``./nirs4all_results/<run_id>/``):
 * ``manifest.json`` — the run header (run_id, engine, versions, datasets, configs/variants, models,
   metric, task_type) + CAPABILITY FLAGS (``has_model_artifacts`` true when any model artifact was
   captured + persisted; ``has_aggregate_predictions`` false for this slice) + the ScoreSet content hash +
-  the ArtifactRef ``artifacts[]`` list + the manifest's own ``schema_version``.
+  producer-node summaries + the ArtifactRef ``artifacts[]`` list + the manifest's own ``schema_version``.
 """
 
 from __future__ import annotations
@@ -252,6 +251,23 @@ def _opt_float(value: Any) -> float | None:
     return float(value) if value is not None else None
 
 
+def _score_set_producer_nodes(score_set: dict[str, Any] | None, *, final_only: bool = False) -> list[str]:
+    """Producer nodes present in the native ScoreSet, optionally limited to final/off-fold reports."""
+    reports = (score_set or {}).get("reports")
+    if not isinstance(reports, list):
+        return []
+    nodes: set[str] = set()
+    for report in reports:
+        if not isinstance(report, dict):
+            continue
+        if final_only and not (report.get("fold_id") is None and report.get("partition") in {"final", "test"}):
+            continue
+        producer = report.get("producer_node")
+        if producer is not None:
+            nodes.add(str(producer))
+    return sorted(nodes)
+
+
 def _manifest_header(result: RunResult, predictions: Predictions, score_set: dict[str, Any] | None, run_id: str, run_dir: Path, artifact_refs: list[dict[str, Any]]) -> dict[str, Any]:
     """Build the run-header manifest (versions, datasets, configs/variants, models, capability flags).
 
@@ -294,6 +310,8 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         "selected_variant": selected_variant,
         "plan_id": score_meta.get("plan_id"),
         "bundle_id": score_meta.get("bundle_id"),
+        "producer_nodes": _score_set_producer_nodes(score_set),
+        "final_producer_nodes": _score_set_producer_nodes(score_set, final_only=True),
         "num_predictions": predictions.num_predictions,
         "score_set_hash": _score_set_hash(score_set),
         "capabilities": {
