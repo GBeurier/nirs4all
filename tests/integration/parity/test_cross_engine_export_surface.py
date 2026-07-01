@@ -33,6 +33,7 @@ import pytest
 
 from nirs4all.api.result import RunResult
 from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline.dagml.rt import RtError
 
 pytestmark = [pytest.mark.parity]
 
@@ -157,6 +158,8 @@ def test_no_workspace_export_diverges_by_engine(call: Callable[[RunResult, Path]
         "redirected to a legacy refit instead of surfacing"
     )
     assert "no workspace path available" in str(legacy_exc.value)
+    assert RtError.invalid_request(dagml_exc.value, verb="export").cause == "invalid_request"
+    assert RtError.invalid_request(legacy_exc.value, verb="export").cause == "invalid_request"
 
 
 # ---------------------------------------------------------------------------
@@ -180,7 +183,8 @@ def test_dagml_export_model_rejects_source_before_legacy_refit(tmp_path: Path, m
 
     monkeypatch.setattr(result, "_dagml_export_delegate", _unexpected_delegate)
 
-    with pytest.raises(NotImplementedError, match="export_model does not support an explicit source"):
+    with pytest.raises(NotImplementedError, match="export_model does not support an explicit source") as excinfo:
         result.export_model(tmp_path / "model.joblib", source={"prediction_id": "p0"})
 
     assert result._dagml_legacy_result is None  # noqa: SLF001 -- no legacy refit was triggered
+    assert RtError.invalid_request(excinfo.value, verb="export").to_dict()["cause"] == "invalid_request"
