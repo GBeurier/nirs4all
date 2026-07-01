@@ -773,6 +773,49 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> tuple[list[
     return body, aggregate
 
 
+def _detect_by_source_concat_shared_preproc(pipeline: list[Any], n_sources: int) -> tuple[list[Any], list[Any]] | None:
+    """Detect shared by_source preprocessing + concat features + one downstream model.
+
+    Admits ONLY the narrow legacy shape used by
+    ``multi_source_by_source_branch_shared_preproc``:
+
+    * a multi-source dataset (``n_sources >= 2``);
+    * one by_source branch with a shared LIST ``steps`` body that contains X preprocessing only
+      (no model, no per-source dict, no extra branch options);
+    * one ``{"merge": "concat"}`` immediately before one top-level downstream model;
+    * no other top-level operator/keyword beside the splitter, branch, merge, and model.
+
+    The existing :func:`_detect_by_source_branch` owns by_source MODEL fusion
+    (``merge: mean``/``average``). This detector owns feature-axis concat reassembly and returns
+    ``(preproc_body, downstream_body)`` for the dedicated runner.
+    """
+    branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
+    merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1 or n_sources < 2:
+        return None
+    branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
+
+    order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
+    if order != [branch_step, merge_step, model_step]:
+        return None
+
+    for step in pipeline:
+        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+            continue
+        return None
+
+    criterion = branch_step["branch"]
+    if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
+        return None
+    body = criterion.get("steps")
+    if not isinstance(body, list) or any(isinstance(sub, dict) and "model" in sub for sub in body):
+        return None
+    if not body:
+        return None
+    return body, [model_step]
+
+
 def _is_duplication_branch_step(step: Any) -> bool:
     """True for a DUPLICATION branch: ``{"branch": [[A], [B], ...]}`` (the list-of-lists form).
 
