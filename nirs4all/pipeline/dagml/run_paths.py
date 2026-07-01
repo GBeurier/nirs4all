@@ -16,6 +16,7 @@ import numpy as np
 
 from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
+from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
 from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
@@ -1032,6 +1033,105 @@ def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[
         if node["kind"] == "model":
             node["metadata"] = {**node.get("metadata", {}), "source_index": source_index}
     return branch
+
+
+def _replicate_prediction_rows_per_source(result: RunResult, n_sources: int) -> RunResult:
+    """Replicate projected prediction rows once per source to match legacy by_source concat storage.
+
+    Legacy's by_source shared-preproc + concat path stores the downstream model rows under each
+    source branch, even though the scores and arrays are identical after feature reassembly. The
+    public contract counts those entries, so the native projection mirrors that bookkeeping exactly.
+    """
+    rows = result.predictions.filter_predictions(load_arrays=True)
+    replicated = Predictions()
+    for _source_index in range(n_sources):
+        for row in rows:
+            replicated.add_prediction(
+                dataset_name=row.get("dataset_name", ""),
+                dataset_path=row.get("dataset_path", ""),
+                config_name=row.get("config_name", ""),
+                config_path=row.get("config_path", ""),
+                pipeline_uid=row.get("pipeline_uid"),
+                step_idx=int(row.get("step_idx") or 0),
+                op_counter=int(row.get("op_counter") or 0),
+                model_name=row.get("model_name", ""),
+                model_classname=row.get("model_classname", ""),
+                model_path=row.get("model_path", ""),
+                fold_id=row.get("fold_id"),
+                sample_indices=row.get("sample_indices"),
+                weights=row.get("weights"),
+                metadata=row.get("metadata"),
+                partition=row.get("partition", ""),
+                y_true=row.get("y_true"),
+                y_pred=row.get("y_pred"),
+                y_proba=row.get("y_proba"),
+                val_score=row.get("val_score"),
+                test_score=row.get("test_score"),
+                train_score=row.get("train_score"),
+                metric=row.get("metric", "mse"),
+                task_type=row.get("task_type", "regression"),
+                n_samples=int(row.get("n_samples") or 0),
+                n_features=int(row.get("n_features") or 0),
+                preprocessings=row.get("preprocessings", ""),
+                best_params=row.get("best_params"),
+                scores=row.get("scores"),
+                branch_id=row.get("branch_id"),
+                branch_path=row.get("branch_path"),
+                branch_name=row.get("branch_name"),
+                exclusion_count=row.get("exclusion_count"),
+                exclusion_rate=row.get("exclusion_rate"),
+                model_artifact_id=row.get("model_artifact_id"),
+                trace_id=row.get("trace_id"),
+                refit_context=row.get("refit_context"),
+                target_processing=row.get("target_processing", ""),
+            )
+    replicated.flush()
+    result.predictions = replicated
+    return result
+
+
+def _run_by_source_concat_shared_preproc(pipeline: list[Any], preproc_body: list[Any], downstream_body: list[Any], n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+    """Run shared by_source preprocessing + concat merge + one model as native CV/refit.
+
+    The downstream model is a normal single producer, but its compiled graph node carries
+    ``metadata.source_concat_x_chain``. The process adapter then applies the upstream X-chain once per
+    feature source and hstacks those transformed blocks before fitting/predicting, matching legacy's
+    by_source feature reassembly for the shared-body LIST form. The final projection is replicated per
+    source because legacy stores the same downstream rows under each source branch.
+    """
+    import dag_ml
+
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    if splitter is None:
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+
+    steps = _supported_body_steps([step for step in [*preproc_body, *downstream_body] if not hasattr(step, "split")])
+    _reject_multi_model(steps)
+    _assert_supported_operators(steps)
+    steps = _apply_model_params(steps)
+
+    identity = mint_identity(spectro)
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-by-source-concat", n_splits=len(folds))
+
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    model_nodes = [node for node in graph["nodes"] if node["kind"] == "model"]
+    if len(model_nodes) != 1:
+        raise DagMlUnsupported(f"by_source concat compile produced {len(model_nodes)} model nodes, expected 1")
+    model_nodes[0]["metadata"] = {**model_nodes[0].get("metadata", {}), "source_concat_x_chain": True}
+
+    outcome = run_cv_refit_bundle(
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+    )
+    if outcome["returncode"] != 0:
+        _raise_run_failure(outcome, "dag-ml by_source concat run failed")
+
+    result = _scores_to_run_result(
+        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"]
+    )
+    return _replicate_prediction_rows_per_source(result, n_sources)
 
 
 def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate: str, n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:

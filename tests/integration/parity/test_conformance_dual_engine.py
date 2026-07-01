@@ -327,18 +327,13 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # model). For a float-robust model this is under tol — `[SNV,SS,PLSR]` native 13.28646 (on-concat) vs
     # legacy 13.28643 (per-source), Δ2.5e-5, which is why `multi_source_baseline_snv_plsr` DOES run native —
     # but a fixed-seed tree exposes it: `[SNV,SS,RF]` native 21.0846 (on-concat) vs legacy 21.0678
-    # (per-source), Δ1.7e-2 > 1e-3 tol. Each case below is additionally blocked as noted; all four correctly
+    # (per-source), Δ1.7e-2 > 1e-3 tol. Each case below is additionally blocked as noted; all three correctly
     # stay in fallback (engine="dag-ml" re-runs legacy → the exact legacy result) until the missing native
     # contract lands. See docs/agent_reports/W12_MULTISOURCE_FALLBACK.md for the full measurement trace.
     #
-    # shared/distinct by_source preproc + concat + one model: score IS reproducible (per-source SNV via the
-    # branch == the plain baseline, PLSR 13.28643 to 1e-15), but legacy emits 51 predictions — 3 per-source-
-    # replicated rows × {train,val,test} × {fold0..2, avg, w_avg, final} under one branch config hash — that
-    # the native branch paths (which attribute predictions to a single merge node, ~17-row structure) do not
-    # reproduce, so num_predictions parity cannot be met. `distinct` additionally carries a STATEFUL per-source
-    # MSC (fit per fold per source). Needs a native by_source concat-feature-reassembly contract + legacy
-    # branch prediction bookkeeping.
-    "multi_source_by_source_branch_shared_preproc",
+    # distinct by_source preproc + concat + one model: the shared-list body now runs native, but `distinct`
+    # still uses a per-source dict body and carries a STATEFUL per-source MSC (fit per fold per source).
+    # Needs a native per-source-dict concat-feature-reassembly contract + legacy branch prediction bookkeeping.
     "multi_source_by_source_branch_distinct_preproc",
     # per_source_models_stacking: by_source per-source models → {"merge":"predictions"} → Ridge meta. Legacy's
     # stacking refit is itself BROKEN for a by_source branch ("Stacking refit expects duplication branches
