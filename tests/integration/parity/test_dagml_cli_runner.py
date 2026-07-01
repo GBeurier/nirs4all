@@ -3592,18 +3592,8 @@ def _multi_source_contract_envelope() -> dict[str, Any]:
     return build_envelope(dataset, identity, sample_ints=train)
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="W54 requires W53 source-layout contract: missing source_layout.source_order for multi_source_by_source_branch_distinct_preproc",
-)
 def test_w54_contract_by_source_distinct_preproc_requires_source_layout_order() -> None:
-    """Executable W54 contract probe for ``multi_source_by_source_branch_distinct_preproc``.
-
-    The current native envelope declares ``src0``/``src1``/``src2`` but has no typed layout field
-    that maps legacy by_source dict keys (``source_0`` etc.) to native block order or to each
-    per-source preprocessing output. Until that contract exists, widening the detector would be a
-    guess and the fallback allowlist entry must stay.
-    """
+    """Executable W54 contract probe for ``multi_source_by_source_branch_distinct_preproc``."""
     source_layout = _multi_source_contract_envelope()["plan"].get("source_layout")
     assert isinstance(source_layout, dict), "missing source_layout field"
     assert source_layout["source_order"] == ["source_0", "source_1", "source_2"], "missing source_layout.source_order"
@@ -3611,18 +3601,8 @@ def test_w54_contract_by_source_distinct_preproc_requires_source_layout_order() 
     assert "per_source_preprocessing_outputs" in source_layout, "missing source_layout.per_source_preprocessing_outputs"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="W54 requires W53 source-layout contract: missing source_layout.concat_layout for multi_source_sources_concat_then_rf",
-)
 def test_w54_contract_sources_concat_rf_requires_concat_layout() -> None:
-    """Executable W54 contract probe for ``multi_source_sources_concat_then_rf``.
-
-    Legacy ``{"merge": {"sources": "concat"}}`` is not just the same as the early-fusion matrix for
-    a fixed-seed RF: it names a source concat boundary and stores the merged feature block back into
-    the dataset. Native cannot safely replay that storage/layout boundary without a typed
-    ``source_layout.concat_layout`` contract.
-    """
+    """Executable W54 contract probe for ``multi_source_sources_concat_then_rf``."""
     source_layout = _multi_source_contract_envelope()["plan"].get("source_layout")
     assert isinstance(source_layout, dict), "missing source_layout field"
     concat_layout = source_layout.get("concat_layout")
