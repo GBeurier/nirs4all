@@ -20,8 +20,11 @@ wheel consumption, not a dev-tree import or direct shared-library override.
 from __future__ import annotations
 
 import argparse
+import fnmatch
+import hashlib
 import json
 import os
+import posixpath
 import shlex
 import shutil
 import subprocess
@@ -29,6 +32,7 @@ import sys
 import tempfile
 import textwrap
 import tomllib
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -51,6 +55,7 @@ DEFAULT_PYTEST_ARGS = [
     "tests/unit/operators/methods/test_n4m_ops.py::TestSNVPLSvsSklearn",
 ]
 DEV_OVERRIDE_ENV = {"PYTHONPATH", "N4M_LIB_PATH", "PLS4ALL_LIB_PATH"}
+N4M_LIB_PATTERNS = ("libn4m*.so*", "libn4m*.dylib", "n4m*.dll", "libn4m*.dll")
 
 
 class ProofError(RuntimeError):
@@ -115,6 +120,105 @@ def _wheel_from_smoke_result(result: dict[str, Any]) -> Path:
     if not wheel.exists():
         raise ProofError(f"methods wheel smoke returned a missing wheel path: {wheel}")
     return wheel
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as fh:
+        for chunk in iter(lambda: fh.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _looks_like_n4m_library(filename: str) -> bool:
+    return any(fnmatch.fnmatch(filename, pattern) for pattern in N4M_LIB_PATTERNS)
+
+
+def _path_from_report(value: object, label: str) -> Path:
+    if not isinstance(value, str) or not value:
+        raise ProofError(f"methods artifact freshness report is missing {label}")
+    path = Path(value).resolve()
+    if not path.exists():
+        raise ProofError(f"methods artifact freshness path does not exist for {label}: {path}")
+    return path
+
+
+def _wheel_n4m_library_hashes(wheel: Path) -> dict[str, str]:
+    hashes: dict[str, str] = {}
+    try:
+        with zipfile.ZipFile(wheel) as zf:
+            for info in zf.infolist():
+                if info.is_dir():
+                    continue
+                member = info.filename.replace("\\", "/")
+                if "/n4m/lib/" not in f"/{member}":
+                    continue
+                filename = posixpath.basename(member)
+                if not _looks_like_n4m_library(filename):
+                    continue
+                hashes[member] = hashlib.sha256(zf.read(info)).hexdigest()
+    except zipfile.BadZipFile as exc:
+        raise ProofError(f"methods wheel is not a readable zip archive: {wheel}") from exc
+
+    if not hashes:
+        raise ProofError(f"methods wheel does not contain a bundled n4m library under n4m/lib: {wheel}")
+    return hashes
+
+
+def _assert_same_hash(label: str, path: Path, expected: str) -> str:
+    actual = _sha256_file(path)
+    if actual != expected:
+        raise ProofError(
+            f"methods artifact freshness mismatch for {label}: {path}\n"
+            f"expected sha256 {expected} from the source libn4m, got {actual}"
+        )
+    return actual
+
+
+def _assert_methods_artifact_freshness(methods_smoke: dict[str, Any], wheel: Path, probe: dict[str, Any]) -> dict[str, Any]:
+    """Verify the proof venv loads the exact lib staged into the fresh wheel.
+
+    This is deliberately a consumer-side freshness gate: it proves that the
+    `nirs4all-methods` smoke built a wheel from one input `libn4m`, that the
+    wheel payload contains that same binary, and that this proof's installed
+    `n4m` binding loaded that binary from the proof venv. Source-to-binary build
+    graph freshness remains owned by `nirs4all-methods`.
+    """
+
+    input_lib = _path_from_report(methods_smoke.get("input_lib"), "input_lib")
+    staged_lib = _path_from_report(methods_smoke.get("staged_lib"), "staged_lib")
+    proof_library = _path_from_report(probe.get("library_path"), "proof library_path")
+    input_hash = _sha256_file(input_lib)
+    staged_hash = _assert_same_hash("staged_lib", staged_lib, input_hash)
+    proof_hash = _assert_same_hash("proof library_path", proof_library, input_hash)
+
+    wheel_hashes = _wheel_n4m_library_hashes(wheel)
+    mismatched_members = {member: digest for member, digest in wheel_hashes.items() if digest != input_hash}
+    if mismatched_members:
+        rendered = "\n".join(f"  - {member}: {digest}" for member, digest in sorted(mismatched_members.items()))
+        raise ProofError(
+            f"methods wheel contains n4m library payloads that do not match {input_lib} sha256 {input_hash}:\n{rendered}"
+        )
+
+    smoke_installed_library: str | None = None
+    smoke_installed = methods_smoke.get("installed")
+    if isinstance(smoke_installed, dict) and smoke_installed.get("library"):
+        smoke_library = _path_from_report(smoke_installed.get("library"), "methods smoke installed.library")
+        _assert_same_hash("methods smoke installed.library", smoke_library, input_hash)
+        smoke_installed_library = str(smoke_library)
+
+    return {
+        "status": "N4M_WHEEL_ARTIFACT_FRESH",
+        "input_lib": str(input_lib),
+        "input_lib_sha256": input_hash,
+        "proof_library_path": str(proof_library),
+        "proof_library_sha256": proof_hash,
+        "smoke_installed_library": smoke_installed_library,
+        "staged_lib": str(staged_lib),
+        "staged_lib_sha256": staged_hash,
+        "wheel": str(wheel),
+        "wheel_libraries": dict(sorted(wheel_hashes.items())),
+    }
 
 
 def _project_name(project_path: Path) -> str | None:
@@ -427,12 +531,14 @@ def main(argv: list[str] | None = None) -> int:
         wheel, methods_tmp, methods_smoke = _build_methods_wheel(args)
         venv_dir, vpy = _install_proof_venv(args, wheel, proof_tmp)
         probe = _run_probe(vpy, venv_dir)
+        artifact_freshness = _assert_methods_artifact_freshness(methods_smoke, wheel, probe)
         pytest_args = args.pytest_args or DEFAULT_PYTEST_ARGS
         _run_pytest(vpy, venv_dir, pytest_args)
 
         print(
             json.dumps(
                 {
+                    "artifact_freshness": artifact_freshness,
                     "status": "OK",
                     "methods_smoke": methods_smoke,
                     "nirs4all_probe": probe,
