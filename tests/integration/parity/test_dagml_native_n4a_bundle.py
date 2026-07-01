@@ -19,8 +19,8 @@ critically — proves it is NOT a legacy refit under another name:
 * (6) a by_source branch + mean-fusion run (one captured artifact per source) WITH a native dir → exports a
   native multi-artifact bundle that splits raw concatenated features by source width and averages source
   REFIT models, without invoking the bridge.
-* (7) a branch/stacking run (multiple captured artifacts, but no replay manifest for the meta-feature graph)
-  is pinned as a strict xfail blocker for native export.
+* (7) a branch/stacking run WITH a native replay manifest → exports a native multi-artifact bundle that
+  rebuilds base-prediction meta-features from raw X and never invokes the bridge.
 * (8) ``format="n4a.py"`` (portable script) on a native single-artifact run → falls back to the bridge (the
   native writer produces the ZIP bundle only; never a silent ZIP-under-``.n4a.py``).
 """
@@ -332,24 +332,15 @@ def test_by_source_fusion_n4a_export_never_refits_on_legacy(tmp_path: Path, monk
 
 
 # ---------------------------------------------------------------------------
-# (7) branch/stacking run WITH native dir → pinned native-export blocker.
+# (7) branch/stacking run WITH native dir → native multi-artifact .n4a, NO bridge.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-@pytest.mark.xfail(
-    strict=True,
-    raises=_LegacyEngineTouched,
-    reason=(
-        "B-011 native stacking .n4a export is blocked: captured artifacts include base REFIT models and the "
-        "meta REFIT model, but native-results-v1 does not persist a replay manifest for base-prediction "
-        "column order / meta-feature construction."
-    ),
-)
-def test_branch_stacking_native_n4a_blocked_by_missing_replay_manifest(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """A duplication-branch + merge-predictions (stacking) run captures multiple artifacts, but the native dir
-    still lacks the replay graph that tells export how to rebuild meta-features from raw X. Poisoning the
-    legacy bridge pins this as a precise native-export blocker instead of silently accepting bridge coverage."""
+def test_branch_stacking_n4a_export_never_refits_on_legacy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A duplication-branch + merge-predictions (stacking) run captures base + meta REFIT artifacts. The
+    native ``.n4a`` export packages a replay wrapper over those artifacts, rebuilds the ordered base
+    prediction meta-features from raw X, reproduces the native final-test RMSE, and never calls the bridge."""
     from sklearn.linear_model import Ridge
 
     from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
@@ -367,13 +358,17 @@ def test_branch_stacking_native_n4a_blocked_by_missing_replay_manifest(tmp_path:
     ]
     result = _run_native(tmp_path, pipeline, random_state=42)
     assert result._dagml_results_dir is not None  # noqa: SLF001 -- a native dir WAS written
-    assert len(result._dagml_refit_artifacts) != 1, "a branch/stacking run captures ≠1 REFIT artifact"  # noqa: SLF001
+    assert len(result._dagml_refit_artifacts) == 3, "stacking captures two base artifacts + one meta artifact"  # noqa: SLF001
 
     native_manifest = json.loads((result._dagml_results_dir / "manifest.json").read_text(encoding="utf-8"))  # noqa: SLF001
     assert "merge:stack" in native_manifest["final_producer_nodes"]
+    replay = native_manifest["stacking_replay"]
+    assert replay["producer_node"] == "merge:stack"
+    assert [base["producer_node"] for base in replay["base_producers"]] == ["branch:0.node:1", "branch:1.node:1"]
+    assert replay["meta_artifact_id"] == "artifact:merge:stack:nirs4all:refit:variant:base"
 
     def _boom(*_args, **_kwargs):
-        raise _LegacyEngineTouched("native stacking .n4a export still needs a replay manifest; bridge was reached")
+        raise _LegacyEngineTouched("the legacy engine must NOT be invoked by a native stacking .n4a export")
 
     run_module = importlib.import_module("nirs4all.api.run")
     monkeypatch.setattr(run_module, "run", _boom)
@@ -381,7 +376,21 @@ def test_branch_stacking_native_n4a_blocked_by_missing_replay_manifest(tmp_path:
     out = tmp_path / "model_branch_stacking.n4a"
     returned = result.export(out)
     assert returned == out and out.exists()
-    assert result._dagml_legacy_result is None  # noqa: SLF001
+    assert result._dagml_legacy_result is None  # noqa: SLF001 -- the bridge was never materialized
+
+    actual = np.asarray(BundleLoader(out).predict(_refit_x("regression")), dtype=float).ravel()
+    y_true = _refit_y("regression")
+    assert actual.shape == y_true.shape
+    rmse = float(np.sqrt(np.mean((actual - y_true) ** 2)))
+    assert np.isclose(rmse, result.best_rmse, atol=1e-6), "stacking .n4a reproduces the native final RMSE"
+
+    manifest = _read_manifest(out)
+    assert manifest["source_type"] == "dagml_native"
+    assert manifest["export_path"] == "dagml_native_stacking"
+    assert manifest["dagml_native_export_shape"] == "branch_stacking_predictions"
+    assert manifest["dagml_artifact_count"] == 3
+    assert manifest["dagml_stacking_base_count"] == 2
+    assert manifest["dagml_stacking_meta_artifact_id"] == "artifact:merge:stack:nirs4all:refit:variant:base"
 
 
 # ---------------------------------------------------------------------------
