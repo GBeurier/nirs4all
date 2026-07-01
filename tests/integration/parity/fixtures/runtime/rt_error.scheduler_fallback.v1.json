@@ -1,0 +1,6 @@
+{
+  "verb": "run",
+  "cause": "runtime_error",
+  "message": "execute_campaign_phase_json crashed: scheduler boom",
+  "mitigation": "Cross-validation re-ran through the libn4m chain over dag-ml folds; results are valid, but the dag-ml scheduler did not run this phase."
+}

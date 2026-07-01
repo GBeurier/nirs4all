@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "run_id": null,
+  "plan_id": null,
+  "selection": {
+    "selected_variant": "variant:base"
+  },
+  "reports": [],
+  "predictions": [
+    {
+      "partition": "validation",
+      "fold_id": "avg",
+      "variant_id": "variant:base",
+      "model_name": "rt-golden-pls",
+      "sample_indices": [0, 1, 2, 3],
+      "y_true": [1.0, 2.0, 3.0, 4.0],
+      "y_pred": [1.0, 2.0, 3.0, 4.0],
+      "y_proba": null,
+      "scores": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      },
+      "metric": "rmse",
+      "task_type": "regression"
+    },
+    {
+      "partition": "validation",
+      "fold_id": "fold-1",
+      "variant_id": "variant:base",
+      "model_name": "rt-golden-pls",
+      "sample_indices": [0, 1],
+      "y_true": [1.0, 2.0],
+      "y_pred": [1.0, 2.0],
+      "y_proba": null,
+      "scores": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      },
+      "metric": "rmse",
+      "task_type": "regression"
+    },
+    {
+      "partition": "validation",
+      "fold_id": "fold-2",
+      "variant_id": "variant:base",
+      "model_name": "rt-golden-pls",
+      "sample_indices": [2, 3],
+      "y_true": [3.0, 4.0],
+      "y_pred": [3.0, 4.0],
+      "y_proba": null,
+      "scores": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      },
+      "metric": "rmse",
+      "task_type": "regression"
+    },
+    {
+      "partition": "test",
+      "fold_id": "final",
+      "variant_id": "variant:base",
+      "model_name": "rt-golden-pls",
+      "sample_indices": [4, 5],
+      "y_true": [5.0, 6.0],
+      "y_pred": [5.0, 6.0],
+      "y_proba": null,
+      "scores": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      },
+      "metric": "rmse",
+      "task_type": "regression"
+    }
+  ],
+  "manifest": {
+    "engine": "legacy",
+    "fingerprints": {
+      "score_set_hash": null,
+      "plan_id": null,
+      "bundle_id": null
+    },
+    "capabilities": {
+      "has_model_artifacts": false,
+      "has_aggregate_predictions": false
+    },
+    "portable_level": null,
+    "files": {}
+  },
+  "diagnostics": [
+    {
+      "verb": "run",
+      "cause": "unsupported_shape",
+      "message": "engine='dag-ml' does not support this pipeline shape: branch duplication merge predictions is not covered",
+      "mitigation": "run this shape on engine='legacy', or rewrite it into a dag-ml-covered shape (see the dag-ml coverage matrix)."
+    }
+  ]
+}
