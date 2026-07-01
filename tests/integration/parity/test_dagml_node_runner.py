@@ -11,6 +11,8 @@ from __future__ import annotations
 
 import io
 import json
+import os
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -28,6 +30,29 @@ from ._datasets import dataset_path
 pytestmark = [pytest.mark.parity]
 
 pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
+
+
+def _require_methods_snv_available() -> None:
+    from nirs4all.operators.methods import n4m_ops
+
+    status = n4m_ops.methods_binding_status()
+    library_path = status.get("library_path")
+    blockers = []
+    if not status.get("snv_available"):
+        blockers.append("SNV binding")
+    if not status.get("abi_version"):
+        blockers.append("n4m ABI")
+    if not library_path or not Path(str(library_path)).exists():
+        blockers.append("loadable libn4m")
+    if not blockers:
+        return
+    message = status["message"] or f"nirs4all-methods SNV route unavailable: {', '.join(blockers)}"
+    mitigation = status.get("mitigation")
+    if mitigation:
+        message = f"{message} {mitigation}".strip()
+    if os.environ.get("NIRS4ALL_REQUIRE_N4M") == "1":
+        pytest.fail(message, pytrace=True)
+    pytest.skip(message)
 
 
 @pytest.fixture(scope="module")
@@ -175,6 +200,58 @@ def test_fit_cv_applies_upstream_snv_chain(slice_fixture) -> None:
     # Without edges the chain is NOT applied (raw features) — proves the SNV step is load-bearing.
     raw = np.asarray(run_node(task, f["resolver"], nodes.__getitem__, {}, None)["predictions"][0]["values"], dtype=float)
     assert not np.allclose(raw, expected, atol=1e-2)
+
+
+def test_fit_cv_methods_snv_opt_in_matches_python_oracle(slice_fixture, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The opt-in native SNV route preserves Python-reference SNV->PLS predictions."""
+    from sklearn.pipeline import make_pipeline
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml import node_runner as node_runner_module
+    from nirs4all.pipeline.dagml.operator_routing import route_graph_node as real_route_graph_node
+    from nirs4all.pipeline.dagml_bridge import build_dagml_plan
+
+    _require_methods_snv_available()
+    monkeypatch.setenv("N4A_DAGML_METHODS_SNV", "1")
+    routed_transforms = []
+
+    def recording_route_graph_node(node: dict, *, variant_overrides: dict | None = None) -> object:
+        routed = real_route_graph_node(node, variant_overrides=variant_overrides)
+        if node.get("kind") == "transform":
+            routed_transforms.append(f"{type(routed).__module__}.{type(routed).__name__}")
+        return routed
+
+    monkeypatch.setattr(node_runner_module, "route_graph_node", recording_route_graph_node)
+
+    f = slice_fixture
+    plan = build_dagml_plan([StandardNormalVariate(), {"model": PLSRegression(n_components=5)}], plan_id="p", dsl_id="methods_snv_pls").to_dict()
+    graph = plan["graph_plan"]["graph"]
+    nodes = {node["id"]: node for node in graph["nodes"]}
+    model_id = next(node_id for node_id, node in nodes.items() if node["kind"] == "model")
+    train, val = f["train_ints"][:90], f["train_ints"][90:120]
+    to_wire = f["identity"].to_wire
+    task = {
+        "phase": "FIT_CV", "fold_id": "fold0", "run_id": "r", "variant_id": None, "node_plan": plan["node_plans"][model_id],
+        "data_views": {
+            "data:x": {"partition": "fold_train", "sample_ids": [to_wire(i) for i in train]},
+            "data:x:validation": {"partition": "fold_validation", "sample_ids": [to_wire(i) for i in val]},
+        },
+    }
+
+    result = run_node(task, f["resolver"], nodes.__getitem__, {}, graph["edges"])
+    block = result["predictions"][0]
+    assert block["partition"] == "validation"
+    assert block["sample_ids"] == [to_wire(i) for i in val]
+    assert routed_transforms == ["nirs4all.operators.methods.n4m_ops.MethodsSNV"]
+    got = np.asarray(block["values"], dtype=float)
+
+    ds = f["dataset"]
+    expected_pipe = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=5))
+    x_train = np.asarray(ds.x({"sample": train}, layout="2d"), dtype=np.float64)
+    expected_pipe.fit(x_train, np.asarray(ds.y({"sample": train}), dtype=float))
+    x_val = np.stack([np.asarray(ds.x({"sample": [i]}, layout="2d"), dtype=np.float64)[0] for i in val])
+    expected = np.asarray(expected_pipe.predict(x_val), dtype=float).reshape(len(val), -1)
+    assert np.allclose(got, expected, atol=1e-6)
 
 
 def test_fit_cv_applies_snv_and_y_processing_chain(slice_fixture) -> None:
