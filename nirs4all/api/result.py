@@ -182,6 +182,64 @@ class _DagmlNativeFusionModel:
         return cast(np.ndarray, np.mean(np.stack(member_preds, axis=0), axis=0))
 
 
+class _DagmlNativeBySourceFusionModel:
+    """Predict-capable wrapper for native by_source mean-fusion artifacts.
+
+    Each captured member model was fit on one source block, not the full concatenated feature matrix. Public
+    bundle prediction currently hands the exported model the legacy raw concat matrix, so this wrapper splits
+    that matrix back into source blocks using the fitted estimators' feature widths before averaging member
+    predictions in original target space.
+    """
+
+    def __init__(self, members: Sequence[tuple[int, _DagmlExportedModel]]) -> None:
+        if not members:
+            raise ValueError("native by_source fusion export requires at least one member model")
+        ordered = sorted(members, key=lambda item: item[0])
+        source_indices = [index for index, _member in ordered]
+        if source_indices != list(range(len(source_indices))):
+            raise ValueError(f"native by_source fusion export requires contiguous source indices from 0: {source_indices!r}")
+        self.source_indices = source_indices
+        self.members = [member for _index, member in ordered]
+        self.source_widths = [_estimator_feature_width(member.estimator) for member in self.members]
+
+    def predict(self, X: Any) -> np.ndarray:
+        blocks = self._source_blocks(X)
+        member_preds: list[np.ndarray] = []
+        for source_index, member in enumerate(self.members):
+            pred = np.asarray(member.predict(blocks[source_index]), dtype=float)
+            member_preds.append(pred.reshape(len(pred), -1))
+        shapes = {pred.shape for pred in member_preds}
+        if len(shapes) != 1:
+            raise ValueError(f"native by_source fusion member predictions have incompatible shapes: {sorted(shapes)!r}")
+        return cast(np.ndarray, np.mean(np.stack(member_preds, axis=0), axis=0))
+
+    def _source_blocks(self, X: Any) -> list[np.ndarray]:
+        if isinstance(X, (list, tuple)) and not isinstance(X, (str, bytes)):
+            blocks = [np.asarray(block) for block in X]
+            if len(blocks) == len(self.members):
+                return blocks
+
+        arr = np.asarray(X)
+        if arr.ndim == 3:
+            if arr.shape[0] == len(self.members):
+                return [np.asarray(arr[index]) for index in range(len(self.members))]
+            if arr.shape[1] == len(self.members):
+                return [np.asarray(arr[:, index, :]) for index in range(len(self.members))]
+        if arr.ndim == 2:
+            if any(width is None for width in self.source_widths):
+                raise ValueError("native by_source fusion export cannot split a concatenated feature matrix because at least one source width is unknown")
+            widths = [int(width) for width in self.source_widths if width is not None]
+            expected = sum(widths)
+            if arr.shape[1] != expected:
+                raise ValueError(f"native by_source fusion export expected {expected} concatenated features from source widths {widths!r}, got {arr.shape[1]}")
+            stops = np.cumsum(widths)[:-1]
+            return [np.asarray(block) for block in np.split(arr, stops, axis=1)]
+
+        raise ValueError(
+            "native by_source fusion export expects either a concatenated 2D feature matrix or one 2D matrix per source"
+        )
+
+
 def _native_manifest_strings(manifest: Mapping[str, Any], key: str) -> set[str]:
     value = manifest.get(key)
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
@@ -219,6 +277,66 @@ def _native_model_names(native_manifest: Mapping[str, Any]) -> list[str]:
     return [str(item) for item in value]
 
 
+def _native_manifest_is_by_source(native_manifest: Mapping[str, Any]) -> bool:
+    model_names = _native_model_names(native_manifest)
+    return len(model_names) == 1 and model_names[0].startswith(_DAGML_BY_SOURCE_MODEL_PREFIX)
+
+
+def _artifact_branch_index(artifact: Mapping[str, Any]) -> int | None:
+    value = artifact.get("branch_index")
+    if value is not None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
+    artifact_id = artifact.get("artifact_id")
+    if not isinstance(artifact_id, str):
+        return None
+    parts = artifact_id.split(":", 3)
+    if len(parts) < 3 or parts[0] != "artifact" or parts[1] != "branch":
+        return None
+    try:
+        return int(parts[2].split(".", 1)[0])
+    except ValueError:
+        return None
+
+
+def _indexed_branch_artifacts(artifacts: Sequence[Mapping[str, Any]]) -> list[tuple[int, Mapping[str, Any]]] | None:
+    indexed: list[tuple[int, Mapping[str, Any]]] = []
+    for artifact in artifacts:
+        index = _artifact_branch_index(artifact)
+        if index is None:
+            return None
+        indexed.append((index, artifact))
+    indexed.sort(key=lambda item: item[0])
+    indices = [index for index, _artifact in indexed]
+    if indices != list(range(len(indices))):
+        return None
+    return indexed
+
+
+def _estimator_feature_width(estimator: Any) -> int | None:
+    """Best-effort fitted input width for a sklearn estimator or Pipeline."""
+    value = getattr(estimator, "n_features_in_", None)
+    if value is not None:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            pass
+    steps = getattr(estimator, "steps", None)
+    if isinstance(steps, Sequence) and not isinstance(steps, (str, bytes)):
+        for step in reversed(steps):
+            if not isinstance(step, Sequence) or isinstance(step, (str, bytes)) or len(step) < 2:
+                continue
+            width = getattr(step[1], "n_features_in_", None)
+            if width is not None:
+                try:
+                    return int(width)
+                except (TypeError, ValueError):
+                    continue
+    return None
+
+
 def _dagml_native_bundle_provenance(
     native_manifest: Mapping[str, Any],
     *,
@@ -248,10 +366,21 @@ def _is_native_branch_fusion_bundle(native: Mapping[str, Any], artifacts: Sequen
         return False
 
     manifest = native.get("manifest")
-    model_names = _native_model_names(manifest) if isinstance(manifest, Mapping) else []
-    # By-source fusion also uses branch model nodes, but each captured estimator expects only one source's
-    # block, not the raw full feature matrix that `.n4a` prediction receives. Keep that route on the bridge.
-    return not (len(model_names) == 1 and model_names[0].startswith(_DAGML_BY_SOURCE_MODEL_PREFIX))
+    # By-source fusion also uses branch model nodes, but each captured estimator expects one source block,
+    # so it is handled by the separate source-splitting wrapper below rather than this full-X wrapper.
+    return not (isinstance(manifest, Mapping) and _native_manifest_is_by_source(manifest))
+
+
+def _is_native_by_source_fusion_bundle(native: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]]) -> bool:
+    """Whether a native by_source mean-fusion result has enough branch metadata to replay."""
+    if len(artifacts) < 2 or _DAGML_FUSION_PRODUCER_NODE not in _native_final_producers(native):
+        return False
+    manifest = native.get("manifest")
+    if not isinstance(manifest, Mapping) or not _native_manifest_is_by_source(manifest):
+        return False
+    if not all(str(artifact.get("artifact_id") or "").startswith(_DAGML_BRANCH_ARTIFACT_PREFIX) for artifact in artifacts):
+        return False
+    return _indexed_branch_artifacts(artifacts) is not None
 
 
 @dataclass
@@ -530,8 +659,9 @@ class RunResult:
     # legacy result). It holds ``manifest.json`` + ``score_set.json`` + ``predictions.parquet`` + the
     # ``artifacts/`` model tree. P3 Slice 2c-ii uses it for native exports: a dag-ml run with EXACTLY ONE
     # concrete model artifact exports that captured (verify-then-load) estimator DIRECTLY, and `.n4a`
-    # additionally supports the narrow multi-artifact branch mean-fusion wrapper. Other multi-model /
-    # branch / stacking shapes still defer to the P1c legacy-refit bridge.
+    # additionally supports narrow multi-artifact branch mean-fusion wrappers, including by_source fusion
+    # when branch/source order is recoverable. Other multi-model / stacking shapes still defer to the P1c
+    # legacy-refit bridge.
     _dagml_results_dir: Path | None = field(default=None, repr=False)
 
     # --- Lifecycle ---
@@ -1198,7 +1328,8 @@ class RunResult:
         builds the ``.n4a`` DIRECTLY from that captured REFIT model (rehydrated via the verify-then-load
         native reader). A narrow duplication branch + mean-fusion run with multiple captured branch
         artifacts also exports natively by embedding a wrapper that averages the captured branch REFIT
-        models. Both native paths avoid legacy refit and stochastic warnings. A :class:`BundleLoader`
+        models; by_source mean-fusion does the same after splitting raw concatenated features back into
+        source blocks. These native paths avoid legacy refit and stochastic warnings. A :class:`BundleLoader`
         reload-predict of the bundle reproduces the dag-ml run's scored REFIT model/fusion exactly.
 
         **dag-ml runs (P1c bridge — fallback):** without a native dir, for unsupported multi-model / branch /
@@ -1361,10 +1492,10 @@ class RunResult:
         stochastic warning: a :class:`BundleLoader` reload-predict of the bundle reproduces the dag-ml run's
         scored REFIT model EXACTLY (it IS that model).
 
-        The narrow multi-artifact path admits duplication branch + mean-fusion only: native manifest
-        metadata must identify the final producer as ``merge:fusion`` and every captured artifact must be a
-        branch model. The exported bundle embeds a small fusion wrapper that averages those captured branch
-        refit models in original target space, matching dag-ml's native fusion merge.
+        The narrow multi-artifact paths admit duplication branch + mean-fusion and by_source mean-fusion:
+        native manifest metadata must identify the final producer as ``merge:fusion`` and every captured
+        artifact must be a branch model. The exported bundle embeds a small fusion wrapper that averages
+        those captured branch refit models in original target space, matching dag-ml's native fusion merge.
 
         Returns the written path, or ``None`` to signal the caller to FALL BACK to the legacy bridge when the
         native bundle is not applicable:
@@ -1373,7 +1504,7 @@ class RunResult:
         * a non-``n4a`` format (the ``n4a.py`` PORTABLE SCRIPT embeds artifacts through the legacy
           generator's template path and is out of this native single-model slice — it defers to the bridge,
           mirroring the ``export_model`` joblib-only gate; never a silent format substitution);
-        * a multi-artifact shape other than the supported branch mean-fusion replay;
+        * a multi-artifact shape other than the supported branch / by_source mean-fusion replay;
         * ANY native-read/rehydrate failure — a tampered/edited manifest (verify-then-load ``ValueError``), a
           missing/malformed native dir (``FileNotFoundError`` / ``KeyError`` / parquet error), OR a
           fingerprint-valid but UNLOADABLE artifact (``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError``
@@ -1428,6 +1559,28 @@ class RunResult:
                     artifact_count=len(artifacts),
                     export_shape="branch_fusion_mean",
                 ),
+            )
+
+        if _is_native_by_source_fusion_bundle(native, artifacts):
+            indexed = _indexed_branch_artifacts(artifacts)
+            assert indexed is not None  # predicate above guarantees branch/source indices are recoverable
+            members = [(source_index, _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])) for source_index, artifact in indexed]
+            model = _DagmlNativeBySourceFusionModel(members)
+            model_label = model_names[0] if model_names else "dagml_native_by_source_fusion"
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest,
+                export_path="dagml_native_by_source_fusion",
+                artifact_count=len(artifacts),
+                export_shape="by_source_fusion_mean",
+            )
+            provenance["dagml_source_count"] = len(model.source_indices)
+            provenance["dagml_source_widths"] = list(model.source_widths)
+            return write_single_model_bundle(
+                model,
+                output_path,
+                model_label=model_label,
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance,
             )
 
         return None
