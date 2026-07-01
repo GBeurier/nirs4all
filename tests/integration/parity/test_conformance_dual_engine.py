@@ -316,7 +316,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     "branch_dup_merge_all",
     # by-source separation / per-source models / source-concat multi-source shapes.
     "multi_source_by_source_branch_shared_preproc",
-    "multi_source_by_source_branch_distinct_preproc",
     "multi_source_per_source_models_stacking",
     "multi_source_sources_concat_then_rf",
     # the explicit `preprocessing` keyword + fit_on_all + force_layout shapes.
