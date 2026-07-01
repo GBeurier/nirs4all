@@ -37,6 +37,7 @@ from .detect import (
     _detect_duplication_branch,
     _detect_rep_fusion,
     _detect_separation_branch,
+    _detect_source_concat_merge,
     _detect_stacking_branch,
     _fusion_merge_aggregate,
     _generation_kind,
@@ -69,6 +70,7 @@ from .run_paths import (
     _run_rep_fusion,
     _run_repetition,
     _run_separation_branch,
+    _run_source_concat_merge,
     _run_stacking_branch,
 )
 from .steps import _expand_operator_generators
@@ -90,6 +92,7 @@ __all__ = [
     "_detect_duplication_branch",
     "_detect_rep_fusion",
     "_detect_separation_branch",
+    "_detect_source_concat_merge",
     "_detect_stacking_branch",
     "_excluded_from_pool",
     "_fusion_merge_aggregate",
@@ -105,6 +108,7 @@ __all__ = [
     "_run_native_operator_generation",
     "_run_by_source_distinct_preproc_concat",
     "_run_rep_fusion",
+    "_run_source_concat_merge",
     "preflight_dagml_backend",
     "run_via_dagml",
 ]
@@ -575,6 +579,7 @@ def _dispatch_run(
     detected_by_source = _detect_by_source_branch(list(pipeline), spectro.features_sources())
     detected_by_source_distinct_concat = _detect_by_source_distinct_preproc_concat(list(pipeline), spectro.features_sources())
     detected_rep_fusion = _detect_rep_fusion(list(pipeline))
+    detected_source_concat = _detect_source_concat_merge(list(pipeline), spectro.features_sources())
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
     # REP FUSION (`rep_to_sources` / `rep_to_pp`, #31): a one-time HOST RESHAPE that turns each replicate
@@ -656,6 +661,14 @@ def _dispatch_run(
             config_name=config_name,
             random_state=random_state,
         )
+
+    # Top-level source concat (`X-transform* -> {"merge": {"sources": "concat"}} -> splitter -> model`) is
+    # a native source-layout boundary: upstream X transforms run per source, then the transformed blocks are
+    # concatenated for the downstream model. A plain early-fusion lowering would transform the already-concat
+    # matrix and diverge for row-wise ops such as SNV.
+    if detected_source_concat is not None:
+        pre_merge_steps, post_merge_steps, source_indices = detected_source_concat
+        return _run_source_concat_merge(pre_merge_steps, post_merge_steps, source_indices, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "source_concat", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
 
     # STACKING (backlog #10): a duplication branch (`{"branch": [[A], [B], …]}`) + `{"merge": "predictions"}`
     # + a downstream meta-model (`{"model": MetaModel(Ridge())}` or a plain `{"model": Ridge()}`) → ONE
