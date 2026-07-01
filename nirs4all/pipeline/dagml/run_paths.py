@@ -2456,6 +2456,15 @@ def _emit_named_stacking_row(
     )
 
 
+def _cv_only_stacking_score_set(scores: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Return a ScoreSet with only CV validation reports for legacy no-refit stacking surfaces."""
+    if scores is None:
+        return None
+    projected = dict(scores)
+    projected["reports"] = [report for report in scores.get("reports", []) if report.get("partition") == "validation"]
+    return projected
+
+
 def _named_dict_stacking_legacy_projection(
     *,
     pipeline: list[Any],
@@ -2467,7 +2476,6 @@ def _named_dict_stacking_legacy_projection(
     task_type: str,
     config_name: str,
     scores: dict[str, Any] | None,
-    refit_artifacts: list[dict[str, Any]] | None,
 ) -> RunResult:
     """Project named-dict duplication stacking as legacy's CV-only branch table.
 
@@ -2629,8 +2637,8 @@ def _named_dict_stacking_legacy_projection(
 
     projected.flush()
     run_result = RunResult(predictions=projected, per_dataset={spectro.name: {"engine": "dag-ml"}})
-    run_result._dagml_score_set = scores  # noqa: SLF001
-    run_result._dagml_refit_artifacts = refit_artifacts or []  # noqa: SLF001
+    run_result._dagml_score_set = _cv_only_stacking_score_set(scores)  # noqa: SLF001
+    run_result._dagml_refit_artifacts = []  # noqa: SLF001
     return run_result
 
 
@@ -2660,6 +2668,9 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     ``collect_oof_prediction_input`` enforce Validation-only); the TEST meta-features come from the base
     models' TEST predictions (the ``:refit`` off-fold input, phase-gated to REFIT), never their OOF/train,
     and never enter the FIT_CV meta-features.
+
+    Legacy named-dict duplication stacking has no refit surface. For that syntax only, this path uses
+    dag-ml's explicit ``cv_only`` stacking policy and projects the result back to the legacy CV-only table.
     """
     import dag_ml
 
@@ -2671,6 +2682,8 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
     identity = mint_identity(spectro)
+    named_duplication = _uses_named_duplication_branch(pipeline)
+    refit_policy = "cv_only" if named_duplication else "require_full_coverage"
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
@@ -2691,7 +2704,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 "params": _json_safe_params(meta_learner),
                 "metadata": {
                     "controller_id": _META_MODEL_CONTROLLER_ID,
-                    "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
+                    "stacking_oof_refit_contract": {"policy": refit_policy},
                 },
             },
         ],
@@ -2717,11 +2730,10 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml stacking run failed")
 
-    # The meta-node producer's reports carry the full-universe cross-fold OOF average (the stacking
-    # ensemble's `cv_best_score`) AND a `(test, fold_id=None)` block (`best_rmse`): the refit meta-model
-    # predicting the held-out test from the base producers' REFIT-test predictions (`…oof:refit`).
+    # List-form stacking carries the meta-node's cross-fold OOF average plus refit-test block. Named-dict
+    # stacking is projected below to legacy's CV-only no-refit surface.
     model_label = f"MetaModel_{type(meta_learner).__name__}"
-    if _uses_named_duplication_branch(pipeline):
+    if named_duplication:
         return _named_dict_stacking_legacy_projection(
             pipeline=pipeline,
             branches=branches,
@@ -2732,6 +2744,5 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             task_type=task_type,
             config_name=config_name,
             scores=outcome["scores"],
-            refit_artifacts=outcome["refit_artifacts"],
         )
     return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_META_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])

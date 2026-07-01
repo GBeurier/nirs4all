@@ -313,13 +313,11 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # RAW branch+merge shapes that do not match a supported native detector. The currently native branch
     # paths are narrow: separation by_metadata/by_tag + concat, by_source/shared-model fusion, by_source
     # source-layout stacking replay, duplication list/dict + mean/proba_mean fusion, feature/all merge,
-    # and list-branch default stacking.
-    # Named-dict stacking still falls back because legacy skips its refit surface while native stacking
-    # requires full OOF/refit coverage. The remaining legacy patterns use richer MetaModel/concat_transform
-    # state, so
+    # and list-branch/default named-dict stacking. Named-dict default stacking runs under dag-ml's
+    # explicit CV-only stacking policy and projects legacy's no-refit surface.
+    # The remaining legacy patterns use richer MetaModel/concat_transform state, so
     # `run_backend._unsupported_fallback_reason` rejects them before the generic concrete path can drop
     # branch semantics.
-    "branch_dup_three_way_merge_predictions",
     "branch_dup_named_with_metamodel",
 })
 
