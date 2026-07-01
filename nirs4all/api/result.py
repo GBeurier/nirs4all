@@ -1094,13 +1094,20 @@ class RunResult:
         In detached mode, a temporary store is opened for the export
         and closed immediately after.
 
-        **dag-ml runs (P1c, transitional):** the dag-ml backend keeps no workspace/artifacts, so this
-        re-fits the pipeline via the legacy engine to produce the bundle. For an EXACT export, set
-        ``run(random_state=...)`` AND seed every stochastic component's ``random_state``; otherwise
-        (``sample_augmentation``, an unseeded run, or any unseeded-stochastic component such as
-        ``RandomForest`` / ``MLP`` / ``CARS``) the exported model may differ from the dag-ml-scored model.
-        ``source`` / ``chain_id`` are not supported for a dag-ml run (they reference its non-existent
-        workspace); the run's best model is exported. P3 will capture the fitted model natively.
+        **dag-ml runs (P3 — NATIVE single-model ``.n4a``):** when the run captured EXACTLY ONE concrete
+        model artifact in its native results dir (``run(engine="dag-ml", results_path=...)`` or
+        ``$N4A_NATIVE_RESULTS``), this builds the ``.n4a`` DIRECTLY from that captured REFIT model
+        (rehydrated via the verify-then-load native reader) — NO legacy refit and NO stochastic warning. A
+        :class:`BundleLoader` reload-predict of the bundle reproduces the dag-ml run's scored REFIT model
+        EXACTLY.
+
+        **dag-ml runs (P1c bridge — fallback):** without a native dir, for a multi-model / branch / stacking
+        run (≠1 captured artifact), or for the ``n4a.py`` portable-script format, the bundle is produced by a
+        legacy re-fit of the pipeline. For an EXACT bridge export, set ``run(random_state=...)`` AND seed
+        every stochastic component's ``random_state``; otherwise (``sample_augmentation``, an unseeded run,
+        or any unseeded-stochastic component such as ``RandomForest`` / ``MLP`` / ``CARS``) the bridge-exported
+        model may differ from the dag-ml-scored model. ``source`` / ``chain_id`` are not supported for a
+        dag-ml run (they reference its non-existent workspace); the run's best model is exported.
 
         Args:
             output_path: Path for the exported bundle file.
@@ -1132,6 +1139,14 @@ class RunResult:
                     "the dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export(path) (no source/chain_id)."
                 )
+            # NATIVE export (P3): when this dag-ml run captured EXACTLY ONE concrete model artifact in its
+            # native results dir AND the request is the default ``n4a`` ZIP bundle, build the ``.n4a``
+            # DIRECTLY from that captured (verify-then-load) REFIT model — no legacy refit, no stochastic
+            # warning. A ``None`` return means not applicable (no native dir / ``n4a.py`` format / ≠1 artifact
+            # / unreadable native dir) → fall through to the P1c legacy-refit bridge below.
+            native = self._dagml_native_export_bundle(output_path, format)
+            if native is not None:
+                return native
             delegate = self._dagml_export_delegate()
             assert delegate is not None  # spec present ⇒ delegate materializes
             return delegate.export(output_path, format=format)
@@ -1232,6 +1247,84 @@ class RunResult:
 
         joblib.dump(model, output_path, compress=3)
         return output_path
+
+    def _dagml_native_export_bundle(self, output_path: str | Path, format: str) -> Path | None:
+        """Export a NATIVE ``.n4a`` bundle from the captured refit model when EXACTLY ONE artifact exists (P3).
+
+        The ``.n4a`` bundle counterpart of :meth:`_dagml_native_export_model`: when this dag-ml run has a
+        native results dir (P3 2b-i) holding EXACTLY ONE model artifact AND the request is the default
+        ``n4a`` ZIP bundle, rehydrate the artifact via
+        :func:`~nirs4all.pipeline.dagml.native_results.read_native_results` (verify-then-load — backend +
+        content-fingerprint checked before any ``joblib.load``), wrap it in the same predict-capable
+        :class:`_DagmlExportedModel` the native ``export_model`` uses, and package it into a single-model
+        ``.n4a`` via :func:`~nirs4all.pipeline.bundle.write_single_model_bundle`. NO legacy refit, NO
+        stochastic warning: a :class:`BundleLoader` reload-predict of the bundle reproduces the dag-ml run's
+        scored REFIT model EXACTLY (it IS that model). This retires the P1c legacy-refit ``.n4a`` bridge for
+        the single-model case; the bridge stays the fallback otherwise.
+
+        Returns the written path, or ``None`` to signal the caller to FALL BACK to the legacy bridge when the
+        native bundle is not applicable:
+
+        * no native dir;
+        * a non-``n4a`` format (the ``n4a.py`` PORTABLE SCRIPT embeds artifacts through the legacy
+          generator's template path and is out of this native single-model slice — it defers to the bridge,
+          mirroring the ``export_model`` joblib-only gate; never a silent format substitution);
+        * ≠1 model artifact (multi-model / branch / stacking defer to the bridge, per the ``export_model``
+          Codex D4 contract);
+        * ANY native-read/rehydrate failure — a tampered/edited manifest (verify-then-load ``ValueError``), a
+          missing/malformed native dir (``FileNotFoundError`` / ``KeyError`` / parquet error), OR a
+          fingerprint-valid but UNLOADABLE artifact (``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError``
+          / ``ImportError`` / ``AttributeError`` from ``joblib.load``). The fallback contract is "ANY
+          native-read failure → legacy bridge", so the broad ``except Exception`` is intentional HERE (the
+          bridge is the guaranteed export); it is scoped to ONLY the read+rehydrate, so a genuine bug in the
+          bundle write below is never swallowed.
+        """
+        if self._dagml_results_dir is None:
+            return None
+        # FORMAT GATE: the native writer produces the ``.n4a`` ZIP bundle only. A ``n4a.py`` portable-script
+        # request must go through the legacy bridge (which owns the portable-script template), never a silent
+        # ZIP-under-``.n4a.py`` substitution. ``BundleFormat`` is a ``StrEnum`` so ``== "n4a"`` matches both
+        # the bare string and the enum member.
+        if format != "n4a":
+            return None
+        from nirs4all.pipeline.dagml.native_results import read_native_results
+
+        try:
+            native = read_native_results(self._dagml_results_dir)
+            artifacts = native["artifacts"]
+        except Exception as exc:  # noqa: BLE001 -- fallback contract: ANY native-read failure → legacy bridge
+            logger.debug("native dag-ml .n4a export fell back to the legacy bridge: %s", exc)
+            return None
+        # EXACTLY ONE concrete artifact only: a multi-model / branch / stacking run captures several REFIT
+        # artifacts and is NOT cleanly a single-model bundle → defer to the legacy bridge (same D4 boundary
+        # the native ``export_model`` enforces).
+        if len(artifacts) != 1:
+            return None
+
+        artifact = artifacts[0]
+        model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+        native_manifest = native["manifest"]
+        model_names = native_manifest.get("model_names") or []
+        model_label = str(model_names[0]) if model_names else type(artifact["estimator"]).__name__
+        # Additive provenance so the produced bundle is auditable as a native (not bridge/legacy) export and
+        # carries the dag-ml run identity. Unknown manifest keys are ignored by ``BundleMetadata.from_dict``.
+        provenance = {
+            "source_type": "dagml_native",
+            "export_path": "dagml_native",
+            "dagml_run_id": native_manifest.get("run_id"),
+            "dagml_plan_id": native_manifest.get("plan_id"),
+            "dagml_bundle_id": native_manifest.get("bundle_id"),
+            "dagml_selected_variant": native_manifest.get("selected_variant"),
+        }
+        from nirs4all.pipeline.bundle import write_single_model_bundle
+
+        return write_single_model_bundle(
+            model,
+            output_path,
+            model_label=model_label,
+            pipeline_uid=str(native_manifest.get("run_id") or ""),
+            provenance=provenance,
+        )
 
     def export_model(
         self,
