@@ -788,11 +788,6 @@ def _detect_by_source_concat_shared_preproc(pipeline: list[Any], n_sources: int)
     The existing :func:`_detect_by_source_branch` owns by_source MODEL fusion
     (``merge: mean``/``average``). This detector owns feature-axis concat reassembly and returns
     ``(preproc_body, downstream_body)`` for the dedicated runner.
-
-    The per-source DICT body remains intentionally excluded. Exact native lowering needs an
-    explicit source-layout contract (at minimum ``source_layout.source_order`` and the per-source
-    preprocessing output layout) so legacy keys such as ``source_0`` can be mapped to the native
-    ``src0``/block order without guessing.
     """
     branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
     merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
@@ -819,6 +814,53 @@ def _detect_by_source_concat_shared_preproc(pipeline: list[Any], n_sources: int)
     if not body:
         return None
     return body, [model_step]
+
+
+def _detect_by_source_distinct_preproc_concat(pipeline: list[Any], n_sources: int) -> tuple[dict[str, list[Any]], list[Any]] | None:
+    """Detect per-source by_source preprocessing + concat features + one downstream model.
+
+    Admits ONLY the target feature-concat shape:
+
+    * a multi-source dataset (``n_sources >= 2``);
+    * one by_source branch whose ``steps`` body is a DICT of per-source preprocessing lists;
+    * no model/y_processing inside any per-source body;
+    * one ``{"merge": "concat"}`` followed immediately by one downstream model step;
+    * no other top-level step except the splitter.
+
+    Source-key validation is intentionally left to the runner, which consumes the explicit
+    envelope ``source_layout.source_order`` contract and rejects any dict that does not match
+    those legacy keys exactly.
+    """
+    branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
+    merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1 or n_sources < 2:
+        return None
+    branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
+
+    ordered_special = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
+    if ordered_special != [branch_step, merge_step, model_step]:
+        return None
+    for step in pipeline:
+        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+            continue
+        return None
+
+    criterion = branch_step["branch"]
+    if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
+        return None
+    body = criterion.get("steps")
+    if not isinstance(body, dict) or len(body) != n_sources or not all(isinstance(key, str) for key in body):
+        return None
+
+    normalized: dict[str, list[Any]] = {}
+    for key, value in body.items():
+        if not isinstance(value, list):
+            return None
+        if any(isinstance(substep, dict) and ("model" in substep or "y_processing" in substep) for substep in value):
+            return None
+        normalized[key] = value
+    return normalized, [model_step]
 
 
 _DUPLICATION_BRANCH_CONFIG_KEYS = frozenset({"parallel", "n_jobs"})

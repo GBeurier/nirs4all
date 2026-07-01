@@ -3754,8 +3754,10 @@ def test_by_source_branch_detection() -> None:
     return None. The aggregate is RETURNED (not dropped) so the runner rejects proba_mean fail-loud (the
     H-P0-1 fix); a proba_mean merge is DETECTED here (it is a valid fusion shape) but rejected at run.
     No CLI (pure host-side)."""
+    from nirs4all.operators.transforms import FirstDerivative
+    from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
-    from nirs4all.pipeline.dagml.run_backend import _detect_by_source_branch
+    from nirs4all.pipeline.dagml.run_backend import _detect_by_source_branch, _detect_by_source_distinct_preproc_concat
 
     splitter = KFold(n_splits=3, shuffle=True, random_state=42)
 
@@ -3791,6 +3793,30 @@ def test_by_source_branch_detection() -> None:
     # a top-level transform / a by_metadata branch (handled by the separation detector, not here).
     assert _detect_by_source_branch([StandardNormalVariate(), splitter, branch, {"merge": "mean"}], n_sources=3) is None
     assert _detect_by_source_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}, {"merge": "mean"}], n_sources=3) is None
+
+    distinct_concat = [
+        splitter,
+        {
+            "branch": {
+                "by_source": True,
+                "steps": {
+                    "source_0": [StandardNormalVariate()],
+                    "source_1": [MSC()],
+                    "source_2": [FirstDerivative()],
+                },
+            }
+        },
+        {"merge": "concat"},
+        {"model": PLSRegression(n_components=2)},
+    ]
+    distinct_detected = _detect_by_source_distinct_preproc_concat(distinct_concat, n_sources=3)
+    assert distinct_detected is not None
+    source_steps, downstream = distinct_detected
+    assert set(source_steps) == {"source_0", "source_1", "source_2"}
+    assert downstream == [{"model": distinct_concat[-1]["model"]}]
+    assert _detect_by_source_branch(distinct_concat, n_sources=3) is None
+    assert _detect_by_source_distinct_preproc_concat([splitter, {"branch": {"by_source": True, "steps": [StandardNormalVariate()]}}, {"merge": "concat"}, {"model": PLSRegression()}], n_sources=3) is None
+    assert _detect_by_source_distinct_preproc_concat([splitter, {"branch": {"by_source": True, "steps": {"source_0": [StandardNormalVariate()]}}}, {"merge": "concat"}, {"model": PLSRegression()}], n_sources=3) is None
 
 
 def test_canonical_source_branch_binds_each_model_to_its_source() -> None:

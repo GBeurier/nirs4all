@@ -319,21 +319,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     "branch_dup_three_way_merge_predictions",
     "branch_dup_named_with_metamodel",
     "branch_dup_merge_all",
-    # by-source / per-source-models / source-concat multi-source shapes. ROOT GAP (W12, measured on
-    # sample_data/multi = 3×2151-col NIR sources): the native model-node path materializes multi-source X as
-    # the EARLY-FUSION CONCAT and applies the preprocessing X-chain ON THAT CONCAT, whereas legacy applies
-    # preprocessing PER SOURCE (each source's block normalized independently, then concatenated for the
-    # model). For a float-robust model this is under tol — `[SNV,SS,PLSR]` native 13.28646 (on-concat) vs
-    # legacy 13.28643 (per-source), Δ2.5e-5, which is why `multi_source_baseline_snv_plsr` DOES run native —
-    # but a fixed-seed tree exposes it: `[SNV,SS,RF]` native 21.0846 (on-concat) vs legacy 21.0678
-    # (per-source), Δ1.7e-2 > 1e-3 tol. Each case below is additionally blocked as noted; all three correctly
-    # stay in fallback (engine="dag-ml" re-runs legacy → the exact legacy result) until the missing native
-    # contract lands. See docs/agent_reports/W12_MULTISOURCE_FALLBACK.md for the full measurement trace.
-    #
-    # distinct by_source preproc + concat + one model: the shared-list body now runs native, but `distinct`
-    # still uses a per-source dict body and carries a STATEFUL per-source MSC (fit per fold per source).
-    # Needs a native per-source-dict concat-feature-reassembly contract + legacy branch prediction bookkeeping.
-    "multi_source_by_source_branch_distinct_preproc",
     # per_source_models_stacking: by_source per-source models → {"merge":"predictions"} → Ridge meta. Legacy's
     # stacking refit is itself BROKEN for a by_source branch ("Stacking refit expects duplication branches
     # (list). Skipping" → no `final` rows, 90 CV-only preds), so there is no clean legacy oracle to target,
