@@ -1557,6 +1557,8 @@ def _add_scored_prediction_rows(
     *,
     spectro: Any,
     config_name: str,
+    step_idx: int = 0,
+    op_counter: int = 0,
     model_name: str,
     model_classname: str,
     fold_id: str,
@@ -1581,6 +1583,8 @@ def _add_scored_prediction_rows(
             dataset_path=spectro.name,
             config_name=config_name,
             config_path=f"{spectro.name}/{config_name or 'config'}",
+            step_idx=step_idx,
+            op_counter=op_counter,
             model_name=model_name,
             model_classname=model_classname,
             fold_id=fold_id,
@@ -1836,6 +1840,303 @@ def _run_model_on_precomputed_matrix(
 
     predictions.flush()
     return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+
+
+def _as_prediction_matrix(values: Any) -> np.ndarray:
+    """Model predictions as a 2D feature block."""
+    arr = np.asarray(values, dtype=float)
+    return arr.reshape(arr.shape[0], -1) if arr.ndim > 1 else arr.reshape(-1, 1)
+
+
+def _branch_transform_operator(step: dict[str, Any]) -> Any:
+    """Instantiate the structured branch transform dictionaries this compatibility path supports."""
+    if "concat_transform" not in step:
+        raise DagMlUnsupported(
+            "named MetaModel prediction-feature stack supports branch dict steps only for "
+            f"`concat_transform` or `model`, got {sorted(step)}"
+        )
+    from nirs4all.pipeline.dagml.operator_routing import route_operator
+    from nirs4all.pipeline.dagml_bridge import _lower_concat_transform
+
+    lowered = _lower_concat_transform(step)
+    return route_operator("transform", lowered["class"], lowered.get("params") or {})
+
+
+def _fit_named_branch_feature_matrix(branch: list[Any], spectro: Any, train_pool: list[int], test_pool: list[int]) -> tuple[dict[str, Any], np.ndarray, np.ndarray]:
+    """Fit legacy named-branch preprocessing on the full train pool, then expose branch features.
+
+    Legacy applies branch preprocessing before the branch-local model's CV, so the preprocessing scope is
+    the full training pool, not each fold's train side. This projection intentionally mirrors that row
+    surface for the named MetaModel compatibility case.
+    """
+    current_train = np.asarray(spectro.x_rows(train_pool, layout="2d"))
+    current_test = np.asarray(spectro.x_rows(test_pool, layout="2d")) if test_pool else np.empty((0, current_train.shape[1]))
+    y_train = _dataset_y_rows(spectro, train_pool)
+    model_steps: list[dict[str, Any]] = []
+
+    for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
+        if isinstance(step, dict) and "model" in step:
+            model_steps.append(step)
+            continue
+        if model_steps:
+            raise DagMlUnsupported("named MetaModel prediction-feature stack does not support branch transforms after a branch model")
+        transform = _branch_transform_operator(step) if isinstance(step, dict) else _clone_operator_instance(step)
+        current_train = np.asarray(transform.fit_transform(current_train, y_train))
+        current_test = np.asarray(transform.transform(current_test)) if len(test_pool) else np.empty((0, current_train.shape[1]))
+
+    if len(model_steps) != 1:
+        raise DagMlUnsupported("named MetaModel prediction-feature stack requires exactly one model per branch")
+    return model_steps[0], current_train, current_test
+
+
+def _project_cv_model_rows(
+    predictions: Predictions,
+    *,
+    X_train_all: np.ndarray,
+    X_test: np.ndarray,
+    train_pool: list[int],
+    test_pool: list[int],
+    folds: list[tuple[list[int], list[int]]],
+    model_template: Any,
+    model_name: str,
+    model_classname: str,
+    step_idx: int,
+    branch_id: int | None,
+    branch_name: str,
+    spectro: Any,
+    metric: str,
+    task_type: str,
+    config_name: str,
+) -> dict[str, Any]:
+    """Emit legacy CV/avg/w_avg rows and return OOF/test features for downstream stacking."""
+    train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
+    y_train_all = _dataset_y_rows(spectro, train_pool)
+    y_test = _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1))
+    fold_models: list[Any] = []
+    fold_val_samples: list[list[int]] = []
+    fold_val_scores: list[float] = []
+    oof_predictions: np.ndarray | None = None
+    test_predictions: list[np.ndarray] = []
+    n_features = int(X_train_all.shape[1]) if X_train_all.ndim > 1 else 1
+
+    for fold_index, (fold_train, fold_val) in enumerate(folds):
+        train_rows = [train_position[int(sample_int)] for sample_int in fold_train]
+        val_rows = [train_position[int(sample_int)] for sample_int in fold_val]
+        model = _clone_operator_instance(model_template)
+        model.fit(X_train_all[train_rows], _dataset_y_rows(spectro, fold_train))
+        fold_models.append(model)
+        fold_val_samples.append([int(sample_int) for sample_int in fold_val])
+
+        pred_by_partition = {
+            "train": np.asarray(model.predict(X_train_all[train_rows])),
+            "val": np.asarray(model.predict(X_train_all[val_rows])),
+            "test": np.asarray(model.predict(X_test)) if len(test_pool) else np.array([]),
+        }
+        y_by_partition = {
+            "train": _dataset_y_rows(spectro, fold_train),
+            "val": _dataset_y_rows(spectro, fold_val),
+            "test": y_test,
+        }
+        scores = {partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type) for partition in pred_by_partition if len(y_by_partition[partition]) and len(pred_by_partition[partition])}
+        fold_val_scores.append(float(scores["val"][metric]))
+        val_matrix = _as_prediction_matrix(pred_by_partition["val"])
+        if oof_predictions is None:
+            oof_predictions = np.full((len(train_pool), val_matrix.shape[1]), np.nan, dtype=float)
+        oof_predictions[val_rows, :] = val_matrix
+        if len(test_pool):
+            test_predictions.append(_as_prediction_matrix(pred_by_partition["test"]))
+
+        _add_scored_prediction_rows(
+            predictions,
+            spectro=spectro,
+            config_name=config_name,
+            step_idx=step_idx,
+            model_name=model_name,
+            model_classname=model_classname,
+            fold_id=str(fold_index),
+            scores=scores,
+            y_by_partition=y_by_partition,
+            pred_by_partition=pred_by_partition,
+            samples_by_partition={"train": [int(sample_int) for sample_int in fold_train], "val": [int(sample_int) for sample_int in fold_val], "test": test_pool},
+            metric=metric,
+            task_type=task_type,
+            n_features=n_features,
+            branch_id=branch_id,
+            branch_name=branch_name,
+        )
+
+    if oof_predictions is None:
+        raise DagMlUnsupported("named MetaModel prediction-feature stack produced no OOF predictions")
+
+    weights = EnsembleUtils._scores_to_weights(np.asarray(fold_val_scores, dtype=float), higher_is_better=is_higher_better(metric))
+    all_train_preds = [_as_prediction_matrix(model.predict(X_train_all)) for model in fold_models]
+    all_test_preds = [_as_prediction_matrix(model.predict(X_test)) for model in fold_models] if len(test_pool) else []
+    val_samples = [sample_int for fold_val in fold_val_samples for sample_int in fold_val]
+    val_rows_in_fold_order = [train_position[int(sample_int)] for sample_int in val_samples]
+    val_pred_oof = oof_predictions[val_rows_in_fold_order]
+    y_val_oof = np.vstack([_dataset_y_rows(spectro, fold_val) for fold_val in fold_val_samples])
+
+    avg_pred_by_partition = {
+        "train": np.mean(all_train_preds, axis=0),
+        "val": val_pred_oof,
+        "test": np.mean(all_test_preds, axis=0) if all_test_preds else np.array([]),
+    }
+    w_avg_pred_by_partition = {
+        "train": np.sum([weight * pred for weight, pred in zip(weights, all_train_preds, strict=False)], axis=0),
+        "val": val_pred_oof,
+        "test": np.sum([weight * pred for weight, pred in zip(weights, all_test_preds, strict=False)], axis=0) if all_test_preds else np.array([]),
+    }
+    y_by_partition = {"train": y_train_all, "val": y_val_oof, "test": y_test}
+    samples_by_partition = {"train": train_pool, "val": val_samples, "test": test_pool}
+    for fold_id, pred_by_partition, row_weights in (("avg", avg_pred_by_partition, None), ("w_avg", w_avg_pred_by_partition, weights)):
+        scores = {
+            partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type)
+            for partition in pred_by_partition
+            if len(y_by_partition[partition]) and len(pred_by_partition[partition])
+        }
+        _add_scored_prediction_rows(
+            predictions,
+            spectro=spectro,
+            config_name=config_name,
+            step_idx=step_idx,
+            model_name=model_name,
+            model_classname=model_classname,
+            fold_id=fold_id,
+            scores=scores,
+            y_by_partition=y_by_partition,
+            pred_by_partition=pred_by_partition,
+            samples_by_partition=samples_by_partition,
+            metric=metric,
+            task_type=task_type,
+            n_features=n_features,
+            branch_id=branch_id,
+            branch_name=branch_name,
+            weights=row_weights,
+        )
+
+    test_mean = np.mean(all_test_preds, axis=0) if all_test_preds else np.empty((0, oof_predictions.shape[1]))
+    return {
+        "model_name": model_name,
+        "branch_id": branch_id,
+        "branch_name": branch_name,
+        "selection_score": fold_val_scores[0] if fold_val_scores else float("nan"),
+        "oof": oof_predictions,
+        "test": test_mean,
+    }
+
+
+def _run_named_metamodel_feature_stack(
+    pipeline: list[Any],
+    branch_names: list[str],
+    branches: list[list[Any]],
+    meta_step: dict[str, Any],
+    prediction_configs: list[dict[str, Any]],
+    downstream_step: dict[str, Any],
+    spectro: Any,
+    metric: str,
+    task_type: str,
+    config_name: str = "",
+) -> RunResult:
+    """Project the legacy CV-only named-branch MetaModel → prediction-feature stack surface.
+
+    This path is intentionally a host-side compatibility projection: legacy fits named branch
+    preprocessing on the full train pool, trains branch-local models by CV, trains a branch-local
+    ``MetaModel`` from each branch model's OOF predictions, selects the best model per requested branch
+    by validation RMSE, and finally trains a downstream estimator on those selected OOF features. The
+    legacy refit pass skips named-dict stacking, so the result contains no ``fold_id="final"`` rows.
+    """
+    if task_type != "regression":
+        raise DagMlUnsupported("named MetaModel prediction-feature stack currently supports regression only")
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    if splitter is None:
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+
+    train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
+    test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
+    folds = _build_folds(splitter, spectro, train_pool, set())
+    branch_step_idx = next(index for index, step in enumerate(pipeline) if isinstance(step, dict) and "branch" in step) + 1
+    meta_step_idx = pipeline.index(meta_step) + 1
+    downstream_step_idx = pipeline.index(downstream_step) + 1
+    predictions = Predictions()
+    results_by_branch: dict[int, list[dict[str, Any]]] = {}
+
+    for branch_index, (branch_name, branch) in enumerate(zip(branch_names, branches, strict=True)):
+        model_step, X_branch_train, X_branch_test = _fit_named_branch_feature_matrix(branch, spectro, train_pool, test_pool)
+        base_model_name = _model_name([model_step])
+        base_result = _project_cv_model_rows(
+            predictions,
+            X_train_all=X_branch_train,
+            X_test=X_branch_test,
+            train_pool=train_pool,
+            test_pool=test_pool,
+            folds=folds,
+            model_template=model_step["model"],
+            model_name=base_model_name,
+            model_classname=type(model_step["model"]).__name__,
+            step_idx=branch_step_idx,
+            branch_id=branch_index,
+            branch_name=branch_name,
+            spectro=spectro,
+            metric=metric,
+            task_type=task_type,
+            config_name=config_name,
+        )
+
+        meta_operator = meta_step["model"]
+        meta_model_name = str(meta_step.get("name") or getattr(meta_operator, "name", None) or "MetaModel")
+        meta_result = _project_cv_model_rows(
+            predictions,
+            X_train_all=base_result["oof"],
+            X_test=base_result["test"],
+            train_pool=train_pool,
+            test_pool=test_pool,
+            folds=folds,
+            model_template=meta_operator.model,
+            model_name=meta_model_name,
+            model_classname=type(meta_operator).__name__,
+            step_idx=meta_step_idx,
+            branch_id=branch_index,
+            branch_name=branch_name,
+            spectro=spectro,
+            metric=metric,
+            task_type=task_type,
+            config_name=config_name,
+        )
+        results_by_branch[branch_index] = [base_result, meta_result]
+
+    selected_results: list[dict[str, Any]] = []
+    for prediction_config in prediction_configs:
+        branch_index = int(prediction_config["branch"])
+        candidates = sorted(results_by_branch[branch_index], key=lambda result: str(result["model_name"]))
+        reverse = is_higher_better(str(prediction_config.get("metric", metric)))
+        selected_results.append(sorted(candidates, key=lambda result: float(result["selection_score"]), reverse=reverse)[0])
+
+    X_downstream_train = np.concatenate([result["oof"] for result in selected_results], axis=1)
+    X_downstream_test = np.concatenate([result["test"] for result in selected_results], axis=1) if test_pool else np.empty((0, X_downstream_train.shape[1]))
+    _project_cv_model_rows(
+        predictions,
+        X_train_all=X_downstream_train,
+        X_test=X_downstream_test,
+        train_pool=train_pool,
+        test_pool=test_pool,
+        folds=folds,
+        model_template=downstream_step["model"],
+        model_name=_model_name([downstream_step]),
+        model_classname=type(downstream_step["model"]).__name__,
+        step_idx=downstream_step_idx,
+        branch_id=None,
+        branch_name="",
+        spectro=spectro,
+        metric=metric,
+        task_type=task_type,
+        config_name=config_name,
+    )
+
+    predictions.flush()
+    run_result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+    run_result._dagml_score_set = None  # noqa: SLF001 - this path mirrors legacy rows without a Rust ScoreSet.
+    run_result._dagml_refit_artifacts = []  # noqa: SLF001
+    return run_result
 
 
 def _run_duplication_merge_all_downstream_result(

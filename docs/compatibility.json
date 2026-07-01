@@ -225,13 +225,7 @@
       "skip_kind": "unknown_semantics"
     }
   ],
-  "expected_fallback": [
-    {
-      "case": "branch_dup_named_with_metamodel",
-      "shape": "branch+merge",
-      "owner_lane": "L5"
-    }
-  ],
+  "expected_fallback": [],
   "num_predictions_divergence": [
     {
       "case": "generator_or_models_pls_ridge",
@@ -352,8 +346,8 @@
     "registered": 95,
     "non_runnable": 8,
     "runnable": 87,
-    "fallback": 1,
-    "native": 86,
+    "fallback": 0,
+    "native": 87,
     "xfail_strict": 11,
     "skip": 6,
     "num_predictions_divergence": 2,

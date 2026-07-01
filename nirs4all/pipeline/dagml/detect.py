@@ -1231,6 +1231,140 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
     return None
 
 
+def _branch_local_meta_model_step(model_step: dict[str, Any]) -> dict[str, Any] | None:
+    """Return a handled branch-local ``MetaModel`` step for named prediction-feature stacking.
+
+    This is deliberately separate from :func:`_meta_learner`: the target shape runs ``MetaModel``
+    inside each named duplication branch context, then feeds a later structured prediction merge. Its
+    non-default ``coverage_strategy`` / ``min_coverage_ratio`` are harmless when every branch model has
+    complete OOF coverage, but all options that would change source selection, probabilities, test
+    aggregation, branch scope, or generated meta-learner params still reject the shape.
+    """
+    import dataclasses
+
+    from nirs4all.operators.models.meta import BranchScope, MetaModel, StackingConfig, StackingLevel, TestAggregation
+    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
+
+    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
+        return None
+
+    model = model_step.get("model")
+    if not isinstance(model, MetaModel):
+        return None
+    config = model.stacking_config
+    default_config = StackingConfig()
+    normalized = dataclasses.replace(
+        config,
+        coverage_strategy=default_config.coverage_strategy,
+        min_coverage_ratio=default_config.min_coverage_ratio,
+        level=default_config.level,
+    )
+    if (
+        model.source_models != "all"
+        or model.use_proba
+        or model.selector is not None
+        or model.finetune_space is not None
+        or normalized != default_config
+        or config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_1)
+        or config.branch_scope != BranchScope.CURRENT_ONLY
+        or config.test_aggregation != TestAggregation.MEAN
+        or config.allow_no_cv
+        or config.relation_profile
+        or model.model is None
+        or not (hasattr(model.model, "fit") and hasattr(model.model, "predict"))
+    ):
+        return None
+    return model_step
+
+
+def _structured_prediction_feature_merge(step: Any) -> list[dict[str, Any]] | None:
+    """Return the handled per-branch best-prediction merge config, else ``None``."""
+    if not isinstance(step, dict) or "merge" not in step:
+        return None
+    spec = step["merge"]
+    if not isinstance(spec, dict) or set(spec) != {"predictions", "output_as"} or spec.get("output_as") != "features":
+        return None
+    prediction_specs = spec.get("predictions")
+    if not isinstance(prediction_specs, list) or not prediction_specs:
+        return None
+    out: list[dict[str, Any]] = []
+    for item in prediction_specs:
+        if not isinstance(item, dict):
+            return None
+        if set(item) != {"branch", "select", "metric"}:
+            return None
+        branch = item.get("branch")
+        if not isinstance(branch, int) or isinstance(branch, bool):
+            return None
+        if item.get("select") != "best" or item.get("metric") != "rmse":
+            return None
+        out.append(dict(item))
+    return out
+
+
+def _named_duplication_branch_parts(step: dict[str, Any]) -> tuple[list[str], list[list[Any]]] | None:
+    """Ordered branch names + bodies for legacy named-dict duplication syntax."""
+    branch = step.get("branch")
+    if not isinstance(branch, dict) or any(key in branch for key in ("by_source", "by_tag", "by_metadata", "by_filter")):
+        return None
+    names: list[str] = []
+    bodies: list[list[Any]] = []
+    for name, body in branch.items():
+        if not isinstance(name, str) or name.startswith("_") or name in _DUPLICATION_BRANCH_CONFIG_KEYS:
+            continue
+        names.append(name)
+        bodies.append(body if isinstance(body, list) else [body])
+    if len(bodies) < 2:
+        return None
+    return names, bodies
+
+
+def _detect_named_metamodel_feature_stack(pipeline: list[Any]) -> tuple[list[str], list[list[Any]], dict[str, Any], list[dict[str, Any]], dict[str, Any]] | None:
+    """Detect named branch-local ``MetaModel`` + structured prediction merge → downstream model.
+
+    The handled shape is intentionally narrow and mirrors the legacy W73 contract:
+
+    ``splitter + named duplication branch + {"model": MetaModel(...)} +``
+    ``{"merge": {"predictions": [{"branch": i, "select": "best", "metric": "rmse"}, ...], "output_as": "features"}} +``
+    ``{"model": Ridge-like estimator}``
+
+    Legacy emits CV-only rows for branch-local base models, branch-local ``MetaModel`` rows, and the
+    downstream estimator; its refit skips named-dict stacking, so there must be no native final rows.
+    Anything outside that contract returns ``None`` and stays on the explicit fallback boundary.
+    """
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    merge_steps = [(step, config) for step in pipeline if (config := _structured_prediction_feature_merge(step)) is not None]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 2:
+        return None
+
+    branch_step = branch_steps[0]
+    merge_step, prediction_configs = merge_steps[0]
+    named_parts = _named_duplication_branch_parts(branch_step)
+    if named_parts is None:
+        return None
+    branch_names, branches = named_parts
+
+    meta_step = _branch_local_meta_model_step(model_steps[0])
+    downstream_step = model_steps[1]
+    if meta_step is None or not _model_step_is_plain_estimator(downstream_step):
+        return None
+
+    order = [step for step in pipeline if step is branch_step or step is meta_step or step is merge_step or step is downstream_step]
+    if order != [branch_step, meta_step, merge_step, downstream_step]:
+        return None
+    for step in pipeline:
+        if step is branch_step or step is meta_step or step is merge_step or step is downstream_step or hasattr(step, "split"):
+            continue
+        return None
+
+    if not all(0 <= config["branch"] < len(branches) for config in prediction_configs):
+        return None
+    if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
+        return None
+    return branch_names, branches, meta_step, prediction_configs, downstream_step
+
+
 def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] | None:
     """Detect the EXACT duplication-branch + ``{"merge": "predictions"}`` + meta-model shape, else ``None``.
 

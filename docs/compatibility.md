@@ -172,7 +172,7 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (1)
+### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (0)
 
 Shapes the dag-ml host bridge does **not serialize yet**, so `engine="dag-ml"`
 transparently re-runs legacy. These make **no parity claim** — they are pinned by
@@ -187,7 +187,7 @@ Source: `test_conformance_dual_engine.py:310-326`.
 
 | Shape group | Cases |
 |---|---|
-| branch (duplication) + merge → multi-model | `branch_dup_named_with_metamodel` |
+| — | — |
 
 `preprocessing_fit_on_all` and `preprocessing_force_layout_2d` now run native for the registered SNV cases: `fit_on_all=True` is equivalent for stateless transforms, and `force_layout='2d'` on a preprocessing step is not consumed by the legacy preprocessing controller.
 
@@ -196,6 +196,8 @@ Source: `test_conformance_dual_engine.py:310-326`.
 `branch_dup_two_way_merge_features` now runs native by lowering the duplication branch to a fold-local feature-merge transformer before the downstream model.
 
 Default stacking now runs native. List-branch stacking keeps the explicit full-coverage OOF/refit contract; named-dict default stacking (`branch_dup_three_way_merge_predictions`) uses dag-ml's explicit CV-only stacking policy and projects legacy's no-refit row surface.
+
+`branch_dup_named_with_metamodel` now runs native with the legacy-compatible CV-only row surface: branch preprocessing is fit on the full train pool, branch-local base and `Ridge_MetaModel` rows are projected per branch, the structured best-by-RMSE prediction merge becomes OOF feature columns, and the downstream Ridge emits no `final` rows, matching legacy.
 
 `branch_dup_merge_all` now runs native with combined branch feature blocks plus branch prediction columns for the downstream model, and legacy-compatible branch/downstream row projection.
 
@@ -272,8 +274,8 @@ gate.
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
 | Non-runnable (`skip_reason` set) | **8** | 2 `legacy_bug` (xfail) + 3 `fixture` (skip) + 3 `unknown_semantics` (skip) |
 | Runnable | **87** | 95 − 8 |
-| → fall back to legacy (`EXPECTED_FALLBACK`) | **1** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **86** | full parity asserted |
+| → fall back to legacy (`EXPECTED_FALLBACK`) | **0** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
+| → run native on dag-ml | **87** | full parity asserted |
 | Strict-xfail (documented divergence) | **11** | 9 `KNOWN_DIVERGENCES` + 2 `legacy_bug` — matches ADR-17's "11 xfailed" |
 | `pytest.skip` (fixture + unknown-semantics) | **6** | 3 + 3 |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
@@ -282,7 +284,7 @@ gate.
 > / `runnable = 85`; that grep matched two *comment* lines
 > (`cases_generators_conformance.py:86,1040`). The verified case count is
 > **3** `unknown_semantics` → **6** total skips → **87** runnable. The
-> strict-xfail (11), `EXPECTED_FALLBACK` (1), and
+> strict-xfail (11), `EXPECTED_FALLBACK` (0), and
 > `NUM_PREDICTIONS_DIVERGENCE` (2) figures are unaffected.
 
 ---
