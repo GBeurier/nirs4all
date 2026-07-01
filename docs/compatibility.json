@@ -265,16 +265,6 @@
       "case": "multi_source_sources_concat_then_rf",
       "shape": "multi_source",
       "owner_lane": "L5"
-    },
-    {
-      "case": "preprocessing_fit_on_all",
-      "shape": "preprocessing_keyword",
-      "owner_lane": "L5"
-    },
-    {
-      "case": "preprocessing_force_layout_2d",
-      "shape": "preprocessing_keyword",
-      "owner_lane": "L5"
     }
   ],
   "num_predictions_divergence": [
@@ -397,8 +387,8 @@
     "registered": 95,
     "non_runnable": 8,
     "runnable": 87,
-    "fallback": 10,
-    "native": 77,
+    "fallback": 8,
+    "native": 79,
     "xfail_strict": 11,
     "skip": 6,
     "num_predictions_divergence": 2,
