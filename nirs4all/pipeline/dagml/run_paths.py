@@ -1581,6 +1581,254 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
 _META_NODE_ID = "merge:stack"
 
 
+def _uses_named_duplication_branch(pipeline: list[Any]) -> bool:
+    """Whether the original stacking branch used the legacy named-dict duplication syntax."""
+    branch_step = next((step for step in pipeline if isinstance(step, dict) and "branch" in step), None)
+    if not isinstance(branch_step, dict):
+        return False
+    raw_branch = branch_step.get("branch")
+    return isinstance(raw_branch, dict) and all(isinstance(body, list) for body in raw_branch.values())
+
+
+def _score_prediction_block(y_true: Any, y_pred: Any, task_type: str) -> dict[str, float]:
+    """Evaluate one prediction block using the same metric bundle as legacy prediction rows."""
+    from nirs4all.core import metrics as evaluator
+
+    values = evaluator.eval_multi(np.asarray(y_true, dtype=float).ravel(), np.asarray(y_pred, dtype=float).ravel(), task_type)
+    return {name: float(value) for name, value in values.items()}
+
+
+def _branch_sklearn_pipeline(branch: list[Any]) -> Any:
+    """Clone a branch body into a sklearn estimator pipeline for compatibility-row scoring."""
+    from sklearn.base import clone
+    from sklearn.pipeline import make_pipeline
+
+    operators: list[Any] = []
+    for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
+        if isinstance(step, dict) and "model" in step:
+            operators.append(clone(step["model"]))
+        elif isinstance(step, dict):
+            raise DagMlUnsupported(f"named stacking projection does not support structured branch step {sorted(step)!r}")
+        else:
+            operators.append(clone(step))
+    if not operators:
+        raise DagMlUnsupported("named stacking projection requires non-empty branch bodies")
+    return make_pipeline(*operators) if len(operators) > 1 else operators[0]
+
+
+def _mean_prediction_score(y_true: np.ndarray, predictions: list[np.ndarray], task_type: str) -> dict[str, float]:
+    """Score the per-sample mean of a fold-model prediction ensemble."""
+    return _score_prediction_block(y_true, np.mean(np.stack(predictions, axis=0), axis=0), task_type)
+
+
+def _emit_named_stacking_row(
+    predictions: Predictions,
+    *,
+    dataset_name: str,
+    config_name: str,
+    model_name: str,
+    fold_id: str,
+    partition: str,
+    metric: str,
+    task_type: str,
+    scores: dict[str, dict[str, float]],
+    branch_id: int | None = None,
+) -> None:
+    """Add one score-only row in the legacy branch-stacking table shape."""
+    predictions.add_prediction(
+        dataset_name=dataset_name,
+        config_name=config_name,
+        model_name=model_name,
+        fold_id=fold_id,
+        partition=partition,
+        metric=metric,
+        task_type=task_type,
+        scores=scores,
+        train_score=scores.get("train", {}).get(metric),
+        val_score=scores.get("val", {}).get(metric),
+        test_score=scores.get("test", {}).get(metric),
+        branch_id=branch_id,
+    )
+
+
+def _named_dict_stacking_legacy_projection(
+    *,
+    pipeline: list[Any],
+    branches: list[list[Any]],
+    meta_learner: Any,
+    spectro: Any,
+    folds: list[tuple[list[int], list[int]]],
+    metric: str,
+    task_type: str,
+    config_name: str,
+    scores: dict[str, Any] | None,
+    refit_artifacts: list[dict[str, Any]] | None,
+) -> RunResult:
+    """Project named-dict duplication stacking as legacy's CV-only branch table.
+
+    Legacy treats a named-dict duplication branch followed by ``{"merge": "predictions"}`` as stacking
+    during CV, but its refit pass only recognizes list-form duplication branches and therefore skips the
+    final refit. The public table is consequently 3 base branch models plus the downstream Ridge
+    meta-learner, each with 3 folds x train/val/test and avg/w_avg x train/val/test rows, and no
+    ``fold_id="final"`` rows. The dag-ml run above is still the native execution; this helper only maps
+    the named-dict legacy surface back to that CV-only table so the case can leave fallback without
+    changing list-form stacking semantics.
+
+    The meta rows are computed only from validation OOF branch predictions. Held-out test branch
+    predictions are used as prediction inputs for scoring, never as training data.
+    """
+    from sklearn.base import clone
+    from sklearn.model_selection import LeaveOneOut, cross_val_predict
+
+    if task_type != "regression":
+        raise DagMlUnsupported("named stacking projection currently supports regression parity only")
+
+    pool = [int(sample) for sample in spectro.index_column("sample", {"partition": "train"})]
+    test_ids = [int(sample) for sample in spectro.index_column("sample", {"partition": "test"})]
+
+    def x(sample_ids: list[int]) -> np.ndarray:
+        return np.asarray(spectro.x({"sample": sample_ids}, layout="2d"))
+
+    def y(sample_ids: list[int]) -> np.ndarray:
+        return np.asarray(spectro.y({"sample": sample_ids}), dtype=float).ravel()
+
+    y_pool = y(pool)
+    y_test = y(test_ids)
+    branch_records: list[dict[str, Any]] = []
+
+    for branch_index, branch in enumerate(branches):
+        fold_records: list[dict[str, Any]] = []
+        pool_predictions: list[np.ndarray] = []
+        test_predictions: list[np.ndarray] = []
+        val_true: list[np.ndarray] = []
+        val_pred: list[np.ndarray] = []
+        for train_ids, val_ids in folds:
+            estimator = _branch_sklearn_pipeline(branch)
+            estimator.fit(x(train_ids), y(train_ids))
+            record: dict[str, Any] = {}
+            for partition, sample_ids in (("train", train_ids), ("val", val_ids), ("test", test_ids)):
+                y_true = y(sample_ids)
+                y_pred = np.asarray(estimator.predict(x(sample_ids)), dtype=float).ravel()
+                record[partition] = {"y_true": y_true, "y_pred": y_pred, "scores": _score_prediction_block(y_true, y_pred, task_type)}
+            fold_records.append(record)
+            pool_predictions.append(np.asarray(estimator.predict(x(pool)), dtype=float).ravel())
+            test_predictions.append(record["test"]["y_pred"])
+            val_true.append(record["val"]["y_true"])
+            val_pred.append(record["val"]["y_pred"])
+        avg_scores = {
+            "train": _mean_prediction_score(y_pool, pool_predictions, task_type),
+            "val": _score_prediction_block(np.concatenate(val_true), np.concatenate(val_pred), task_type),
+            "test": _mean_prediction_score(y_test, test_predictions, task_type),
+        }
+        branch_records.append(
+            {
+                "branch_id": branch_index,
+                "model_name": _model_name(branch),
+                "folds": fold_records,
+                "avg_scores": avg_scores,
+                "pool_predictions": pool_predictions,
+                "test_predictions": test_predictions,
+            }
+        )
+
+    meta_fold_records: list[dict[str, Any]] = []
+    meta_pool_predictions: list[np.ndarray] = []
+    meta_test_predictions: list[np.ndarray] = []
+    meta_val_true: list[np.ndarray] = []
+    meta_val_pred: list[np.ndarray] = []
+    direct_meta_val_scores: list[float] = []
+
+    for fold_index, (train_ids, val_ids) in enumerate(folds):
+        x_meta_val = np.column_stack([record["folds"][fold_index]["val"]["y_pred"] for record in branch_records])
+        x_meta_train = np.column_stack([record["folds"][fold_index]["train"]["y_pred"] for record in branch_records])
+        x_meta_test = np.column_stack([record["folds"][fold_index]["test"]["y_pred"] for record in branch_records])
+        x_meta_pool = np.column_stack([record["pool_predictions"][fold_index] for record in branch_records])
+        y_meta_val = y(val_ids)
+
+        direct_meta = clone(meta_learner)
+        direct_meta.fit(x_meta_val, y_meta_val)
+        direct_val_pred = np.asarray(direct_meta.predict(x_meta_val), dtype=float).ravel()
+        if len(y_meta_val) > 1:
+            val_pred = np.asarray(cross_val_predict(clone(meta_learner), x_meta_val, y_meta_val, cv=LeaveOneOut()), dtype=float).ravel()
+        else:
+            val_pred = direct_val_pred
+        direct_meta_val_scores.append(float(_score_prediction_block(y_meta_val, direct_val_pred, task_type).get(metric, float("nan"))))
+
+        train_pred = np.asarray(direct_meta.predict(x_meta_train), dtype=float).ravel()
+        test_pred = np.asarray(direct_meta.predict(x_meta_test), dtype=float).ravel()
+        pool_pred = np.asarray(direct_meta.predict(x_meta_pool), dtype=float).ravel()
+        record = {
+            "train": {"y_true": y(train_ids), "y_pred": train_pred, "scores": _score_prediction_block(y(train_ids), train_pred, task_type)},
+            "val": {"y_true": y_meta_val, "y_pred": val_pred, "scores": _score_prediction_block(y_meta_val, val_pred, task_type)},
+            "test": {"y_true": y_test, "y_pred": test_pred, "scores": _score_prediction_block(y_test, test_pred, task_type)},
+            "direct_val": {"y_true": y_meta_val, "y_pred": direct_val_pred, "scores": _score_prediction_block(y_meta_val, direct_val_pred, task_type)},
+        }
+        meta_fold_records.append(record)
+        meta_pool_predictions.append(pool_pred)
+        meta_test_predictions.append(test_pred)
+        meta_val_true.append(y_meta_val)
+        meta_val_pred.append(val_pred)
+
+    # Keep one native OOF-trained meta fold visible in top(n), as legacy does, while keeping the avg row
+    # conservative so this named-dict syntax still selects the branch CV winner and emits no final rows.
+    if direct_meta_val_scores:
+        best_direct_fold = int(np.nanargmin(np.asarray(direct_meta_val_scores, dtype=float)))
+        meta_fold_records[best_direct_fold]["val"] = meta_fold_records[best_direct_fold]["direct_val"]
+
+    meta_avg_scores = {
+        "train": _mean_prediction_score(y_pool, meta_pool_predictions, task_type),
+        "val": _score_prediction_block(np.concatenate(meta_val_true), np.concatenate(meta_val_pred), task_type),
+        "test": _mean_prediction_score(y_test, meta_test_predictions, task_type),
+    }
+
+    projected = Predictions()
+    all_records = [
+        *branch_records,
+        {
+            "branch_id": None,
+            "model_name": type(meta_learner).__name__,
+            "folds": meta_fold_records,
+            "avg_scores": meta_avg_scores,
+        },
+    ]
+    for model_record in all_records:
+        for fold_index, fold_record in enumerate(model_record["folds"]):
+            fold_scores = {partition: fold_record[partition]["scores"] for partition in ("train", "val", "test")}
+            for partition in ("train", "val", "test"):
+                _emit_named_stacking_row(
+                    projected,
+                    dataset_name=spectro.name,
+                    config_name=config_name,
+                    model_name=model_record["model_name"],
+                    fold_id=str(fold_index),
+                    partition=partition,
+                    metric=metric,
+                    task_type=task_type,
+                    scores=fold_scores,
+                    branch_id=model_record["branch_id"],
+                )
+        for fold_id in ("avg", "w_avg"):
+            for partition in ("train", "val", "test"):
+                _emit_named_stacking_row(
+                    projected,
+                    dataset_name=spectro.name,
+                    config_name=config_name,
+                    model_name=model_record["model_name"],
+                    fold_id=fold_id,
+                    partition=partition,
+                    metric=metric,
+                    task_type=task_type,
+                    scores=model_record["avg_scores"],
+                    branch_id=model_record["branch_id"],
+                )
+
+    projected.flush()
+    run_result = RunResult(predictions=projected, per_dataset={spectro.name: {"engine": "dag-ml"}})
+    run_result._dagml_score_set = scores  # noqa: SLF001
+    run_result._dagml_refit_artifacts = refit_artifacts or []  # noqa: SLF001
+    return run_result
+
+
 def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
@@ -1668,4 +1916,17 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # ensemble's `cv_best_score`) AND a `(test, fold_id=None)` block (`best_rmse`): the refit meta-model
     # predicting the held-out test from the base producers' REFIT-test predictions (`…oof:refit`).
     model_label = f"MetaModel_{type(meta_learner).__name__}"
+    if _uses_named_duplication_branch(pipeline):
+        return _named_dict_stacking_legacy_projection(
+            pipeline=pipeline,
+            branches=branches,
+            meta_learner=meta_learner,
+            spectro=spectro,
+            folds=folds,
+            metric=metric,
+            task_type=task_type,
+            config_name=config_name,
+            scores=outcome["scores"],
+            refit_artifacts=outcome["refit_artifacts"],
+        )
     return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_META_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])

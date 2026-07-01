@@ -312,10 +312,12 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # RAW branch+merge shapes that do not match a supported native detector. The currently native branch
     # paths are narrow: separation by_metadata/by_tag + concat, by_source/shared-model fusion, duplication
-    # list-of-lists + mean/proba_mean fusion, feature-only duplication merge, and default duplication
-    # stacking. These three legacy patterns use named-dict duplication branches plus predictions/all or
-    # richer MetaModel/concat_transform state, so `run_backend._unsupported_fallback_reason` rejects them
-    # before the generic concrete path can drop branch semantics.
+    # list/dict + mean/proba_mean fusion, feature-only duplication merge, and list-branch default stacking.
+    # Named-dict stacking still falls back because legacy skips its refit surface while native stacking
+    # requires full OOF/refit coverage. The remaining legacy patterns use richer MetaModel/concat_transform
+    # state or merge="all", so
+    # `run_backend._unsupported_fallback_reason` rejects them before the generic concrete path can drop
+    # branch semantics.
     "branch_dup_three_way_merge_predictions",
     "branch_dup_named_with_metamodel",
     "branch_dup_merge_all",

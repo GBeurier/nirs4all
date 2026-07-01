@@ -70,6 +70,27 @@ _FEATURE_AUGMENTATION_ACTIONS = frozenset({"extend", "add", "replace"})
 # what this transformer does, so the model node runs it as an ordinary X-chain transform node.
 _FEATURE_CONCAT_CLASS = "nirs4all.operators.transforms.concat.FeatureConcat"
 
+_MODEL_DATA_REQUIREMENTS: dict[str, Any] = {
+    "schema_version": 1,
+    "ports": [
+        {
+            "name": "x",
+            "accepted_representations": ["tabular_numeric", "feature_block_set"],
+            "accepted_types": ["table", "multi_block"],
+            "rank": 2,
+            "multi_source": True,
+            "optional": False,
+        }
+    ],
+    "default_fusion": {
+        "mode": "concatenate_features",
+        "alignment": "sample_id",
+        "adapter_id": None,
+        "params": {"namespace_columns": True},
+    },
+    "metadata": {"source": "nirs4all"},
+}
+
 # Keys on a model step that are NOT a swept hyperparameter (mirrors run_backend._RESERVED_STEP_KEYS,
 # itself StepParser.RESERVED_KEYWORDS). Any other sibling is a model hyperparameter — a plain value
 # goes to ``params``; a natively-lowerable param-level generator dict (``_range_``/``_log_range_``)
@@ -1023,27 +1044,6 @@ def controller_manifests() -> list[dict[str, Any]]:
     not by its class — so a ``y_transform`` selector claiming those class names
     would wrongly re-type a bare X-scaler as a target transform.
     """
-    model_data_requirements = {
-        "schema_version": 1,
-        "ports": [
-            {
-                "name": "x",
-                "accepted_representations": ["tabular_numeric", "feature_block_set"],
-                "accepted_types": ["table", "multi_block"],
-                "rank": 2,
-                "multi_source": True,
-                "optional": False,
-            }
-        ],
-        "default_fusion": {
-            "mode": "concatenate_features",
-            "alignment": "sample_id",
-            "adapter_id": None,
-            "params": {"namespace_columns": True},
-        },
-        "metadata": {"source": "nirs4all"},
-    }
-
     return [
         {
             "controller_id": "controller:nirs4all.transform",
@@ -1086,7 +1086,7 @@ def controller_manifests() -> list[dict[str, Any]]:
                 {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
                 {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
             ],
-            "data_requirements": model_data_requirements,
+            "data_requirements": _MODEL_DATA_REQUIREMENTS,
             # A prediction output port requires emits_predictions; an artifact port requires
             # emits_artifacts (dag-ml ControllerManifest::validate). No consumes_oof_predictions:
             # the vertical slice has no stacking/meta-model that would consume OOF.
