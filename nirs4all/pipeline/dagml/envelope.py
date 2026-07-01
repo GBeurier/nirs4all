@@ -73,6 +73,21 @@ def _import_dag_ml_data() -> Any:
     return dag_ml_data
 
 
+def _build_coordinator_envelope(dag_ml_data: Any, schema: dict[str, Any], plan: dict[str, Any], relations: dict[str, Any]) -> dict[str, Any]:
+    """Build a coordinator envelope through either dag-ml-data Python API generation.
+
+    Newer dag-ml-data wheels expose a typed convenience wrapper whose return value has ``to_dict()``;
+    older/minimal wheels expose only the raw JSON helper. The host contract stays a plain dict either way.
+    """
+    builder = getattr(dag_ml_data, "build_coordinator_data_plan_envelope", None)
+    if builder is not None:
+        envelope = builder(schema, plan, relations)
+        return dict(envelope.to_dict())
+
+    json_builder = dag_ml_data.build_coordinator_data_plan_envelope_json
+    return dict(json.loads(json_builder(json.dumps(schema), json.dumps(plan), json.dumps(relations))))
+
+
 def _num_wavelengths(dataset: SpectroDataset, source_idx: int = 0) -> int:
     """Feature count of one source. Single-source ``num_features`` is an int; multi-source a list."""
     num_features = dataset.num_features
@@ -350,8 +365,11 @@ def build_envelope(
     sources = source_ids(dataset)
     multi_source = len(sources) > 1
     relation_source_id = None if multi_source else source_id
+    # The schema's sample axis is the SAMPLE grain (one entry per distinct sample, which must be unique);
+    # augmented children share their origin's sample_id, so dedup order-preservingly. The observation grain
+    # (one row per stored row) lives in the relations, not the schema.
     schema = _dataset_schema(dataset, sources if multi_source else [source_id], list(dict.fromkeys(sample.sample_id for sample in chosen)))
-    data_plan = _data_plan(dataset, sources if multi_source else [source_id])
+    plan = _data_plan(dataset, sources if multi_source else [source_id])
     relations = sample_relations(
         identity,
         source_id=relation_source_id,
@@ -362,23 +380,7 @@ def build_envelope(
         augmentation_by_sample=augmentation_by_sample,
         group_by_sample=group_by_sample,
     )
-    if hasattr(dag_ml_data, "build_coordinator_data_plan_envelope"):
-        envelope = dag_ml_data.build_coordinator_data_plan_envelope(
-            schema,
-            data_plan,
-            relations,
-        )
-        return dict(envelope.to_dict())
-    envelope_json = dag_ml_data.build_coordinator_data_plan_envelope_json(
-        # The schema's sample axis is the SAMPLE grain (one entry per distinct sample, which
-        # must be unique); augmented children share their origin's sample_id, so dedup
-        # order-preservingly. The observation grain (one row per stored row) lives in the
-        # relations, not the schema.
-        json.dumps(schema),
-        json.dumps(data_plan),
-        json.dumps(relations),
-    )
-    return json.loads(envelope_json)
+    return _build_coordinator_envelope(dag_ml_data, schema, plan, relations)
 
 
 def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]]], *, set_id: str = "nirs4all.folds") -> dict[str, Any]:

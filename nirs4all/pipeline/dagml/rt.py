@@ -93,6 +93,50 @@ class RtError(Exception):
         return payload
 
     @classmethod
+    def invalid_request(
+        cls,
+        exc_or_message: BaseException | str,
+        *,
+        verb: str,
+        mitigation: str | None = None,
+        unsupported_capability: str | None = None,
+        portable_level: str | None = None,
+    ) -> RtError:
+        """Build an ``invalid_request`` envelope for bad runtime inputs, selectors, or workspace refs.
+
+        This is the shared mapping for boundary validation failures (bad dataset/spec, impossible export
+        selector, detached legacy result with no workspace). It intentionally does NOT replace the original
+        exception type at the public API boundary; callers that expose the RT contract can catch the legacy
+        exception and serialize this envelope without parsing ad hoc message strings.
+        """
+        message = str(exc_or_message)
+        return cls(
+            verb,
+            "invalid_request",
+            f"invalid {verb} request: {message}",
+            mitigation=mitigation or "fix the request inputs/selectors and retry.",
+            unsupported_capability=unsupported_capability,
+            portable_level=portable_level,
+        )
+
+    @classmethod
+    def runtime_error(
+        cls,
+        exc_or_message: BaseException | str,
+        *,
+        verb: str,
+        mitigation: str | None = None,
+    ) -> RtError:
+        """Build a ``runtime_error`` envelope for genuine execution failures that must not fall back."""
+        message = str(exc_or_message)
+        return cls(
+            verb,
+            "runtime_error",
+            f"{verb} failed at runtime: {message}",
+            mitigation=mitigation or "inspect the runtime error and fix the failing operator, data, or environment.",
+        )
+
+    @classmethod
     def from_dagml_error(cls, exc: BaseException, *, verb: str = "run") -> RtError:
         """Classify a caught dag-ml backend exception into an ``RtError`` (the RT-003 migration table).
 
