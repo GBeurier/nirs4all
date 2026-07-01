@@ -154,6 +154,33 @@ def test_envelope_builds_and_validates_against_live_contract(regression_dataset)
     dag_ml_data.validate_coordinator_data_plan_envelope_json(json.dumps(envelope))
 
 
+def test_envelope_preserves_relation_metadata_and_tags(regression_dataset) -> None:
+    """Coordinator relations keep branch-view metadata/tags visible after dag-ml-data normalization."""
+    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
+    identity = mint_identity(regression_dataset)
+    sample_ints = [int(sample) for sample in regression_dataset.index_column("sample", {"partition": "train"})[:4]]
+    metadata_by_sample = {"site": {sample: f"site-{index % 2}" for index, sample in enumerate(sample_ints)}}
+    tags_by_sample = {sample_ints[0]: ["calibration", "review"], sample_ints[2]: ["review"]}
+
+    envelope = build_envelope(
+        regression_dataset,
+        identity,
+        sample_ints=sample_ints,
+        metadata_by_sample=metadata_by_sample,
+        tags_by_sample=tags_by_sample,
+    )
+    records = envelope["coordinator_relations"]["records"]
+    by_int = {identity.to_int(record["observation_id"]): record for record in records}
+
+    for sample, site in metadata_by_sample["site"].items():
+        assert by_int[sample]["metadata"] == {"site": site}
+    assert by_int[sample_ints[0]]["tags"] == ["calibration", "review"]
+    assert by_int[sample_ints[2]]["tags"] == ["review"]
+    assert "tags" not in by_int[sample_ints[1]]
+
+    dag_ml_data.validate_coordinator_data_plan_envelope_json(json.dumps(envelope))
+
+
 def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:
     """A KFold partition validates against the CV-universe relations; ShuffleSplit (which
     does not validate every sample exactly once) is refused -- a real OOF-semantics gap."""
@@ -169,10 +196,10 @@ def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:
         return build_fold_set(identity, folds)
 
     # KFold partitions the pool: each sample validated exactly once -> valid.
-    dag_ml_data.validate_fold_set_against_sample_relations(fold_set(KFold(n_splits=3, shuffle=True, random_state=42)), cv_relations)
+    dag_ml_data.validate_fold_set_against_sample_relations_json(json.dumps(fold_set(KFold(n_splits=3, shuffle=True, random_state=42))), json.dumps(cv_relations))
     # ShuffleSplit's overlapping/incomplete validation sets break the OOF partition.
-    with pytest.raises(dag_ml_data.DagMlDataContractError):
-        dag_ml_data.validate_fold_set_against_sample_relations(fold_set(ShuffleSplit(n_splits=3, random_state=42)), cv_relations)
+    with pytest.raises(dag_ml_data.DagMlDataError, match="expected exactly once"):
+        dag_ml_data.validate_fold_set_against_sample_relations_json(json.dumps(fold_set(ShuffleSplit(n_splits=3, random_state=42))), json.dumps(cv_relations))
 
 
 # ---------------------------------------------------------------------------
@@ -301,7 +328,7 @@ def test_augmented_fold_set_passes_origin_boundary(augmented_dataset) -> None:
              ([base_ints[2], base_ints[3]], [base_ints[0], base_ints[1]])]
     fold_set = build_fold_set(identity, folds)
     # origin (sample 0) trains in fold0 -> its children inherit train; the check passes.
-    dag_ml_data.validate_fold_set_against_sample_relations(fold_set, cv_relations)
+    dag_ml_data.validate_fold_set_against_sample_relations_json(json.dumps(fold_set), json.dumps(cv_relations))
 
 
 def test_x_rows_equals_x_for_base_only_request(regression_dataset) -> None:

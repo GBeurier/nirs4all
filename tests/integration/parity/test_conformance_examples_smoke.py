@@ -63,17 +63,25 @@ _DAGML_REFUSAL_LEDGER: dict[str, dict[str, object]] = {
         "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_dagml_engine_coverage_boundary",
     },
     "user/01_getting_started/U03_basic_classification.py": {
-        "markers": (
-            "[run/unsupported_shape]",
-            "cannot route ShuffleSplit",
+        "marker_sets": (
+            (
+                "[run/unsupported_shape]",
+                "runs ONE model per pipeline",
+                "2 top-level {'model': ...} steps",
+            ),
+            (
+                "[run/unsupported_shape]",
+                "cannot route ShuffleSplit",
+            ),
         ),
-        "unsupported_capability": "public example composition leaves ShuffleSplit in the operator route after feature augmentation and fold-chart steps",
+        "unsupported_capability": "public example composition may include an optional second model, then leaves ShuffleSplit in the operator route after feature augmentation and fold-chart steps",
         "owner": "dag-ml native coverage",
         "rationale": (
-            "Simple ShuffleSplit CV is covered natively; this ledger entry tracks the richer public-example composition "
-            "until splitter extraction through feature-augmentation/chart steps is supported."
+            "Simple ShuffleSplit CV and classification model sweeps are covered natively; this ledger entry tracks "
+            "the richer public-example composition until optional multi-model tutorial shapes and splitter extraction "
+            "through feature-augmentation/chart steps are supported."
         ),
-        "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_shufflesplit",
+        "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_shufflesplit and tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_classification_sweep_selects_balanced_accuracy_winner",
     },
     "user/03_preprocessing/U01_preprocessing_basics.py": {
         "markers": (
@@ -91,18 +99,31 @@ _DAGML_REFUSAL_LEDGER: dict[str, dict[str, object]] = {
 }
 
 
+def _refusal_marker_sets(entry: dict[str, object]) -> tuple[tuple[str, ...], ...]:
+    markers = entry.get("markers")
+    if markers is not None:
+        assert isinstance(markers, tuple) and markers
+        assert all(isinstance(marker, str) and marker for marker in markers)
+        return (markers,)
+
+    marker_sets = entry.get("marker_sets")
+    assert isinstance(marker_sets, tuple) and marker_sets
+    for marker_set in marker_sets:
+        assert isinstance(marker_set, tuple) and marker_set
+        assert all(isinstance(marker, str) and marker for marker in marker_set)
+    return marker_sets
+
+
 def test_dagml_example_refusal_ledger_is_explicit() -> None:
     """Every accepted dag-ml example refusal is ledgered as a named V1 coverage gap."""
     assert set(_DAGML_REFUSAL_LEDGER) < set(_EXAMPLES)
     for example, entry in _DAGML_REFUSAL_LEDGER.items():
-        markers = entry["markers"]
-        assert isinstance(markers, tuple) and markers
-        assert all(isinstance(marker, str) and marker for marker in markers)
+        marker_sets = _refusal_marker_sets(entry)
         assert isinstance(entry["unsupported_capability"], str) and entry["unsupported_capability"]
         assert isinstance(entry["owner"], str) and entry["owner"]
         assert isinstance(entry["rationale"], str) and entry["rationale"]
         assert isinstance(entry["coverage_evidence"], str) and entry["coverage_evidence"]
-        if "ShuffleSplit" in " ".join(markers):
+        if any("ShuffleSplit" in " ".join(markers) for markers in marker_sets):
             assert "simple shufflesplit" in entry["rationale"].lower()
 
 
@@ -116,6 +137,10 @@ def test_example_runs_on_engine(example: str, engine: str) -> None:
     env = dict(os.environ)
     env["N4A_ENGINE"] = engine
     env["MPLBACKEND"] = "Agg"  # headless: no interactive backend in CI
+    pythonpath = [str(_PROJECT_ROOT)]
+    if env.get("PYTHONPATH"):
+        pythonpath.append(env["PYTHONPATH"])
+    env["PYTHONPATH"] = os.pathsep.join(pythonpath)
 
     proc = subprocess.run(
         [sys.executable, str(script)],
@@ -132,9 +157,7 @@ def test_example_runs_on_engine(example: str, engine: str) -> None:
             pytest.skip(f"{example} on engine={engine}: optional dependency not installed")
         refusal = _DAGML_REFUSAL_LEDGER.get(example) if engine == "dag-ml" else None
         if refusal is not None:
-            markers = refusal["markers"]
-            assert isinstance(markers, tuple)
-            if all(isinstance(marker, str) and marker in combined for marker in markers):
+            if any(all(marker in combined for marker in markers) for markers in _refusal_marker_sets(refusal)):
                 return
         pytest.fail(
             f"{example} on engine={engine} exited {proc.returncode}:\n"

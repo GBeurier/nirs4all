@@ -101,10 +101,46 @@ def _build_coordinator_envelope(dag_ml_data: Any, schema: dict[str, Any], plan: 
     builder = getattr(dag_ml_data, "build_coordinator_data_plan_envelope", None)
     if builder is not None:
         envelope = builder(schema, plan, relations)
-        return dict(envelope.to_dict())
+        return _with_relation_annotations(dict(envelope.to_dict()), relations)
 
     json_builder = dag_ml_data.build_coordinator_data_plan_envelope_json
-    return dict(json.loads(json_builder(json.dumps(schema), json.dumps(plan), json.dumps(relations))))
+    return _with_relation_annotations(dict(json.loads(json_builder(json.dumps(schema), json.dumps(plan), json.dumps(relations)))), relations)
+
+
+def _with_relation_annotations(envelope: dict[str, Any], relations: dict[str, Any]) -> dict[str, Any]:
+    """Restore relation metadata/tags onto normalized coordinator records.
+
+    ``dag_ml_data`` owns envelope fingerprints and relation normalization, but the currently shipped
+    builder drops non-empty ``metadata``/``tags`` from ``coordinator_relations.records`` even though
+    dag-ml's public fan-out reads those normalized records. Copy the already-validated source-table
+    annotations over by observation id, leaving unannotated envelopes byte-identical.
+    """
+    records = envelope.get("coordinator_relations", {}).get("records")
+    rows = relations.get("rows")
+    if not isinstance(records, list) or not isinstance(rows, list):
+        return envelope
+
+    annotations_by_observation = {
+        str(row["observation_id"]): {"metadata": row.get("metadata") or {}, "tags": row.get("tags") or []}
+        for row in rows
+        if isinstance(row, dict) and row.get("observation_id") is not None and (row.get("metadata") or row.get("tags"))
+    }
+    if not annotations_by_observation:
+        return envelope
+
+    for record in records:
+        if not isinstance(record, dict):
+            continue
+        annotations = annotations_by_observation.get(str(record.get("observation_id")))
+        if annotations is None:
+            continue
+        metadata = annotations["metadata"]
+        tags = annotations["tags"]
+        if metadata:
+            record["metadata"] = {**(record.get("metadata") or {}), **metadata}
+        if tags:
+            record["tags"] = list(dict.fromkeys([*(record.get("tags") or []), *tags]))
+    return envelope
 
 
 def _num_wavelengths(dataset: SpectroDataset, source_idx: int = 0) -> int:
