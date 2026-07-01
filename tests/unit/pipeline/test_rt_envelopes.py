@@ -10,7 +10,10 @@ accessors, and (when the sibling ecosystem + dag-ml checkouts are present) JSON-
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from types import ModuleType
+from typing import Any
 
 import numpy as np
 import pytest
@@ -18,6 +21,7 @@ import pytest
 import nirs4all.runtime as runtime
 from nirs4all.api.result import RunResult
 from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline import dagml_bridge
 from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
 from nirs4all.pipeline.dagml.native_results import write_native_results
 from nirs4all.pipeline.dagml.rt import (
@@ -156,6 +160,7 @@ def test_rterror_to_dict_omits_none_optionals() -> None:
 def test_from_native_dir_round_trip(tmp_path: Path) -> None:
     result = _dagml_result()
     score_set = result._dagml_score_set  # noqa: SLF001
+    assert score_set is not None
     run_dir = write_native_results(result, score_set, tmp_path)
 
     rt = RtResult.from_native_dir(run_dir)
@@ -163,6 +168,7 @@ def test_from_native_dir_round_trip(tmp_path: Path) -> None:
     # reports are VERBATIM score_set.reports[] (the join key).
     assert rt.reports == score_set["reports"]
     assert rt.plan_id == "plan:test"
+    assert rt.manifest is not None
     assert rt.manifest["engine"] == "dag-ml"
     assert rt.manifest["portable_level"] is None
     assert rt.manifest["fingerprints"]["score_set_hash"]  # carried from the manifest
@@ -176,10 +182,12 @@ def test_from_native_dir_round_trip(tmp_path: Path) -> None:
 
 def test_runtime_from_native_dir_is_public_seam(tmp_path: Path) -> None:
     result = _dagml_result()
-    run_dir = write_native_results(result, result._dagml_score_set, tmp_path)  # noqa: SLF001
+    score_set = result._dagml_score_set  # noqa: SLF001
+    assert score_set is not None
+    run_dir = write_native_results(result, score_set, tmp_path)
     rt = runtime.from_native_dir(run_dir)
     assert isinstance(rt, RtResult)
-    assert rt.reports == result._dagml_score_set["reports"]  # noqa: SLF001
+    assert rt.reports == score_set["reports"]
 
 
 # --------------------------------------------------------------------------- #
@@ -189,9 +197,12 @@ def test_runtime_from_native_dir_is_public_seam(tmp_path: Path) -> None:
 
 def test_from_run_result_dagml_reports_verbatim() -> None:
     result = _dagml_result()
+    score_set = result._dagml_score_set  # noqa: SLF001
+    assert score_set is not None
     rt = result.to_rt_result()
+    assert rt.manifest is not None
     assert rt.manifest["engine"] == "dag-ml"
-    assert rt.reports == result._dagml_score_set["reports"]  # noqa: SLF001
+    assert rt.reports == score_set["reports"]
     assert rt.plan_id == "plan:test"
     assert rt.predictions  # the in-memory predictions are projected
     json.dumps(rt.to_dict())
@@ -200,9 +211,10 @@ def test_from_run_result_dagml_reports_verbatim() -> None:
 def test_from_run_result_legacy_is_sparse_and_carries_diagnostics() -> None:
     result = _legacy_result()
     rt_error = RtError("run", "unsupported_shape", "shape X not covered", mitigation="use legacy")
-    result._rt_diagnostics = [rt_error]  # noqa: SLF001 — as run()'s fallback attaches it
+    setattr(result, "_rt_diagnostics", [rt_error])  # as run()'s fallback attaches it
 
     rt = result.to_rt_result()
+    assert rt.manifest is not None
     assert rt.manifest["engine"] == "legacy"
     assert rt.reports == []  # no native ScoreSet
     assert rt.plan_id is None
@@ -241,10 +253,70 @@ def test_rt_run_request_to_dict() -> None:
 def test_runtime_list_controller_manifests() -> None:
     manifests = runtime.list_controller_manifests()
     assert isinstance(manifests, list) and manifests
-    kinds = {m["operator_kind"] for m in manifests}
-    assert {"transform", "y_transform", "model"} <= kinds
+    assert sorted(m["controller_id"] for m in manifests) == [
+        "controller:nirs4all.merge_concat",
+        "controller:nirs4all.meta_model",
+        "controller:nirs4all.model",
+        "controller:nirs4all.transform",
+        "controller:nirs4all.y_transform",
+    ]
     # JSON-ready (the inspect verb surface).
     json.dumps(manifests)
+
+
+def test_runtime_controller_manifests_validate_against_dagml_schema() -> None:
+    dag_ml = pytest.importorskip("dag_ml")
+
+    manifests = runtime.list_controller_manifests()
+    for manifest in manifests:
+        dag_ml.ControllerManifest(manifest)
+    dag_ml.ControllerManifests(manifests)
+
+
+def test_runtime_controller_manifests_use_dagml_derivation(monkeypatch: pytest.MonkeyPatch) -> None:
+    expected_specs = dagml_bridge._controller_manifest_specs()  # noqa: SLF001
+    expected_manifests = dagml_bridge._fallback_controller_manifests()  # noqa: SLF001
+    seen: dict[str, Any] = {}
+
+    class HostControllerSpec:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            assert "capabilities" not in payload
+            assert "supported_phases" not in payload
+            self.payload = payload
+
+        def to_dict(self) -> dict[str, Any]:
+            return self.payload
+
+    class DerivedManifest:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self.payload = payload
+
+        def to_dict(self) -> dict[str, Any]:
+            return self.payload
+
+    def derive_controller_manifests(specs: list[dict[str, Any]]) -> list[DerivedManifest]:
+        seen["payloads"] = specs
+        return [DerivedManifest(manifest) for manifest in expected_manifests]
+
+    fake_dag_ml = ModuleType("dag_ml")
+    setattr(fake_dag_ml, "HostControllerSpec", HostControllerSpec)
+    setattr(fake_dag_ml, "derive_controller_manifests", derive_controller_manifests)
+    monkeypatch.setitem(sys.modules, "dag_ml", fake_dag_ml)
+
+    manifests = runtime.list_controller_manifests()
+
+    assert seen["payloads"] == expected_specs
+    assert manifests == expected_manifests
+
+
+def test_runtime_controller_manifests_fallback_without_helper_has_no_drift(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake_dag_ml = ModuleType("dag_ml")
+    setattr(fake_dag_ml, "HostControllerSpec", object)
+    monkeypatch.setitem(sys.modules, "dag_ml", fake_dag_ml)
+
+    manifests = runtime.list_controller_manifests()
+
+    assert manifests == dagml_bridge._fallback_controller_manifests()  # noqa: SLF001
 
 
 # --------------------------------------------------------------------------- #
@@ -286,6 +358,7 @@ def test_to_dict_validates_against_ecosystem_schema(tmp_path: Path, envelope: st
     schema_dir = _runtime_schema_dir()
     if schema_dir is None:
         pytest.skip("sibling nirs4all-ecosystem runtime schemas not checked out")
+    assert schema_dir is not None
 
     import jsonschema
 

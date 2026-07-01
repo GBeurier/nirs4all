@@ -24,8 +24,9 @@ later migration phase.
 
 from __future__ import annotations
 
+import copy
 import json
-from typing import Any
+from typing import Any, cast
 
 from nirs4all import __version__ as _NIRS4ALL_VERSION
 from nirs4all.pipeline.dagml.errors import DagMlUnsupported
@@ -1026,8 +1027,8 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
     return {"id": dsl_id, "pipeline": [_step_to_dsl(step) for step in pipeline]}
 
 
-def controller_manifests() -> list[dict[str, Any]]:
-    """The host-controller manifests for the vertical-slice node kinds.
+def _fallback_controller_manifests() -> list[dict[str, Any]]:
+    """The compatibility host-controller manifests for the vertical-slice node kinds.
 
     One manifest per ``operator_kind`` — a dag-ml manifest serves exactly one node
     kind, so ``transform`` / ``y_transform`` / ``model`` each need their own. These
@@ -1146,6 +1147,135 @@ def controller_manifests() -> list[dict[str, Any]]:
             "artifact_policy": "serializable",
         },
     ]
+
+
+def _controller_manifest_specs() -> list[dict[str, Any]]:
+    """HostControllerSpec payloads that derive to the public controller-manifest shape."""
+    return [
+        {
+            "controller_id": "controller:nirs4all.transform",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "transform",
+            "priority": 20,
+        },
+        {
+            "controller_id": "controller:nirs4all.y_transform",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "y_transform",
+            "priority": 20,
+        },
+        {
+            "controller_id": "controller:nirs4all.model",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 20,
+            "data_requirements": _MODEL_DATA_REQUIREMENTS,
+        },
+        {
+            "controller_id": "controller:nirs4all.merge_concat",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "prediction_join",
+            "priority": 20,
+        },
+        {
+            "controller_id": "controller:nirs4all.meta_model",
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 20,
+            "added_capabilities": ["consumes_oof_predictions"],
+            "input_ports": [{"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"}],
+            "operator_selectors": [{"refs": [_META_MODEL_REF]}],
+        },
+    ]
+
+
+def _coerce_host_controller_spec(host_controller_spec: Any, spec: dict[str, Any]) -> Any:
+    payload = copy.deepcopy(spec)
+    from_dict = getattr(host_controller_spec, "from_dict", None)
+    if callable(from_dict):
+        try:
+            return from_dict(payload)
+        except TypeError:
+            pass
+    try:
+        return host_controller_spec(**payload)
+    except TypeError:
+        return host_controller_spec(payload)
+
+
+def _manifest_to_dict(manifest: Any) -> dict[str, Any]:
+    if isinstance(manifest, dict):
+        return cast(dict[str, Any], copy.deepcopy(manifest))
+
+    to_dict = getattr(manifest, "to_dict", None)
+    if callable(to_dict):
+        value = to_dict()
+    else:
+        model_dump = getattr(manifest, "model_dump", None)
+        if callable(model_dump):
+            value = model_dump(mode="json")
+        else:
+            value = None
+
+    if not isinstance(value, dict):
+        raise TypeError(f"dag_ml.derive_controller_manifests returned a non-dict manifest item: {type(manifest).__name__}")
+    return cast(dict[str, Any], copy.deepcopy(value))
+
+
+def _host_controller_spec_to_dict(host_spec: Any) -> dict[str, Any]:
+    if isinstance(host_spec, dict):
+        return cast(dict[str, Any], copy.deepcopy(host_spec))
+    to_dict = getattr(host_spec, "to_dict", None)
+    if callable(to_dict):
+        value = to_dict()
+        if isinstance(value, dict):
+            return cast(dict[str, Any], copy.deepcopy(value))
+    raise TypeError(f"dag_ml.HostControllerSpec returned a non-dict spec item: {type(host_spec).__name__}")
+
+
+def _manifest_collection_to_dicts(manifests: Any) -> list[dict[str, Any]]:
+    value = manifests
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        value = to_dict()
+    if hasattr(value, "manifests"):
+        value = value.manifests
+    if isinstance(value, dict):
+        value = value.get("manifests")
+    if value is None:
+        raise TypeError("dag_ml.derive_controller_manifests returned no manifest collection")
+    return [_manifest_to_dict(manifest) for manifest in value]
+
+
+def _derive_controller_manifests_from_dagml(specs: list[dict[str, Any]]) -> list[dict[str, Any]] | None:
+    try:
+        import dag_ml
+    except ImportError:
+        return None
+
+    derive_controller_manifests = getattr(dag_ml, "derive_controller_manifests", None)
+    host_controller_spec = getattr(dag_ml, "HostControllerSpec", None)
+    if not callable(derive_controller_manifests) or host_controller_spec is None:
+        return None
+
+    host_specs = [_coerce_host_controller_spec(host_controller_spec, spec) for spec in specs]
+    host_spec_payloads = [_host_controller_spec_to_dict(host_spec) for host_spec in host_specs]
+    return _manifest_collection_to_dicts(derive_controller_manifests(host_spec_payloads))
+
+
+def controller_manifests() -> list[dict[str, Any]]:
+    """The host-controller manifests as JSON-ready dicts.
+
+    Newer dag-ml releases expose ``HostControllerSpec`` plus
+    ``derive_controller_manifests``; use that public derivation path when present so
+    nirs4all and dag-ml share manifest construction. Older or partial dag-ml
+    installs keep the exact static manifests this bridge has historically exposed.
+    """
+    specs = _controller_manifest_specs()
+    derived = _derive_controller_manifests_from_dagml(specs)
+    if derived is not None:
+        return derived
+    return _fallback_controller_manifests()
 
 
 def build_dagml_plan(
