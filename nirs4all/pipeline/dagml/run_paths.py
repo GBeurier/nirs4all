@@ -2142,6 +2142,140 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
     return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_FUSION_MERGE_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])
 
 
+def _source_names(spectro: Any, n_sources: int) -> list[str]:
+    names: list[str] = []
+    for source_index in range(n_sources):
+        name = None
+        if hasattr(spectro, "source_name"):
+            try:
+                name = spectro.source_name(source_index)
+            except Exception:  # noqa: BLE001 - optional legacy dataset hook.
+                name = None
+        names.append(str(name) if name else f"source_{source_index}")
+    return names
+
+
+def _source_blocks(spectro: Any, sample_ints: list[int], n_sources: int, reference_blocks: list[np.ndarray] | None = None) -> list[np.ndarray]:
+    if not sample_ints:
+        if reference_blocks is None:
+            return [np.empty((0, 0), dtype=float) for _ in range(n_sources)]
+        return [np.empty((0, block.shape[1]), dtype=block.dtype) for block in reference_blocks]
+    blocks = spectro.x_rows(sample_ints, layout="2d", concat_source=False)
+    normalized = blocks if isinstance(blocks, list) else [blocks]
+    if len(normalized) != n_sources:
+        raise DagMlUnsupported(f"by_source stacking expected {n_sources} source blocks, got {len(normalized)}")
+    return [np.asarray(block) for block in normalized]
+
+
+def _run_by_source_stacking_branch(
+    pipeline: list[Any],
+    branch_body: list[Any],
+    meta_learner: Any,
+    n_sources: int,
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str,
+    task_type: str,
+    dataset_pickle: str | None = None,
+    config_name: str = "",
+    random_state: int | None = None,
+) -> RunResult:
+    """Replay legacy by_source ``merge='predictions'`` stacking without final rows.
+
+    Legacy source-branch mode does not build a 3-column OOF meta matrix for this shape. Each source
+    branch mutates its source in sequence, so the branch models see cumulative layouts
+    ``S,R,R`` → ``S,S,R`` → ``S,S,S``. The merge step then writes the concatenated ``S,S,S`` block back to
+    source 0 while preserving sources 1 and 2, so the downstream Ridge sees ``[S,S,S] + S + S`` (10,755
+    columns for the parity fixture). Legacy's refit pass skips by_source stacking, therefore only CV,
+    avg, and w_avg rows are emitted.
+    """
+    _ = (dataset_arg, cli, venv_python, run_dir, dataset_pickle, random_state)
+    if task_type != "regression":
+        raise DagMlUnsupported("by_source source-layout stacking replay currently supports regression parity only")
+
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    if splitter is None:
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    if not branch_body or not (isinstance(branch_body[-1], dict) and "model" in branch_body[-1]):
+        raise DagMlUnsupported("by_source stacking replay requires a branch body ending in one model")
+
+    branch_transforms = branch_body[:-1]
+    branch_model = branch_body[-1]["model"]
+    source_names = _source_names(spectro, n_sources)
+    train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
+    test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
+    folds = _build_folds(splitter, spectro, train_pool, set())
+    y_train_all = _dataset_y_rows(spectro, train_pool)
+    y_test = _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1))
+
+    source_train_blocks = _source_blocks(spectro, train_pool, n_sources)
+    source_test_blocks = _source_blocks(spectro, test_pool, n_sources, source_train_blocks)
+
+    combined_rows: list[dict[str, Any]] = []
+    for source_index, source_name in enumerate(source_names):
+        for transform_template in branch_transforms:
+            transform = _clone_operator_instance(transform_template)
+            transform.fit(source_train_blocks[source_index], y_train_all)
+            source_train_blocks[source_index] = np.asarray(transform.transform(source_train_blocks[source_index]))
+            source_test_blocks[source_index] = np.asarray(transform.transform(source_test_blocks[source_index])) if test_pool else source_test_blocks[source_index]
+
+        X_branch_train = np.concatenate(source_train_blocks, axis=1)
+        X_branch_test = np.concatenate(source_test_blocks, axis=1) if test_pool else np.empty((0, X_branch_train.shape[1]))
+        branch_result = _run_model_on_precomputed_matrix(
+            X_branch_train,
+            X_branch_test,
+            y_train_all,
+            y_test,
+            train_pool,
+            test_pool,
+            folds,
+            branch_model,
+            spectro,
+            metric,
+            task_type,
+            config_name,
+            branch_id=source_index,
+            branch_name=source_name,
+        )
+        combined_rows.extend(_prediction_rows_without_refit(branch_result))
+
+    merged_train = np.concatenate(source_train_blocks, axis=1)
+    merged_test = np.concatenate(source_test_blocks, axis=1) if test_pool else np.empty((0, merged_train.shape[1]))
+    X_meta_train = np.concatenate([merged_train, *source_train_blocks[1:]], axis=1)
+    X_meta_test = np.concatenate([merged_test, *source_test_blocks[1:]], axis=1) if test_pool else np.empty((0, X_meta_train.shape[1]))
+    meta_result = _run_model_on_precomputed_matrix(
+        X_meta_train,
+        X_meta_test,
+        y_train_all,
+        y_test,
+        train_pool,
+        test_pool,
+        folds,
+        meta_learner,
+        spectro,
+        metric,
+        task_type,
+        config_name,
+        branch_id=0,
+        branch_name=source_names[0],
+    )
+    meta_rows = _prediction_rows_without_refit(meta_result)
+    for source_index, source_name in enumerate(source_names):
+        for row in meta_rows:
+            cloned = dict(row)
+            cloned["branch_id"] = source_index
+            cloned["branch_name"] = source_name
+            combined_rows.append(cloned)
+
+    predictions = Predictions()
+    predictions.extend_from_list(combined_rows)
+    predictions.flush()
+    return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+
+
 def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[list[Any]], merge_mode: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None, config_name: str, random_state: int | None) -> RunResult:
     """Run legacy duplication ``merge=features``/``merge=all`` through one concrete native model."""
     if merge_mode not in ("features", "all"):

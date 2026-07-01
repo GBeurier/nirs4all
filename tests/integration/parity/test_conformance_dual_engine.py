@@ -301,7 +301,7 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 
 
 # EXPECTED-FALLBACK allowlist: the cases the dag-ml path LEGITIMATELY rejects
-# today (raw branch+merge and by-source/source-concat multi-source shapes), so
+# today (raw branch+merge shapes), so
 # engine="dag-ml" transparently re-runs legacy.
 # A case that falls back but is NOT on this allowlist is a native-coverage REGRESSION
 # (a shape that used to run native now rejects) and MUST FAIL — never silently pass
@@ -311,8 +311,9 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 # no longer fall through to the generic concrete route and crash at native setup.
 EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # RAW branch+merge shapes that do not match a supported native detector. The currently native branch
-    # paths are narrow: separation by_metadata/by_tag + concat, by_source/shared-model fusion, duplication
-    # list/dict + mean/proba_mean fusion, feature/all merge, and list-branch default stacking.
+    # paths are narrow: separation by_metadata/by_tag + concat, by_source/shared-model fusion, by_source
+    # source-layout stacking replay, duplication list/dict + mean/proba_mean fusion, feature/all merge,
+    # and list-branch default stacking.
     # Named-dict stacking still falls back because legacy skips its refit surface while native stacking
     # requires full OOF/refit coverage. The remaining legacy patterns use richer MetaModel/concat_transform
     # state, so
@@ -320,11 +321,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # branch semantics.
     "branch_dup_three_way_merge_predictions",
     "branch_dup_named_with_metamodel",
-    # per_source_models_stacking: by_source per-source models → {"merge":"predictions"} → Ridge meta. Legacy's
-    # stacking refit is itself BROKEN for a by_source branch ("Stacking refit expects duplication branches
-    # (list). Skipping" → no `final` rows, 90 CV-only preds), so there is no clean legacy oracle to target,
-    # and no native by_source-stacking path exists yet.
-    "multi_source_per_source_models_stacking",
 })
 
 
