@@ -513,8 +513,8 @@ def _native_param_variant_model_params(pipeline: Any, name: str) -> list[dict[st
         return []
 
 
-def _unwrap_preprocessing_steps(pipeline: list[Any]) -> list[Any]:
-    """Unwrap a modifier-free ``{"preprocessing": <operator>}`` step to its bare operator.
+def _can_unwrap_preprocessing_step(step: Any) -> bool:
+    """Whether a ``{"preprocessing": ...}`` wrapper is proven equivalent to a bare transform.
 
     Legacy ``StepParser`` accepts the explicit ``{"preprocessing": op}`` keyword wrapper as a pure
     synonym for a bare transform step (``RESERVED_KEYWORDS`` never includes ``preprocessing``). The dag-ml
@@ -522,16 +522,40 @@ def _unwrap_preprocessing_steps(pipeline: list[Any]) -> list[Any]:
     the structural keywords (``model``/``y_processing``/``concat_transform``/``feature_augmentation``/
     generators), so a ``{"preprocessing": op}`` dict hits its fail-loud "does not serialize step keyword(s)"
     path → legacy fallback. A wrapper carrying ONLY the ``preprocessing`` key is a pure synonym — the
-    operator fits/transforms identically to the bare form on the native X-chain — so unwrap it here, BEFORE
-    detection/dispatch, to let the canonical concrete path run it natively.
+    operator fits/transforms identically to the bare form on the native X-chain.
 
-    A wrapper carrying ANY other key (``fit_on_all``/``force_layout``/``na_policy``/``fill_value``/``name``)
-    is left untouched: those modifiers change fit-scope / layout / NA semantics the native X-chain cannot
-    represent, so the step keeps its dict form and still fails loud → legacy fallback (never a silent-wrong
-    native run). The caller derives ``config_name`` from the ORIGINAL (wrapped) pipeline before unwrapping,
-    so the dag-ml ``RunResult`` keeps the legacy-matching config name.
+    Two modifier-bearing wrappers are also equivalent for the CURRENT native concrete path:
+
+    * ``force_layout='2d'`` on a preprocessing step is not consumed by legacy preprocessing controllers
+      (only model controllers read ``ParsedStep.force_layout``), and the native sklearn path already
+      materializes the model input as 2D.
+    * ``fit_on_all=True`` is equivalent only for stateless transforms: fitting on all rows vs fold-train
+      rows cannot change learned state when the existing leakage gate proves the operator is stateless.
+
+    Anything else remains wrapped, then fails loud in :func:`_unsupported_fallback_reason`; this prevents
+    silent native runs for stateful fit-scope changes, non-2D layouts, NA modifiers, names, or any unproven
+    composition.
     """
-    return [step["preprocessing"] if isinstance(step, dict) and set(step) == {"preprocessing"} else step for step in pipeline]
+    if not isinstance(step, dict) or "preprocessing" not in step:
+        return False
+    keys = set(step)
+    if keys == {"preprocessing"}:
+        return True
+    modifiers = keys - {"preprocessing"}
+    if modifiers == {"force_layout"}:
+        return step.get("force_layout") == "2d"
+    if modifiers == {"fit_on_all"}:
+        return step.get("fit_on_all") is True and _operator_is_stateless(step["preprocessing"])
+    return False
+
+
+def _unwrap_preprocessing_steps(pipeline: list[Any]) -> list[Any]:
+    """Unwrap preprocessing wrappers whose legacy semantics match a bare native transform.
+
+    The caller derives ``config_name`` from the ORIGINAL (wrapped) pipeline before unwrapping, so the
+    dag-ml ``RunResult`` keeps the legacy-matching config name.
+    """
+    return [step["preprocessing"] if _can_unwrap_preprocessing_step(step) else step for step in pipeline]
 
 
 def _unsupported_fallback_reason(pipeline: list[Any]) -> str | None:
@@ -546,8 +570,9 @@ def _unsupported_fallback_reason(pipeline: list[Any]) -> str | None:
         if isinstance(step, dict) and "preprocessing" in step and set(step) != {"preprocessing"}:
             modifiers = sorted(set(step) - {"preprocessing"})
             return (
-                "engine='dag-ml' cannot yet honor modifier-bearing {'preprocessing': ...} steps "
-                f"(modifier key(s): {modifiers}); the native X-chain only supports modifier-free wrappers."
+                "engine='dag-ml' cannot yet honor this modifier-bearing {'preprocessing': ...} step "
+                f"(modifier key(s): {modifiers}); only modifier-free wrappers plus proven stateless/2D "
+                "modifier wrappers run natively."
             )
 
     for step in pipeline:
@@ -626,12 +651,11 @@ def _dispatch_run(
     metric = "balanced_accuracy" if is_classification else "rmse"
     task_type = "classification" if is_classification else "regression"
 
-    # Unwrap any modifier-free `{"preprocessing": op}` wrapper to its bare operator BEFORE detection/dispatch
-    # (legacy treats it as a pure synonym for a bare transform, but the bridge only lowers bare operators, so
-    # the wrapper would otherwise fail loud → legacy). A wrapper carrying fit_on_all/force_layout/... keeps its
-    # dict form (those modifiers are not natively representable) and still falls back. `config_name` /
-    # `variant_config_names` / `variant_model_params` were derived from the ORIGINAL pipeline above, so the
-    # dag-ml RunResult keeps the legacy-matching name; `_attach_export_spec` likewise sees the original.
+    # Unwrap proven-equivalent `{"preprocessing": op}` wrappers to bare operators BEFORE detection/dispatch
+    # (the bridge only lowers bare operators). Stateful `fit_on_all`, non-2D `force_layout`, NA modifiers, and
+    # other unproven wrappers stay as dicts and still fall back loudly. `config_name` / `variant_config_names`
+    # / `variant_model_params` were derived from the ORIGINAL pipeline above, so the dag-ml RunResult keeps
+    # the legacy-matching name; `_attach_export_spec` likewise sees the original.
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
