@@ -1648,8 +1648,8 @@ class RunResult:
         if _is_native_by_source_fusion_bundle(native, artifacts):
             indexed = _indexed_branch_artifacts(artifacts)
             assert indexed is not None  # predicate above guarantees branch/source indices are recoverable
-            members = [(source_index, _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])) for source_index, artifact in indexed]
-            model = _DagmlNativeBySourceFusionModel(members)
+            source_members = [(source_index, _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])) for source_index, artifact in indexed]
+            source_model = _DagmlNativeBySourceFusionModel(source_members)
             model_label = model_names[0] if model_names else "dagml_native_by_source_fusion"
             provenance = _dagml_native_bundle_provenance(
                 native_manifest,
@@ -1657,10 +1657,10 @@ class RunResult:
                 artifact_count=len(artifacts),
                 export_shape="by_source_fusion_mean",
             )
-            provenance["dagml_source_count"] = len(model.source_indices)
-            provenance["dagml_source_widths"] = list(model.source_widths)
+            provenance["dagml_source_count"] = len(source_model.source_indices)
+            provenance["dagml_source_widths"] = list(source_model.source_widths)
             return write_single_model_bundle(
-                model,
+                source_model,
                 output_path,
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
