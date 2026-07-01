@@ -63,7 +63,10 @@ def _source_concat_indices(source_spec: Any, n_sources: int) -> list[int] | None
     if isinstance(source_spec, str):
         strategy = source_spec
     elif isinstance(source_spec, dict):
-        strategy = source_spec.get("strategy", source_spec.get("mode", "concat"))
+        raw_strategy = source_spec.get("strategy", source_spec.get("mode", "concat"))
+        if not isinstance(raw_strategy, str):
+            return None
+        strategy = raw_strategy
         sources = source_spec.get("sources", source_spec.get("select", "all"))
     else:
         return None

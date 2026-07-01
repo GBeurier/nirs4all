@@ -29,6 +29,10 @@ This module asserts, for representative native single-model shapes:
   predictions), so a legacy-written workspace is inspectable/predictable through
   the same projection the runtime reads.
 
+* **Runtime projection parity.** The native-results directory also projects
+  through the public ``RtResult.from_native_dir`` seam to the same ScoreSet hash,
+  reports, and final-test predictions as the live dag-ml ``RunResult``.
+
 Slow: each case runs twice. Gated by ``slow``.
 """
 
@@ -43,6 +47,7 @@ import pytest
 
 import nirs4all
 from nirs4all.pipeline.dagml.native_results import read_native_results
+from nirs4all.pipeline.dagml.rt import RtResult
 
 from . import _conformance_helpers as H
 from ._registry import PipelineCase, get
@@ -76,6 +81,25 @@ def _max_delta(a: dict[int, np.ndarray], b: dict[int, np.ndarray]) -> float:
     return max(float(np.max(np.abs(a[s] - b[s]))) for s in a)
 
 
+def _rt_final_test_map(rt_result: RtResult) -> dict[int, np.ndarray]:
+    """Map sample-id → final-test y_pred from an ``RtResult`` projection."""
+    mapped: dict[int, np.ndarray] = {}
+    for row in rt_result.predictions:
+        if row.get("partition") != "test" or row.get("fold_id") != "final":
+            continue
+        values = row.get("y_pred")
+        if values is None:
+            continue
+        arr = np.asarray(values, dtype=float)
+        if arr.ndim == 1:
+            arr = arr.reshape(-1, 1)
+        sample_indices = [int(sample_id) for sample_id in row.get("sample_indices", [])]
+        assert len(sample_indices) == arr.shape[0], "RtResult prediction row sample_indices/y_pred length mismatch"
+        for sample_id, prediction in zip(sample_indices, arr, strict=True):
+            mapped[sample_id] = np.asarray(prediction, dtype=float)
+    return mapped
+
+
 @pytest.mark.parametrize("case_name", _WORKSPACE_CASES)
 def test_native_results_triple_round_trips_and_agrees_cross_engine(case_name: str, tmp_path: Path) -> None:
     """The dag-ml native triple reads back faithfully AND agrees with legacy cross-engine.
@@ -105,6 +129,27 @@ def test_native_results_triple_round_trips_and_agrees_cross_engine(case_name: st
     read_map = _final_test_map(read["predictions"])
     legacy_map = H._final_test_pred_by_sample(legacy)  # noqa: SLF001
     assert read_map, f"{case_name}: native triple read back no final-(test) predictions"
+
+    # 0. Runtime projection parity: the native dir and live RunResult expose the
+    # same RT ScoreSet anchor + final-test prediction rows.
+    disk_rt = RtResult.from_native_dir(run_dir)
+    live_rt = dagml.to_rt_result()
+    assert disk_rt.manifest["engine"] == live_rt.manifest["engine"] == "dag-ml"
+    assert disk_rt.manifest["fingerprints"]["score_set_hash"] == live_rt.manifest["fingerprints"]["score_set_hash"], (
+        f"{case_name}: native-dir RtResult and live RunResult RtResult disagree on score_set_hash"
+    )
+    assert disk_rt.reports == live_rt.reports, f"{case_name}: native-dir RtResult reports drift from live RunResult reports"
+    disk_rt_map = _rt_final_test_map(disk_rt)
+    live_rt_map = _rt_final_test_map(live_rt)
+    assert set(disk_rt_map) == set(live_rt_map) == set(read_map), (
+        f"{case_name}: RtResult final-test sample ids diverge from native read-back "
+        f"(|disk_rt|={len(disk_rt_map)} |live_rt|={len(live_rt_map)} |read|={len(read_map)})"
+    )
+    rt_delta = _max_delta(disk_rt_map, live_rt_map)
+    assert rt_delta <= _FIDELITY_TOL, (
+        f"{case_name}: native-dir RtResult != live RunResult RtResult final-test y_pred; "
+        f"max |Δ| = {rt_delta:.3e} > {_FIDELITY_TOL:.3e}"
+    )
 
     # 1. Read-back fidelity: the disk triple == the live dag-ml run (same engine).
     assert set(read_map) == set(live_map), (

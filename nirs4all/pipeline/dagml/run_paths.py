@@ -518,8 +518,10 @@ def _source_concat_preprocessing_metadata(
         for block in source_layout.get("blocks", []) or []
         if isinstance(block, dict) and "source_index" in block
     }
-    source_ids = source_layout.get("source_ids") if isinstance(source_layout.get("source_ids"), list) else []
-    source_order = source_layout.get("source_order") if isinstance(source_layout.get("source_order"), list) else []
+    raw_source_ids = source_layout.get("source_ids")
+    raw_source_order = source_layout.get("source_order")
+    source_ids: list[Any] = raw_source_ids if isinstance(raw_source_ids, list) else []
+    source_order: list[Any] = raw_source_order if isinstance(raw_source_order, list) else []
     sources: list[dict[str, Any]] = []
     for position, source_index in enumerate(source_indices):
         block = blocks_by_index.get(source_index, {})
@@ -1429,7 +1431,8 @@ def _repeat_by_source_merge_projection(result: RunResult, n_sources: int) -> Run
     repeated = Predictions()
 
     def clone(row: dict[str, Any]) -> None:
-        repeated.add_prediction(**{field: row.get(field) for field in _PREDICTION_CLONE_FIELDS if field in row})
+        payload: dict[str, Any] = {field: row.get(field) for field in _PREDICTION_CLONE_FIELDS if field in row}
+        repeated.add_prediction(**payload)
 
     for row_group in (cv_rows, final_rows):
         for _source_index in range(n_sources):
@@ -2417,9 +2420,9 @@ def _named_dict_stacking_legacy_projection(
         direct_meta.fit(x_meta_val, y_meta_val)
         direct_val_pred = np.asarray(direct_meta.predict(x_meta_val), dtype=float).ravel()
         if len(y_meta_val) > 1:
-            val_pred = np.asarray(cross_val_predict(clone(meta_learner), x_meta_val, y_meta_val, cv=LeaveOneOut()), dtype=float).ravel()
+            meta_fold_val_pred = np.asarray(cross_val_predict(clone(meta_learner), x_meta_val, y_meta_val, cv=LeaveOneOut()), dtype=float).ravel()
         else:
-            val_pred = direct_val_pred
+            meta_fold_val_pred = direct_val_pred
         direct_meta_val_scores.append(float(_score_prediction_block(y_meta_val, direct_val_pred, task_type).get(metric, float("nan"))))
 
         train_pred = np.asarray(direct_meta.predict(x_meta_train), dtype=float).ravel()
@@ -2427,7 +2430,7 @@ def _named_dict_stacking_legacy_projection(
         pool_pred = np.asarray(direct_meta.predict(x_meta_pool), dtype=float).ravel()
         record = {
             "train": {"y_true": y(train_ids), "y_pred": train_pred, "scores": _score_prediction_block(y(train_ids), train_pred, task_type)},
-            "val": {"y_true": y_meta_val, "y_pred": val_pred, "scores": _score_prediction_block(y_meta_val, val_pred, task_type)},
+            "val": {"y_true": y_meta_val, "y_pred": meta_fold_val_pred, "scores": _score_prediction_block(y_meta_val, meta_fold_val_pred, task_type)},
             "test": {"y_true": y_test, "y_pred": test_pred, "scores": _score_prediction_block(y_test, test_pred, task_type)},
             "direct_val": {"y_true": y_meta_val, "y_pred": direct_val_pred, "scores": _score_prediction_block(y_meta_val, direct_val_pred, task_type)},
         }
@@ -2435,7 +2438,7 @@ def _named_dict_stacking_legacy_projection(
         meta_pool_predictions.append(pool_pred)
         meta_test_predictions.append(test_pred)
         meta_val_true.append(y_meta_val)
-        meta_val_pred.append(val_pred)
+        meta_val_pred.append(meta_fold_val_pred)
 
     # Keep one native OOF-trained meta fold visible in top(n), as legacy does, while keeping the avg row
     # conservative so this named-dict syntax still selects the branch CV winner and emits no final rows.
