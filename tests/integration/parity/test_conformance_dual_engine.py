@@ -301,15 +301,21 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 
 
 # EXPECTED-FALLBACK allowlist: the cases the dag-ml path LEGITIMATELY rejects
-# today (branch+merge, by-source multi-source, the preprocessing-keyword shapes),
-# so engine="dag-ml" transparently re-runs legacy. A case that falls back but is
-# NOT on this allowlist is a native-coverage REGRESSION (a shape that used to run
-# native now rejects) and MUST FAIL — never silently pass as a boundary. When
-# dag-ml gains native coverage for one of these, it leaves the allowlist (the test
-# then demands native parity). Measured at scope time; see the probe in the PR.
+# today (raw branch+merge, by-source/source-concat multi-source, and modifier-bearing
+# `preprocessing` keyword shapes), so engine="dag-ml" transparently re-runs legacy.
+# A case that falls back but is NOT on this allowlist is a native-coverage REGRESSION
+# (a shape that used to run native now rejects) and MUST FAIL — never silently pass
+# as a boundary. When dag-ml gains native coverage for one of these, it leaves the
+# allowlist (the test then demands native parity). W21 pins these as explicit
+# coverage-boundary rejects in `run_backend._unsupported_fallback_reason`, so they
+# no longer fall through to the generic concrete route and crash at native setup.
 EXPECTED_FALLBACK: frozenset[str] = frozenset({
-    # branch (duplication) + merge → multi-model; dag-ml bridge spike does not yet
-    # serialize the branch/merge step keywords, so the whole shape falls back.
+    # RAW branch+merge shapes that do not match a supported native detector. The currently native branch
+    # paths are narrow: separation by_metadata/by_tag + concat, by_source/shared-model fusion, duplication
+    # list-of-lists + mean/proba_mean fusion, and default duplication stacking. These four legacy patterns
+    # use named-dict duplication branches plus predictions/features/all/per-branch merge semantics and/or
+    # richer MetaModel/concat_transform state, so `run_backend._unsupported_fallback_reason` rejects them
+    # before the generic concrete path can drop branch semantics.
     "branch_dup_three_way_merge_predictions",
     "branch_dup_two_way_merge_features",
     "branch_dup_named_with_metamodel",
@@ -345,11 +351,11 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # 21.0678 → merged 21.0960); the native value (on-concat 21.0846) matches NEITHER within tol. Reproducing
     # legacy's exact float round-trip for a chaotic RF is not a maintainable native contract.
     "multi_source_sources_concat_then_rf",
-    # the `preprocessing` keyword shapes that carry a fit-scope / layout MODIFIER the native X-chain
-    # cannot represent (`fit_on_all` fits on train+val+test; `force_layout` pins the tensor layout), so
-    # they still fail loud → legacy. (The modifier-FREE `preprocessing_explicit_keyword` now runs native:
-    # `run_backend._unwrap_preprocessing_steps` lowers a bare `{"preprocessing": op}` wrapper to its
-    # operator, so it left this allowlist — the conformance test now demands full native parity for it.)
+    # the `preprocessing` keyword shapes that carry a fit-scope / layout MODIFIER the native X-chain cannot
+    # represent (`fit_on_all` fits on train+val+test; `force_layout` pins the tensor layout). W21 rejects
+    # these explicitly in `run_backend._unsupported_fallback_reason`. The modifier-FREE
+    # `preprocessing_explicit_keyword` still runs native: `_unwrap_preprocessing_steps` lowers a bare
+    # `{"preprocessing": op}` wrapper to its operator, so the conformance test demands full native parity.
     "preprocessing_fit_on_all",
     "preprocessing_force_layout_2d",
 })

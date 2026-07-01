@@ -199,7 +199,7 @@ def classify_case(case: PipelineCase, observed_fallback: frozenset[str] | None =
     if observed_fallback is not None and name in observed_fallback and name not in EXPECTED_FALLBACK:
         return CaseClassification(name, UNEXPECTED, "", True, "dag-ml fell back OFF the EXPECTED_FALLBACK allowlist — native-coverage regression")
     if name in EXPECTED_FALLBACK:
-        return CaseClassification(name, EXPECTED_FALLBACK_BUCKET, "", True, "EXPECTED_FALLBACK allowlist (L5 host-bridge serialization gap)")
+        return CaseClassification(name, EXPECTED_FALLBACK_BUCKET, "", True, "EXPECTED_FALLBACK allowlist (explicit dag-ml coverage boundary)")
     bucket, basis = _native_route(case)
     return CaseClassification(name, bucket, "", True, basis)
 
