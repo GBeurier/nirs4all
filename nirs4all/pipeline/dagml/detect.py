@@ -953,7 +953,7 @@ def _simple_duplication_merge_mode(step: Any) -> str | None:
     if not isinstance(step, dict) or "merge" not in step:
         return None
     spec = step["merge"]
-    return spec if spec == "features" else None
+    return spec if spec in ("features", "all") else None
 
 
 def _model_step_is_plain_estimator(model_step: dict[str, Any]) -> bool:
@@ -977,8 +977,11 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
     * splitter + one duplication branch + avg/mean fusion merge (legacy list or named-dict branch syntax),
       with every branch containing a model; and
     * splitter + one duplication branch + ``merge="features"`` + one downstream plain estimator.
-      The branch bodies must be feature-only in this slice; ``merge="all"`` still falls back because its
-      branch-model score projection is not equivalent to native refit-test rows.
+      The branch bodies must be feature-only; and
+    * splitter + one duplication branch + ``merge="all"`` + one downstream plain estimator.
+      Every branch body must contain a branch-local model, and the native transformer concatenates
+      branch feature snapshots followed by branch prediction columns, matching the legacy collector's
+      feature-then-prediction ordering.
 
     ANY deviation returns ``None`` so the bridge's raw-branch / raw-merge guard fires. Specifically
     REJECTED (fall through to loud):
@@ -1033,9 +1036,10 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
             continue
         return None
 
-    if merge_mode != "features":
+    branch_has_model = [any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches]
+    if merge_mode == "features" and any(branch_has_model):
         return None
-    if any(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
+    if merge_mode == "all" and not all(branch_has_model):
         return None
     return branches, merge_mode
 
