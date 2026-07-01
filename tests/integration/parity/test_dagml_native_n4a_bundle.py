@@ -14,8 +14,11 @@ critically — proves it is NOT a legacy refit under another name:
 * (3) a ``y_processing`` variant → the inverse ``y_transform`` round-trips through the bundle (original
   target space), still exact.
 * (4) NO native dir → the ``.n4a`` export falls back to the P1c legacy bridge (unchanged behavior).
-* (5) a branch/stacking run (≠1 captured artifact) WITH a native dir → falls back to the bridge.
-* (6) ``format="n4a.py"`` (portable script) on a native single-artifact run → falls back to the bridge (the
+* (5) a duplication branch + mean-fusion run (multiple captured artifacts) WITH a native dir → exports a
+  native multi-artifact bundle that averages captured branch REFIT models, without invoking the bridge.
+* (6) a branch/stacking run (multiple captured artifacts, but not fusion-replayable) WITH a native dir →
+  falls back to the bridge.
+* (7) ``format="n4a.py"`` (portable script) on a native single-artifact run → falls back to the bridge (the
   native writer produces the ZIP bundle only; never a silent ZIP-under-``.n4a.py``).
 """
 
@@ -53,6 +56,12 @@ def _refit_x(dataset_key: str) -> np.ndarray:
     base = DatasetConfigs(dataset_path(dataset_key)).get_dataset_at(0)
     test_ids = [int(s) for s in base.index_column("sample", {"partition": "test"})]
     return np.asarray(base.x_rows(test_ids, layout="2d"))
+
+
+def _refit_y(dataset_key: str) -> np.ndarray:
+    """The held-out test target vector in the same sample order as :func:`_refit_x`."""
+    base = DatasetConfigs(dataset_path(dataset_key)).get_dataset_at(0)
+    return np.asarray(base.y({"partition": "test"}, include_augmented=False), dtype=float).ravel()
 
 
 def _final_test_pred(result) -> np.ndarray:
@@ -200,14 +209,67 @@ def test_no_native_dir_n4a_uses_legacy_bridge(tmp_path: Path, monkeypatch: pytes
 
 
 # ---------------------------------------------------------------------------
-# (5) branch/stacking run WITH native dir → falls back to the bridge (≠1 captured artifact).
+# (5) branch mean-fusion run WITH native dir → native multi-artifact .n4a, NO bridge.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_branch_run_n4a_falls_back_to_bridge(tmp_path: Path) -> None:
+def test_branch_fusion_n4a_export_never_refits_on_legacy(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A duplication-branch + mean-fusion run captures multiple branch REFIT artifacts. The native ``.n4a``
+    export packages a fusion wrapper over those artifacts, reproduces the native final-test RMSE, and never
+    calls the legacy bridge."""
+    from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+
+    pipeline = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {
+            "branch": [
+                [SNV(), {"model": PLSRegression(n_components=5)}],
+                [MSC(), {"model": PLSRegression(n_components=5)}],
+            ]
+        },
+        {"merge": "mean"},
+    ]
+    result = _run_native(tmp_path, pipeline, random_state=42)
+    assert result._dagml_results_dir is not None  # noqa: SLF001 -- a native dir WAS written
+    assert len(result._dagml_refit_artifacts) == 2, "mean fusion captures one REFIT artifact per branch"  # noqa: SLF001
+
+    native_manifest = json.loads((result._dagml_results_dir / "manifest.json").read_text(encoding="utf-8"))  # noqa: SLF001
+    assert "merge:fusion" in native_manifest["final_producer_nodes"]
+
+    def _boom(*_args, **_kwargs):
+        raise _LegacyEngineTouched("the legacy engine must NOT be invoked by a native fusion .n4a export")
+
+    run_module = importlib.import_module("nirs4all.api.run")
+    monkeypatch.setattr(run_module, "run", _boom)
+
+    out = tmp_path / "model_branch_fusion.n4a"
+    returned = result.export(out)
+    assert returned == out and out.exists()
+    assert result._dagml_legacy_result is None  # noqa: SLF001 -- the bridge was never materialized
+
+    actual = np.asarray(BundleLoader(out).predict(_refit_x("regression")), dtype=float).ravel()
+    y_true = _refit_y("regression")
+    assert actual.shape == y_true.shape
+    rmse = float(np.sqrt(np.mean((actual - y_true) ** 2)))
+    assert np.isclose(rmse, result.best_rmse, atol=1e-6), "fusion .n4a reproduces the native branch-fusion final RMSE"
+
+    manifest = _read_manifest(out)
+    assert manifest["source_type"] == "dagml_native"
+    assert manifest["export_path"] == "dagml_native_fusion"
+    assert manifest["dagml_native_export_shape"] == "branch_fusion_mean"
+    assert manifest["dagml_artifact_count"] == 2
+
+
+# ---------------------------------------------------------------------------
+# (6) branch/stacking run WITH native dir → falls back to the bridge (not fusion-replayable).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_branch_stacking_run_n4a_falls_back_to_bridge(tmp_path: Path) -> None:
     """A duplication-branch + merge-predictions (stacking) run captures MULTIPLE REFIT artifacts (≠1), so even
-    WITH a native dir the native single-model ``.n4a`` is NOT applicable → it defers to the legacy bridge."""
+    WITH a native dir the native fusion ``.n4a`` is NOT applicable → it defers to the legacy bridge."""
     from sklearn.linear_model import Ridge
 
     from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
@@ -230,11 +292,11 @@ def test_branch_run_n4a_falls_back_to_bridge(tmp_path: Path) -> None:
     out = tmp_path / "model_branch.n4a"
     result.export(out)
     assert out.exists()
-    assert result._dagml_legacy_result is not None, "≠1 artifact → the legacy bridge backs the .n4a export"  # noqa: SLF001
+    assert result._dagml_legacy_result is not None, "stacking multi-artifact → the legacy bridge backs the .n4a export"  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
-# (6) n4a.py portable-script format → legacy bridge (the native writer produces the ZIP bundle only).
+# (7) n4a.py portable-script format → legacy bridge (the native writer produces the ZIP bundle only).
 # ---------------------------------------------------------------------------
 
 
