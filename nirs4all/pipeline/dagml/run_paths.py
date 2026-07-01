@@ -2687,6 +2687,23 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
+
+    if named_duplication:
+        # The current dag-ml runtime still validates stacking refit coverage before honoring the
+        # cv_only metadata contract. Legacy named-dict stacking has no refit surface, so replay this
+        # narrow CV-only table locally inside the dag-ml backend, like the by-source stacking replay.
+        return _named_dict_stacking_legacy_projection(
+            pipeline=pipeline,
+            branches=branches,
+            meta_learner=meta_learner,
+            spectro=spectro,
+            folds=folds,
+            metric=metric,
+            task_type=task_type,
+            config_name=config_name,
+            scores=None,
+        )
+
     envelope = build_envelope(spectro, identity, sample_ints=pool)
 
     # Canonical DSL: one duplication branch with N base sub-pipelines (each on the FULL data) + a
