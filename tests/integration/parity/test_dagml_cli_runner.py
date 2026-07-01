@@ -2840,6 +2840,10 @@ def test_duplication_branch_detection() -> None:
     explicit = _detect_duplication_branch([splitter, {"branch": [[{"model": PLSRegression()}], [{"model": Ridge()}]]}, {"merge": {"predictions": "all", "aggregate": "mean"}}])
     assert explicit is not None and explicit[1] == "mean"
 
+    # Handled: branch features + branch model predictions + downstream model.
+    merge_all = _detect_duplication_branch([splitter, {"branch": [[StandardNormalVariate(), {"model": PLSRegression()}], [StandardNormalVariate(), {"model": Ridge()}]]}, {"merge": "all"}, {"model": Ridge(alpha=0.2)}])
+    assert merge_all is not None and merge_all[1] == "all"
+
     # The fusion token mapping (mean->mean value-average, proba_mean->probability-average) vs stacking.
     assert _fusion_merge_aggregate({"merge": "mean"}) == "mean"
     assert _fusion_merge_aggregate({"merge": {"predictions": "all", "aggregate": "proba_mean"}}) == "proba_mean"
@@ -2863,6 +2867,8 @@ def test_duplication_branch_detection() -> None:
     assert _detect_duplication_branch([splitter, {"branch": [[StandardNormalVariate()], [{"model": Ridge()}]]}, {"merge": "mean"}]) is None
     # a top-level transform beside the branch (would be silently dropped).
     assert _detect_duplication_branch([StandardNormalVariate(), splitter, branch, {"merge": "mean"}]) is None
+    # merge=all requires branch-local models, because its prediction columns are part of the output.
+    assert _detect_duplication_branch([splitter, {"branch": [[StandardNormalVariate()], [StandardNormalVariate()]]}, {"merge": "all"}, {"model": Ridge()}]) is None
     # no merge / no branch at all.
     assert _detect_duplication_branch([splitter, branch]) is None
     assert _detect_duplication_branch([splitter, {"merge": "mean"}]) is None

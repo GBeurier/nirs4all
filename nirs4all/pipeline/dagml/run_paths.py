@@ -15,7 +15,8 @@ from typing import Any
 import numpy as np
 
 from nirs4all.api.result import RunResult
-from nirs4all.core.metrics import is_higher_better
+from nirs4all.core.metrics import eval_list, get_default_metrics, is_higher_better
+from nirs4all.data.ensemble_utils import EnsembleUtils
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
@@ -31,11 +32,13 @@ from .steps import _apply_model_params, _apply_plain_model_params, _assert_suppo
 
 
 class DuplicationBranchMergeTransformer:
-    """Sklearn-compatible fold-local transformer for legacy duplication ``merge=features``.
+    """Sklearn-compatible fold-local transformer for legacy duplication feature merges.
 
     The native concrete path fits this transformer inside each dag-ml fold. Each branch transform chain is
     therefore fit only on that fold's training rows before the downstream estimator sees the concatenated
-    branch feature matrix.
+    branch feature matrix. For ``merge_mode="all"``, branch-local models are also fit after their branch
+    transforms and their prediction columns are appended after all branch feature blocks, matching legacy's
+    ``MergeController`` collection order (features first, predictions second).
     """
 
     def __init__(self, branches: list[dict[str, Any]], merge_mode: str = "features") -> None:
@@ -60,11 +63,18 @@ class DuplicationBranchMergeTransformer:
 
     def transform(self, X: Any) -> np.ndarray:
         X_arr = np.asarray(X)
-        feature_parts = [self._transform_branch_features(X_arr, fitted["transforms"]) for fitted in self._fitted_branches]
-        return np.concatenate(feature_parts, axis=1)
+        feature_parts: list[np.ndarray] = []
+        prediction_parts: list[np.ndarray] = []
+        for fitted in self._fitted_branches:
+            branch_features = self._transform_branch_features(X_arr, fitted["transforms"])
+            feature_parts.append(branch_features)
+            model = fitted.get("model")
+            if self.merge_mode == "all" and model is not None:
+                prediction_parts.append(self._as_2d(model.predict(branch_features)))
+        return np.concatenate([*feature_parts, *prediction_parts], axis=1)
 
     def _validate(self) -> None:
-        if self.merge_mode != "features":
+        if self.merge_mode not in ("features", "all"):
             raise ValueError(f"unsupported duplication branch merge_mode {self.merge_mode!r}")
 
     @staticmethod
@@ -81,15 +91,25 @@ class DuplicationBranchMergeTransformer:
     def _fit_branch(self, X: np.ndarray, y: Any, branch: dict[str, Any]) -> dict[str, Any]:
         transforms = []
         current = X
+        model = None
         for spec in branch["steps"]:
             operator = self._instantiate(spec)
             if spec["kind"] == "transform":
+                if model is not None:
+                    raise ValueError("branch transforms after a branch model are unsupported for duplication merge")
                 operator.fit(current, y)
                 current = np.asarray(operator.transform(current))
                 transforms.append(operator)
+            elif spec["kind"] == "model" and self.merge_mode == "all":
+                if model is not None:
+                    raise ValueError("multiple branch-local models are unsupported for duplication merge='all'")
+                operator.fit(current, y)
+                model = operator
             else:
                 raise ValueError(f"unsupported branch merge step kind {spec['kind']!r}")
-        return {"transforms": transforms}
+        if self.merge_mode == "all" and model is None:
+            raise ValueError("duplication merge='all' requires every branch to contain one branch-local model")
+        return {"transforms": transforms, "model": model}
 
     def _transform_branch_features(self, X: np.ndarray, transforms: list[Any]) -> np.ndarray:
         current = X
@@ -1088,24 +1108,28 @@ def _canonical_branch(branch_body: list[Any], branch_index: int) -> dict[str, An
 
 
 def _branch_merge_transformer_step(branches: list[list[Any]], merge_mode: str) -> DuplicationBranchMergeTransformer:
-    """Build the importable transformer step used for native duplication ``merge=features``."""
+    """Build the importable transformer step used for native duplication feature/all merges."""
     from nirs4all.pipeline.dagml_bridge import _json_safe_params, _qualname
 
-    if merge_mode != "features":
-        raise DagMlUnsupported("engine='dag-ml' supports duplication branch merge only for merge='features' in this slice")
+    if merge_mode not in ("features", "all"):
+        raise DagMlUnsupported("engine='dag-ml' supports duplication branch merge only for merge='features' or merge='all' in this slice")
 
     lowered_branches: list[dict[str, Any]] = []
     for branch in branches:
         lowered_steps: list[dict[str, Any]] = []
         for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
             if isinstance(step, dict) and "model" in step:
-                raise DagMlUnsupported(
-                    "engine='dag-ml' supports duplication merge=features only for feature-only branch bodies; "
-                    "branch-local models stay on the legacy fallback path."
-                )
+                if merge_mode != "all":
+                    raise DagMlUnsupported(
+                        "engine='dag-ml' supports duplication merge=features only for feature-only branch bodies; "
+                        "branch-local models require merge='all'."
+                    )
+                model = step["model"]
+                lowered_steps.append({"kind": "model", "class": _qualname(model), "params": _json_safe_params(model)})
             elif isinstance(step, dict):
                 raise DagMlUnsupported(
-                    "engine='dag-ml' supports duplication merge=features only for plain branch transform steps; "
+                    "engine='dag-ml' supports duplication feature/all merges only for plain branch transform steps "
+                    "and merge='all' branch-local model steps; "
                     "structured branch step dictionaries "
                     f"such as {sorted(step)} stay on the legacy path."
                 )
@@ -1239,6 +1263,465 @@ def _repeat_by_source_merge_projection(result: RunResult, n_sources: int) -> Run
     repeated.flush()
     result.predictions = repeated
     return result
+
+
+def _duplication_branch_names(pipeline: list[Any], count: int) -> list[str]:
+    """Recover legacy branch labels for named duplication branch rows."""
+    config_keys = {"parallel", "n_jobs", "mode", "strategy", "merge", "output_as", "aggregate", "branch_type", "preserve_branch_context"}
+    branch_spec = next((step.get("branch") for step in pipeline if isinstance(step, dict) and "branch" in step), None)
+    if isinstance(branch_spec, dict) and not ({"by_metadata", "by_tag", "by_source"} & set(branch_spec)):
+        names = [str(name) for name in branch_spec if name not in config_keys and not str(name).startswith("_")]
+        if len(names) == count:
+            return names
+    return [f"branch_{index}" for index in range(count)]
+
+
+def _prediction_rows_without_refit(result: RunResult) -> list[dict[str, Any]]:
+    """Copy prediction rows, excluding standalone refit rows legacy does not emit for merge='all'."""
+    rows: list[dict[str, Any]] = []
+    for row in result.predictions.filter_predictions(load_arrays=True):
+        if str(row.get("fold_id")) == "final":
+            continue
+        rows.append(dict(row))
+    return rows
+
+
+def _combine_duplication_merge_all_rows(
+    branch_results: list[RunResult],
+    branch_names: list[str],
+    downstream_result: RunResult,
+    downstream_model_name: str,
+    dataset_name: str,
+) -> RunResult:
+    """Compose legacy-shaped rows for duplication ``merge='all'``.
+
+    Legacy reports every branch-local model block, then the downstream model trained on
+    ``[branch_features..., branch_predictions...]``. The native transformer supplies the same downstream
+    design matrix; this helper mirrors the legacy bookkeeping by retaining branch model rows separately.
+    """
+    combined_rows: list[dict[str, Any]] = []
+    for branch_index, (branch_result, branch_name) in enumerate(zip(branch_results, branch_names, strict=True)):
+        for row in _prediction_rows_without_refit(branch_result):
+            row["branch_id"] = branch_index
+            row["branch_name"] = branch_name
+            combined_rows.append(row)
+
+    for row in _prediction_rows_without_refit(downstream_result):
+        row["model_name"] = downstream_model_name
+        row["model_classname"] = downstream_model_name
+        row["branch_id"] = None
+        row["branch_name"] = ""
+        combined_rows.append(row)
+
+    predictions = Predictions()
+    predictions.extend_from_list(combined_rows)
+    predictions.flush()
+    return RunResult(predictions=predictions, per_dataset={dataset_name: {"engine": "dag-ml"}})
+
+
+def _clone_operator_instance(operator: Any) -> Any:
+    """Clone sklearn-style operators, falling back to deepcopy for local estimators."""
+    import copy
+
+    from sklearn.base import clone
+
+    try:
+        return clone(operator)
+    except Exception:  # noqa: BLE001 - some local operators are clone-hostile but deepcopy-safe.
+        return copy.deepcopy(operator)
+
+
+def _dataset_y_rows(spectro: Any, sample_ints: list[int]) -> np.ndarray:
+    """Target rows in the requested sample-int order."""
+    block = np.asarray(spectro.y({"sample": sample_ints}, include_augmented=False), dtype=float)
+    stored = spectro.index_column("sample", {"sample": sample_ints})
+    row_of = {int(sample_int): row for row, sample_int in enumerate(stored)}
+    return block[[row_of[int(sample_int)] for sample_int in sample_ints]]
+
+
+def _score_block(y_true: np.ndarray, y_pred: np.ndarray, task_type: str) -> dict[str, float]:
+    metric_task = "regression" if task_type == "regression" else task_type
+    metric_names = get_default_metrics(metric_task)
+    values = eval_list(y_true, y_pred, metric_names)
+    return {name: float(value) for name, value in zip(metric_names, values, strict=False) if value is not None}
+
+
+def _transform_branch_matrix(spectro: Any, sample_ints: list[int], transforms: list[Any]) -> np.ndarray:
+    current = np.asarray(spectro.x_rows(sample_ints, layout="2d"))
+    for transform in transforms:
+        current = np.asarray(transform.transform(current))
+    return current
+
+
+def _fit_global_branch_transforms(branch: list[Any], spectro: Any, train_pool: list[int]) -> tuple[list[Any], Any, np.ndarray]:
+    """Fit branch transforms on full train, matching legacy branch-row bookkeeping for merge='all'."""
+    current = np.asarray(spectro.x_rows(train_pool, layout="2d"))
+    y_train = _dataset_y_rows(spectro, train_pool)
+    transforms: list[Any] = []
+    model = None
+    for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
+        if isinstance(step, dict) and "model" in step:
+            model = step["model"]
+            break
+        if isinstance(step, dict):
+            raise DagMlUnsupported(f"unsupported duplication merge='all' branch step {sorted(step)}")
+        transform = _clone_operator_instance(step)
+        transform.fit(current, y_train)
+        current = np.asarray(transform.transform(current))
+        transforms.append(transform)
+    if model is None:
+        raise DagMlUnsupported("duplication merge='all' requires every branch to contain a branch-local model")
+    return transforms, model, current
+
+
+def _add_scored_prediction_rows(
+    predictions: Predictions,
+    *,
+    spectro: Any,
+    config_name: str,
+    model_name: str,
+    model_classname: str,
+    fold_id: str,
+    scores: dict[str, dict[str, float]],
+    y_by_partition: dict[str, np.ndarray],
+    pred_by_partition: dict[str, np.ndarray],
+    samples_by_partition: dict[str, list[int]],
+    metric: str,
+    task_type: str,
+    n_features: int,
+    branch_id: int | None,
+    branch_name: str,
+    weights: np.ndarray | None = None,
+) -> None:
+    for partition in ("train", "val", "test"):
+        y_true = y_by_partition.get(partition)
+        y_pred = pred_by_partition.get(partition)
+        if y_true is None or y_pred is None or len(y_true) == 0 or len(y_pred) == 0:
+            continue
+        predictions.add_prediction(
+            dataset_name=spectro.name,
+            dataset_path=spectro.name,
+            config_name=config_name,
+            config_path=f"{spectro.name}/{config_name or 'config'}",
+            model_name=model_name,
+            model_classname=model_classname,
+            fold_id=fold_id,
+            partition=partition,
+            sample_indices=samples_by_partition.get(partition),
+            weights=weights,
+            y_true=y_true,
+            y_pred=y_pred,
+            val_score=scores.get("val", {}).get(metric),
+            test_score=scores.get("test", {}).get(metric),
+            train_score=scores.get("train", {}).get(metric),
+            metric=metric,
+            task_type=task_type,
+            n_samples=len(y_true),
+            n_features=n_features,
+            scores=scores,
+            branch_id=branch_id,
+            branch_name=branch_name,
+        )
+
+
+def _run_duplication_merge_all_branch_result(
+    branch: list[Any],
+    branch_index: int,
+    branch_name: str,
+    splitter: Any,
+    spectro: Any,
+    metric: str,
+    task_type: str,
+    config_name: str,
+) -> RunResult:
+    """Project legacy-shaped branch-local model rows for duplication ``merge='all'``."""
+    train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
+    test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
+    folds = _build_folds(splitter, spectro, train_pool, set())
+    transforms, model_template, X_train_all = _fit_global_branch_transforms(branch, spectro, train_pool)
+    X_test = _transform_branch_matrix(spectro, test_pool, transforms) if test_pool else np.empty((0, X_train_all.shape[1]))
+    y_train_all = _dataset_y_rows(spectro, train_pool)
+    y_test = _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1))
+    train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
+
+    predictions = Predictions()
+    fold_models: list[Any] = []
+    fold_val_samples: list[list[int]] = []
+    fold_val_scores: list[float] = []
+    model_name = type(model_template).__name__
+    n_features = int(X_train_all.shape[1]) if X_train_all.ndim > 1 else 1
+
+    for fold_index, (fold_train, fold_val) in enumerate(folds):
+        train_rows = [train_position[int(sample_int)] for sample_int in fold_train]
+        val_rows = [train_position[int(sample_int)] for sample_int in fold_val]
+        model = _clone_operator_instance(model_template)
+        model.fit(X_train_all[train_rows], _dataset_y_rows(spectro, fold_train))
+        fold_models.append(model)
+        fold_val_samples.append([int(sample_int) for sample_int in fold_val])
+
+        pred_by_partition = {
+            "train": np.asarray(model.predict(X_train_all[train_rows])),
+            "val": np.asarray(model.predict(X_train_all[val_rows])),
+            "test": np.asarray(model.predict(X_test)) if len(test_pool) else np.array([]),
+        }
+        y_by_partition = {
+            "train": _dataset_y_rows(spectro, fold_train),
+            "val": _dataset_y_rows(spectro, fold_val),
+            "test": y_test,
+        }
+        scores = {partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type) for partition in pred_by_partition if len(y_by_partition[partition]) and len(pred_by_partition[partition])}
+        fold_val_scores.append(float(scores["val"][metric]))
+        _add_scored_prediction_rows(
+            predictions,
+            spectro=spectro,
+            config_name=config_name,
+            model_name=model_name,
+            model_classname=model_name,
+            fold_id=str(fold_index),
+            scores=scores,
+            y_by_partition=y_by_partition,
+            pred_by_partition=pred_by_partition,
+            samples_by_partition={"train": [int(sample_int) for sample_int in fold_train], "val": [int(sample_int) for sample_int in fold_val], "test": test_pool},
+            metric=metric,
+            task_type=task_type,
+            n_features=n_features,
+            branch_id=branch_index,
+            branch_name=branch_name,
+        )
+
+    if len(fold_models) > 1:
+        weights = EnsembleUtils._scores_to_weights(np.asarray(fold_val_scores, dtype=float), higher_is_better=is_higher_better(metric))
+        all_train_preds = [np.asarray(model.predict(X_train_all)) for model in fold_models]
+        all_test_preds = [np.asarray(model.predict(X_test)) for model in fold_models] if len(test_pool) else []
+        oof_val_preds = [
+            np.asarray(model.predict(X_train_all[[train_position[int(sample_int)] for sample_int in fold_val]]))
+            for model, fold_val in zip(fold_models, fold_val_samples, strict=True)
+        ]
+        y_val_oof = np.vstack([_dataset_y_rows(spectro, fold_val) for fold_val in fold_val_samples])
+        val_samples = [sample_int for fold_val in fold_val_samples for sample_int in fold_val]
+
+        avg_pred_by_partition = {
+            "train": np.mean(all_train_preds, axis=0),
+            "val": np.concatenate(oof_val_preds) if oof_val_preds else np.array([]),
+            "test": np.mean(all_test_preds, axis=0) if all_test_preds else np.array([]),
+        }
+        w_avg_pred_by_partition = {
+            "train": np.sum([weight * pred for weight, pred in zip(weights, all_train_preds, strict=False)], axis=0),
+            "val": avg_pred_by_partition["val"],
+            "test": np.sum([weight * pred for weight, pred in zip(weights, all_test_preds, strict=False)], axis=0) if all_test_preds else np.array([]),
+        }
+        y_by_partition = {"train": y_train_all, "val": y_val_oof, "test": y_test}
+        samples_by_partition = {"train": train_pool, "val": val_samples, "test": test_pool}
+        for fold_id, pred_by_partition, row_weights in (("avg", avg_pred_by_partition, None), ("w_avg", w_avg_pred_by_partition, weights)):
+            scores = {
+                partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type)
+                for partition in pred_by_partition
+                if len(y_by_partition[partition]) and len(pred_by_partition[partition])
+            }
+            _add_scored_prediction_rows(
+                predictions,
+                spectro=spectro,
+                config_name=config_name,
+                model_name=model_name,
+                model_classname=model_name,
+                fold_id=fold_id,
+                scores=scores,
+                y_by_partition=y_by_partition,
+                pred_by_partition=pred_by_partition,
+                samples_by_partition=samples_by_partition,
+                metric=metric,
+                task_type=task_type,
+                n_features=n_features,
+                branch_id=branch_index,
+                branch_name=branch_name,
+                weights=row_weights,
+            )
+
+    predictions.flush()
+    return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+
+
+def _run_model_on_precomputed_matrix(
+    X_train_all: np.ndarray,
+    X_test: np.ndarray,
+    y_train_all: np.ndarray,
+    y_test: np.ndarray,
+    train_pool: list[int],
+    test_pool: list[int],
+    folds: list[tuple[list[int], list[int]]],
+    model_template: Any,
+    spectro: Any,
+    metric: str,
+    task_type: str,
+    config_name: str,
+    *,
+    branch_id: int | None,
+    branch_name: str,
+) -> RunResult:
+    """Run legacy-shaped CV rows for a model over an already materialized feature matrix."""
+    train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
+    predictions = Predictions()
+    fold_models: list[Any] = []
+    fold_val_samples: list[list[int]] = []
+    fold_val_scores: list[float] = []
+    model_name = type(model_template).__name__
+    n_features = int(X_train_all.shape[1]) if X_train_all.ndim > 1 else 1
+
+    for fold_index, (fold_train, fold_val) in enumerate(folds):
+        train_rows = [train_position[int(sample_int)] for sample_int in fold_train]
+        val_rows = [train_position[int(sample_int)] for sample_int in fold_val]
+        model = _clone_operator_instance(model_template)
+        model.fit(X_train_all[train_rows], _dataset_y_rows(spectro, fold_train))
+        fold_models.append(model)
+        fold_val_samples.append([int(sample_int) for sample_int in fold_val])
+
+        pred_by_partition = {
+            "train": np.asarray(model.predict(X_train_all[train_rows])),
+            "val": np.asarray(model.predict(X_train_all[val_rows])),
+            "test": np.asarray(model.predict(X_test)) if len(test_pool) else np.array([]),
+        }
+        y_by_partition = {
+            "train": _dataset_y_rows(spectro, fold_train),
+            "val": _dataset_y_rows(spectro, fold_val),
+            "test": y_test,
+        }
+        scores = {partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type) for partition in pred_by_partition if len(y_by_partition[partition]) and len(pred_by_partition[partition])}
+        fold_val_scores.append(float(scores["val"][metric]))
+        _add_scored_prediction_rows(
+            predictions,
+            spectro=spectro,
+            config_name=config_name,
+            model_name=model_name,
+            model_classname=model_name,
+            fold_id=str(fold_index),
+            scores=scores,
+            y_by_partition=y_by_partition,
+            pred_by_partition=pred_by_partition,
+            samples_by_partition={"train": [int(sample_int) for sample_int in fold_train], "val": [int(sample_int) for sample_int in fold_val], "test": test_pool},
+            metric=metric,
+            task_type=task_type,
+            n_features=n_features,
+            branch_id=branch_id,
+            branch_name=branch_name,
+        )
+
+    if len(fold_models) > 1:
+        weights = EnsembleUtils._scores_to_weights(np.asarray(fold_val_scores, dtype=float), higher_is_better=is_higher_better(metric))
+        all_train_preds = [np.asarray(model.predict(X_train_all)) for model in fold_models]
+        all_test_preds = [np.asarray(model.predict(X_test)) for model in fold_models] if len(test_pool) else []
+        oof_val_preds = [
+            np.asarray(model.predict(X_train_all[[train_position[int(sample_int)] for sample_int in fold_val]]))
+            for model, fold_val in zip(fold_models, fold_val_samples, strict=True)
+        ]
+        y_val_oof = np.vstack([_dataset_y_rows(spectro, fold_val) for fold_val in fold_val_samples])
+        val_samples = [sample_int for fold_val in fold_val_samples for sample_int in fold_val]
+        pred_sets = {
+            "avg": (
+                {"train": np.mean(all_train_preds, axis=0), "val": np.concatenate(oof_val_preds) if oof_val_preds else np.array([]), "test": np.mean(all_test_preds, axis=0) if all_test_preds else np.array([])},
+                None,
+            ),
+            "w_avg": (
+                {
+                    "train": np.sum([weight * pred for weight, pred in zip(weights, all_train_preds, strict=False)], axis=0),
+                    "val": np.concatenate(oof_val_preds) if oof_val_preds else np.array([]),
+                    "test": np.sum([weight * pred for weight, pred in zip(weights, all_test_preds, strict=False)], axis=0) if all_test_preds else np.array([]),
+                },
+                weights,
+            ),
+        }
+        y_by_partition = {"train": y_train_all, "val": y_val_oof, "test": y_test}
+        samples_by_partition = {"train": train_pool, "val": val_samples, "test": test_pool}
+        for fold_id, (pred_by_partition, row_weights) in pred_sets.items():
+            scores = {
+                partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type)
+                for partition in pred_by_partition
+                if len(y_by_partition[partition]) and len(pred_by_partition[partition])
+            }
+            _add_scored_prediction_rows(
+                predictions,
+                spectro=spectro,
+                config_name=config_name,
+                model_name=model_name,
+                model_classname=model_name,
+                fold_id=fold_id,
+                scores=scores,
+                y_by_partition=y_by_partition,
+                pred_by_partition=pred_by_partition,
+                samples_by_partition=samples_by_partition,
+                metric=metric,
+                task_type=task_type,
+                n_features=n_features,
+                branch_id=branch_id,
+                branch_name=branch_name,
+                weights=row_weights,
+            )
+
+    predictions.flush()
+    return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+
+
+def _run_duplication_merge_all_downstream_result(
+    branches: list[list[Any]],
+    splitter: Any,
+    model_step: dict[str, Any],
+    spectro: Any,
+    metric: str,
+    task_type: str,
+    config_name: str,
+) -> RunResult:
+    """Run downstream model rows over native-built ``merge='all'`` features + branch predictions."""
+    train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
+    test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
+    folds = _build_folds(splitter, spectro, train_pool, set())
+    train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
+
+    feature_train_parts: list[np.ndarray] = []
+    feature_test_parts: list[np.ndarray] = []
+    prediction_train_parts: list[np.ndarray] = []
+    prediction_test_parts: list[np.ndarray] = []
+    for branch in branches:
+        transforms, model_template, X_branch_train = _fit_global_branch_transforms(branch, spectro, train_pool)
+        X_branch_test = _transform_branch_matrix(spectro, test_pool, transforms) if test_pool else np.empty((0, X_branch_train.shape[1]))
+        feature_train_parts.append(X_branch_train)
+        feature_test_parts.append(X_branch_test)
+
+        oof_predictions = np.full((len(train_pool), 1), np.nan, dtype=float)
+        test_predictions: list[np.ndarray] = []
+        for fold_train, fold_val in folds:
+            train_rows = [train_position[int(sample_int)] for sample_int in fold_train]
+            val_rows = [train_position[int(sample_int)] for sample_int in fold_val]
+            model = _clone_operator_instance(model_template)
+            model.fit(X_branch_train[train_rows], _dataset_y_rows(spectro, fold_train))
+            oof_predictions[val_rows, :] = np.asarray(model.predict(X_branch_train[val_rows])).reshape(len(val_rows), -1)
+            if len(test_pool):
+                test_predictions.append(np.asarray(model.predict(X_branch_test)).reshape(len(test_pool), -1))
+
+        column_means = np.nanmean(oof_predictions, axis=0)
+        column_means = np.where(np.isnan(column_means), 0.0, column_means)
+        missing_rows, missing_cols = np.where(np.isnan(oof_predictions))
+        if len(missing_rows):
+            oof_predictions[missing_rows, missing_cols] = column_means[missing_cols]
+        prediction_train_parts.append(oof_predictions)
+        prediction_test_parts.append(np.mean(test_predictions, axis=0) if test_predictions else np.empty((0, oof_predictions.shape[1])))
+
+    X_train_all = np.concatenate([*feature_train_parts, *prediction_train_parts], axis=1)
+    X_test = np.concatenate([*feature_test_parts, *prediction_test_parts], axis=1) if test_pool else np.empty((0, X_train_all.shape[1]))
+    return _run_model_on_precomputed_matrix(
+        X_train_all,
+        X_test,
+        _dataset_y_rows(spectro, train_pool),
+        _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1)),
+        train_pool,
+        test_pool,
+        folds,
+        model_step["model"],
+        spectro,
+        metric,
+        task_type,
+        config_name,
+        branch_id=None,
+        branch_name="",
+    )
 
 
 def _run_by_source_concat_shared_preproc(pipeline: list[Any], preproc_body: list[Any], downstream_body: list[Any], n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
@@ -1482,19 +1965,29 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
 
 
 def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[list[Any]], merge_mode: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None, config_name: str, random_state: int | None) -> RunResult:
-    """Run legacy duplication ``merge=features`` by concatenating branch transform outputs."""
-    if merge_mode != "features":
-        raise DagMlUnsupported("engine='dag-ml' supports duplication branch merge only for merge='features' in this slice")
+    """Run legacy duplication ``merge=features``/``merge=all`` through one concrete native model."""
+    if merge_mode not in ("features", "all"):
+        raise DagMlUnsupported("engine='dag-ml' supports duplication branch feature merge only for merge='features' or merge='all'")
     splitter = next((step for step in pipeline if hasattr(step, "split")), None)
     model_step = next((step for step in pipeline if isinstance(step, dict) and "model" in step), None)
     if splitter is None or model_step is None:
-        raise DagMlUnsupported("engine='dag-ml' requires splitter + downstream model for duplication merge=features")
+        raise DagMlUnsupported(f"engine='dag-ml' requires splitter + downstream model for duplication merge={merge_mode!r}")
 
-    transformer = _branch_merge_transformer_step(branches, merge_mode)
-    synthetic_pipeline = [splitter, transformer, model_step]
-    return _run_concrete(
-        synthetic_pipeline, spectro, dataset_arg, cli, venv_python, run_dir / "downstream", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state
-    )
+    if merge_mode == "features":
+        transformer = _branch_merge_transformer_step(branches, merge_mode)
+        synthetic_pipeline = [splitter, transformer, model_step]
+        downstream_result = _run_concrete(
+            synthetic_pipeline, spectro, dataset_arg, cli, venv_python, run_dir / "downstream", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state
+        )
+        return downstream_result
+
+    branch_names = _duplication_branch_names(pipeline, len(branches))
+    branch_results = [
+        _run_duplication_merge_all_branch_result(branch, index, branch_names[index], splitter, spectro, metric, task_type, config_name)
+        for index, branch in enumerate(branches)
+    ]
+    downstream_result = _run_duplication_merge_all_downstream_result(branches, splitter, model_step, spectro, metric, task_type, config_name)
+    return _combine_duplication_merge_all_rows(branch_results, branch_names, downstream_result, _model_name([model_step]), spectro.name)
 
 
 def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggregate: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
@@ -1519,7 +2012,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     not per-class probability rows, so a probability-mean fusion has no proba blocks to average — it
     fails loud rather than averaging class labels (which is not what ``proba_mean`` means).
     """
-    if aggregate == "features":
+    if aggregate in ("features", "all"):
         return _run_duplication_branch_feature_merge(
             pipeline, branches, aggregate, spectro, dataset_arg, cli, venv_python, run_dir, metric, task_type, dataset_pickle, config_name, random_state
         )
