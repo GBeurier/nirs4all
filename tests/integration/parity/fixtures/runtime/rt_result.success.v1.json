@@ -1,0 +1,162 @@
+{
+  "schema_version": 1,
+  "run_id": null,
+  "plan_id": "plan:py-rt-golden",
+  "selection": {
+    "selected_variant": "variant:base"
+  },
+  "reports": [
+    {
+      "prediction_id": "pred:model:compat.0:variant:base:avg",
+      "variant_id": "variant:base",
+      "variant_label": null,
+      "producer_node": "model:compat.0",
+      "partition": "validation",
+      "fold_id": "avg",
+      "level": "sample",
+      "row_count": 4,
+      "target_width": 1,
+      "target_names": ["moisture"],
+      "metrics": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      }
+    },
+    {
+      "prediction_id": "pred:model:compat.0:variant:base:fold-1",
+      "variant_id": "variant:base",
+      "variant_label": null,
+      "producer_node": "model:compat.0",
+      "partition": "validation",
+      "fold_id": "fold-1",
+      "level": "sample",
+      "row_count": 2,
+      "target_width": 1,
+      "target_names": ["moisture"],
+      "metrics": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      }
+    },
+    {
+      "prediction_id": "pred:model:compat.0:variant:base:fold-2",
+      "variant_id": "variant:base",
+      "variant_label": null,
+      "producer_node": "model:compat.0",
+      "partition": "validation",
+      "fold_id": "fold-2",
+      "level": "sample",
+      "row_count": 2,
+      "target_width": 1,
+      "target_names": ["moisture"],
+      "metrics": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      }
+    },
+    {
+      "prediction_id": "pred:model:compat.0:variant:base:final",
+      "variant_id": "variant:base",
+      "variant_label": null,
+      "producer_node": "model:compat.0",
+      "partition": "test",
+      "fold_id": "final",
+      "level": "sample",
+      "row_count": 2,
+      "target_width": 1,
+      "target_names": ["moisture"],
+      "metrics": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      }
+    }
+  ],
+  "predictions": [
+    {
+      "partition": "validation",
+      "fold_id": "avg",
+      "variant_id": "variant:base",
+      "model_name": "rt-golden-pls",
+      "sample_indices": [0, 1, 2, 3],
+      "y_true": [1.0, 2.0, 3.0, 4.0],
+      "y_pred": [1.0, 2.0, 3.0, 4.0],
+      "y_proba": null,
+      "scores": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      },
+      "metric": "rmse",
+      "task_type": "regression"
+    },
+    {
+      "partition": "validation",
+      "fold_id": "fold-1",
+      "variant_id": "variant:base",
+      "model_name": "rt-golden-pls",
+      "sample_indices": [0, 1],
+      "y_true": [1.0, 2.0],
+      "y_pred": [1.0, 2.0],
+      "y_proba": null,
+      "scores": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      },
+      "metric": "rmse",
+      "task_type": "regression"
+    },
+    {
+      "partition": "validation",
+      "fold_id": "fold-2",
+      "variant_id": "variant:base",
+      "model_name": "rt-golden-pls",
+      "sample_indices": [2, 3],
+      "y_true": [3.0, 4.0],
+      "y_pred": [3.0, 4.0],
+      "y_proba": null,
+      "scores": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      },
+      "metric": "rmse",
+      "task_type": "regression"
+    },
+    {
+      "partition": "test",
+      "fold_id": "final",
+      "variant_id": "variant:base",
+      "model_name": "rt-golden-pls",
+      "sample_indices": [4, 5],
+      "y_true": [5.0, 6.0],
+      "y_pred": [5.0, 6.0],
+      "y_proba": null,
+      "scores": {
+        "rmse": 0.0,
+        "r2": 1.0,
+        "mae": 0.0
+      },
+      "metric": "rmse",
+      "task_type": "regression"
+    }
+  ],
+  "manifest": {
+    "engine": "dag-ml",
+    "fingerprints": {
+      "score_set_hash": "d5c0c9bfde4aa3510dfb288457db82e2ab6d1d8ea4f598c61702b0439d5fc417",
+      "plan_id": "plan:py-rt-golden",
+      "bundle_id": null
+    },
+    "capabilities": {
+      "has_model_artifacts": false,
+      "has_aggregate_predictions": false
+    },
+    "portable_level": null,
+    "files": {}
+  }
+}
