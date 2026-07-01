@@ -14,6 +14,7 @@ import warnings
 import pytest
 
 import nirs4all
+from nirs4all.pipeline.dagml.errors import DagMlUnavailable
 from nirs4all.pipeline.dagml.rt import RtError
 
 from . import _conformance_helpers as H
@@ -49,3 +50,19 @@ def test_allow_fallback_true_degrades_and_attaches_diagnostic() -> None:
     rt = result.to_rt_result()
     assert rt.manifest["engine"] == "legacy"
     assert [d.cause for d in rt.diagnostics] == ["unsupported_shape"]
+
+
+def test_allow_fallback_false_raises_unavailable_backend_rterror(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A missing native backend is strict-mode catchable as ``RtError(cause='unavailable_backend')``."""
+    import nirs4all.pipeline.dagml.run_backend as run_backend
+
+    def _unavailable(_cli: str) -> None:
+        raise DagMlUnavailable("simulated missing dag-ml backend")
+
+    monkeypatch.setattr(run_backend, "preflight_dagml_backend", _unavailable)
+    with pytest.raises(RtError) as excinfo:
+        nirs4all.run(pipeline=[], dataset=object(), engine="dag-ml", allow_fallback=False, verbose=0)
+
+    assert excinfo.value.cause == "unavailable_backend"
+    assert excinfo.value.verb == "run"
+    assert "simulated missing dag-ml backend" in excinfo.value.message
