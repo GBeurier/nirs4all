@@ -141,12 +141,10 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     # the WINNER ONLY (32, the correct operator-SELECT semantic). dag-ml is RIGHT, so this is a permanent
     # native-vs-legacy delta, not a fixable bug — asserted as a parity-note (winner/score/winner-y_pred), with
     # num_predictions exempted, rather than a strict-xfail that would wrongly chase the legacy refit-all count.
-    # NOTE: generator_or_count_seed / generator_or_weights_count_seed are NOT here — they are registry
-    # SKIPs (skip_kind="unknown_semantics"), not strict-xfails. Measured across 3 fresh processes, the `_or_`
-    # count/`_weights_` subsample is NONDETERMINISTIC even with `_seed_` (varies run-to-run within ONE engine —
-    # `_seed_` is not threaded into OrStrategy's sample_with_seed), so a strict-xfail would FLIP to XPASS
-    # whenever the two unseeded draws coincide. A skip-with-evidence makes NO parity claim (not a force-pass);
-    # the deterministic `_cartesian_` count path (generator_cartesian_count_seed) IS a live GREEN parity case.
+    # NOTE: generator_or_count_seed / generator_or_weights_count_seed are live
+    # parity cases: the Python expander now threads node-local `_seed_` and
+    # `_weights_` into OrStrategy's `sample_with_seed` count cap, matching the
+    # deterministic `_cartesian_` count path.
 }
 
 
@@ -280,6 +278,8 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
     "generator_or_then_arrange",
     "generator_cartesian_pick",
     "generator_cartesian_count_seed",
+    "generator_or_count_seed",
+    "generator_or_weights_count_seed",
     # NATIVE param-sweep `_grid_` (routes `_run_native_generation`): a non-degenerate grid selects the
     # TRUE CV-best, so the winner's config_name must be the WINNING variant's name (content-recovered from
     # the winner's refit model params), NOT names[0]. Locks that the native param path winner matches legacy.

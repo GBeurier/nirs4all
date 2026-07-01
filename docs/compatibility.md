@@ -4,7 +4,7 @@
 **owner:** `nirs4all compatibility ledger`
 **consumer_of:** `dag-ml/docs/contracts/parity_oracle.v1.json` (`dag-ml.nirs4all.parity_oracle.v1`)
 **machine-readable companion:** `docs/compatibility.json`
-**last reconciled:** 2026-06-30 against `nirs4all e41362b4` / `dag-ml f58d7bf`
+**last reconciled:** 2026-07-01 against `nirs4all 98c33788+working-tree` / `dag-ml f58d7bf`
 **lock:** `LOCK-PYREF` (`DEC-PYREF-001`, `DEC-PYREF-002` accepted)
 
 This is the ADR-01 tolerance ledger the dag-ml contract names as its
@@ -159,14 +159,12 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 | `concat_transform_pca_svd_plsr` | RNG — concat_transform view order / decomposition differs | neither | `xfail(strict)` | `n/a_rng` | `:88` (Δrmse≈`1.4e0`) |
 | `generator_finetune_params_optuna` | RNG — Optuna explores a different trial sequence per engine, so selected hyperparameters differ | neither | `xfail(strict)` | `n/a_rng` | `:102` (Δrmse≈`1.7e0`) |
 | `generator_sample_log_uniform_alpha` | RNG — unseeded `_sample_` (`_seed_` not set): variant set / winner not reproducible across engines | neither | `xfail(strict)` | `n/a_rng` | `:115` (Δrmse up to ≈`5.3e-1`, different winner) |
-| `generator_or_count_seed` | `unknown_semantics` — `_or_` `count` subsample is nondeterministic **even with `_seed_`** (`_seed_` not threaded into `OrStrategy.sample_with_seed`); varies run-to-run within one engine | neither | `skip` (a strict xfail would XPASS-flip when the two unseeded draws coincide) | `n/a_rng` | `cases_generators_conformance.py:1062`, `:1072` |
-| `generator_or_weights_count_seed` | `unknown_semantics` — same `_or_` `count`/`_weights_` nondeterminism | neither | `skip` | `n/a_rng` | `cases_generators_conformance.py:1087`, `:1097` |
 | `refit_params_use_all_partitions` | `unknown_semantics` — `refit_params` semantics depend on 0.9.x retraining logic not yet pinned against `api/retrain.py` | neither | `skip` | `n/a_semantic` | `cases_refit_predict.py:107`, `:124` |
 
-> **The `_or_ count/_weights_` skip is deliberate, not a force-pass.** The
-> deterministic `_cartesian_` count path (`generator_cartesian_count_seed`) IS a
-> live green parity case and stays in `SAME_WINNER_CASES` — only the
-> `OrStrategy`-seeded path is non-comparable.
+> **The `_or_ count/_weights_` path is now a live parity case.** `_seed_` and
+> `_weights_` are threaded into `OrStrategy.sample_with_seed`, so
+> `generator_or_count_seed` and `generator_or_weights_count_seed` run alongside
+> the deterministic `_cartesian_` count path in `SAME_WINNER_CASES`.
 
 ---
 
@@ -266,26 +264,26 @@ report §4 and SW5 §6 for the concrete test specs).
 ## §E — Coverage meter (the LOCK-DROP instrument)
 
 Counts verified against `tests/integration/parity/cases_*.py` (95 `register()`
-calls) on `e41362b4`. The `EXPECTED_FALLBACK` shrink target is the LOCK-DROP D1
+calls) on `98c33788+working-tree`. The `EXPECTED_FALLBACK` shrink target is the LOCK-DROP D1
 gate.
 
 | Metric | Count | Note |
 |---|---|---|
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
-| Non-runnable (`skip_reason` set) | **8** | 2 `legacy_bug` (xfail) + 3 `fixture` (skip) + 3 `unknown_semantics` (skip) |
-| Runnable | **87** | 95 − 8 |
+| Non-runnable (`skip_reason` set) | **6** | 2 `legacy_bug` (xfail) + 3 `fixture` (skip) + 1 `unknown_semantics` (skip) |
+| Runnable | **89** | 95 − 6 |
 | → fall back to legacy (`EXPECTED_FALLBACK`) | **0** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **87** | full parity asserted |
+| → run native on dag-ml | **89** | full parity asserted |
 | Strict-xfail (documented divergence) | **11** | 9 `KNOWN_DIVERGENCES` + 2 `legacy_bug` — matches ADR-17's "11 xfailed" |
-| `pytest.skip` (fixture + unknown-semantics) | **6** | 3 + 3 |
+| `pytest.skip` (fixture + unknown-semantics) | **4** | 3 + 1 |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
 
-> **Correction to prior counts:** the SW5 spec reported `unknown_semantics = 5`
-> / `runnable = 85`; that grep matched two *comment* lines
-> (`cases_generators_conformance.py:86,1040`). The verified case count is
-> **3** `unknown_semantics` → **6** total skips → **87** runnable. The
-> strict-xfail (11), `EXPECTED_FALLBACK` (0), and
-> `NUM_PREDICTIONS_DIVERGENCE` (2) figures are unaffected.
+> **Correction to prior counts:** the two seeded `_or_` count cases were promoted
+> from `unknown_semantics` skips to live parity assertions. The only remaining
+> `unknown_semantics` skip is `refit_params_use_all_partitions`; total skips are
+> now **4** and runnable cases are **89**. The strict-xfail (11),
+> `EXPECTED_FALLBACK` (0), and `NUM_PREDICTIONS_DIVERGENCE` (2) figures are
+> unaffected.
 
 ---
 

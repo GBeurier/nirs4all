@@ -3,8 +3,8 @@
   "owner": "nirs4all compatibility ledger",
   "consumer_of": "dag-ml.nirs4all.parity_oracle.v1",
   "last_reconciled": {
-    "date": "2026-06-30",
-    "nirs4all_commit": "e41362b4",
+    "date": "2026-07-01",
+    "nirs4all_commit": "98c33788+working-tree",
     "dag_ml_commit": "f58d7bf"
   },
   "tolerance_bands": [
@@ -213,14 +213,6 @@
       "skip_kind": "fixture"
     },
     {
-      "case": "generator_or_count_seed",
-      "skip_kind": "unknown_semantics"
-    },
-    {
-      "case": "generator_or_weights_count_seed",
-      "skip_kind": "unknown_semantics"
-    },
-    {
       "case": "refit_params_use_all_partitions",
       "skip_kind": "unknown_semantics"
     }
@@ -291,6 +283,8 @@
     "generator_or_then_arrange",
     "generator_cartesian_pick",
     "generator_cartesian_count_seed",
+    "generator_or_count_seed",
+    "generator_or_weights_count_seed",
     "generator_grid_twelve_variants",
     "generator_grid_n_components_scale",
     "generator_or_multistep_choices",
@@ -358,12 +352,12 @@
   ],
   "coverage_meter": {
     "registered": 95,
-    "non_runnable": 8,
-    "runnable": 87,
+    "non_runnable": 6,
+    "runnable": 89,
     "fallback": 0,
-    "native": 87,
+    "native": 89,
     "xfail_strict": 11,
-    "skip": 6,
+    "skip": 4,
     "num_predictions_divergence": 2,
     "expected_fallback_target": 0
   }

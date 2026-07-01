@@ -110,6 +110,13 @@ class TestValidateSpec:
         result = validate_spec({"model": {"_or_": ["SVM", "RF"]}})
         assert result.is_valid
 
+    def test_validate_or_rejects_weighted_pick(self):
+        """_weights_ applies to simple OR count sampling, not pick combinations."""
+        result = validate_spec({"model": {"_or_": ["SVM", "RF", "PLS"], "pick": 2, "_weights_": [1.0, 1.0, 1.0]}})
+
+        assert not result.is_valid
+        assert any(error.code == "INVALID_WEIGHTED_SELECTION" for error in result.errors)
+
     def test_validate_range_spec(self):
         """Range specs should be valid."""
         result = validate_spec({"lr": {"_range_": [0.001, 0.1, 0.01]}})

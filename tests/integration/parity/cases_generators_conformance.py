@@ -77,17 +77,11 @@ is locked at the DSL level in ``test_generators_conformance_extra`` so a wrong-p
 (right count, wrong members) fails; the engine-level winner identity is locked via
 ``SAME_WINNER_CASES`` in the dual-engine test for the multi-variant cases.
 
-NONDETERMINISTIC form (honest SKIP, not xfail): ``count`` / ``_weights_`` subsampling
-on a ``_or_`` node. Measured across 3 fresh processes, ``_or_``-pick + ``count``
-(+``_seed_``) and ``_or_`` + ``_weights_`` + ``count`` vary RUN-TO-RUN within a SINGLE
-engine — ``_seed_`` is NOT threaded into ``OrStrategy``'s ``sample_with_seed``, so the
-subsample is effectively unseeded. A strict-xfail would FLIP (XPASS whenever the two
-unseeded draws coincide), so these are registry SKIPs with the evidenced reason
-(``skip_kind="unknown_semantics"``) — the form is documented + the variant COUNT is
-still locked, but no parity claim is made. The ``_cartesian_`` count path
-(``generator_cartesian_count_seed``) IS deterministic (SAME across all 3 runs) and stays
-a live GREEN parity case — so ``_seed_`` IS honored by ``_cartesian_`` / ``_sample_``
-count, just not by the ``_or_`` / ``_weights_`` count path.
+The ``_or_`` count-sampling path is deterministic when ``_seed_`` is present,
+including weighted sampling via ``_weights_``. These are live parity cases, not
+registry skips: the Python expander threads the node-local seed and weights into
+``OrStrategy``'s ``sample_with_seed`` cap, and dag-ml consumes the same expanded
+variant set.
 """
 
 from __future__ import annotations
@@ -995,8 +989,8 @@ register(
 # =============================================================================
 # `count` caps the variant set to N, sampling with the `_seed_` RNG. `_cartesian_`
 # + count + _seed_ is DETERMINISTIC across engines (the cartesian count-subsample
-# RNG matches). The `_or_`-pick + count and `_weights_` + count forms are NOT
-# (section 14 below) — a measured engine divergence.
+# RNG matches). Section 14 below locks the `_or_` pick+count and `_weights_`+count
+# forms as deterministic Python-expand parity cases too.
 
 
 def _factory_cartesian_count_seed() -> list[Any]:
@@ -1024,29 +1018,11 @@ register(
 
 
 # =============================================================================
-# 14) count / _weights_ subsampling on _or_  (NONDETERMINISTIC — honest skip)
+# 14) count / _weights_ subsampling on _or_  (seeded deterministic parity)
 # =============================================================================
-# MEASURED FINDING (3 fresh-process runs each, regression sample_data): `_seed_`
-# does NOT stabilize the `count` / `_weights_` SUBSAMPLE on a `_or_` node — the
-# result varies RUN-TO-RUN within a SINGLE engine (legacy alone flipped 13.006 /
-# 11.970 / 11.973 across runs; dag-ml likewise), so it is not reproducible even
-# before comparing engines. The `_cartesian_` count path
-# (`generator_cartesian_count_seed`) IS stable (SAME=True across all 3 runs) — so
-# `_seed_` is honored by `_cartesian_`/`_sample_` count but NOT by the `_or_` /
-# `_weights_` count subsample (OrStrategy does not thread `node[_seed_]` into its
-# `sample_with_seed` call). Because the form is genuinely NONDETERMINISTIC, a parity
-# assertion is not meaningful and a strict-xfail would FLIP (it XPASSes whenever the
-# two unseeded draws happen to coincide). The HONEST disposition is `skip` with this
-# evidenced reason (skip_kind="unknown_semantics") — the form is documented and the
-# variant COUNT is still locked by expected_min_predictions, but the cross-engine
-# value parity is withheld until `_seed_` actually controls the `_or_` count RNG.
-# This is NOT a force-pass: it makes no parity claim at all.
-
-_OR_COUNT_NONDET_REASON = (
-    "`_or_` count/_weights_ subsample is NONDETERMINISTIC even with `_seed_` "
-    "(varies run-to-run within one engine; `_seed_` not threaded into OrStrategy's "
-    "sample_with_seed) — no stable cross-engine parity claim; cartesian count IS stable"
-)
+# `_seed_` stabilizes the `count` / `_weights_` subsample on a `_or_` node. These
+# live parity cases exercise the Python expansion path that dag-ml consumes before
+# concrete native execution, matching the deterministic `_cartesian_` count path.
 
 
 def _factory_or_count_seed() -> list[Any]:
@@ -1061,15 +1037,13 @@ register(
     PipelineCase(
         name="generator_or_count_seed",
         description="`_or_` pick=2 capped to `count`=3 with `_seed_`=7 — exercises the `_or_`+count cap. "
-        "SKIPPED: `_seed_` does not stabilize the `_or_` count subsample (nondeterministic run-to-run).",
+        "The node-local `_seed_` makes the subsample deterministic.",
         keywords=("_or_", "count", "_seed_", "model"),
         capabilities=_CAPS,
         dataset_key="regression",
         pipeline_factory=_factory_or_count_seed,
         expected_min_predictions=45,
         tags=_GEN,
-        skip_reason=_OR_COUNT_NONDET_REASON,
-        skip_kind="unknown_semantics",
     )
 )
 
@@ -1086,15 +1060,13 @@ register(
     PipelineCase(
         name="generator_or_weights_count_seed",
         description="`_or_` with `_weights_` [0.7,0.2,0.1] + `count`=2 + `_seed_`=7 — exercises weighted "
-        "random selection. SKIPPED: same `_or_` count nondeterminism (`_seed_` not honored, varies run-to-run).",
+        "random selection with deterministic node-local `_seed_`.",
         keywords=("_or_", "_weights_", "count", "_seed_", "model"),
         capabilities=_CAPS,
         dataset_key="regression",
         pipeline_factory=_factory_weights_count_seed,
         expected_min_predictions=30,
         tags=_GEN,
-        skip_reason=_OR_COUNT_NONDET_REASON,
-        skip_kind="unknown_semantics",
     )
 )
 
