@@ -235,11 +235,6 @@
       "case": "branch_dup_named_with_metamodel",
       "shape": "branch+merge",
       "owner_lane": "L5"
-    },
-    {
-      "case": "multi_source_per_source_models_stacking",
-      "shape": "multi_source",
-      "owner_lane": "L5"
     }
   ],
   "num_predictions_divergence": [
@@ -362,8 +357,8 @@
     "registered": 95,
     "non_runnable": 8,
     "runnable": 87,
-    "fallback": 3,
-    "native": 84,
+    "fallback": 2,
+    "native": 85,
     "xfail_strict": 11,
     "skip": 6,
     "num_predictions_divergence": 2,

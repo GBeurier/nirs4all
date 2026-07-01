@@ -1293,3 +1293,59 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     if meta_learner is None:
         return None
     return branches, meta_learner
+
+
+def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tuple[list[Any], Any] | None:
+    """Detect the legacy by_source-model stacking shape that uses source-layout replay.
+
+    Admits ONLY:
+
+    ``splitter + {"branch": {"by_source": True, "steps": [X-transform*, {"model": Base}]}}
+    + {"merge": "predictions"} + {"model": Meta}``
+
+    This is not ordinary OOF stacking. In source-branch mode legacy's merge controller collects the
+    cumulatively-mutated source feature layout for ``{"merge": "predictions"}``, writes that concat back
+    to source 0, leaves the remaining sources in place, and then the downstream estimator trains on that
+    post-merge source layout. The native runner has a dedicated replay for that exact contract, so any
+    richer form stays on the loud fallback-boundary path rather than being run as 3-column OOF stacking.
+    """
+    from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
+
+    if n_sources < 2:
+        return None
+    branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
+    merge_steps = [step for step in pipeline if _is_simple_predictions_merge_step(step)]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1:
+        return None
+    branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
+
+    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
+        return None
+    order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
+    if order != [branch_step, merge_step, model_step]:
+        return None
+    for step in pipeline:
+        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+            continue
+        return None
+
+    criterion = branch_step["branch"]
+    if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
+        return None
+    body = criterion.get("steps")
+    if not isinstance(body, list):
+        return None
+    model_positions = [index for index, substep in enumerate(body) if isinstance(substep, dict) and "model" in substep]
+    if len(model_positions) != 1 or model_positions[0] != len(body) - 1:
+        return None
+    if any(isinstance(substep, dict) for substep in body[: model_positions[0]]):
+        return None
+    branch_model_step = body[model_positions[0]]
+    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in branch_model_step.items() if key != "model"):
+        return None
+
+    meta_learner = _meta_learner(model_step)
+    if meta_learner is None:
+        return None
+    return body, meta_learner
