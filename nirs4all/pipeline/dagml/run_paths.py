@@ -1034,6 +1034,213 @@ def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[
     return branch
 
 
+def _source_preprocessing_metadata(source_steps: dict[str, list[Any]], source_layout: dict[str, Any] | None) -> dict[str, Any]:
+    """Lower per-source preprocessing dict by explicit ``source_layout.source_order``.
+
+    The legacy by_source dict keys are user-facing source names (``source_0`` unless the
+    dataset exposes names). The native data plan separately names the materialized blocks
+    ``src0``/``src1``. This helper consumes the explicit layout and rejects any mismatch
+    instead of inferring an order from the dict body.
+    """
+    if not isinstance(source_layout, dict):
+        raise DagMlUnsupported("by_source distinct preprocessing requires envelope plan.source_layout")
+    source_order = source_layout.get("source_order")
+    source_ids = source_layout.get("source_ids")
+    if not (isinstance(source_order, list) and all(isinstance(item, str) for item in source_order)):
+        raise DagMlUnsupported("by_source distinct preprocessing requires source_layout.source_order")
+    if not (isinstance(source_ids, list) and len(source_ids) == len(source_order) and all(isinstance(item, str) for item in source_ids)):
+        raise DagMlUnsupported("by_source distinct preprocessing requires source_layout.source_ids aligned to source_order")
+    if len(set(source_order)) != len(source_order):
+        raise DagMlUnsupported("by_source distinct preprocessing source_layout.source_order contains duplicate names")
+    if set(source_steps) != set(source_order):
+        raise DagMlUnsupported(
+            "by_source distinct preprocessing keys must exactly match source_layout.source_order: "
+            f"expected={source_order!r} actual={list(source_steps)!r}"
+        )
+
+    sources: list[dict[str, Any]] = []
+    for source_index, (source_name, source_id) in enumerate(zip(source_order, source_ids, strict=True)):
+        body_steps = _supported_body_steps(source_steps[source_name])
+        lowered = [_canonical_branch_step(step, f"source:{source_index}.pre:{step_index}") for step_index, step in enumerate(body_steps)]
+        if any(step["kind"] != "transform" for step in lowered):
+            raise DagMlUnsupported("by_source distinct preprocessing bodies may contain only X transforms")
+        sources.append(
+            {
+                "source_name": source_name,
+                "source_id": source_id,
+                "source_index": source_index,
+                "steps": lowered,
+            }
+        )
+    return {
+        "mode": "by_source_distinct_preproc_concat",
+        # Legacy by_source merge writes the concatenated block into source 0 but
+        # leaves non-primary sources present for the downstream multi-source fit.
+        "preserve_legacy_sources_after_merge": True,
+        "sources": sources,
+    }
+
+
+_PREDICTION_CLONE_FIELDS = (
+    "dataset_name",
+    "dataset_path",
+    "config_name",
+    "config_path",
+    "pipeline_uid",
+    "step_idx",
+    "op_counter",
+    "model_name",
+    "model_classname",
+    "model_path",
+    "fold_id",
+    "sample_indices",
+    "weights",
+    "metadata",
+    "partition",
+    "y_true",
+    "y_pred",
+    "y_proba",
+    "val_score",
+    "test_score",
+    "train_score",
+    "metric",
+    "task_type",
+    "n_samples",
+    "n_features",
+    "preprocessings",
+    "best_params",
+    "scores",
+    "branch_id",
+    "branch_path",
+    "branch_name",
+    "exclusion_count",
+    "exclusion_rate",
+    "model_artifact_id",
+    "trace_id",
+    "refit_context",
+    "target_processing",
+)
+
+
+def _repeat_by_source_merge_projection(result: RunResult, n_sources: int) -> RunResult:
+    """Match legacy by_source+concat bookkeeping: one identical result block per source."""
+    if n_sources <= 1:
+        return result
+
+    from nirs4all.data.predictions import Predictions
+
+    rows = result.predictions.filter_predictions(load_arrays=True)
+    cv_rows = [row for row in rows if str(row.get("fold_id")) != "final"]
+    final_rows = [row for row in rows if str(row.get("fold_id")) == "final"]
+    repeated = Predictions()
+
+    def clone(row: dict[str, Any]) -> None:
+        repeated.add_prediction(**{field: row.get(field) for field in _PREDICTION_CLONE_FIELDS if field in row})
+
+    for row_group in (cv_rows, final_rows):
+        for _source_index in range(n_sources):
+            for row in row_group:
+                clone(row)
+    repeated.flush()
+    result.predictions = repeated
+    return result
+
+
+def _run_by_source_distinct_preproc_concat(
+    pipeline: list[Any],
+    source_steps: dict[str, list[Any]],
+    downstream_body: list[Any],
+    n_sources: int,
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str,
+    task_type: str,
+    dataset_pickle: str | None = None,
+    config_name: str = "",
+    random_state: int | None = None,
+) -> RunResult:
+    """Run by_source DICT preprocessing + concat + downstream model as one native model node.
+
+    Each source's transform chain is cloned and fit on that source's fold-train block, the
+    transformed blocks are hstacked in ``source_layout.source_order``, and the downstream
+    model is fit on that concatenated matrix. Validation/test use the fitted per-source
+    chains, so preprocessing is fold-local and never fit on early-fused concat.
+    """
+    import dag_ml
+
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
+
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    if splitter is None:
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    if len(downstream_body) != 1:
+        raise DagMlUnsupported("by_source distinct preprocessing concat supports exactly one downstream model")
+
+    downstream_steps = _apply_model_params(downstream_body)
+    _reject_multi_model(downstream_steps)
+    model_node = _canonical_branch_step(downstream_steps[0], "model:source_concat")
+    if model_node["kind"] != "model":
+        raise DagMlUnsupported("by_source distinct preprocessing concat requires a downstream model")
+
+    identity = mint_identity(spectro)
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    source_layout = (envelope.get("plan") or {}).get("source_layout")
+    source_preprocessing = _source_preprocessing_metadata(source_steps, source_layout)
+    if len(source_preprocessing["sources"]) != n_sources:
+        raise DagMlUnsupported(
+            f"by_source distinct preprocessing source layout has {len(source_preprocessing['sources'])} source(s), expected {n_sources}"
+        )
+
+    model_node["metadata"] = {**model_node.get("metadata", {}), "source_concat_preprocessing": source_preprocessing}
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-by-source-distinct-preproc-concat",
+        "steps": [model_node],
+    }
+
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if model_ids != [model_node["id"]]:
+        raise DagMlUnsupported(f"by_source distinct preprocessing compile produced model nodes {model_ids!r}")
+
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+
+    outcome = run_cv_refit_bundle(
+        dsl=canonical_dsl,
+        envelope=envelope,
+        graph=graph,
+        dataset_path=dataset_arg,
+        workdir=run_dir,
+        dagml_cli=cli,
+        venv_python=venv_python,
+        selection_metric=metric,
+        dataset_pickle=dataset_pickle,
+        dataset=spectro,
+        random_state=random_state,
+    )
+    if outcome["returncode"] != 0:
+        _raise_run_failure(outcome, "dag-ml by_source distinct-preprocessing concat run failed")
+
+    result = _scores_to_run_result(
+        outcome["scores"],
+        spectro.name,
+        _model_name(downstream_steps),
+        metric,
+        task_type,
+        config_name=config_name,
+        skip_refit=_legacy_skips_refit(splitter),
+        results=outcome["results"],
+        identity=identity,
+        refit_artifacts=outcome["refit_artifacts"],
+    )
+    return _repeat_by_source_merge_projection(result, n_sources)
+
+
 def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate: str, n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a by_source separation branch + avg/mean fusion merge as ONE native dag-ml run (S4).
 
