@@ -124,6 +124,20 @@ def _artifact_uri(artifact_id: str, index: int) -> str:
     return f"{_ARTIFACTS_DIR}/{index:03d}_{safe}.joblib"
 
 
+def _branch_index_from_artifact_id(artifact_id: Any) -> int | None:
+    """Return the canonical branch index encoded in ``artifact:branch:<n>.node:...`` ids."""
+    if not isinstance(artifact_id, str):
+        return None
+    parts = artifact_id.split(":", 3)
+    if len(parts) < 3 or parts[0] != "artifact" or parts[1] != "branch":
+        return None
+    raw_index = parts[2].split(".", 1)[0]
+    try:
+        return int(raw_index)
+    except ValueError:
+        return None
+
+
 # The serialization backend the writer persists with + the reader can load. dag-ml's ArtifactRef.backend
 # is the SERIALIZATION backend (ADR-16 / dag-ml-core ArtifactBackend enum: joblib/torch/tensorflow/onnx/
 # safetensors/json/raw), NOT the ML framework. These refit estimators are joblib-dumped, so the backend is
@@ -156,17 +170,21 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
         # ArtifactRef ``backend`` = the SERIALIZATION backend the node runner recorded for these artifacts
         # ("joblib"); fall back to "joblib" only if the capture somehow lacked it (we always joblib-dump).
         backend = artifact.get("backend") or _JOBLIB_BACKEND
-        refs.append(
-            {
-                "artifact_id": artifact.get("artifact_id"),
-                "backend": backend,
-                "uri": uri,
-                "content_fingerprint": _bytes_fingerprint(data),
-                "size_bytes": len(data),
-                "kind": artifact.get("kind"),
-                "controller_id": artifact.get("controller_id"),
-            }
-        )
+        ref = {
+            "artifact_id": artifact.get("artifact_id"),
+            "backend": backend,
+            "uri": uri,
+            "content_fingerprint": _bytes_fingerprint(data),
+            "size_bytes": len(data),
+            "kind": artifact.get("kind"),
+            "controller_id": artifact.get("controller_id"),
+        }
+        branch_index = _branch_index_from_artifact_id(ref["artifact_id"])
+        if branch_index is not None:
+            # Neutral branch metadata. Export interprets this as source_index only when the native run
+            # manifest proves the shape is by_source fusion; for duplication fusion it remains branch order.
+            ref["branch_index"] = branch_index
+        refs.append(ref)
     return refs
 
 
@@ -504,17 +522,18 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
                 "corrupted) — refusing to joblib.load it."
             )
         payload = joblib.load(path)  # uri + backend + fingerprint all verified above — trusted bytes
-        rehydrated.append(
-            {
-                "artifact_id": ref.get("artifact_id"),
-                "estimator": payload["estimator"],
-                "y_transform": payload["y_transform"],
-                "kind": ref.get("kind"),
-                "controller_id": ref.get("controller_id"),
-                "backend": ref.get("backend"),
-                "uri": uri,
-            }
-        )
+        entry = {
+            "artifact_id": ref.get("artifact_id"),
+            "estimator": payload["estimator"],
+            "y_transform": payload["y_transform"],
+            "kind": ref.get("kind"),
+            "controller_id": ref.get("controller_id"),
+            "backend": ref.get("backend"),
+            "uri": uri,
+        }
+        if ref.get("branch_index") is not None:
+            entry["branch_index"] = int(ref["branch_index"])
+        rehydrated.append(entry)
     return rehydrated
 
 
