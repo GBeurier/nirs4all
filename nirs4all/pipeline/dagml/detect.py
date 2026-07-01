@@ -902,7 +902,7 @@ def _is_duplication_branch_step(step: Any) -> bool:
 # it, so there is no collision) average the branches' held-out OOF per sample into ONE final prediction;
 # the explicit-aggregation dict form reuses nirs4all's established aggregation vocabulary
 # (``AggregationStrategy.MEAN``/``PROBA_MEAN``). A STACKING merge (``{"merge": "predictions"}`` →
-# MetaModel, backlog #10) is deliberately NOT a fusion token and falls through to the loud bridge error.
+# MetaModel) is deliberately NOT a fusion token and is handled by the stacking detector.
 _FUSION_MERGE_STRINGS = frozenset({"mean", "average"})
 
 
@@ -983,8 +983,9 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
     ANY deviation returns ``None`` so the bridge's raw-branch / raw-merge guard fires. Specifically
     REJECTED (fall through to loud):
 
-    * a STACKING merge (``{"merge": "predictions"}`` / a per-branch predictions config → a meta-model,
-      backlog #10) — raised loud naming #10 by the caller, never silently averaged;
+    * a STACKING merge (``{"merge": "predictions"}`` / a per-branch predictions config → a meta-model)
+      — handled by :func:`_detect_stacking_branch` or raised loud naming #10 by the caller, never silently
+      averaged;
     * a separation (``by_*`` dict-form) branch — handled by :func:`_detect_separation_branch`, not here;
     * a MetaModel or structured/per-branch merge config (left to W33);
     * a top-level operator/transform/``tag``/``y_processing``/``exclude`` beside the branch (only each
@@ -1110,9 +1111,9 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
 def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] | None:
     """Detect the EXACT duplication-branch + ``{"merge": "predictions"}`` + meta-model shape, else ``None``.
 
-    Admits ONLY: the splitter + ONE duplication branch (``{"branch": [[A], [B], …]}``, N≥2 sub-pipelines
-    each with a model) + ONE ``{"merge": "predictions"}`` + ONE downstream ``{"model": M}`` whose M is a
-    handled meta-learner (a default ``MetaModel`` wrapper or a plain sklearn estimator; see
+    Admits ONLY: the splitter + ONE duplication branch (legacy list-of-lists syntax, N≥2 sub-pipelines
+    each with a model) + ONE ``{"merge": "predictions"}`` + ONE downstream ``{"model": M}``
+    whose M is a handled meta-learner (a default ``MetaModel`` wrapper or a plain sklearn estimator; see
     :func:`_meta_learner`). Returns ``(branches, meta_learner)`` (the bare sklearn estimator) when matched.
     ANY deviation returns ``None`` so the bridge / the loud #10 path fires — never a silent-wrong run.
     Specifically REJECTED (fall through to loud):
@@ -1122,6 +1123,8 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     * a missing downstream model, more than one branch/merge/model, or a model BEFORE the merge;
     * a top-level operator/transform/``tag``/``y_processing``/``exclude`` beside the branch (only each
       branch body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
+    * named-dict duplication branches: legacy's stacking refit currently skips those, so the native
+      full-coverage stacking contract would synthesize a refit surface legacy does not have;
     * a sub-pipeline without a model (the base level needs a model to produce OOF);
     * a MetaModel carrying unhandled options (non-default source_models/use_proba/selector/finetune/config);
     * a meta-model step carrying a sibling param (``{"model": Ridge(), "alpha": 0.2}``) or a generator
@@ -1156,8 +1159,10 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
             continue
         return None
 
-    branches = branch_step["branch"]
-    if not isinstance(branches, list) or not all(isinstance(branch, list) for branch in branches):
+    if not isinstance(branch_step.get("branch"), list):
+        return None
+    branches = _duplication_branch_bodies(branch_step)
+    if branches is None:
         return None
     if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
         return None

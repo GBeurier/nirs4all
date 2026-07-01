@@ -2981,12 +2981,12 @@ def test_duplication_branch_unsupported_merge_fails_loud() -> None:
 def test_stacking_branch_detection() -> None:
     """The stacking detector consumes ONLY the duplication-branch + predictions-merge + meta-model shape.
 
-    `_detect_stacking_branch` returns `(branches, meta_learner)` for `{"branch": [[A], [B], …]}` (each
-    sub-pipeline with a model) + `{"merge": "predictions"}` + a downstream `{"model": M}` whose M is a
-    handled meta-learner (a default `MetaModel` wrapper → its wrapped sklearn model, or a plain sklearn
-    estimator). Everything else (no/mis-ordered model, a fusion/concat/per-branch merge, a MetaModel
-    carrying unhandled options, a top-level step beside the branch) returns None so the loud #10 path
-    still guards it. The duplication detector must NOT claim the stacking shape. No CLI needed."""
+    `_detect_stacking_branch` returns `(branches, meta_learner)` for legacy list duplication syntax
+    (`{"branch": [[A], [B], …]}`) + `{"merge": "predictions"}` + a downstream
+    `{"model": M}` whose M is a handled meta-learner (a default `MetaModel` wrapper → its wrapped sklearn
+    model, or a plain sklearn estimator). Everything else (no/mis-ordered model, a fusion/concat/per-branch
+    merge, a MetaModel carrying unhandled options, a top-level step beside the branch) returns None so the
+    loud #10 path still guards it. The duplication detector must NOT claim the stacking shape. No CLI needed."""
     from sklearn.linear_model import Ridge
 
     from nirs4all.operators.models.meta import CoverageStrategy, MetaModel, StackingConfig, StackingLevel, TestAggregation
@@ -2995,12 +2995,16 @@ def test_stacking_branch_detection() -> None:
 
     splitter = KFold(n_splits=3, shuffle=True, random_state=42)
     branch = {"branch": [[{"model": PLSRegression(n_components=5)}], [{"model": Ridge(alpha=1.0)}]]}
+    named_branch = {"branch": {"pls": [{"model": PLSRegression(n_components=5)}], "ridge": [{"model": Ridge(alpha=1.0)}]}}
 
     # Handled: a plain downstream model is the meta-learner.
     plain = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(alpha=0.7)}])
     assert plain is not None
     branches, meta_learner = plain
     assert len(branches) == 2 and isinstance(meta_learner, Ridge) and meta_learner.alpha == 0.7
+    # Named-dict duplication stacking stays fallback: legacy skips its refit surface, while the native
+    # stacking path deliberately requires full OOF/refit coverage.
+    assert _detect_stacking_branch([splitter, named_branch, {"merge": "predictions"}, {"model": Ridge(alpha=0.9)}]) is None
 
     # Handled: a MetaModel wrapper → its wrapped sklearn model (with its params).
     wrapped = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(alpha=0.3))}])
