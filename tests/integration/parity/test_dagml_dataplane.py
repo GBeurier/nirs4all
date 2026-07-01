@@ -99,8 +99,9 @@ def test_resolver_serves_real_spectra_not_a_hash(regression_dataset) -> None:
     assert row.shape[0] > 1 and float(np.ptp(row)) > 0.0
 
 
-def test_route_operator_per_kind_and_overrides() -> None:
+def test_route_operator_per_kind_and_overrides(monkeypatch: pytest.MonkeyPatch) -> None:
     """route_graph_node resolves each node-kind operator-ref shape; variants win; unknowns raise."""
+    monkeypatch.delenv("N4A_DAGML_METHODS_SNV", raising=False)
     transform = route_graph_node({"kind": "transform", "operator": {"class": "nirs4all.operators.transforms.scalers.StandardNormalVariate"}, "params": {"with_std": True}})
     assert type(transform).__name__ == "StandardNormalVariate"
     # y_transform carries params nested under the operator, not on the node.
@@ -121,8 +122,9 @@ def test_route_operator_per_kind_and_overrides() -> None:
         route_operator("branch", "whatever")
 
 
-def test_route_real_compiled_vertical_slice_nodes() -> None:
+def test_route_real_compiled_vertical_slice_nodes(monkeypatch: pytest.MonkeyPatch) -> None:
     """Every node of the actually-compiled vertical slice routes to its real operator."""
+    monkeypatch.delenv("N4A_DAGML_METHODS_SNV", raising=False)
     pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
     from nirs4all.pipeline.dagml_bridge import build_dagml_plan
 

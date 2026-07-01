@@ -23,6 +23,8 @@ scaler is a target transform.
 from __future__ import annotations
 
 import importlib
+import os
+from pathlib import Path
 from typing import Any
 
 # Short model name → fully-qualified class. Covers the parity baseline models; extend as
@@ -33,6 +35,16 @@ _MODEL_TABLE: dict[str, str] = {
     "RandomForestRegressor": "sklearn.ensemble.RandomForestRegressor",
     "GradientBoostingRegressor": "sklearn.ensemble.GradientBoostingRegressor",
 }
+
+_METHODS_SNV_ENV = "N4A_DAGML_METHODS_SNV"
+_STANDARD_SNV_FQNS = frozenset({
+    "nirs4all.operators.transforms.scalers.StandardNormalVariate",
+    "nirs4all.operators.transforms.StandardNormalVariate",
+})
+_METHODS_SNV_FQNS = frozenset({
+    "nirs4all.operators.methods.n4m_ops.MethodsSNV",
+    "nirs4all.operators.methods.MethodsSNV",
+})
 
 
 def _import_class(fqn: str) -> type:
@@ -46,6 +58,85 @@ def _import_class(fqn: str) -> type:
     if not isinstance(obj, type):
         raise TypeError(f"{fqn!r} resolved to a {type(obj).__name__}, not a class")
     return obj
+
+
+def _methods_snv_enabled() -> bool:
+    """Whether the dag-ml router may replace Python SNV with the n4m MethodsSNV."""
+    value = os.environ.get(_METHODS_SNV_ENV, "")
+    return value.strip().lower() not in {"", "0", "false", "no", "off"}
+
+
+def _integral_param(name: str, value: Any) -> int:
+    """Return ``value`` as an int only when JSON/native generation kept it integral."""
+    if isinstance(value, bool):
+        raise ValueError(f"dag-ml n4m SNV route requires integer `{name}`, got bool")
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    raise ValueError(f"dag-ml n4m SNV route requires integer `{name}`, got {value!r}")
+
+
+def _bool_param(name: str, value: Any) -> bool:
+    if not isinstance(value, bool):
+        raise ValueError(f"dag-ml n4m SNV route requires boolean `{name}`, got {value!r}")
+    return value
+
+
+def _methods_snv_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Validate the Python SNV params that are numerically identical to MethodsSNV."""
+    supported = {"axis", "with_mean", "with_std", "ddof", "copy"}
+    unknown = sorted(set(params) - supported)
+    if unknown:
+        raise ValueError(f"dag-ml n4m SNV route does not support StandardNormalVariate param(s) {unknown}")
+
+    axis = _integral_param("axis", params.get("axis", 1))
+    if axis != 1:
+        raise ValueError(f"dag-ml n4m SNV route supports only row-wise StandardNormalVariate(axis=1), got axis={axis}")
+
+    copy = _bool_param("copy", params.get("copy", True))
+    if not copy:
+        raise ValueError("dag-ml n4m SNV route supports only StandardNormalVariate(copy=True)")
+
+    ddof = _integral_param("ddof", params.get("ddof", 0))
+    if ddof < 0:
+        raise ValueError(f"dag-ml n4m SNV route requires ddof >= 0, got {ddof}")
+
+    return {
+        "with_mean": _bool_param("with_mean", params.get("with_mean", True)),
+        "with_std": _bool_param("with_std", params.get("with_std", True)),
+        "ddof": ddof,
+    }
+
+
+def _assert_methods_snv_available() -> None:
+    """Fail closed before execution if the n4m SNV binding or ABI probe is unavailable."""
+    from nirs4all.operators.methods import n4m_ops
+
+    if getattr(n4m_ops, "_N4MSNV", None) is None:
+        raise ImportError(
+            "dag-ml n4m SNV route requires nirs4all-methods with the SNV binding; "
+            "unset N4A_DAGML_METHODS_SNV or install a compatible nirs4all-methods wheel"
+        )
+    try:
+        n4m = importlib.import_module("n4m")
+        abi_version = n4m.abi_version()
+        library_path = Path(n4m.library_path())
+    except Exception as exc:  # noqa: BLE001 - any ABI/library probe failure makes the route unavailable
+        raise ImportError(f"dag-ml n4m SNV route could not validate the n4m ABI/library: {exc}") from exc
+    if not abi_version:
+        raise ImportError("dag-ml n4m SNV route could not validate the n4m ABI: empty abi_version()")
+    if not library_path.exists():
+        raise ImportError(f"dag-ml n4m SNV route could not validate the n4m library path: {library_path}")
+
+
+def _route_methods_snv(params: dict[str, Any]) -> object:
+    """Instantiate MethodsSNV for the proven-safe StandardNormalVariate subset."""
+    methods_params = _methods_snv_params(params)
+    _assert_methods_snv_available()
+    from nirs4all.operators.methods import MethodsSNV
+
+    return MethodsSNV(**methods_params)
 
 
 def route_operator(
@@ -73,6 +164,10 @@ def route_operator(
         fqn = operator_ref
     else:
         raise ValueError(f"unsupported operator_kind {operator_kind!r}")
+    if operator_kind == "transform" and fqn in _STANDARD_SNV_FQNS and _methods_snv_enabled():
+        return _route_methods_snv(merged)
+    if fqn in _METHODS_SNV_FQNS:
+        _assert_methods_snv_available()
     cls = _import_class(fqn)
     return cls(**_coerce_json_params(cls, merged))
 
