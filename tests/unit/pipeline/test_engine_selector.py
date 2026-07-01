@@ -1,4 +1,4 @@
-"""Unit tests for the backend-engine selector (default is legacy (interim, pre-refactoring))."""
+"""Unit tests for the backend-engine selector (default is dag-ml, legacy is explicit compatibility)."""
 
 from __future__ import annotations
 
@@ -7,12 +7,11 @@ import pytest
 from nirs4all.pipeline.engine import DEFAULT_ENGINE, ENGINE_ENV_VAR, resolve_engine
 
 
-def test_defaults_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
-    # default is legacy (interim, pre-refactoring): the public-maintained nirs4all stays pure-Python
-    # by default; dag-ml stays fully selectable via engine="dag-ml" / $N4A_ENGINE=dag-ml.
+def test_defaults_to_dagml(monkeypatch: pytest.MonkeyPatch) -> None:
+    # V1 default is dag-ml; legacy stays available only through an explicit selector/env override.
     monkeypatch.delenv(ENGINE_ENV_VAR, raising=False)
-    assert DEFAULT_ENGINE == "legacy"
-    assert resolve_engine() == "legacy"
+    assert DEFAULT_ENGINE == "dag-ml"
+    assert resolve_engine() == "dag-ml"
 
 
 def test_explicit_legacy_case_insensitive() -> None:
