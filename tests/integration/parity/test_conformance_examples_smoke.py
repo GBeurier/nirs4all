@@ -1,10 +1,10 @@
-"""CONFORMANCE: the canonical user examples run on BOTH engines.
+"""CONFORMANCE: the canonical user examples run or refuse as classified.
 
 The shipped ``examples/user/`` tutorials are the public-facing proof that
 ``nirs4all.run`` works end to end. This pins that the four canonical examples
-exit cleanly on the legacy engine AND the dag-ml engine — the engine selector is
-honored via ``$N4A_ENGINE`` (precedence: explicit arg > env > default), so a
-plain example script picks up the engine under test without code changes.
+exit cleanly on the legacy engine. On the V1 dag-ml engine, examples whose
+pipeline shapes are not yet covered must fail with an exact structured refusal
+classification, not with an unclassified crash or silent legacy fallback.
 
 Each example is run as a SUBPROCESS (the scripts parse argv at import and import
 matplotlib), with ``cwd=examples/`` (the scripts use dataset paths relative to
@@ -50,11 +50,66 @@ _OPTIONAL_DEP_MARKERS = (
     "PyTorch is not available",
 )
 
+_DAGML_REFUSAL_LEDGER: dict[str, dict[str, object]] = {
+    "user/01_getting_started/U02_basic_regression.py": {
+        "markers": (
+            "[run/unsupported_shape]",
+            "runs ONE model per pipeline",
+            "3 top-level {'model': ...} steps",
+        ),
+        "unsupported_capability": "public example uses multiple top-level model steps instead of a dag-ml model sweep",
+        "owner": "dag-ml native coverage",
+        "rationale": "The example remains a public legacy tutorial, but dag-ml V1 must refuse the multi-model shape explicitly instead of silently refitting legacy.",
+        "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_dagml_engine_coverage_boundary",
+    },
+    "user/01_getting_started/U03_basic_classification.py": {
+        "markers": (
+            "[run/unsupported_shape]",
+            "cannot route ShuffleSplit",
+        ),
+        "unsupported_capability": "public example composition leaves ShuffleSplit in the operator route after feature augmentation and fold-chart steps",
+        "owner": "dag-ml native coverage",
+        "rationale": (
+            "Simple ShuffleSplit CV is covered natively; this ledger entry tracks the richer public-example composition "
+            "until splitter extraction through feature-augmentation/chart steps is supported."
+        ),
+        "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_shufflesplit",
+    },
+    "user/03_preprocessing/U01_preprocessing_basics.py": {
+        "markers": (
+            "[run/unsupported_shape]",
+            "cannot route ShuffleSplit",
+        ),
+        "unsupported_capability": "public example composition leaves ShuffleSplit in the operator route after chart steps",
+        "owner": "dag-ml native coverage",
+        "rationale": (
+            "Simple ShuffleSplit CV is covered natively; this ledger entry tracks the chart-plus-splitter composition "
+            "until the public preprocessing tutorial can run dag-ml-native."
+        ),
+        "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_shufflesplit",
+    },
+}
+
+
+def test_dagml_example_refusal_ledger_is_explicit() -> None:
+    """Every accepted dag-ml example refusal is ledgered as a named V1 coverage gap."""
+    assert set(_DAGML_REFUSAL_LEDGER) < set(_EXAMPLES)
+    for example, entry in _DAGML_REFUSAL_LEDGER.items():
+        markers = entry["markers"]
+        assert isinstance(markers, tuple) and markers
+        assert all(isinstance(marker, str) and marker for marker in markers)
+        assert isinstance(entry["unsupported_capability"], str) and entry["unsupported_capability"]
+        assert isinstance(entry["owner"], str) and entry["owner"]
+        assert isinstance(entry["rationale"], str) and entry["rationale"]
+        assert isinstance(entry["coverage_evidence"], str) and entry["coverage_evidence"]
+        if "ShuffleSplit" in " ".join(markers):
+            assert "simple shufflesplit" in entry["rationale"].lower()
+
 
 @pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
 @pytest.mark.parametrize("example", _EXAMPLES, ids=lambda p: Path(p).stem)
 def test_example_runs_on_engine(example: str, engine: str) -> None:
-    """The example script exits 0 under ``engine`` (skips on a missing optional dep)."""
+    """The example exits 0, or dag-ml refuses with the exact documented classification."""
     script = _EXAMPLES_DIR / example
     assert script.exists(), f"canonical example missing: {script}"
 
@@ -75,6 +130,12 @@ def test_example_runs_on_engine(example: str, engine: str) -> None:
         combined = proc.stderr + proc.stdout
         if any(marker in combined for marker in _OPTIONAL_DEP_MARKERS):
             pytest.skip(f"{example} on engine={engine}: optional dependency not installed")
+        refusal = _DAGML_REFUSAL_LEDGER.get(example) if engine == "dag-ml" else None
+        if refusal is not None:
+            markers = refusal["markers"]
+            assert isinstance(markers, tuple)
+            if all(isinstance(marker, str) and marker in combined for marker in markers):
+                return
         pytest.fail(
             f"{example} on engine={engine} exited {proc.returncode}:\n"
             f"--- stderr tail ---\n{proc.stderr[-2000:]}"
