@@ -58,7 +58,7 @@ def _source_concat_indices(source_spec: Any, n_sources: int) -> list[int] | None
     production shorthand ``"concat"`` and the dict form when the strategy/mode is concat. Source names
     are the legacy/default ``source_<index>`` names used by ``MergeController`` for unnamed sources.
     """
-    strategy = "concat"
+    strategy: Any = "concat"
     sources: Any = "all"
     if isinstance(source_spec, str):
         strategy = source_spec
@@ -1234,8 +1234,8 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
 def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] | None:
     """Detect the EXACT duplication-branch + ``{"merge": "predictions"}`` + meta-model shape, else ``None``.
 
-    Admits ONLY: the splitter + ONE duplication branch (legacy list-of-lists syntax, N≥2 sub-pipelines
-    each with a model) + ONE ``{"merge": "predictions"}`` + ONE downstream ``{"model": M}``
+    Admits ONLY: the splitter + ONE duplication branch (legacy list-of-lists or named-dict syntax, N≥2
+    sub-pipelines each with a model) + ONE ``{"merge": "predictions"}`` + ONE downstream ``{"model": M}``
     whose M is a handled meta-learner (a default ``MetaModel`` wrapper or a plain sklearn estimator; see
     :func:`_meta_learner`). Returns ``(branches, meta_learner)`` (the bare sklearn estimator) when matched.
     ANY deviation returns ``None`` so the bridge / the loud #10 path fires — never a silent-wrong run.
@@ -1246,8 +1246,8 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     * a missing downstream model, more than one branch/merge/model, or a model BEFORE the merge;
     * a top-level operator/transform/``tag``/``y_processing``/``exclude`` beside the branch (only each
       branch body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
-    * named-dict duplication branches: legacy's stacking refit currently skips those, so the native
-      full-coverage stacking contract would synthesize a refit surface legacy does not have;
+    * named-dict duplication branches are admitted only for this default stacking shape; the runner requests
+      dag-ml's CV-only stacking policy and projects the legacy no-refit row surface;
     * a sub-pipeline without a model (the base level needs a model to produce OOF);
     * a MetaModel carrying unhandled options (non-default source_models/use_proba/selector/finetune/config);
     * a meta-model step carrying a sibling param (``{"model": Ridge(), "alpha": 0.2}``) or a generator
@@ -1282,8 +1282,6 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
             continue
         return None
 
-    if not isinstance(branch_step.get("branch"), list):
-        return None
     branches = _duplication_branch_bodies(branch_step)
     if branches is None:
         return None
