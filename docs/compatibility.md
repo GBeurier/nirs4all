@@ -282,7 +282,7 @@ gate.
 > / `runnable = 85`; that grep matched two *comment* lines
 > (`cases_generators_conformance.py:86,1040`). The verified case count is
 > **3** `unknown_semantics` → **6** total skips → **87** runnable. The
-> strict-xfail (11), `EXPECTED_FALLBACK` (2), and
+> strict-xfail (11), `EXPECTED_FALLBACK` (1), and
 > `NUM_PREDICTIONS_DIVERGENCE` (2) figures are unaffected.
 
 ---
