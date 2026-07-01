@@ -1,0 +1,6 @@
+{
+  "verb": "run",
+  "cause": "unsupported_shape",
+  "message": "engine='dag-ml' does not support this pipeline shape: branch duplication merge predictions is not covered",
+  "mitigation": "run this shape on engine='legacy', or rewrite it into a dag-ml-covered shape (see the dag-ml coverage matrix)."
+}
