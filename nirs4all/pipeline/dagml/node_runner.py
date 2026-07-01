@@ -111,49 +111,78 @@ class _MultiBlockEstimator:
 
 
 class _SourceConcatEstimator:
-    """Fit a shared X-chain independently per source, concat blocks, then fit an ordinary model.
+    """Fit per-source transform chains, hstack their outputs, then fit one model.
 
-    This is the native execution primitive for by_source shared preprocessing followed by
-    ``{"merge": "concat"}`` and one downstream model. It mirrors legacy's feature-axis contract:
-    each source gets its own cloned preprocessing chain fit on the current fold's train rows, the
-    transformed source blocks are hstacked in source order, and the downstream model sees that
-    concatenated matrix.
+    This represents legacy ``by_source`` preprocessing + ``merge: concat`` for both supported forms:
+    a shared X-chain cloned once per source, or distinct per-source chains carried by model metadata.
     """
 
-    def __init__(self, model: Any, chain_template: list[Any]) -> None:
+    def __init__(
+        self,
+        model: Any,
+        source_chain_templates: list[list[Any]] | None = None,
+        *,
+        shared_chain_template: list[Any] | None = None,
+        preserve_legacy_sources_after_merge: bool = False,
+    ) -> None:
+        if source_chain_templates is None and shared_chain_template is None:
+            raise ValueError("source concat requires either per-source chains or a shared chain template")
         self._model = model
-        self._chain_template = chain_template
-        self._block_chains: list[list[Any]] = []
+        self._source_chain_templates = source_chain_templates
+        self._shared_chain_template = shared_chain_template
+        self._preserve_legacy_sources_after_merge = preserve_legacy_sources_after_merge
+        self._source_chains: list[list[Any]] = []
 
     @staticmethod
-    def _fit_transform_block(steps: list[Any], block: np.ndarray) -> np.ndarray:
+    def _fit_transform_chain(steps: list[Any], block: np.ndarray) -> np.ndarray:
         out = block
         for step in steps:
             out = np.asarray(step.fit_transform(out))
         return out
 
     @staticmethod
-    def _transform_block(steps: list[Any], block: np.ndarray) -> np.ndarray:
+    def _transform_chain(steps: list[Any], block: np.ndarray) -> np.ndarray:
         out = block
         for step in steps:
             out = np.asarray(step.transform(out))
         return out
 
     @staticmethod
-    def _concat(blocks: list[np.ndarray]) -> np.ndarray:
-        return np.hstack(blocks) if len(blocks) > 1 else blocks[0]
+    def _hstack(blocks: list[np.ndarray]) -> np.ndarray:
+        if not blocks:
+            raise ValueError("by_source concat received no source blocks")
+        return np.hstack([np.asarray(block) for block in blocks])
+
+    def _templates_for(self, blocks: list[np.ndarray]) -> list[list[Any]]:
+        if self._source_chain_templates is not None:
+            return self._source_chain_templates
+        return [list(self._shared_chain_template or []) for _block in blocks]
+
+    def _assemble_blocks(self, blocks: list[np.ndarray]) -> np.ndarray:
+        merged = self._hstack(blocks)
+        if not self._preserve_legacy_sources_after_merge:
+            return merged
+        # Legacy top-level ``{"merge": {"sources": "concat"}}`` stores the merged matrix into source 0
+        # but leaves the other transformed sources present. Downstream ``concat_source=True`` therefore
+        # sees [merged, source1, source2, ...].
+        return self._hstack([merged, *blocks[1:]])
 
     def fit(self, blocks: list[np.ndarray], y: Any) -> _SourceConcatEstimator:
         from sklearn.base import clone
 
-        self._block_chains = [[clone(step) for step in self._chain_template] for _ in blocks]
-        transformed = [self._fit_transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
-        self._model.fit(self._concat(transformed), y)
+        source_chain_templates = self._templates_for(blocks)
+        if len(blocks) != len(source_chain_templates):
+            raise ValueError(f"by_source concat received {len(blocks)} blocks for {len(source_chain_templates)} source chain(s)")
+        self._source_chains = [[clone(step) for step in chain] for chain in source_chain_templates]
+        transformed = [self._fit_transform_chain(steps, block) for steps, block in zip(self._source_chains, blocks, strict=True)]
+        self._model.fit(self._assemble_blocks(transformed), y)
         return self
 
     def predict(self, blocks: list[np.ndarray]) -> np.ndarray:
-        transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
-        return np.asarray(self._model.predict(self._concat(transformed)))
+        if len(blocks) != len(self._source_chains):
+            raise ValueError(f"by_source concat predict received {len(blocks)} blocks for {len(self._source_chains)} fitted source chain(s)")
+        transformed = [self._transform_chain(steps, block) for steps, block in zip(self._source_chains, blocks, strict=True)]
+        return np.asarray(self._model.predict(self._assemble_blocks(transformed)))
 
 
 def _source_index(node: dict[str, Any]) -> int | None:
@@ -172,6 +201,36 @@ def _source_index(node: dict[str, Any]) -> int | None:
 def _source_concat_x_chain(node: dict[str, Any]) -> bool:
     """Whether the model should apply its upstream X-chain per source, then concat."""
     return bool((node.get("metadata") or {}).get("source_concat_x_chain"))
+
+
+def _source_concat_chains(node: dict[str, Any]) -> list[list[Any]] | None:
+    """Per-source preprocessing chains carried by a distinct-preproc concat model node."""
+    spec = (node.get("metadata") or {}).get("source_concat_preprocessing")
+    if spec is None:
+        return None
+    sources = spec.get("sources") if isinstance(spec, dict) else None
+    if not isinstance(sources, list):
+        raise ValueError("source_concat_preprocessing metadata is missing sources")
+    chains: list[list[Any]] = []
+    for expected_index, source in enumerate(sources):
+        if not isinstance(source, dict):
+            raise ValueError("source_concat_preprocessing source entry is not a dict")
+        source_index = int(source.get("source_index", expected_index))
+        if source_index != expected_index:
+            raise ValueError(
+                f"source_concat_preprocessing source_index {source_index} is out of order; expected {expected_index}"
+            )
+        steps = source.get("steps") or []
+        if not isinstance(steps, list):
+            raise ValueError("source_concat_preprocessing source steps are not a list")
+        chains.append([route_graph_node(step) for step in steps])
+    return chains
+
+
+def _source_concat_preserve_legacy_sources(node: dict[str, Any]) -> bool:
+    """Whether source-concat should preserve non-zero sources after replacing source 0."""
+    spec = (node.get("metadata") or {}).get("source_concat_preprocessing")
+    return isinstance(spec, dict) and bool(spec.get("preserve_legacy_sources_after_merge"))
 
 
 def _view_by_partition(task: dict[str, Any], partition: str) -> dict[str, Any] | None:
@@ -417,12 +476,19 @@ def run_model_node(
     else:
         model = route_graph_node(graph_node, variant_overrides=_variant_overrides(task, node_id))
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
-        multi_block = _is_multi_block_model(model) and resolver.is_multi_source()
-        source_concat = _source_concat_x_chain(graph_node) and resolver.is_multi_source()
-        if multi_block:
+        source_chains = _source_concat_chains(graph_node)
+        source_concat = source_chains is not None or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
+        multi_block = not source_concat and _is_multi_block_model(model) and resolver.is_multi_source()
+        if source_chains is not None:
+            estimator = _SourceConcatEstimator(
+                model,
+                source_chains or [],
+                preserve_legacy_sources_after_merge=_source_concat_preserve_legacy_sources(graph_node),
+            )
+        elif multi_block:
             estimator = _MultiBlockEstimator(model, upstream)
         elif source_concat:
-            estimator = _SourceConcatEstimator(model, upstream)
+            estimator = _SourceConcatEstimator(model, shared_chain_template=upstream)
         else:
             estimator = make_pipeline(*upstream, model) if upstream else model
         y_transform = route_graph_node(y_transform_node) if y_transform_node is not None else None
@@ -446,7 +512,7 @@ def run_model_node(
         # thresholds on a fixed-seed tree ensemble (RF/GBR) and diverges the fitted trees. y stays float
         # (legacy feeds y as float64).
         x_train: Any
-        if multi_block or source_concat:
+        if source_concat or multi_block:
             x_train = [np.asarray(block) for block in resolver.resolve_feature_blocks(fit_ids, include_augmented=True)["blocks"]]
         elif source_index is not None:
             x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True)["values"])
@@ -466,7 +532,7 @@ def run_model_node(
         # Predict X at the dataset's NATIVE storage dtype too (same parity reason as the fit X above):
         # np.asarray on the resolver's ndarray preserves float32; legacy predicts on float32.
         x: Any
-        if multi_block or source_concat:
+        if source_concat or multi_block:
             x = [np.asarray(block) for block in resolver.resolve_feature_blocks(ids, include_augmented=include_augmented)["blocks"]]
         elif source_index is not None:
             x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"])

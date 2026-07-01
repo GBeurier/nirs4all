@@ -242,11 +242,6 @@
       "owner_lane": "L5"
     },
     {
-      "case": "multi_source_by_source_branch_distinct_preproc",
-      "shape": "multi_source",
-      "owner_lane": "L5"
-    },
-    {
       "case": "multi_source_per_source_models_stacking",
       "shape": "multi_source",
       "owner_lane": "L5"
@@ -377,8 +372,8 @@
     "registered": 95,
     "non_runnable": 8,
     "runnable": 87,
-    "fallback": 6,
-    "native": 81,
+    "fallback": 5,
+    "native": 82,
     "xfail_strict": 11,
     "skip": 6,
     "num_predictions_divergence": 2,

@@ -1023,6 +1023,27 @@ def controller_manifests() -> list[dict[str, Any]]:
     not by its class — so a ``y_transform`` selector claiming those class names
     would wrongly re-type a bare X-scaler as a target transform.
     """
+    model_data_requirements = {
+        "schema_version": 1,
+        "ports": [
+            {
+                "name": "x",
+                "accepted_representations": ["tabular_numeric", "feature_block_set"],
+                "accepted_types": ["table", "multi_block"],
+                "rank": 2,
+                "multi_source": True,
+                "optional": False,
+            }
+        ],
+        "default_fusion": {
+            "mode": "concatenate_features",
+            "alignment": "sample_id",
+            "adapter_id": None,
+            "params": {"namespace_columns": True},
+        },
+        "metadata": {"source": "nirs4all"},
+    }
+
     return [
         {
             "controller_id": "controller:nirs4all.transform",
@@ -1065,7 +1086,7 @@ def controller_manifests() -> list[dict[str, Any]]:
                 {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
                 {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
             ],
-            "data_requirements": None,
+            "data_requirements": model_data_requirements,
             # A prediction output port requires emits_predictions; an artifact port requires
             # emits_artifacts (dag-ml ControllerManifest::validate). No consumes_oof_predictions:
             # the vertical slice has no stacking/meta-model that would consume OOF.
