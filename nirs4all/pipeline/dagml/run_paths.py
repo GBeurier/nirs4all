@@ -449,6 +449,181 @@ def _run_concrete(
     return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, results=results, identity=identity, refit_artifacts=refit_artifacts)
 
 
+def _source_concat_layout(source_indices: list[int], spectro: Any, envelope: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Internal source-layout marker for a proven ``{"merge": {"sources": "concat"}}`` boundary."""
+    envelope_layout = ((envelope or {}).get("plan") or {}).get("source_layout")
+    if isinstance(envelope_layout, dict) and source_indices == list(range(spectro.features_sources())):
+        return dict(envelope_layout)
+
+    source_order = [f"src{index}" for index in source_indices]
+    blocks: list[dict[str, Any]] = []
+    start = 0
+    num_features = spectro.num_features
+    for source_id, source_index in zip(source_order, source_indices, strict=True):
+        width = int(num_features[source_index] if isinstance(num_features, list) else num_features)
+        blocks.append(
+            {
+                "source_id": source_id,
+                "source_index": source_index,
+                "column_start": start,
+                "column_count": width,
+            }
+        )
+        start += width
+    return {
+        "kind": "by_source_concat",
+        "source_order": source_order,
+        "source_indices": list(source_indices),
+        "blocks": blocks,
+        "concat": {
+            "axis": "feature",
+            "total_column_count": start,
+            "preserve_source_order": True,
+        },
+    }
+
+
+def _graph_upstream_x_chain(graph: dict[str, Any], node_id: str) -> list[str]:
+    """Ordered upstream x-chain ids for a compiled linear graph."""
+    incoming: dict[str, str] = {}
+    for edge in graph.get("edges", []) or []:
+        target = edge.get("target") or {}
+        source = edge.get("source") or {}
+        contract = edge.get("contract") or {}
+        if target.get("port_name") == "x" and contract.get("kind") == "data":
+            incoming[str(target["node_id"])] = str(source["node_id"])
+    chain: list[str] = []
+    current = incoming.get(node_id)
+    while current is not None:
+        chain.append(current)
+        current = incoming.get(current)
+    chain.reverse()
+    return chain
+
+
+def _source_concat_preprocessing_metadata(
+    graph: dict[str, Any],
+    model_node: dict[str, Any],
+    source_indices: list[int],
+    source_layout: dict[str, Any],
+) -> dict[str, Any]:
+    """Build the node-runner contract for top-level source concat preprocessing."""
+    nodes_by_id = {node["id"]: node for node in graph.get("nodes", []) or []}
+    chain_nodes = [nodes_by_id[node_id] for node_id in _graph_upstream_x_chain(graph, str(model_node["id"]))]
+    if any(node.get("kind") != "transform" for node in chain_nodes):
+        raise DagMlUnsupported("source-concat preprocessing chain may contain only X transform nodes")
+
+    blocks_by_index = {
+        int(block["source_index"]): block
+        for block in source_layout.get("blocks", []) or []
+        if isinstance(block, dict) and "source_index" in block
+    }
+    source_ids = source_layout.get("source_ids") if isinstance(source_layout.get("source_ids"), list) else []
+    source_order = source_layout.get("source_order") if isinstance(source_layout.get("source_order"), list) else []
+    sources: list[dict[str, Any]] = []
+    for position, source_index in enumerate(source_indices):
+        block = blocks_by_index.get(source_index, {})
+        sources.append(
+            {
+                "source_name": block.get("source_name", source_order[position] if position < len(source_order) else f"source_{source_index}"),
+                "source_id": block.get("source_id", source_ids[position] if position < len(source_ids) else f"src{source_index}"),
+                "source_index": source_index,
+                "steps": chain_nodes,
+            }
+        )
+
+    return {
+        "mode": "top_level_sources_concat",
+        "preserve_legacy_sources_after_merge": True,
+        "source_layout": source_layout,
+        "sources": sources,
+    }
+
+
+def _mark_source_concat_model_nodes(graph: dict[str, Any], source_indices: list[int], spectro: Any, envelope: dict[str, Any]) -> None:
+    """Attach source-concat layout and per-source preprocessing metadata to model nodes."""
+    layout = _source_concat_layout(source_indices, spectro, envelope)
+    for node in graph.get("nodes", []):
+        if node.get("kind") != "model":
+            continue
+        metadata = dict(node.get("metadata") or {})
+        metadata["source_layout"] = layout
+        metadata["source_concat_preprocessing"] = _source_concat_preprocessing_metadata(graph, node, source_indices, layout)
+        node["metadata"] = metadata
+
+
+def _run_source_concat_merge(
+    pre_merge_steps: list[Any],
+    post_merge_steps: list[Any],
+    source_indices: list[int],
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str,
+    task_type: str,
+    dataset_pickle: str | None = None,
+    config_name: str = "",
+    random_state: int | None = None,
+) -> RunResult:
+    """Run top-level source concat natively by preserving the per-source transform boundary.
+
+    Legacy applies upstream X transforms to each source independently, then ``{"merge": {"sources":
+    "concat"}}`` hstacks those transformed blocks before the downstream splitter/model. A plain native
+    early-fusion run would fit the X-chain on the already-concatenated matrix, which changes row-wise
+    transforms such as SNV. This path compiles the graph without the merge step but marks the model node
+    with a source-layout contract; the node runner then materializes source blocks, applies the upstream
+    X-chain per block, hstacks in source order, and fits/predicts the model.
+    """
+    native_pipeline = [*pre_merge_steps, *post_merge_steps]
+    steps, splitter = _split_pipeline(native_pipeline)
+    if splitter is None:
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    _reject_multi_model(steps)
+    _assert_supported_operators(steps)
+    steps = _apply_model_params(steps)
+
+    identity = mint_identity(spectro)
+    pool = spectro.index_column("sample", {"partition": "train"})
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-source-concat", n_splits=len(folds))
+
+    import dag_ml
+
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
+    _mark_source_concat_model_nodes(graph, source_indices, spectro, envelope)
+    outcome = run_cv_refit_bundle(
+        dsl=dsl,
+        envelope=envelope,
+        graph=graph,
+        dataset_path=dataset_arg,
+        workdir=run_dir,
+        dagml_cli=cli,
+        venv_python=venv_python,
+        selection_metric=metric,
+        dataset_pickle=dataset_pickle,
+        dataset=spectro,
+        random_state=random_state,
+    )
+    if outcome["returncode"] != 0:
+        _raise_run_failure(outcome, "dag-ml source-concat merge run failed")
+
+    return _scores_to_run_result(
+        outcome["scores"],
+        spectro.name,
+        _model_name(steps),
+        metric,
+        task_type,
+        config_name=config_name,
+        skip_refit=_legacy_skips_refit(splitter),
+        results=outcome["results"],
+        identity=identity,
+        refit_artifacts=outcome["refit_artifacts"],
+    )
+
+
 def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a REPETITION (sample-grain grouped) pipeline as ONE native dag-ml CV+refit run.
 

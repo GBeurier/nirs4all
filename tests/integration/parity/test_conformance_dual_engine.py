@@ -325,12 +325,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # (list). Skipping" → no `final` rows, 90 CV-only preds), so there is no clean legacy oracle to target,
     # and no native by_source-stacking path exists yet.
     "multi_source_per_source_models_stacking",
-    # sources_concat_then_rf: `{"merge":{"sources":"concat"}}` is a semantic no-op for a float-robust model
-    # (PLSR: with-merge 13.28643 == drop-merge 13.28643 to 1e-15), but the native concat-model path applies
-    # SNV on-concat (not per-source) AND legacy's merge storage round-trip shifts the fixed-seed RF (per-source
-    # 21.0678 → merged 21.0960); the native value (on-concat 21.0846) matches NEITHER within tol. Reproducing
-    # legacy's exact float round-trip for a chaotic RF is not a maintainable native contract.
-    "multi_source_sources_concat_then_rf",
 })
 
 
