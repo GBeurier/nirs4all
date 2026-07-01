@@ -28,7 +28,8 @@ Layout (one directory per run, default ``./nirs4all_results/<run_id>/``):
 * ``manifest.json`` — the run header (run_id, engine, versions, datasets, configs/variants, models,
   metric, task_type) + CAPABILITY FLAGS (``has_model_artifacts`` true when any model artifact was
   captured + persisted; ``has_aggregate_predictions`` false for this slice) + the ScoreSet content hash +
-  producer-node summaries + the ArtifactRef ``artifacts[]`` list + the manifest's own ``schema_version``.
+  producer-node summaries + the ArtifactRef ``artifacts[]`` list + optional replay manifests for native
+  composite exports + the manifest's own ``schema_version``.
 """
 
 from __future__ import annotations
@@ -54,13 +55,17 @@ if TYPE_CHECKING:
 # The manifest's own schema version — bumped when the manifest layout changes (independent of the
 # native dag-ml ScoreSet schema, which is owned by dag-ml and stored verbatim). v2 adds the model
 # ArtifactRef ``artifacts[]`` list + the live ``has_model_artifacts`` capability flag (P3 Slice 2c-i).
-MANIFEST_SCHEMA_VERSION = 2
+# v3 adds ``stacking_replay`` metadata for native .n4a replay of branch stacking artifacts.
+MANIFEST_SCHEMA_VERSION = 3
 
 _DEFAULT_RESULTS_ROOT = "nirs4all_results"
 _ENV_GATE = "N4A_NATIVE_RESULTS"
 
 # The artifacts subtree holding the joblib-serialized fitted REFIT models, relative to the run dir.
 _ARTIFACTS_DIR = "artifacts"
+_STACKING_PRODUCER_NODE = "merge:stack"
+_META_MODEL_CONTROLLER_ID = "controller:nirs4all.meta_model"
+_ARTIFACT_REFIT_MARKER = ":nirs4all:refit:"
 
 # The per-row columns the parquet projection carries. The three array columns + their shape columns are
 # appended per row; everything else is a scalar/JSON-encoded column.
@@ -138,6 +143,17 @@ def _branch_index_from_artifact_id(artifact_id: Any) -> int | None:
         return None
 
 
+def _producer_node_from_artifact_id(artifact_id: Any) -> str | None:
+    """Return the dag-ml producer node encoded in ``artifact:<producer>:nirs4all:refit:...`` ids."""
+    if not isinstance(artifact_id, str) or not artifact_id.startswith("artifact:"):
+        return None
+    body = artifact_id[len("artifact:") :]
+    producer, marker, _rest = body.partition(_ARTIFACT_REFIT_MARKER)
+    if marker != _ARTIFACT_REFIT_MARKER or not producer:
+        return None
+    return producer
+
+
 # The serialization backend the writer persists with + the reader can load. dag-ml's ArtifactRef.backend
 # is the SERIALIZATION backend (ADR-16 / dag-ml-core ArtifactBackend enum: joblib/torch/tensorflow/onnx/
 # safetensors/json/raw), NOT the ML framework. These refit estimators are joblib-dumped, so the backend is
@@ -184,6 +200,9 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
             # Neutral branch metadata. Export interprets this as source_index only when the native run
             # manifest proves the shape is by_source fusion; for duplication fusion it remains branch order.
             ref["branch_index"] = branch_index
+        producer_node = _producer_node_from_artifact_id(ref["artifact_id"])
+        if producer_node is not None:
+            ref["producer_node"] = producer_node
         refs.append(ref)
     return refs
 
@@ -286,6 +305,66 @@ def _score_set_producer_nodes(score_set: dict[str, Any] | None, *, final_only: b
     return sorted(nodes)
 
 
+def _stacking_replay_manifest(score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
+
+    dag-ml's meta-node builds meta-features by sorting base prediction-input keys and concatenating each
+    producer's prediction-value block in that order. Persisting the matching producer order lets the .n4a
+    exporter reconstruct the same meta-feature matrix from raw X using the captured base REFIT models,
+    then replay the captured meta REFIT model without invoking the legacy bridge.
+    """
+    if _STACKING_PRODUCER_NODE not in _score_set_producer_nodes(score_set, final_only=True):
+        return None
+
+    meta_refs = [
+        ref
+        for ref in artifact_refs
+        if ref.get("controller_id") == _META_MODEL_CONTROLLER_ID or _producer_node_from_artifact_id(ref.get("artifact_id")) == _STACKING_PRODUCER_NODE
+    ]
+    if len(meta_refs) != 1:
+        return None
+    meta_ref = meta_refs[0]
+
+    base_refs = [
+        ref
+        for ref in artifact_refs
+        if ref is not meta_ref and _producer_node_from_artifact_id(ref.get("artifact_id")) not in {None, _STACKING_PRODUCER_NODE}
+    ]
+    if len(base_refs) < 2:
+        return None
+
+    ordered_base_refs = sorted(base_refs, key=lambda ref: str(ref.get("producer_node") or _producer_node_from_artifact_id(ref.get("artifact_id")) or ""))
+    base_producers: list[dict[str, Any]] = []
+    for ref in ordered_base_refs:
+        producer_node = str(ref.get("producer_node") or _producer_node_from_artifact_id(ref.get("artifact_id")) or "")
+        if not producer_node:
+            return None
+        entry = {
+            "artifact_id": ref.get("artifact_id"),
+            "producer_node": producer_node,
+            # This is the base key order used by node_runner._ordered_oof_specs after suffix stripping.
+            "meta_feature_key": f"{producer_node}.oof",
+            "column_block": "prediction_values",
+        }
+        if ref.get("branch_index") is not None:
+            entry["branch_index"] = int(ref["branch_index"])
+        base_producers.append(entry)
+
+    return {
+        "schema_version": 1,
+        "producer_node": _STACKING_PRODUCER_NODE,
+        "meta_artifact_id": meta_ref.get("artifact_id"),
+        "meta_producer_node": str(meta_ref.get("producer_node") or _producer_node_from_artifact_id(meta_ref.get("artifact_id")) or _STACKING_PRODUCER_NODE),
+        "base_producers": base_producers,
+        "meta_feature_construction": {
+            "kind": "base_prediction_column_stack",
+            "producer_order": "sorted_prediction_input_base_key",
+            "prediction_space": "original_target",
+            "column_blocks": "one block per base producer, preserving target column order",
+        },
+    }
+
+
 def _manifest_header(result: RunResult, predictions: Predictions, score_set: dict[str, Any] | None, run_id: str, run_dir: Path, artifact_refs: list[dict[str, Any]]) -> dict[str, Any]:
     """Build the run-header manifest (versions, datasets, configs/variants, models, capability flags).
 
@@ -312,7 +391,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
     selected_variant = str(best.get("config_name") or "") if isinstance(best, dict) else ""
 
     score_meta = score_set or {}
-    return {
+    manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "run_id": run_id,
         "created_at": datetime.now(UTC).isoformat(),
@@ -342,6 +421,10 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
             "predictions": "predictions.parquet",
         },
     }
+    stacking_replay = _stacking_replay_manifest(score_set, artifact_refs)
+    if stacking_replay is not None:
+        manifest["stacking_replay"] = stacking_replay
+    return manifest
 
 
 def write_native_results(
@@ -533,6 +616,8 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
         }
         if ref.get("branch_index") is not None:
             entry["branch_index"] = int(ref["branch_index"])
+        if ref.get("producer_node") is not None:
+            entry["producer_node"] = str(ref["producer_node"])
         rehydrated.append(entry)
     return rehydrated
 

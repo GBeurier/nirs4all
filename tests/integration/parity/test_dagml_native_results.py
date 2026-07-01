@@ -365,6 +365,72 @@ def test_native_results_model_artifact_round_trip(tmp_path: Path) -> None:
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_native_results_stacking_replay_manifest(tmp_path: Path) -> None:
+    """A native stacking run persists the base/meta artifact order needed for raw-X bundle replay."""
+    from sklearn.linear_model import Ridge
+
+    from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
+
+    results_root = tmp_path / "results"
+    pipeline = [
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {
+            "branch": [
+                [SNV(), {"model": PLSRegression(n_components=5)}],
+                [MSC(), {"model": PLSRegression(n_components=5)}],
+            ]
+        },
+        {"merge": "predictions"},
+        {"model": Ridge(alpha=1.0, random_state=42)},
+    ]
+    result = run_via_dagml(
+        pipeline, dataset_path("regression"), workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        random_state=42,
+    )
+    assert len(result._dagml_refit_artifacts) == 3  # noqa: SLF001
+
+    run_dir = sorted(results_root.iterdir())[0]
+    manifest = json.loads((run_dir / "manifest.json").read_text())
+    replay = manifest["stacking_replay"]
+    assert replay["schema_version"] == 1
+    assert replay["producer_node"] == "merge:stack"
+    assert replay["meta_artifact_id"] == "artifact:merge:stack:nirs4all:refit:variant:base"
+    assert replay["meta_feature_construction"] == {
+        "kind": "base_prediction_column_stack",
+        "producer_order": "sorted_prediction_input_base_key",
+        "prediction_space": "original_target",
+        "column_blocks": "one block per base producer, preserving target column order",
+    }
+    assert replay["base_producers"] == [
+        {
+            "artifact_id": "artifact:branch:0.node:1:nirs4all:refit:variant:base",
+            "producer_node": "branch:0.node:1",
+            "meta_feature_key": "branch:0.node:1.oof",
+            "column_block": "prediction_values",
+            "branch_index": 0,
+        },
+        {
+            "artifact_id": "artifact:branch:1.node:1:nirs4all:refit:variant:base",
+            "producer_node": "branch:1.node:1",
+            "meta_feature_key": "branch:1.node:1.oof",
+            "column_block": "prediction_values",
+            "branch_index": 1,
+        },
+    ]
+
+    artifact_refs = {artifact["artifact_id"]: artifact for artifact in manifest["artifacts"]}
+    assert artifact_refs["artifact:branch:0.node:1:nirs4all:refit:variant:base"]["producer_node"] == "branch:0.node:1"
+    assert artifact_refs["artifact:branch:1.node:1:nirs4all:refit:variant:base"]["producer_node"] == "branch:1.node:1"
+    assert artifact_refs["artifact:merge:stack:nirs4all:refit:variant:base"]["producer_node"] == "merge:stack"
+
+    read = read_native_results(run_dir)
+    rehydrated = {artifact["artifact_id"]: artifact for artifact in read["artifacts"]}
+    assert rehydrated["artifact:branch:0.node:1:nirs4all:refit:variant:base"]["producer_node"] == "branch:0.node:1"
+    assert rehydrated["artifact:merge:stack:nirs4all:refit:variant:base"]["producer_node"] == "merge:stack"
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_native_results_model_artifact_tamper_raises_before_load(tmp_path: Path) -> None:
     """A content_fingerprint mismatch on a model artifact raises ValueError BEFORE joblib.load (verify-then-load)."""
     results_root = tmp_path / "results"
