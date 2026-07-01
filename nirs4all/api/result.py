@@ -110,6 +110,7 @@ def _lineage_by_feature(feature_lineage: Mapping[str, Any], feature: str | int) 
 # the legacy ``to_bytes`` path instead of the joblib-only native helper.
 _NON_JOBLIB_EXTENSIONS = frozenset({".pkl", ".pickle", ".h5", ".hdf5", ".keras", ".pt", ".pth"})
 _DAGML_FUSION_PRODUCER_NODE = "merge:fusion"
+_DAGML_STACKING_PRODUCER_NODE = "merge:stack"
 _DAGML_BRANCH_ARTIFACT_PREFIX = "artifact:branch:"
 _DAGML_BY_SOURCE_MODEL_PREFIX = "by_source_"
 
@@ -238,6 +239,35 @@ class _DagmlNativeBySourceFusionModel:
         raise ValueError(
             "native by_source fusion export expects either a concatenated 2D feature matrix or one 2D matrix per source"
         )
+
+
+class _DagmlNativeStackingModel:
+    """Predict-capable wrapper for native branch stacking artifacts.
+
+    The base members are captured REFIT models that predict in original target space. The meta member is
+    the captured REFIT meta-model, fit by dag-ml on base prediction columns ordered by the native
+    ``stacking_replay`` manifest. Prediction rebuilds that same meta-feature matrix from raw X.
+    """
+
+    def __init__(self, base_members: Sequence[_DagmlExportedModel], meta_member: _DagmlExportedModel) -> None:
+        if len(base_members) < 2:
+            raise ValueError("native stacking export requires at least two base member models")
+        self.base_members = list(base_members)
+        self.meta_member = meta_member
+
+    def predict(self, X: Any) -> np.ndarray:
+        base_blocks: list[np.ndarray] = []
+        expected_rows: int | None = None
+        for member in self.base_members:
+            pred = np.asarray(member.predict(X), dtype=float)
+            rows = len(pred)
+            if expected_rows is None:
+                expected_rows = rows
+            elif rows != expected_rows:
+                raise ValueError(f"native stacking base predictions have incompatible row counts: expected {expected_rows}, got {rows}")
+            base_blocks.append(pred.reshape(rows, -1))
+        x_meta = np.column_stack(base_blocks)
+        return np.asarray(self.meta_member.predict(x_meta), dtype=float)
 
 
 def _native_manifest_strings(manifest: Mapping[str, Any], key: str) -> set[str]:
@@ -381,6 +411,34 @@ def _is_native_by_source_fusion_bundle(native: Mapping[str, Any], artifacts: Seq
     if not all(str(artifact.get("artifact_id") or "").startswith(_DAGML_BRANCH_ARTIFACT_PREFIX) for artifact in artifacts):
         return False
     return _indexed_branch_artifacts(artifacts) is not None
+
+
+def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]]) -> tuple[list[Mapping[str, Any]], Mapping[str, Any]] | None:
+    """Return ``(base_artifacts_in_meta_feature_order, meta_artifact)`` from ``stacking_replay``."""
+    replay = native_manifest.get("stacking_replay")
+    if not isinstance(replay, Mapping) or replay.get("producer_node") != _DAGML_STACKING_PRODUCER_NODE:
+        return None
+    construction = replay.get("meta_feature_construction")
+    if not isinstance(construction, Mapping) or construction.get("kind") != "base_prediction_column_stack":
+        return None
+
+    by_id = {str(artifact.get("artifact_id")): artifact for artifact in artifacts if artifact.get("artifact_id") is not None}
+    meta_artifact_id = replay.get("meta_artifact_id")
+    if meta_artifact_id is None or str(meta_artifact_id) not in by_id:
+        return None
+    base_producers = replay.get("base_producers")
+    if not isinstance(base_producers, Sequence) or isinstance(base_producers, (str, bytes)) or len(base_producers) < 2:
+        return None
+
+    base_artifacts: list[Mapping[str, Any]] = []
+    for producer in base_producers:
+        if not isinstance(producer, Mapping):
+            return None
+        artifact_id = producer.get("artifact_id")
+        if artifact_id is None or str(artifact_id) not in by_id:
+            return None
+        base_artifacts.append(by_id[str(artifact_id)])
+    return base_artifacts, by_id[str(meta_artifact_id)]
 
 
 @dataclass
@@ -1326,11 +1384,10 @@ class RunResult:
         **dag-ml runs (P3 — NATIVE ``.n4a``):** when the run captured EXACTLY ONE concrete model artifact in
         its native results dir (``run(engine="dag-ml", results_path=...)`` or ``$N4A_NATIVE_RESULTS``), this
         builds the ``.n4a`` DIRECTLY from that captured REFIT model (rehydrated via the verify-then-load
-        native reader). A narrow duplication branch + mean-fusion run with multiple captured branch
-        artifacts also exports natively by embedding a wrapper that averages the captured branch REFIT
-        models; by_source mean-fusion does the same after splitting raw concatenated features back into
-        source blocks. These native paths avoid legacy refit and stochastic warnings. A :class:`BundleLoader`
-        reload-predict of the bundle reproduces the dag-ml run's scored REFIT model/fusion exactly.
+        native reader). Narrow multi-artifact duplication mean-fusion, by_source mean-fusion, and branch
+        stacking runs also export natively when the native manifest carries enough replay metadata. These
+        native paths avoid legacy refit and stochastic warnings. A :class:`BundleLoader` reload-predict of
+        the bundle reproduces the dag-ml run's scored REFIT model/composite exactly.
 
         **dag-ml runs (P1c bridge — fallback):** without a native dir, for unsupported multi-model / branch /
         stacking shapes, or for the ``n4a.py`` portable-script format, the bundle is produced by a legacy
@@ -1497,6 +1554,11 @@ class RunResult:
         artifact must be a branch model. The exported bundle embeds a small fusion wrapper that averages
         those captured branch refit models in original target space, matching dag-ml's native fusion merge.
 
+        Branch stacking is admitted only when native results v3 persisted a ``stacking_replay`` manifest
+        naming the meta artifact and the base artifacts in dag-ml's meta-feature column order. The exported
+        bundle embeds a wrapper that predicts every base model from raw X, column-stacks those predictions,
+        and feeds the captured meta REFIT model.
+
         Returns the written path, or ``None`` to signal the caller to FALL BACK to the legacy bridge when the
         native bundle is not applicable:
 
@@ -1504,7 +1566,7 @@ class RunResult:
         * a non-``n4a`` format (the ``n4a.py`` PORTABLE SCRIPT embeds artifacts through the legacy
           generator's template path and is out of this native single-model slice — it defers to the bridge,
           mirroring the ``export_model`` joblib-only gate; never a silent format substitution);
-        * a multi-artifact shape other than the supported branch / by_source mean-fusion replay;
+        * a multi-artifact shape other than the supported branch / by_source mean-fusion or stacking replay;
         * ANY native-read/rehydrate failure — a tampered/edited manifest (verify-then-load ``ValueError``), a
           missing/malformed native dir (``FileNotFoundError`` / ``KeyError`` / parquet error), OR a
           fingerprint-valid but UNLOADABLE artifact (``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError``
@@ -1543,6 +1605,28 @@ class RunResult:
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
                 provenance=_dagml_native_bundle_provenance(native_manifest, export_path="dagml_native", artifact_count=1),
+            )
+
+        stacking = _native_stacking_artifacts(native_manifest, artifacts)
+        if stacking is not None:
+            base_artifacts, meta_artifact = stacking
+            base_members = [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in base_artifacts]
+            meta_member = _DagmlExportedModel(meta_artifact["estimator"], meta_artifact["y_transform"])
+            model_label = model_names[0] if model_names else "dagml_native_stacking"
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest,
+                export_path="dagml_native_stacking",
+                artifact_count=len(artifacts),
+                export_shape="branch_stacking_predictions",
+            )
+            provenance["dagml_stacking_base_count"] = len(base_artifacts)
+            provenance["dagml_stacking_meta_artifact_id"] = meta_artifact.get("artifact_id")
+            return write_single_model_bundle(
+                _DagmlNativeStackingModel(base_members, meta_member),
+                output_path,
+                model_label=model_label,
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance,
             )
 
         if _is_native_branch_fusion_bundle(native, artifacts):
