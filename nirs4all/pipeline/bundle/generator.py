@@ -66,6 +66,100 @@ class BundleFormat(StrEnum):
     def __str__(self) -> str:
         return self.value
 
+
+def write_single_model_bundle(
+    model: Any,
+    output_path: str | Path,
+    *,
+    model_label: str = "model",
+    pipeline_uid: str = "",
+    preprocessing_chain: str = "",
+    provenance: dict[str, Any] | None = None,
+    compress: bool = True,
+) -> Path:
+    """Write a minimal, valid ``.n4a`` ZIP bundle whose sole step is one predict-capable model.
+
+    Unlike :class:`BundleGenerator` (which packages a workspace *chain* of per-step / per-fold
+    artifacts resolved from a :class:`~nirs4all.pipeline.resolver.PredictionResolver`), this writes a
+    SELF-CONTAINED single-model bundle from one in-hand object: the bundle's only step is ``model``,
+    whose ``predict(X)`` already performs the entire forward pass (feature transforms → estimator →
+    optional y-inverse). It is the bundle-format counterpart of a bare ``joblib.dump(model)`` and
+    needs NO workspace, store, resolver, or trace.
+
+    Its purpose is the dag-ml NATIVE ``.n4a`` export: a single-model dag-ml run captures its refit
+    model as exactly such a predict-capable object (``_DagmlExportedModel``), and this packages it
+    into a portable bundle WITHOUT re-fitting the pipeline on the legacy engine.
+
+    The output conforms to the EXISTING ``.n4a`` format (``bundle_format_version``
+    :data:`BUNDLE_FORMAT_VERSION`), unchanged on the read side: a ``manifest.json`` with
+    ``model_step_index == 1``, a ``pipeline.json`` carrying a single ``model`` step, and one
+    ``artifacts/step_1_foldfinal_<label>.joblib`` payload. An unmodified :class:`BundleLoader` reads
+    it through the no-trace index path and predicts by loading that single refit artifact and calling
+    ``model.predict(X)`` directly — so the bundle reload-predict reproduces ``model.predict`` exactly.
+
+    Args:
+        model: A predict-capable object (``predict(X) -> np.ndarray``). Must be joblib-serializable
+            and importable by its module path at load time (e.g. a module-level wrapper class).
+        output_path: Destination bundle path; a ``.n4a`` suffix is enforced.
+        model_label: Human-readable model name used only for the manifest/pipeline label and the
+            artifact filename. The loader keys on the step index, not this label, so it is cosmetic
+            (sanitized to ``[A-Za-z0-9_]``).
+        pipeline_uid: Optional source-run identifier recorded in the manifest.
+        preprocessing_chain: Optional preprocessing-chain summary string for the manifest.
+        provenance: Optional ADDITIVE manifest fields recording the export origin (e.g. the dag-ml
+            run / plan / variant ids and an ``export_path`` marker). Older loaders ignore unknown
+            manifest keys (:meth:`BundleMetadata.from_dict`), so this never breaks bundle reads.
+        compress: ``ZIP_DEFLATED`` when ``True`` (default), else ``ZIP_STORED``.
+
+    Returns:
+        The written bundle path (with the enforced ``.n4a`` suffix).
+    """
+    import io
+
+    import joblib
+
+    output_path = Path(output_path)
+    if not output_path.suffix.lower().endswith(".n4a"):
+        output_path = output_path.with_suffix(".n4a")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    # Sanitize the label to a single artifact-filename token; the ``foldfinal`` marker (not the label)
+    # is what routes the loader to its single-refit-model path, so the label cannot affect correctness.
+    safe_label = "".join(ch if ch.isalnum() else "_" for ch in model_label).strip("_") or "model"
+
+    import nirs4all
+
+    manifest: dict[str, Any] = {
+        "bundle_format_version": BUNDLE_FORMAT_VERSION,
+        "nirs4all_version": getattr(nirs4all, "__version__", "unknown"),
+        "created_at": datetime.now(UTC).isoformat(),
+        "pipeline_uid": pipeline_uid,
+        "source_type": "single_model",
+        "model_step_index": 1,
+        "fold_strategy": "single",
+        "preprocessing_chain": preprocessing_chain,
+    }
+    if provenance:
+        manifest.update(provenance)
+
+    pipeline_config = {
+        "steps": [{"model": {"class": model_label}}],
+        "model_step_index": 1,
+    }
+
+    compression = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
+    with zipfile.ZipFile(output_path, "w", compression=compression) as zf:
+        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+        zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
+        buffer = io.BytesIO()
+        joblib.dump(model, buffer)
+        # The ``foldfinal`` token makes BundleLoader resolve this as the single refit model
+        # (``_get_refit_model``) and predict in one forward pass — see the loader's model-step path.
+        zf.writestr(f"artifacts/step_1_foldfinal_{safe_label}.joblib", buffer.getvalue())
+
+    return output_path
+
+
 class BundleGenerator:
     """Generate standalone prediction bundles from trained pipelines.
 
