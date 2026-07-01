@@ -3392,13 +3392,14 @@ def test_multi_source_emission_emits_feature_block_set() -> None:
     the relations are sample-grain (``source_id=None``), and the model binding carries
     ``output_representation='feature_block_set'`` + every ``source_id``. No CLI needed."""
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for, model_node_id
-    from nirs4all.pipeline.dagml.envelope import build_envelope, sample_relations, source_ids
+    from nirs4all.pipeline.dagml.envelope import build_envelope, sample_relations, source_ids, source_order
     from nirs4all.pipeline.dagml.identity import mint_identity
 
     dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
     n_sources = dataset.features_sources()
     assert n_sources == 3, "the `multi` corpus has 3 NIR sources"
     assert source_ids(dataset) == ["src0", "src1", "src2"]
+    assert source_order(dataset) == ["source_0", "source_1", "source_2"]
 
     identity = mint_identity(dataset)
     train = dataset.index_column("sample", {"partition": "train"})
@@ -3417,6 +3418,14 @@ def test_multi_source_emission_emits_feature_block_set() -> None:
     assert join_step["input_representation"] == "signal_1d"
     assert join_step["metadata"]["inputs"] == ["src:src0", "src:src1", "src:src2"]
 
+    source_layout = envelope["plan"]["source_layout"]
+    assert source_layout["kind"] == "by_source_concat"
+    assert source_layout["source_order"] == ["source_0", "source_1", "source_2"]
+    assert source_layout["source_ids"] == ["src0", "src1", "src2"]
+    assert source_layout["concat_layout"]["source_order"] == ["source_0", "source_1", "source_2"]
+    assert source_layout["concat_layout"]["total_column_count"] == sum(per_source_features)
+    assert [block["source_index"] for block in source_layout["blocks"]] == [0, 1, 2]
+
     # Multi-source relations are sample-grain: source_id=None (a sample's blocks span every source).
     assert all(row["source_id"] is None for row in sample_relations(identity, source_id=None, sample_ints=train)["rows"])
 
@@ -3427,6 +3436,54 @@ def test_multi_source_emission_emits_feature_block_set() -> None:
     assert binding["feature_set_id"] == "x"
     # The fused feature width is the sum of the per-source widths (early-fusion concat by sample_id).
     assert isinstance(per_source_features, list) and len(per_source_features) == n_sources
+
+
+def _multi_source_contract_envelope() -> dict[str, Any]:
+    dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    identity = mint_identity(dataset)
+    train = dataset.index_column("sample", {"partition": "train"})
+    return build_envelope(dataset, identity, sample_ints=train)
+
+
+def test_w54_contract_by_source_distinct_preproc_has_source_layout_order() -> None:
+    """W54 by_source dict preprocessing now has explicit legacy-key to native-source mapping."""
+    source_layout = _multi_source_contract_envelope()["plan"].get("source_layout")
+    assert isinstance(source_layout, dict), "missing source_layout field"
+    assert source_layout["source_order"] == ["source_0", "source_1", "source_2"]
+    assert source_layout["source_ids"] == ["src0", "src1", "src2"]
+
+    outputs = source_layout.get("per_source_preprocessing_outputs")
+    assert isinstance(outputs, dict), "missing source_layout.per_source_preprocessing_outputs"
+    assert list(outputs) == ["source_0", "source_1", "source_2"]
+    assert [(outputs[name]["source_index"], outputs[name]["source_id"]) for name in outputs] == [(0, "src0"), (1, "src1"), (2, "src2")]
+
+    blocks = source_layout["blocks"]
+    assert [block["source_name"] for block in blocks] == ["source_0", "source_1", "source_2"]
+    assert [block["source_id"] for block in blocks] == ["src0", "src1", "src2"]
+    assert [block["preprocessing_output"] for block in blocks] == [
+        {key: value for key, value in outputs[source_name].items() if key not in {"source_id", "source_index"}}
+        for source_name in source_layout["source_order"]
+    ]
+
+
+def test_w54_contract_sources_concat_rf_has_concat_layout() -> None:
+    """W54 source-concat RF now has explicit concat/storage boundary metadata."""
+    source_layout = _multi_source_contract_envelope()["plan"].get("source_layout")
+    assert isinstance(source_layout, dict), "missing source_layout field"
+    concat_layout = source_layout.get("concat_layout")
+    assert isinstance(concat_layout, dict), "missing source_layout.concat_layout"
+    assert concat_layout["strategy"] == "concat"
+    assert concat_layout["axis"] == "feature"
+    assert concat_layout["source_order"] == ["source_0", "source_1", "source_2"]
+    assert concat_layout["source_ids"] == ["src0", "src1", "src2"]
+    assert concat_layout["output_source_index"] == 0
+    assert concat_layout["preserves_storage_roundtrip"] is True
+
+    concat = source_layout["concat"]
+    assert concat["axis"] == "feature"
+    assert concat["total_column_count"] == concat_layout["total_column_count"]
+    assert concat["preserve_source_order"] is True
+    assert concat["namespace_columns"] is True
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")

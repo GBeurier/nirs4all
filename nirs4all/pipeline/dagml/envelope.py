@@ -55,6 +55,25 @@ def source_ids(dataset: SpectroDataset) -> list[str]:
     return [f"src{k}" for k in range(n_sources)]
 
 
+def source_order(dataset: SpectroDataset) -> list[str]:
+    """Legacy by_source branch keys in exact source-index order.
+
+    Mirrors ``BranchController._get_source_names`` without importing the controller:
+    use ``dataset.source_name(i)`` when a dataset exposes it, else fall back to
+    ``source_i``. These are the user-facing keys legacy by_source dict bodies
+    resolve against, distinct from the native data-plan ids (``src0``/``src1``).
+    """
+    n_sources = dataset.features_sources()
+    names: list[str] = []
+    try:
+        for index in range(n_sources):
+            name = dataset.source_name(index) if hasattr(dataset, "source_name") else None
+            names.append(str(name) if name else f"source_{index}")
+    except Exception:  # noqa: BLE001 - match legacy's defensive fallback
+        return [f"source_{index}" for index in range(n_sources)]
+    return names
+
+
 def _params_fingerprint(transform_id: str) -> str:
     """Deterministic 64-hex digest for an augmentation transform (sorted-params discipline).
 
@@ -228,6 +247,64 @@ def _data_plan(dataset: SpectroDataset, sources: list[str]) -> dict[str, Any]:
     }
 
 
+def _source_layout(dataset: SpectroDataset, sources: list[str]) -> dict[str, Any]:
+    """Explicit by-source layout contract for multi-source feature concat.
+
+    ``source_order`` is the legacy branch-key order (``source_0`` etc., or
+    dataset-provided source names); ``source_ids`` is the native data-plan order
+    (``src0`` etc.). Consumers must map dict bodies by these keys, not by guessing
+    from insertion order.
+    """
+    names = source_order(dataset)
+    column_start = 0
+    blocks: list[dict[str, Any]] = []
+    per_source_outputs: dict[str, dict[str, Any]] = {}
+    for index, (source_name, source_id) in enumerate(zip(names, sources, strict=True)):
+        column_count = _num_wavelengths(dataset, index)
+        output = {
+            "feature_set_id": f"x:{source_id}",
+            "representation_id": "tabular_numeric",
+            "adapter_id": f"preprocess:{source_id}",
+            "fit_scope": "fold_train",
+        }
+        block = {
+            "source_name": source_name,
+            "source_id": source_id,
+            "source_index": index,
+            "preprocessing_output": output,
+            "column_start": column_start,
+            "column_count": column_count,
+            "feature_names": [str(name) for name in (dataset.headers(index) or [])],
+        }
+        blocks.append(block)
+        per_source_outputs[source_name] = {"source_id": source_id, "source_index": index, **output}
+        column_start += column_count
+    return {
+        "kind": "by_source_concat",
+        "source_order": names,
+        "source_ids": sources,
+        "blocks": blocks,
+        "per_source_preprocessing_outputs": per_source_outputs,
+        "concat_layout": {
+            "strategy": "concat",
+            "axis": "feature",
+            "source_order": names,
+            "source_ids": sources,
+            "total_column_count": column_start,
+            "output_source_index": 0,
+            "preserves_storage_roundtrip": True,
+        },
+        "concat": {
+            "feature_set_id": "x",
+            "representation_id": "tabular_numeric",
+            "axis": "feature",
+            "total_column_count": column_start,
+            "preserve_source_order": True,
+            "namespace_columns": True,
+        },
+    }
+
+
 def sample_relations(
     identity: IdentityMap,
     *,
@@ -380,7 +457,10 @@ def build_envelope(
         augmentation_by_sample=augmentation_by_sample,
         group_by_sample=group_by_sample,
     )
-    return _build_coordinator_envelope(dag_ml_data, schema, plan, relations)
+    out = _build_coordinator_envelope(dag_ml_data, schema, plan, relations)
+    if multi_source:
+        out["plan"]["source_layout"] = _source_layout(dataset, sources)
+    return out
 
 
 def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]]], *, set_id: str = "nirs4all.folds") -> dict[str, Any]:
