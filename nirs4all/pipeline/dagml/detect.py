@@ -666,9 +666,9 @@ def _is_unconstrained_operator_generator(pipeline: list[Any]) -> bool:
       constrained predicate's job — this admits ONLY the unconstrained survivor enumeration); AND
     * no OTHER generator anywhere (no nested generator on a non-generator step, no multi-model
       ``{"model": {"_or_": …}}``), and no ``finetune_params`` / ``train_params``; AND
-    * no ``count`` / ``_seed_`` / ``_weights_`` SAMPLING modifier (legacy SAMPLES the survivors — seeded /
-      weighted / count-truncate — but dag-ml's native ``count`` TRUNCATES a different set; the ``_or_``-pick
-      count path is moreover non-deterministic run-to-run, so it cannot reach strict parity); AND
+    * no ``count`` / ``_seed_`` / ``_weights_`` SAMPLING modifier (the Python expander samples the survivors —
+      seeded / weighted / count-capped — but dag-ml's native ``count`` TRUNCATES a different set and has no
+      weighted sampling analogue); AND
     * every leaf operator choice is a genuinely ROUTABLE bare X-transform (the SAME
       :func:`_constrained_choices_native_routable` gate) — a ``None`` choice, a multi-step list choice (the
       ``generator_or_multistep_branch`` shape), a ``{"model": …}`` choice, a nested-generator choice, or a
@@ -748,9 +748,9 @@ def _is_unconstrained_operator_generator(pipeline: list[Any]) -> bool:
     if CONSTRAINT_KEYWORDS & keys:
         return False
 
-    # (C) SAMPLING modifiers (`count`/`_seed_`/`_weights_`) DEMOTE: legacy SAMPLES the survivors; dag-ml's
-    #     native `count` TRUNCATES a different set (and the `_or_`-pick count path is non-deterministic
-    #     run-to-run — `generator_or_count_seed` / `generator_or_weights_count_seed` are SKIP cases).
+    # (C) SAMPLING modifiers (`count`/`_seed_`/`_weights_`) DEMOTE: the Python expander SAMPLES the
+    #     survivors deterministically when `_seed_` is present; dag-ml's native `count` TRUNCATES a
+    #     different set and has no weighted sampling analogue.
     if _CONSTRAINED_SAMPLING_MODIFIER_KEYS & keys:
         return False
 

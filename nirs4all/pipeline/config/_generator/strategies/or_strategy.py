@@ -21,7 +21,20 @@ from itertools import combinations, permutations, product
 from math import comb, factorial
 from typing import Any, Optional, Union
 
-from ..keywords import ARRANGE_KEYWORD, COUNT_KEYWORD, EXCLUDE_KEYWORD, MUTEX_KEYWORD, OR_KEYWORD, PICK_KEYWORD, PURE_OR_KEYS, REQUIRES_KEYWORD, THEN_ARRANGE_KEYWORD, THEN_PICK_KEYWORD
+from ..keywords import (
+    ARRANGE_KEYWORD,
+    COUNT_KEYWORD,
+    EXCLUDE_KEYWORD,
+    MUTEX_KEYWORD,
+    OR_KEYWORD,
+    PICK_KEYWORD,
+    PURE_OR_KEYS,
+    REQUIRES_KEYWORD,
+    SEED_KEYWORD,
+    THEN_ARRANGE_KEYWORD,
+    THEN_PICK_KEYWORD,
+    WEIGHTS_KEYWORD,
+)
 from ..utils.sampling import sample_with_seed
 from .base import ExpandedResult, ExpansionStrategy, GeneratorNode, SizeSpec
 from .registry import register_strategy
@@ -86,6 +99,24 @@ class OrStrategy(ExpansionStrategy):
         then_pick = node.get(THEN_PICK_KEYWORD)
         then_arrange = node.get(THEN_ARRANGE_KEYWORD)
         count = node.get(COUNT_KEYWORD)
+        node_seed = node.get(SEED_KEYWORD, seed)
+        weights = node.get(WEIGHTS_KEYWORD)
+        weighted_selection_keys = [
+            key
+            for key, value in (
+                (PICK_KEYWORD, pick),
+                (ARRANGE_KEYWORD, arrange),
+                (THEN_PICK_KEYWORD, then_pick),
+                (THEN_ARRANGE_KEYWORD, then_arrange),
+            )
+            if value is not None
+        ]
+        if weights is not None and weighted_selection_keys:
+            joined = ", ".join(weighted_selection_keys)
+            raise ValueError(
+                f"{WEIGHTS_KEYWORD} is only supported for simple {OR_KEYWORD} count sampling; "
+                f"it cannot be combined with {joined}"
+            )
 
         # Extract constraint specifications (Phase 4)
         mutex_groups = node.get(MUTEX_KEYWORD, [])
@@ -113,7 +144,7 @@ class OrStrategy(ExpansionStrategy):
 
         # Apply count limit if specified (count <= 0 means no limit)
         if count is not None and count > 0 and len(result) > count:
-            result = sample_with_seed(result, count, seed=seed)
+            result = sample_with_seed(result, count, seed=node_seed, weights=weights)
 
         return result
 
@@ -190,6 +221,28 @@ class OrStrategy(ExpansionStrategy):
         count = node.get(COUNT_KEYWORD)
         if count is not None and not isinstance(count, int):
             errors.append(f"count must be an integer, got {type(count).__name__}")
+
+        # Validate weights
+        weights = node.get(WEIGHTS_KEYWORD)
+        if weights is not None:
+            if not isinstance(weights, list):
+                errors.append(f"{WEIGHTS_KEYWORD} must be a list, got {type(weights).__name__}")
+            elif isinstance(choices, list) and len(weights) != len(choices):
+                errors.append(
+                    f"{WEIGHTS_KEYWORD} length ({len(weights)}) must match "
+                    f"{OR_KEYWORD} choices length ({len(choices)})"
+                )
+            selection_keys = [
+                key
+                for key in (PICK_KEYWORD, ARRANGE_KEYWORD, THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD)
+                if key in node
+            ]
+            if selection_keys:
+                joined = ", ".join(selection_keys)
+                errors.append(
+                    f"{WEIGHTS_KEYWORD} is only supported for simple {OR_KEYWORD} count sampling; "
+                    f"it cannot be combined with {joined}"
+                )
 
         return errors
 

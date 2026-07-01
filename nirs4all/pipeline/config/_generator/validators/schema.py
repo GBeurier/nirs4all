@@ -32,6 +32,7 @@ from ..keywords import (
     RANGE_KEYWORD,
     THEN_ARRANGE_KEYWORD,
     THEN_PICK_KEYWORD,
+    WEIGHTS_KEYWORD,
 )
 
 
@@ -313,6 +314,41 @@ def _validate_or_spec(spec: dict[str, Any], path: str, strict: bool) -> Validati
                 message=f"count must be non-negative, got {count}",
                 path=f"{path}.{COUNT_KEYWORD}",
                 code="NEGATIVE_COUNT"
+            ))
+
+    # Validate weighted OR sampling. Weights apply to simple one-choice-at-a-time
+    # OR sampling; pick/arrange produce combination/permutation survivors instead.
+    if WEIGHTS_KEYWORD in spec:
+        weights = spec[WEIGHTS_KEYWORD]
+        if not isinstance(weights, list):
+            result.add_error(ValidationError(
+                message=f"{WEIGHTS_KEYWORD} must be a list, got {type(weights).__name__}",
+                path=f"{path}.{WEIGHTS_KEYWORD}",
+                code="INVALID_WEIGHTS_TYPE"
+            ))
+        elif len(weights) != len(or_value):
+            result.add_error(ValidationError(
+                message=(
+                    f"{WEIGHTS_KEYWORD} length ({len(weights)}) must match "
+                    f"{OR_KEYWORD} choices length ({len(or_value)})"
+                ),
+                path=f"{path}.{WEIGHTS_KEYWORD}",
+                code="INVALID_WEIGHTS_LENGTH"
+            ))
+
+        selection_keys = [
+            key
+            for key in (PICK_KEYWORD, ARRANGE_KEYWORD, THEN_PICK_KEYWORD, THEN_ARRANGE_KEYWORD)
+            if key in spec
+        ]
+        if selection_keys:
+            result.add_error(ValidationError(
+                message=(
+                    f"{WEIGHTS_KEYWORD} is only supported for simple {OR_KEYWORD} count sampling; "
+                    f"it cannot be combined with {', '.join(selection_keys)}"
+                ),
+                path=f"{path}.{WEIGHTS_KEYWORD}",
+                code="INVALID_WEIGHTED_SELECTION"
             ))
 
     # Check for conflicting selection modes

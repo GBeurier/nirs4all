@@ -165,6 +165,34 @@ class TestOrStrategy:
         )
         assert len(result) == 2
 
+    def test_or_expand_with_count_uses_node_seed(self):
+        """Node-local _seed_ should control OR count sampling."""
+        strategy = OrStrategy()
+        node = {"_or_": ["A", "B", "C", "D", "E"], "count": 2, "_seed_": 7}
+
+        result = strategy.expand(node, seed=123)
+
+        assert result == ["C", "B"]
+        assert result == strategy.expand(node)
+
+    def test_or_expand_with_weighted_count(self):
+        """_weights_ should drive OR count sampling."""
+        strategy = OrStrategy()
+        result = strategy.expand(
+            {"_or_": ["A", "B", "C", "D"], "count": 1, "_seed_": 42, "_weights_": [0.0, 0.0, 0.0, 1.0]}
+        )
+
+        assert result == ["D"]
+
+    def test_or_expand_rejects_weighted_pick(self):
+        """_weights_ is not defined for combination survivors."""
+        strategy = OrStrategy()
+        node = {"_or_": ["A", "B", "C", "D"], "pick": 2, "count": 2, "_weights_": [1.0, 1.0, 1.0, 1.0]}
+
+        with pytest.raises(ValueError, match="_weights_ is only supported"):
+            strategy.expand(node)
+        assert any("_weights_ is only supported" in error for error in strategy.validate(node))
+
     def test_or_count_basic(self):
         """OR counting."""
         strategy = OrStrategy()

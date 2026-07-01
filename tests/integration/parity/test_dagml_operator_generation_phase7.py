@@ -782,8 +782,9 @@ def test_unconstrained_predicate_admits_pick_arrange_cartesian(node: dict[str, A
         {"_or_": [SNV, MSC, Detrend], "pick": 1, "then_arrange": 2},
         # `_cartesian_` with `pick` — pipeline-PAIR selection (dag-ml's cartesian mode REFUSES pick/arrange); DEMOTE.
         {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "pick": 2},
-        # SAMPLING modifiers — legacy SAMPLES survivors; dag-ml `count` TRUNCATES a different set (and the
-        # `_or_`-pick count path is non-deterministic run-to-run). DEMOTE on count / _seed_ / _weights_.
+        # SAMPLING modifiers — the Python expander SAMPLES survivors (seeded / weighted / count-capped);
+        # dag-ml native `count` TRUNCATES a different set and has no weighted sampling analogue.
+        # DEMOTE on count / _seed_ / _weights_.
         {"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "count": 2, "_seed_": 7},
         {"_or_": [SNV, MSC, Detrend, FirstDerivative], "pick": 2, "count": 3, "_seed_": 42},
         {"_or_": [SNV, MSC, Detrend], "pick": 2, "_weights_": [1, 1, 1]},
@@ -875,8 +876,8 @@ def test_unconstrained_demoted_shape_matches_legacy_via_python_expand(factory: A
 
     These deterministic survivor sets (then_*, cartesian-pick) demote off native but still run correctly on
     dag-ml, reproducing the legacy best score — the demote is a routing guard, not feature loss.
-    (count/_seed_/_weights_ are excluded here: their sampled subsets are randomized run-to-run, so no
-    cross-engine score claim is made — that randomness is the very reason they demote.)
+    (count/_seed_/_weights_ shapes are covered by the registry parity cases; this routing test keeps them
+    out because native direct lowering would truncate instead of running Python-expand sampling.)
     """
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
     dagml, native = _run_dagml(factory())
