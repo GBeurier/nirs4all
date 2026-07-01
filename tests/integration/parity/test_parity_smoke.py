@@ -22,6 +22,7 @@ import pytest
 
 import nirs4all
 from nirs4all.data import DatasetConfigs
+from nirs4all.pipeline.dagml.rt import RtError
 
 from ._datasets import dataset_path
 from ._registry import PipelineCase, all_cases, by_tag
@@ -32,6 +33,24 @@ pytestmark = pytest.mark.slow
 def _make_dataset(case: PipelineCase) -> DatasetConfigs:
     """Resolve a case's dataset_key + dataset_kwargs into a `DatasetConfigs`."""
     return DatasetConfigs(dataset_path(case.dataset_key), **case.dataset_kwargs)
+
+
+def _export_bundle_for_smoke(result: object, bundle_path) -> None:
+    """Export for legacy bundle/retrain smoke while preserving V1 dag-ml refusal visibility."""
+    try:
+        result.export(str(bundle_path))  # type: ignore[attr-defined]
+        return
+    except RtError as exc:
+        is_dagml = bool(result._is_dagml_engine())  # type: ignore[attr-defined]  # noqa: SLF001
+        if not is_dagml:
+            raise
+        payload = exc.to_dict()
+        assert payload["cause"] == "unsupported_capability"
+        assert payload["unsupported_capability"] == "dagml_native_export"
+        assert "compatibility='legacy-refit'" in payload["mitigation"]
+        assert not bundle_path.exists(), "default dag-ml export refusal must not leave a partial bundle"
+
+    result.export(str(bundle_path), compatibility="legacy-refit")  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize("case", all_cases(), ids=lambda c: c.name)
@@ -76,7 +95,7 @@ def test_round_trip_bundle_export_load_predict(case: PipelineCase, tmp_path) -> 
         verbose=0,
     )
     bundle_path = tmp_path / f"{case.name}.n4a"
-    result.export(str(bundle_path))
+    _export_bundle_for_smoke(result, bundle_path)
     assert bundle_path.exists(), f"{case.name}: bundle was not exported"
 
     preds = nirs4all.predict(str(bundle_path), dataset)
@@ -104,7 +123,7 @@ def test_explain_path(case: PipelineCase, tmp_path) -> None:
         verbose=0,
     )
     bundle_path = tmp_path / f"{case.name}.n4a"
-    result.export(str(bundle_path))
+    _export_bundle_for_smoke(result, bundle_path)
 
     explanation = nirs4all.explain(str(bundle_path), dataset)
     assert explanation is not None
@@ -128,7 +147,7 @@ def test_retrain_path(case: PipelineCase, tmp_path) -> None:
         verbose=0,
     )
     bundle_path = tmp_path / f"{case.name}.n4a"
-    result.export(str(bundle_path))
+    _export_bundle_for_smoke(result, bundle_path)
 
     retrained = nirs4all.retrain(str(bundle_path), dataset)
     assert retrained is not None
