@@ -1467,7 +1467,10 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 "id": _META_NODE_ID,
                 "operator": {"class": _qualname(meta_learner), "ref": _META_MODEL_REF},
                 "params": _json_safe_params(meta_learner),
-                "metadata": {"controller_id": _META_MODEL_CONTROLLER_ID},
+                "metadata": {
+                    "controller_id": _META_MODEL_CONTROLLER_ID,
+                    "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
+                },
             },
         ],
     }
