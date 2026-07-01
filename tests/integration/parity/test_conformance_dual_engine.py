@@ -314,10 +314,36 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     "branch_dup_two_way_merge_features",
     "branch_dup_named_with_metamodel",
     "branch_dup_merge_all",
-    # by-source separation / per-source models / source-concat multi-source shapes.
+    # by-source / per-source-models / source-concat multi-source shapes. ROOT GAP (W12, measured on
+    # sample_data/multi = 3×2151-col NIR sources): the native model-node path materializes multi-source X as
+    # the EARLY-FUSION CONCAT and applies the preprocessing X-chain ON THAT CONCAT, whereas legacy applies
+    # preprocessing PER SOURCE (each source's block normalized independently, then concatenated for the
+    # model). For a float-robust model this is under tol — `[SNV,SS,PLSR]` native 13.28646 (on-concat) vs
+    # legacy 13.28643 (per-source), Δ2.5e-5, which is why `multi_source_baseline_snv_plsr` DOES run native —
+    # but a fixed-seed tree exposes it: `[SNV,SS,RF]` native 21.0846 (on-concat) vs legacy 21.0678
+    # (per-source), Δ1.7e-2 > 1e-3 tol. Each case below is additionally blocked as noted; all four correctly
+    # stay in fallback (engine="dag-ml" re-runs legacy → the exact legacy result) until the missing native
+    # contract lands. See docs/agent_reports/W12_MULTISOURCE_FALLBACK.md for the full measurement trace.
+    #
+    # shared/distinct by_source preproc + concat + one model: score IS reproducible (per-source SNV via the
+    # branch == the plain baseline, PLSR 13.28643 to 1e-15), but legacy emits 51 predictions — 3 per-source-
+    # replicated rows × {train,val,test} × {fold0..2, avg, w_avg, final} under one branch config hash — that
+    # the native branch paths (which attribute predictions to a single merge node, ~17-row structure) do not
+    # reproduce, so num_predictions parity cannot be met. `distinct` additionally carries a STATEFUL per-source
+    # MSC (fit per fold per source). Needs a native by_source concat-feature-reassembly contract + legacy
+    # branch prediction bookkeeping.
     "multi_source_by_source_branch_shared_preproc",
     "multi_source_by_source_branch_distinct_preproc",
+    # per_source_models_stacking: by_source per-source models → {"merge":"predictions"} → Ridge meta. Legacy's
+    # stacking refit is itself BROKEN for a by_source branch ("Stacking refit expects duplication branches
+    # (list). Skipping" → no `final` rows, 90 CV-only preds), so there is no clean legacy oracle to target,
+    # and no native by_source-stacking path exists yet.
     "multi_source_per_source_models_stacking",
+    # sources_concat_then_rf: `{"merge":{"sources":"concat"}}` is a semantic no-op for a float-robust model
+    # (PLSR: with-merge 13.28643 == drop-merge 13.28643 to 1e-15), but the native concat-model path applies
+    # SNV on-concat (not per-source) AND legacy's merge storage round-trip shifts the fixed-seed RF (per-source
+    # 21.0678 → merged 21.0960); the native value (on-concat 21.0846) matches NEITHER within tol. Reproducing
+    # legacy's exact float round-trip for a chaotic RF is not a maintainable native contract.
     "multi_source_sources_concat_then_rf",
     # the `preprocessing` keyword shapes that carry a fit-scope / layout MODIFIER the native X-chain
     # cannot represent (`fit_on_all` fits on train+val+test; `force_layout` pins the tensor layout), so
