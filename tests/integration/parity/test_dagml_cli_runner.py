@@ -62,7 +62,9 @@ pytestmark = [pytest.mark.parity]
 
 pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
 
-_DAGML_CLI = Path(__file__).resolve().parents[3].parent / "dag-ml" / "target" / "release" / "dag-ml-cli"
+from ._dagml_cli import dagml_cli_path  # noqa: E402
+
+_DAGML_CLI = dagml_cli_path()
 _N_SPLITS = 3
 
 

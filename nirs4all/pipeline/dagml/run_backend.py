@@ -20,6 +20,7 @@ materialization, exclude/tag resolution, fold construction, score mapping, and t
 
 from __future__ import annotations
 
+import os
 import shutil
 import sys
 import tempfile
@@ -85,7 +86,24 @@ from .run_paths import (
 )
 from .steps import _expand_operator_generators
 
-_DEFAULT_CLI = Path(__file__).resolve().parents[4] / "dag-ml" / "target" / "release" / "dag-ml-cli"
+
+def _default_dagml_cli() -> Path:
+    """Return the preferred dag-ml-cli candidate for the current workspace layout."""
+    explicit = os.environ.get("N4A_DAGML_CLI")
+    if explicit:
+        return Path(explicit).expanduser()
+
+    workspace = Path(__file__).resolve().parents[4]
+    candidates = [
+        workspace / "RC-v1-dagml" / "target" / "release" / "dag-ml-cli",
+        workspace / "RC-v1-dagml" / "target" / "debug" / "dag-ml-cli",
+        workspace / "dag-ml" / "target" / "release" / "dag-ml-cli",
+        workspace / "dag-ml" / "target" / "debug" / "dag-ml-cli",
+    ]
+    return next((path for path in candidates if path.exists()), candidates[0])
+
+
+_DEFAULT_CLI = _default_dagml_cli()
 
 # Names re-exported for the stable ``nirs4all.pipeline.dagml.run_backend`` import surface (the parity
 # suite and any caller import these private helpers directly from this module).
@@ -322,7 +340,7 @@ def run_via_dagml(
     # fall back to legacy with a warning instead of crashing deep in a _run_* path. This narrow probe
     # mirrors the router cascade (in-process .so, else subprocess CLI) and raises ONLY DagMlUnavailable
     # — a genuine dag-ml runtime/operator error is NOT caught here (it surfaces later and propagates).
-    cli = str(dagml_cli or _DEFAULT_CLI)
+    cli = str(dagml_cli or _default_dagml_cli())
     preflight_dagml_backend(cli)
 
     # Materialize the host dataset from ANY input legacy `run()` accepts (path / config /

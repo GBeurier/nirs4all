@@ -28,10 +28,11 @@ from nirs4all.pipeline.engine import resolve_engine
 pytestmark = [pytest.mark.parity]
 
 from . import _conformance_helpers as H  # noqa: E402
+from ._dagml_cli import dagml_cli_path  # noqa: E402
 from ._datasets import dataset_path  # noqa: E402
 from ._registry import PipelineCase, all_cases  # noqa: E402
 
-_DAGML_CLI = Path(__file__).resolve().parents[3].parent / "dag-ml" / "target" / "release" / "dag-ml-cli"
+_DAGML_CLI = dagml_cli_path()
 
 _FALLBACK_WARNING = "falling back to the legacy engine"
 
@@ -47,6 +48,17 @@ def test_resolve_engine_default_is_dagml(monkeypatch: pytest.MonkeyPatch) -> Non
     assert resolve_engine("  DAG-ML  ") == "dag-ml"
     assert resolve_engine("dag-ml") == "dag-ml"
     assert resolve_engine("legacy") == "legacy"
+
+
+def test_runtime_dagml_cli_discovery_matches_parity_helper(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from nirs4all.pipeline.dagml.run_backend import _default_dagml_cli
+
+    monkeypatch.delenv("N4A_DAGML_CLI", raising=False)
+    assert _default_dagml_cli() == dagml_cli_path()
+
+    override = tmp_path / "dag-ml-cli"
+    monkeypatch.setenv("N4A_DAGML_CLI", str(override))
+    assert _default_dagml_cli() == override
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
