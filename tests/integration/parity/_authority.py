@@ -21,6 +21,7 @@ from . import (  # noqa: F401
     cases_refit_predict,
     cases_tags_exclude,
 )
+from ._marker_audit import validate_marker_policy
 from ._registry import all_cases
 from .test_conformance_dual_engine import (
     EXPECTED_FALLBACK,
@@ -49,6 +50,7 @@ def validate_compatibility_ledger(ledger: dict[str, Any] | None = None) -> None:
     _validate_same_winner_cases(data)
     _validate_coverage_skips(data)
     _validate_coverage_meter(data)
+    validate_marker_policy(data)
 
 
 def _cases_by_name() -> dict[str, Any]:
@@ -79,6 +81,28 @@ def _validate_tolerance_bands(data: dict[str, Any]) -> None:
     assert bands["cross_impl_score"]["abs_tol"] == helpers._DEFAULT_SCORE_TOL  # noqa: SLF001
     assert bands["cross_impl_ypred"]["abs_tol"] == helpers._DEFAULT_YPRED_TOL  # noqa: SLF001
     assert bands["cross_impl_ypred_firstderiv"]["abs_tol"] == 5e-3
+    _validate_per_case_tight_band(bands)
+
+
+def _validate_per_case_tight_band(bands: dict[str, dict[str, Any]]) -> None:
+    """Bind the ``per_case_tight`` band to its sole live instance so it can't drift.
+
+    ``per_case_tight`` is the per-case ``metric_tolerances`` override mechanism.
+    Its only live user is ``baseline_vertical_slice`` (rmse AND r2 pinned at the
+    same magnitude); the ledger band must equal that value, so a change to the
+    case forces a matching ledger update rather than silently diverging (the
+    band previously claimed ``1e-6`` while the case enforced ``1e-3``).
+    """
+    case = _cases_by_name().get("baseline_vertical_slice")
+    if case is None or not case.metric_tolerances:
+        return
+    values = set(case.metric_tolerances.values())
+    band = bands["per_case_tight"]["abs_tol"]
+    if values != {band}:
+        raise AssertionError(
+            "per_case_tight band must equal baseline_vertical_slice metric_tolerances: "
+            f"band={band} case={sorted(values)}"
+        )
 
 
 def _validate_authority_entries(data: dict[str, Any]) -> None:

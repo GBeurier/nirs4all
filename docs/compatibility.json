@@ -36,9 +36,10 @@
       "band_id": "per_case_tight",
       "numeric_path": "cross_impl_pipeline",
       "metric_class": "score",
-      "abs_tol": 1e-6,
+      "abs_tol": 0.001,
       "rel_tol": 0.0,
-      "enforced_at": "PipelineCase.metric_tolerances"
+      "enforced_at": "PipelineCase.metric_tolerances",
+      "note": "The per-case metric_tolerances override mechanism. Its sole live instance, baseline_vertical_slice, pins BOTH rmse AND r2 at 1e-3 (the cross_impl_score magnitude, adding the secondary r2 guard that caught the best_r2 re-rank bug). No case currently pins a sub-1e-3 tolerance; _authority.py binds this abs_tol to the live baseline_vertical_slice value so the two cannot drift."
     },
     {
       "band_id": "cross_impl_score",
@@ -360,5 +361,30 @@
     "skip": 4,
     "num_predictions_divergence": 2,
     "expected_fallback_target": 0
+  },
+  "marker_policy": {
+    "schema": "nirs4all.pyref.marker_policy.v1",
+    "enforced_by": "tests/integration/parity/_marker_audit.py",
+    "purpose": "A static AST gate over tests/integration/parity/*.py that fails on the first UNTRACKED xfail, skip, or tolerance override — debt added directly in a test body, bypassing the ledgered constants that _authority.py reconciles.",
+    "xfail": {
+      "sanctioned_modules": ["test_conformance_dual_engine.py"],
+      "note": "Strict xfail is applied ONLY by _params() from KNOWN_DIVERGENCES (9) + registry legacy_bug (2) = 11 xfailed. An xfail marker in any other parity module is untracked cross-engine divergence debt and fails the gate."
+    },
+    "skip_categories": [
+      {"id": "registry_skip", "kind": "tracked_debt", "note": "fixture / unknown_semantics registry skips ([{skip_kind}] ...); the 4 cases pinned in coverage_skips, re-asserted across the compile / smoke / baseline / dual-engine modules."},
+      {"id": "optional_env_import", "kind": "optional_env", "note": "pytest.importorskip(dag_ml / dag_ml_data / shap / jsonschema / referencing)."},
+      {"id": "optional_env_dagml_cli", "kind": "optional_env", "note": "skipif(not _DAGML_CLI.exists()) — the native dag-ml-cli binary is not built on this host."},
+      {"id": "optional_env_dependency", "kind": "optional_env", "note": "an example requires an optional dependency that is not installed."},
+      {"id": "optional_env_sibling", "kind": "optional_env", "note": "sibling nirs4all-ecosystem runtime schemas not checked out."},
+      {"id": "optional_env_methods", "kind": "optional_env", "note": "the nirs4all-methods SNV / n4m binding is unavailable (hard fail only under NIRS4ALL_REQUIRE_N4M=1)."},
+      {"id": "runtime_na", "kind": "runtime_precondition", "note": "a cross-engine comparison is N/A on this build: dag-ml ran the legacy fallback, wrote no native results, or the case is not a single-artifact native run. With coverage_meter.fallback=0 the fallback branch does not fire for covered cases."},
+      {"id": "baseline_capture", "kind": "workflow", "note": "gold-baseline capture / absent-baseline guard in test_parity_baseline (--parity-capture)."},
+      {"id": "lockdrop_empty", "kind": "workflow", "note": "EXPECTED_FALLBACK is empty (LOCK-DROP D1 closed), so the off-allowlist fallback probe is skipped."}
+    ],
+    "tolerance": {
+      "allowlist_source": "tolerance_bands[].abs_tol (positive values)",
+      "negative_guard_exempt": true,
+      "note": "Every explicit atol / rtol / abs / rel kwarg, every *_TOL constant, and every metric_tolerances / Y_PRED_TOL_OVERRIDES value must equal a published tolerance band. A value inside a NEGATIVE assertion (assert not allclose / != approx) is a divergence floor, not a tolerance ceiling, and is exempt."
+    }
   }
 }
