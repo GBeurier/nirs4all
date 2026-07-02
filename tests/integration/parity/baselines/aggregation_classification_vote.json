@@ -1,0 +1,17 @@
+{
+  "backend": "legacy",
+  "case": "aggregation_classification_vote",
+  "datasets": [
+    "classification"
+  ],
+  "metrics": {
+    "accuracy": 0.3333333333333333,
+    "best_score": 0.24285714285714283,
+    "cv_best_score": 0.17851592851592854
+  },
+  "models": [
+    "KNeighborsClassifier"
+  ],
+  "num_predictions": 34,
+  "pipeline_fingerprint": "ca41f683873e915d"
+}

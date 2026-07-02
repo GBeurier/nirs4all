@@ -826,6 +826,50 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     return branch_step, body
 
 
+def _detect_separation_preproc_concat(pipeline: list[Any]) -> tuple[dict[str, Any], list[Any], list[Any]] | None:
+    """Detect by_metadata preprocessing + concat features + one downstream model.
+
+    This is the single-source sibling of the by_source shared-preprocessing concat
+    detector. It admits the narrow parity shape:
+
+    * one ``by_metadata`` separation branch with a shared LIST ``steps`` body
+      containing only stateless X transforms;
+    * one ``{"merge": "concat"}`` immediately before one top-level model;
+    * no other top-level operator/keyword beside the splitter, branch, merge,
+      and model.
+
+    The existing :func:`_detect_separation_branch` owns model-in-branch fan-out.
+    This detector owns feature reassembly before a downstream model.
+    """
+    branch_steps = [step for step in pipeline if _is_separation_branch_step(step)]
+    merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1:
+        return None
+    branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
+
+    order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
+    if order != [branch_step, merge_step, model_step]:
+        return None
+
+    for step in pipeline:
+        if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
+            continue
+        return None
+
+    criterion = branch_step["branch"]
+    if "by_metadata" not in criterion or set(criterion) - _HANDLED_BRANCH_KEYS:
+        return None
+    body = criterion.get("steps")
+    if not isinstance(body, list) or not body:
+        return None
+    if any(isinstance(sub, dict) and "model" in sub for sub in body):
+        return None
+    if not all(_is_stateless_x_transform(sub) for sub in body):
+        return None
+    return branch_step, body, [model_step]
+
+
 # Keys recognised inside a by_source branch criterion dict. `run_backend` honors ONLY the
 # `by_source` flag + the shared `steps` body (one sub-pipeline applied per source). A per-source
 # dict body (`{"src0": [...], "src1": [...]}`), `values`/`min_samples`, or any other option falls

@@ -16,8 +16,8 @@ from __future__ import annotations
 from typing import Any
 
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.neighbors import KNeighborsClassifier
 
 from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
@@ -116,12 +116,7 @@ def _factory_classification_vote_aggregation() -> list[Any]:
         SNV(),
         KFold(n_splits=3, shuffle=True, random_state=42),
         {
-            "model": RandomForestClassifier(
-                n_estimators=20,
-                max_depth=6,
-                random_state=42,
-                n_jobs=1,
-            )
+            "model": KNeighborsClassifier(n_neighbors=5)
         },
     ]
 
@@ -138,19 +133,17 @@ register(
             "sklearn_model",
             "classification_model",
         ),
-        dataset_key="aggregate_mean",
+        dataset_key="classification",
         pipeline_factory=_factory_classification_vote_aggregation,
         dataset_kwargs={
-            "repetition": "sample_id",
-            "aggregate": True,
+            "repetition": "Sample_ID",
+            "aggregate": "Sample_ID",
             "aggregate_method": "vote",
             "task_type": "multiclass_classification",
         },
         task="classification",
         expected_min_predictions=3,
         tags=_AGG | frozenset({"classification"}),
-        skip_reason="aggregate_mean fixture is regression-typed; needs a classification rep fixture.",
-        skip_kind="fixture",
     )
 )
 

@@ -165,7 +165,6 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 | `concat_transform_pca_svd_plsr` | RNG — concat_transform view order / decomposition differs | neither | `xfail(strict)` | `n/a_rng` | `:88` (Δrmse≈`1.4e0`) |
 | `generator_finetune_params_optuna` | RNG — Optuna explores a different trial sequence per engine, so selected hyperparameters differ | neither | `xfail(strict)` | `n/a_rng` | `:102` (Δrmse≈`1.7e0`) |
 | `generator_sample_log_uniform_alpha` | RNG — unseeded `_sample_` (`_seed_` not set): variant set / winner not reproducible across engines | neither | `xfail(strict)` | `n/a_rng` | `:115` (Δrmse up to ≈`5.3e-1`, different winner) |
-| `refit_params_use_all_partitions` | `unknown_semantics` — `refit_params` semantics depend on 0.9.x retraining logic not yet pinned against `api/retrain.py` | neither | `skip` | `n/a_semantic` | `cases_refit_predict.py:107`, `:124` |
 
 > **The `_or_ count/_weights_` path is now a live parity case.** `_seed_` and
 > `_weights_` are threaded into `OrStrategy.sample_with_seed`, so
@@ -212,16 +211,16 @@ Default stacking now runs native. List-branch stacking keeps the explicit full-c
 **`EXPECTED_FALLBACK == ∅` is the `LOCK-DROP` D1 gate, owned by L5 — not a
 `LOCK-PYREF` gate.**
 
-### C.2 Coverage-debt fixture skips (3)
+### C.2 Coverage-debt fixture skips (0)
 
-Cannot construct / run; **no authority claim**. Disposition `skip`
-(`skip_kind="fixture"`).
+Closed on 2026-07-02:
 
-| Case | Reason | Evidence |
-|---|---|---|
-| `branch_separation_by_metadata_auto` | `sample_data/regression` has no `variety` metadata column | `cases_branches_merges.py:193`, `:209` |
-| `exclude_multi_any_y_and_x` | corpus too small for a 2-filter UNION exclusion | `cases_tags_exclude.py:108`, `:126` |
-| `aggregation_classification_vote` | `aggregate_mean` fixture is regression-typed; needs a classification rep fixture | `cases_aggregation_reps.py:131`, `:153` |
+| Case | Resolution |
+|---|---|
+| `branch_separation_by_metadata_auto` | moved to `with_metadata` and the `group` metadata column; dag-ml now projects stateless by-metadata preprocessing + concat + downstream model |
+| `exclude_multi_any_y_and_x` | raised the Mahalanobis threshold to keep a viable two-filter UNION on `sample_data/regression` |
+| `aggregation_classification_vote` | moved to the repeated multiclass `classification` fixture and aggregates by `Sample_ID` |
+| `refit_params_use_all_partitions` | flipped to a live parity case with the existing `refit_params` key |
 
 ### C.3 `Y_PRED_TOL_OVERRIDES` (6) — band `cross_impl_ypred_firstderiv` (5e-3, guarded)
 
@@ -276,20 +275,18 @@ gate.
 | Metric | Count | Note |
 |---|---|---|
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
-| Non-runnable (`skip_reason` set) | **6** | 2 `legacy_bug` (xfail) + 3 `fixture` (skip) + 1 `unknown_semantics` (skip) |
-| Runnable | **89** | 95 − 6 |
+| Non-runnable (`skip_reason` set) | **2** | 2 `legacy_bug` (xfail) |
+| Runnable | **93** | 95 − 2 |
 | → fall back to legacy (`EXPECTED_FALLBACK`) | **0** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **89** | full parity asserted |
+| → run native on dag-ml | **93** | full parity asserted |
 | Strict-xfail (documented divergence) | **11** | 9 `KNOWN_DIVERGENCES` + 2 `legacy_bug` — matches ADR-17's "11 xfailed" |
-| `pytest.skip` (fixture + unknown-semantics) | **4** | 3 + 1 |
+| `pytest.skip` (fixture + unknown-semantics) | **0** | registry skip debt closed |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
 
-> **Correction to prior counts:** the two seeded `_or_` count cases were promoted
-> from `unknown_semantics` skips to live parity assertions. The only remaining
-> `unknown_semantics` skip is `refit_params_use_all_partitions`; total skips are
-> now **4** and runnable cases are **89**. The strict-xfail (11),
+> **Correction to prior counts:** all four registry skips are now live parity
+> assertions. Runnable cases are **93**; the strict-xfail (11),
 > `EXPECTED_FALLBACK` (0), and `NUM_PREDICTIONS_DIVERGENCE` (2) figures are
-> unaffected.
+> unchanged.
 
 ---
 
@@ -353,7 +350,7 @@ Three **closed** policies — each fails on the *first* item it cannot place:
 
 | category | kind | what it covers |
 |---|---|---|
-| `registry_skip` | tracked_debt | `fixture` / `unknown_semantics` registry skips (`[{skip_kind}] …`) — the 4 cases pinned in §C.2 / `coverage_skips`, re-asserted across the compile / smoke / baseline / dual-engine modules |
+| `registry_skip` | tracked_debt | `fixture` / `unknown_semantics` registry skips (`[{skip_kind}] …`) — currently no live cases; still re-asserted across the compile / smoke / baseline / dual-engine modules |
 | `optional_env_import` | optional_env | `pytest.importorskip(dag_ml / dag_ml_data / shap / jsonschema / referencing)` |
 | `optional_env_dagml_cli` | optional_env | `skipif(not _DAGML_CLI.exists())` — the native `dag-ml-cli` binary is not built on this host |
 | `optional_env_dependency` | optional_env | an example needs an optional dependency that is not installed |
@@ -363,18 +360,19 @@ Three **closed** policies — each fails on the *first* item it cannot place:
 | `baseline_capture` | workflow | gold-baseline capture / absent-baseline guard in `test_parity_baseline` (`--parity-capture`) |
 | `lockdrop_empty` | workflow | `EXPECTED_FALLBACK` is empty (LOCK-DROP D1 closed), so the off-allowlist probe is skipped |
 
-### G.2 How `810 passed / 30 skipped / 11 xfailed` maps to the gate
+### G.2 How skips / xfails map to the gate
 
 - **11 xfailed** is exact and fully ledgered: `KNOWN_DIVERGENCES` (9) + registry
   `legacy_bug` (2), applied only in the sanctioned builder (§B). The gate fails if
   any twelfth xfail appears anywhere.
-- **30 skipped** is environment-dependent (which optional bins / the `dag-ml-cli`
+- **Skipped tests** are environment-dependent (which optional bins / the `dag-ml-cli`
   binary are present) and decomposes entirely into the G.1 taxonomy. Static call
   sites on `aab640c9`: `registry_skip` 8, `optional_env_import` 13,
   `optional_env_dagml_cli` 96, `optional_env_dependency` 1, `optional_env_sibling`
   1, `optional_env_methods` 1, `runtime_na` 8, `baseline_capture` 2,
-  `lockdrop_empty` 1 (= 131 sites; a single run realizes a subset). Only
-  `registry_skip` is genuine coverage debt — the 4 §C.2 cases — and it is pinned.
+  `lockdrop_empty` 1 (= 131 sites; a single run realizes a subset). The
+  `registry_skip` call sites remain as the enforced category, but there are no
+  live registry-skip cases.
 - **tolerance overrides**: 42 static tolerance literals, every one a published §A.2
   band value or a negative-assertion divergence floor. A new looser value fails.
 
@@ -388,6 +386,6 @@ python -m tests.integration.parity._marker_audit --check
 pytest tests/integration/parity/test_marker_audit.py tests/integration/parity/test_compatibility_ledger.py -q
 ```
 
-**This gate makes the debt visible and enforceable; it does not bless it.** The 4
-`registry_skip` cases and the 11 xfails remain open release debt owned by RC-C /
-RC-D — §G only guarantees none of it can grow silently.
+**This gate makes the debt visible and enforceable; it does not bless it.** The
+11 xfails remain open release debt owned by RC-C / RC-D — §G only guarantees
+none of it can grow silently.

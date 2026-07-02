@@ -200,24 +200,7 @@
       "mechanism": "operator-select refits the winner only; legacy stores loser final rows"
     }
   ],
-  "coverage_skips": [
-    {
-      "case": "branch_separation_by_metadata_auto",
-      "skip_kind": "fixture"
-    },
-    {
-      "case": "exclude_multi_any_y_and_x",
-      "skip_kind": "fixture"
-    },
-    {
-      "case": "aggregation_classification_vote",
-      "skip_kind": "fixture"
-    },
-    {
-      "case": "refit_params_use_all_partitions",
-      "skip_kind": "unknown_semantics"
-    }
-  ],
+  "coverage_skips": [],
   "expected_fallback": [],
   "num_predictions_divergence": [
     {
@@ -353,12 +336,12 @@
   ],
   "coverage_meter": {
     "registered": 95,
-    "non_runnable": 6,
-    "runnable": 89,
+    "non_runnable": 2,
+    "runnable": 93,
     "fallback": 0,
-    "native": 89,
+    "native": 93,
     "xfail_strict": 11,
-    "skip": 4,
+    "skip": 0,
     "num_predictions_divergence": 2,
     "expected_fallback_target": 0
   },
@@ -371,7 +354,7 @@
       "note": "Strict xfail is applied ONLY by _params() from KNOWN_DIVERGENCES (9) + registry legacy_bug (2) = 11 xfailed. An xfail marker in any other parity module is untracked cross-engine divergence debt and fails the gate."
     },
     "skip_categories": [
-      {"id": "registry_skip", "kind": "tracked_debt", "note": "fixture / unknown_semantics registry skips ([{skip_kind}] ...); the 4 cases pinned in coverage_skips, re-asserted across the compile / smoke / baseline / dual-engine modules."},
+      {"id": "registry_skip", "kind": "tracked_debt", "note": "fixture / unknown_semantics registry skips ([{skip_kind}] ...); currently no live cases, but the category remains enforced across the compile / smoke / baseline / dual-engine modules."},
       {"id": "optional_env_import", "kind": "optional_env", "note": "pytest.importorskip(dag_ml / dag_ml_data / shap / jsonschema / referencing)."},
       {"id": "optional_env_dagml_cli", "kind": "optional_env", "note": "skipif(not _DAGML_CLI.exists()) — the native dag-ml-cli binary is not built on this host."},
       {"id": "optional_env_dependency", "kind": "optional_env", "note": "an example requires an optional dependency that is not installed."},

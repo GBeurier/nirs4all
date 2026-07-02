@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "refit_params_use_all_partitions",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 13.755790465619016,
+    "cv_best_score": 20.145416851173167,
+    "r2": 0.5175697248067512,
+    "rmse": 13.755790465619016
+  },
+  "models": [
+    "PLS_with_refit"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "18475db07e3d6b5b"
+}

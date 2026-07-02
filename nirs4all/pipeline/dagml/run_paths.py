@@ -697,7 +697,192 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     # `(test, None)` block dag-ml emits is already the aggregated sample grain (the replicates were
     # collapsed at materialization), so this surfaces the aggregation's final-(test) y_pred at parity with
     # legacy (Gap 2). scores/skip_refit unchanged — num_predictions and scores stay score-set-driven.
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"])
+    result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"])
+    _attach_repetition_prediction_context(result, spectro)
+    _add_explicit_aggregate_twins(result, spectro)
+    return result
+
+
+def _attach_repetition_prediction_context(result: RunResult, spectro: Any) -> None:
+    """Carry dataset repetition/aggregation defaults onto the projected prediction table."""
+    if getattr(spectro, "repetition", None):
+        result.predictions.set_repetition_column(spectro.repetition)
+    result.predictions.set_aggregate_context(
+        getattr(spectro, "aggregate", None),
+        getattr(spectro, "aggregate_method", None),
+        bool(getattr(spectro, "aggregate_exclude_outliers", False)),
+    )
+
+
+def _add_explicit_aggregate_twins(result: RunResult, spectro: Any) -> None:
+    """Append legacy-style ``*_agg`` companion rows for explicit repetition aggregates.
+
+    The legacy orchestrator persists display-only aggregate twins only when the dataset names a concrete
+    aggregate metadata column. Native dag-ml keeps the ranking surface on raw rows, but the parity registry
+    still expects the public row inventory to include those companion rows.
+    """
+    aggregate = getattr(spectro, "aggregate", None)
+    if not aggregate or aggregate == "y":
+        return
+
+    method = getattr(spectro, "aggregate_method", None) or "mean"
+    exclude_outliers = bool(getattr(spectro, "aggregate_exclude_outliers", False))
+    source_entries = list(result.predictions.iter_entries())
+    for entry in source_entries:
+        fold_id = str(entry.get("fold_id") or "")
+        if not fold_id or fold_id.endswith("_agg"):
+            continue
+        _add_explicit_aggregate_twin(result.predictions, spectro, entry, str(aggregate), method, exclude_outliers)
+
+
+def _add_explicit_aggregate_twin(predictions: Predictions, spectro: Any, entry: dict[str, Any], aggregate: str, method: str, exclude_outliers: bool) -> None:
+    fold_id = str(entry.get("fold_id") or "")
+    partition = entry.get("partition", "")
+    primary_metric = entry.get("metric") or "rmse"
+    metric_names = _aggregate_metric_names(entry, primary_metric)
+    payload = _aggregate_entry_payload(spectro, entry, aggregate, method, exclude_outliers, metric_names)
+    if payload is None:
+        payload = _score_only_aggregate_payload(entry, partition, primary_metric)
+
+    agg_y_true, agg_y_pred, agg_y_proba, agg_scores, primary_value, n_samples = payload
+    predictions.add_prediction(
+        dataset_name=entry.get("dataset_name", ""),
+        dataset_path=entry.get("dataset_path", ""),
+        config_name=entry.get("config_name", ""),
+        config_path=entry.get("config_path", ""),
+        pipeline_uid=entry.get("pipeline_uid"),
+        step_idx=entry.get("step_idx", 0),
+        op_counter=entry.get("op_counter", 0),
+        model_name=entry.get("model_name", ""),
+        model_classname=entry.get("model_classname", ""),
+        model_path=entry.get("model_path", ""),
+        fold_id=f"{fold_id}_agg",
+        sample_indices=None,
+        weights=None,
+        metadata={},
+        partition=partition,
+        y_true=agg_y_true,
+        y_pred=agg_y_pred,
+        y_proba=agg_y_proba,
+        val_score=primary_value if partition in ("val", "validation") else entry.get("val_score"),
+        test_score=primary_value if partition == "test" else entry.get("test_score"),
+        train_score=primary_value if partition == "train" else entry.get("train_score"),
+        metric=primary_metric,
+        task_type=entry.get("task_type", "regression"),
+        n_samples=n_samples,
+        n_features=entry.get("n_features", 0),
+        preprocessings=entry.get("preprocessings", ""),
+        best_params=entry.get("best_params") or {},
+        scores={partition: agg_scores} if partition else {"": agg_scores},
+        branch_id=entry.get("branch_id"),
+        branch_path=entry.get("branch_path"),
+        branch_name=entry.get("branch_name"),
+        exclusion_count=entry.get("exclusion_count"),
+        exclusion_rate=entry.get("exclusion_rate"),
+        model_artifact_id=entry.get("model_artifact_id"),
+        trace_id=entry.get("trace_id"),
+        refit_context=entry.get("refit_context"),
+        target_processing=entry.get("target_processing", ""),
+    )
+
+
+def _aggregate_metric_names(entry: dict[str, Any], primary_metric: str) -> list[str]:
+    for part_scores in (entry.get("scores") or {}).values():
+        if isinstance(part_scores, dict) and part_scores:
+            metric_names = [str(metric_name) for metric_name in part_scores if ":" not in str(metric_name)]
+            return metric_names or [primary_metric]
+    return [primary_metric]
+
+
+def _score_only_aggregate_payload(entry: dict[str, Any], partition: str, primary_metric: str) -> tuple[np.ndarray, np.ndarray, None, dict[str, float], float | None, int]:
+    partition_scores = (entry.get("scores") or {}).get(partition)
+    if not isinstance(partition_scores, dict):
+        partition_scores = {}
+    scores = {str(metric): float(value) for metric, value in partition_scores.items() if value is not None}
+    return np.array([]), np.array([]), None, scores, scores.get(primary_metric), 0
+
+
+def _aggregate_entry_payload(
+    spectro: Any,
+    entry: dict[str, Any],
+    aggregate: str,
+    method: str,
+    exclude_outliers: bool,
+    metric_names: list[str],
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, dict[str, float], float | None, int] | None:
+    if entry.get("y_true") is None or entry.get("y_pred") is None:
+        return None
+    y_true = np.asarray(entry.get("y_true")).flatten()
+    y_pred = np.asarray(entry.get("y_pred")).flatten()
+    if y_true.size == 0 or y_pred.size == 0:
+        return None
+
+    group_ids = _aggregate_group_ids(spectro, entry, aggregate, y_pred.size)
+    if group_ids is None or len(np.unique(group_ids)) == y_pred.size:
+        return None
+
+    y_proba_raw = entry.get("y_proba")
+    y_proba = None
+    if y_proba_raw is not None:
+        y_proba_candidate = np.asarray(y_proba_raw)
+        if y_proba_candidate.size > 0:
+            y_proba = y_proba_candidate
+
+    try:
+        aggregate_result = Predictions.aggregate(
+            y_pred=y_pred,
+            group_ids=group_ids,
+            y_true=y_true,
+            y_proba=y_proba,
+            method=method,
+            exclude_outliers=exclude_outliers,
+        )
+    except Exception:
+        return None
+
+    agg_y_true = aggregate_result.get("y_true")
+    agg_y_pred = aggregate_result.get("y_pred")
+    if agg_y_true is None or agg_y_pred is None or len(agg_y_true) == 0:
+        return None
+
+    try:
+        metric_values = eval_list(agg_y_true, agg_y_pred, metric_names)
+    except Exception:
+        return None
+
+    scores = {
+        metric_name: float(value)
+        for metric_name, value in zip(metric_names, metric_values, strict=False)
+        if value is not None
+    }
+    primary_metric = entry.get("metric") or "rmse"
+    return (
+        np.asarray(agg_y_true),
+        np.asarray(agg_y_pred),
+        aggregate_result.get("y_proba"),
+        scores,
+        scores.get(primary_metric),
+        int(len(agg_y_true)),
+    )
+
+
+def _aggregate_group_ids(spectro: Any, entry: dict[str, Any], aggregate: str, expected_size: int) -> np.ndarray | None:
+    sample_indices = entry.get("sample_indices") or []
+    if len(sample_indices) != expected_size:
+        return None
+    sample_ints = [int(sample_int) for sample_int in sample_indices]
+    try:
+        values = np.asarray(spectro.metadata_column(aggregate, {"sample": sample_ints}, include_augmented=False))
+        stored = [int(sample_int) for sample_int in spectro.index_column("sample", {"sample": sample_ints})]
+    except Exception:
+        return None
+    if len(values) != len(stored):
+        return None
+    row_of = {sample_int: row for row, sample_int in enumerate(stored)}
+    try:
+        return np.asarray([values[row_of[sample_int]] for sample_int in sample_ints])
+    except KeyError:
+        return None
 
 
 def _reshape_for_rep_fusion(rep_step: dict[str, Any], spectro: Any) -> None:
@@ -1745,6 +1930,7 @@ def _run_model_on_precomputed_matrix(
     *,
     branch_id: int | None,
     branch_name: str,
+    include_refit: bool = False,
 ) -> RunResult:
     """Run legacy-shaped CV rows for a model over an already materialized feature matrix."""
     train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
@@ -1752,6 +1938,7 @@ def _run_model_on_precomputed_matrix(
     fold_models: list[Any] = []
     fold_val_samples: list[list[int]] = []
     fold_val_scores: list[float] = []
+    cv_refit_score: float | None = None
     model_name = type(model_template).__name__
     n_features = int(X_train_all.shape[1]) if X_train_all.ndim > 1 else 1
 
@@ -1825,6 +2012,8 @@ def _run_model_on_precomputed_matrix(
                 for partition in pred_by_partition
                 if len(y_by_partition[partition]) and len(pred_by_partition[partition])
             }
+            if fold_id == "avg":
+                cv_refit_score = scores.get("val", {}).get(metric)
             _add_scored_prediction_rows(
                 predictions,
                 spectro=spectro,
@@ -1844,8 +2033,165 @@ def _run_model_on_precomputed_matrix(
                 weights=row_weights,
             )
 
+    if include_refit:
+        model = _clone_operator_instance(model_template)
+        model.fit(X_train_all, y_train_all)
+        pred_by_partition = {
+            "train": np.asarray(model.predict(X_train_all)),
+            "test": np.asarray(model.predict(X_test)) if len(test_pool) else np.array([]),
+        }
+        y_by_partition = {
+            "train": y_train_all,
+            "test": y_test,
+        }
+        samples_by_partition = {"train": train_pool, "test": test_pool}
+        scores = {
+            partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type)
+            for partition in pred_by_partition
+            if len(y_by_partition[partition]) and len(pred_by_partition[partition])
+        }
+        if cv_refit_score is not None:
+            scores["val"] = {metric: cv_refit_score}
+        _add_scored_prediction_rows(
+            predictions,
+            spectro=spectro,
+            config_name=f"{config_name}_refit" if config_name else "",
+            model_name=model_name,
+            model_classname=model_name,
+            fold_id="final",
+            scores=scores,
+            y_by_partition=y_by_partition,
+            pred_by_partition=pred_by_partition,
+            samples_by_partition=samples_by_partition,
+            metric=metric,
+            task_type=task_type,
+            n_features=n_features,
+            branch_id=branch_id,
+            branch_name=branch_name,
+        )
+
     predictions.flush()
     return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+
+
+def _separation_preproc_matrix(
+    spectro: Any,
+    *,
+    key: str,
+    body_steps: list[Any],
+    train_pool: list[int],
+    sample_pool: list[int],
+) -> np.ndarray:
+    """Apply stateless branch preprocessing per metadata partition and reassemble rows."""
+    if not sample_pool:
+        width = int(np.asarray(spectro.x_rows(train_pool, layout="2d")).shape[1])
+        return np.empty((0, width), dtype=float)
+
+    all_samples = [int(sample_int) for sample_int in spectro.index_column("sample", {})]
+    values = spectro.metadata_column(key, {})
+    value_by_sample = {sample_int: str(value) for sample_int, value in zip(all_samples, values, strict=True)}
+    row_of = {sample_int: row for row, sample_int in enumerate(sample_pool)}
+    out: np.ndarray | None = None
+
+    for value in sorted({value_by_sample[int(sample_int)] for sample_int in sample_pool}):
+        fit_samples = [sample_int for sample_int in train_pool if value_by_sample[int(sample_int)] == value]
+        if not fit_samples:
+            raise DagMlUnsupported(
+                f"by_metadata preprocessing branch value {value!r} has no training samples; "
+                "cannot fit branch transforms for held-out rows"
+            )
+        row_samples = [sample_int for sample_int in sample_pool if value_by_sample[int(sample_int)] == value]
+        current_fit = np.asarray(spectro.x_rows(fit_samples, layout="2d"))
+        current_rows = np.asarray(spectro.x_rows(row_samples, layout="2d"))
+        y_fit = _dataset_y_rows(spectro, fit_samples)
+        for step in body_steps:
+            transform = _clone_operator_instance(step)
+            transform.fit(current_fit, y_fit)
+            current_fit = np.asarray(transform.transform(current_fit))
+            current_rows = np.asarray(transform.transform(current_rows))
+        if out is None:
+            out = np.empty((len(sample_pool), current_rows.shape[1]), dtype=current_rows.dtype)
+        for position, sample_int in enumerate(row_samples):
+            out[row_of[int(sample_int)], :] = current_rows[position]
+
+    if out is None:
+        raise DagMlUnsupported("by_metadata preprocessing branch produced no feature rows")
+    return out
+
+
+def _run_separation_preproc_concat(
+    pipeline: list[Any],
+    branch_step: dict[str, Any],
+    preproc_body: list[Any],
+    downstream_body: list[Any],
+    spectro: Any,
+    metric: str,
+    task_type: str,
+    config_name: str = "",
+) -> RunResult:
+    """Project by_metadata stateless preprocessing + concat + downstream model.
+
+    This path covers the legacy feature-reassembly shape where the branch applies
+    row-wise preprocessing per metadata partition, ``merge='concat'`` restores the
+    full sample universe, and a single downstream model owns CV + final refit rows.
+    """
+    _, splitter = _split_pipeline(pipeline)
+    if splitter is None:
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    if len(downstream_body) != 1:
+        raise DagMlUnsupported("by_metadata preprocessing concat supports exactly one downstream model")
+
+    body_steps = _supported_body_steps([step for step in preproc_body if not _is_split_step(step)])
+    for step in body_steps:
+        tags = step._more_tags() if hasattr(step, "_more_tags") else {}
+        if not tags.get("stateless"):
+            raise DagMlUnsupported(
+                "by_metadata preprocessing concat currently supports only stateless branch transforms"
+            )
+    downstream_steps = _apply_model_params(downstream_body)
+    _reject_multi_model(downstream_steps)
+    _assert_supported_operators([*body_steps, *downstream_steps])
+    model_step = downstream_steps[0]
+    if not isinstance(model_step, dict) or "model" not in model_step:
+        raise DagMlUnsupported("by_metadata preprocessing concat requires a downstream model")
+
+    criterion = branch_step["branch"]
+    key = str(criterion["by_metadata"])
+    train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
+    test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
+    folds = _build_folds(splitter, spectro, train_pool, set())
+    X_train = _separation_preproc_matrix(
+        spectro,
+        key=key,
+        body_steps=body_steps,
+        train_pool=train_pool,
+        sample_pool=train_pool,
+    )
+    X_test = _separation_preproc_matrix(
+        spectro,
+        key=key,
+        body_steps=body_steps,
+        train_pool=train_pool,
+        sample_pool=test_pool,
+    )
+
+    return _run_model_on_precomputed_matrix(
+        X_train,
+        X_test,
+        _dataset_y_rows(spectro, train_pool),
+        _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1)),
+        train_pool,
+        test_pool,
+        folds,
+        model_step["model"],
+        spectro,
+        metric,
+        task_type,
+        config_name,
+        branch_id=None,
+        branch_name="",
+        include_refit=True,
+    )
 
 
 def _as_prediction_matrix(values: Any) -> np.ndarray:

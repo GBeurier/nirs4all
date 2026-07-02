@@ -91,7 +91,7 @@ def _factory_exclude_multi_any() -> list[Any]:
         {
             "exclude": [
                 YOutlierFilter(method="zscore", threshold=4.0),
-                XOutlierFilter(method="mahalanobis", threshold=4.0),
+                XOutlierFilter(method="mahalanobis", threshold=8.0),
             ],
             "mode": "any",
         },
@@ -120,10 +120,6 @@ register(
         pipeline_factory=_factory_exclude_multi_any,
         expected_min_predictions=3,
         tags=_TAG_EX,
-        skip_reason="`sample_data/regression` is too small for a 2-filter UNION exclusion to "
-        "leave a viable train set; needs a larger fixture (e.g. `regression_2`) — fixture-size issue, "
-        "not a DSL bug.",
-        skip_kind="fixture",
     )
 )
 

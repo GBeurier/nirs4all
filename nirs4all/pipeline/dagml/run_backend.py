@@ -40,6 +40,7 @@ from .detect import (
     _detect_named_metamodel_feature_stack,
     _detect_rep_fusion,
     _detect_separation_branch,
+    _detect_separation_preproc_concat,
     _detect_source_concat_merge,
     _detect_stacking_branch,
     _fusion_merge_aggregate,
@@ -76,6 +77,7 @@ from .run_paths import (
     _run_rep_fusion,
     _run_repetition,
     _run_separation_branch,
+    _run_separation_preproc_concat,
     _run_source_concat_merge,
     _run_stacking_branch,
 )
@@ -101,6 +103,7 @@ __all__ = [
     "_detect_named_metamodel_feature_stack",
     "_detect_rep_fusion",
     "_detect_separation_branch",
+    "_detect_separation_preproc_concat",
     "_detect_source_concat_merge",
     "_detect_stacking_branch",
     "_excluded_from_pool",
@@ -113,6 +116,7 @@ __all__ = [
     "_operator_is_stateless",
     "_repetition_groups_for_pool",
     "_reshape_for_rep_fusion",
+    "_run_separation_preproc_concat",
     "_resolve_exclude",
     "_run_native_operator_generation",
     "_run_by_source_concat_shared_preproc",
@@ -680,6 +684,7 @@ def _dispatch_run(
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
     # unsupported combination BEFORE any non-group dispatch path (branch/augmentation/exclude) runs.
     detected = _detect_separation_branch(list(pipeline))
+    detected_separation_preproc_concat = _detect_separation_preproc_concat(list(pipeline))
     detected_duplication = _detect_duplication_branch(list(pipeline))
     detected_stacking = _detect_stacking_branch(list(pipeline))
     detected_named_metamodel_stack = _detect_named_metamodel_feature_stack(list(pipeline))
@@ -716,12 +721,19 @@ def _dispatch_run(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
-        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or detected_named_metamodel_stack is not None or detected_by_source is not None or detected_by_source_concat is not None or detected_by_source_distinct_concat is not None or detected_by_source_stacking is not None or detected_source_concat is not None or any(_is_exclude_step(step) for step in pipeline):
+        if augmentation_steps or detected is not None or detected_separation_preproc_concat is not None or detected_duplication is not None or detected_stacking is not None or detected_named_metamodel_stack is not None or detected_by_source is not None or detected_by_source_concat is not None or detected_by_source_distinct_concat is not None or detected_by_source_stacking is not None or detected_source_concat is not None or any(_is_exclude_step(step) for step in pipeline):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
                 "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
             )
         return _run_repetition(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+
+    # by_metadata stateless preprocessing + concat feature reassembly + downstream model.
+    # This path projects the branch feature boundary, then scores one downstream model on the
+    # reassembled feature matrix; model-in-branch fan-out remains owned by `_run_separation_branch`.
+    if detected_separation_preproc_concat is not None:
+        branch_step, preproc_body, downstream_body = detected_separation_preproc_concat
+        return _run_separation_preproc_concat(list(pipeline), branch_step, preproc_body, downstream_body, spectro, metric, task_type, config_name=config_name)
 
     # Separation branch (by_metadata/by_tag) + concat merge → ONE native fan-out run: dag-ml fans the
     # branch into one model node per partition value (discovered from the envelope metadata/tags),
