@@ -9,7 +9,7 @@ name: Docs Quality
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'rc/**']
   pull_request:
     paths:
       - "docs/**"

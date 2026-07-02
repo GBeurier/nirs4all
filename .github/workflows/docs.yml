@@ -6,14 +6,14 @@ name: Documentation
 
 on:
   push:
-    branches: [main, master]
+    branches: [main, master, 'rc/**']
     paths:
       - 'docs/**'
       - 'nirs4all/**'
       - '.github/workflows/docs.yml'
       - '.readthedocs.yaml'
   pull_request:
-    branches: [main, master]
+    branches: [main, master, 'rc/**']
     paths:
       - 'docs/**'
       - 'nirs4all/**'
