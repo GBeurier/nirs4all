@@ -4,7 +4,8 @@
 **owner:** `nirs4all compatibility ledger`
 **consumer_of:** `dag-ml/docs/contracts/parity_oracle.v1.json` (`dag-ml.nirs4all.parity_oracle.v1`)
 **machine-readable companion:** `docs/compatibility.json`
-**last reconciled:** 2026-07-01 against `nirs4all 98c33788+working-tree` / `dag-ml f58d7bf`
+**static debt gate:** `tests/integration/parity/_marker_audit.py` (§G)
+**last reconciled:** 2026-07-02 against `nirs4all aab640c9+working-tree` / `dag-ml f58d7bf` (RC-B: §G marker/skip/tolerance gate added; `per_case_tight` band corrected `1e-6`→`1e-3`)
 **lock:** `LOCK-PYREF` (`DEC-PYREF-001`, `DEC-PYREF-002` accepted)
 
 This is the ADR-01 tolerance ledger the dag-ml contract names as its
@@ -57,7 +58,7 @@ the `kernel_pls` band, not the cross-engine default.
 | `kernel_snv` | same-impl kernel | y_transform | **1e-12** | exact | `test_n4m_ops.py:120,130` |
 | `kernel_pls` | same-impl kernel | prediction | **1e-9** | ~1e-10 | `test_n4m_ops.py:169` |
 | `native_export_reproduce` | dag-ml native ↔ itself | prediction | **1e-6** | — | `test_conformance_export_roundtrip.py` |
-| `per_case_tight` | cross-impl pipeline | score | **1e-6** | — | case `metric_tolerances` (`baseline_vertical_slice`) |
+| `per_case_tight` | cross-impl pipeline | score | **1e-3** | ~7e-6 | case `metric_tolerances` (`baseline_vertical_slice`: rmse **and** r2), bound live by `_authority._validate_per_case_tight_band` |
 | `cross_impl_score` | cross-impl pipeline | score (rmse/r2/acc) | **1e-3** | ~7e-6 | `_conformance_helpers.py:60` |
 | `cross_impl_ypred` | cross-impl pipeline | prediction (per-sample) | **1e-3** | ~6e-4 | `_conformance_helpers.py:65` |
 | `cross_impl_ypred_firstderiv` | cross-impl pipeline | prediction (per-sample) | **5e-3** (guarded) | ~3.45e-3 | `test_conformance_dual_engine.py:244-251`, under `assert_same_winner` |
@@ -72,10 +73,15 @@ the `kernel_pls` band, not the cross-engine default.
   (`libn4m` vs sklearn computing the identical PLS/SNV), so near-bit-exactness
   is correct and required. This is the **only** legitimate home of the
   contract's `1e-9` number.
-- **`1e-6` applies to two deterministic paths:** (a) a dag-ml *native* single-model
-  export reproducing its own final-(test) y_pred (`native_export_reproduce`), and
-  (b) the no-preprocessing `baseline_vertical_slice` case whose author pinned
-  `metric_tolerances` tight (`per_case_tight`).
+- **`1e-6` applies to one deterministic path:** a dag-ml *native* single-model
+  export reproducing its own final-(test) y_pred (`native_export_reproduce`).
+- **`per_case_tight` is the per-case `metric_tolerances` override mechanism, not a
+  tighter number.** Its sole live instance, `baseline_vertical_slice`, pins **both**
+  `rmse` **and** `r2` at `1e-3` — the same `cross_impl_score` magnitude, adding the
+  secondary-metric guard that caught the `best_r2` re-rank bug (§B Tier-2). No case
+  currently pins a sub-`1e-3` tolerance. `_authority._validate_per_case_tight_band`
+  binds this band's `abs_tol` to the live case value, so the two can never drift
+  again (the ledger previously mis-claimed `1e-6` here while the case enforced `1e-3`).
 - **`1e-3` applies to the cross-implementation pipeline path** — the legacy↔dag-ml
   RunResult parity the dual-engine oracle enforces. sklearn-PLS and Rust-PLS are
   *different implementations*; their measured divergence (~`1e-4`..`6e-4`) is float
@@ -301,3 +307,87 @@ gate.
    a stale allowlist entry fails (`test_conformance_dual_engine.py:372`).
 5. **num_predictions divergences are pinned, not exempted.** Only the documented
    `34/32` and `49/47` loser-refit-row deltas pass.
+6. **No untracked marker or tolerance (§G).** `pytest.mark.xfail` lives only in the
+   sanctioned `_params()` builder; every skip maps to a sanctioned category; every
+   tolerance literal equals a published §A.2 band (or is a negative-assertion
+   divergence floor). `_marker_audit` fails on the first exception.
+
+---
+
+## §G — Marker & tolerance debt gate (RC-B / `LOCK-PYREF`)
+
+§A–§F reconcile the machine-readable ledger against the live parity **constants**
+(`KNOWN_DIVERGENCES` / `NUM_PREDICTIONS_DIVERGENCE` / `Y_PRED_TOL_OVERRIDES` /
+registry `skip_kind`), enforced by `_authority.validate_compatibility_ledger`.
+That proves the *ledgered* debt is self-consistent but is blind to debt added
+**directly in a test body** — a bare `pytest.mark.xfail(reason="TODO")`, a
+`pytest.skip("flaky")`, or a loosened `atol=1e-1` — which never touches those
+constants. §G closes that hole with a **static `ast` scan** of every
+`tests/integration/parity/*.py`.
+
+**Enforcement:** `tests/integration/parity/_marker_audit.py` (scanner + CLI),
+`test_marker_audit.py` (live-tree gate + negative self-tests that prove the gate
+flags injected debt), and the JSON face `compatibility.json.marker_policy`
+(validated against the scanner by `_authority.validate_marker_policy`, so the
+published policy can never drift from the code that enforces it).
+
+Three **closed** policies — each fails on the *first* item it cannot place:
+
+1. **xfail containment.** `pytest.mark.xfail` / `pytest.xfail` may appear **only**
+   in `test_conformance_dual_engine.py` — the two collection-time `_params()`
+   marks fed by `KNOWN_DIVERGENCES` (9) + registry `legacy_bug` (2) = the **11
+   xfailed** headline. An xfail in any other parity module is untracked divergence
+   debt (the `11` can no longer be trusted) and fails the gate.
+2. **skip taxonomy.** Every `pytest.skip` / `pytest.mark.skip(if)` /
+   `pytest.importorskip` must classify into exactly one sanctioned category below;
+   an unclassifiable skip is untracked coverage loss (a blocker under RC-B: skips
+   are release blockers unless optional-environment or tracked registry debt).
+3. **tolerance band.** Every explicit numeric `atol`/`rtol`/`abs`/`rel` kwarg,
+   every `*_TOL` constant, and every `metric_tolerances` / `Y_PRED_TOL_OVERRIDES`
+   value must equal a published §A.2 band (`tolerance_bands[].abs_tol` — the ledger
+   *is* the allowlist). A value inside a **negative** assertion (`assert not
+   np.allclose(...)` / `!= approx(...)`) is a divergence *floor*, not a tolerance
+   *ceiling*, and is exempt.
+
+### G.1 Sanctioned skip categories (the closed taxonomy)
+
+| category | kind | what it covers |
+|---|---|---|
+| `registry_skip` | tracked_debt | `fixture` / `unknown_semantics` registry skips (`[{skip_kind}] …`) — the 4 cases pinned in §C.2 / `coverage_skips`, re-asserted across the compile / smoke / baseline / dual-engine modules |
+| `optional_env_import` | optional_env | `pytest.importorskip(dag_ml / dag_ml_data / shap / jsonschema / referencing)` |
+| `optional_env_dagml_cli` | optional_env | `skipif(not _DAGML_CLI.exists())` — the native `dag-ml-cli` binary is not built on this host |
+| `optional_env_dependency` | optional_env | an example needs an optional dependency that is not installed |
+| `optional_env_sibling` | optional_env | sibling `nirs4all-ecosystem` runtime schemas not checked out |
+| `optional_env_methods` | optional_env | the `nirs4all-methods` SNV / n4m binding is unavailable (hard-fails only under `NIRS4ALL_REQUIRE_N4M=1`) |
+| `runtime_na` | runtime_precondition | a cross-engine comparison is N/A on this build: dag-ml ran the legacy fallback, wrote no native results, or the case is not a single-artifact native run. With `coverage_meter.fallback == 0` the fallback branch does not fire for covered cases |
+| `baseline_capture` | workflow | gold-baseline capture / absent-baseline guard in `test_parity_baseline` (`--parity-capture`) |
+| `lockdrop_empty` | workflow | `EXPECTED_FALLBACK` is empty (LOCK-DROP D1 closed), so the off-allowlist probe is skipped |
+
+### G.2 How `810 passed / 30 skipped / 11 xfailed` maps to the gate
+
+- **11 xfailed** is exact and fully ledgered: `KNOWN_DIVERGENCES` (9) + registry
+  `legacy_bug` (2), applied only in the sanctioned builder (§B). The gate fails if
+  any twelfth xfail appears anywhere.
+- **30 skipped** is environment-dependent (which optional bins / the `dag-ml-cli`
+  binary are present) and decomposes entirely into the G.1 taxonomy. Static call
+  sites on `aab640c9`: `registry_skip` 8, `optional_env_import` 13,
+  `optional_env_dagml_cli` 96, `optional_env_dependency` 1, `optional_env_sibling`
+  1, `optional_env_methods` 1, `runtime_na` 8, `baseline_capture` 2,
+  `lockdrop_empty` 1 (= 131 sites; a single run realizes a subset). Only
+  `registry_skip` is genuine coverage debt — the 4 §C.2 cases — and it is pinned.
+- **tolerance overrides**: 42 static tolerance literals, every one a published §A.2
+  band value or a negative-assertion divergence floor. A new looser value fails.
+
+### G.3 Running the gate
+
+```bash
+# static debt gate (no engine run) — exits 1 on any untracked xfail/skip/tolerance
+python -m tests.integration.parity._marker_audit --check
+
+# as pytest (live-tree gate + negative self-tests)
+pytest tests/integration/parity/test_marker_audit.py tests/integration/parity/test_compatibility_ledger.py -q
+```
+
+**This gate makes the debt visible and enforceable; it does not bless it.** The 4
+`registry_skip` cases and the 11 xfails remain open release debt owned by RC-C /
+RC-D — §G only guarantees none of it can grow silently.
