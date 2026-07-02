@@ -21,6 +21,7 @@ measure on ``PYTHONPATH``)::
     python scripts/bench_engine_perf.py                       # all cases, 3 repeats
     python scripts/bench_engine_perf.py --cases pls_small     # one case
     python scripts/bench_engine_perf.py --repeats 5 --json out.json
+    python scripts/bench_engine_perf.py --max-wall-ratio 1.25 --max-rss-ratio 1.50
 
 The harness inherits the parent environment, so RC worktree bindings are selected exactly like a
 test run, e.g.::
@@ -33,6 +34,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import statistics
 import subprocess
@@ -94,23 +96,45 @@ pipeline = [MinMaxScaler(), ShuffleSplit(n_splits=3, test_size=0.25, random_stat
 }
 
 _CHILD_TEMPLATE = """
-import json, resource, sys, time
+import json, math, os, resource, sys, time
 t0 = time.perf_counter()
 {case_source}
 import nirs4all
+requested_engine = os.environ["N4A_ENGINE"]
 t_import = time.perf_counter() - t0
 t1 = time.perf_counter()
-result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, random_state=0)
-wall = time.perf_counter() - t1
-best = result.best_score
-peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # KiB on Linux
-print("@@RESULT@@" + json.dumps({{
-    "wall_s": wall,
-    "import_s": t_import,
-    "peak_rss_mb": peak_kb / 1024.0,
-    "num_predictions": result.num_predictions,
-    "best_score": None if best is None else float(best),
-}}))
+result = None
+try:
+    result = nirs4all.run(
+        pipeline=pipeline,
+        dataset=dataset,
+        verbose=0,
+        random_state=0,
+        engine=requested_engine,
+        allow_fallback=False,
+        save_artifacts=False,
+        save_charts=False,
+        plots_visible=False,
+    )
+    wall = time.perf_counter() - t1
+    raw_best = result.best_score
+    best = None if raw_best is None else float(raw_best)
+    if best is not None and not math.isfinite(best):
+        best = None
+    peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # KiB on Linux
+    payload = {{
+        "engine_requested": requested_engine,
+        "wall_s": wall,
+        "import_s": t_import,
+        "peak_rss_mb": peak_kb / 1024.0,
+        "num_predictions": result.num_predictions,
+        "best_score": best,
+    }}
+finally:
+    close = getattr(result, "close", None)
+    if callable(close):
+        close()
+print("@@RESULT@@" + json.dumps(payload))
 """
 
 
@@ -131,6 +155,93 @@ def _run_child(case: str, engine: str, python: str) -> dict:
     return {"error": "child produced no @@RESULT@@ line", "total_s": total}
 
 
+def _safe_ratio(numerator: float, denominator: float) -> float | None:
+    if not math.isfinite(numerator) or not math.isfinite(denominator) or denominator <= 0:
+        return None
+    return numerator / denominator
+
+
+def _case_ratios(engines: dict[str, dict]) -> dict[str, float | None]:
+    legacy = engines.get("legacy")
+    dagml = engines.get("dag-ml")
+    if not legacy or not dagml or "error" in legacy or "error" in dagml:
+        return {"wall": None, "rss": None, "score_delta_abs": None, "predictions_delta_abs": None}
+    legacy_score = legacy.get("best_score")
+    dagml_score = dagml.get("best_score")
+    score_delta_abs = None
+    if legacy_score is not None and dagml_score is not None:
+        score_delta_abs = abs(float(dagml_score) - float(legacy_score))
+        if not math.isfinite(score_delta_abs):
+            score_delta_abs = None
+    legacy_predictions = legacy.get("num_predictions")
+    dagml_predictions = dagml.get("num_predictions")
+    predictions_delta_abs = None
+    if legacy_predictions is not None and dagml_predictions is not None:
+        predictions_delta_abs = abs(int(dagml_predictions) - int(legacy_predictions))
+    return {
+        "wall": _safe_ratio(float(dagml["wall_s_median"]), float(legacy["wall_s_median"])),
+        "rss": _safe_ratio(float(dagml["peak_rss_mb_median"]), float(legacy["peak_rss_mb_median"])),
+        "score_delta_abs": score_delta_abs,
+        "predictions_delta_abs": predictions_delta_abs,
+    }
+
+
+def _ratio_summary(results: dict[str, dict[str, dict]]) -> dict[str, dict[str, float | None]]:
+    return {case: _case_ratios(engines) for case, engines in results.items()}
+
+
+def _check_ratio_gates(
+    ratios: dict[str, dict[str, float | None]],
+    *,
+    max_wall_ratio: float | None,
+    max_rss_ratio: float | None,
+    max_score_delta: float | None,
+) -> list[str]:
+    failures: list[str] = []
+    for case, case_ratios in ratios.items():
+        comparison_available = case_ratios.get("wall") is not None or case_ratios.get("rss") is not None
+        prediction_delta = case_ratios.get("predictions_delta_abs")
+        if comparison_available and prediction_delta is None:
+            failures.append(f"{case}: prediction count comparison unavailable")
+        elif prediction_delta is not None and prediction_delta != 0:
+            failures.append(f"{case}: prediction count delta {prediction_delta:g} != 0")
+        checks = (
+            ("wall", max_wall_ratio, "dag-ml/legacy wall ratio"),
+            ("rss", max_rss_ratio, "dag-ml/legacy RSS ratio"),
+            ("score_delta_abs", max_score_delta, "absolute best_score delta"),
+        )
+        for key, limit, label in checks:
+            if limit is None:
+                continue
+            actual = case_ratios.get(key)
+            if actual is None:
+                failures.append(f"{case}: {label} unavailable")
+            elif actual > limit:
+                failures.append(f"{case}: {label} {actual:.6g} > {limit:.6g}")
+    return failures
+
+
+def _json_payload(
+    *,
+    cases: dict[str, dict[str, dict]],
+    ratios: dict[str, dict[str, float | None]],
+    args: argparse.Namespace,
+) -> dict:
+    return {
+        "metadata": {
+            "cases": args.cases,
+            "engines": args.engines,
+            "repeats": args.repeats,
+            "python": args.python,
+            "max_wall_ratio": args.max_wall_ratio,
+            "max_rss_ratio": args.max_rss_ratio,
+            "max_score_delta": args.max_score_delta,
+        },
+        "cases": cases,
+        "ratios": ratios,
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--cases", nargs="*", default=list(CASES), choices=list(CASES), help="cases to run")
@@ -138,6 +249,9 @@ def main() -> int:
     parser.add_argument("--repeats", type=int, default=3, help="repeats per (case, engine); median is reported")
     parser.add_argument("--json", type=Path, default=None, help="write full results as JSON to this path")
     parser.add_argument("--python", default=sys.executable, help="interpreter for measurement children")
+    parser.add_argument("--max-wall-ratio", type=float, default=None, help="fail if any dag-ml/legacy wall-time ratio exceeds this limit")
+    parser.add_argument("--max-rss-ratio", type=float, default=None, help="fail if any dag-ml/legacy peak-RSS ratio exceeds this limit")
+    parser.add_argument("--max-score-delta", type=float, default=None, help="fail if any absolute best_score difference exceeds this limit")
     args = parser.parse_args()
 
     results: dict[str, dict[str, dict]] = {}
@@ -175,22 +289,34 @@ def main() -> int:
                 f"| {case} | {engine} | {summary['wall_s_median']:.3f} | {summary['peak_rss_mb_median']:.0f} "
                 f"| {summary['num_predictions']} | {best_score_text} |"
             )
-    print("\n| case | dag-ml/legacy wall ratio | dag-ml/legacy RSS ratio |")
-    print("|---|---|---|")
-    for case, engines in results.items():
-        legacy, dagml = engines.get("legacy"), engines.get("dag-ml")
-        if not legacy or not dagml or "error" in legacy or "error" in dagml:
-            print(f"| {case} | n/a | n/a |")
-            continue
-        wall_ratio = dagml["wall_s_median"] / legacy["wall_s_median"]
-        rss_ratio = dagml["peak_rss_mb_median"] / legacy["peak_rss_mb_median"]
-        print(f"| {case} | {wall_ratio:.2f}x | {rss_ratio:.2f}x |")
+    ratios = _ratio_summary(results)
+    print("\n| case | dag-ml/legacy wall ratio | dag-ml/legacy RSS ratio | abs best_score delta | prediction count delta |")
+    print("|---|---|---|---|---|")
+    for case, case_ratios in ratios.items():
+        wall_ratio = case_ratios["wall"]
+        rss_ratio = case_ratios["rss"]
+        score_delta_abs = case_ratios["score_delta_abs"]
+        predictions_delta_abs = case_ratios["predictions_delta_abs"]
+        wall_text = "n/a" if wall_ratio is None else f"{wall_ratio:.2f}x"
+        rss_text = "n/a" if rss_ratio is None else f"{rss_ratio:.2f}x"
+        score_text = "n/a" if score_delta_abs is None else f"{score_delta_abs:.6f}"
+        predictions_text = "n/a" if predictions_delta_abs is None else str(int(predictions_delta_abs))
+        print(f"| {case} | {wall_text} | {rss_text} | {score_text} | {predictions_text} |")
 
     if args.json is not None:
-        args.json.write_text(json.dumps(results, indent=2))
+        args.json.write_text(json.dumps(_json_payload(cases=results, ratios=ratios, args=args), allow_nan=False, indent=2) + "\n")
         print(f"\nwrote {args.json}", file=sys.stderr)
 
     failed = any("error" in summary for engines in results.values() for summary in engines.values())
+    ratio_failures = _check_ratio_gates(
+        ratios,
+        max_wall_ratio=args.max_wall_ratio,
+        max_rss_ratio=args.max_rss_ratio,
+        max_score_delta=args.max_score_delta,
+    )
+    for failure in ratio_failures:
+        print(f"[gate] FAILED: {failure}", file=sys.stderr)
+    failed = failed or bool(ratio_failures)
     return 1 if failed else 0
 
 
