@@ -3,9 +3,10 @@
   "owner": "nirs4all compatibility ledger",
   "consumer_of": "dag-ml.nirs4all.parity_oracle.v1",
   "last_reconciled": {
-    "date": "2026-07-01",
-    "nirs4all_commit": "98c33788+working-tree",
-    "dag_ml_commit": "f58d7bf"
+    "date": "2026-07-02",
+    "nirs4all_commit": "3d568abe",
+    "dag_ml_commit": "7f86a9b",
+    "dag_ml_data_commit": "e681685"
   },
   "tolerance_bands": [
     {
@@ -261,9 +262,11 @@
     },
     {
       "surface": "studio_oracle",
-      "status": "gap",
+      "status": "exists",
       "tolerance_band": "cross_impl_score",
-      "owner_lane": "L17+L12"
+      "owning_test": "nirs4all-studio/tests/test_runtime_engine.py + tests/test_studio_oracle_routes.py + tests/test_runs_engine_routing.py",
+      "owner_lane": "L17+L12",
+      "note": "Studio-side RC gate covers requested/default engine threading, fallback policy, actual-engine recording, and manifest round-trip; Python full parity remains the numerical oracle."
     },
     {
       "surface": "methods_installed",

@@ -5,7 +5,7 @@
 **consumer_of:** `dag-ml/docs/contracts/parity_oracle.v1.json` (`dag-ml.nirs4all.parity_oracle.v1`)
 **machine-readable companion:** `docs/compatibility.json`
 **static debt gate:** `tests/integration/parity/_marker_audit.py` (§G)
-**last reconciled:** 2026-07-02 against `nirs4all aab640c9+working-tree` / `dag-ml f58d7bf` (RC-B: §G marker/skip/tolerance gate added; `per_case_tight` band corrected `1e-6`→`1e-3`)
+**last reconciled:** 2026-07-02 against `nirs4all 3d568abe` / `dag-ml 7f86a9b` / `dag-ml-data e681685` (RC-C: full parity proof on the selected RC stack; §G marker/skip/tolerance gate still clean; `per_case_tight` band corrected `1e-6`→`1e-3`)
 **lock:** `LOCK-PYREF` (`DEC-PYREF-001`, `DEC-PYREF-002` accepted)
 
 This is the ADR-01 tolerance ledger the dag-ml contract names as its
@@ -256,7 +256,7 @@ report §4 and SW5 §6 for the concrete test specs).
 | `.n4a` *cross-engine* (legacy-written bundle predicted via dag-ml runtime, and reverse) | **EXISTS** (PYREF-009a) | `test_conformance_n4a_cross_engine.py::test_n4a_bundle_cross_engine_round_trip` (legacy & dag-ml `.n4a` interchange + reproduce dag-ml-native y_pred, both within `1e-3`; pins the transitional export bridge — tightens to `native_export_reproduce` when native `.n4a` (DML-008/W3) lands) | `cross_impl_ypred` | L17 + L5 |
 | Workspace cross-engine (legacy SQLite/Parquet/manifest read via runtime V1; native-results triple round-trip) | **EXISTS** (PYREF-009b) | `test_conformance_workspace_cross_engine.py::test_native_results_triple_round_trips_and_agrees_cross_engine` (native triple reads back faithfully via `read_native_results` AND agrees with legacy within `cross_impl_*`; legacy workspace inspectable) | `cross_impl_score` | L17 + L5 |
 | Error / refusal parity (same invalid pipeline → same refusal on both engines) | **EXISTS** (PYREF-err) | `test_conformance_error_parity.py` (invalid pipeline refused by BOTH engines; dag-ml refusal → stable `RtError.cause` from CAP-004/RT-003 — local helper until W7 `rt.py` lands) | `n/a_semantic` | L17 |
-| Studio rides the oracle (records resolved engine; one pipeline through both engines) | **GAP** (PYREF-008) | adapter reads native triple correctly, but Studio never passes/records `engine=`; 4 backend routes re-implement nirs4all logic | `cross_impl_score` (target) | L17 + L12 |
+| Studio rides the oracle (records resolved engine; one pipeline through both engines) | **EXISTS** (Studio-side RC gate) | Studio RC `tests/test_runtime_engine.py`, `tests/test_studio_oracle_routes.py`, and `tests/test_runs_engine_routing.py` prove requested/default engine threading, fallback policy, actual-engine recording, and manifest round-trip; Python full parity remains the numerical oracle | `cross_impl_score` (target) | L17 + L12 |
 | methods-installed lane (n4m parity) | **EXISTS** | `scripts/prove_installed_n4m.py` builds a fresh `nirs4all-methods` wheel, installs this checkout in a proof venv, strips dev overrides, requires `NIRS4ALL_REQUIRE_N4M=1`, and runs `test_n4m_ops.py` packaging/SNV/PLS slices | `kernel_snv` / `kernel_pls` | L17 + L9 |
 | nirs4all-side wheel / `.so` freshness | **EXISTS** (PYREF-011 consumer-side) | `scripts/prove_installed_n4m.py` verifies SHA-256 identity from the source `libn4m` reported by the methods smoke, to the staged wheel payload, to the library loaded from the proof venv; source-to-binary freshness stays owned by `nirs4all-methods` | n/a | L17 + L9 |
 
@@ -371,7 +371,21 @@ Three **closed** policies — each fails on the *first* item it cannot place:
 - **tolerance overrides**: 42 static tolerance literals, every one a published §A.2
   band value or a negative-assertion divergence floor. A new looser value fails.
 
-### G.3 Running the gate
+### G.3 Current RC parity proof
+
+The selected RC stack is `nirs4all 3d568abe`, `dag-ml 7f86a9b`, and
+`dag-ml-data e681685`. The last full `pyref_oracle_full` run on that stack
+reported `659 passed, 227 deselected, 1530 warnings` in `2037.46s`, with no
+parity skips and no xfails. The earlier result with `14 skipped / 6 xfailed`
+is superseded by that run.
+
+The static marker audit still reports many skip *call sites* because it scans
+optional-environment and runtime-precondition branches. Those are not realized
+Python-reference parity skips in the current full parity proof; they are
+classified by the closed taxonomy in §G.1 and fail if an unclassified skip,
+xfail, or tolerance appears.
+
+### G.4 Running the gate
 
 ```bash
 # static debt gate (no engine run) — exits 1 on any untracked xfail/skip/tolerance
