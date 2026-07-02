@@ -245,7 +245,7 @@ def _dict_split_step(step: Any) -> DagMlSplitStep | None:
     if not isinstance(step, dict) or "split" not in step:
         return None
     splitter = step.get("split")
-    if not callable(getattr(splitter, "split", None)):
+    if not _has_split_method(splitter):
         return None
     return DagMlSplitStep(
         splitter=splitter,
@@ -258,13 +258,20 @@ def _dict_split_step(step: Any) -> DagMlSplitStep | None:
     )
 
 
+def _has_split_method(step: Any) -> bool:
+    """Return True only for splitter-like objects, not string class paths."""
+    if isinstance(step, (str, bytes, bytearray)):
+        return False
+    return callable(getattr(step, "split", None))
+
+
 def _is_split_step(step: Any) -> bool:
     """Whether ``step`` is a public or internal cross-validator step."""
     if isinstance(step, DagMlSplitStep):
         return True
     if _dict_split_step(step) is not None:
         return True
-    return callable(getattr(step, "split", None))
+    return _has_split_method(step)
 
 
 def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
@@ -288,7 +295,7 @@ def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
             splitter_step = parsed
             splitter_original = step
             break
-        if callable(getattr(step, "split", None)):
+        if _has_split_method(step):
             splitter_step = step
             splitter_original = step
             break
@@ -388,6 +395,22 @@ def _flatten_steps(steps: list[Any]) -> list[Any]:
     return out
 
 
+def _contains_serialized_component(value: Any) -> bool:
+    """Whether a concrete pipeline still carries serialized operator refs."""
+    if isinstance(value, str):
+        return "." in value
+    if isinstance(value, list):
+        return any(_contains_serialized_component(item) for item in value)
+    if isinstance(value, dict):
+        if "class" in value:
+            return True
+        model = value.get("model")
+        if isinstance(model, dict) and "class" in model:
+            return True
+        return any(_contains_serialized_component(item) for item in value.values())
+    return False
+
+
 # Step keywords whose value is the operator a top-level param-keyed sweep targets (mirrors the
 # generator core's ``_OPERATOR_WRAPPER_KEYS``). When the step carries a top-level generator keyword
 # (``_range_``/``_grid_``/…) over such an operator, the operator must be a ``{"class": …}`` dict for
@@ -431,15 +454,18 @@ def _expand_operator_generators(pipeline: list[Any]) -> list[list[Any]]:
     nested lists and no bare classes — so the bridge lowers it cleanly instead of crashing on a
     ``clone(<class>)`` or a ``builtins.list`` intermediate step.
 
-    A generator-free pipeline is returned unchanged (one variant of the original live operators) —
-    the serialize/deserialize round-trip is reserved for the generator path so the common
-    transform+model shape keeps its exact operator instances.
+    A generator-free pipeline made of live operators is returned unchanged (one variant of the original
+    live operators). A generator-free pipeline that still carries serialized ``{"class": ...}`` or
+    class-path string refs is deserialized once so Studio/editor canonical payloads reach the same live
+    splitter/model shape as direct Python callers.
     """
     from nirs4all.pipeline.config._generator.keywords import has_nested_generator_keywords
     from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
     from nirs4all.pipeline.config.generator import expand_spec
 
     if not has_nested_generator_keywords(pipeline):
+        if _contains_serialized_component(pipeline):
+            return [_flatten_steps(deserialize_component(pipeline))]
         return [pipeline]
 
     serialized = serialize_component(pipeline)
