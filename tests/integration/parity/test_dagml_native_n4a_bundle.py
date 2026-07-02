@@ -49,9 +49,10 @@ from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
 pytestmark = [pytest.mark.parity]
 
+from ._dagml_cli import dagml_cli_path  # noqa: E402
 from ._datasets import dataset_path  # noqa: E402
 
-_DAGML_CLI = Path(__file__).resolve().parents[3].parent / "dag-ml" / "target" / "release" / "dag-ml-cli"
+_DAGML_CLI = dagml_cli_path()
 _N_SPLITS = 3
 
 

@@ -8,7 +8,6 @@ attaches the same diagnostic to the returned legacy result.
 from __future__ import annotations
 
 import warnings
-from pathlib import Path
 
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -17,9 +16,10 @@ import nirs4all
 from nirs4all.pipeline.dagml.errors import DagMlUnavailable
 from nirs4all.pipeline.dagml.rt import RtError
 
+from ._dagml_cli import dagml_cli_path
 from ._datasets import dataset_path
 
-_DAGML_CLI = Path(__file__).resolve().parents[3].parent / "dag-ml" / "target" / "release" / "dag-ml-cli"
+_DAGML_CLI = dagml_cli_path()
 
 
 def _unsupported_pipeline() -> list[object]:
