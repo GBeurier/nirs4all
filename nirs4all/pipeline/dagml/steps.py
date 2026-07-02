@@ -7,9 +7,23 @@ concrete pipelines — the step-shaping helpers the run paths share.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import Any
 
 from .errors import DagMlUnsupported
+
+
+@dataclass(frozen=True)
+class DagMlSplitStep:
+    """Internal dag-ml split step with explicit group-resolution options."""
+
+    splitter: Any
+    group_by: Any = None
+    legacy_group: Any = None
+    ignore_repetition: bool = False
+    group_required: bool | None = None
+    aggregation: str = "mean"
+    y_aggregation: Any = None
 
 
 def _needs_wavelength_injection(operator: Any) -> bool:
@@ -226,6 +240,33 @@ def _supported_body_steps(steps: list[Any]) -> list[Any]:
     return cleaned
 
 
+def _dict_split_step(step: Any) -> DagMlSplitStep | None:
+    """Parse ``{"split": splitter, "group_by": ...}`` syntax for the dag-ml bridge."""
+    if not isinstance(step, dict) or "split" not in step:
+        return None
+    splitter = step.get("split")
+    if not callable(getattr(splitter, "split", None)):
+        return None
+    return DagMlSplitStep(
+        splitter=splitter,
+        group_by=step.get("group_by"),
+        legacy_group=step.get("group"),
+        ignore_repetition=bool(step.get("ignore_repetition", False)),
+        group_required=step.get("group_required") if "group_required" in step else None,
+        aggregation=str(step.get("aggregation", "mean")),
+        y_aggregation=step.get("y_aggregation"),
+    )
+
+
+def _is_split_step(step: Any) -> bool:
+    """Whether ``step`` is a public or internal cross-validator step."""
+    if isinstance(step, DagMlSplitStep):
+        return True
+    if _dict_split_step(step) is not None:
+        return True
+    return callable(getattr(step, "split", None))
+
+
 def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     """Separate the cross-validator step (the object exposing ``.split``) from the operator steps.
 
@@ -235,8 +276,24 @@ def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     cannot instantiate, so drop it here: a dropped identity transform yields a numerically identical
     pipeline, exactly the legacy no-op semantic.
     """
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
-    steps = [step for step in pipeline if step is not splitter and step is not None]
+    splitter_step: Any | None = None
+    splitter_original: Any | None = None
+    for step in pipeline:
+        if isinstance(step, DagMlSplitStep):
+            splitter_step = step
+            splitter_original = step
+            break
+        parsed = _dict_split_step(step)
+        if parsed is not None:
+            splitter_step = parsed
+            splitter_original = step
+            break
+        if callable(getattr(step, "split", None)):
+            splitter_step = step
+            splitter_original = step
+            break
+    steps = [step for step in pipeline if step is not splitter_original and step is not None]
+    splitter = splitter_step
     return steps, splitter
 
 
@@ -259,6 +316,8 @@ def _legacy_skips_refit(splitter: Any) -> bool:
     """
     if splitter is None:
         return False
+    if isinstance(splitter, DagMlSplitStep):
+        splitter = splitter.splitter
     from nirs4all.pipeline.config.component_serialization import serialize_component
 
     return isinstance(serialize_component(splitter), str)

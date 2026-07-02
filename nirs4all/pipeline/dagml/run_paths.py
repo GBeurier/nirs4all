@@ -24,11 +24,11 @@ from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
 from .detect import _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
 from .envelope import build_envelope
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
-from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
+from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_group_grain, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _frames_by_variant, _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
-from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _legacy_skips_refit, _model_name, _split_pipeline, _supported_body_steps
+from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _is_split_step, _legacy_skips_refit, _model_name, _split_pipeline, _supported_body_steps
 
 
 class DuplicationBranchMergeTransformer:
@@ -202,7 +202,7 @@ def _run_native_generation(
     identity = mint_identity(spectro)
     pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, excluded or set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample, group_by_sample=_split_group_grain(splitter, spectro, pool))
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml
@@ -312,7 +312,7 @@ def _run_native_operator_generation(
         identity = mint_identity(spectro)
         pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
         folds = _build_folds(splitter, spectro, pool, excluded or set())
-        envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample)
+        envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample, group_by_sample=_split_group_grain(splitter, spectro, pool))
 
         # The DSL carries the lowered Generator on the transform position. A FLAT-SINGLE bare `_or_` lowers
         # via the compat fusion (assemble_cv_refit_dsl → pipeline_to_dsl); a CONSTRAINED `_or_`-pick /
@@ -407,7 +407,7 @@ def _run_concrete_scores(
     identity = mint_identity(spectro)
     pool = list(cv_pool) if cv_pool is not None else spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, excluded or set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded or None, tags_by_sample=tags_by_sample, group_by_sample=_split_group_grain(splitter, spectro, pool))
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml
@@ -589,7 +589,7 @@ def _run_source_concat_merge(
     identity = mint_identity(spectro)
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-source-concat", n_splits=len(folds))
 
     import dag_ml
@@ -678,7 +678,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     identity = mint_identity(spectro)
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_group_folds(splitter, spectro, pool)
-    group_by_sample = _repetition_grain(spectro, pool)
+    group_by_sample = _split_group_grain(splitter, spectro, pool) or _repetition_grain(spectro, pool)
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=group_by_sample)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
@@ -826,7 +826,7 @@ def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro
     # source-blocks / processing-layers ride ONE row, so they cannot split across the fold boundary.
     pool = reshaped.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, reshaped, pool, set())
-    envelope = build_envelope(reshaped, identity, sample_ints=pool)
+    envelope = build_envelope(reshaped, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, reshaped, pool))
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml
@@ -1110,7 +1110,13 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     augmented_ints = [sample_int for sample_int, origin_int in zip(samples, origins, strict=True) if sample_int != origin_int]
     cv_universe = base_train + augmented_ints
 
-    envelope = build_envelope(spectro, identity, sample_ints=cv_universe, augmentation_by_sample=augmentation_by_sample_int)
+    envelope = build_envelope(
+        spectro,
+        identity,
+        sample_ints=cv_universe,
+        augmentation_by_sample=augmentation_by_sample_int,
+        group_by_sample=_split_group_grain(splitter, spectro, base_train),
+    )
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, base_folds, dsl_id="nirs4all-augmentation", n_splits=len(base_folds))
 
     import dag_ml
@@ -1159,11 +1165,11 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
 
     # The splitter lives at the top level (before the branch); the branch body is the model
     # sub-pipeline applied per partition. Drop the splitter from the body if it slipped in.
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     # Drop the splitter / None no-ops and reject wavelength-requiring or non-routable ops in the body.
-    body_steps = _supported_body_steps([step for step in branch_body if not hasattr(step, "split")])
+    body_steps = _supported_body_steps([step for step in branch_body if not _is_split_step(step)])
 
     identity = mint_identity(spectro)
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
@@ -1173,7 +1179,7 @@ def _run_separation_branch(pipeline: list[Any], branch_step: dict[str, Any], bra
     # Per-sample criterion values: the first map seeds the envelope relations (native fan-out reads
     # partition values from it); the second is the adapter's sample_id→metadata map for branch_view.
     metadata_by_sample, sample_metadata = _branch_metadata(spectro, identity, mode, key)
-    envelope = build_envelope(spectro, identity, sample_ints=pool, metadata_by_sample=metadata_by_sample)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, metadata_by_sample=metadata_by_sample, group_by_sample=_split_group_grain(splitter, spectro, pool))
 
     # Compat auto_separate template: ONE branch (the model sub-pipeline) carrying the criterion +
     # mode, marked auto_separate; the native fan-out expands it into N per-partition branches.
@@ -1277,7 +1283,7 @@ def _canonical_branch(branch_body: list[Any], branch_index: int) -> dict[str, An
     non-routable ops in the body raise a catchable :class:`DagMlUnsupported` — same coverage guarantee
     the top-level path gives, applied here so duplication / by_source / stacking branch bodies are safe.
     """
-    steps = _supported_body_steps([step for step in branch_body if not hasattr(step, "split")])
+    steps = _supported_body_steps([step for step in branch_body if not _is_split_step(step)])
     return {
         "id": f"branch_{branch_index}",
         "steps": [_canonical_branch_step(step, f"branch:{branch_index}.node:{node_index}") for node_index, step in enumerate(steps)],
@@ -1294,7 +1300,7 @@ def _branch_merge_transformer_step(branches: list[list[Any]], merge_mode: str) -
     lowered_branches: list[dict[str, Any]] = []
     for branch in branches:
         lowered_steps: list[dict[str, Any]] = []
-        for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
+        for step in _supported_body_steps([part for part in branch if not _is_split_step(part)]):
             if isinstance(step, dict) and "model" in step:
                 if merge_mode != "all":
                     raise DagMlUnsupported(
@@ -1537,7 +1543,7 @@ def _fit_global_branch_transforms(branch: list[Any], spectro: Any, train_pool: l
     y_train = _dataset_y_rows(spectro, train_pool)
     transforms: list[Any] = []
     model = None
-    for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
+    for step in _supported_body_steps([part for part in branch if not _is_split_step(part)]):
         if isinstance(step, dict) and "model" in step:
             model = step["model"]
             break
@@ -1874,7 +1880,7 @@ def _fit_named_branch_feature_matrix(branch: list[Any], spectro: Any, train_pool
     y_train = _dataset_y_rows(spectro, train_pool)
     model_steps: list[dict[str, Any]] = []
 
-    for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
+    for step in _supported_body_steps([part for part in branch if not _is_split_step(part)]):
         if isinstance(step, dict) and "model" in step:
             model_steps.append(step)
             continue
@@ -2047,7 +2053,7 @@ def _run_named_metamodel_feature_stack(
     """
     if task_type != "regression":
         raise DagMlUnsupported("named MetaModel prediction-feature stack currently supports regression only")
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
@@ -2214,11 +2220,11 @@ def _run_by_source_concat_shared_preproc(pipeline: list[Any], preproc_body: list
     """
     import dag_ml
 
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
-    steps = _supported_body_steps([step for step in [*preproc_body, *downstream_body] if not hasattr(step, "split")])
+    steps = _supported_body_steps([step for step in [*preproc_body, *downstream_body] if not _is_split_step(step)])
     _reject_multi_model(steps)
     _assert_supported_operators(steps)
     steps = _apply_model_params(steps)
@@ -2226,7 +2232,7 @@ def _run_by_source_concat_shared_preproc(pipeline: list[Any], preproc_body: list
     identity = mint_identity(spectro)
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-by-source-concat", n_splits=len(folds))
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
@@ -2293,7 +2299,7 @@ def _run_by_source_distinct_preproc_concat(
 
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
 
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     if len(downstream_body) != 1:
@@ -2308,7 +2314,7 @@ def _run_by_source_distinct_preproc_concat(
     identity = mint_identity(spectro)
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
     source_layout = (envelope.get("plan") or {}).get("source_layout")
     source_preprocessing = _source_preprocessing_metadata(source_steps, source_layout)
     if len(source_preprocessing["sources"]) != n_sources:
@@ -2399,7 +2405,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
             "the process adapter emits class-label predictions, not per-class probability rows; backlog #20-avg (proba)."
         )
 
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
@@ -2407,7 +2413,7 @@ def _run_by_source_branch(pipeline: list[Any], branch_body: list[Any], aggregate
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
 
     # Canonical DSL: one duplication-mode branch with N per-source sub-pipelines (each the shared body
     # bound to its source via metadata.source_index) + a fusion merge. The branch is `duplication` mode
@@ -2497,7 +2503,7 @@ def _run_by_source_stacking_branch(
     if task_type != "regression":
         raise DagMlUnsupported("by_source source-layout stacking replay currently supports regression parity only")
 
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     if not branch_body or not (isinstance(branch_body[-1], dict) and "model" in branch_body[-1]):
@@ -2581,7 +2587,7 @@ def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[li
     """Run legacy duplication ``merge=features``/``merge=all`` through one concrete native model."""
     if merge_mode not in ("features", "all"):
         raise DagMlUnsupported("engine='dag-ml' supports duplication branch feature merge only for merge='features' or merge='all'")
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     model_step = next((step for step in pipeline if isinstance(step, dict) and "model" in step), None)
     if splitter is None or model_step is None:
         raise DagMlUnsupported(f"engine='dag-ml' requires splitter + downstream model for duplication merge={merge_mode!r}")
@@ -2641,7 +2647,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
         )
     merge_mode = "fusion"
 
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
@@ -2649,7 +2655,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
-    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
 
     # Canonical DSL: one duplication branch with N sub-pipelines (each on the FULL data) + a fusion merge.
     canonical_dsl: dict[str, Any] = {
@@ -2710,7 +2716,7 @@ def _branch_sklearn_pipeline(branch: list[Any]) -> Any:
     from sklearn.pipeline import make_pipeline
 
     operators: list[Any] = []
-    for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
+    for step in _supported_body_steps([part for part in branch if not _is_split_step(part)]):
         if isinstance(step, dict) and "model" in step:
             operators.append(clone(step["model"]))
         elif isinstance(step, dict):
@@ -2978,7 +2984,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
     from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
 
-    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
@@ -3005,7 +3011,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             scores=None,
         )
 
-    envelope = build_envelope(spectro, identity, sample_ints=pool)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
 
     # Canonical DSL: one duplication branch with N base sub-pipelines (each on the FULL data) + a
     # merge_model meta-node. The meta-node carries the bare sklearn meta-learner (FQN + params) and the
