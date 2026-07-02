@@ -42,9 +42,10 @@ def test_every_live_skip_classifies_into_a_sanctioned_category() -> None:
     assert not untracked, "skips with no sanctioned category:\n" + "\n".join(
         f"  {u.module}:{u.lineno} {u.reason!r}" for u in untracked
     )
-    # The tracked-debt (registry) skip category must stay non-empty — it is the
-    # 4 fixture/unknown_semantics cases; losing it would mean the debt vanished
-    # untracked rather than being fixed.
+    # The scanner still sees sanctioned registry-skip call sites even when the
+    # live PipelineCase registry has no fixture/unknown_semantics skips left.
+    # Losing the category entirely would mean marker policy drift, not debt
+    # burn-down.
     assert result.skip_category_counts()["registry_skip"] > 0
 
 
