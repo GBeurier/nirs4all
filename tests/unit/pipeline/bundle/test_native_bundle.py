@@ -100,3 +100,43 @@ def test_native_bundle_enforces_n4a_suffix(tmp_path: Path) -> None:
     out = write_single_model_bundle(model, tmp_path / "bare_name", model_label="PLSRegression")
     assert out.suffix == ".n4a" and out.exists()
     assert BundleLoader(out).predict(x_test).shape[0] == x_test.shape[0]
+
+
+def test_native_bundle_train_steps_roundtrip(tmp_path: Path) -> None:
+    """``train_steps`` are written as the additive ``train_pipeline.json`` and surface on the resolved
+    prediction as ``train_pipeline`` (the replayable retrain spec), WITHOUT touching the predict path:
+    ``pipeline.json`` keeps the single cosmetic model step and reload-predict stays bit-exact."""
+    pipe, x_test = _fit_pipeline(seed=4)
+    model = _DagmlExportedModel(pipe, None)
+    train_steps = [
+        "sklearn.preprocessing._data.MinMaxScaler",
+        {"class": "sklearn.model_selection._split.ShuffleSplit", "params": {"n_splits": 2, "test_size": 0.25, "random_state": 0}},
+        {"model": {"class": "sklearn.cross_decomposition._pls.PLSRegression", "params": {"n_components": 3}}},
+    ]
+
+    out = write_single_model_bundle(model, tmp_path / "trainable.n4a", model_label="PLSRegression", train_steps=train_steps)
+
+    with zipfile.ZipFile(out) as zf:
+        assert json.loads(zf.read("train_pipeline.json")) == {"steps": train_steps}
+        assert json.loads(zf.read("pipeline.json"))["steps"] == [{"model": {"class": "PLSRegression"}}]
+
+    loader = BundleLoader(out)
+    assert loader.train_pipeline_config == {"steps": train_steps}
+    resolved = loader.to_resolved_prediction()
+    assert resolved.train_pipeline == train_steps
+    assert resolved.minimal_pipeline == [{"model": {"class": "PLSRegression"}}]
+    assert np.array_equal(loader.predict(x_test), model.predict(x_test)), "predict path is untouched"
+
+
+def test_native_bundle_without_train_steps_stays_predict_only(tmp_path: Path) -> None:
+    """No ``train_steps`` → no ``train_pipeline.json`` member and ``train_pipeline is None`` on the
+    resolved prediction (the pre-existing predict-only bundle shape, byte-compatible with old readers)."""
+    pipe, _ = _fit_pipeline(seed=5)
+    out = write_single_model_bundle(_DagmlExportedModel(pipe, None), tmp_path / "predict_only.n4a", model_label="PLSRegression")
+
+    with zipfile.ZipFile(out) as zf:
+        assert "train_pipeline.json" not in zf.namelist()
+
+    loader = BundleLoader(out)
+    assert loader.train_pipeline_config == {}
+    assert loader.to_resolved_prediction().train_pipeline is None

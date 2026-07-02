@@ -440,8 +440,11 @@ class Retrainer:
 
         assert self._resolved is not None, "Source must be resolved before retrain"
 
-        # Get pipeline steps from resolved source
-        steps = self._resolved.minimal_pipeline
+        # Get pipeline steps from resolved source. A source that carries a SEPARATE replayable
+        # training spec (native dag-ml .n4a bundles: their pipeline.json model step is a cosmetic
+        # label for the predict loader, not a re-trainable component reference) retrains from that
+        # spec; every other source keeps replaying its minimal predict chain as before.
+        steps = self._resolved.train_pipeline or self._resolved.minimal_pipeline
 
         # For full retrain, we just run the pipeline normally
         # The runner will train everything from scratch

@@ -164,8 +164,11 @@ class PipelineConfigs:
             # Find all XX/XX_params pairs and merge them
             result = steps.copy()
 
-            # Find all keys ending with '_params'
-            params_keys = [k for k in result if k.endswith('_params')]
+            # Find all keys ending with '_params'. Keys may be non-strings
+            # (e.g. bool partition values in a separation-branch per-branch
+            # steps dict: {"by_tag": ..., "steps": {True: [...], False: [...]}}),
+            # so only string keys participate in the *_params merge.
+            params_keys = [k for k in result if isinstance(k, str) and k.endswith('_params')]
 
             for params_key in params_keys:
                 # Get the base key (remove '_params' suffix)
@@ -190,8 +193,10 @@ class PipelineConfigs:
             import inspect
             for key, value in list(result.items()):
                 # If the value is a class and the key looks like a component key
-                # (not "class" or "params" which have special meaning)
+                # (not "class" or "params" which have special meaning).
+                # Non-string keys (bool partition values) are never component keys.
                 if (inspect.isclass(value) and
+                    isinstance(key, str) and
                     key not in ["class", "params"] and
                     not key.endswith("_params")):
                     result[key] = {"class": value}
