@@ -3,9 +3,9 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, 'rc/**' ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ main, master, 'rc/**' ]
 
 # Note: Full tests with coverage run in publish.yml before PyPI release
 # This workflow runs quick tests for regular development

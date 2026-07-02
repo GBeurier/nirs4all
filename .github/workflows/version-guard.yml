@@ -7,9 +7,9 @@ name: version-guard
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'rc/**']
   pull_request:
-    branches: [main]
+    branches: [main, 'rc/**']
 
 permissions:
   contents: read
