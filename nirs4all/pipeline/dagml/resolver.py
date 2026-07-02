@@ -64,20 +64,29 @@ class MaterializationResolver:
         # equivalent of dag-ml delivering base ids + include_augmented_train=true (the core stays
         # base-grain so the FoldSet validates; the children only ever appear in a TRAIN materialization).
         self._children_of_origin: dict[int, list[str]] = {}
+        self._augmented_order: list[str] = []
+        self._origin_of_observation: dict[str, int] = {}
         # observation_id → the sample_id of its target grain (an augmented child's origin sample_id;
         # a base row's own sample_id). resolve_targets is keyed by sample_id, so a fit view whose ids
         # are observation_ids (after augmented expansion) maps each to its target's sample_id here.
         self._sample_id_of_observation: dict[str, str] = {}
         for sample in identity.identities:
             self._sample_id_of_observation[sample.observation_id] = sample.sample_id
+            self._origin_of_observation[sample.observation_id] = sample.origin_int
             if sample.augmented:
+                self._augmented_order.append(sample.observation_id)
                 self._children_of_origin.setdefault(sample.origin_int, []).append(sample.observation_id)
         # Fold-local children: per (fold_label, origin) → child observation ids (the fold's own
         # synthetic rows). Translated from sample ints to wire observation ids once here.
         self._fold_children: dict[str, dict[int, list[str]]] | None = None
+        self._fold_children_order: dict[str, list[str]] | None = None
         if fold_children is not None:
             self._fold_children = {
                 fold_label: {origin_int: [self._identity.to_wire(child_int) for child_int in child_ints] for origin_int, child_ints in by_origin.items()}
+                for fold_label, by_origin in fold_children.items()
+            }
+            self._fold_children_order = {
+                fold_label: [self._identity.to_wire(child_int) for child_ints in by_origin.values() for child_int in child_ints]
                 for fold_label, by_origin in fold_children.items()
             }
 
@@ -100,7 +109,7 @@ class MaterializationResolver:
         return [self._sample_id_of_observation[observation_id] for observation_id in observation_ids]
 
     def expand_with_augmented_children(self, observation_ids: list[str], fold_label: str | None = None) -> list[str]:
-        """Append each base id's augmented children, preserving order (base id, then its children).
+        """Append augmented children after the base ids, preserving dataset order.
 
         The fit (training) materialization for a base-grain fold/full-train view: dag-ml keeps the
         view base-grain (so the FoldSet is a clean OOF partition) and signals ``include_augmented=true``;
@@ -114,20 +123,26 @@ class MaterializationResolver:
         dataset-wide children map. Required when fold-local: a base id requested for a fold with no fold
         children map is an internal error (the run never built one).
         """
+        origin_ints = {self._identity.to_int(observation_id) for observation_id in observation_ids}
         if self._fold_children is not None:
             by_origin = self._fold_children.get(fold_label or "", {})
-            expanded: list[str] = []
-            for observation_id in observation_ids:
-                expanded.append(observation_id)
-                expanded.extend(by_origin.get(self._identity.to_int(observation_id), []))
-            return expanded
+            fold_order = (self._fold_children_order or {}).get(fold_label or "", [])
+            children = [
+                child_id
+                for child_id in fold_order
+                if self._origin_of_observation.get(child_id) in origin_ints
+            ]
+            if not children and by_origin:
+                children = [child_id for origin_int in origin_ints for child_id in by_origin.get(origin_int, [])]
+            return [*observation_ids, *children]
         if not self._children_of_origin:
             return list(observation_ids)
-        expanded = []
-        for observation_id in observation_ids:
-            expanded.append(observation_id)
-            expanded.extend(self._children_of_origin.get(self._identity.to_int(observation_id), []))
-        return expanded
+        children = [
+            child_id
+            for child_id in self._augmented_order
+            if self._origin_of_observation.get(child_id) in origin_ints
+        ]
+        return [*observation_ids, *children]
 
     def partition_wire_ids(self, partition: str) -> list[str]:
         """Wire sample ids for a dataset partition (e.g. ``"test"``), empty if none.

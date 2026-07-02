@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 from sklearn.model_selection import GroupKFold, KFold, StratifiedKFold
 
+from nirs4all.controllers.models.sklearn_model import SklearnModelController
 from nirs4all.controllers.splitters.split import CrossValidatorController
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
@@ -314,6 +315,23 @@ class TestGroupMetadata:
 
 class TestIntegration:
     """Integration tests with sample augmentation workflow."""
+
+    def test_model_fold_remap_trains_matching_augmented_children(self, dataset_with_augmentation):
+        """Model fold remapping keeps validation base-only and appends fold-train children."""
+        dataset_with_augmentation.set_folds([([1, 3, 5], [0, 2, 4]), ([0, 2, 4], [1, 3, 5])])
+        context = ExecutionContext(
+            selector=DataSelector(partition="train"),
+            state=PipelineState(),
+            metadata=StepMetadata()
+        )
+
+        folds = SklearnModelController()._remap_folds_to_positions(  # noqa: SLF001
+            dataset_with_augmentation,
+            context,
+            mode="train",
+        )
+
+        assert folds == [([1, 3, 5, 7], [0, 2, 4]), ([0, 2, 4, 6, 8], [1, 3, 5])]
 
     def test_split_after_augmentation(self, mock_runtime_context):
         """Test splitting after sample augmentation in pipeline."""

@@ -63,7 +63,7 @@ _UNSUPPORTED_STEP_KEYS = frozenset({
 
 # feature_augmentation action modes (mirrors FeatureAugmentationController.VALID_ACTIONS). The default
 # is "add" (FeatureAugmentationController.execute), which for a single base "raw" processing keeps the
-# raw layer beside the new ones — same column set as "extend"; "replace" drops the raw layer.
+# raw layer beside the new ones. The legacy 2D materialization for "replace" also exposes raw first.
 _FEATURE_AUGMENTATION_ACTIONS = frozenset({"extend", "add", "replace"})
 
 # `FeatureConcat` is the single-source replace-mode lowering of `concat_transform` (backlog #27):
@@ -873,8 +873,8 @@ def _lower_feature_augmentation(step: dict[str, Any]) -> dict[str, Any]:
 
     * **extend / add** — keep the raw layer beside the new ones: ``[raw, op1(raw), …, opN(raw)]`` →
       ``FeatureConcat([None, op1, …, opN])`` (the ``None`` pass-through is the raw layer).
-    * **replace** — drop the raw layer: ``[op1(raw), …, opN(raw)]`` → ``FeatureConcat([op1, …, opN])``
-      (identical to a ``concat_transform``).
+    * **replace** — legacy's 2D materialization still exposes the raw layer before
+      the new views: ``[raw, op1(raw), …, opN(raw)]`` → ``FeatureConcat([None, op1, …, opN])``.
 
     The ``FeatureConcat`` node lives in the model's upstream X-chain, so each augmentation
     sub-transformer is fit on fold-train only (leakage-safe) and re-applied to fold-val/test, exactly
@@ -908,7 +908,7 @@ def _lower_feature_augmentation(step: dict[str, Any]) -> dict[str, Any]:
             "dag-ml bridge does not lower an empty `feature_augmentation` (no operations to add)"
         )
     specs = [_concat_operation_spec(op) for op in layers]
-    if action in ("extend", "add"):
+    if action in ("extend", "add", "replace"):
         # Prepend the raw pass-through layer (FeatureConcat lowers None → sklearn "passthrough").
         specs = [None, *specs]
     return {"class": _FEATURE_CONCAT_CLASS, "params": {"operations": specs}}
@@ -922,6 +922,16 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             # The model id is the fully-qualified class (like transforms), so any sklearn-style
             # estimator — regressor or classifier — resolves by import, not a hardcoded table.
             dsl_step: dict[str, Any] = {"model": _qualname(op), "params": _json_safe_params(op)}
+            host_metadata: dict[str, Any] = {}
+            if "finetune_params" in step:
+                host_metadata["nirs4all_finetune_params"] = json.loads(json.dumps(step["finetune_params"], default=repr))
+                model_params = step["finetune_params"].get("model_params") if isinstance(step["finetune_params"], dict) else None
+                if isinstance(model_params, dict):
+                    host_metadata["nirs4all_finetune_model_param_order"] = list(model_params)
+            if "train_params" in step:
+                host_metadata["nirs4all_train_params"] = json.loads(json.dumps(step["train_params"], default=repr))
+            if host_metadata:
+                dsl_step["metadata"] = host_metadata
             # Non-reserved siblings are model hyperparameters: plain values extend ``params``;
             # param-level generator dicts lower to native dag-ml ``generators`` so the compiler
             # expands variants and dag-ml runs generation + SELECT + refit natively (no Python expand).

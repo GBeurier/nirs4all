@@ -158,12 +158,7 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 |---|---|---|---|---|---|
 | `branch_separation_by_tag` | `legacy_bug` — 0.9.1 `PipelineConfigs._preprocess_steps` assumes string-only dict keys, but by-tag steps use bool `True/False` keys | neither (legacy **crashes**) | `xfail(strict)` (no legacy oracle) | `n/a_semantic` | `cases_branches_merges.py:236` (case), `:254` (`skip_kind`) |
 | `branch_separation_by_filter` | `legacy_bug` — 0.9.1 `branch.py:643` imports the missing module `nirs4all.pipeline.steps.deserializer` | neither (legacy **crashes**) | `xfail(strict)` | `n/a_semantic` | `cases_branches_merges.py:278`, `:296` |
-| `sample_augmentation_gaussian` | RNG/order — augmentation expands the train set with a different per-op RNG draw / order across engines | neither (nondeterministic) | `xfail(strict)` | `n/a_rng` | `test_conformance_dual_engine.py:82` (Δrmse≈`9.7e-2`) |
-| `sample_augmentation_chained` | RNG/order (chained augmentation) | neither | `xfail(strict)` | `n/a_rng` | `:83` (Δrmse≈`1.1e0`) |
-| `sample_augmentation_after_savgol` | RNG/order (augmentation after preproc) | neither | `xfail(strict)` | `n/a_rng` | `:84` (Δrmse≈`9.2e-1`) |
-| `feature_augmentation_replace_three_views` | RNG — three replace-views built in a different order, so the concatenated feature matrix differs | neither | `xfail(strict)` | `n/a_rng` | `:87` (Δrmse≈`1.2e-1`) |
 | `concat_transform_pca_svd_plsr` | RNG — concat_transform view order / decomposition differs | neither | `xfail(strict)` | `n/a_rng` | `:88` (Δrmse≈`1.4e0`) |
-| `generator_finetune_params_optuna` | RNG — Optuna explores a different trial sequence per engine, so selected hyperparameters differ | neither | `xfail(strict)` | `n/a_rng` | `:102` (Δrmse≈`1.7e0`) |
 | `generator_sample_log_uniform_alpha` | RNG — unseeded `_sample_` (`_seed_` not set): variant set / winner not reproducible across engines | neither | `xfail(strict)` | `n/a_rng` | `:115` (Δrmse up to ≈`5.3e-1`, different winner) |
 
 > **The `_or_ count/_weights_` path is now a live parity case.** `_seed_` and
@@ -279,12 +274,12 @@ gate.
 | Runnable | **93** | 95 − 2 |
 | → fall back to legacy (`EXPECTED_FALLBACK`) | **0** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
 | → run native on dag-ml | **93** | full parity asserted |
-| Strict-xfail (documented divergence) | **11** | 9 `KNOWN_DIVERGENCES` + 2 `legacy_bug` — matches ADR-17's "11 xfailed" |
+| Strict-xfail (documented divergence) | **6** | 4 `KNOWN_DIVERGENCES` + 2 `legacy_bug` |
 | `pytest.skip` (fixture + unknown-semantics) | **0** | registry skip debt closed |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
 
 > **Correction to prior counts:** all four registry skips are now live parity
-> assertions. Runnable cases are **93**; the strict-xfail (11),
+> assertions. Runnable cases are **93**; the strict-xfail (6),
 > `EXPECTED_FALLBACK` (0), and `NUM_PREDICTIONS_DIVERGENCE` (2) figures are
 > unchanged.
 
@@ -332,7 +327,7 @@ Three **closed** policies — each fails on the *first* item it cannot place:
 
 1. **xfail containment.** `pytest.mark.xfail` / `pytest.xfail` may appear **only**
    in `test_conformance_dual_engine.py` — the two collection-time `_params()`
-   marks fed by `KNOWN_DIVERGENCES` (9) + registry `legacy_bug` (2) = the **11
+   marks fed by `KNOWN_DIVERGENCES` (4) + registry `legacy_bug` (2) = the **6
    xfailed** headline. An xfail in any other parity module is untracked divergence
    debt (the `11` can no longer be trusted) and fails the gate.
 2. **skip taxonomy.** Every `pytest.skip` / `pytest.mark.skip(if)` /
@@ -362,9 +357,9 @@ Three **closed** policies — each fails on the *first* item it cannot place:
 
 ### G.2 How skips / xfails map to the gate
 
-- **11 xfailed** is exact and fully ledgered: `KNOWN_DIVERGENCES` (9) + registry
+- **6 xfailed** is exact and fully ledgered: `KNOWN_DIVERGENCES` (4) + registry
   `legacy_bug` (2), applied only in the sanctioned builder (§B). The gate fails if
-  any twelfth xfail appears anywhere.
+  any seventh xfail appears anywhere.
 - **Skipped tests** are environment-dependent (which optional bins / the `dag-ml-cli`
   binary are present) and decomposes entirely into the G.1 taxonomy. Static call
   sites on `aab640c9`: `registry_skip` 8, `optional_env_import` 13,
@@ -387,5 +382,5 @@ pytest tests/integration/parity/test_marker_audit.py tests/integration/parity/te
 ```
 
 **This gate makes the debt visible and enforceable; it does not bless it.** The
-11 xfails remain open release debt owned by RC-C / RC-D — §G only guarantees
+6 xfails remain open release debt owned by RC-C / RC-D — §G only guarantees
 none of it can grow silently.

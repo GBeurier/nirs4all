@@ -54,6 +54,34 @@ def test_dsl_shape_for_vertical_slice() -> None:
     assert any(isinstance(s.get("model"), str) and s["model"].endswith("PLSRegression") for s in steps)
 
 
+def test_model_finetune_metadata_is_preserved_for_native_callback() -> None:
+    """Model finetune/train controls ride as host metadata, not estimator params."""
+    from sklearn.ensemble import RandomForestRegressor
+    from sklearn.model_selection import ShuffleSplit
+
+    dsl = pipeline_to_dsl(
+        [
+            ShuffleSplit(n_splits=3, random_state=42),
+            {
+                "model": RandomForestRegressor(random_state=42),
+                "finetune_params": {
+                    "approach": "single",
+                    "sampler": "tpe",
+                    "seed": 42,
+                    "model_params": {"n_estimators": ("int", 10, 40)},
+                },
+                "train_params": {"verbose": 0},
+            },
+        ]
+    )
+    model_step = next(step for step in dsl["pipeline"] if "model" in step)
+    assert "finetune_params" not in model_step["params"]
+    assert "train_params" not in model_step["params"]
+    assert model_step["metadata"]["nirs4all_finetune_params"]["model_params"]["n_estimators"] == ["int", 10, 40]
+    assert model_step["metadata"]["nirs4all_finetune_model_param_order"] == ["n_estimators"]
+    assert model_step["metadata"]["nirs4all_train_params"] == {"verbose": 0}
+
+
 def test_unsupported_step_is_flagged() -> None:
     """Constructs the spike does not cover fail loudly, naming the keyword."""
     with pytest.raises(NotImplementedError):

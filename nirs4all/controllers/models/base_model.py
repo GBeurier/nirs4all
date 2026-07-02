@@ -443,8 +443,33 @@ class BaseModelController(OperatorController, ABC):
                     if i < len(mask) and not mask[i]:
                         excluded_sample_ids_set.add(int(sid))
 
-        # Remap each fold's sample IDs to positional indices
-        # Only include samples that are still active (in partition, not excluded by indexer or outlier_excluder)
+        def origin_for(sample_id: int) -> int | None:
+            try:
+                return dataset._indexer.get_origin_for_sample(sample_id)  # noqa: SLF001
+            except Exception:
+                return None
+
+        def augmented_train_positions(train_ids) -> list[int]:
+            """Return synthetic children for this fold train set, never for validation."""
+            train_origin_ids = {
+                int(sid)
+                for sid in train_ids
+                if int(sid) in id_to_pos and int(sid) not in excluded_sample_ids_set
+            }
+            if not train_origin_ids:
+                return []
+            positions: list[int] = []
+            for sid in active_sample_ids:
+                sample_id = int(sid)
+                origin_id = origin_for(sample_id)
+                if origin_id is not None and sample_id != origin_id and origin_id in train_origin_ids:
+                    positions.append(id_to_pos[sample_id])
+            return positions
+
+        # Remap each fold's sample IDs to positional indices. The splitter stores
+        # base IDs only, but the training matrix includes augmented rows after all
+        # base rows. Include synthetic children in the fold train slice while
+        # keeping validation base-only to avoid leakage.
         remapped_folds = []
         for train_ids, val_ids in raw_folds:
             # For train indices: filter to partition and exclude outlier_excluder samples
@@ -452,6 +477,7 @@ class BaseModelController(OperatorController, ABC):
                 id_to_pos[int(sid)] for sid in train_ids
                 if int(sid) in id_to_pos and int(sid) not in excluded_sample_ids_set
             ]
+            train_indices.extend(augmented_train_positions(train_ids))
             # For val indices: filter to partition (keep all samples in partition for evaluation)
             val_indices = [id_to_pos[int(sid)] for sid in val_ids if int(sid) in id_to_pos]
             remapped_folds.append((train_indices, val_indices))

@@ -157,6 +157,14 @@ class SampleAugmentationController(OperatorController):
             else:
                 transformers.append(deserialize_component(t))
 
+        # Step-level random_state controls both selection and, for unseeded stochastic
+        # augmenters, the generated synthetic spectra. Keep explicit operator seeds.
+        if config.get("random_state") is not None:
+            base_seed = int(config["random_state"])
+            for trans_idx, transformer in enumerate(transformers):
+                if hasattr(transformer, "random_state") and getattr(transformer, "random_state", None) is None:
+                    self._set_operator_random_state(transformer, base_seed + trans_idx)
+
         # Parse variation_scope per transformer (parallel to transformers list)
         variation_scopes = [
             self._parse_variation_scope(config, transformer_spec=raw)
@@ -476,7 +484,7 @@ class SampleAugmentationController(OperatorController):
                 for i, sample_id in enumerate(sample_ids):
                     cloned = clone(transformer)
                     if base_seed is not None:
-                        cloned.set_params(random_state=base_seed + i)
+                        self._set_operator_random_state(cloned, base_seed + i)
 
                     local_context = context.with_metadata(
                         augment_sample=True,
@@ -543,7 +551,7 @@ class SampleAugmentationController(OperatorController):
         2. Execute all transformers in parallel, each returning augmented data
         3. Collect all results and batch insert into dataset
         """
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        from concurrent.futures import ThreadPoolExecutor
 
         from sklearn.base import clone
 
@@ -683,7 +691,7 @@ class SampleAugmentationController(OperatorController):
                             sample_proc_data = sample_data[:, proc_idx, :]  # (1, feats)
                             cloned = clone(transformer)
                             if sample_seed is not None:
-                                cloned.set_params(random_state=sample_seed)
+                                self._set_operator_random_state(cloned, sample_seed)
                             # Fit on train data (reuse train_data from outer scope)
                             train_proc = train_data[source_idx][:, proc_idx, :]
 
@@ -720,10 +728,8 @@ class SampleAugmentationController(OperatorController):
 
         max_workers = min(len(active_transformers), 16)  # Cap at 16 threads
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = {executor.submit(process_transformer, args): args
-                       for args in active_transformers}
-
-            for future in as_completed(futures):
+            futures = [executor.submit(process_transformer, args) for args in active_transformers]
+            for future in futures:
                 batch_data, indexes_list = future.result()
                 all_batch_data.append(batch_data)
                 all_indexes.extend(indexes_list)
@@ -765,6 +771,16 @@ class SampleAugmentationController(OperatorController):
         if isinstance(transformer_spec, dict):
             return str(transformer_spec.get("variation_scope", step_scope))
         return step_scope
+
+    @staticmethod
+    def _set_operator_random_state(operator: Any, seed: int) -> None:
+        """Set random_state and reset cached NumPy generators used by augmenters."""
+        if hasattr(operator, "set_params"):
+            operator.set_params(random_state=seed)
+        else:
+            operator.random_state = seed
+        if hasattr(operator, "_rng"):
+            operator._rng = np.random.default_rng(seed)  # noqa: SLF001
 
     def _supports_internal_variation(self, transformer) -> bool:
         """Check if transformer can handle variation_scope internally.

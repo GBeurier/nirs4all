@@ -21,9 +21,8 @@ transformers are instantiated lazily at ``fit`` time, so an unfitted ``FeatureCo
 JSON-cloneable.
 
 Pass-through (raw) channel: a ``None`` entry keeps the un-transformed base layer alongside the new
-ones — this is the ``feature_augmentation`` *extend*/*add* modes' raw layer (``[raw, op1(raw),
-op2(raw), …]``), lowered as ``FeatureConcat([None, op1, op2, …])``. *replace* mode drops the raw
-layer (``FeatureConcat([op1, op2, …])``, identical to ``concat_transform``). The raw channel maps to
+ones — this is the ``feature_augmentation`` raw layer (``[raw, op1(raw), op2(raw), …]``),
+lowered as ``FeatureConcat([None, op1, op2, …])``. The raw channel maps to
 ``sklearn``'s native ``"passthrough"`` ``FeatureUnion`` member (raw columns first, in spec order).
 
 Scope (host-only, single-source 2D model): the multi-processing 3D ``signal_with_processings``
@@ -127,8 +126,8 @@ class FeatureConcat(BaseEstimator, TransformerMixin):
 
     def fit(self, X: Any, y: Any = None) -> FeatureConcat:
         self.union_ = self._make_union()
-        self.union_.fit(np.asarray(X, dtype=float), y)
+        self.union_.fit(np.asarray(X), y)
         return self
 
     def transform(self, X: Any) -> np.ndarray:
-        return np.asarray(self.union_.transform(np.asarray(X, dtype=float)), dtype=float)
+        return np.asarray(self.union_.transform(np.asarray(X)))

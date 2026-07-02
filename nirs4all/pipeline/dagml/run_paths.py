@@ -1034,7 +1034,7 @@ def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro
     return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter), outcome["refit_artifacts"]
 
 
-def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
+def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any, context: Any | None = None) -> None:
     """Run nirs4all's REAL ``SampleAugmentationController`` to add synthetic train rows in place.
 
     Reuses the production machinery (the controller delegates to ``TransformerMixinController``, which
@@ -1051,7 +1051,12 @@ def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
     from nirs4all.pipeline.steps.step_runner import StepRunner
 
     step_info = ParsedStep(operator=None, keyword="sample_augmentation", step_type=StepType.DIRECT, original_step=aug_step, metadata={})
-    context = ExecutionContext(selector=DataSelector(partition="train", processing=[["raw"]]), state=PipelineState(), metadata=StepMetadata())
+    if context is None:
+        context = ExecutionContext(
+            selector=DataSelector(partition=None, processing=[["raw"]] * spectro.features_sources()),
+            state=PipelineState(),
+            metadata=StepMetadata(),
+        )
     runtime_context = RuntimeContext()
     runtime_context.step_runner = StepRunner(verbose=0, mode="train")
     runtime_context.save_artifacts = False
@@ -1059,7 +1064,7 @@ def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
     SampleAugmentationController().execute(step_info, spectro, context, runtime_context, mode="train")
 
 
-def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list[int]) -> list[tuple[int, np.ndarray]]:
+def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list[int], context: Any | None = None) -> list[tuple[int, np.ndarray]]:
     """Augment a fold's TRAIN only and return the synthetic children as ``[(origin_int, child_X(1,F)), ...]``.
 
     A FRESH copy of ``spectro`` is restricted so ``partition: train`` is exactly ``fold_train`` (the
@@ -1079,7 +1084,7 @@ def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list
     fold_ds._invalidate_content_hash()  # noqa: SLF001
 
     before = {int(s) for s in fold_ds.index_column("sample", {})}
-    _apply_sample_augmentation(aug_step, fold_ds)
+    _apply_sample_augmentation(aug_step, fold_ds, context)
     samples = [int(s) for s in fold_ds.index_column("sample", {})]
     origins = [int(o) for o in fold_ds.index_column("origin", {})]
     children: list[tuple[int, np.ndarray]] = []
@@ -1089,7 +1094,7 @@ def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list
     return children
 
 
-def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int]) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
+def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int], context: Any | None = None) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
     """Augment fold-by-fold + a full-train refit pass; insert all children into ``spectro`` in place.
 
     For each fold (key ``"fold{i}"``, matching :func:`build_fold_set`'s fold ids) and the full-train
@@ -1111,7 +1116,7 @@ def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_fold
     fold_children: dict[str, dict[int, list[int]]] = {}
     augmentation_by_sample: dict[int, str] = {}
     for fold_label, fold_train in passes:
-        children = _augment_fold_train(aug_step, spectro, fold_train)
+        children = _augment_fold_train(aug_step, spectro, fold_train, context)
         if not children:
             fold_children[fold_label] = {}
             continue
@@ -1128,6 +1133,32 @@ def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_fold
                 augmentation_by_sample[sample_int] = transform_label
         fold_children[fold_label] = by_origin
     return fold_children, augmentation_by_sample
+
+
+def _apply_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any) -> Any:
+    """Replay concrete transforms before sample augmentation and return their context."""
+    from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
+    from nirs4all.pipeline.steps.step_runner import StepRunner
+
+    context = ExecutionContext(
+        selector=DataSelector(partition=None, processing=[["raw"]] * spectro.features_sources()),
+        state=PipelineState(),
+        metadata=StepMetadata(),
+    )
+    if not pre_aug_steps:
+        return context
+
+    _assert_supported_operators(pre_aug_steps)
+    runner = StepRunner(verbose=0, mode="train")
+    runtime_context = RuntimeContext()
+    runtime_context.step_runner = runner
+    runtime_context.save_artifacts = False
+    runtime_context.save_charts = False
+    for step in pre_aug_steps:
+        result = runner.execute(step, spectro, context, runtime_context, prediction_store=None)
+        context = result.updated_context
+        runtime_context.step_number += 1
+    return context
 
 
 def _augmentation_grain(spectro: Any, transform_label: str) -> tuple[list[int], dict[int, str]]:
@@ -1258,9 +1289,12 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     aug_steps = [step for step in pipeline if _is_augmentation_step(step)]
     if len(aug_steps) != 1:
         raise NotImplementedError("engine='dag-ml' supports exactly one sample_augmentation step")
-    aug_step = aug_steps[0]
-    rest = [step for step in pipeline if not _is_augmentation_step(step)]
-    steps, splitter = _split_pipeline(rest)
+    aug_index = next(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
+    aug_step = pipeline[aug_index]
+    pre_aug_steps = pipeline[:aug_index]
+    post_aug_steps = pipeline[aug_index + 1:]
+    prefix_context = _apply_pre_augmentation_steps(pre_aug_steps, spectro)
+    steps, splitter = _split_pipeline(post_aug_steps)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     _assert_supported_operators(steps)
@@ -1282,9 +1316,9 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     # stateful case. `fold_children` keys the per-fold expansion; it is pickled for the adapter's resolver.
     fold_children: dict[str, dict[int, list[int]]] | None = None
     if fold_local:
-        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_step, spectro, base_folds, base_train)
+        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_step, spectro, base_folds, base_train, prefix_context)
     else:
-        _apply_sample_augmentation(aug_step, spectro)
+        _apply_sample_augmentation(aug_step, spectro, prefix_context)
         _augmented_ints, augmentation_by_sample_int = _augmentation_grain(spectro, _augmentation_label(aug_step))
 
     # Identity is minted on the AUGMENTED dataset so children get their own observation_id + the origin's
@@ -1320,7 +1354,18 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml augmentation run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), refit_artifacts=outcome["refit_artifacts"])
+    return _scores_to_run_result(
+        outcome["scores"],
+        spectro.name,
+        _model_name(steps),
+        metric,
+        task_type,
+        config_name=config_name,
+        skip_refit=_legacy_skips_refit(splitter),
+        results=outcome["results"],
+        identity=identity,
+        refit_artifacts=outcome["refit_artifacts"],
+    )
 
 
 _MERGE_NODE_ID = "merge:concat"

@@ -2294,7 +2294,7 @@ def test_public_run_engine_dagml_concat_transform_with_chain() -> None:
 # single-source feature_augmentation to ONE `FeatureConcat` X-transform node (the augmentation
 # sub-transformers fit fold-train, applied fold-val/test — leakage-safe, like concat_transform):
 #   * extend/add → `[raw, op1(raw), …]` = FeatureConcat([None, op1, …]) (raw pass-through layer first),
-#   * replace    → `[op1(raw), …]`      = FeatureConcat([op1, …])        (raw layer dropped).
+#   * replace    → `[raw, op1(raw), …]` = FeatureConcat([None, op1, …]) (legacy 2D materialization).
 # The processing axis is a FEATURE axis (no new SAMPLE rows — distinct from sample_augmentation), so
 # sample-keying is preserved. Parity uses ROW-INDEPENDENT transforms (SNV / SavitzkyGolay derivative)
 # for exact, order-insensitive agreement. The 3D shapes that must deliver parallel processing CHANNELS
@@ -2354,7 +2354,7 @@ def _feature_aug_oof_and_test(dataset, make_aug_step, n_components: int = 15) ->
 def test_feature_augmentation_bridge_lowers_to_feature_concat() -> None:
     """The bridge lowers each action mode to ONE `FeatureConcat` node with the right layer set.
 
-    extend/add keep the raw pass-through layer first (`None` → "passthrough"); replace drops it. The
+    extend/add/replace keep the raw pass-through layer first (`None` → "passthrough"). The
     sub-transformers serialize to `{class, params}` specs (a chain entry stays a nested list).
     """
     from nirs4all.operators.transforms.nirs import SavitzkyGolay
@@ -2373,8 +2373,8 @@ def test_feature_augmentation_bridge_lowers_to_feature_concat() -> None:
 
     dsl = _step_to_dsl({"feature_augmentation": [StandardNormalVariate(), SavitzkyGolay(window_length=11, polyorder=2, deriv=1)], "action": "replace"})
     ops = dsl["params"]["operations"]
-    assert None not in ops  # replace drops the raw layer
-    assert [op["class"] for op in ops] == [snv, sg]
+    assert ops[0] is None  # legacy replace materializes raw before the new views
+    assert [op["class"] for op in ops[1:]] == [snv, sg]
 
 
 def test_feature_augmentation_3d_shapes_fail_loud() -> None:
@@ -2412,9 +2412,9 @@ def test_feature_augmentation_3d_shapes_fail_loud() -> None:
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_public_run_engine_dagml_feature_augmentation_replace() -> None:
-    """engine="dag-ml" runs feature_augmentation REPLACE (hstack of the augmented layers, no raw) == sklearn.
+    """engine="dag-ml" runs feature_augmentation REPLACE (raw + hstack of the augmented layers) == sklearn.
 
-    `replace` keeps only `[SNV(raw), SG(raw)]` → FeatureConcat([SNV, SG]). Each layer is row-independent,
+    `replace` materializes `[raw, SNV(raw), SG(raw)]` → FeatureConcat([None, SNV, SG]). Each layer is row-independent,
     so the OOF and final-test scores match the direct hstack→PLS baseline EXACTLY."""
     import nirs4all
     from nirs4all.operators.transforms.nirs import SavitzkyGolay

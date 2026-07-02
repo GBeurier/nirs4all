@@ -60,12 +60,7 @@ class _NumPredDivergence(TypedDict):
 # removed (the suite goes RED until it is).
 #
 # Measured legacy↔dag-ml best_rmse deltas (regression sample_data) at scope time:
-#   sample_augmentation_gaussian              13.28643 vs 13.38345  (Δ≈9.7e-2)
-#   sample_augmentation_chained               13.28643 vs 12.19792  (Δ≈1.1e0)
-#   sample_augmentation_after_savgol          16.76066 vs 15.83810  (Δ≈9.2e-1)
-#   feature_augmentation_replace_three_views  12.50608 vs 12.62726  (Δ≈1.2e-1)
 #   concat_transform_pca_svd_plsr             14.13327 vs 15.53153  (Δ≈1.4e0)
-#   generator_finetune_params_optuna          19.46609 vs 21.12623  (Δ≈1.7e0)
 #   generator_sample_log_uniform_alpha        13.26828 vs 13.79983  (Δ≈5.3e-1, DIFFERENT winner)
 # (generator_or_models_pls_ridge was here too — it is NOT a divergence in score/winner/winner-y_pred
 #  (all equal: best_rmse Δ≈2e-15, winner PLSRegression, winner y_pred Δ=0.0); its ONLY delta is
@@ -74,17 +69,14 @@ class _NumPredDivergence(TypedDict):
 # (baseline_savgol_rf_kfold, baseline_detrend_firstderiv_gbr, generator_log_range_alpha were
 #  here too — the dtype-pin + refit-row-order fix converged them to Δ=0.0 / Δ≈1.3e-7; entries
 #  removed from KNOWN_DIVERGENCES, see the notes there.)
+# (generator_finetune_params_optuna was here too — preserving finetune_params as host metadata and
+#  carrying the legacy model_params insertion order through dag-ml canonicalization converged the
+#  seeded TPE trial sequence and selected params. It is a LIVE parity assertion now.)
+# (sample_augmentation_gaussian, sample_augmentation_chained, and sample_augmentation_after_savgol
+#  were here too — per-step augmentation RNG seeding, fold-local train-child expansion, pre-augmentation
+#  prefix replay, and result-array projection converged them. They are LIVE parity assertions now.)
 # ---------------------------------------------------------------------------
 KNOWN_DIVERGENCES: dict[str, str] = {
-    # Augmentation expands the train set; legacy vs dag-ml apply the augmentation
-    # ops in a different order / with a different per-op RNG draw, so the fitted
-    # model differs. A real numerical-parity item for the augmentation kernels.
-    "sample_augmentation_gaussian": "augmentation RNG/order differs (Δrmse≈9.7e-2)",
-    "sample_augmentation_chained": "chained augmentation RNG/order differs (Δrmse≈1.1e0)",
-    "sample_augmentation_after_savgol": "augmentation-after-preproc RNG/order differs (Δrmse≈9.2e-1)",
-    # Feature-view fan-out: the three replace-views are built in a different order
-    # across engines, so the concatenated feature matrix (and the model) differs.
-    "feature_augmentation_replace_three_views": "feature-view build order differs (Δrmse≈1.2e-1)",
     "concat_transform_pca_svd_plsr": "concat_transform view order/decomposition differs (Δrmse≈1.4e0)",
     # NOTE: the three tree-ensemble cases (baseline_savgol_rf_kfold,
     # baseline_detrend_firstderiv_gbr, baseline_classification_rf_stratified) were REMOVED
@@ -97,9 +89,6 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     # order, so the fixed-seed bootstrap drew different rows than legacy's storage-order
     # refit. Pinning the host to the dataset's native dtype + ordering the refit pool by
     # storage order converged both engines. These are LIVE parity assertions now.
-    # Optuna drives its own search; the two engines explore a different trial
-    # sequence, so the selected hyperparameters (and final score) differ.
-    "generator_finetune_params_optuna": "Optuna trial sequence differs across engines (Δrmse≈1.7e0)",
     # NOTE: generator_log_range_alpha was REMOVED from this dict — it reaches parity now
     # (Δrmse 2.3e-3 → 1.3e-7). It was the ill-conditioned Ridge (rcond≈2e-8) case whose
     # ONLY divergence was the engine AMPLIFYING the host's float32→float64 widening noise;
