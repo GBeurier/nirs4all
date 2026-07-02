@@ -11,6 +11,8 @@ from typing import Any
 
 import numpy as np
 
+from .steps import DagMlSplitStep
+
 
 def _pool_features(spectro: Any, pool: list[int]) -> np.ndarray:
     """Real X for the CV pool, in ``pool`` order — what a distance/clustering splitter needs.
@@ -37,6 +39,74 @@ def _pool_targets(spectro: Any, pool: list[int]) -> np.ndarray:
     return block.ravel() if block.ndim > 1 and block.shape[1] == 1 else block
 
 
+def _splitter_operator(splitter: Any) -> Any:
+    """Return the concrete splitter object from an optional dag-ml split wrapper."""
+    return splitter.splitter if isinstance(splitter, DagMlSplitStep) else splitter
+
+
+def _split_train_context() -> Any:
+    """Legacy split context: train partition, raw processing, base rows only."""
+    from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, StepMetadata
+
+    return ExecutionContext(
+        selector=DataSelector(partition="train", processing=[["raw"]]),
+        state=PipelineState(),
+        metadata=StepMetadata(),
+    )
+
+
+def _split_base_samples(spectro: Any) -> list[int]:
+    """Sample ints used by the legacy split controller for train-mode splitting."""
+    context = _split_train_context()
+    return [int(sample_int) for sample_int in spectro._indexer.x_indices(context.selector, include_augmented=False, include_excluded=False)]
+
+
+def _groups_aligned_to_pool(spectro: Any, pool: list[int], groups_all: np.ndarray) -> np.ndarray:
+    """Group values keyed by sample int and returned in ``pool`` request order."""
+    stored = _split_base_samples(spectro)
+    if len(stored) != len(groups_all):
+        raise ValueError(
+            "resolved split groups do not align with the legacy train sample index "
+            f"({len(groups_all)} groups for {len(stored)} samples)"
+        )
+    group_of_sample = {int(sample_int): groups_all[row] for row, sample_int in enumerate(stored)}
+    try:
+        return np.array([group_of_sample[int(sample_int)] for sample_int in pool], dtype=object)
+    except KeyError as exc:
+        raise ValueError(f"split group resolution missed sample {exc.args[0]}") from exc
+
+
+def _explicit_groups_for_pool(splitter: Any, spectro: Any, pool: list[int]) -> np.ndarray | None:
+    """Resolve explicit ``split``-step groups, aligned to ``pool`` order."""
+    if not isinstance(splitter, DagMlSplitStep):
+        return None
+
+    from nirs4all.controllers.splitters.split import resolve_split_groups
+
+    context = _split_train_context()
+    resolved = resolve_split_groups(
+        spectro,
+        splitter.splitter,
+        splitter.group_by,
+        legacy_group=splitter.legacy_group,
+        group_required=splitter.group_required,
+        ignore_repetition=splitter.ignore_repetition,
+        context=context,
+        include_augmented=False,
+    )
+    if resolved.effective_groups is None:
+        return None
+    return _groups_aligned_to_pool(spectro, pool, resolved.effective_groups)
+
+
+def _split_group_grain(splitter: Any, spectro: Any, pool: list[int]) -> dict[int, str] | None:
+    """``{sample_int: group_value}`` for explicit ``split``-step group constraints."""
+    groups = _explicit_groups_for_pool(splitter, spectro, pool)
+    if groups is None:
+        return None
+    return {sample_int: str(group) for sample_int, group in zip(pool, groups, strict=True)}
+
+
 def _split_pool(splitter: Any, spectro: Any, pool: list[int]) -> list[tuple[Any, Any]]:
     """Call ``splitter.split`` with the REAL X (+ y when supervised), mirroring the legacy controller.
 
@@ -56,8 +126,13 @@ def _split_pool(splitter: Any, spectro: Any, pool: list[int]) -> list[tuple[Any,
     and gain the group constraint once #21 wires it.
     """
     from nirs4all.controllers.splitters.split import _needs, get_split_grouping_capability
+    from nirs4all.operators.splitters import GroupedSplitterWrapper
 
-    if get_split_grouping_capability(splitter).group_required:
+    split_step = splitter if isinstance(splitter, DagMlSplitStep) else None
+    groups = _explicit_groups_for_pool(splitter, spectro, pool)
+    splitter = _splitter_operator(splitter)
+    capability = get_split_grouping_capability(splitter)
+    if groups is None and capability.group_required:
         raise NotImplementedError(
             f"engine='dag-ml' does not yet wire group constraints (group_by/repetition) into the split; "
             f"{splitter.__class__.__name__} requires a group (backlog #21)."
@@ -66,11 +141,20 @@ def _split_pool(splitter: Any, spectro: Any, pool: list[int]) -> list[tuple[Any,
     features = _pool_features(spectro, pool)
     needs_y, _ = _needs(splitter)
     kwargs: dict[str, Any] = {}
+    op = splitter
+    if groups is not None:
+        kwargs["groups"] = groups
+        if capability.group_handling == "wrapper":
+            op = GroupedSplitterWrapper(
+                splitter=splitter,
+                aggregation=split_step.aggregation if split_step is not None else "mean",
+                y_aggregation=split_step.y_aggregation if split_step is not None else None,
+            )
     if needs_y:
         targets = _pool_targets(spectro, pool)
         if targets.size:
             kwargs["y"] = targets
-    return list(splitter.split(features, **kwargs))
+    return list(op.split(features, **kwargs))
 
 
 def _is_repetition_dataset(spectro: Any) -> bool:
@@ -123,13 +207,21 @@ def _build_group_folds(splitter: Any, spectro: Any, pool: list[int]) -> list[tup
     from nirs4all.controllers.splitters.split import _needs, get_split_grouping_capability
     from nirs4all.operators.splitters import GroupedSplitterWrapper
 
-    groups = _repetition_groups_for_pool(spectro, pool)
+    split_step = splitter if isinstance(splitter, DagMlSplitStep) else None
+    groups = _explicit_groups_for_pool(splitter, spectro, pool)
+    if groups is None:
+        groups = _repetition_groups_for_pool(spectro, pool)
+    splitter = _splitter_operator(splitter)
     features = _pool_features(spectro, pool)
     needs_y, _ = _needs(splitter)
 
     op = splitter
     if get_split_grouping_capability(splitter).group_handling == "wrapper":
-        op = GroupedSplitterWrapper(splitter=splitter)
+        op = GroupedSplitterWrapper(
+            splitter=splitter,
+            aggregation=split_step.aggregation if split_step is not None else "mean",
+            y_aggregation=split_step.y_aggregation if split_step is not None else None,
+        )
 
     kwargs: dict[str, Any] = {"groups": groups}
     if needs_y:

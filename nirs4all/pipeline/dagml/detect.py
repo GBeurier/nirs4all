@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .steps import _RESERVED_STEP_KEYS
+from .steps import _RESERVED_STEP_KEYS, _is_split_step
 
 
 def _is_exclude_step(step: Any) -> bool:
@@ -97,7 +97,7 @@ def _source_concat_indices(source_spec: Any, n_sources: int) -> list[int] | None
 
 def _is_stateless_x_transform(step: Any) -> bool:
     """Whether a pre-merge transform is safe to replay per fold/source for this native boundary."""
-    if isinstance(step, dict) or hasattr(step, "split"):
+    if isinstance(step, dict) or _is_split_step(step):
         return False
     if not (hasattr(step, "fit") and hasattr(step, "transform")):
         return False
@@ -153,15 +153,15 @@ def _detect_source_concat_merge(pipeline: list[Any], n_sources: int) -> tuple[li
         for step in pipeline
     ):
         return None
-    if any(hasattr(step, "split") for step in pre_merge):
+    if any(_is_split_step(step) for step in pre_merge):
         return None
     if not all(_is_stateless_x_transform(step) for step in pre_merge):
         return None
-    if not any(hasattr(step, "split") for step in post_merge):
+    if not any(_is_split_step(step) for step in post_merge):
         return None
     if any(isinstance(step, dict) and ("model" in step or "y_processing" in step) for step in pre_merge):
         return None
-    post_body = [step for step in post_merge if not hasattr(step, "split")]
+    post_body = [step for step in post_merge if not _is_split_step(step)]
     if len(post_body) != 1 or not isinstance(post_body[0], dict) or "model" not in post_body[0]:
         return None
     if any(isinstance(step, dict) and "merge" in step for step in pre_merge + post_merge):
@@ -808,7 +808,7 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     # transform / tag / y_processing / exclude / model would be silently ignored (only the branch body
     # is lowered), so its presence rejects the match → fail-loud.
     for step in pipeline:
-        if step is branch_step or step is merge_step or hasattr(step, "split"):
+        if step is branch_step or step is merge_step or _is_split_step(step):
             continue
         return None
 
@@ -878,7 +878,7 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> tuple[list[
     # transform / tag / y_processing / exclude / model would be silently dropped, since only the branch
     # body is lowered per source).
     for step in pipeline:
-        if step is branch_step or step is merge_step or hasattr(step, "split"):
+        if step is branch_step or step is merge_step or _is_split_step(step):
             continue
         return None
 
@@ -920,7 +920,7 @@ def _detect_by_source_concat_shared_preproc(pipeline: list[Any], n_sources: int)
         return None
 
     for step in pipeline:
-        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+        if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
             continue
         return None
 
@@ -961,7 +961,7 @@ def _detect_by_source_distinct_preproc_concat(pipeline: list[Any], n_sources: in
     if ordered_special != [branch_step, merge_step, model_step]:
         return None
     for step in pipeline:
-        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+        if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
             continue
         return None
 
@@ -1130,7 +1130,7 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
         # transform / tag / y_processing / exclude / model would be silently ignored (each branch body is
         # lowered, not the top level), so its presence rejects the match → fail-loud.
         for step in pipeline:
-            if step is branch_step or step is merge_step or hasattr(step, "split"):
+            if step is branch_step or step is merge_step or _is_split_step(step):
                 continue
             return None
 
@@ -1151,7 +1151,7 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
     if order != [branch_step, merge_step, model_step]:
         return None
     for step in pipeline:
-        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+        if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
             continue
         return None
 
@@ -1354,7 +1354,7 @@ def _detect_named_metamodel_feature_stack(pipeline: list[Any]) -> tuple[list[str
     if order != [branch_step, meta_step, merge_step, downstream_step]:
         return None
     for step in pipeline:
-        if step is branch_step or step is meta_step or step is merge_step or step is downstream_step or hasattr(step, "split"):
+        if step is branch_step or step is meta_step or step is merge_step or step is downstream_step or _is_split_step(step):
             continue
         return None
 
@@ -1412,7 +1412,7 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     if order != [branch_step, merge_step, model_step]:
         return None
     for step in pipeline:
-        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+        if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
             continue
         return None
 
@@ -1458,7 +1458,7 @@ def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tu
     if order != [branch_step, merge_step, model_step]:
         return None
     for step in pipeline:
-        if step is branch_step or step is merge_step or step is model_step or hasattr(step, "split"):
+        if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
             continue
         return None
 
