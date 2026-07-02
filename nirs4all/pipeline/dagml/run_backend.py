@@ -246,6 +246,8 @@ def run_via_dagml(
     dagml_cli: str | Path | None = None,
     venv_python: str | None = None,
     workdir: str | Path | None = None,
+    save_charts: bool = True,
+    plots_visible: bool = False,
     results_path: str | Path | None = None,
 ) -> RunResult:
     """Execute ``pipeline`` on ``dataset`` via dag-ml-cli; return a RunResult of dag-ml's native scores.
@@ -335,7 +337,19 @@ def run_via_dagml(
     # `_scores_to_run_result`), so it is safe to delete on every dispatch return/raise path. A
     # caller-provided `workdir` is theirs — never delete it.
     try:
-        result = _dispatch_run(pipeline, spectro, base_dir, dataset_arg, host_pickle, cli, venv_python, name, random_state)
+        result = _dispatch_run(
+            pipeline,
+            spectro,
+            base_dir,
+            dataset_arg,
+            host_pickle,
+            cli,
+            venv_python,
+            name,
+            random_state,
+            save_charts=save_charts,
+            plots_visible=plots_visible,
+        )
         _attach_export_spec(result, pipeline, dataset, name, random_state)
         # NATIVE RESULTS SEAM (P3 Slice 2b-i): write the ADDITIVE native results directory when enabled
         # (explicit `results_path` OR $N4A_NATIVE_RESULTS) — OFF by default, so a plain run skips this
@@ -572,6 +586,51 @@ def _can_unwrap_preprocessing_step(step: Any) -> bool:
     return False
 
 
+_CHART_STEP_KEYWORDS = frozenset(
+    {
+        "chart_2d",
+        "chart_3d",
+        "2d_chart",
+        "3d_chart",
+        "y_chart",
+        "chart_y",
+        "fold_chart",
+        "chart_fold",
+        "augment_chart",
+        "augmentation_chart",
+        "augment_details_chart",
+        "augmentation_details_chart",
+        "exclusion_chart",
+        "chart_exclusion",
+        "spectra_dist",
+        "spectral_distribution",
+        "spectra_envelope",
+    }
+)
+
+
+def _is_chart_step(step: Any) -> bool:
+    """Whether ``step`` is one of the legacy chart-only side-effect commands."""
+    if isinstance(step, str):
+        return step in _CHART_STEP_KEYWORDS or step.startswith("fold_")
+    if isinstance(step, dict):
+        return any(str(key) in _CHART_STEP_KEYWORDS or str(key).startswith("fold_") for key in step)
+    return False
+
+
+def _strip_or_reject_chart_steps(pipeline: list[Any], *, save_charts: bool, plots_visible: bool) -> list[Any]:
+    """Drop disabled chart-only steps, or refuse when their side effects were requested."""
+    chart_steps = [step for step in pipeline if _is_chart_step(step)]
+    if not chart_steps:
+        return pipeline
+    if save_charts or plots_visible:
+        raise DagMlUnsupported(
+            "engine='dag-ml' returns in-memory scores only and cannot render legacy chart steps "
+            f"{chart_steps!r} when save_charts or plots_visible is enabled. Use the legacy engine."
+        )
+    return [step for step in pipeline if not _is_chart_step(step)]
+
+
 def _unwrap_preprocessing_steps(pipeline: list[Any]) -> list[Any]:
     """Unwrap preprocessing wrappers whose legacy semantics match a bare native transform.
 
@@ -634,6 +693,8 @@ def _dispatch_run(
     venv_python: str | None,
     name: str = "",
     random_state: int | None = None,
+    save_charts: bool = True,
+    plots_visible: bool = False,
 ) -> RunResult:
     """Route the materialized run to the matching native dag-ml path and map its scores.
 
@@ -679,6 +740,7 @@ def _dispatch_run(
     # other unproven wrappers stay as dicts and still fall back loudly. `config_name` / `variant_config_names`
     # / `variant_model_params` were derived from the ORIGINAL pipeline above, so the dag-ml RunResult keeps
     # the legacy-matching name; `_attach_export_spec` likewise sees the original.
+    pipeline = _strip_or_reject_chart_steps(list(pipeline), save_charts=save_charts, plots_visible=plots_visible)
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
