@@ -26,8 +26,10 @@ from ._registry import all_cases
 from .test_conformance_dual_engine import (
     EXPECTED_FALLBACK,
     KNOWN_DIVERGENCES,
+    LEGACY_CV_SCORE_DIVERGENCE,
     NUM_PREDICTIONS_DIVERGENCE,
     SAME_WINNER_CASES,
+    UNSEEDED_NONDETERMINISTIC_CASES,
     Y_PRED_TOL_OVERRIDES,
 )
 
@@ -46,6 +48,7 @@ def validate_compatibility_ledger(ledger: dict[str, Any] | None = None) -> None:
     _validate_authority_entries(data)
     _validate_expected_fallback(data)
     _validate_num_prediction_divergences(data)
+    _validate_legacy_cv_score_divergences(data)
     _validate_ypred_overrides(data)
     _validate_same_winner_cases(data)
     _validate_coverage_skips(data)
@@ -81,6 +84,8 @@ def _validate_tolerance_bands(data: dict[str, Any]) -> None:
     assert bands["cross_impl_score"]["abs_tol"] == helpers._DEFAULT_SCORE_TOL  # noqa: SLF001
     assert bands["cross_impl_ypred"]["abs_tol"] == helpers._DEFAULT_YPRED_TOL  # noqa: SLF001
     assert bands["cross_impl_ypred_firstderiv"]["abs_tol"] == 5e-3
+    if "run-only nondeterministic" not in bands["n/a_rng"]["enforced_at"]:
+        raise AssertionError("n/a_rng band must publish the ledgered run-only nondeterministic contract")
     _validate_per_case_tight_band(bands)
 
 
@@ -126,10 +131,22 @@ def _validate_authority_entries(data: dict[str, Any]) -> None:
         for row in data["authority"]
         if row["disposition"] == "pass_parity_note"
     }
-    if parity_note_rows != set(NUM_PREDICTIONS_DIVERGENCE):
+    expected_parity_notes = set(NUM_PREDICTIONS_DIVERGENCE) | set(LEGACY_CV_SCORE_DIVERGENCE)
+    if parity_note_rows != expected_parity_notes:
         raise AssertionError(
             "compatibility parity-note authority entries drifted: "
-            f"expected={sorted(NUM_PREDICTIONS_DIVERGENCE)} actual={sorted(parity_note_rows)}"
+            f"expected={sorted(expected_parity_notes)} actual={sorted(parity_note_rows)}"
+        )
+
+    run_only_rows = {
+        row["case"]
+        for row in data["authority"]
+        if row["disposition"] == "run_only_nondeterministic"
+    }
+    if run_only_rows != set(UNSEEDED_NONDETERMINISTIC_CASES):
+        raise AssertionError(
+            "compatibility run-only nondeterministic authority entries drifted: "
+            f"expected={sorted(UNSEEDED_NONDETERMINISTIC_CASES)} actual={sorted(run_only_rows)}"
         )
 
     bands = set(_band_map(data))
@@ -165,6 +182,21 @@ def _validate_num_prediction_divergences(data: dict[str, Any]) -> None:
         row = actual[case_name]
         if row["legacy"] != expected["legacy"] or row["dagml"] != expected["dagml"]:
             raise AssertionError(f"num_predictions divergence count drifted for {case_name}")
+
+
+def _validate_legacy_cv_score_divergences(data: dict[str, Any]) -> None:
+    actual = {row["case"]: row for row in data.get("legacy_cv_score_divergence", [])}
+    if set(actual) != set(LEGACY_CV_SCORE_DIVERGENCE):
+        raise AssertionError(
+            "legacy cv score divergence case set drifted: "
+            f"expected={sorted(LEGACY_CV_SCORE_DIVERGENCE)} actual={sorted(actual)}"
+        )
+    for case_name, expected in LEGACY_CV_SCORE_DIVERGENCE.items():
+        row = actual[case_name]
+        if row.get("metric") != "cv_best_score":
+            raise AssertionError(f"legacy cv score divergence metric drifted for {case_name}")
+        if row["legacy"] != expected["legacy"] or row["dagml"] != expected["dagml"]:
+            raise AssertionError(f"legacy cv score divergence value drifted for {case_name}")
 
 
 def _validate_ypred_overrides(data: dict[str, Any]) -> None:
@@ -213,6 +245,7 @@ def _validate_coverage_meter(data: dict[str, Any]) -> None:
         "xfail_strict": len(KNOWN_DIVERGENCES) + legacy_bug_count,
         "skip": skip_count,
         "num_predictions_divergence": len(NUM_PREDICTIONS_DIVERGENCE),
+        "run_only_nondeterministic": len(UNSEEDED_NONDETERMINISTIC_CASES),
         "expected_fallback_target": 0,
     }
     if data["coverage_meter"] != expected:

@@ -319,7 +319,7 @@ register(
         dataset_key="regression",
         pipeline_factory=_factory_sample_random_alpha,
         expected_min_predictions=15,
-        tags=_GEN,
+        tags=_GEN | frozenset({"nondeterministic"}),
     )
 )
 

@@ -83,7 +83,7 @@
       "metric_class": "semantic_divergence",
       "abs_tol": null,
       "rel_tol": null,
-      "enforced_at": "strict xfail or skip"
+      "enforced_at": "ledgered parity-note, strict xfail, or skip"
     },
     {
       "band_id": "n/a_rng",
@@ -91,57 +91,25 @@
       "metric_class": "rng_nondeterminism",
       "abs_tol": null,
       "rel_tol": null,
-      "enforced_at": "strict xfail or skip"
+      "enforced_at": "ledgered run-only nondeterministic contract, strict xfail, or skip"
     }
   ],
   "authority": [
     {
-      "case": "concat_transform_pca_svd_plsr",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "concat_transform view order/decomposition differs"
-    },
-    {
-      "case": "generator_sample_log_uniform_alpha",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "unseeded _sample_ variant set/winner is nondeterministic"
-    },
-    {
       "case": "rep_to_sources_basic",
       "tier": 2,
-      "disposition": "xfail_strict",
+      "disposition": "pass_parity_note",
       "authoritative_engine": "dag-ml",
       "tolerance_band": "n/a_semantic",
-      "mechanism": "legacy double-counts overlapping repetition OOF folds"
+      "mechanism": "legacy double-counts overlapping repetition OOF folds; dag-ml scores each reshaped sample once"
     },
     {
       "case": "rep_to_pp_basic",
       "tier": 2,
-      "disposition": "xfail_strict",
+      "disposition": "pass_parity_note",
       "authoritative_engine": "dag-ml",
       "tolerance_band": "n/a_semantic",
-      "mechanism": "legacy double-counts overlapping repetition OOF folds"
-    },
-    {
-      "case": "branch_separation_by_tag",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_semantic",
-      "mechanism": "legacy bug prevents an executable oracle"
-    },
-    {
-      "case": "branch_separation_by_filter",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_semantic",
-      "mechanism": "legacy bug prevents an executable oracle"
+      "mechanism": "legacy double-counts overlapping repetition OOF folds; dag-ml scores each reshaped sample once"
     },
     {
       "case": "generator_or_models_pls_ridge",
@@ -158,6 +126,14 @@
       "authoritative_engine": "dag-ml",
       "tolerance_band": "cross_impl_score",
       "mechanism": "operator-select refits the winner only; legacy stores loser final rows"
+    },
+    {
+      "case": "generator_sample_log_uniform_alpha",
+      "tier": 3,
+      "disposition": "run_only_nondeterministic",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "unseeded _sample_ has no cross-engine equality claim; seeded twin carries strict parity"
     }
   ],
   "coverage_skips": [],
@@ -173,6 +149,22 @@
       "case": "generator_chain_model_configs",
       "legacy": 49,
       "dagml": 47,
+      "disposition": "pass_parity_note"
+    }
+  ],
+  "legacy_cv_score_divergence": [
+    {
+      "case": "rep_to_sources_basic",
+      "metric": "cv_best_score",
+      "legacy": 6.673486795441247,
+      "dagml": 6.190624012206827,
+      "disposition": "pass_parity_note"
+    },
+    {
+      "case": "rep_to_pp_basic",
+      "metric": "cv_best_score",
+      "legacy": 6.1427143240770405,
+      "dagml": 6.190624012206827,
       "disposition": "pass_parity_note"
     }
   ],
@@ -296,13 +288,14 @@
   ],
   "coverage_meter": {
     "registered": 95,
-    "non_runnable": 2,
-    "runnable": 93,
+    "non_runnable": 0,
+    "runnable": 95,
     "fallback": 0,
-    "native": 93,
-    "xfail_strict": 6,
+    "native": 95,
+    "xfail_strict": 0,
     "skip": 0,
     "num_predictions_divergence": 2,
+    "run_only_nondeterministic": 1,
     "expected_fallback_target": 0
   },
   "marker_policy": {
@@ -310,8 +303,8 @@
     "enforced_by": "tests/integration/parity/_marker_audit.py",
     "purpose": "A static AST gate over tests/integration/parity/*.py that fails on the first UNTRACKED xfail, skip, or tolerance override — debt added directly in a test body, bypassing the ledgered constants that _authority.py reconciles.",
     "xfail": {
-      "sanctioned_modules": ["test_conformance_dual_engine.py"],
-      "note": "Strict xfail is applied ONLY by _params() from KNOWN_DIVERGENCES (4) + registry legacy_bug (2) = 6 xfailed. An xfail marker in any other parity module is untracked cross-engine divergence debt and fails the gate."
+      "sanctioned_modules": ["test_conformance_dual_engine.py", "test_parity_smoke.py"],
+      "note": "Strict xfail is applied only by collection-time param builders from KNOWN_DIVERGENCES and registry legacy_bug debt. An xfail marker in any other parity module is untracked cross-engine divergence debt and fails the gate."
     },
     "skip_categories": [
       {"id": "registry_skip", "kind": "tracked_debt", "note": "fixture / unknown_semantics registry skips ([{skip_kind}] ...); currently no live cases, but the category remains enforced across the compile / smoke / baseline / dual-engine modules."},
@@ -322,7 +315,7 @@
       {"id": "optional_env_methods", "kind": "optional_env", "note": "the nirs4all-methods SNV / n4m binding is unavailable (hard fail only under NIRS4ALL_REQUIRE_N4M=1)."},
       {"id": "runtime_na", "kind": "runtime_precondition", "note": "a cross-engine comparison is N/A on this build: dag-ml ran the legacy fallback, wrote no native results, or the case is not a single-artifact native run. With coverage_meter.fallback=0 the fallback branch does not fire for covered cases."},
       {"id": "baseline_capture", "kind": "workflow", "note": "gold-baseline capture / absent-baseline guard in test_parity_baseline (--parity-capture)."},
-      {"id": "lockdrop_empty", "kind": "workflow", "note": "EXPECTED_FALLBACK is empty (LOCK-DROP D1 closed), so the off-allowlist fallback probe is skipped."}
+      {"id": "lockdrop_empty", "kind": "workflow", "note": "EXPECTED_FALLBACK is empty (LOCK-DROP D1 closed); the live boundary assertion covers this without producing a skip."}
     ],
     "tolerance": {
       "allowlist_source": "tolerance_bands[].abs_tol (positive values)",

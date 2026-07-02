@@ -26,6 +26,7 @@ from .test_conformance_dual_engine import (
     EXPECTED_FALLBACK,
     KNOWN_DIVERGENCES,
     NUM_PREDICTIONS_DIVERGENCE,
+    UNSEEDED_NONDETERMINISTIC_CASES,
 )
 
 pytestmark = [pytest.mark.parity]
@@ -50,6 +51,7 @@ def _authority_style_summary() -> dict[str, int]:
         "xfail_strict": len(KNOWN_DIVERGENCES) + legacy_bug,
         "skip": skip,
         "num_predictions_divergence": len(NUM_PREDICTIONS_DIVERGENCE),
+        "run_only_nondeterministic": len(UNSEEDED_NONDETERMINISTIC_CASES),
         "expected_fallback_target": 0,
     }
 
@@ -136,13 +138,12 @@ def test_unexpected_bucket_flags_off_allowlist_fallback() -> None:
 
 
 def test_observed_fallback_on_allowlist_stays_expected() -> None:
-    """An allowlisted case observed falling back is still expected_fallback, not unexpected."""
-    if not EXPECTED_FALLBACK:
-        pytest.skip("EXPECTED_FALLBACK is empty; LOCK-DROP D1 is closed")
-    allowlisted = sorted(EXPECTED_FALLBACK)[0]
-    report = M.build_report(observed_fallback={allowlisted})
+    """Allowlisted observations stay expected; an empty allowlist is a passing closed-boundary assertion."""
+    report = M.build_report(observed_fallback=EXPECTED_FALLBACK)
     classified = {c.name: c.bucket for c in report.cases}
-    assert classified[allowlisted] == M.EXPECTED_FALLBACK_BUCKET
+    for allowlisted in EXPECTED_FALLBACK:
+        assert classified[allowlisted] == M.EXPECTED_FALLBACK_BUCKET
+    assert set(report.names_in(M.EXPECTED_FALLBACK_BUCKET)) == set(EXPECTED_FALLBACK)
     assert report.names_in(M.UNEXPECTED) == []
 
 

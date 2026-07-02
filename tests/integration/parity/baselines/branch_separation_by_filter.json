@@ -1,0 +1,18 @@
+{
+  "backend": "legacy",
+  "case": "branch_separation_by_filter",
+  "datasets": [
+    "regression"
+  ],
+  "metrics": {
+    "best_score": 12.543147874535066,
+    "cv_best_score": 18.036889115773903,
+    "r2": 0.5988779507358675,
+    "rmse": 12.543147874535066
+  },
+  "models": [
+    "PLSRegression"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "add45d863b51ac7d"
+}

@@ -91,7 +91,7 @@ def _factory_exclude_multi_any() -> list[Any]:
         {
             "exclude": [
                 YOutlierFilter(method="zscore", threshold=4.0),
-                XOutlierFilter(method="mahalanobis", threshold=8.0),
+                XOutlierFilter(method="mahalanobis", threshold=8.0, random_state=42),
             ],
             "mode": "any",
         },
@@ -129,7 +129,7 @@ def _factory_exclude_multi_all() -> list[Any]:
         {
             "exclude": [
                 YOutlierFilter(method="zscore", threshold=2.5),
-                XOutlierFilter(method="mahalanobis", threshold=2.5),
+                XOutlierFilter(method="mahalanobis", threshold=2.5, random_state=42),
             ],
             "mode": "all",
         },

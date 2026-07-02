@@ -16,6 +16,11 @@ Two things the dual-engine ``PipelineCase`` registry cannot express belong here:
   ``_depends_on_`` engine-level evidence so a future change that wires
   ``_depends_on_`` into the constraint engine flips these asserts and forces a
   conscious decision (give it real semantics + a parity case, or drop it).
+
+* ``_sample_`` without ``_seed_`` is an explicit nondeterministic contract, not
+  a strict legacy↔dag-ml equality claim. The seeded twin remains the parity
+  contract; this file pins the expansion-level split so it does not drift back
+  into a strict xfail.
 """
 
 from __future__ import annotations
@@ -136,6 +141,20 @@ def test_constraints_prune_expand_but_not_count() -> None:
     spec = {"_or_": ["A", "B", "C", "D"], "pick": 2, "_mutex_": [["A", "B"]]}
     assert count_combinations(spec) == 6  # pre-filter C(4,2)
     assert len(expand_spec(spec)) == 5  # post-filter (mutex removed {A,B})
+
+
+def test_sample_seed_controls_determinism_contract() -> None:
+    """`_seed_` pins `_sample_`; omitting it leaves the expansion intentionally stochastic."""
+    sample = {"distribution": "log_uniform", "from": 1e-4, "to": 1e0, "num": 5}
+    seeded = {"_sample_": sample, "_seed_": 123}
+    unseeded = {"_sample_": sample}
+
+    assert expand_spec(seeded) == expand_spec(seeded)
+
+    first = expand_spec(unseeded)
+    second = expand_spec(unseeded)
+    assert len(first) == len(second) == 5
+    assert first != second, "unseeded `_sample_` should not be treated as a deterministic parity oracle"
 
 
 # ---------------------------------------------------------------------------

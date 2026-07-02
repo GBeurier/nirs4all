@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 
 from ._authority import COMPATIBILITY_JSON, load_compatibility_ledger, validate_compatibility_ledger
+from ._marker_audit import SANCTIONED_XFAIL_MODULES
 
 
 def test_compatibility_json_is_valid_json() -> None:
@@ -19,4 +20,4 @@ def test_compatibility_json_matches_live_parity_authority() -> None:
 def test_compatibility_json_publishes_marker_policy() -> None:
     policy = load_compatibility_ledger()["marker_policy"]
     assert policy["schema"] == "nirs4all.pyref.marker_policy.v1"
-    assert policy["xfail"]["sanctioned_modules"] == ["test_conformance_dual_engine.py"]
+    assert policy["xfail"]["sanctioned_modules"] == list(SANCTIONED_XFAIL_MODULES)

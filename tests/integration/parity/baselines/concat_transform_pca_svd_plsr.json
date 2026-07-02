@@ -5,14 +5,14 @@
     "regression"
   ],
   "metrics": {
-    "best_score": 13.666605266266345,
-    "cv_best_score": 20.34158944624677,
-    "r2": 0.5238050862331763,
-    "rmse": 13.666605266266345
+    "best_score": 14.504071087470876,
+    "cv_best_score": 20.357696188933165,
+    "r2": 0.46365616863647063,
+    "rmse": 14.504071087470876
   },
   "models": [
     "PLSRegression"
   ],
   "num_predictions": 17,
-  "pipeline_fingerprint": "631485c65addf653"
+  "pipeline_fingerprint": "b6b8c3f7ffdded08"
 }

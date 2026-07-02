@@ -21,7 +21,7 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
 from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
-from .detect import _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
+from .detect import _generation_kind, _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
 from .envelope import build_envelope
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_group_grain, _split_pool
@@ -447,6 +447,110 @@ def _run_concrete(
         pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state
     )
     return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, results=results, identity=identity, refit_artifacts=refit_artifacts)
+
+
+def _is_concat_transform_prematerialized_pipeline(pipeline: list[Any]) -> bool:
+    """Whether this concrete single-model pipeline needs legacy concat prematerialization.
+
+    Legacy executes top-level X steps before the splitter: each transform is fit on the full training
+    partition, then applied to train+test in one batch. The generic dag-ml X-chain instead fits/applies
+    upstream transforms inside each model task. Row-independent transforms tolerate that, but
+    dimensionality reducers inside ``concat_transform`` can shift float32 projections across batch
+    boundaries enough for PLS to diverge. Keep this predicate deliberately narrow: one concrete model,
+    one splitter, and X steps limited to bare transforms plus ``concat_transform``.
+    """
+    if _generation_kind(pipeline) != "none":
+        return False
+    steps, splitter = _split_pipeline(pipeline)
+    if splitter is None:
+        return False
+    body = [step for step in steps if step is not None]
+    model_indices = [index for index, step in enumerate(body) if isinstance(step, dict) and "model" in step]
+    if len(model_indices) != 1 or model_indices[0] != len(body) - 1:
+        return False
+    x_steps = body[: model_indices[0]]
+    if not any(isinstance(step, dict) and "concat_transform" in step for step in x_steps):
+        return False
+    return all(not isinstance(step, dict) or set(step) == {"concat_transform"} for step in x_steps)
+
+
+def _prematerialized_transform_operator(step: Any) -> Any:
+    if isinstance(step, dict):
+        if "concat_transform" not in step:
+            raise DagMlUnsupported(f"prematerialized concat path supports only concat_transform dict steps, got {sorted(step)}")
+        return _branch_transform_operator(step)
+    if isinstance(step, type):
+        return step()
+    return _clone_operator_instance(step)
+
+
+def _prematerialized_concat_matrices(
+    x_steps: list[Any],
+    spectro: Any,
+    train_pool: list[int],
+    test_pool: list[int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply top-level X steps once over the legacy train+test batch and split the result."""
+    sample_pool = [*train_pool, *test_pool]
+    current_all = np.asarray(spectro.x_rows(sample_pool, layout="2d"))
+    y_train = _dataset_y_rows(spectro, train_pool)
+    train_count = len(train_pool)
+
+    for step in x_steps:
+        transform = _prematerialized_transform_operator(step)
+        current_train = current_all[:train_count]
+        if isinstance(step, dict) and "concat_transform" in step:
+            # The legacy concat controller fits each sub-operation with X only, then transforms all rows
+            # in one call. This preserves both its supervised-argument contract and float32 batch boundary.
+            transform.fit(current_train)
+        else:
+            transform.fit(current_train, y_train)
+        current_all = np.asarray(transform.transform(current_all))
+
+    return current_all[:train_count], current_all[train_count:]
+
+
+def _run_concat_transform_prematerialized(
+    pipeline: list[Any],
+    spectro: Any,
+    metric: str,
+    task_type: str,
+    config_name: str = "",
+) -> RunResult:
+    """Run a top-level ``concat_transform`` pipeline against the legacy prematerialized X matrix."""
+    steps, splitter = _split_pipeline(pipeline)
+    if splitter is None:
+        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    body = _supported_body_steps([step for step in steps if step is not None])
+    model_indices = [index for index, step in enumerate(body) if isinstance(step, dict) and "model" in step]
+    if len(model_indices) != 1 or model_indices[0] != len(body) - 1:
+        raise DagMlUnsupported("prematerialized concat path requires exactly one final model step")
+    model_step = _apply_model_params([body[model_indices[0]]])[0]
+    _reject_multi_model([model_step])
+    x_steps = body[: model_indices[0]]
+
+    train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
+    test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
+    folds = _build_folds(splitter, spectro, train_pool, set())
+    X_train, X_test = _prematerialized_concat_matrices(x_steps, spectro, train_pool, test_pool)
+
+    return _run_model_on_precomputed_matrix(
+        X_train,
+        X_test,
+        _dataset_y_rows(spectro, train_pool),
+        _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1)),
+        train_pool,
+        test_pool,
+        folds,
+        model_step["model"],
+        spectro,
+        metric,
+        task_type,
+        config_name,
+        branch_id=None,
+        branch_name="",
+        include_refit=not _legacy_skips_refit(splitter),
+    )
 
 
 def _source_concat_layout(source_indices: list[int], spectro: Any, envelope: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -2119,105 +2223,265 @@ def _run_model_on_precomputed_matrix(
     return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
 
 
-def _separation_preproc_matrix(
+def _separation_preproc_body_lists(steps: Any) -> list[list[Any]]:
+    """Normalize shared-list or per-branch-dict preprocessing bodies."""
+    if isinstance(steps, list):
+        return [steps]
+    if isinstance(steps, dict) and steps and all(isinstance(value, list) for value in steps.values()):
+        return list(steps.values())
+    raise DagMlUnsupported("separation preprocessing concat requires branch steps as a list or per-branch dict of lists")
+
+
+def _clean_separation_preproc_body(body: list[Any]) -> list[Any]:
+    """Validate one branch preprocessing body and return X-transform steps."""
+    if any(isinstance(step, dict) for step in body):
+        raise DagMlUnsupported("separation preprocessing concat branch bodies may contain only X transforms")
+    cleaned = _supported_body_steps([step for step in body if not _is_split_step(step)])
+    for step in cleaned:
+        get_params = getattr(step, "get_params", None)
+        if not callable(get_params):
+            continue
+        try:
+            params = get_params(deep=False)
+        except Exception:
+            continue
+        if "random_state" in params and params["random_state"] is None:
+            raise DagMlUnsupported(
+                f"separation preprocessing concat requires {type(step).__name__}.random_state to be pinned"
+            )
+    return cleaned
+
+
+def _separation_preproc_steps_for_branch(steps: Any, branch_name: str) -> list[Any]:
+    """Resolve and validate preprocessing steps for one separation branch."""
+    from nirs4all.controllers.data.branch import BranchController
+
+    branch_steps = BranchController._resolve_branch_steps(steps, branch_name)
+    if not isinstance(branch_steps, list):
+        raise DagMlUnsupported(
+            f"separation preprocessing branch {branch_name!r} did not resolve to a list of steps"
+        )
+    return _clean_separation_preproc_body(branch_steps)
+
+
+def _branch_filter_from_spec(filter_spec: Any) -> Any:
+    """Deserialize a ``by_filter`` criterion into a SampleFilter instance."""
+    from nirs4all.operators.filters.base import SampleFilter
+    from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+    filter_obj = deserialize_component(filter_spec) if isinstance(filter_spec, dict) else filter_spec
+    if not isinstance(filter_obj, SampleFilter):
+        raise DagMlUnsupported(
+            f"by_filter preprocessing concat expects a SampleFilter, got {type(filter_obj).__name__}"
+        )
+    return _clone_operator_instance(filter_obj)
+
+
+def _filter_y_arg(values: np.ndarray) -> np.ndarray:
+    """SampleFilter y argument in the same flattened form used by tag/exclude helpers."""
+    return values.flatten() if values.ndim > 1 else values
+
+
+def _tag_branch_values(pipeline: list[Any], spectro: Any, key: str) -> dict[int, str]:
+    """Compute the boolean tag values produced by the matching top-level tag step."""
+    from nirs4all.pipeline.dagml.steps import _taggers_from_step
+
+    taggers = [
+        (tag_name, filter_obj)
+        for step in pipeline
+        for tag_name, filter_obj in (_taggers_from_step(step) or [])
+        if tag_name == key
+    ]
+    if len(taggers) != 1:
+        raise DagMlUnsupported(
+            f"by_tag preprocessing concat requires exactly one top-level tag step named {key!r}"
+        )
+
+    sample_ints = [int(sample_int) for sample_int in spectro.index_column("sample", {})]
+    if not sample_ints:
+        return {}
+    _tag_name, filter_obj = taggers[0]
+    filter_obj = _clone_operator_instance(filter_obj)
+    x_rows = np.asarray(spectro.x_rows(sample_ints, layout="2d"))
+    y_rows = _filter_y_arg(_dataset_y_rows(spectro, sample_ints))
+    filter_obj.fit(x_rows, y_rows)
+    mask = np.asarray(filter_obj.get_mask(x_rows, y_rows), dtype=bool)
+    if mask.shape[0] != len(sample_ints):
+        raise ValueError(f"tag filter {filter_obj.__class__.__name__} returned {mask.shape[0]} masks for {len(sample_ints)} samples")
+    return {sample_int: str(bool(not keep)) for sample_int, keep in zip(sample_ints, mask, strict=True)}
+
+
+def _filter_branch_values(criterion: dict[str, Any], spectro: Any, train_pool: list[int]) -> dict[int, str]:
+    """Compute ``passing``/``failing`` values for a ``by_filter`` branch criterion."""
+    names = criterion.get("names", ["passing", "failing"])
+    if not isinstance(names, list | tuple) or len(names) != 2:
+        raise DagMlUnsupported("by_filter preprocessing concat requires exactly two branch names")
+    filter_obj = _branch_filter_from_spec(criterion["by_filter"])
+    x_train = np.asarray(spectro.x_rows(train_pool, layout="2d"))
+    y_train = _filter_y_arg(_dataset_y_rows(spectro, train_pool))
+    filter_obj.fit(x_train, y_train)
+
+    sample_ints = [int(sample_int) for sample_int in spectro.index_column("sample", {})]
+    if not sample_ints:
+        return {}
+    x_rows = np.asarray(spectro.x_rows(sample_ints, layout="2d"))
+    y_rows = _filter_y_arg(_dataset_y_rows(spectro, sample_ints))
+    mask = np.asarray(filter_obj.get_mask(x_rows, y_rows), dtype=bool)
+    if mask.shape[0] != len(sample_ints):
+        raise ValueError(f"branch filter {filter_obj.__class__.__name__} returned {mask.shape[0]} masks for {len(sample_ints)} samples")
+    passing, failing = str(names[0]), str(names[1])
+    return {sample_int: passing if keep else failing for sample_int, keep in zip(sample_ints, mask, strict=True)}
+
+
+def _separation_branch_values(
+    pipeline: list[Any],
+    spectro: Any,
+    criterion: dict[str, Any],
+    train_pool: list[int],
+) -> dict[int, str]:
+    """Branch-name value for every sample under a supported separation criterion."""
+    sample_ints = [int(sample_int) for sample_int in spectro.index_column("sample", {})]
+    if "by_metadata" in criterion:
+        key = str(criterion["by_metadata"])
+        values = spectro.metadata_column(key, {})
+        return {sample_int: str(value) for sample_int, value in zip(sample_ints, values, strict=True)}
+    if "by_tag" in criterion:
+        return _tag_branch_values(pipeline, spectro, str(criterion["by_tag"]))
+    if "by_filter" in criterion:
+        return _filter_branch_values(criterion, spectro, train_pool)
+    raise DagMlUnsupported("separation preprocessing concat requires by_metadata, by_tag, or by_filter")
+
+
+def _assign_separation_rows(
+    out: np.ndarray | None,
+    assigned_rows: set[int],
+    sample_pool: list[int],
+    row_samples: list[int],
+    current_rows: np.ndarray,
+) -> np.ndarray:
+    """Assign branch-projected rows into a pool-shaped matrix."""
+    if not sample_pool:
+        if out is not None:
+            return out
+        return np.empty((0, current_rows.shape[1]), dtype=current_rows.dtype)
+    if out is None:
+        out = np.empty((len(sample_pool), current_rows.shape[1]), dtype=current_rows.dtype)
+    elif out.shape[1] != current_rows.shape[1]:
+        raise DagMlUnsupported("separation preprocessing branches must produce the same feature width")
+    row_of = {sample_int: row for row, sample_int in enumerate(sample_pool)}
+    for position, sample_int in enumerate(row_samples):
+        out[row_of[int(sample_int)], :] = current_rows[position]
+        assigned_rows.add(row_of[int(sample_int)])
+    return out
+
+
+def _assert_separation_rows_complete(out: np.ndarray | None, assigned_rows: set[int], sample_pool: list[int], width: int) -> np.ndarray:
+    """Return a complete pool-shaped branch matrix, including the empty-pool case."""
+    if not sample_pool:
+        return np.empty((0, width), dtype=float)
+    if out is None:
+        raise DagMlUnsupported("separation preprocessing branch produced no feature rows")
+    missing_rows = set(range(len(sample_pool))) - assigned_rows
+    if missing_rows:
+        raise DagMlUnsupported(
+            "separation preprocessing concat cannot route every requested sample; "
+            f"{len(missing_rows)} row(s) had no train-backed branch"
+        )
+    return out
+
+
+def _separation_preproc_train_test_matrices(
+    pipeline: list[Any],
     spectro: Any,
     *,
-    key: str,
-    body_steps: list[Any],
+    criterion: dict[str, Any],
+    steps: Any,
     train_pool: list[int],
-    sample_pool: list[int],
-) -> np.ndarray:
-    """Apply stateless branch preprocessing per metadata partition and reassemble rows."""
-    if not sample_pool:
-        width = int(np.asarray(spectro.x_rows(train_pool, layout="2d")).shape[1])
-        return np.empty((0, width), dtype=float)
+    test_pool: list[int],
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply branch preprocessing once per branch and reassemble train/test rows."""
+    value_by_sample = _separation_branch_values(pipeline, spectro, criterion, train_pool)
+    out_train: np.ndarray | None = None
+    out_test: np.ndarray | None = None
+    assigned_train: set[int] = set()
+    assigned_test: set[int] = set()
+    width = int(np.asarray(spectro.x_rows(train_pool, layout="2d")).shape[1])
 
-    all_samples = [int(sample_int) for sample_int in spectro.index_column("sample", {})]
-    values = spectro.metadata_column(key, {})
-    value_by_sample = {sample_int: str(value) for sample_int, value in zip(all_samples, values, strict=True)}
-    row_of = {sample_int: row for row, sample_int in enumerate(sample_pool)}
-    out: np.ndarray | None = None
-
-    for value in sorted({value_by_sample[int(sample_int)] for sample_int in sample_pool}):
-        fit_samples = [sample_int for sample_int in train_pool if value_by_sample[int(sample_int)] == value]
-        if not fit_samples:
-            raise DagMlUnsupported(
-                f"by_metadata preprocessing branch value {value!r} has no training samples; "
-                "cannot fit branch transforms for held-out rows"
-            )
-        row_samples = [sample_int for sample_int in sample_pool if value_by_sample[int(sample_int)] == value]
-        current_fit = np.asarray(spectro.x_rows(fit_samples, layout="2d"))
-        current_rows = np.asarray(spectro.x_rows(row_samples, layout="2d"))
-        y_fit = _dataset_y_rows(spectro, fit_samples)
+    branch_names = list(dict.fromkeys(value_by_sample[int(sample_int)] for sample_int in train_pool))
+    for branch_name in branch_names:
+        train_samples = [sample_int for sample_int in train_pool if value_by_sample[int(sample_int)] == branch_name]
+        test_samples = [sample_int for sample_int in test_pool if value_by_sample[int(sample_int)] == branch_name]
+        if not train_samples and not test_samples:
+            continue
+        body_steps = _separation_preproc_steps_for_branch(steps, branch_name)
+        # Legacy branch transforms fit against the branch context's train selector,
+        # which is the full train partition; sample membership is applied later by
+        # concat merge when it selects rows from each branch snapshot.
+        current_fit = np.asarray(spectro.x_rows(train_pool, layout="2d"))
+        current_train = np.asarray(spectro.x_rows(train_samples, layout="2d"))
+        current_test = np.asarray(spectro.x_rows(test_samples, layout="2d")) if test_samples else np.empty((0, current_fit.shape[1]))
+        y_fit = _dataset_y_rows(spectro, train_pool)
         for step in body_steps:
             transform = _clone_operator_instance(step)
             transform.fit(current_fit, y_fit)
             current_fit = np.asarray(transform.transform(current_fit))
-            current_rows = np.asarray(transform.transform(current_rows))
-        if out is None:
-            out = np.empty((len(sample_pool), current_rows.shape[1]), dtype=current_rows.dtype)
-        for position, sample_int in enumerate(row_samples):
-            out[row_of[int(sample_int)], :] = current_rows[position]
+            current_train = np.asarray(transform.transform(current_train))
+            current_test = np.asarray(transform.transform(current_test)) if test_samples else np.empty((0, current_fit.shape[1]))
+        width = int(current_fit.shape[1])
+        if train_samples:
+            out_train = _assign_separation_rows(out_train, assigned_train, train_pool, train_samples, current_train)
+        if test_samples:
+            out_test = _assign_separation_rows(out_test, assigned_test, test_pool, test_samples, current_test)
 
-    if out is None:
-        raise DagMlUnsupported("by_metadata preprocessing branch produced no feature rows")
-    return out
+    return (
+        _assert_separation_rows_complete(out_train, assigned_train, train_pool, width),
+        _assert_separation_rows_complete(out_test, assigned_test, test_pool, width),
+    )
 
 
 def _run_separation_preproc_concat(
     pipeline: list[Any],
     branch_step: dict[str, Any],
-    preproc_body: list[Any],
+    preproc_body: Any,
     downstream_body: list[Any],
     spectro: Any,
     metric: str,
     task_type: str,
     config_name: str = "",
 ) -> RunResult:
-    """Project by_metadata stateless preprocessing + concat + downstream model.
+    """Project separation preprocessing + concat + downstream model.
 
     This path covers the legacy feature-reassembly shape where the branch applies
-    row-wise preprocessing per metadata partition, ``merge='concat'`` restores the
-    full sample universe, and a single downstream model owns CV + final refit rows.
+    row-wise preprocessing per metadata/tag/filter partition, ``merge='concat'``
+    restores the full sample universe, and a single downstream model owns CV +
+    final refit rows.
     """
     _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
     if len(downstream_body) != 1:
-        raise DagMlUnsupported("by_metadata preprocessing concat supports exactly one downstream model")
+        raise DagMlUnsupported("separation preprocessing concat supports exactly one downstream model")
 
-    body_steps = _supported_body_steps([step for step in preproc_body if not _is_split_step(step)])
-    for step in body_steps:
-        tags = step._more_tags() if hasattr(step, "_more_tags") else {}
-        if not tags.get("stateless"):
-            raise DagMlUnsupported(
-                "by_metadata preprocessing concat currently supports only stateless branch transforms"
-            )
+    for body in _separation_preproc_body_lists(preproc_body):
+        _clean_separation_preproc_body(body)
     downstream_steps = _apply_model_params(downstream_body)
     _reject_multi_model(downstream_steps)
-    _assert_supported_operators([*body_steps, *downstream_steps])
+    _assert_supported_operators([step for body in _separation_preproc_body_lists(preproc_body) for step in body] + downstream_steps)
     model_step = downstream_steps[0]
     if not isinstance(model_step, dict) or "model" not in model_step:
-        raise DagMlUnsupported("by_metadata preprocessing concat requires a downstream model")
+        raise DagMlUnsupported("separation preprocessing concat requires a downstream model")
 
     criterion = branch_step["branch"]
-    key = str(criterion["by_metadata"])
     train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
     test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
     folds = _build_folds(splitter, spectro, train_pool, set())
-    X_train = _separation_preproc_matrix(
+    X_train, X_test = _separation_preproc_train_test_matrices(
+        pipeline,
         spectro,
-        key=key,
-        body_steps=body_steps,
+        criterion=criterion,
+        steps=preproc_body,
         train_pool=train_pool,
-        sample_pool=train_pool,
-    )
-    X_test = _separation_preproc_matrix(
-        spectro,
-        key=key,
-        body_steps=body_steps,
-        train_pool=train_pool,
-        sample_pool=test_pool,
+        test_pool=test_pool,
     )
 
     return _run_model_on_precomputed_matrix(

@@ -9,23 +9,52 @@ are detail-free dictionaries with no error-specific schema version.
 from __future__ import annotations
 
 import json
+import tomllib
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
+from packaging.requirements import Requirement
 
 from nirs4all.api.result import RunResult
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.dagml.errors import DagMlUnsupported
 from nirs4all.pipeline.dagml.rt import RtError
 
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_DIR = Path(__file__).with_name("fixtures") / "runtime"
 METRICS = {"rmse": 0.0, "r2": 1.0, "mae": 0.0}
 
 
 def _read_fixture(name: str) -> dict[str, Any]:
     return json.loads((FIXTURE_DIR / name).read_text(encoding="utf-8"))
+
+
+def _declared_dependencies(requirements: list[str]) -> dict[str, Requirement]:
+    return {Requirement(spec).name: Requirement(spec) for spec in requirements}
+
+
+def _declared_dependency_names(requirements: list[str]) -> set[str]:
+    return set(_declared_dependencies(requirements))
+
+
+def _requirements(filename: str) -> dict[str, Requirement]:
+    lines = []
+    for raw in (PROJECT_ROOT / filename).read_text(encoding="utf-8").splitlines():
+        line = raw.strip()
+        if not line or line.startswith("#"):
+            continue
+        lines.append(line)
+    return _declared_dependencies(lines)
+
+
+def _requirements_names(filename: str) -> set[str]:
+    return set(_requirements(filename))
+
+
+def _pyproject() -> dict[str, Any]:
+    return tomllib.loads((PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8"))
 
 
 def _score_set() -> dict[str, Any]:
@@ -146,6 +175,28 @@ def test_rt_error_wire_goldens_match_fixtures(fixture_name: str, error: RtError)
     assert payload == _read_fixture(fixture_name)
     assert "schema_version" not in payload
     assert "detail" not in payload
+
+
+def test_parity_environment_dependencies_are_declared() -> None:
+    """Parity import gates are backed by install metadata, not ad hoc local state."""
+    pyproject = _pyproject()
+    project_deps = _declared_dependencies(pyproject["project"]["dependencies"])
+    project_dep_names = set(project_deps)
+    optional = pyproject["project"]["optional-dependencies"]
+    dev_deps = _declared_dependency_names(optional["dev"])
+    explain_deps = _declared_dependency_names(optional["explain"])
+
+    assert "referencing" in project_dep_names
+    assert "jsonschema" in project_dep_names
+    assert str(project_deps["jsonschema"].specifier) == ">=4.18.0"
+    assert "shap" in explain_deps
+    assert "shap" in dev_deps
+    for filename in ("requirements.txt", "requirements-test.txt", "requirements-examples.txt"):
+        requirements = _requirements(filename)
+        assert "referencing" in requirements
+        assert str(requirements["jsonschema"].specifier) == ">=4.18.0"
+    assert "shap" in _requirements_names("requirements-test.txt")
+    assert "shap" in _requirements_names("requirements-examples.txt")
 
 
 def _find_sibling_schema_dir() -> Path | None:

@@ -28,11 +28,11 @@ def test_live_parity_tree_has_no_untracked_marker_debt() -> None:
     assert result.ok(), "untracked parity marker/tolerance debt:\n" + M.format_report(result)
 
 
-def test_live_xfail_is_confined_to_the_sanctioned_builder() -> None:
+def test_live_xfail_is_confined_to_sanctioned_builders() -> None:
     result = M.audit_tree()
     modules = {use.module for use in result.xfail_uses}
-    assert modules == {M.SANCTIONED_XFAIL_MODULE}, (
-        f"xfail leaked outside {M.SANCTIONED_XFAIL_MODULE}: {sorted(modules)}"
+    assert modules == set(M.SANCTIONED_XFAIL_MODULES), (
+        f"xfail leaked outside {M.SANCTIONED_XFAIL_MODULES}: {sorted(modules)}"
     )
 
 
@@ -55,6 +55,59 @@ def test_live_marker_policy_ledger_matches_enforcement() -> None:
     M.validate_marker_policy()
 
 
+def test_registered_rng_sensitive_x_filters_are_seeded() -> None:
+    from sklearn.decomposition import PCA, TruncatedSVD
+
+    from nirs4all.operators.filters import XOutlierFilter
+
+    from ._registry import all_cases
+
+    rng_sensitive_methods = {
+        "mahalanobis",
+        "robust_mahalanobis",
+        "pca_residual",
+        "isolation_forest",
+    }
+
+    def iter_nodes(value):
+        if isinstance(value, dict):
+            for child in value.values():
+                yield from iter_nodes(child)
+        elif isinstance(value, (list, tuple)):
+            for child in value:
+                yield from iter_nodes(child)
+        else:
+            yield value
+
+    unseeded = [
+        f"{case.name}:{node.method}"
+        for case in all_cases()
+        for node in iter_nodes(case.pipeline)
+        if isinstance(node, XOutlierFilter)
+        and node.method in rng_sensitive_methods
+        and node.random_state is None
+    ]
+
+    unseeded += [
+        f"{case.name}:PCA({node.svd_solver})"
+        for case in all_cases()
+        for node in iter_nodes(case.pipeline)
+        if isinstance(node, PCA)
+        and node.svd_solver in {"auto", "randomized"}
+        and node.random_state is None
+    ]
+    unseeded += [
+        f"{case.name}:TruncatedSVD({node.algorithm})"
+        for case in all_cases()
+        for node in iter_nodes(case.pipeline)
+        if isinstance(node, TruncatedSVD)
+        and node.algorithm == "randomized"
+        and node.random_state is None
+    ]
+
+    assert not unseeded, "rng-sensitive parity operators must pin random_state: " + ", ".join(unseeded)
+
+
 # ---------------------------------------------------------------------------
 # Negative self-tests — the gate must FAIL on injected debt.
 # ---------------------------------------------------------------------------
@@ -67,8 +120,9 @@ def test_gate_flags_rogue_xfail_outside_the_sanctioned_module() -> None:
 
 def test_gate_allows_xfail_inside_the_sanctioned_module() -> None:
     src = "import pytest\nmarks = [pytest.mark.xfail(reason='documented', strict=True)]\n"
-    result = M.audit_source(M.SANCTIONED_XFAIL_MODULE, src, _ALLOWED)
-    assert result.xfail_uses and not result.untracked_xfail()
+    for module in M.SANCTIONED_XFAIL_MODULES:
+        result = M.audit_source(module, src, _ALLOWED)
+        assert result.xfail_uses and not result.untracked_xfail()
 
 
 def test_gate_flags_bare_untracked_skip() -> None:
