@@ -161,7 +161,8 @@ register(
     PipelineCase(
         name="rep_to_sources_basic",
         description="rep_to_sources: each repetition group becomes a separate source. "
-        "Then SNV applied per generated source → PLSR.",
+        "Then SNV applied per generated source → PLSR. Legacy cv_best_score double-counts "
+        "overlapping rep folds; conformance pins that as dag-ml-authoritative non-equivalence.",
         keywords=("rep_to_sources", "model"),
         capabilities=(
             "preprocessing_transform",
@@ -192,7 +193,8 @@ register(
     PipelineCase(
         name="rep_to_pp_basic",
         description="rep_to_pp: each repetition becomes a preprocessing variant. "
-        "Combined with `_or_` over preprocessing choices.",
+        "Combined with `_or_` over preprocessing choices. Legacy cv_best_score double-counts "
+        "overlapping rep folds; conformance pins that as dag-ml-authoritative non-equivalence.",
         keywords=("rep_to_pp", "_or_", "model"),
         capabilities=(
             "preprocessing_transform",

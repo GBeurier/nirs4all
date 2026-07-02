@@ -16,14 +16,14 @@ dag-ml engine actually did:
   native coverage, this assertion flips to a failure and forces the case into
   the NATIVE branch — the boundary can never silently widen.
 
-Known cross-engine NON-EQUALITIES are marked ``xfail(strict=True)`` AT
-PARAMETRIZE TIME (NOT loosened tolerances). The case still RUNS on both engines
-and the parity assertions still execute — they are merely EXPECTED to fail. A
-strict xfail XPASS-flips the moment the engines converge, so a fixed divergence
-never goes silent. The ``legacy_bug`` registry cases are likewise strict-xfail
-(the legacy engine itself is broken, so no legacy oracle exists), and the
-``fixture`` / ``unknown_semantics`` cases ``skip`` — mirroring
-``test_parity_smoke``.
+Known cross-engine NON-EQUALITIES are either marked ``xfail(strict=True)`` AT
+PARAMETRIZE TIME (NOT loosened tolerances) when neither side should be treated
+as the passing contract, or routed through explicit passing parity-notes when
+dag-ml is authoritative and legacy is wrong. Strict xfail XPASS-flips the moment
+the engines converge, so a fixed divergence never goes silent. The
+``legacy_bug`` registry cases are likewise strict-xfail (the legacy engine
+itself is broken, so no legacy oracle exists), and the ``fixture`` /
+``unknown_semantics`` cases ``skip`` — mirroring ``test_parity_smoke``.
 
 Slow: each case runs twice (legacy + dag-ml). Gated by the ``slow`` marker.
 
@@ -32,7 +32,8 @@ Slow: each case runs twice (legacy + dag-ml). Gated by the ``slow`` marker.
 
 from __future__ import annotations
 
-from typing import TypedDict
+import math
+from typing import Any, TypedDict
 
 import pytest
 
@@ -50,6 +51,14 @@ class _NumPredDivergence(TypedDict):
     reason: str
 
 
+class _LegacyCvScoreDivergence(TypedDict):
+    """Pinned legacy-vs-dag-ml cv_best_score values for a legacy score bug."""
+
+    legacy: float
+    dagml: float
+    reason: str
+
+
 # ---------------------------------------------------------------------------
 # Documented cross-engine divergences (NATIVE on dag-ml, but the engines do
 # NOT agree within tolerance). Each entry is a measured, triaged finding — the
@@ -60,12 +69,17 @@ class _NumPredDivergence(TypedDict):
 # removed (the suite goes RED until it is).
 #
 # Measured legacy↔dag-ml best_rmse deltas (regression sample_data) at scope time:
-#   concat_transform_pca_svd_plsr             14.13327 vs 15.53153  (Δ≈1.4e0)
-#   generator_sample_log_uniform_alpha        13.26828 vs 13.79983  (Δ≈5.3e-1, DIFFERENT winner)
+# (concat_transform_pca_svd_plsr was here too — the dag-ml path now prematerializes top-level
+#  concat_transform at the legacy train+test batch boundary, and the case pins PCA/SVD random_state.
+#  It is a LIVE parity assertion now.)
 # (generator_or_models_pls_ridge was here too — it is NOT a divergence in score/winner/winner-y_pred
 #  (all equal: best_rmse Δ≈2e-15, winner PLSRegression, winner y_pred Δ=0.0); its ONLY delta is
 #  num_predictions 34-legacy vs 32-native, an INTENTIONAL native-vs-legacy refit-policy divergence —
 #  moved to NUM_PREDICTIONS_DIVERGENCE and asserted as a parity-note, not strict-xfailed. See ADR-17 1c.)
+# (rep_to_sources_basic and rep_to_pp_basic were here too — dag-ml is authoritative for the sample-grain
+#  rep-fusion score. They moved to LEGACY_CV_SCORE_DIVERGENCE, where the conformance body pins the exact
+#  legacy-bug scalar and dag-ml scalar as a PASSING parity-note instead of expecting the engines to converge
+#  on legacy's double-counted cv_best_score.)
 # (baseline_savgol_rf_kfold, baseline_detrend_firstderiv_gbr, generator_log_range_alpha were
 #  here too — the dtype-pin + refit-row-order fix converged them to Δ=0.0 / Δ≈1.3e-7; entries
 #  removed from KNOWN_DIVERGENCES, see the notes there.)
@@ -77,7 +91,6 @@ class _NumPredDivergence(TypedDict):
 #  prefix replay, and result-array projection converged them. They are LIVE parity assertions now.)
 # ---------------------------------------------------------------------------
 KNOWN_DIVERGENCES: dict[str, str] = {
-    "concat_transform_pca_svd_plsr": "concat_transform view order/decomposition differs (Δrmse≈1.4e0)",
     # NOTE: the three tree-ensemble cases (baseline_savgol_rf_kfold,
     # baseline_detrend_firstderiv_gbr, baseline_classification_rf_stratified) were REMOVED
     # from this dict — they reach Δ=0.0 now. Their old "fold-materialization/row-order"
@@ -95,28 +108,6 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     # the same winning alpha was always selected on both engines. Pinning X to the dataset's
     # native dtype removed that ~1e-6 input noise, so the two Ridge solves now converge well
     # under the 1e-3 score tol and the per-sample y_pred tol. A LIVE parity assertion now.
-    # _sample_ random-alpha sweep that does NOT set _seed_ → genuinely UNSEEDED
-    # stochastic. The random variant set (and therefore the winner) is not
-    # reproducible across the two engines' samplers, so best_rmse differs run to
-    # run (observed Δ up to ≈5.3e-1, different winning config). Honest disposition:
-    # unseeded _sample_ is nondeterministic across engines (pin _seed_ in the case
-    # to make it deterministic and re-evaluate); not a proven fixed divergence.
-    "generator_sample_log_uniform_alpha": "unseeded _sample_ (_seed_ not set) → "
-    "nondeterministic variant set/winner across engines (Δrmse up to ≈5.3e-1)",
-    # No-test-set rep shapes: the only score they produce is cv_best_score, a SCALAR
-    # that DIVERGES (rep_to_sources 6.6735 vs 6.1906; rep_to_pp 6.1427 vs 6.1906).
-    # The cause is the rep OOF-aggregation difference — legacy DOUBLE-COUNTS the
-    # overlapping rep folds (ShuffleSplit reps appear in several folds; legacy
-    # concatenates them, so each rep pipeline scores a different cv), while dag-ml
-    # aggregates each sample's OOF exactly ONCE (6.1906 for both). dag-ml is the
-    # CORRECT value; this is a PERMANENT semantic divergence, not a fixable bug.
-    # A2 (2a-iii) surfaced the per-sample OOF avg y_pred but does NOT touch this
-    # scalar — the divergence is in the score's aggregation semantics, not the
-    # per-sample values — so these stay xfailed (measured: still XFAIL after A2).
-    "rep_to_sources_basic": "PERMANENT semantic divergence in cv_best_score: legacy double-counts "
-    "overlapping rep folds (6.6735); dag-ml aggregates each OOF sample once (6.1906, the correct value)",
-    "rep_to_pp_basic": "PERMANENT semantic divergence in cv_best_score: legacy double-counts "
-    "overlapping rep folds (6.1427); dag-ml aggregates each OOF sample once (6.1906, the correct value)",
     # Sample-level aggregation (mean/median/outlier-exclude) now flows the final-(test) y_pred across the
     # bridge at parity (Gap 2 / A1): the repetition concrete path threads the node results + identity into
     # the projection, so the refit's already-aggregated `(test, None)` sample block fills the final-(test)
@@ -187,6 +178,113 @@ NUM_PREDICTIONS_DIVERGENCE: dict[str, _NumPredDivergence] = {
         "loser model and stores its (train,final)+(test,final) rows (49); winner/best_score/winner-y_pred all match (slice F)",
     },
 }
+
+
+# ---------------------------------------------------------------------------
+# INTENTIONAL native-vs-legacy cv_best_score divergences for rep-fusion shapes.
+#
+# These no-test-set rep_to_sources / rep_to_pp cases produce no final test score,
+# so the only score scalar is cv_best_score. Legacy computes that scalar from
+# overlapping ShuffleSplit rep-fold rows and double-counts repeated physical
+# samples; dag-ml scores the reshaped physical-sample OOF exactly once. The
+# dag-ml value is the authoritative contract. This is NOT a runtime fix target
+# and NOT a strict-xfail: the conformance body pins the exact legacy-bug scalar,
+# the exact dag-ml scalar, and the matching non-score structure as a passing
+# compatibility note.
+LEGACY_CV_SCORE_DIVERGENCE: dict[str, _LegacyCvScoreDivergence] = {
+    "rep_to_sources_basic": {
+        "legacy": 6.673486795441247,
+        "dagml": 6.190624012206827,
+        "reason": "legacy double-counts overlapping rep-fusion OOF folds; dag-ml scores each reshaped sample once",
+    },
+    "rep_to_pp_basic": {
+        "legacy": 6.1427143240770405,
+        "dagml": 6.190624012206827,
+        "reason": "legacy double-counts overlapping rep-fusion OOF folds; dag-ml scores each reshaped sample once",
+    },
+}
+
+
+# Cases whose contract is intentionally RUN-ONLY, not legacy↔dag-ml equality.
+#
+# `generator_sample_log_uniform_alpha` carries `_sample_` without `_seed_`.
+# The generator itself is stochastic, so the legacy leg and the dag-ml leg are
+# allowed to draw different alpha sets and pick different winners. The parity
+# contract for log-uniform `_sample_` lives in `generator_sample_seeded_alpha`;
+# this case remains as an explicit native-coverage/nondeterminism contract and
+# must not be represented as a strict xfail.
+UNSEEDED_NONDETERMINISTIC_CASES: frozenset[str] = frozenset({
+    "generator_sample_log_uniform_alpha",
+})
+
+
+def _sample_generator_nodes(obj: object) -> list[dict[str, Any]]:
+    """Return all dict nodes that carry `_sample_`."""
+    nodes: list[dict[str, Any]] = []
+    if isinstance(obj, dict):
+        if "_sample_" in obj:
+            nodes.append(obj)
+        for value in obj.values():
+            nodes.extend(_sample_generator_nodes(value))
+    elif isinstance(obj, list):
+        for item in obj:
+            nodes.extend(_sample_generator_nodes(item))
+    return nodes
+
+
+def _assert_unseeded_nondeterministic_contract(legacy: Any, dagml: Any, case: PipelineCase) -> None:
+    """Assert an unseeded `_sample_` case ran natively without claiming equality."""
+    sample_nodes = _sample_generator_nodes(case.pipeline)
+    assert sample_nodes, f"{case.name}: nondeterministic contract requires a `_sample_` generator"
+    assert all("_seed_" not in node for node in sample_nodes), (
+        f"{case.name}: nondeterministic contract is only valid for unseeded `_sample_`; "
+        "seeded `_sample_` belongs in the strict parity path"
+    )
+    for engine_name, result in (("legacy", legacy), ("dag-ml", dagml)):
+        assert result.num_predictions >= case.expected_min_predictions, (
+            f"{case.name}: {engine_name} run emitted too few predictions for the run-only contract: "
+            f"{result.num_predictions} < {case.expected_min_predictions}"
+        )
+        assert math.isfinite(result.best_score), f"{case.name}: {engine_name} best_score must be finite"
+        if case.task != "classification":
+            assert math.isfinite(result.best_rmse), f"{case.name}: {engine_name} best_rmse must be finite"
+        assert result.best.get("metric"), f"{case.name}: {engine_name} run must record the selected metric"
+
+
+def _assert_legacy_cv_score_divergence(
+    legacy: Any,
+    dagml: Any,
+    case: PipelineCase,
+    expected: _LegacyCvScoreDivergence,
+) -> None:
+    """Assert a pinned dag-ml-authoritative cv_best_score non-equivalence."""
+    gold = H.observe(legacy, case.task)
+    obs = H.observe(dagml, case.task)
+    for key in ("num_predictions", "models", "datasets"):
+        assert gold.get(key) == obs.get(key), (
+            f"{case.name}: non-score structure diverged while asserting legacy cv score bug: "
+            f"{key} legacy={gold.get(key)!r} dag-ml={obs.get(key)!r}"
+        )
+
+    legacy_cv = gold.get("metrics", {}).get("cv_best_score")
+    dagml_cv = obs.get("metrics", {}).get("cv_best_score")
+    assert legacy_cv is not None and dagml_cv is not None, (
+        f"{case.name}: expected both engines to report cv_best_score for legacy score-bug coverage; "
+        f"legacy={legacy_cv!r} dag-ml={dagml_cv!r}"
+    )
+    tol = H._DEFAULT_SCORE_TOL  # noqa: SLF001
+    assert abs(legacy_cv - expected["legacy"]) <= tol, (
+        f"{case.name}: documented legacy cv_best_score changed — expected {expected['legacy']}, got {legacy_cv} "
+        f"({expected['reason']})"
+    )
+    assert abs(dagml_cv - expected["dagml"]) <= tol, (
+        f"{case.name}: documented dag-ml cv_best_score changed — expected {expected['dagml']}, got {dagml_cv} "
+        "(dag-ml is the authoritative sample-grain rep-fusion score)"
+    )
+    assert abs(legacy_cv - dagml_cv) > tol, (
+        f"{case.name}: legacy and dag-ml cv_best_score unexpectedly converged; remove the legacy score-bug "
+        "parity-note and restore full score parity coverage"
+    )
 
 
 # Per-case per-sample y_pred tolerance overrides. The default y_pred tolerance is
@@ -317,6 +415,8 @@ def _params() -> list:
     * ``NUM_PREDICTIONS_DIVERGENCE`` cases get NO mark — they PASS as a documented
       parity-note (winner + metric + winner-y_pred parity, num_predictions exempt);
       the conformance body branches on the allowlist (ADR-17 1c).
+    * ``LEGACY_CV_SCORE_DIVERGENCE`` cases get NO mark — they PASS as documented
+      dag-ml-authoritative score non-equivalence, with the exact legacy bug value pinned.
     """
     params = []
     for case in all_cases():
@@ -402,6 +502,14 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
         # so this test's strict-xfail marker cannot mask a boundary regression.
         return
 
+    if case.name in UNSEEDED_NONDETERMINISTIC_CASES:
+        # RUN-ONLY NATIVE CONTRACT: the case intentionally has `_sample_` without
+        # `_seed_`, so the two engines may draw different random variant sets and
+        # select different winners. Assert only that both runs are meaningful
+        # native executions. The seeded parity twin carries the equality claim.
+        _assert_unseeded_nondeterministic_contract(legacy, dagml, case)
+        return
+
     if case.name in NUM_PREDICTIONS_DIVERGENCE:
         # INTENTIONAL native-vs-legacy num_predictions divergence (ADR-17 1c): dag-ml's
         # operator-SELECT refits the WINNER ONLY (the correct SELECT semantic) while legacy
@@ -418,6 +526,16 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
         H.assert_score_parity_metrics_only(legacy, dagml, case)
         H.assert_runresult_contract(legacy, dagml, case, num_predictions_exempt=True)
         H.assert_winner_y_pred_parity(legacy, dagml, case)
+        return
+
+    if case.name in LEGACY_CV_SCORE_DIVERGENCE:
+        # Rep-fusion no-test-set shapes: legacy's cv_best_score is a known legacy bug
+        # (double-counted overlapping repetition folds). Assert that bug explicitly and
+        # keep the rest of the public contract live, instead of strict-xfailing.
+        _assert_legacy_cv_score_divergence(legacy, dagml, case, LEGACY_CV_SCORE_DIVERGENCE[case.name])
+        H.assert_num_predictions_parity(legacy, dagml)
+        H.assert_runresult_contract(legacy, dagml, case)
+        H.assert_y_pred_parity(legacy, dagml, case)
         return
 
     # NATIVE: the real both-engines-agree contract. For a KNOWN_DIVERGENCES case

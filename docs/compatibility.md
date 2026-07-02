@@ -97,9 +97,10 @@ the `kernel_pls` band, not the cross-engine default.
 - **`0` / exact** governs classification class labels (`classification_label`).
 - **`n/a_*`** marks the paths that are **never** tolerance-compared: Tier-2/3
   permanent semantic divergences (`n/a_semantic`) and RNG-nondeterministic cases
-  (`n/a_rng`). Per `DEC-PYREF-002`, an RNG case is xfail/skip, **never** relaxed
-  into a wider tolerance band — tolerance bands cover float-noise divergence
-  only, never stochastic-path divergence.
+  (`n/a_rng`). Per `DEC-PYREF-002`, an RNG case is either a ledgered run-only
+  nondeterministic contract or explicit debt, **never** relaxed into a wider
+  tolerance band — tolerance bands cover float-noise divergence only, never
+  stochastic-path divergence.
 
 ### A.4 Contract amendment owed to dag-ml (lockstep / L20)
 
@@ -119,10 +120,10 @@ enforced cross-engine tolerance is `1e-3`.**
 ## §B — 3-tier authority registry
 
 Each tier is a claim about **which engine is correct**, distinct from coverage,
-skip, and fallback bookkeeping (those are §C). The five scattered structures —
-`_registry.SkipKind`, and `KNOWN_DIVERGENCES` / `NUM_PREDICTIONS_DIVERGENCE` /
-`Y_PRED_TOL_OVERRIDES` / `SAME_WINNER_CASES` / `EXPECTED_FALLBACK` in
-`test_conformance_dual_engine.py` — are consolidated here.
+skip, and fallback bookkeeping (those are §C). The scattered live structures —
+`_registry.SkipKind`, and `KNOWN_DIVERGENCES` / `LEGACY_CV_SCORE_DIVERGENCE` /
+`NUM_PREDICTIONS_DIVERGENCE` / `Y_PRED_TOL_OVERRIDES` / `SAME_WINNER_CASES` /
+`EXPECTED_FALLBACK` in `test_conformance_dual_engine.py` — are consolidated here.
 
 ### Tier 1 — Python (legacy) authoritative
 
@@ -138,33 +139,33 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 
 | Case | Mechanism | Authority | Disposition | Band | Measured Δ | Evidence (`file:line`) |
 |---|---|---|---|---|---|---|
-| `rep_to_sources_basic` | legacy **double-counts** overlapping rep OOF folds; dag-ml aggregates each OOF sample once | dag-ml | `xfail(strict)` vs legacy gold — PERMANENT | `n/a_semantic` | cv_best_score `6.6735` (legacy) vs `6.1906` (dag-ml, correct) | `test_conformance_dual_engine.py:127` |
-| `rep_to_pp_basic` | same rep OOF double-count | dag-ml | `xfail(strict)` — PERMANENT | `n/a_semantic` | `6.1427` vs `6.1906` (correct) | `:129` |
+| `rep_to_sources_basic` | legacy **double-counts** overlapping rep OOF folds; dag-ml aggregates each reshaped sample once | dag-ml | **PASS** parity-note; `cv_best_score` non-equivalence pinned | `n/a_semantic` | cv_best_score `6.6735` (legacy bug) vs `6.1906` (dag-ml, correct) | `test_conformance_dual_engine.py:LEGACY_CV_SCORE_DIVERGENCE` |
+| `rep_to_pp_basic` | same rep OOF double-count | dag-ml | **PASS** parity-note; `cv_best_score` non-equivalence pinned | `n/a_semantic` | `6.1427` (legacy bug) vs `6.1906` (correct) | `test_conformance_dual_engine.py:LEGACY_CV_SCORE_DIVERGENCE` |
 | `generator_or_models_pls_ridge` | multi-model `_or_` operator-SELECT refits the **winner only**; legacy refits every loser and stores its `(train,final)`+`(test,final)` rows | dag-ml | **PASS** parity-note; `num_predictions` pinned | `cross_impl_score` (winner) | winner/score/winner-y_pred all match (Δ≈`2e-15`); only count differs **34**(legacy)/**32**(dag-ml) | `:190-195` |
 | `generator_chain_model_configs` | same SELECT semantic over `_chain_` of distinct models | dag-ml | **PASS** parity-note; `num_predictions` pinned | `cross_impl_score` (winner) | **49**(legacy)/**47**(dag-ml) | `:196-201` |
 | *(contract-wide)* `best_rmse` / `best_r2` / `best_accuracy` re-anchored on the **SELECTED** model | 0.9.x **bugfix**: the scalar shortcuts previously re-ranked per metric and could each report a *different, non-selected* CV fold; they now read from `best` | dag-ml / post-fix nirs4all | enforced (not xfail) by `assert_runresult_contract` (`best_score` = selected-metric value) | `cross_impl_score` | e.g. `best_r2` returned fold R² `0.5426` instead of selected `0.5499` | `CHANGELOG.md:44-57`; `_conformance_helpers.py:286-300` |
 
-> **XPASS discipline:** every Tier-2 `xfail(strict)` flips the suite **RED** the
-> moment the engines reconverge — a fixed divergence can never silently leave
-> coverage. The two `num_predictions` parity-notes are **not** xfail (a strict
-> xfail would wrongly assert the engines should converge on the legacy
-> refit-all count); instead the exact `34/32` and `49/47` counts are *pinned*
-> by `assert_num_predictions_divergence` (`_conformance_helpers.py:220-243`), so
-> only the one documented +2 loser-refit-row delta passes — any other count fails.
+> **Parity-note discipline:** Tier-2 legacy-bug cases are **not** xfail when
+> dag-ml is authoritative. The two rep-fusion `cv_best_score` values are pinned
+> by `LEGACY_CV_SCORE_DIVERGENCE` / `_assert_legacy_cv_score_divergence`, and the
+> two `num_predictions` parity-notes pin the exact `34/32` and `49/47` counts by
+> `assert_num_predictions_divergence` (`_conformance_helpers.py:220-243`). Any
+> unledgered value drift fails.
 
 ### Tier 3 — oracle non-executable / RNG / unknown-semantics (comparison invalid)
 
 | Case | Sub-class | Authority | Disposition | Band | Evidence (`file:line`) |
 |---|---|---|---|---|---|
-| `branch_separation_by_tag` | `legacy_bug` — 0.9.1 `PipelineConfigs._preprocess_steps` assumes string-only dict keys, but by-tag steps use bool `True/False` keys | neither (legacy **crashes**) | `xfail(strict)` (no legacy oracle) | `n/a_semantic` | `cases_branches_merges.py:236` (case), `:254` (`skip_kind`) |
-| `branch_separation_by_filter` | `legacy_bug` — 0.9.1 `branch.py:643` imports the missing module `nirs4all.pipeline.steps.deserializer` | neither (legacy **crashes**) | `xfail(strict)` | `n/a_semantic` | `cases_branches_merges.py:278`, `:296` |
-| `concat_transform_pca_svd_plsr` | RNG — concat_transform view order / decomposition differs | neither | `xfail(strict)` | `n/a_rng` | `:88` (Δrmse≈`1.4e0`) |
-| `generator_sample_log_uniform_alpha` | RNG — unseeded `_sample_` (`_seed_` not set): variant set / winner not reproducible across engines | neither | `xfail(strict)` | `n/a_rng` | `:115` (Δrmse up to ≈`5.3e-1`, different winner) |
+| `generator_sample_log_uniform_alpha` | RNG — unseeded `_sample_` (`_seed_` not set): variant set / winner is intentionally stochastic | neither | **PASS** run-only native contract; no equality claim | `n/a_rng` | `UNSEEDED_NONDETERMINISTIC_CASES`; seeded twin `generator_sample_seeded_alpha` carries strict equality |
 
 > **The `_or_ count/_weights_` path is now a live parity case.** `_seed_` and
 > `_weights_` are threaded into `OrStrategy.sample_with_seed`, so
 > `generator_or_count_seed` and `generator_or_weights_count_seed` run alongside
 > the deterministic `_cartesian_` count path in `SAME_WINNER_CASES`.
+>
+> `branch_separation_by_tag`, `branch_separation_by_filter`, and
+> `concat_transform_pca_svd_plsr` are no longer Tier-3 debt: the legacy oracle
+> runs, dag-ml runs natively, and the targeted parity assertions are live.
 
 ---
 
@@ -270,18 +271,19 @@ gate.
 | Metric | Count | Note |
 |---|---|---|
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
-| Non-runnable (`skip_reason` set) | **2** | 2 `legacy_bug` (xfail) |
-| Runnable | **93** | 95 − 2 |
+| Non-runnable (`skip_reason` set) | **0** | all registry debt closed |
+| Runnable | **95** | all registered cases run |
 | → fall back to legacy (`EXPECTED_FALLBACK`) | **0** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **93** | full parity asserted |
-| Strict-xfail (documented divergence) | **6** | 4 `KNOWN_DIVERGENCES` + 2 `legacy_bug` |
+| → run native on dag-ml | **95** | native reach asserted; one unseeded `_sample_` is run-only |
+| Strict-xfail (documented divergence) | **0** | no live strict xfail rows |
 | `pytest.skip` (fixture + unknown-semantics) | **0** | registry skip debt closed |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
+| Run-only nondeterministic cases (PASS) | **1** | unseeded `_sample_`; seeded twin owns equality |
 
-> **Correction to prior counts:** all four registry skips are now live parity
-> assertions. Runnable cases are **93**; the strict-xfail (6),
-> `EXPECTED_FALLBACK` (0), and `NUM_PREDICTIONS_DIVERGENCE` (2) figures are
-> unchanged.
+> **Correction to prior counts:** registry skips, legacy-bug xfails, branch
+> separation xfails, concat PCA/SVD xfail, and repetition score xfails are closed
+> or converted to passing pinned notes. The remaining RNG case is explicitly
+> run-only and counted separately.
 
 ---
 
@@ -290,10 +292,11 @@ gate.
 1. **Bands, not a global number.** Every parity assertion binds to a `band_id`
    in §A.2. `1e-9` is `kernel_pls`, never the cross-engine default.
 2. **RNG is never tolerance-masked** (`DEC-PYREF-002`). An `n/a_rng` case is
-   xfail/skip; widening a tolerance to absorb a stochastic path is forbidden.
-3. **XPASS = RED.** Every Tier-2 / Tier-3 `xfail(strict)` flips the suite red the
-   moment the engines reconverge — a fixed divergence cannot silently leave
-   coverage.
+   either a ledgered run-only contract or a skip/xfail; widening a tolerance to
+   absorb a stochastic path is forbidden.
+3. **No silent xfail debt.** Strict xfail is permitted only through the sanctioned
+   collection-time builders and currently counts **0**; any future xfail must be
+   ledgered and XPASS-red by construction.
 4. **The native/fallback boundary can never silently widen.**
    `test_native_fallback_boundary` is never xfailed; an off-allowlist fallback or
    a stale allowlist entry fails (`test_conformance_dual_engine.py:372`).
@@ -325,11 +328,11 @@ published policy can never drift from the code that enforces it).
 
 Three **closed** policies — each fails on the *first* item it cannot place:
 
-1. **xfail containment.** `pytest.mark.xfail` / `pytest.xfail` may appear **only**
-   in `test_conformance_dual_engine.py` — the two collection-time `_params()`
-   marks fed by `KNOWN_DIVERGENCES` (4) + registry `legacy_bug` (2) = the **6
-   xfailed** headline. An xfail in any other parity module is untracked divergence
-   debt (the `11` can no longer be trusted) and fails the gate.
+1. **xfail containment.** `pytest.mark.xfail` / `pytest.xfail` may appear only in
+   `test_conformance_dual_engine.py` and `test_parity_smoke.py`, where
+   collection-time builders mirror ledgered `KNOWN_DIVERGENCES` / `legacy_bug`
+   debt. The live count is **0**; an xfail elsewhere is untracked divergence debt
+   and fails the gate.
 2. **skip taxonomy.** Every `pytest.skip` / `pytest.mark.skip(if)` /
    `pytest.importorskip` must classify into exactly one sanctioned category below;
    an unclassifiable skip is untracked coverage loss (a blocker under RC-B: skips
@@ -353,21 +356,18 @@ Three **closed** policies — each fails on the *first* item it cannot place:
 | `optional_env_methods` | optional_env | the `nirs4all-methods` SNV / n4m binding is unavailable (hard-fails only under `NIRS4ALL_REQUIRE_N4M=1`) |
 | `runtime_na` | runtime_precondition | a cross-engine comparison is N/A on this build: dag-ml ran the legacy fallback, wrote no native results, or the case is not a single-artifact native run. With `coverage_meter.fallback == 0` the fallback branch does not fire for covered cases |
 | `baseline_capture` | workflow | gold-baseline capture / absent-baseline guard in `test_parity_baseline` (`--parity-capture`) |
-| `lockdrop_empty` | workflow | `EXPECTED_FALLBACK` is empty (LOCK-DROP D1 closed), so the off-allowlist probe is skipped |
+| `lockdrop_empty` | workflow | historical category for the old empty-allowlist skip; the live boundary test now asserts the empty allowlist without skipping |
 
 ### G.2 How skips / xfails map to the gate
 
-- **6 xfailed** is exact and fully ledgered: `KNOWN_DIVERGENCES` (4) + registry
-  `legacy_bug` (2), applied only in the sanctioned builder (§B). The gate fails if
-  any seventh xfail appears anywhere.
+- **0 xfailed** is exact and fully ledgered. `KNOWN_DIVERGENCES` and registry
+  `legacy_bug` debt are empty; any new xfail must be added through the sanctioned
+  collection-time builders and the compatibility ledger.
 - **Skipped tests** are environment-dependent (which optional bins / the `dag-ml-cli`
-  binary are present) and decomposes entirely into the G.1 taxonomy. Static call
-  sites on `aab640c9`: `registry_skip` 8, `optional_env_import` 13,
-  `optional_env_dagml_cli` 96, `optional_env_dependency` 1, `optional_env_sibling`
-  1, `optional_env_methods` 1, `runtime_na` 8, `baseline_capture` 2,
-  `lockdrop_empty` 1 (= 131 sites; a single run realizes a subset). The
-  `registry_skip` call sites remain as the enforced category, but there are no
-  live registry-skip cases.
+  binary are present) and decompose entirely into the G.1 taxonomy. Static call
+  sites are audited by `_marker_audit`; a single run realizes only the subset
+  matching the local environment. The `registry_skip` category remains enforced,
+  but there are no live registry-skip cases.
 - **tolerance overrides**: 42 static tolerance literals, every one a published §A.2
   band value or a negative-assertion divergence floor. A new looser value fails.
 
@@ -382,5 +382,6 @@ pytest tests/integration/parity/test_marker_audit.py tests/integration/parity/te
 ```
 
 **This gate makes the debt visible and enforceable; it does not bless it.** The
-6 xfails remain open release debt owned by RC-C / RC-D — §G only guarantees
-none of it can grow silently.
+live strict-xfail count is **0**. Future RC-C / RC-D debt must first enter the
+ledgered builders / authority file, then the gate guarantees it cannot grow
+silently.

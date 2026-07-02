@@ -12,10 +12,10 @@ fails on the first *untracked* marker or tolerance.
 Three closed policies (each fails on the first item it cannot place):
 
 1. **xfail containment.** ``pytest.mark.xfail`` / ``pytest.xfail`` may appear
-   ONLY in :data:`SANCTIONED_XFAIL_MODULE` — the two ``_params()`` marks driven
+   ONLY in :data:`SANCTIONED_XFAIL_MODULES` — the collection-time marks driven
    by ``KNOWN_DIVERGENCES`` + the registry ``legacy_bug`` cases. Any xfail
-   anywhere else is an untracked cross-engine divergence and the ``6 xfailed``
-   headline can no longer be trusted.
+   anywhere else is an untracked cross-engine divergence and the xfail headline
+   can no longer be trusted.
 2. **skip taxonomy.** Every ``pytest.skip`` / ``pytest.mark.skip`` /
    ``pytest.mark.skipif`` / ``pytest.importorskip`` must classify into exactly
    one sanctioned category (:data:`SKIP_CATEGORY_IDS`). An unclassifiable skip is
@@ -52,10 +52,15 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 PARITY_DIR = Path(__file__).resolve().parent
 COMPATIBILITY_JSON = REPO_ROOT / "docs" / "compatibility.json"
 
-#: The single module allowed to carry ``pytest.mark.xfail`` — the collection-time
-#: ``_params()`` builder that turns ``KNOWN_DIVERGENCES`` + registry ``legacy_bug``
-#: into strict xfails. Every strict xfail in the suite flows through here.
-SANCTIONED_XFAIL_MODULE = "test_conformance_dual_engine.py"
+#: The only modules allowed to carry ``pytest.mark.xfail``. Conformance owns
+#: cross-engine divergences and registry ``legacy_bug`` xfails; smoke mirrors the
+#: registry ``legacy_bug`` xfails so those cases run and XPASS-flip instead of
+#: disappearing as skips.
+SANCTIONED_XFAIL_MODULES: tuple[str, ...] = (
+    "test_conformance_dual_engine.py",
+    "test_parity_smoke.py",
+)
+SANCTIONED_XFAIL_MODULE = SANCTIONED_XFAIL_MODULES[0]
 
 #: Ordered, closed set of skip categories. ``registry_skip`` is tracked coverage
 #: debt (the ledger ``coverage_skips``); the ``optional_env_*`` family is allowed
@@ -111,7 +116,7 @@ class XfailUse:
 
     @property
     def sanctioned(self) -> bool:
-        return self.module == SANCTIONED_XFAIL_MODULE
+        return self.module in SANCTIONED_XFAIL_MODULES
 
 
 @dataclass(frozen=True)
@@ -435,9 +440,10 @@ def validate_marker_policy(ledger: dict[str, Any] | None = None) -> None:
         raise AssertionError("compatibility.json is missing the 'marker_policy' object")
 
     modules = policy.get("xfail", {}).get("sanctioned_modules")
-    if modules != [SANCTIONED_XFAIL_MODULE]:
+    expected_modules = list(SANCTIONED_XFAIL_MODULES)
+    if modules != expected_modules:
         raise AssertionError(
-            f"marker_policy.xfail.sanctioned_modules drift: ledger={modules} enforced=[{SANCTIONED_XFAIL_MODULE!r}]"
+            f"marker_policy.xfail.sanctioned_modules drift: ledger={modules} enforced={expected_modules}"
         )
 
     ledger_cats = [row["id"] for row in policy.get("skip_categories", [])]
@@ -458,7 +464,7 @@ def format_report(result: AuditResult) -> str:
     lines = [
         "# parity marker & tolerance audit (RC-B)",
         "",
-        f"xfail call sites: {len(result.xfail_uses)} (sanctioned module: {SANCTIONED_XFAIL_MODULE})",
+        f"xfail call sites: {len(result.xfail_uses)} (sanctioned modules: {', '.join(SANCTIONED_XFAIL_MODULES)})",
         f"skip call sites:  {len(result.skip_uses)}",
         f"tolerance literals: {len(result.tolerance_uses)}",
         "",

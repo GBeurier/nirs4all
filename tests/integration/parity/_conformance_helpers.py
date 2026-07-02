@@ -152,8 +152,9 @@ def _enforced_score_tolerances(case: PipelineCase, gold: dict[str, Any], obs: di
       divergence), enforce ``cv_best_score`` — the only score these shapes produce
       — when it is present in both. This SURFACES the rep OOF-aggregation
       divergence (legacy concatenates overlapping rep folds; dag-ml aggregates the
-      OOF differently) instead of hiding it; the diverging cases are then
-      strict-xfailed with an honest reason, never silently passed.
+      OOF differently) instead of hiding it. Cases where dag-ml is authoritative
+      can then be moved to an explicit passing non-equivalence assertion instead
+      of silently passing structure-only.
     """
     if case.metric_tolerances:
         return dict(case.metric_tolerances)

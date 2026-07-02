@@ -139,8 +139,8 @@ def _factory_concat_transform_pca_svd_plsr() -> list[Any]:
         SNV(),
         {
             "concat_transform": [
-                PCA(n_components=15),
-                TruncatedSVD(n_components=10),
+                PCA(n_components=15, random_state=42),
+                TruncatedSVD(n_components=10, random_state=42),
             ]
         },
         ShuffleSplit(n_splits=3, random_state=42),

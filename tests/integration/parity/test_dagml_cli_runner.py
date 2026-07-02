@@ -18,7 +18,8 @@ from typing import Any, cast
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import KFold
+from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.model_selection import KFold, ShuffleSplit
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
@@ -2303,6 +2304,45 @@ def test_public_run_engine_dagml_concat_transform_with_chain() -> None:
     result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
     assert abs(result.cv_best_score - cv_oof) < 1e-6, (result.cv_best_score, cv_oof)
     assert abs(result.best_rmse - test_rmse) < 1e-6, (result.best_rmse, test_rmse)
+
+
+def test_public_run_engine_dagml_concat_transform_pca_svd_matches_legacy() -> None:
+    """PCA/SVD concat is prematerialized at the legacy train+test batch boundary."""
+    import nirs4all
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = [
+        StandardNormalVariate(),
+        {"concat_transform": [PCA(n_components=15, random_state=42), TruncatedSVD(n_components=10, random_state=42)]},
+        ShuffleSplit(n_splits=3, random_state=42),
+        {"model": PLSRegression(n_components=15)},
+    ]
+    dataset = DatasetConfigs(dataset_path("regression"))
+
+    legacy = nirs4all.run(pipeline, dataset, verbose=0, engine="legacy")
+    dagml = nirs4all.run(pipeline, dataset, verbose=0, engine="dag-ml")
+
+    assert dagml._is_dagml_engine()  # noqa: SLF001
+    assert legacy.num_predictions == dagml.num_predictions
+    assert abs(legacy.cv_best_score - dagml.cv_best_score) < 1e-9
+    assert abs(legacy.best_rmse - dagml.best_rmse) < 1e-9
+
+
+def test_concat_transform_prematerialized_path_rejects_model_param_sweeps() -> None:
+    """Model-param generators must keep the native generation route, not the prematerialized shortcut."""
+    from sklearn.linear_model import Ridge
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_paths import _is_concat_transform_prematerialized_pipeline
+
+    pipeline = [
+        StandardNormalVariate(),
+        {"concat_transform": [PCA(n_components=5, random_state=42), TruncatedSVD(n_components=3, random_state=42)]},
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 0.3]}},
+    ]
+
+    assert not _is_concat_transform_prematerialized_pipeline(pipeline)
 
 
 # ---------------------------------------------------------------------------

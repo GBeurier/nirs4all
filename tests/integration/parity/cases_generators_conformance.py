@@ -112,12 +112,13 @@ _CAPS = (
 
 
 # =============================================================================
-# 1) SEEDED vs UNSEEDED _sample_  (deterministic -> strict parity)
+# 1) SEEDED vs UNSEEDED _sample_  (seeded -> strict parity; unseeded -> run-only)
 # =============================================================================
 # `cases_generators.generator_sample_log_uniform_alpha` is the UNSEEDED partner
-# (no `_seed_`): genuinely stochastic across engines -> strict-xfail. This is its
-# SEEDED twin: `_seed_` pins the sampler, so both engines draw the IDENTICAL alpha
-# set, train the same variants, and select the same winner -> strict PARITY.
+# (no `_seed_`): genuinely stochastic across engines and covered by a run-only
+# nondeterminism contract in the dual-engine conformance test. This is its SEEDED
+# twin: `_seed_` pins the sampler, so both engines draw the IDENTICAL alpha set,
+# train the same variants, and select the same winner -> strict PARITY.
 
 
 def _factory_sample_seeded_alpha() -> list[Any]:
@@ -662,8 +663,8 @@ register(
 # =============================================================================
 # 8) SAMPLING DISTRIBUTIONS (each SEEDED -> deterministic parity)
 # =============================================================================
-# `cases_generators` covers seeded log_uniform `_sample_` (and the unseeded xfail);
-# `generator_sample_seeded_alpha` above is the log_uniform seeded twin. Here are
+# `cases_generators` covers the unseeded log_uniform `_sample_` run-only contract;
+# `generator_sample_seeded_alpha` above is the log_uniform seeded parity twin. Here are
 # the OTHER three distributions, each `_seed_`-pinned so both engines draw the
 # identical value set. uniform/normal target the float `alpha` (Ridge); choice
 # targets int `n_components` (PLSRegression) so the drawn values are valid.

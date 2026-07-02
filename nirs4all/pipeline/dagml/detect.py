@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .steps import _RESERVED_STEP_KEYS, _is_split_step
+from .steps import _RESERVED_STEP_KEYS, _is_split_step, _taggers_from_step
 
 
 def _is_exclude_step(step: Any) -> bool:
@@ -103,6 +103,33 @@ def _is_stateless_x_transform(step: Any) -> bool:
         return False
     tags = step._more_tags() if hasattr(step, "_more_tags") else {}
     return bool(tags.get("stateless"))
+
+
+def _is_supported_x_transform(step: Any) -> bool:
+    """Whether the dag-ml host can run this X transform in a projected branch path."""
+    if isinstance(step, dict) or _is_split_step(step):
+        return False
+    if _has_unseeded_random_state(step):
+        return False
+    try:
+        from .steps import _check_x_operator
+
+        _check_x_operator(step)
+    except Exception:
+        return False
+    return True
+
+
+def _has_unseeded_random_state(step: Any) -> bool:
+    """Reject stochastic branch transforms unless the user pins their RNG."""
+    get_params = getattr(step, "get_params", None)
+    if not callable(get_params):
+        return False
+    try:
+        params = get_params(deep=False)
+    except Exception:
+        return False
+    return "random_state" in params and params["random_state"] is None
 
 
 def _detect_source_concat_merge(pipeline: list[Any], n_sources: int) -> tuple[list[Any], list[Any], list[int]] | None:
@@ -765,8 +792,8 @@ def _is_unconstrained_operator_generator(pipeline: list[Any]) -> bool:
 
 
 def _is_separation_branch_step(step: Any) -> bool:
-    """True for a separation branch by metadata/tag: ``{"branch": {"by_metadata"|"by_tag": ...}}``."""
-    return isinstance(step, dict) and isinstance(step.get("branch"), dict) and bool({"by_metadata", "by_tag"} & set(step["branch"]))
+    """True for a sample-partition separation branch."""
+    return isinstance(step, dict) and isinstance(step.get("branch"), dict) and bool({"by_metadata", "by_tag", "by_filter"} & set(step["branch"]))
 
 
 def _is_concat_merge_step(step: Any) -> bool:
@@ -778,6 +805,16 @@ def _is_concat_merge_step(step: Any) -> bool:
 # (cardinality drop) and per-branch selectors are NOT honored, so a branch carrying them must fall
 # through to the loud bridge error rather than be silently run with default behavior.
 _HANDLED_BRANCH_KEYS = frozenset({"by_metadata", "by_tag", "steps"})
+_HANDLED_PREPROC_BRANCH_KEYS = frozenset({"by_metadata", "by_tag", "by_filter", "steps", "names"})
+
+
+def _branch_body_lists(body: Any) -> list[list[Any]] | None:
+    """Return branch preprocessing bodies for shared-list or per-branch dict syntax."""
+    if isinstance(body, list):
+        return [body]
+    if isinstance(body, dict) and body and all(isinstance(value, list) for value in body.values()):
+        return list(body.values())
+    return None
 
 
 def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list[Any]] | None:
@@ -826,17 +863,18 @@ def _detect_separation_branch(pipeline: list[Any]) -> tuple[dict[str, Any], list
     return branch_step, body
 
 
-def _detect_separation_preproc_concat(pipeline: list[Any]) -> tuple[dict[str, Any], list[Any], list[Any]] | None:
-    """Detect by_metadata preprocessing + concat features + one downstream model.
+def _detect_separation_preproc_concat(pipeline: list[Any]) -> tuple[dict[str, Any], Any, list[Any]] | None:
+    """Detect separation preprocessing + concat features + one downstream model.
 
     This is the single-source sibling of the by_source shared-preprocessing concat
     detector. It admits the narrow parity shape:
 
-    * one ``by_metadata`` separation branch with a shared LIST ``steps`` body
-      containing only stateless X transforms;
+    * one ``by_metadata`` / ``by_tag`` / ``by_filter`` separation branch with a
+      shared LIST or per-branch DICT ``steps`` body containing only supported X
+      transforms;
     * one ``{"merge": "concat"}`` immediately before one top-level model;
     * no other top-level operator/keyword beside the splitter, branch, merge,
-      and model.
+      model, and the tag step that creates a ``by_tag`` criterion.
 
     The existing :func:`_detect_separation_branch` owns model-in-branch fan-out.
     This detector owns feature reassembly before a downstream model.
@@ -852,20 +890,47 @@ def _detect_separation_preproc_concat(pipeline: list[Any]) -> tuple[dict[str, An
     if order != [branch_step, merge_step, model_step]:
         return None
 
+    criterion = branch_step["branch"]
+    criterion_keys = {"by_metadata", "by_tag", "by_filter"} & set(criterion)
+    if len(criterion_keys) != 1 or set(criterion) - _HANDLED_PREPROC_BRANCH_KEYS:
+        return None
+    if "names" in criterion and "by_filter" not in criterion:
+        return None
+
+    is_by_tag = "by_tag" in criterion
+    tag_steps = [step for step in pipeline if _taggers_from_step(step) is not None]
+    matching_tag_step: Any | None = None
+    if is_by_tag:
+        tag_key = str(criterion["by_tag"])
+        matching_tag_steps = [
+            tag_step
+            for tag_step in tag_steps
+            if any(tag_name == tag_key for tag_name, _filter in (_taggers_from_step(tag_step) or []))
+        ]
+        if len(matching_tag_steps) != 1:
+            return None
+        matching_tag_step = matching_tag_steps[0]
+        if pipeline.index(matching_tag_step) > pipeline.index(branch_step):
+            return None
+    elif tag_steps:
+        return None
+
     for step in pipeline:
         if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
             continue
+        if is_by_tag and step is matching_tag_step:
+            continue
         return None
 
-    criterion = branch_step["branch"]
-    if "by_metadata" not in criterion or set(criterion) - _HANDLED_BRANCH_KEYS:
-        return None
     body = criterion.get("steps")
-    if not isinstance(body, list) or not body:
+    body_lists = _branch_body_lists(body)
+    if body_lists is None:
         return None
-    if any(isinstance(sub, dict) and "model" in sub for sub in body):
+    if any(not body for body in body_lists):
         return None
-    if not all(_is_stateless_x_transform(sub) for sub in body):
+    if any(isinstance(sub, dict) and "model" in sub for body in body_lists for sub in body):
+        return None
+    if not all(_is_supported_x_transform(sub) for body in body_lists for sub in body):
         return None
     return branch_step, body, [model_step]
 

@@ -75,6 +75,7 @@ from .test_conformance_dual_engine import (
     EXPECTED_FALLBACK,
     KNOWN_DIVERGENCES,
     NUM_PREDICTIONS_DIVERGENCE,
+    UNSEEDED_NONDETERMINISTIC_CASES,
 )
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -116,6 +117,7 @@ LEDGER_SUMMARY_KEYS: tuple[str, ...] = (
     "xfail_strict",
     "skip",
     "num_predictions_divergence",
+    "run_only_nondeterministic",
     "expected_fallback_target",
 )
 
@@ -241,6 +243,7 @@ class CoverageReport:
             "xfail_strict": leaves[XFAIL],
             "skip": leaves[SKIP],
             "num_predictions_divergence": len(NUM_PREDICTIONS_DIVERGENCE),
+            "run_only_nondeterministic": len(UNSEEDED_NONDETERMINISTIC_CASES),
             "expected_fallback_target": 0,
         }
 
@@ -271,6 +274,7 @@ class CoverageReport:
             f"| — unexpected | {buckets[UNEXPECTED]} |",
             f"| xfail_strict | {summary['xfail_strict']} |",
             f"| skip | {summary['skip']} |",
+            f"| run_only_nondeterministic | {summary['run_only_nondeterministic']} |",
             f"| expected_fallback_target | {summary['expected_fallback_target']} |",
             "",
             "## Disposition partition (one bucket per case)",

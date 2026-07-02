@@ -5,10 +5,10 @@
     "regression"
   ],
   "metrics": {
-    "best_score": 16.5198459812295,
-    "cv_best_score": 22.412111517605656,
-    "r2": 0.30421439627832514,
-    "rmse": 16.5198459812295
+    "best_score": 16.51934743028506,
+    "cv_best_score": 22.412033350447103,
+    "r2": 0.30425639174680097,
+    "rmse": 16.51934743028506
   },
   "models": [
     "PLS_Latent",
@@ -17,5 +17,5 @@
     "Ridge_MetaModel"
   ],
   "num_predictions": 75,
-  "pipeline_fingerprint": "5be00355c53da4d6"
+  "pipeline_fingerprint": "d13034511d8ec0dc"
 }
