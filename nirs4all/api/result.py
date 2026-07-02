@@ -1576,6 +1576,50 @@ class RunResult:
         joblib.dump(model, output_path, compress=3)
         return output_path
 
+    def _dagml_replayable_train_steps(self) -> list[Any] | None:
+        """Serialize the FROZEN run pipeline into replayable training steps for the native ``.n4a``.
+
+        The native bundle's ``pipeline.json`` carries a single COSMETIC model step (the predict loader
+        keys on the step index, not the label), so on its own the bundle is predict-only:
+        ``retrain(mode="full")`` cannot re-train from it. This helper turns the run inputs that
+        :func:`~nirs4all.pipeline.dagml.run_backend._attach_export_spec` froze at run time into the
+        legacy-schema serialized step list (via
+        :func:`~nirs4all.pipeline.config.component_serialization.serialize_component` — the SAME form
+        the step parser deserializes), written as the bundle's additive ``train_pipeline.json``.
+
+        Fail-closed scope — returns ``None`` (bundle stays predict-only) when:
+
+        * no export spec was captured (not a dag-ml ``run()`` result);
+        * the pipeline is a GENERATOR / SWEEP of any kind (routing-aligned detection, exactly like
+          :func:`~nirs4all.pipeline.dagml.run_backend._derive_config_name`): the frozen pipeline is the
+          WHOLE sweep, while the exported artifact is the winner-only projection — retraining the sweep
+          would silently run a different (much larger) job than "retrain this model";
+        * any step fails to serialize to plain JSON (the ``json`` round-trip doubles as the
+          serializability guard) — a wrong training spec must never be written.
+        """
+        spec = self._dagml_export_spec
+        if spec is None:
+            return None
+        try:
+            import json
+
+            from nirs4all.pipeline.config._generator.keywords import has_nested_generator_keywords
+            from nirs4all.pipeline.config.component_serialization import serialize_component
+            from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+            from nirs4all.pipeline.dagml.detect import _generation_kind
+
+            pipeline = spec.get("pipeline")
+            if pipeline is None or isinstance(pipeline, PipelineConfigs):
+                return None  # No frozen steps, or a pre-built (possibly multi-variant) PipelineConfigs: not derivable here.
+            steps = PipelineConfigs._load_steps(pipeline)  # noqa: SLF001 - reuse the exact legacy step-loading.
+            if _generation_kind(steps) != "none" or has_nested_generator_keywords(steps):
+                return None
+            serialized = [serialize_component(step) for step in steps]
+            return cast(list[Any], json.loads(json.dumps(serialized)))
+        except Exception as exc:  # noqa: BLE001 -- fail-closed: drop the training spec rather than write a wrong one
+            logger.debug("native dag-ml train_pipeline.json is unavailable: %s", exc)
+            return None
+
     def _dagml_native_export_bundle(self, output_path: str | Path, format: str) -> Path | None:
         """Export a NATIVE ``.n4a`` bundle from captured dag-ml refit artifacts when safely replayable.
 
@@ -1636,6 +1680,10 @@ class RunResult:
         model_names = _native_model_names(native_manifest)
         from nirs4all.pipeline.bundle import write_single_model_bundle
 
+        # Replayable ORIGINAL training steps (train_pipeline.json) so retrain(mode="full") works from the
+        # exported bundle; None (predict-only bundle) for generator sweeps / unserializable pipelines.
+        train_steps = self._dagml_replayable_train_steps()
+
         if len(artifacts) == 1:
             artifact = artifacts[0]
             model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
@@ -1646,6 +1694,7 @@ class RunResult:
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
                 provenance=_dagml_native_bundle_provenance(native_manifest, export_path="dagml_native", artifact_count=1),
+                train_steps=train_steps,
             )
 
         stacking = _native_stacking_artifacts(native_manifest, artifacts)
@@ -1668,6 +1717,7 @@ class RunResult:
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
                 provenance=provenance,
+                train_steps=train_steps,
             )
 
         if _is_native_branch_fusion_bundle(native, artifacts):
@@ -1684,6 +1734,7 @@ class RunResult:
                     artifact_count=len(artifacts),
                     export_shape="branch_fusion_mean",
                 ),
+                train_steps=train_steps,
             )
 
         if _is_native_by_source_fusion_bundle(native, artifacts):
@@ -1706,6 +1757,7 @@ class RunResult:
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
                 provenance=provenance,
+                train_steps=train_steps,
             )
 
         return None

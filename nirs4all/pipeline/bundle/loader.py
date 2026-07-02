@@ -395,6 +395,7 @@ class BundleLoader:
         self.metadata: BundleMetadata | None = None
         self.trace: ExecutionTrace | None = None
         self.pipeline_config: dict[str, Any] = {}
+        self.train_pipeline_config: dict[str, Any] = {}
         self.fold_weights: dict[int, float] = {}
         self._artifact_index: dict[str, str] = {}
         self.relation_replay_manifest: dict[str, Any] = {}
@@ -419,6 +420,13 @@ class BundleLoader:
             if 'pipeline.json' in zf.namelist():
                 with zf.open('pipeline.json') as f:
                     self.pipeline_config = json.load(f)
+
+            # Load train_pipeline.json (if present): the ADDITIVE replayable TRAINING spec a native
+            # dag-ml single-model export carries (its pipeline.json model step is a cosmetic label the
+            # predict loader keys on, not a re-trainable component reference).
+            if 'train_pipeline.json' in zf.namelist():
+                with zf.open('train_pipeline.json') as f:
+                    self.train_pipeline_config = json.load(f)
 
             # Load chain.json (store-based export format)
             if 'chain.json' in zf.namelist():
@@ -1061,6 +1069,7 @@ class BundleLoader:
         return ResolvedPrediction(
             source_type=SourceType.BUNDLE,
             minimal_pipeline=self.pipeline_config.get("steps", []),
+            train_pipeline=self.train_pipeline_config.get("steps") or None,
             artifact_provider=self.artifact_provider,
             trace=self.trace,
             fold_strategy=fold_strategy,

@@ -75,6 +75,7 @@ def write_single_model_bundle(
     pipeline_uid: str = "",
     preprocessing_chain: str = "",
     provenance: dict[str, Any] | None = None,
+    train_steps: list[Any] | None = None,
     compress: bool = True,
 ) -> Path:
     """Write a minimal, valid ``.n4a`` ZIP bundle whose sole step is one predict-capable model.
@@ -109,6 +110,13 @@ def write_single_model_bundle(
         provenance: Optional ADDITIVE manifest fields recording the export origin (e.g. the dag-ml
             run / plan / variant ids and an ``export_path`` marker). Older loaders ignore unknown
             manifest keys (:meth:`BundleMetadata.from_dict`), so this never breaks bundle reads.
+        train_steps: Optional REPLAYABLE training pipeline steps (the JSON-serialized form produced by
+            :func:`~nirs4all.pipeline.config.component_serialization.serialize_component`, one entry per
+            original run step). When given they are written as an ADDITIVE ``train_pipeline.json`` member
+            so ``retrain(mode="full")`` can re-train the ORIGINAL pipeline structure from scratch. The
+            predict path is untouched: ``pipeline.json`` keeps the single cosmetic model step the loader
+            keys on, and older loaders ignore the extra member. Without it the bundle stays predict-only
+            (its ``pipeline.json`` model label is cosmetic, not an importable component reference).
         compress: ``ZIP_DEFLATED`` when ``True`` (default), else ``ZIP_STORED``.
 
     Returns:
@@ -151,6 +159,8 @@ def write_single_model_bundle(
     with zipfile.ZipFile(output_path, "w", compression=compression) as zf:
         zf.writestr("manifest.json", json.dumps(manifest, indent=2))
         zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
+        if train_steps is not None:
+            zf.writestr("train_pipeline.json", json.dumps({"steps": train_steps}, indent=2))
         buffer = io.BytesIO()
         joblib.dump(model, buffer)
         # The ``foldfinal`` token makes BundleLoader resolve this as the single refit model

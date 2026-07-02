@@ -2150,12 +2150,16 @@ class MergeController(OperatorController):
 
         Returns:
             Tuple of (merged_features, info_dict) where merged_features has
-            shape (n_total_samples, n_features).
+            shape (dataset.num_samples, n_features) — the FULL dataset row
+            universe, since the merged block replaces the dataset features.
 
         Raises:
             ValueError: If feature dimensions differ across branches.
         """
-        n_total_samples = disjoint_analysis.total_samples
+        # The merged block replaces the dataset features (add_merged_features),
+        # so it must cover every dataset row — not just the train rows that
+        # were routed into branches.
+        n_total_samples = dataset.num_samples
         feature_dims: dict[str, int] = {}
         branch_features: dict[int, tuple[np.ndarray, list[int]]] = {}
 
@@ -2163,7 +2167,13 @@ class MergeController(OperatorController):
         for bc in branch_contexts:
             branch_id = bc["branch_id"]
             branch_name = bc.get("name", f"branch_{branch_id}")
-            sample_indices = disjoint_analysis.branch_sample_indices.get(branch_id, [])
+            # Prefer the branch's full-universe membership (all partitions,
+            # recorded by BranchController for the reassembly); fall back to
+            # the branch's own (train) samples for legacy contexts without it.
+            branch_custom = getattr(bc.get("context"), "custom", {}) or {}
+            sample_indices = branch_custom.get("sample_partition", {}).get(
+                "all_sample_indices"
+            ) or disjoint_analysis.branch_sample_indices.get(branch_id, [])
 
             if not sample_indices:
                 logger.warning(f"Branch {branch_name} has no sample indices, skipping")
@@ -2177,10 +2187,14 @@ class MergeController(OperatorController):
                     f"[Error: MERGE-E041]"
                 )
 
+            # The snapshot holds the branch's transformed features for the
+            # WHOLE dataset (branch transforms are applied to every row; only
+            # membership is partitioned), so it is validated against the full
+            # row count and indexed by global row index below.
             try:
                 features = self._extract_features_from_snapshot(
                     snapshot=snapshot,
-                    expected_samples=len(sample_indices),
+                    expected_samples=n_total_samples,
                     branch_idx=branch_id,
                     layout="2d",
                 )
@@ -2218,13 +2232,15 @@ class MergeController(OperatorController):
 
         n_features = unique_dims.pop()
 
-        # Reconstruct full feature matrix by sample_id
+        # Reconstruct full feature matrix by global row index: each sample's
+        # row comes from its OWNING branch's whole-dataset snapshot (the row
+        # at the sample's own position — never a positional re-pack).
         merged = np.full((n_total_samples, n_features), np.nan)
 
         for _branch_id, (features, sample_indices) in branch_features.items():
-            for local_idx, global_idx in enumerate(sample_indices):
+            for global_idx in sample_indices:
                 if global_idx < n_total_samples:
-                    merged[global_idx] = features[local_idx]
+                    merged[global_idx] = features[global_idx]
 
         # Check for any unfilled samples
         nan_rows = np.any(np.isnan(merged), axis=1)

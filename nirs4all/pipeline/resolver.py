@@ -215,6 +215,11 @@ class ResolvedPrediction:
     Attributes:
         source_type: Type of the original source
         minimal_pipeline: List of pipeline steps needed for replay
+        train_pipeline: Replayable ORIGINAL training steps (serialized), when the source carries
+            them separately from the predict replay chain (native dag-ml ``.n4a`` bundles write a
+            ``train_pipeline.json`` because their ``pipeline.json`` model step is a cosmetic label,
+            not a re-trainable component reference). ``None`` when the source has no separate
+            training spec; retrain then replays ``minimal_pipeline`` as before.
         artifact_provider: Provider for step artifacts
         trace: ExecutionTrace if available
         fold_strategy: Strategy for combining folds
@@ -228,6 +233,7 @@ class ResolvedPrediction:
 
     source_type: SourceType = SourceType.UNKNOWN
     minimal_pipeline: list[Any] = field(default_factory=list)
+    train_pipeline: list[Any] | None = None
     artifact_provider: ArtifactProvider | None = None
     trace: ExecutionTrace | None = None
     fold_strategy: FoldStrategy = FoldStrategy.WEIGHTED_AVERAGE

@@ -486,8 +486,13 @@ class BranchController(OperatorController):
             logger.warning("No samples found for separation branch")
             return context, StepOutput()
 
-        # Get tag values for these samples
-        tag_values = dataset.get_tag(tag_name, selector={"indices": sample_indices.tolist()})
+        # Get tag values for these samples. `get_tag` returns the whole column
+        # in row order (an "indices" selector key is not honored by the query
+        # builder), so select rows positionally — mirroring the by_metadata
+        # column lookup. `.tolist()` yields native Python scalars: numpy bool_
+        # is not a `bool`, so `parse_value_condition` would reject it.
+        all_tag_values = dataset.get_tag(tag_name)
+        tag_values = all_tag_values[sample_indices].tolist()
 
         # Build value mapping if not provided
         if value_mapping is None:
@@ -497,7 +502,17 @@ class BranchController(OperatorController):
             logger.info(f"  Auto-detected {len(unique_values)} unique tag values: {unique_values}")
 
         # Group samples by value mapping
-        groups = group_samples_by_value_mapping(tag_values.tolist(), value_mapping)
+        groups = group_samples_by_value_mapping(tag_values, value_mapping)
+
+        # Full-universe routing (all partitions): the concat-merge reassembly
+        # needs every dataset row's owning branch, not just the train rows the
+        # branch executes on. Tag values exist for every sample, so the same
+        # value mapping routes the whole universe.
+        universe_indices = self._universe_indices(dataset, context)
+        universe_tags = all_tag_values[universe_indices].tolist()
+        universe_groups = self._to_universe_groups(
+            group_samples_by_value_mapping(universe_tags, value_mapping), universe_indices
+        )
 
         return self._execute_separation_branches(
             groups=groups,
@@ -512,6 +527,7 @@ class BranchController(OperatorController):
             prediction_store=prediction_store,
             separation_type="by_tag",
             separation_key=tag_name,
+            universe_groups=universe_groups,
         )
 
     def _execute_by_metadata(
@@ -602,6 +618,24 @@ class BranchController(OperatorController):
         if skipped:
             logger.warning(f"  Skipped {len(skipped)} branches below min_samples={min_samples}: {skipped}")
 
+        # Full-universe routing for the concat-merge reassembly (mirrors
+        # `groups` over every partition's rows). Branches dropped by
+        # min_samples stay dropped: their samples are not reassembled.
+        universe_indices = self._universe_indices(dataset, context)
+        universe_values = metadata_df[column].to_numpy()[universe_indices]
+        universe_groups: dict[str, list[int]] = {}
+        for branch_name, allowed_values in value_mapping.items():
+            if branch_name not in groups:
+                continue
+            if not isinstance(allowed_values, (list, tuple, set)):
+                allowed_values = [allowed_values]
+            allowed_set = set(allowed_values)
+            universe_groups[branch_name] = [
+                int(universe_indices[i])
+                for i, val in enumerate(universe_values)
+                if val in allowed_set
+            ]
+
         return self._execute_separation_branches(
             groups=groups,
             sample_indices=sample_indices,
@@ -615,6 +649,7 @@ class BranchController(OperatorController):
             prediction_store=prediction_store,
             separation_type="by_metadata",
             separation_key=column,
+            universe_groups=universe_groups,
         )
 
     def _execute_by_filter(
@@ -640,16 +675,22 @@ class BranchController(OperatorController):
             }}
         """
         from nirs4all.operators.filters.base import SampleFilter
-        from nirs4all.pipeline.steps.deserializer import StepDeserializer
+        from nirs4all.pipeline.config.component_serialization import deserialize_component
 
         filter_spec = raw_def["by_filter"]
         steps = raw_def.get("steps", [])
         names = raw_def.get("names", ["passing", "failing"])
 
-        # Deserialize filter if needed
+        # Deserialize filter if needed (the pipeline reaches the controller in
+        # serialized form, so an instance in the user pipeline arrives here as
+        # a {"class": ..., "params": ...} dict).
         if isinstance(filter_spec, dict):
-            deserializer = StepDeserializer()
-            filter_obj = deserializer.deserialize(filter_spec)
+            filter_obj = deserialize_component(filter_spec)
+            if not isinstance(filter_obj, SampleFilter):
+                raise ValueError(
+                    f"by_filter dict did not deserialize to a SampleFilter, "
+                    f"got {type(filter_obj).__name__}"
+                )
         elif isinstance(filter_spec, SampleFilter):
             filter_obj = filter_spec
         else:
@@ -692,6 +733,21 @@ class BranchController(OperatorController):
 
         logger.info(f"  Filter result: {len(passing_indices)} passing, {len(failing_indices)} failing")
 
+        # Full-universe routing for the concat-merge reassembly: the filter is
+        # FIT on the train selector above (no leakage) and its fitted bounds
+        # route every partition's rows, so train rows keep the exact same
+        # branch membership and test rows get a deterministic branch.
+        universe_selector = context.selector.copy()
+        universe_selector.include_augmented = False
+        universe_indices = self._universe_indices(dataset, context)
+        X_all = dataset.x(universe_selector, layout="2d", concat_source=True, include_augmented=False, include_excluded=False)
+        y_all = dataset.y(universe_selector, include_augmented=False, include_excluded=False)
+        universe_mask = filter_obj.get_mask(X_all, y_all)
+        universe_groups = {
+            names[0]: [int(universe_indices[i]) for i, m in enumerate(universe_mask) if m],
+            names[1]: [int(universe_indices[i]) for i, m in enumerate(universe_mask) if not m],
+        }
+
         # Persist filter for prediction mode
         all_artifacts = []
         if mode == "train":
@@ -711,6 +767,7 @@ class BranchController(OperatorController):
             prediction_store=prediction_store,
             separation_type="by_filter",
             separation_key=filter_obj.__class__.__name__,
+            universe_groups=universe_groups,
         )
 
         # Merge artifacts
@@ -1025,6 +1082,29 @@ class BranchController(OperatorController):
             metadata=metadata
         )
 
+    @staticmethod
+    def _universe_indices(dataset: "SpectroDataset", context: "ExecutionContext") -> np.ndarray:
+        """All dataset row indices in the current context, partition-unrestricted.
+
+        The concat-merge reassembly must know every row's owning branch (test
+        rows included), while train-mode branch execution only routes the train
+        partition. The unrestricted context selector is exactly the universe
+        the non-train mode already uses.
+        """
+        universe_selector = context.selector.copy()
+        universe_selector.include_augmented = False
+        return dataset._indexer.x_indices(  # noqa: SLF001
+            universe_selector, include_augmented=False, include_excluded=False
+        )
+
+    @staticmethod
+    def _to_universe_groups(local_groups: dict[str, list[int]], universe_indices: np.ndarray) -> dict[str, list[int]]:
+        """Convert value-mapping groups (local positions) to global dataset row indices."""
+        return {
+            name: [int(universe_indices[i]) for i in local]
+            for name, local in local_groups.items()
+        }
+
     def _execute_separation_branches(
         self,
         groups: dict[str, list[int]],
@@ -1039,13 +1119,19 @@ class BranchController(OperatorController):
         prediction_store: Any | None = None,
         separation_type: str = "unknown",
         separation_key: str = "",
+        universe_groups: dict[str, list[int]] | None = None,
     ) -> tuple["ExecutionContext", StepOutput]:
         """Common execution logic for separation branches.
 
         Args:
             groups: Dict mapping branch names to lists of local indices (into sample_indices)
             sample_indices: Array of actual sample indices in the dataset
-            steps: Pipeline steps to execute in each branch
+            steps: Pipeline steps to execute in each branch (shared list or
+                per-branch dict keyed by branch name / partition value)
+            universe_groups: Optional dict mapping branch names to GLOBAL
+                dataset row indices across ALL partitions — the full-universe
+                routing the concat-merge reassembly uses. Falls back to the
+                branch's own (train) samples when absent.
             ... (other args same as execute)
         """
         n_branches = len(groups)
@@ -1098,6 +1184,7 @@ class BranchController(OperatorController):
                 branch_name=branch_name,
                 local_indices=local_indices,
                 sample_indices=sample_indices,
+                universe_sample_indices=universe_groups.get(branch_name) if universe_groups else None,
                 steps=steps,
                 dataset=dataset,
                 context=context,
@@ -1134,6 +1221,7 @@ class BranchController(OperatorController):
         branch_name: str,
         local_indices: list[int],
         sample_indices: np.ndarray,
+        universe_sample_indices: list[int] | None,
         steps: list[Any],
         dataset: "SpectroDataset",
         context: "ExecutionContext",
@@ -1197,6 +1285,11 @@ class BranchController(OperatorController):
             "separation_type": separation_type,
             "separation_key": separation_key,
         }
+        if universe_sample_indices is not None:
+            # Full-universe membership (all partitions) — consumed by the
+            # concat-merge reassembly so every dataset row (test included)
+            # is rebuilt from its owning branch's transformed features.
+            branch_context.custom["sample_partition"]["all_sample_indices"] = list(universe_sample_indices)
 
         # Reset artifact counter
         if runtime_context:
@@ -1213,8 +1306,13 @@ class BranchController(OperatorController):
 
         branch_artifacts: list[Any] = []
 
+        # Resolve per-branch steps: `steps` is either a shared list (every
+        # branch runs the same sub-pipeline) or a per-branch dict keyed by
+        # branch name / partition value (D06 syntax).
+        branch_steps = self._resolve_branch_steps(steps, branch_name)
+
         # Execute branch steps
-        for substep_idx, substep in enumerate(steps):
+        for substep_idx, substep in enumerate(branch_steps):
             if runtime_context.step_runner:
                 runtime_context.substep_number = substep_idx
 
@@ -1268,6 +1366,38 @@ class BranchController(OperatorController):
         logger.success(f"    Branch {branch_id} '{branch_name}' completed")
 
         return branch_dict, branch_artifacts
+
+    @staticmethod
+    def _resolve_branch_steps(steps: Any, branch_name: str) -> list[Any]:
+        """Resolve the steps one separation branch runs.
+
+        A separation branch's ``steps`` is either a shared list (every branch
+        runs the same sub-pipeline) or a per-branch dict keyed by branch name /
+        partition value: ``{True: [...], False: [...]}`` for ``by_tag``,
+        ``{"passing": [...], "failing": [...]}`` for ``by_filter``,
+        ``{"<value>": [...]}`` for ``by_metadata``. Branch names are the
+        ``str()`` of the partition value, so dict keys are matched by string
+        form — a bool ``True`` key matches its auto-generated branch name
+        ``"True"``. A JSON round-trip (refit/predict replay) stores bool keys
+        as ``"true"``/``"false"``, so bool-like strings match case-insensitively.
+
+        Raises:
+            ValueError: if a per-branch dict has no entry for ``branch_name``
+                (silently running zero steps would hide a key typo).
+        """
+        if not isinstance(steps, dict):
+            return steps
+        bool_forms = {"true", "false"}
+        for key, value in steps.items():
+            key_str = str(key)
+            if key == branch_name or key_str == branch_name:
+                return value
+            if key_str.lower() in bool_forms and key_str.lower() == branch_name.lower():
+                return value
+        raise ValueError(
+            f"Separation branch '{branch_name}' has no steps entry; "
+            f"available keys: {list(steps.keys())}"
+        )
 
     def _finalize_separation_branches(
         self,

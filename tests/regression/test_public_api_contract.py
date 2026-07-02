@@ -60,7 +60,8 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "refit: bool | dict[str, typing.Any] | list[dict[str, typing.Any]] | None = True, "
         "cache: typing.Any | None = None, project: str | None = None, "
         "report_naming: str = 'nirs', engine: str | None = None, "
-        "results_path: str | pathlib.Path | None = None, **runner_kwargs: Any) -> "
+        "results_path: str | pathlib.Path | None = None, allow_fallback: bool = False, "
+        "**runner_kwargs: Any) -> "
         "nirs4all.api.result.RunResult"
     ),
     "predict": (
