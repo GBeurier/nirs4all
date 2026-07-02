@@ -628,6 +628,8 @@ def run(
                 session=session,
                 cache=cache,
                 runner_kwargs=runner_kwargs,
+                save_charts=save_charts,
+                plots_visible=plots_visible,
                 results_path=results_path,
             )
         except DagMlUnavailable as e:

@@ -108,6 +108,25 @@ def test_dagml_engine_coverage_boundary() -> None:
     assert dsl["pipeline"][0]["class"] == "nirs4all.operators.transforms.concat.FeatureConcat"
 
 
+def test_dagml_chart_steps_are_inert_only_when_disabled() -> None:
+    """Chart-only side effects are stripped only when the caller disabled chart rendering."""
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    pipeline = [
+        "chart_2d",
+        "spectral_distribution",
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=2)},
+    ]
+
+    result = run_via_dagml(pipeline, dataset_path("regression"), save_charts=False, plots_visible=False)
+    assert result.num_predictions > 0
+
+    with pytest.raises(DagMlUnsupported, match="chart"):
+        run_via_dagml(pipeline, dataset_path("regression"), save_charts=True, plots_visible=False)
+
+
 def test_assembled_dsl_binds_data_and_materializes_folds() -> None:
     """The augmented DSL compiles to a plan whose model node has a data binding + a fold set."""
     import dag_ml
@@ -1557,10 +1576,10 @@ def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
     base-grain folds (a clean OOF partition over base val) + a CV-universe envelope, and the host
     expands each fold's base-train ids to base + their augmented children at fit time. We assert:
 
-    * `cv_best_score` == a DIRECT sklearn-on-augmented-train OOF baseline (per fold, fit SNV->PLS on
-      base-train + their augmented children, validate on base-val; OOF reassembled, scored) — within
-      1e-3, reconstructed from THIS run's pickled augmented dataset (augmentation is stochastic, so the
-      baseline must use the same synthetic rows the run used);
+    * `cv_best_score` == a DIRECT sklearn-on-augmented-train OOF baseline (per fold, fit PLS on the
+      already-preprocessed augmented dataset's base-train + children, validate on base-val; OOF
+      reassembled, scored) — within 1e-3, reconstructed from THIS run's pickled augmented dataset
+      (augmentation is stochastic, so the baseline must use the same synthetic rows the run used);
     * it DIFFERS from the no-augmentation OOF baseline (same folds, base-train only) — proving the
       augmented samples actually train. Legacy is a CONFIRMED silent NO-OP (#14): the legacy model
       controller fetches train with include_augmented defaulting False, so augmented rows never reach
@@ -1571,7 +1590,6 @@ def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
     import pickle
 
     from sklearn.metrics import mean_squared_error
-    from sklearn.pipeline import make_pipeline
 
     from nirs4all.operators.augmentation import GaussianAdditiveNoise
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
@@ -1605,12 +1623,13 @@ def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
         origin_int = all_origins[all_samples.index(sample_int)]
         return float(np.asarray(aug_ds.y({"sample": [origin_int]})).ravel()[0])
 
-    # DIRECT sklearn-on-augmented-train OOF: per fold fit on base-train + their children, val on base-val.
+    # DIRECT sklearn-on-augmented-train OOF: pre-augmentation transforms are already materialized in
+    # `aug_ds`, so fit only the post-augmentation model on base-train + children.
     oof_pred: dict[int, float] = {}
     oof_true: dict[int, float] = {}
     for train_ints, val_ints in folds:
         fit_ints = list(train_ints) + [child for origin in train_ints for child in children.get(origin, [])]
-        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model = PLSRegression(n_components=n_comp)
         model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d")), np.asarray([y_of(s) for s in fit_ints], dtype=float))
         pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d")))).ravel()
         for position, sample_int in enumerate(val_ints):
@@ -1623,7 +1642,7 @@ def test_run_via_dagml_sample_augmentation(tmp_path) -> None:
     # (legacy's silent no-op would make them equal; #14).
     no_pred: dict[int, float] = {}
     for train_ints, val_ints in folds:
-        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model = PLSRegression(n_components=n_comp)
         model.fit(np.asarray(aug_ds.x_rows(list(train_ints), layout="2d")), np.asarray([y_of(s) for s in train_ints], dtype=float))
         pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d")))).ravel()
         for position, sample_int in enumerate(val_ints):
@@ -1674,17 +1693,16 @@ def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
     never train into another fold (the global #8 path would fit on the whole train, leaking future
     fold-val neighbors). We assert:
 
-    * `cv_best_score` == a DIRECT per-fold-augmented sklearn OOF (per fold, fit SNV->PLS on base-train +
-      THAT FOLD's children, validate on base-val) — reconstructed from THIS run's pickled augmented
-      dataset + its `fold_children` map (augmentation is stochastic, so the baseline must reuse the exact
-      synthetic rows and per-fold attribution the run used);
+    * `cv_best_score` == a DIRECT per-fold-augmented sklearn OOF (per fold, fit PLS on the already-
+      preprocessed augmented dataset's base-train + THAT FOLD's children, validate on base-val) —
+      reconstructed from THIS run's pickled augmented dataset + its `fold_children` map (augmentation is
+      stochastic, so the baseline must reuse the exact synthetic rows and per-fold attribution the run used);
     * it DIFFERS from the no-augmentation OOF (children actually train);
     * NO augmented child appears in the validation/OOF (the origin-boundary leakage guard).
     """
     import pickle
 
     from sklearn.metrics import mean_squared_error
-    from sklearn.pipeline import make_pipeline
 
     from nirs4all.operators.augmentation.spectral import LocalMixupAugmenter
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
@@ -1715,13 +1733,14 @@ def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
         origin_int = all_origins[all_samples.index(sample_int)]
         return float(np.asarray(aug_ds.y({"sample": [origin_int]})).ravel()[0])
 
-    # DIRECT per-fold-augmented OOF: per fold, fit on base-train + THAT FOLD's children, val on base-val.
+    # DIRECT per-fold-augmented OOF: pre-augmentation transforms are already materialized in `aug_ds`,
+    # so fit only the post-augmentation model on base-train + THAT FOLD's children.
     oof_pred: dict[int, float] = {}
     oof_true: dict[int, float] = {}
     for fold_index, (train_ints, val_ints) in enumerate(folds):
         fold_kids = fold_children[f"fold{fold_index}"]
         fit_ints = list(train_ints) + [child for origin in train_ints for child in fold_kids.get(origin, [])]
-        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model = PLSRegression(n_components=n_comp)
         model.fit(np.asarray(aug_ds.x_rows(fit_ints, layout="2d")), np.asarray([y_of(s) for s in fit_ints], dtype=float))
         pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d")))).ravel()
         for position, sample_int in enumerate(val_ints):
@@ -1733,7 +1752,7 @@ def test_run_via_dagml_fold_local_stateful_augmentation(tmp_path) -> None:
     # NO-augmentation OOF baseline — the fold-local run must DIFFER (the children actually train).
     no_pred: dict[int, float] = {}
     for train_ints, val_ints in folds:
-        model = make_pipeline(StandardNormalVariate(), PLSRegression(n_components=n_comp))
+        model = PLSRegression(n_components=n_comp)
         model.fit(np.asarray(aug_ds.x_rows(list(train_ints), layout="2d")), np.asarray([y_of(s) for s in train_ints], dtype=float))
         pred = np.asarray(model.predict(np.asarray(aug_ds.x_rows(list(val_ints), layout="2d")))).ravel()
         for position, sample_int in enumerate(val_ints):

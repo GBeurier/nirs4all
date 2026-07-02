@@ -71,30 +71,19 @@ _DAGML_REFUSAL_LEDGER: dict[str, dict[str, object]] = {
             ),
             (
                 "[run/unsupported_shape]",
-                "cannot route ShuffleSplit",
+                "feature_augmentation",
+                "followed by another X-side step",
+                "3D data-plane",
             ),
         ),
-        "unsupported_capability": "public example composition may include an optional second model, then leaves ShuffleSplit in the operator route after feature augmentation and fold-chart steps",
+        "unsupported_capability": "public example composition may include an optional second model, then uses feature_augmentation followed by a downstream X transform that requires the processing-axis/3D dataplane",
         "owner": "dag-ml native coverage",
         "rationale": (
             "Simple ShuffleSplit CV and classification model sweeps are covered natively; this ledger entry tracks "
-            "the richer public-example composition until optional multi-model tutorial shapes and splitter extraction "
-            "through feature-augmentation/chart steps are supported."
+            "the richer public-example composition until optional multi-model tutorial shapes and processing-axis "
+            "feature_augmentation followed by downstream transforms are supported."
         ),
-        "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_shufflesplit and tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_classification_sweep_selects_balanced_accuracy_winner",
-    },
-    "user/03_preprocessing/U01_preprocessing_basics.py": {
-        "markers": (
-            "[run/unsupported_shape]",
-            "cannot route ShuffleSplit",
-        ),
-        "unsupported_capability": "public example composition leaves ShuffleSplit in the operator route after chart steps",
-        "owner": "dag-ml native coverage",
-        "rationale": (
-            "Simple ShuffleSplit CV is covered natively; this ledger entry tracks the chart-plus-splitter composition "
-            "until the public preprocessing tutorial can run dag-ml-native."
-        ),
-        "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_shufflesplit",
+        "coverage_evidence": "tests/integration/parity/test_dagml_cli_runner.py::test_feature_augmentation_3d_shapes_fail_loud and tests/integration/parity/test_dagml_cli_runner.py::test_public_run_engine_dagml_classification_sweep_selects_balanced_accuracy_winner",
     },
 }
 
