@@ -325,6 +325,12 @@ class ConcatAugmentationController(OperatorController):
         Returns:
             Deserialized transformer instance or chain of instances
         """
+        # Class-valued shorthand (e.g. SNV instead of SNV()) is accepted by the
+        # dag-ml lowering as a class FQN with empty params; instantiate it here
+        # so the legacy controller routes the same operation instead of the class object.
+        if isinstance(op, type):
+            return op()
+
         # Already a transformer instance
         if hasattr(op, 'fit') and hasattr(op, 'transform'):
             return op

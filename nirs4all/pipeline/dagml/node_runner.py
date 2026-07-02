@@ -30,6 +30,7 @@ from collections.abc import Callable, MutableMapping
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
+from sklearn.base import clone
 from sklearn.pipeline import make_pipeline
 
 from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID
@@ -415,6 +416,80 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
     }
 
 
+def _fit_transform_finetune_x(upstream: list[Any], x_train: np.ndarray, y_train: np.ndarray) -> np.ndarray:
+    """Apply the model node's upstream X-chain to the full train pool for Optuna."""
+    out = x_train
+    for step in upstream:
+        fitted = clone(step)
+        try:
+            out = np.asarray(fitted.fit_transform(out, y_train))
+        except TypeError:
+            out = np.asarray(fitted.fit_transform(out))
+    return out
+
+
+def _ordered_finetune_params(metadata: dict[str, Any]) -> dict[str, Any]:
+    """Rebuild finetune_params with legacy model_params insertion order."""
+    finetune_params = dict(metadata.get("nirs4all_finetune_params") or {})
+    model_params = finetune_params.get("model_params")
+    order = metadata.get("nirs4all_finetune_model_param_order")
+    if isinstance(model_params, dict) and isinstance(order, list):
+        ordered = {key: model_params[key] for key in order if key in model_params}
+        ordered.update({key: value for key, value in model_params.items() if key not in ordered})
+        finetune_params["model_params"] = ordered
+    return finetune_params
+
+
+def _resolve_finetune_best_params(
+    *,
+    graph_node: dict[str, Any],
+    node_id: str,
+    variant_label: str,
+    model: Any,
+    upstream: list[Any],
+    resolver: MaterializationResolver,
+    model_store: MutableMapping[int, Any],
+) -> dict[str, Any]:
+    """Run legacy Optuna finetuning once per model node/variant and cache best params."""
+    metadata = graph_node.get("metadata") or {}
+    if not metadata.get("nirs4all_finetune_params"):
+        return {}
+    finetune_params = _ordered_finetune_params(metadata)
+    if str(finetune_params.get("approach", "grouped")) != "single":
+        raise NotImplementedError(
+            "dag-ml native finetune parity currently supports finetune_params approach='single' only"
+        )
+
+    cache_key = ("nirs4all_finetune_best_params", node_id, variant_label)
+    cached = model_store.get(cache_key)  # type: ignore[arg-type]
+    if cached is not None:
+        return dict(cached)
+
+    from nirs4all.controllers.models.sklearn_model import SklearnModelController
+    from nirs4all.optimization.optuna import FinetuneResult, OptunaManager
+
+    train_ids = resolver.partition_wire_ids("train")
+    x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=True)["values"])
+    y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
+    x_tuned = _fit_transform_finetune_x(upstream, x_train, y_train) if upstream else x_train
+
+    result = OptunaManager().finetune(
+        resolver._dataset,  # noqa: SLF001 - host callback already owns the concrete dataset.
+        model_config={"model_instance": clone(model)},
+        X_train=x_tuned,
+        y_train=y_train,
+        X_test=None,
+        y_test=None,
+        folds=None,
+        finetune_params=dict(finetune_params),
+        context=None,
+        controller=SklearnModelController(),
+    )
+    best_params = dict(result.best_params) if isinstance(result, FinetuneResult) else {}
+    model_store[cache_key] = best_params  # type: ignore[index]
+    return best_params
+
+
 def run_model_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
@@ -476,6 +551,18 @@ def run_model_node(
     else:
         model = route_graph_node(graph_node, variant_overrides=_variant_overrides(task, node_id))
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
+        best_params = _resolve_finetune_best_params(
+            graph_node=graph_node,
+            node_id=node_id,
+            variant_label=variant_label,
+            model=model,
+            upstream=upstream,
+            resolver=resolver,
+            model_store=model_store,
+        )
+        if best_params and hasattr(model, "set_params"):
+            model = clone(model)
+            model.set_params(**best_params)
         source_chains = _source_concat_chains(graph_node)
         source_concat = source_chains is not None or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
         multi_block = not source_concat and _is_multi_block_model(model) and resolver.is_multi_source()

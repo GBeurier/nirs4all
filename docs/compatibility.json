@@ -96,52 +96,12 @@
   ],
   "authority": [
     {
-      "case": "sample_augmentation_gaussian",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "augmentation RNG/order differs"
-    },
-    {
-      "case": "sample_augmentation_chained",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "chained augmentation RNG/order differs"
-    },
-    {
-      "case": "sample_augmentation_after_savgol",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "augmentation-after-preprocessing RNG/order differs"
-    },
-    {
-      "case": "feature_augmentation_replace_three_views",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "feature-view build order differs"
-    },
-    {
       "case": "concat_transform_pca_svd_plsr",
       "tier": 3,
       "disposition": "xfail_strict",
       "authoritative_engine": "neither",
       "tolerance_band": "n/a_rng",
       "mechanism": "concat_transform view order/decomposition differs"
-    },
-    {
-      "case": "generator_finetune_params_optuna",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "Optuna trial sequence differs across engines"
     },
     {
       "case": "generator_sample_log_uniform_alpha",
@@ -340,7 +300,7 @@
     "runnable": 93,
     "fallback": 0,
     "native": 93,
-    "xfail_strict": 11,
+    "xfail_strict": 6,
     "skip": 0,
     "num_predictions_divergence": 2,
     "expected_fallback_target": 0
@@ -351,7 +311,7 @@
     "purpose": "A static AST gate over tests/integration/parity/*.py that fails on the first UNTRACKED xfail, skip, or tolerance override — debt added directly in a test body, bypassing the ledgered constants that _authority.py reconciles.",
     "xfail": {
       "sanctioned_modules": ["test_conformance_dual_engine.py"],
-      "note": "Strict xfail is applied ONLY by _params() from KNOWN_DIVERGENCES (9) + registry legacy_bug (2) = 11 xfailed. An xfail marker in any other parity module is untracked cross-engine divergence debt and fails the gate."
+      "note": "Strict xfail is applied ONLY by _params() from KNOWN_DIVERGENCES (4) + registry legacy_bug (2) = 6 xfailed. An xfail marker in any other parity module is untracked cross-engine divergence debt and fails the gate."
     },
     "skip_categories": [
       {"id": "registry_skip", "kind": "tracked_debt", "note": "fixture / unknown_semantics registry skips ([{skip_kind}] ...); currently no live cases, but the category remains enforced across the compile / smoke / baseline / dual-engine modules."},

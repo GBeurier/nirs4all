@@ -21,7 +21,7 @@ from sklearn.model_selection import ShuffleSplit
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.identity import mint_identity
-from nirs4all.pipeline.dagml.node_runner import run_node
+from nirs4all.pipeline.dagml.node_runner import _resolve_finetune_best_params, run_node
 from nirs4all.pipeline.dagml.process_adapter import describe, run_jsonl_loop
 from nirs4all.pipeline.dagml.resolver import MaterializationResolver
 
@@ -30,6 +30,68 @@ from ._datasets import dataset_path
 pytestmark = [pytest.mark.parity]
 
 pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
+
+
+def test_finetune_best_params_are_cached_per_node_variant(monkeypatch) -> None:
+    """The native callback runs Optuna once and reuses the same best params for fold/refit fits."""
+    from sklearn.ensemble import RandomForestRegressor
+
+    from nirs4all.optimization import optuna as optuna_mod
+
+    calls: list[dict] = []
+
+    class FakeOptunaManager:
+        def finetune(self, *args, **kwargs):
+            calls.append(kwargs)
+            return optuna_mod.FinetuneResult(best_params={"n_estimators": 23}, best_value=1.0, n_trials=1)
+
+    class FakeResolver:
+        _dataset = object()
+
+        def partition_wire_ids(self, partition):
+            assert partition == "train"
+            return ["s0", "s1", "s2", "s3"]
+
+        def resolve_features(self, ids, include_augmented=True):
+            assert ids == ["s0", "s1", "s2", "s3"]
+            return {"values": np.arange(12, dtype=np.float32).reshape(4, 3)}
+
+        def resolve_targets(self, ids):
+            assert ids == ["s0", "s1", "s2", "s3"]
+            return {"values": np.array([0.0, 1.0, 0.0, 1.0])}
+
+    monkeypatch.setattr(optuna_mod, "OptunaManager", FakeOptunaManager)
+    graph_node = {
+        "metadata": {
+            "nirs4all_finetune_params": {
+                "approach": "single",
+                "n_trials": 1,
+                "model_params": {"n_estimators": ["int", 10, 40]},
+            }
+        }
+    }
+    store: dict = {}
+
+    first = _resolve_finetune_best_params(
+        graph_node=graph_node,
+        node_id="model0",
+        variant_label="base",
+        model=RandomForestRegressor(random_state=42),
+        upstream=[],
+        resolver=FakeResolver(),
+        model_store=store,
+    )
+    second = _resolve_finetune_best_params(
+        graph_node=graph_node,
+        node_id="model0",
+        variant_label="base",
+        model=RandomForestRegressor(random_state=42),
+        upstream=[],
+        resolver=FakeResolver(),
+        model_store=store,
+    )
+    assert first == second == {"n_estimators": 23}
+    assert len(calls) == 1
 
 
 def _require_methods_snv_available() -> None:

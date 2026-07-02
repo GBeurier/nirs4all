@@ -273,6 +273,17 @@ def test_resolver_mixed_base_and_augmented_request_keeps_order(augmented_dataset
     assert np.array_equal(values, ground_truth)
 
 
+def test_resolver_augmented_expansion_appends_children_after_base_rows(augmented_dataset) -> None:
+    """Fit-view expansion mirrors legacy training matrix order: base rows first, then children."""
+    identity = mint_identity(augmented_dataset)
+    resolver = MaterializationResolver(augmented_dataset, identity)
+
+    request = [identity.to_wire(0), identity.to_wire(2)]
+    aug_obs = _aug_observation_ids(identity)
+
+    assert resolver.expand_with_augmented_children(request) == [*request, *aug_obs]
+
+
 def test_resolver_refuses_augmented_in_non_augmented_view(augmented_dataset) -> None:
     """An augmented child must never reach a validation/predict view: resolve_features with
     include_augmented=False refuses an augmented observation id (origin-boundary guard)."""

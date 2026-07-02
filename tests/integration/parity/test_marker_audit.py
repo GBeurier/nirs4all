@@ -3,9 +3,9 @@
 Two halves:
 
 * **Live-tree gate** — :func:`_marker_audit.audit_tree` scans every parity module
-  and must find zero untracked markers. This is the enforcement that turns the
-  ``810 passed / 30 skipped / 11 xfailed`` state into auditable debt: a new bare
-  ``pytest.skip`` / ``pytest.mark.xfail`` / loose tolerance fails CI immediately.
+  and must find zero untracked markers. This is the enforcement that turns any
+  skip/xfail/tolerance headline into auditable debt: a new bare ``pytest.skip``
+  / ``pytest.mark.xfail`` / loose tolerance fails CI immediately.
 * **Negative self-tests** — feed the auditor rogue source and prove it FLAGS the
   debt (otherwise a silently-broken gate would pass the live tree forever).
 

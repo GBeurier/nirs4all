@@ -14,7 +14,7 @@ Three closed policies (each fails on the first item it cannot place):
 1. **xfail containment.** ``pytest.mark.xfail`` / ``pytest.xfail`` may appear
    ONLY in :data:`SANCTIONED_XFAIL_MODULE` — the two ``_params()`` marks driven
    by ``KNOWN_DIVERGENCES`` + the registry ``legacy_bug`` cases. Any xfail
-   anywhere else is an untracked cross-engine divergence and the ``11 xfailed``
+   anywhere else is an untracked cross-engine divergence and the ``6 xfailed``
    headline can no longer be trusted.
 2. **skip taxonomy.** Every ``pytest.skip`` / ``pytest.mark.skip`` /
    ``pytest.mark.skipif`` / ``pytest.importorskip`` must classify into exactly
