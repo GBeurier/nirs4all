@@ -448,7 +448,7 @@ def _resolve_finetune_best_params(
     model: Any,
     upstream: list[Any],
     resolver: MaterializationResolver,
-    model_store: MutableMapping[int, Any],
+    model_store: MutableMapping[Any, Any],
 ) -> dict[str, Any]:
     """Run legacy Optuna finetuning once per model node/variant and cache best params."""
     metadata = graph_node.get("metadata") or {}
@@ -461,12 +461,13 @@ def _resolve_finetune_best_params(
         )
 
     cache_key = ("nirs4all_finetune_best_params", node_id, variant_label)
-    cached = model_store.get(cache_key)  # type: ignore[arg-type]
+    cached = model_store.get(cache_key)
     if cached is not None:
         return dict(cached)
 
     from nirs4all.controllers.models.sklearn_model import SklearnModelController
     from nirs4all.optimization.optuna import FinetuneResult, OptunaManager
+    from nirs4all.pipeline.config.context import ExecutionContext
 
     train_ids = resolver.partition_wire_ids("train")
     x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=True)["values"])
@@ -482,11 +483,11 @@ def _resolve_finetune_best_params(
         y_test=None,
         folds=None,
         finetune_params=dict(finetune_params),
-        context=None,
+        context=ExecutionContext(),
         controller=SklearnModelController(),
     )
     best_params = dict(result.best_params) if isinstance(result, FinetuneResult) else {}
-    model_store[cache_key] = best_params  # type: ignore[index]
+    model_store[cache_key] = best_params
     return best_params
 
 
@@ -494,7 +495,7 @@ def run_model_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
-    model_store: MutableMapping[int, Any],
+    model_store: MutableMapping[Any, Any],
     edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,
@@ -755,7 +756,7 @@ def run_meta_model_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
-    model_store: MutableMapping[int, Any],
+    model_store: MutableMapping[Any, Any],
 ) -> dict[str, Any]:
     """Execute a STACKING meta-model node from its base branches' OOF + off-fold predictions (#10).
 
@@ -882,7 +883,7 @@ def run_node(
     task: dict[str, Any],
     resolver: MaterializationResolver,
     node_lookup: Callable[[str], dict[str, Any]],
-    model_store: MutableMapping[int, Any],
+    model_store: MutableMapping[Any, Any],
     edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,

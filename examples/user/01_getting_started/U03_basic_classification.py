@@ -63,6 +63,9 @@ pipeline = [
     # Visualize target distribution
     "y_chart",
 
+    # Feature scaling
+    StandardScaler(),
+
     # Feature augmentation with preprocessing options
     {
         "feature_augmentation": [
@@ -73,16 +76,15 @@ pipeline = [
         ]
     },
 
-    # Feature scaling
-    StandardScaler(),
-
     # Cross-validation
     ShuffleSplit(n_splits=3, test_size=0.25),
 
     # Visualization of fold distribution
     "fold_chart",
 
-    # Random Forest classifier
+]
+
+classifiers = [
     {
         "model": RandomForestClassifier(
             n_estimators=50,
@@ -96,13 +98,15 @@ pipeline = [
 
 # Add XGBoost if available
 if HAS_XGBOOST:
-    pipeline.append({
+    classifiers.append({
         "model": XGBClassifier(n_estimators=20, max_depth=5, verbosity=0, random_state=42),
         "name": "XGBoost"
     })
     print("   ✓ XGBoost is available")
 else:
     print("   ⚠ XGBoost not installed - using Random Forest only")
+
+pipeline.append({"_or_": classifiers})
 
 print("\n📋 Classification Pipeline:")
 print("   • Feature augmentation with 4 preprocessing options")
@@ -148,10 +152,12 @@ assert isinstance(top_models, list)
 for i, pred in enumerate(top_models, 1):
     model_name = pred.get('model_name', 'unknown')
     preproc = pred.get('preprocessings', 'N/A')
-    accuracy = pred.get('balanced_accuracy', 0)
-    balanced = pred.get('balanced_recall', 0)
+    accuracy = pred.get('balanced_accuracy')
+    balanced = pred.get('balanced_recall')
+    accuracy_text = "n/a" if accuracy is None else f"{accuracy:.4f}"
+    balanced_text = "n/a" if balanced is None else f"{balanced:.4f}"
     print(f"{i}. {model_name}")
-    print(f"   balanced_accuracy: {accuracy:.4f} | Balanced Recall: {balanced:.4f}")
+    print(f"   balanced_accuracy: {accuracy_text} | Balanced Recall: {balanced_text}")
     print(f"   Preprocessing: {preproc}")
 
 # =============================================================================

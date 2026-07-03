@@ -64,7 +64,7 @@ Examples:
 
 import contextlib
 import copy
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import numpy as np
 
@@ -715,7 +715,7 @@ class BranchController(OperatorController):
             return context, StepOutput()
 
         # Get X and y for filter
-        X = dataset.x(selector, layout="2d", concat_source=True, include_augmented=False, include_excluded=False)
+        X = cast(np.ndarray, dataset.x(selector, layout="2d", concat_source=True, include_augmented=False, include_excluded=False))
         y = dataset.y(selector, include_augmented=False, include_excluded=False)
 
         # Fit and apply filter
@@ -740,7 +740,7 @@ class BranchController(OperatorController):
         universe_selector = context.selector.copy()
         universe_selector.include_augmented = False
         universe_indices = self._universe_indices(dataset, context)
-        X_all = dataset.x(universe_selector, layout="2d", concat_source=True, include_augmented=False, include_excluded=False)
+        X_all = cast(np.ndarray, dataset.x(universe_selector, layout="2d", concat_source=True, include_augmented=False, include_excluded=False))
         y_all = dataset.y(universe_selector, include_augmented=False, include_excluded=False)
         universe_mask = filter_obj.get_mask(X_all, y_all)
         universe_groups = {
@@ -1386,14 +1386,14 @@ class BranchController(OperatorController):
                 (silently running zero steps would hide a key typo).
         """
         if not isinstance(steps, dict):
-            return steps
+            return cast(list[Any], steps)
         bool_forms = {"true", "false"}
         for key, value in steps.items():
             key_str = str(key)
             if key == branch_name or key_str == branch_name:
-                return value
+                return cast(list[Any], value)
             if key_str.lower() in bool_forms and key_str.lower() == branch_name.lower():
-                return value
+                return cast(list[Any], value)
         raise ValueError(
             f"Separation branch '{branch_name}' has no steps entry; "
             f"available keys: {list(steps.keys())}"

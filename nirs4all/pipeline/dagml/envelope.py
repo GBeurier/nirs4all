@@ -29,7 +29,7 @@ from __future__ import annotations
 
 import hashlib
 import json
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
@@ -134,12 +134,18 @@ def _with_relation_annotations(envelope: dict[str, Any], relations: dict[str, An
         annotations = annotations_by_observation.get(str(record.get("observation_id")))
         if annotations is None:
             continue
-        metadata = annotations["metadata"]
-        tags = annotations["tags"]
+        metadata = cast(dict[Any, Any], annotations["metadata"])
+        tags = cast(list[Any], annotations["tags"])
         if metadata:
-            record["metadata"] = {**(record.get("metadata") or {}), **metadata}
+            existing_metadata = record.get("metadata")
+            if not isinstance(existing_metadata, dict):
+                existing_metadata = {}
+            record["metadata"] = {**existing_metadata, **metadata}
         if tags:
-            record["tags"] = list(dict.fromkeys([*(record.get("tags") or []), *tags]))
+            existing_tags = record.get("tags")
+            if not isinstance(existing_tags, list):
+                existing_tags = []
+            record["tags"] = list(dict.fromkeys([*existing_tags, *tags]))
     return envelope
 
 

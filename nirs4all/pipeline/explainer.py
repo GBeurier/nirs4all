@@ -8,7 +8,7 @@ folder paths, artifact IDs, bundles, and trace IDs are resolved via
 PredictionResolver.
 """
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import numpy as np
 
@@ -19,6 +19,7 @@ if TYPE_CHECKING:
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
+from nirs4all.data.types import Layout
 from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, LoaderArtifactProvider, PipelineState, StepMetadata
 from nirs4all.pipeline.execution.builder import ExecutorBuilder
 from nirs4all.pipeline.explain_lineage import derive_relation_explain_lineage
@@ -93,14 +94,13 @@ class Explainer:
         logger.starting("Starting SHAP Explanation Analysis")
 
         # Setup SHAP parameters
-        if shap_params is None:
-            shap_params = {}
-        shap_params.setdefault("n_samples", 200)
-        shap_params.setdefault("visualizations", ["spectral", "summary"])
-        shap_params.setdefault("explainer_type", "auto")
-        shap_params.setdefault("bin_size", 20)
-        shap_params.setdefault("bin_stride", 10)
-        shap_params.setdefault("bin_aggregation", "sum")
+        shap_options: dict[str, Any] = {} if shap_params is None else dict(shap_params)
+        shap_options.setdefault("n_samples", 200)
+        shap_options.setdefault("visualizations", ["spectral", "summary"])
+        shap_options.setdefault("explainer_type", "auto")
+        shap_options.setdefault("bin_size", 20)
+        shap_options.setdefault("bin_stride", 10)
+        shap_options.setdefault("bin_aggregation", "sum")
 
         # Normalize dataset
         dataset_config = self.runner.orchestrator._normalize_dataset(dataset, dataset_name)
@@ -133,7 +133,7 @@ class Explainer:
 
             if self._direct_explain_model is not None:
                 model = self._direct_explain_model
-                preferred_layout = "2d"
+                preferred_layout: Layout = "2d"
             else:
                 # Build executor using ExecutorBuilder
                 executor = (
@@ -173,11 +173,11 @@ class Explainer:
                     raise ValueError("Failed to capture model. Model controller may not support capture.")
 
                 model, controller = self.captured_model
-                preferred_layout = controller.get_preferred_layout()
+                preferred_layout = cast(Layout, controller.get_preferred_layout())
 
             # Get test data
             test_context = context.with_partition("test")
-            X_test = dataset_obj.x(test_context, layout=preferred_layout)
+            X_test = cast(np.ndarray, dataset_obj.x(test_context, layout=preferred_layout))
             y_test = dataset_obj.y(test_context)
 
             # Get feature names
@@ -196,7 +196,8 @@ class Explainer:
             task_type = "classification" if dataset_obj.task_type and dataset_obj.task_type.is_classification else "regression"
 
             # Create output directory under workspace
-            model_id = self.target_model.get("id", "unknown")
+            target_model = self.target_model or {}
+            model_id = target_model.get("id", "unknown")
             output_dir = self.runner.workspace_path / "explanations" / (self.pipeline_uid or "unknown") / model_id
             output_dir.mkdir(parents=True, exist_ok=True)
 
@@ -210,24 +211,24 @@ class Explainer:
                 y=y_test,
                 feature_names=feature_names,
                 task_type=task_type,
-                n_background=shap_params["n_samples"],
-                explainer_type=shap_params["explainer_type"],
+                n_background=shap_options["n_samples"],
+                explainer_type=shap_options["explainer_type"],
                 output_dir=str(output_dir),
-                visualizations=shap_params["visualizations"],
-                bin_size=shap_params["bin_size"],
-                bin_stride=shap_params["bin_stride"],
-                bin_aggregation=shap_params["bin_aggregation"],
+                visualizations=shap_options["visualizations"],
+                bin_size=shap_options["bin_size"],
+                bin_stride=shap_options["bin_stride"],
+                bin_aggregation=shap_options["bin_aggregation"],
                 plots_visible=plots_visible,
             )
 
-            shap_results["model_name"] = self.target_model.get("model_name", "unknown")
+            shap_results["model_name"] = target_model.get("model_name", "unknown")
             shap_results["model_id"] = model_id
             shap_results["dataset_name"] = dataset_obj.name
             self._attach_relation_explain_lineage(shap_results, relation_manifest, X_test, feature_names)
 
             logger.success("SHAP explanation completed!")
             logger.artifact("visualization", path=output_dir)
-            for viz in shap_params["visualizations"]:
+            for viz in shap_options["visualizations"]:
                 logger.debug(f"  - {viz}.png")
 
             return shap_results, str(output_dir)
