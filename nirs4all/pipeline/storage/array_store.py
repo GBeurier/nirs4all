@@ -23,10 +23,12 @@ from __future__ import annotations
 import contextlib
 import errno
 import functools
+import gc
 import json
 import logging
 import os
 import re
+import time
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Concatenate, ParamSpec, TypeVar
@@ -67,6 +69,8 @@ def _locked(method: Callable[Concatenate[ArrayStore, _P], _R]) -> Callable[Conca
 _COMPRESSION = "zstd"
 _COMPRESSION_LEVEL = 3
 _TOMBSTONE_FILE = "_tombstones.json"
+_WINDOWS_REPLACE_RETRIES = 12
+_WINDOWS_REPLACE_INITIAL_DELAY_S = 0.01
 
 # Characters invalid in filenames across platforms
 _UNSAFE_FILENAME_RE = re.compile(r'[/\\:*?"<>|\s.]+')
@@ -118,6 +122,27 @@ def _align_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table:
         else:
             columns.append(pa.nulls(len(table), type=field.type))
     return pa.table(columns, schema=target_schema)
+
+
+def _atomic_replace_with_windows_retry(tmp: Path, path: Path) -> None:
+    """Atomically publish ``tmp`` to ``path``, tolerating transient Windows locks.
+
+    PyArrow/Polars readers can briefly keep a Parquet destination handle open on
+    Windows after a read-modify-write cycle. ``os.replace`` is still the correct
+    publication primitive, but unlike POSIX it raises ``PermissionError`` while
+    another handle lacks delete sharing. Retry only that platform-specific case.
+    """
+    delay = _WINDOWS_REPLACE_INITIAL_DELAY_S
+    for attempt in range(_WINDOWS_REPLACE_RETRIES):
+        try:
+            os.replace(tmp, path)
+            return
+        except PermissionError:
+            if os.name != "nt" or attempt == _WINDOWS_REPLACE_RETRIES - 1:
+                raise
+            gc.collect()
+            time.sleep(delay)
+            delay = min(delay * 2, 0.25)
 
 
 # Shared Arrow schema for all Parquet files
@@ -197,7 +222,7 @@ class ArrayStore:
         tmp = path.with_suffix(".json.tmp")
         with open(tmp, "w") as f:
             json.dump(tombstones, f)
-        tmp.replace(path)
+        _atomic_replace_with_windows_retry(tmp, path)
 
     @contextlib.contextmanager
     def _process_lock(self):
@@ -295,7 +320,7 @@ class ArrayStore:
                 compression=_COMPRESSION,
                 compression_level=_COMPRESSION_LEVEL,
             )
-            os.replace(tmp, path)
+            _atomic_replace_with_windows_retry(tmp, path)
         except BaseException:
             # Clean up partial temp file on any failure
             with contextlib.suppress(OSError):
