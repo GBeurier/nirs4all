@@ -2187,14 +2187,17 @@ class MergeController(OperatorController):
                     f"[Error: MERGE-E041]"
                 )
 
-            # The snapshot holds the branch's transformed features for the
-            # WHOLE dataset (branch transforms are applied to every row; only
-            # membership is partitioned), so it is validated against the full
-            # row count and indexed by global row index below.
+            # Branch snapshots exist in two shapes:
+            # - current runner snapshots cover the whole dataset and are
+            #   indexed by global row id;
+            # - older/unit-level disjoint contexts contain only the branch
+            #   rows, packed in sample_indices order.
+            snapshot_samples = self._snapshot_num_samples(snapshot, branch_id)
+            expected_samples = n_total_samples if snapshot_samples == n_total_samples else len(sample_indices)
             try:
                 features = self._extract_features_from_snapshot(
                     snapshot=snapshot,
-                    expected_samples=n_total_samples,
+                    expected_samples=expected_samples,
                     branch_idx=branch_id,
                     layout="2d",
                 )
@@ -2232,15 +2235,17 @@ class MergeController(OperatorController):
 
         n_features = unique_dims.pop()
 
-        # Reconstruct full feature matrix by global row index: each sample's
-        # row comes from its OWNING branch's whole-dataset snapshot (the row
-        # at the sample's own position — never a positional re-pack).
+        # Reconstruct full feature matrix by global row index. Whole-dataset
+        # snapshots are addressed by global row id; packed branch snapshots are
+        # addressed by their local position in sample_indices.
         merged = np.full((n_total_samples, n_features), np.nan)
 
         for _branch_id, (features, sample_indices) in branch_features.items():
-            for global_idx in sample_indices:
+            packed_snapshot = features.shape[0] == len(sample_indices)
+            for local_idx, global_idx in enumerate(sample_indices):
                 if global_idx < n_total_samples:
-                    merged[global_idx] = features[global_idx]
+                    source_idx = local_idx if packed_snapshot else global_idx
+                    merged[global_idx] = features[source_idx]
 
         # Check for any unfilled samples
         nan_rows = np.any(np.isnan(merged), axis=1)
@@ -3339,6 +3344,18 @@ class MergeController(OperatorController):
         # For 3D layout, concatenate along feature axis (axis=2)
         concat_axis = 1 if layout == "2d" else 2
         return np.concatenate(source_features, axis=concat_axis)
+
+    def _snapshot_num_samples(self, snapshot: list[Any], branch_idx: int) -> int:
+        """Return the sample count advertised by a branch feature snapshot."""
+        if not snapshot:
+            raise ValueError(
+                f"Branch {branch_idx} snapshot is empty (no feature sources)"
+            )
+
+        first = snapshot[0]
+        if isinstance(first, tuple):
+            return int(first[0].array.shape[0])
+        return int(first.num_samples)
 
     @staticmethod
     def _shorten_processing_chain(processing_id: str) -> str:

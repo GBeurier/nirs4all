@@ -21,9 +21,11 @@ def xy():
 
 def _run(pipeline, xy, **kwargs):
     X, y = xy
+    engine = kwargs.pop("engine", "legacy")
     return run(
         pipeline=pipeline,
         dataset=(X, y),
+        engine=engine,
         verbose=0,
         save_artifacts=False,
         save_charts=False,
@@ -39,7 +41,7 @@ def test_immediate_cancel_raises(xy, tmp_path):
 
 
 def test_cancel_between_variants(xy, tmp_path):
-    calls = {"n": 0}
+    calls: dict[str, int] = {"n": 0}
 
     def stop_after_two() -> bool:
         calls["n"] += 1
