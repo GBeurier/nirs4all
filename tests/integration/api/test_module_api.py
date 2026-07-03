@@ -201,8 +201,8 @@ class TestRunFunction:
         # best_accuracy is the SELECTED model's plain accuracy, not a reranked fold's.
         assert result.best_accuracy == pytest.approx(selected_accuracy, abs=1e-9)
 
-    def test_run_with_runner_kwargs(self, sample_regression_data_path):
-        """Test run() passes kwargs to PipelineRunner correctly."""
+    def test_run_with_legacy_runner_kwargs(self, sample_regression_data_path):
+        """Test run() passes legacy PipelineRunner kwargs correctly."""
         import nirs4all
         from nirs4all.core.logging import reset_logging
 
@@ -223,7 +223,8 @@ class TestRunFunction:
                 dataset=sample_regression_data_path,
                 verbose=0,
                 save_artifacts=True,
-                workspace_path=tmpdir
+                workspace_path=tmpdir,
+                engine="legacy",
             )
 
             assert result.num_predictions > 0
@@ -288,7 +289,8 @@ class TestSessionContextManager:
             result = nirs4all.run(
                 pipeline=pipeline,
                 dataset=sample_regression_data_path,
-                session=s
+                session=s,
+                engine="legacy",
             )
 
             assert result.num_predictions > 0
@@ -310,8 +312,8 @@ class TestSessionContextManager:
         ]
 
         with nirs4all.session(verbose=0, save_artifacts=False) as s:
-            result1 = nirs4all.run(pipeline1, sample_regression_data_path, session=s)
-            result2 = nirs4all.run(pipeline2, sample_regression_data_path, session=s)
+            result1 = nirs4all.run(pipeline1, sample_regression_data_path, session=s, engine="legacy")
+            result2 = nirs4all.run(pipeline2, sample_regression_data_path, session=s, engine="legacy")
 
             assert result1.num_predictions > 0
             assert result2.num_predictions > 0

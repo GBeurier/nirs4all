@@ -57,13 +57,14 @@ class TestPredictHappyPath:
         X_new = X[:10]
 
         with tempfile.TemporaryDirectory(**_tmpdir_kwargs) as tmpdir:
-            # Train
+            # Train on the strict V1 dag-ml persistence path. The native engine
+            # writes results_path artifacts, not the legacy workspace_path store.
             result = nirs4all.run(
                 pipeline=simple_pipeline,
                 dataset=(X, y),
                 verbose=0,
                 save_artifacts=True,
-                workspace_path=tmpdir,
+                results_path=tmpdir,
             )
 
             assert result.num_predictions > 0
@@ -102,7 +103,7 @@ class TestPredictHappyPath:
                 dataset=(X, y),
                 verbose=0,
                 save_artifacts=True,
-                workspace_path=tmpdir,
+                results_path=tmpdir,
             )
 
             bundle_path = Path(tmpdir) / "model.n4a"
@@ -137,7 +138,7 @@ class TestPredictHappyPath:
                 dataset=(X, y),
                 verbose=0,
                 save_artifacts=True,
-                workspace_path=tmpdir,
+                results_path=tmpdir,
             )
 
             bundle_path = Path(tmpdir) / "model.n4a"
@@ -176,15 +177,12 @@ class TestRetrainHappyPath:
                 dataset=(X[:40], y[:40]),
                 verbose=0,
                 save_artifacts=True,
-                workspace_path=tmpdir,
+                results_path=tmpdir,
             )
 
             bundle_path = Path(tmpdir) / "model.n4a"
             result.export(bundle_path)
             assert bundle_path.exists()
-
-            retrain_workspace = Path(tmpdir) / "retrain_ws"
-            retrain_workspace.mkdir()
 
             # Retrain – must not raise
             retrain_result = nirs4all.retrain(
@@ -193,7 +191,6 @@ class TestRetrainHappyPath:
                 mode="full",
                 verbose=0,
                 save_artifacts=False,
-                workspace_path=str(retrain_workspace),
             )
 
             assert isinstance(retrain_result, nirs4all.RunResult)
@@ -215,14 +212,11 @@ class TestRetrainHappyPath:
                 dataset=(X[:40], y[:40]),
                 verbose=0,
                 save_artifacts=True,
-                workspace_path=tmpdir,
+                results_path=tmpdir,
             )
 
             bundle_path = Path(tmpdir) / "model.n4a"
             result.export(bundle_path)
-
-            retrain_workspace = Path(tmpdir) / "retrain_ws"
-            retrain_workspace.mkdir()
 
             retrain_result = nirs4all.retrain(
                 source=str(bundle_path),
@@ -230,7 +224,6 @@ class TestRetrainHappyPath:
                 mode="full",
                 verbose=0,
                 save_artifacts=False,
-                workspace_path=str(retrain_workspace),
             )
 
             validation = retrain_result.validate(raise_on_failure=False)
