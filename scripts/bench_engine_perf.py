@@ -22,6 +22,7 @@ measure on ``PYTHONPATH``)::
     python scripts/bench_engine_perf.py --cases pls_small     # one case
     python scripts/bench_engine_perf.py --repeats 5 --json out.json
     python scripts/bench_engine_perf.py --max-wall-ratio 1.25 --max-rss-ratio 1.50
+    python scripts/bench_engine_perf.py --cases pls_small --repeats 1 --max-wall-ratio 3 --max-rss-ratio 2  # smoke gate
 
 The harness inherits the parent environment, so RC worktree bindings are selected exactly like a
 test run, e.g.::
@@ -121,9 +122,28 @@ try:
     best = None if raw_best is None else float(raw_best)
     if best is not None and not math.isfinite(best):
         best = None
+    per_dataset = getattr(result, "per_dataset", {{}})
+    engine_tags = sorted(
+        {{str(info.get("engine")) for info in per_dataset.values() if isinstance(info, dict) and info.get("engine") is not None}}
+    )
+    is_dagml_result = bool(getattr(result, "_is_dagml_engine", lambda: False)())
+    fallback_diagnostics = [str(item) for item in getattr(result, "_rt_diagnostics", [])]
+    if requested_engine == "dag-ml" and (not is_dagml_result or fallback_diagnostics):
+        raise RuntimeError(
+            "requested dag-ml but result was not verified as native dag-ml "
+            f"(engine_tags={{engine_tags!r}}, is_dagml_result={{is_dagml_result!r}}, fallback_diagnostics={{fallback_diagnostics!r}})"
+        )
+    engine_observed = "dag-ml" if is_dagml_result else ("legacy/fallback" if fallback_diagnostics else "unknown")
     peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # KiB on Linux
     payload = {{
         "engine_requested": requested_engine,
+        "engine_observed": engine_observed,
+        "engine_verified": requested_engine != "dag-ml" or is_dagml_result,
+        "engine_evidence": {{
+            "per_dataset_engine_tags": engine_tags,
+            "is_dagml_result": is_dagml_result,
+            "fallback_diagnostics": fallback_diagnostics,
+        }},
         "wall_s": wall,
         "import_s": t_import,
         "peak_rss_mb": peak_kb / 1024.0,
@@ -138,7 +158,7 @@ print("@@RESULT@@" + json.dumps(payload))
 """
 
 
-def _run_child(case: str, engine: str, python: str) -> dict:
+def _run_child(case: str, engine: str, python: str) -> dict[str, object]:
     source = _CHILD_TEMPLATE.format(case_source=CASES[case])
     env = dict(os.environ)
     env["N4A_ENGINE"] = engine
@@ -149,7 +169,10 @@ def _run_child(case: str, engine: str, python: str) -> dict:
         return {"error": (proc.stderr.strip().splitlines() or ["child failed with no stderr"])[-1], "total_s": total}
     for line in proc.stdout.splitlines():
         if line.startswith("@@RESULT@@"):
-            payload = json.loads(line[len("@@RESULT@@"):])
+            raw_payload: object = json.loads(line[len("@@RESULT@@"):])
+            if not isinstance(raw_payload, dict):
+                return {"error": "child @@RESULT@@ payload was not a JSON object", "total_s": total}
+            payload = {str(key): value for key, value in raw_payload.items()}
             payload["total_s"] = total
             return payload
     return {"error": "child produced no @@RESULT@@ line", "total_s": total}
@@ -159,6 +182,33 @@ def _safe_ratio(numerator: float, denominator: float) -> float | None:
     if not math.isfinite(numerator) or not math.isfinite(denominator) or denominator <= 0:
         return None
     return numerator / denominator
+
+
+def _float_field(row: dict[str, object], key: str) -> float:
+    value = row[key]
+    if isinstance(value, int | float | str):
+        return float(value)
+    raise TypeError(f"child payload field {key!r} must be numeric, got {type(value).__name__}")
+
+
+def _engine_evidence_from_run(run: dict) -> dict[str, object]:
+    evidence: object = run.get("engine_evidence")
+    if not isinstance(evidence, dict):
+        return {}
+    return {str(key): value for key, value in evidence.items()}
+
+
+def _dagml_run_is_verified(run: dict) -> bool:
+    """Return whether a child row proves that requested dag-ml did not measure legacy fallback.
+
+    The strongest available signal is the RunResult/per_dataset engine tag populated by the dag-ml
+    result projection and exposed in the child as ``engine_evidence.is_dagml_result``. A fallback run
+    carries ``_rt_diagnostics`` instead; any such diagnostic makes the row unverified.
+    """
+    if run.get("engine_requested") != "dag-ml":
+        return True
+    evidence = _engine_evidence_from_run(run)
+    return bool(run.get("engine_verified")) and bool(evidence.get("is_dagml_result")) and not evidence.get("fallback_diagnostics")
 
 
 def _case_ratios(engines: dict[str, dict]) -> dict[str, float | None]:
@@ -221,6 +271,22 @@ def _check_ratio_gates(
     return failures
 
 
+def _check_engine_verification(results: dict[str, dict[str, dict]]) -> list[str]:
+    failures: list[str] = []
+    for case, engines in results.items():
+        dagml = engines.get("dag-ml")
+        if not dagml or "error" in dagml:
+            continue
+        runs = dagml.get("runs")
+        if not isinstance(runs, list) or not runs:
+            failures.append(f"{case}: dag-ml engine verification unavailable")
+            continue
+        unverified = [index for index, run in enumerate(runs, start=1) if not isinstance(run, dict) or not _dagml_run_is_verified(run)]
+        if unverified:
+            failures.append(f"{case}: dag-ml engine verification failed for repeats {unverified}")
+    return failures
+
+
 def _json_payload(
     *,
     cases: dict[str, dict[str, dict]],
@@ -265,28 +331,32 @@ def main() -> int:
                 print(f"[{case} / {engine}] FAILED: {errors[0]}", file=sys.stderr)
                 continue
             summary = {
-                "wall_s_median": statistics.median(r["wall_s"] for r in runs),
-                "total_s_median": statistics.median(r["total_s"] for r in runs),
-                "peak_rss_mb_median": statistics.median(r["peak_rss_mb"] for r in runs),
+                "wall_s_median": statistics.median(_float_field(r, "wall_s") for r in runs),
+                "total_s_median": statistics.median(_float_field(r, "total_s") for r in runs),
+                "peak_rss_mb_median": statistics.median(_float_field(r, "peak_rss_mb") for r in runs),
                 "num_predictions": runs[0]["num_predictions"],
                 "best_score": runs[0]["best_score"],
+                "engine_observed": runs[0].get("engine_observed"),
+                "engine_verified": all(_dagml_run_is_verified(r) for r in runs),
                 "runs": runs,
             }
             results[case][engine] = summary
-            print(f"[{case} / {engine}] wall={summary['wall_s_median']:.3f}s rss={summary['peak_rss_mb_median']:.0f}MB preds={summary['num_predictions']}", file=sys.stderr)
+            verified = " verified" if engine == "dag-ml" and summary["engine_verified"] else ""
+            print(f"[{case} / {engine}] wall={summary['wall_s_median']:.3f}s rss={summary['peak_rss_mb_median']:.0f}MB preds={summary['num_predictions']}{verified}", file=sys.stderr)
 
     # Markdown summary with the dag-ml/legacy ratio (the cutover-decision number).
-    print("\n| case | engine | run wall (median s) | peak RSS (MB) | preds | best_score |")
-    print("|---|---|---|---|---|---|")
+    print("\n| case | engine | engine proof | run wall (median s) | peak RSS (MB) | preds | best_score |")
+    print("|---|---|---|---|---|---|---|")
     for case, engines in results.items():
         for engine, summary in engines.items():
             if "error" in summary:
-                print(f"| {case} | {engine} | ERROR: {summary['error']} | | | |")
+                print(f"| {case} | {engine} | ERROR: {summary['error']} | | | | |")
                 continue
             best_score = summary["best_score"]
             best_score_text = "" if best_score is None else f"{best_score:.6f}"
+            engine_proof = "verified dag-ml" if engine == "dag-ml" and summary.get("engine_verified") else "n/a"
             print(
-                f"| {case} | {engine} | {summary['wall_s_median']:.3f} | {summary['peak_rss_mb_median']:.0f} "
+                f"| {case} | {engine} | {engine_proof} | {summary['wall_s_median']:.3f} | {summary['peak_rss_mb_median']:.0f} "
                 f"| {summary['num_predictions']} | {best_score_text} |"
             )
     ratios = _ratio_summary(results)
@@ -316,7 +386,10 @@ def main() -> int:
     )
     for failure in ratio_failures:
         print(f"[gate] FAILED: {failure}", file=sys.stderr)
-    failed = failed or bool(ratio_failures)
+    engine_failures = _check_engine_verification(results)
+    for failure in engine_failures:
+        print(f"[gate] FAILED: {failure}", file=sys.stderr)
+    failed = failed or bool(ratio_failures) or bool(engine_failures)
     return 1 if failed else 0
 
 
