@@ -55,6 +55,7 @@ class Explainer:
         self.target_model: dict[str, Any] | None = None
         self.captured_model: tuple[Any, Any] | None = None
         self._resolved_artifact_provider: Any | None = None
+        self._direct_explain_model: Any | None = None
         self._relation_replay_manifest: dict[str, Any] | None = None
 
     def explain(
@@ -130,48 +131,53 @@ class Explainer:
 
             config_predictions = Predictions()
 
-            # Build executor using ExecutorBuilder
-            executor = (
-                ExecutorBuilder()
-                .with_workspace(self.runner.workspace_path)
-                .with_verbose(verbose)
-                .with_mode("explain")
-                .with_save_artifacts(self.runner.save_artifacts)
-                .with_save_charts(self.runner.save_charts)
-                .with_continue_on_error(self.runner.continue_on_error)
-                .with_show_spinner(self.runner.show_spinner)
-                .with_plots_visible(plots_visible)
-                .with_figure_refs(self.runner._figure_refs)
-                .with_artifact_loader(self.artifact_loader)
-                .build()
-            )
+            if self._direct_explain_model is not None:
+                model = self._direct_explain_model
+                preferred_layout = "2d"
+            else:
+                # Build executor using ExecutorBuilder
+                executor = (
+                    ExecutorBuilder()
+                    .with_workspace(self.runner.workspace_path)
+                    .with_verbose(verbose)
+                    .with_mode("explain")
+                    .with_save_artifacts(self.runner.save_artifacts)
+                    .with_save_charts(self.runner.save_charts)
+                    .with_continue_on_error(self.runner.continue_on_error)
+                    .with_show_spinner(self.runner.show_spinner)
+                    .with_plots_visible(plots_visible)
+                    .with_figure_refs(self.runner._figure_refs)
+                    .with_artifact_loader(self.artifact_loader)
+                    .build()
+                )
 
-            # Create RuntimeContext with artifact_provider for V3 loading
-            from nirs4all.pipeline.config.context import RuntimeContext
+                # Create RuntimeContext with artifact_provider for V3 loading
+                from nirs4all.pipeline.config.context import RuntimeContext
 
-            artifact_provider = self._resolved_artifact_provider
-            if artifact_provider is None and self.artifact_loader:
-                artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
+                artifact_provider = self._resolved_artifact_provider
+                if artifact_provider is None and self.artifact_loader:
+                    artifact_provider = LoaderArtifactProvider(loader=self.artifact_loader)
 
-            runtime_context = RuntimeContext(
-                artifact_loader=self.artifact_loader,
-                artifact_provider=artifact_provider,
-                step_runner=executor.step_runner,
-                target_model=self.target_model,
-                explainer=self.runner.explainer,
-            )
+                runtime_context = RuntimeContext(
+                    artifact_loader=self.artifact_loader,
+                    artifact_provider=artifact_provider,
+                    step_runner=executor.step_runner,
+                    target_model=self.target_model,
+                    explainer=self.runner.explainer,
+                )
 
-            executor.execute(steps, "explanation", dataset_obj, context, runtime_context, config_predictions)
+                executor.execute(steps, "explanation", dataset_obj, context, runtime_context, config_predictions)
 
-            # Extract captured model
-            if self.captured_model is None:
-                raise ValueError("Failed to capture model. Model controller may not support capture.")
+                # Extract captured model
+                if self.captured_model is None:
+                    raise ValueError("Failed to capture model. Model controller may not support capture.")
 
-            model, controller = self.captured_model
+                model, controller = self.captured_model
+                preferred_layout = controller.get_preferred_layout()
 
             # Get test data
             test_context = context.with_partition("test")
-            X_test = dataset_obj.x(test_context, layout=controller.get_preferred_layout())
+            X_test = dataset_obj.x(test_context, layout=preferred_layout)
             y_test = dataset_obj.y(test_context)
 
             # Get feature names
@@ -341,7 +347,10 @@ class Explainer:
 
         # Store the resolved artifact provider for use in explain
         self._resolved_artifact_provider = resolved.artifact_provider
+        self._direct_explain_model = None
         self._relation_replay_manifest = self._extract_relation_replay_manifest(resolved)
+
+        self._direct_explain_model = self._resolve_direct_explain_model(resolved)
 
         # Create artifact loader from resolved artifact provider (for LoaderArtifactProvider)
         self.artifact_loader = None
@@ -349,6 +358,31 @@ class Explainer:
             self.artifact_loader = resolved.artifact_provider.artifact_loader
 
         return list(resolved.minimal_pipeline)
+
+    @staticmethod
+    def _resolve_direct_explain_model(resolved: Any) -> Any | None:
+        """Return the native bundle composite model when replay is cosmetic only."""
+        if not getattr(resolved, "train_pipeline", None):
+            return None
+
+        provider = getattr(resolved, "artifact_provider", None)
+        step_index = getattr(resolved, "model_step_index", None)
+        if provider is None or step_index is None or not hasattr(provider, "get_artifacts_for_step"):
+            return None
+
+        artifacts = provider.get_artifacts_for_step(step_index)
+        if not artifacts:
+            return None
+
+        for artifact_id, model in artifacts:
+            if "foldfinal" in str(artifact_id).lower() and hasattr(model, "predict"):
+                return model
+
+        for _artifact_id, model in artifacts:
+            if hasattr(model, "predict"):
+                return model
+
+        return None
 
     @staticmethod
     def _extract_relation_replay_manifest(resolved: Any) -> dict[str, Any] | None:

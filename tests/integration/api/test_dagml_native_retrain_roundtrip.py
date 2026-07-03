@@ -49,7 +49,7 @@ def _pipeline() -> list:
     ]
 
 
-def test_native_results_run_export_predict_retrain_roundtrip(regression_xy, tmp_path: Path) -> None:
+def test_native_results_run_export_predict_retrain_roundtrip(regression_xy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     x, y = regression_xy
 
     result = nirs4all.run(pipeline=_pipeline(), dataset=(x, y), verbose=0, results_path=tmp_path, random_state=0)
@@ -72,6 +72,39 @@ def test_native_results_run_export_predict_retrain_roundtrip(regression_xy, tmp_
     pred = nirs4all.predict(model=str(bundle_path), data=x[:10], verbose=0)
     assert len(pred.y_pred) == 10
     assert np.all(np.isfinite(pred.y_pred))
+
+    captured_explain: dict[str, object] = {}
+
+    class _FakeShapAnalyzer:
+        def explain_model(self, **kwargs):
+            model = kwargs["model"]
+            x_data = kwargs["X"]
+            captured_explain["model_class"] = type(model).__name__
+            captured_explain["x_shape"] = x_data.shape
+            return {
+                "shap_values": np.zeros_like(x_data, dtype=float),
+                "feature_names": kwargs.get("feature_names"),
+                "expected_value": 0.0,
+                "explainer_type": kwargs.get("explainer_type", "auto"),
+            }
+
+    from nirs4all.visualization.analysis import shap as shap_module
+
+    monkeypatch.setattr(shap_module, "ShapAnalyzer", _FakeShapAnalyzer)
+
+    explanation = nirs4all.explain(
+        model=str(bundle_path),
+        data=x[:8],
+        verbose=0,
+        plots_visible=False,
+        n_samples=5,
+    )
+    assert explanation is not None
+    assert explanation.n_samples == 8
+    assert captured_explain == {
+        "model_class": "_DagmlExportedModel",
+        "x_shape": (8, 50),
+    }
 
     retrained = nirs4all.retrain(
         source=str(bundle_path),
