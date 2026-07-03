@@ -84,7 +84,7 @@ print("Section 2: Basic Multi-Model Pipeline")
 print("-" * 60)
 
 print("""
-List multiple models in the pipeline. Each will be trained and evaluated.
+Use a model sweep in the pipeline. Each variant will be trained and evaluated.
 """)
 
 pipeline_basic = [
@@ -96,10 +96,12 @@ pipeline_basic = [
     # Cross-validation
     ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
 
-    # Multiple models - each is evaluated
-    {"model": PLSRegression(n_components=10)},
-    {"model": Ridge(alpha=1.0)},
-    {"model": RandomForestRegressor(n_estimators=100, random_state=42)},
+    # Model sweep - each variant is evaluated
+    {"_or_": [
+        {"model": PLSRegression(n_components=10)},
+        {"model": Ridge(alpha=1.0)},
+        {"model": RandomForestRegressor(n_estimators=100, random_state=42)},
+    ]},
 ]
 
 result = nirs4all.run(
@@ -179,25 +181,28 @@ pipeline_comprehensive = [
     # Cross-validation
     ShuffleSplit(n_splits=3, random_state=42),
 
-    # Linear models
-    {"model": PLSRegression(n_components=5)},
-    {"model": PLSRegression(n_components=10)},
-    {"model": PLSRegression(n_components=15)},
-    {"model": Ridge(alpha=0.1)},
-    {"model": Ridge(alpha=1.0)},
-    {"model": Lasso(alpha=0.01)},
-    {"model": ElasticNet(alpha=0.1, l1_ratio=0.5)},
+    # Model sweep
+    {"_or_": [
+        # Linear models
+        {"model": PLSRegression(n_components=5)},
+        {"model": PLSRegression(n_components=10)},
+        {"model": PLSRegression(n_components=15)},
+        {"model": Ridge(alpha=0.1)},
+        {"model": Ridge(alpha=1.0)},
+        {"model": Lasso(alpha=0.01)},
+        {"model": ElasticNet(alpha=0.1, l1_ratio=0.5)},
 
-    # Tree-based models
-    {"model": RandomForestRegressor(n_estimators=50, random_state=42)},
-    {"model": RandomForestRegressor(n_estimators=100, random_state=42)},
-    {"model": GradientBoostingRegressor(n_estimators=50, random_state=42)},
-    {"model": ExtraTreesRegressor(n_estimators=50, random_state=42)},
+        # Tree-based models
+        {"model": RandomForestRegressor(n_estimators=50, random_state=42)},
+        {"model": RandomForestRegressor(n_estimators=100, random_state=42)},
+        {"model": GradientBoostingRegressor(n_estimators=50, random_state=42)},
+        {"model": ExtraTreesRegressor(n_estimators=50, random_state=42)},
 
-    # Other models
-    {"model": SVR(kernel='rbf', C=1.0)},
-    {"model": KNeighborsRegressor(n_neighbors=5)},
-    {"model": KNeighborsRegressor(n_neighbors=10)},
+        # Other models
+        {"model": SVR(kernel='rbf', C=1.0)},
+        {"model": KNeighborsRegressor(n_neighbors=5)},
+        {"model": KNeighborsRegressor(n_neighbors=10)},
+    ]},
 ]
 
 result_comp = nirs4all.run(
@@ -241,18 +246,18 @@ result_combined = nirs4all.run(
             StandardNormalVariate,
             MultiplicativeScatterCorrection,
             Detrend,
+            FirstDerivative,
         ], "action": "extend"},
-    
-        # Add derivative option
-        {"feature_augmentation": [FirstDerivative], "action": "add"},
     
         # Cross-validation
         ShuffleSplit(n_splits=2, random_state=42),
     
-        # Multiple models
-        {"model": PLSRegression(n_components=10)},
-        {"model": Ridge(alpha=1.0)},
-        {"model": RandomForestRegressor(n_estimators=50, random_state=42)},
+        # Model sweep
+        {"_or_": [
+            {"model": PLSRegression(n_components=10)},
+            {"model": Ridge(alpha=1.0)},
+            {"model": RandomForestRegressor(n_estimators=50, random_state=42)},
+        ]},
     ],
     dataset="sample_data/regression",
     name="Combined",
@@ -288,11 +293,13 @@ pipeline_classif = [
 
     StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
 
-    {"model": LogisticRegression(max_iter=1000)},
-    {"model": RandomForestClassifier(n_estimators=100, random_state=42)},
-    {"model": GradientBoostingClassifier(n_estimators=50, random_state=42)},
-    {"model": SVC(kernel='rbf', probability=True)},
-    {"model": KNeighborsClassifier(n_neighbors=5)},
+    {"_or_": [
+        {"model": LogisticRegression(max_iter=1000)},
+        {"model": RandomForestClassifier(n_estimators=100, random_state=42)},
+        {"model": GradientBoostingClassifier(n_estimators=50, random_state=42)},
+        {"model": SVC(kernel='rbf', probability=True)},
+        {"model": KNeighborsClassifier(n_neighbors=5)},
+    ]},
 ]
 
 result_classif = nirs4all.run(
@@ -318,18 +325,12 @@ print("=" * 60)
 print("""
 Multi-Model Comparison Approaches:
 
-  1. List models separately:
-     {"model": PLSRegression(n_components=10)},
-     {"model": Ridge(alpha=1.0)},
-     {"model": RandomForestRegressor()},
-
-  2. Use _or_ generator:
+  1. Use _or_ generator:
      {"_or_": [{"model": PLS(10)}, {"model": Ridge(1.0)}, {"model": RF()}]}
 
-  3. Combine with preprocessing search:
+  2. Combine with preprocessing search:
      {"feature_augmentation": [SNV, MSC], "action": "extend"},
-     {"model": PLSRegression()},
-     {"model": RandomForest()},
+     {"_or_": [{"model": PLSRegression()}, {"model": RandomForest()}]}
 
 Common Model Families for NIRS:
 

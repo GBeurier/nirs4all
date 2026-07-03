@@ -92,12 +92,16 @@ pipeline = [
     ShuffleSplit(n_splits=3, test_size=0.25),
 ]
 
-# Add PLS models with different numbers of components
-for n_components in [5, 10, 15]:
-    pipeline.append({
-        "name": f"PLS-{n_components}",
-        "model": PLSRegression(n_components=n_components)
-    })
+# Add PLS models with different numbers of components as a model sweep.
+pipeline.append({
+    "_or_": [
+        {
+            "name": f"PLS-{n_components}",
+            "model": PLSRegression(n_components=n_components),
+        }
+        for n_components in [5, 10, 15]
+    ]
+})
 
 print("Pipeline includes:")
 print("   • MinMaxScaler for feature and target scaling")
