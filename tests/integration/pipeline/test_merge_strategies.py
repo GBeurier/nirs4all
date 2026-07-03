@@ -45,6 +45,7 @@ class TestMergeAutoDetectsBranchType:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=simple_dataset,
+            engine="legacy",
             verbose=0,
         )
 
@@ -63,6 +64,7 @@ class TestMergeAutoDetectsBranchType:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=simple_dataset,
+            engine="legacy",
             verbose=0,
         )
 
@@ -135,6 +137,7 @@ class TestMergeModesCombination:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
         )
 
@@ -150,6 +153,7 @@ class TestMergeModesCombination:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
         )
 
@@ -166,6 +170,7 @@ class TestMergeModesCombination:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
         )
 
@@ -190,6 +195,7 @@ class TestMergeDictConfig:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
         )
 

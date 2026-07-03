@@ -47,7 +47,7 @@ def test_proof_env_strips_dev_overrides_and_enforces_strict_mode() -> None:
     assert "N4M_LIB_PATH" not in proof_env
     assert "PLS4ALL_LIB_PATH" not in proof_env
     assert proof_env["NIRS4ALL_REQUIRE_N4M"] == "1"
-    assert proof_env["N4A_PROOF_VENV"] == "/tmp/proof-venv"
+    assert proof_env["N4A_PROOF_VENV"] == str(Path("/tmp/proof-venv"))
     assert proof_env["KEEP_ME"] == "1"
 
 
