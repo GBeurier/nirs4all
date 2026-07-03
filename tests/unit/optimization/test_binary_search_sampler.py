@@ -128,6 +128,7 @@ def test_binary_sampler_grouped_approach():
     result = nirs4all.run(
         pipeline=pipeline,
         dataset=str(SAMPLE_DATA_PATH),
+        engine="legacy",
         verbose=0
     )
 

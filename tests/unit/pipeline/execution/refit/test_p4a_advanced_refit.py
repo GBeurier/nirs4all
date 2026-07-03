@@ -699,6 +699,7 @@ class TestCompetingBranchesRefit:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
             workspace_path=str(tmp_path / "workspace"),
             refit=True,

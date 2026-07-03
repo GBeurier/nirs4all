@@ -49,6 +49,7 @@ class TestParallelExecution:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
             n_jobs=2,
             workspace_path=str(tmp_path / "workspace"),
@@ -74,6 +75,7 @@ class TestParallelExecution:
         result_seq = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
             n_jobs=1,
             workspace_path=str(tmp_path / "ws_seq"),
@@ -83,6 +85,7 @@ class TestParallelExecution:
         result_par = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
             n_jobs=2,
             workspace_path=str(tmp_path / "ws_par"),
@@ -109,6 +112,7 @@ class TestParallelExecution:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
             n_jobs=2,
             workspace_path=str(tmp_path / "workspace"),
@@ -142,6 +146,7 @@ class TestParallelExecution:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
             n_jobs=n_jobs,
             workspace_path=str(workspace),
@@ -193,6 +198,7 @@ class TestParallelExecution:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0,
             n_jobs=2,
             workspace_path=str(workspace),

@@ -422,6 +422,7 @@ class TestIntegrationWithPipeline:
         result = nirs4all.run(
             pipeline=[StandardScaler(), ShuffleSplit(n_splits=2, test_size=0.2, random_state=42), KNeighborsClassifier(n_neighbors=3)],
             dataset=dataset,
+            engine="legacy",
             verbose=0,
         )
 

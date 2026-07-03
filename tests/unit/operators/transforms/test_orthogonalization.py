@@ -484,7 +484,7 @@ class TestOSCDataLeakage:
         dataset.add_targets(np.concatenate([y_train, y_test]))
 
         pipeline = [OSC(n_components=1), KFold(n_splits=3), PLSRegression(n_components=5)]
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, refit=False)
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, refit=False, engine="legacy")
 
         assert result is not None
         # cv_best_score is the validation-fold score (val_score), not the
@@ -509,7 +509,7 @@ class TestOSCEPOIntegration:
         # Pipeline with OSC - should work with TransformerMixinController
         pipeline = [OSC(n_components=2), PLSRegression(n_components=5)]
 
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0)
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, engine="legacy")
 
         # Verify the pipeline completed successfully
         assert result is not None
