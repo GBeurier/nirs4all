@@ -365,6 +365,7 @@ class TestClassificationIntegration:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=(X, y),
+            engine="legacy",
             verbose=0,
         )
 

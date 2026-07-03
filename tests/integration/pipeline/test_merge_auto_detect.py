@@ -36,7 +36,7 @@ class TestAutoMergeDuplicationBranch:
             {"merge": "auto"},
             {"model": PLSRegression(n_components=5)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0)
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="legacy", verbose=0)
         assert result is not None
         assert hasattr(result, "best_rmse")
 
@@ -47,7 +47,7 @@ class TestAutoMergeDuplicationBranch:
             {"merge": True},
             {"model": PLSRegression(n_components=5)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0)
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="legacy", verbose=0)
         assert result is not None
         assert hasattr(result, "best_rmse")
 
@@ -58,7 +58,7 @@ class TestAutoMergeDuplicationBranch:
             {"merge": {"branch": True}},
             {"model": PLSRegression(n_components=5)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0)
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="legacy", verbose=0)
         assert result is not None
         assert hasattr(result, "best_rmse")
 

@@ -63,6 +63,7 @@ class TestExcludeBasicFunctionality:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0
         )
 
@@ -89,6 +90,7 @@ class TestExcludeBasicFunctionality:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0
         )
 
@@ -114,6 +116,7 @@ class TestExcludeBasicFunctionality:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0
         )
 
@@ -220,6 +223,7 @@ class TestExcludeWithCrossValidation:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=cv_dataset,
+            engine="legacy",
             verbose=0
         )
 
@@ -308,6 +312,7 @@ class TestExcludeCascadeToAugmented:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=dataset,
+            engine="legacy",
             verbose=0
         )
 
@@ -346,6 +351,7 @@ class TestExcludeSyntaxComparison:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=simple_dataset,
+            engine="legacy",
             verbose=0
         )
 
@@ -367,6 +373,7 @@ class TestExcludeSyntaxComparison:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=simple_dataset,
+            engine="legacy",
             verbose=0
         )
 
@@ -391,6 +398,7 @@ class TestExcludeSyntaxComparison:
         result = nirs4all.run(
             pipeline=old_pipeline,
             dataset=simple_dataset,
+            engine="legacy",
             verbose=0
         )
 
