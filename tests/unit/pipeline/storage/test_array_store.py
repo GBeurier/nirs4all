@@ -11,6 +11,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import nirs4all.pipeline.storage.array_store as array_store_module
 from nirs4all.pipeline.storage.array_store import ArrayStore
 
 # =========================================================================
@@ -327,6 +328,30 @@ class TestArrayStoreAppend:
 
         s = store.stats()
         assert s["datasets"]["wheat"]["rows"] == 2
+
+    def test_append_retries_transient_windows_replace_lock(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+        store = _make_store(tmp_path)
+        store.save_batch([_make_record(prediction_id="p1")])
+
+        real_replace = array_store_module.os.replace
+        calls = 0
+
+        def flaky_replace(src: Path, dst: Path) -> None:
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise PermissionError("simulated transient Windows file lock")
+            real_replace(src, dst)
+
+        monkeypatch.setattr(array_store_module.os, "name", "nt")
+        monkeypatch.setattr(array_store_module.os, "replace", flaky_replace)
+        monkeypatch.setattr(array_store_module.time, "sleep", lambda _seconds: None)
+
+        store.save_batch([_make_record(prediction_id="p2")])
+
+        assert calls == 3
+        result = store.load_batch(["p1", "p2"], dataset_name="wheat")
+        assert set(result) == {"p1", "p2"}
 
 class TestArrayStoreLoadWithoutDatasetName:
     """load_batch/load_single without dataset_name scans all files."""
