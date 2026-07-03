@@ -102,3 +102,56 @@ def test_json_payload_is_strict_json_serializable() -> None:
 
     assert '"ratios"' in rendered
     assert payload["metadata"]["max_wall_ratio"] == 1.25
+
+
+def test_dagml_engine_verification_accepts_native_result() -> None:
+    module = _load_bench_module()
+    results = {
+        "pls_small": {
+            "dag-ml": {
+                "runs": [
+                    {
+                        "engine_requested": "dag-ml",
+                        "engine_verified": True,
+                        "engine_evidence": {
+                            "is_dagml_result": True,
+                            "per_dataset_engine_tags": ["dag-ml"],
+                            "fallback_diagnostics": [],
+                        },
+                    }
+                ]
+            }
+        }
+    }
+
+    assert module._check_engine_verification(results) == []
+
+
+def test_dagml_engine_verification_rejects_fallback_diagnostic() -> None:
+    module = _load_bench_module()
+    results = {
+        "pls_small": {
+            "dag-ml": {
+                "runs": [
+                    {
+                        "engine_requested": "dag-ml",
+                        "engine_verified": True,
+                        "engine_evidence": {
+                            "is_dagml_result": False,
+                            "per_dataset_engine_tags": [],
+                            "fallback_diagnostics": ["unsupported shape"],
+                        },
+                    }
+                ]
+            }
+        }
+    }
+
+    assert module._check_engine_verification(results) == ["pls_small: dag-ml engine verification failed for repeats [1]"]
+
+
+def test_dagml_engine_verification_rejects_missing_child_signal() -> None:
+    module = _load_bench_module()
+    results = {"pls_small": {"dag-ml": {"runs": [{"engine_requested": "dag-ml"}]}}}
+
+    assert module._check_engine_verification(results) == ["pls_small: dag-ml engine verification failed for repeats [1]"]
