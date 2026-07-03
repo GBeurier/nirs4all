@@ -19,6 +19,10 @@ on:
       - ".github/workflows/docs-quality.yml"
   workflow_dispatch:
 
+env:
+  N4A_DAG_ML_REF: a8f6cb3845fcb19f81450b4776094f21978cf2b7
+  N4A_DAG_ML_DATA_REF: 95e56a7fa3d82ea00fda7ecfcd950a22ab526d21
+
 jobs:
   gates:
     name: Metadata + reference gates (blocking)
@@ -43,6 +47,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+      - name: Install selected dag-ml RC deps
+        run: |
+          python -m pip install \
+            "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
+            "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
       - name: Install (with docs, visualization, and explain extras)
         run: pip install -e ".[docs,viz,explain]"
       - name: Build HTML
@@ -56,6 +65,11 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.11"
+      - name: Install selected dag-ml RC deps
+        run: |
+          python -m pip install \
+            "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
+            "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
       - name: Install
         run: pip install -e ".[viz]"
       - name: Run canonical on-ramp + reference examples
