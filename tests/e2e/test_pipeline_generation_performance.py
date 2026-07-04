@@ -49,6 +49,9 @@ def _run_timed(engine: str, artifacts_dir: Path) -> tuple[Any, float, list[str]]
         fallback_warnings = [message for message in warning_messages if "falling back to the legacy engine" in message]
         assert not fallback_warnings, fallback_warnings
         assert result._is_dagml_engine(), "engine='dag-ml' must not report a legacy fallback result"  # noqa: SLF001
+        native_results_dir = getattr(result, "_dagml_results_dir", None)
+        assert native_results_dir is not None, "engine='dag-ml' with results_path must expose native results"
+        assert Path(native_results_dir).exists(), native_results_dir
     return result, elapsed, warning_messages
 
 
