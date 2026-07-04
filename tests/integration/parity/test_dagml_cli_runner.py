@@ -3384,6 +3384,7 @@ def test_multi_source_emission_single_source_unchanged() -> None:
     assert binding["output_representation"] == "tabular_numeric"
     assert binding["source_ids"] == ["src0"]
     assert binding["feature_set_id"] == "x"
+    assert binding["metadata"] == {}
 
 
 def test_multi_source_emission_emits_feature_block_set() -> None:
@@ -3434,6 +3435,7 @@ def test_multi_source_emission_emits_feature_block_set() -> None:
     assert binding["output_representation"] == "feature_block_set"
     assert binding["source_ids"] == ["src0", "src1", "src2"]
     assert binding["feature_set_id"] == "x"
+    assert binding["metadata"]["source_index"] == {"src0": 0, "src1": 1, "src2": 2}
     # The fused feature width is the sum of the per-source widths (early-fusion concat by sample_id).
     assert isinstance(per_source_features, list) and len(per_source_features) == n_sources
 

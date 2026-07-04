@@ -55,6 +55,21 @@ def _binding_sources(envelope: dict[str, Any], source_id: str) -> list[str]:
     return materialized if len(materialized) > 1 else [source_id]
 
 
+def _binding_metadata(envelope: dict[str, Any], binding_sources: list[str]) -> dict[str, Any]:
+    """DataBinding metadata required by dag-ml for explicit multi-source feature concat."""
+    if len(binding_sources) <= 1:
+        return {}
+    source_layout = (envelope.get("plan") or {}).get("source_layout") or {}
+    source_index = {
+        str(block["source_id"]): int(block["source_index"])
+        for block in source_layout.get("blocks", []) or []
+        if "source_id" in block and "source_index" in block
+    }
+    if set(source_index) != set(binding_sources):
+        source_index = {source_id: index for index, source_id in enumerate(binding_sources)}
+    return {"source_index": source_index}
+
+
 def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID) -> dict[str, Any]:
     """A DataBinding on one model node's ``x`` input, carrying the envelope's fingerprints.
 
@@ -62,6 +77,7 @@ def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _
     source (BYTE-IDENTICAL) or ``feature_block_set`` for multi-source early fusion (the N per-source
     blocks are fused by sample_id — host-side in the resolver's ``x_rows(concat_source=True)``).
     """
+    binding_sources = _binding_sources(envelope, source_id)
     return {
         "node_id": model_id,
         "input_name": "x",
@@ -71,8 +87,9 @@ def _data_binding(model_id: str, envelope: dict[str, Any], *, source_id: str = _
         "relation_fingerprint": envelope["relation_fingerprint"],
         "output_representation": envelope["plan"]["output_representation"],
         "feature_set_id": "x",
-        "source_ids": _binding_sources(envelope, source_id),
+        "source_ids": binding_sources,
         "require_relations": True,
+        "metadata": _binding_metadata(envelope, binding_sources),
     }
 
 
