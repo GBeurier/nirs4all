@@ -79,6 +79,25 @@ def _load_saved_pipeline(path: Path) -> list[Any]:
     return reopened
 
 
+def _repository_refit_recipe() -> dict[str, Any]:
+    return {
+        "name": "paper repository refit parity smoke",
+        "pipeline": [
+            {
+                "class": "nirs4all.operators.transforms.StandardNormalVariate",
+                "params": {},
+            },
+            {
+                "model": {
+                    "class": "sklearn.cross_decomposition.PLSRegression",
+                    "params": {"n_components": 5},
+                },
+                "name": "PLS_repository_refit",
+            },
+        ],
+    }
+
+
 def _assert_no_dagml_fallback(result: Any, warning_messages: list[str], native_root: Path) -> Path:
     fallback_warnings = [message for message in warning_messages if "falling back to the legacy engine" in message]
     assert not fallback_warnings, fallback_warnings
@@ -175,6 +194,7 @@ def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
             "sha256": _sha256(Path(bundle_path)),
             "prediction_rows": int(bundle_pred.shape[0]),
         },
+        "repository_refit_recipe": _repository_refit_recipe(),
         "runs": {
             "legacy": {
                 "warnings": legacy_warnings,
