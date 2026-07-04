@@ -92,6 +92,34 @@ _RESERVED_MODEL_KEYS = frozenset({
 })
 
 
+def _model_data_requirements() -> dict[str, Any]:
+    """Model input contract for single-source and source-concat multi-source X matrices."""
+    return {
+        "schema_version": 1,
+        "ports": [
+            {
+                "name": "x",
+                "accepted_representations": ["tabular_numeric", "feature_block_set"],
+                "accepted_types": ["table", "multi_block"],
+                "rank": 2,
+                "multi_source": True,
+                "optional": False,
+            }
+        ],
+        "default_fusion": {
+            "mode": "concatenate_features",
+            "alignment": "sample_id",
+            "adapter_id": None,
+            "params": {
+                "namespace_columns": True,
+            },
+        },
+        "metadata": {
+            "source": "nirs4all-dagml-bridge",
+        },
+    }
+
+
 def _qualname(obj: Any) -> str:
     """Fully-qualified ``module.QualName`` of an instance or class."""
     cls = obj if isinstance(obj, type) else type(obj)
@@ -1065,7 +1093,7 @@ def controller_manifests() -> list[dict[str, Any]]:
                 {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
                 {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
             ],
-            "data_requirements": None,
+            "data_requirements": _model_data_requirements(),
             # A prediction output port requires emits_predictions; an artifact port requires
             # emits_artifacts (dag-ml ControllerManifest::validate). No consumes_oof_predictions:
             # the vertical slice has no stacking/meta-model that would consume OOF.
