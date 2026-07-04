@@ -53,6 +53,16 @@ def _write_json(path: Path, value: dict[str, Any]) -> None:
 
 
 def _sha256(path: Path) -> str:
+    if path.is_dir():
+        digest = hashlib.sha256()
+        for child in sorted(path.rglob("*")):
+            if not child.is_file():
+                continue
+            digest.update(child.relative_to(path).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(child.read_bytes())
+            digest.update(b"\0")
+        return digest.hexdigest()
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
@@ -139,11 +149,12 @@ def _run_reopened(engine: str, saved_pipeline: Path, artifacts_dir: Path) -> tup
 def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
     saved_pipeline = artifacts_dir / "saved-pipeline.json"
     _write_json(saved_pipeline, PIPELINE_DESCRIPTOR)
+    dataset_config = Path(dataset_path("regression"))
 
     legacy, legacy_warnings, _ = _run_reopened("legacy", saved_pipeline, artifacts_dir)
     bundle_path = legacy.export(artifacts_dir / "reopened-refit.n4a")
 
-    dataset = DatasetConfigs(dataset_path("regression"), task_type="regression").get_dataset_at(0)
+    dataset = DatasetConfigs(dataset_config, task_type="regression").get_dataset_at(0)
     x_train = dataset.x({"partition": "train"}, include_augmented=False)
     reopened_bundle = NIRSPipeline.from_bundle(bundle_path)
     bundle_pred = _vector(reopened_bundle.predict(x_train))
@@ -188,6 +199,13 @@ def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
             "path": saved_pipeline.name,
             "sha256": _sha256(saved_pipeline),
             "schema_version": PIPELINE_DESCRIPTOR["schema_version"],
+        },
+        "dataset": {
+            "source": "tests.integration.parity._datasets:regression",
+            "config_path": str(dataset_config),
+            "config_sha256": _sha256(dataset_config),
+            "train_rows": int(x_train.shape[0]),
+            "feature_count": int(x_train.shape[1]),
         },
         "bundle_reopen": {
             "path": Path(bundle_path).name,
