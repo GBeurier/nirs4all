@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import subprocess
 import time
+import warnings
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,7 @@ def _as_vector(value: Any) -> np.ndarray:
     return np.asarray(value, dtype=float).reshape(-1)
 
 
-def _run_timed(engine: str, artifacts_dir: Path) -> tuple[Any, float]:
+def _run_timed(engine: str, artifacts_dir: Path) -> tuple[Any, float, list[str]]:
     case = get_case("generator_zip_paired")
     kwargs: dict[str, Any] = {
         "engine": engine,
@@ -38,15 +39,24 @@ def _run_timed(engine: str, artifacts_dir: Path) -> tuple[Any, float]:
     if engine == "dag-ml":
         kwargs["results_path"] = str(artifacts_dir / "native-results")
 
-    start = time.perf_counter()
-    result = nirs4all.run(case.pipeline_factory(), dataset_path(case.dataset_key), **kwargs)
-    return result, time.perf_counter() - start
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        start = time.perf_counter()
+        result = nirs4all.run(case.pipeline_factory(), dataset_path(case.dataset_key), **kwargs)
+        elapsed = time.perf_counter() - start
+    warning_messages = [str(warning.message) for warning in caught]
+    if engine == "dag-ml":
+        fallback_warnings = [message for message in warning_messages if "falling back to the legacy engine" in message]
+        assert not fallback_warnings, fallback_warnings
+        assert result._is_dagml_engine(), "engine='dag-ml' must not report a legacy fallback result"  # noqa: SLF001
+    return result, elapsed, warning_messages
 
 
-def _result_summary(result: Any, elapsed_seconds: float) -> dict[str, Any]:
+def _result_summary(result: Any, elapsed_seconds: float, warning_messages: list[str]) -> dict[str, Any]:
     best = result.best
     return {
         "elapsed_seconds": elapsed_seconds,
+        "warnings": warning_messages,
         "best_rmse": float(result.best_rmse),
         "best_score": float(result.best_score),
         "cv_best_score": float(result.cv_best_score),
@@ -64,8 +74,8 @@ def _result_summary(result: Any, elapsed_seconds: float) -> dict[str, Any]:
 
 def test_generate_family(artifacts_dir: Path) -> None:
     case = get_case("generator_zip_paired")
-    legacy, legacy_seconds = _run_timed("legacy", artifacts_dir)
-    dagml, dagml_seconds = _run_timed("dag-ml", artifacts_dir)
+    legacy, legacy_seconds, legacy_warnings = _run_timed("legacy", artifacts_dir)
+    dagml, dagml_seconds, dagml_warnings = _run_timed("dag-ml", artifacts_dir)
 
     legacy_pred = _as_vector(legacy.best["y_pred"])
     dagml_pred = _as_vector(dagml.best["y_pred"])
@@ -109,8 +119,8 @@ def test_generate_family(artifacts_dir: Path) -> None:
             ],
         },
         "runs": {
-            "legacy": _result_summary(legacy, legacy_seconds),
-            "dag_ml": _result_summary(dagml, dagml_seconds),
+            "legacy": _result_summary(legacy, legacy_seconds, legacy_warnings),
+            "dag_ml": _result_summary(dagml, dagml_seconds, dagml_warnings),
         },
         "parity": parity,
         "performance": {
