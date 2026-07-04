@@ -26,6 +26,17 @@ def _as_vector(value: Any) -> np.ndarray:
     return np.asarray(value, dtype=float).reshape(-1)
 
 
+def _assert_native_results_dir(value: Any) -> Path:
+    assert value is not None, "engine='dag-ml' with results_path must expose native results"
+    native_results_dir = Path(value)
+    assert native_results_dir.is_dir(), native_results_dir
+    for filename in ("manifest.json", "score_set.json", "predictions.parquet"):
+        assert (native_results_dir / filename).is_file(), native_results_dir / filename
+    artifact_files = sorted((native_results_dir / "artifacts").glob("*.joblib"))
+    assert artifact_files, native_results_dir / "artifacts"
+    return native_results_dir
+
+
 def _run_timed(engine: str, artifacts_dir: Path) -> tuple[Any, float, list[str]]:
     case = get_case("generator_zip_paired")
     kwargs: dict[str, Any] = {
@@ -49,9 +60,7 @@ def _run_timed(engine: str, artifacts_dir: Path) -> tuple[Any, float, list[str]]
         fallback_warnings = [message for message in warning_messages if "falling back to the legacy engine" in message]
         assert not fallback_warnings, fallback_warnings
         assert result._is_dagml_engine(), "engine='dag-ml' must not report a legacy fallback result"  # noqa: SLF001
-        native_results_dir = getattr(result, "_dagml_results_dir", None)
-        assert native_results_dir is not None, "engine='dag-ml' with results_path must expose native results"
-        assert Path(native_results_dir).exists(), native_results_dir
+        _assert_native_results_dir(getattr(result, "_dagml_results_dir", None))
     return result, elapsed, warning_messages
 
 
@@ -87,6 +96,10 @@ def test_generate_family(artifacts_dir: Path) -> None:
 
     assert legacy_pred.shape == dagml_pred.shape
     assert legacy_true.shape == dagml_true.shape
+    assert legacy_pred.size >= case.expected_min_predictions
+    assert dagml_pred.size >= case.expected_min_predictions
+    assert legacy.num_predictions >= case.expected_min_predictions
+    assert dagml.num_predictions >= case.expected_min_predictions
 
     parity = {
         "best_rmse_abs": abs(float(legacy.best_rmse) - float(dagml.best_rmse)),
@@ -132,7 +145,7 @@ def test_generate_family(artifacts_dir: Path) -> None:
             "legacy_over_dag_ml_ratio": speedup,
             "verdict": "dag_ml_faster" if speedup is not None and speedup > 1.0 else "no_speedup_on_this_run",
         },
-        "native_results_dir": str(artifacts_dir / "native-results"),
+        "native_results_dir": str(getattr(dagml, "_dagml_results_dir")),
     }
 
     (artifacts_dir / "pipeline-family.json").write_text(json.dumps(family, indent=2) + "\n", encoding="utf-8")
