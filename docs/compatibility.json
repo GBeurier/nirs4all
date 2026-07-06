@@ -4,7 +4,7 @@
   "consumer_of": "dag-ml.nirs4all.parity_oracle.v1",
   "last_reconciled": {
     "date": "2026-07-06",
-    "nirs4all_commit": "refactor/L17-pyref",
+    "nirs4all_commit": "95e81280202488a0b7f9504a0b1baffde65a38f4",
     "dag_ml_commit": "f58d7bf"
   },
   "tolerance_bands": [

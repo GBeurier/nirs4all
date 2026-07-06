@@ -4,7 +4,7 @@
 **owner:** `nirs4all compatibility ledger`
 **consumer_of:** `dag-ml/docs/contracts/parity_oracle.v1.json` (`dag-ml.nirs4all.parity_oracle.v1`)
 **machine-readable companion:** `docs/compatibility.json`
-**last reconciled:** 2026-07-06 against `nirs4all refactor/L17-pyref` / `dag-ml f58d7bf`
+**last reconciled:** 2026-07-06 against `nirs4all 95e81280202488a0b7f9504a0b1baffde65a38f4` / `dag-ml f58d7bf`
 **lock:** `LOCK-PYREF` (`DEC-PYREF-001`, `DEC-PYREF-002` accepted)
 
 This is the ADR-01 tolerance ledger the dag-ml contract names as its
