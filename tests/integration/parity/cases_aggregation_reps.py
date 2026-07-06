@@ -138,10 +138,10 @@ register(
             "sklearn_model",
             "classification_model",
         ),
-        dataset_key="aggregate_mean",
+        dataset_key="classification",
         pipeline_factory=_factory_classification_vote_aggregation,
         dataset_kwargs={
-            "repetition": "sample_id",
+            "repetition": "Sample_ID",
             "aggregate": True,
             "aggregate_method": "vote",
             "task_type": "multiclass_classification",
@@ -149,8 +149,6 @@ register(
         task="classification",
         expected_min_predictions=3,
         tags=_AGG | frozenset({"classification"}),
-        skip_reason="aggregate_mean fixture is regression-typed; needs a classification rep fixture.",
-        skip_kind="fixture",
     )
 )
 

@@ -760,7 +760,54 @@ def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro
     return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter), outcome["refit_artifacts"]
 
 
-def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
+def _current_processing_selector(spectro: Any, *, partition: str | None) -> Any:
+    """Build a selector that addresses the dataset's current processing view."""
+    from nirs4all.pipeline.config.context import DataSelector
+
+    processing = [list(spectro.features_processings(source_index)) for source_index in range(spectro.features_sources())]
+    return DataSelector(partition=partition, processing=processing or [["raw"]])
+
+
+def _materialize_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any, random_state: int | None = None) -> Any:
+    """Apply the host-side preprocessing prefix that precedes ``sample_augmentation``."""
+    from nirs4all.pipeline.config.context import ExecutionContext, PipelineState, RuntimeContext, StepMetadata
+    from nirs4all.pipeline.steps.step_runner import StepRunner
+
+    context = ExecutionContext(
+        selector=_current_processing_selector(spectro, partition=None),
+        state=PipelineState(),
+        metadata=StepMetadata(),
+    )
+    if not pre_aug_steps:
+        return context
+
+    step_runner = StepRunner(verbose=0, mode="train")
+    runtime_context = RuntimeContext()
+    runtime_context.step_runner = step_runner
+    runtime_context.save_artifacts = False
+    runtime_context.save_charts = False
+    runtime_context.random_state = random_state
+
+    for step_number, step in enumerate(pre_aug_steps, start=1):
+        if step is None:
+            continue
+        if hasattr(step, "split") or (isinstance(step, dict) and "model" in step):
+            raise DagMlUnsupported("engine='dag-ml' supports sample_augmentation only after preprocessing steps and before the splitter/model")
+        runtime_context.step_number = step_number
+        runtime_context.substep_number = -1
+        runtime_context.reset_processing_counter()
+        try:
+            result = step_runner.execute(step, spectro, context, runtime_context, loaded_binaries=None, prediction_store=None)
+        except Exception as exc:  # noqa: BLE001 - unsupported host-side preprocessing falls back to legacy
+            raise DagMlUnsupported(
+                "engine='dag-ml' cannot materialize preprocessing before sample_augmentation with the "
+                f"current host-side controller path ({exc}); use the legacy engine."
+            ) from exc
+        context = result.updated_context
+    return context
+
+
+def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any, context: Any | None = None) -> None:
     """Run nirs4all's REAL ``SampleAugmentationController`` to add synthetic train rows in place.
 
     Reuses the production machinery (the controller delegates to ``TransformerMixinController``, which
@@ -772,12 +819,15 @@ def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
     the base→child fold expansion and the envelope's augmentation grain key off.
     """
     from nirs4all.controllers.data.sample_augmentation import SampleAugmentationController
-    from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
+    from nirs4all.pipeline.config.context import ExecutionContext, PipelineState, RuntimeContext, StepMetadata
     from nirs4all.pipeline.steps.parser import ParsedStep, StepType
     from nirs4all.pipeline.steps.step_runner import StepRunner
 
     step_info = ParsedStep(operator=None, keyword="sample_augmentation", step_type=StepType.DIRECT, original_step=aug_step, metadata={})
-    context = ExecutionContext(selector=DataSelector(partition="train", processing=[["raw"]]), state=PipelineState(), metadata=StepMetadata())
+    if context is None:
+        context = ExecutionContext(selector=_current_processing_selector(spectro, partition="train"), state=PipelineState(), metadata=StepMetadata())
+    else:
+        context = context.with_partition("train")
     runtime_context = RuntimeContext()
     runtime_context.step_runner = StepRunner(verbose=0, mode="train")
     runtime_context.save_artifacts = False
@@ -785,7 +835,7 @@ def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any) -> None:
     SampleAugmentationController().execute(step_info, spectro, context, runtime_context, mode="train")
 
 
-def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list[int]) -> list[tuple[int, np.ndarray]]:
+def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list[int], context: Any) -> list[tuple[int, np.ndarray]]:
     """Augment a fold's TRAIN only and return the synthetic children as ``[(origin_int, child_X(1,F)), ...]``.
 
     A FRESH copy of ``spectro`` is restricted so ``partition: train`` is exactly ``fold_train`` (the
@@ -805,7 +855,7 @@ def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list
     fold_ds._invalidate_content_hash()  # noqa: SLF001
 
     before = {int(s) for s in fold_ds.index_column("sample", {})}
-    _apply_sample_augmentation(aug_step, fold_ds)
+    _apply_sample_augmentation(aug_step, fold_ds, context)
     samples = [int(s) for s in fold_ds.index_column("sample", {})]
     origins = [int(o) for o in fold_ds.index_column("origin", {})]
     children: list[tuple[int, np.ndarray]] = []
@@ -815,7 +865,7 @@ def _augment_fold_train(aug_step: dict[str, Any], spectro: Any, fold_train: list
     return children
 
 
-def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int]) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
+def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]], base_train: list[int], context: Any) -> tuple[dict[str, dict[int, list[int]]], dict[int, str]]:
     """Augment fold-by-fold + a full-train refit pass; insert all children into ``spectro`` in place.
 
     For each fold (key ``"fold{i}"``, matching :func:`build_fold_set`'s fold ids) and the full-train
@@ -837,7 +887,7 @@ def _build_fold_local_children(aug_step: dict[str, Any], spectro: Any, base_fold
     fold_children: dict[str, dict[int, list[int]]] = {}
     augmentation_by_sample: dict[int, str] = {}
     for fold_label, fold_train in passes:
-        children = _augment_fold_train(aug_step, spectro, fold_train)
+        children = _augment_fold_train(aug_step, spectro, fold_train, context)
         if not children:
             fold_children[fold_label] = {}
             continue
@@ -959,21 +1009,19 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
 
     Adds the synthetic train rows (real augmentation machinery), builds BASE-grain folds (each base
     val sample validated once — a clean OOF partition that dag-ml/dag-ml-data accept) and a CV-universe
-    envelope (base + augmented children; observation-grain relations carrying each child's origin +
-    augmentation, deduped to the origin's sample grain in the schema). The fold-train views stay
-    base-grain + ``include_augmented_train`` so the host expands each base id to base + its children at
-    fit time — the children TRAIN, the OOF/validation/test never see them. The augmented dataset is
-    pickled for the adapter (augmentation is stochastic, not reproducible cross-process).
+    envelope over the base train rows. This mirrors the Python reference for the supported
+    ``preprocess* -> sample_augmentation -> splitter -> model`` order: the augmentation controller
+    materializes children in the dataset, but the downstream splitter/model fold remap keeps training
+    on the base fold ids only. The augmented dataset is still pickled for the adapter so the materialized
+    view and origin metadata are reproducible across the process boundary.
 
     Two augmentation regimes, picked by :func:`_augmentation_is_leakage_free`:
 
     * **GLOBAL** (stateless per-sample augmenter) — augment ONCE on the whole train; the children are
-      shared across folds. Leakage-free because the augmenter learns no data state (#8).
+      shared in the materialized dataset but are not auto-expanded into native fit views.
     * **FOLD-LOCAL** (stateful / supervised / balanced augmenter) — augment inside EACH fold's train
-      (plus a full-train refit pass) separately, so each fold has its own children fit only on that
-      fold's train. A ``fold_children`` map keys the resolver's per-fold expansion; it is pickled with
-      the dataset so the adapter expands the right children per fold (#32). This is what makes the
-      stateful case (mixup neighbors, global-mean scatter, class balancing) leakage-safe.
+      (plus a full-train refit pass) separately, preserving the existing native materialization path
+      for those richer augmenters while still keeping fit views base-grain for Python-reference parity.
 
     Only the supported ``transform* + sample_augmentation + splitter + model`` shape runs here; the
     remaining steps are lowered through the bridge (a raw ``sample_augmentation`` still raises, keeping
@@ -985,13 +1033,17 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     if len(aug_steps) != 1:
         raise NotImplementedError("engine='dag-ml' supports exactly one sample_augmentation step")
     aug_step = aug_steps[0]
-    rest = [step for step in pipeline if not _is_augmentation_step(step)]
-    steps, splitter = _split_pipeline(rest)
+    aug_index = next(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
+    pre_aug_steps = pipeline[:aug_index]
+    post_aug_pipeline = pipeline[aug_index + 1 :]
+    steps, splitter = _split_pipeline(post_aug_pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    _assert_supported_operators(pre_aug_steps)
     _assert_supported_operators(steps)
     steps = _apply_model_params(steps)
 
+    augmentation_context = _materialize_pre_augmentation_steps(pre_aug_steps, spectro, random_state=random_state)
     base_train = [int(s) for s in spectro.index_column("sample", {"partition": "train"})]
     fold_local = not _augmentation_is_leakage_free(aug_step)
 
@@ -1002,24 +1054,25 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     base_folds = [([base_train[i] for i in train_idx], [base_train[i] for i in val_idx]) for train_idx, val_idx in _split_pool(splitter, spectro, base_train)]
 
     # GLOBAL stateless augmentation (#8): fit once on the whole train (leakage-free only for stateless
-    # per-sample augmenters), children shared across all folds (resolver discovers them from identity).
+    # per-sample augmenters), children shared in the materialized dataset.
     # FOLD-LOCAL augmentation (#32): a STATEFUL/SUPERVISED/balanced augmenter is fit inside EACH fold's
-    # train only, so each fold (+ the full-train refit) has its OWN children — leakage-safe for the
-    # stateful case. `fold_children` keys the per-fold expansion; it is pickled for the adapter's resolver.
+    # train only, so each fold (+ the full-train refit) has its OWN children. For Python-reference parity
+    # in this pipeline order, the native resolver is given empty fold-children maps below so those rows
+    # are not auto-expanded into model fit views.
     fold_children: dict[str, dict[int, list[int]]] | None = None
     if fold_local:
-        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_step, spectro, base_folds, base_train)
+        fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_step, spectro, base_folds, base_train, augmentation_context)
     else:
-        _apply_sample_augmentation(aug_step, spectro)
+        _apply_sample_augmentation(aug_step, spectro, augmentation_context)
         _augmented_ints, augmentation_by_sample_int = _augmentation_grain(spectro, _augmentation_label(aug_step))
 
     # Identity is minted on the AUGMENTED dataset so children get their own observation_id + the origin's
-    # sample_id (augmented=True). The CV universe = base train + the augmented children.
+    # sample_id (augmented=True), but the executable CV universe stays base-grain to match the Python
+    # reference fold/model remap for augmentation-before-splitter pipelines.
     identity = mint_identity(spectro)
-    samples = [int(s) for s in spectro.index_column("sample", {})]
-    origins = [int(o) for o in spectro.index_column("origin", {})]
-    augmented_ints = [sample_int for sample_int, origin_int in zip(samples, origins, strict=True) if sample_int != origin_int]
-    cv_universe = base_train + augmented_ints
+    cv_universe = base_train
+    fold_children = {f"fold{index}": {} for index in range(len(base_folds))} | {"refit": {}}
+    augmentation_by_sample_int = {}
 
     envelope = build_envelope(spectro, identity, sample_ints=cv_universe, augmentation_by_sample=augmentation_by_sample_int)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, base_folds, dsl_id="nirs4all-augmentation", n_splits=len(base_folds))
@@ -1040,7 +1093,18 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml augmentation run failed")
 
-    return _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), refit_artifacts=outcome["refit_artifacts"])
+    return _scores_to_run_result(
+        outcome["scores"],
+        spectro.name,
+        _model_name(steps),
+        metric,
+        task_type,
+        config_name=config_name,
+        skip_refit=_legacy_skips_refit(splitter),
+        results=outcome["results"],
+        identity=identity,
+        refit_artifacts=outcome["refit_artifacts"],
+    )
 
 
 _MERGE_NODE_ID = "merge:concat"

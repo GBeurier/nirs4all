@@ -4,7 +4,7 @@
 **owner:** `nirs4all compatibility ledger`
 **consumer_of:** `dag-ml/docs/contracts/parity_oracle.v1.json` (`dag-ml.nirs4all.parity_oracle.v1`)
 **machine-readable companion:** `docs/compatibility.json`
-**last reconciled:** 2026-06-30 against `nirs4all e41362b4` / `dag-ml f58d7bf`
+**last reconciled:** 2026-07-06 against `nirs4all refactor/L17-pyref` / `dag-ml f58d7bf`
 **lock:** `LOCK-PYREF` (`DEC-PYREF-001`, `DEC-PYREF-002` accepted)
 
 This is the ADR-01 tolerance ledger the dag-ml contract names as its
@@ -132,41 +132,30 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 
 | Case | Mechanism | Authority | Disposition | Band | Measured Δ | Evidence (`file:line`) |
 |---|---|---|---|---|---|---|
-| `rep_to_sources_basic` | legacy **double-counts** overlapping rep OOF folds; dag-ml aggregates each OOF sample once | dag-ml | `xfail(strict)` vs legacy gold — PERMANENT | `n/a_semantic` | cv_best_score `6.6735` (legacy) vs `6.1906` (dag-ml, correct) | `test_conformance_dual_engine.py:127` |
-| `rep_to_pp_basic` | same rep OOF double-count | dag-ml | `xfail(strict)` — PERMANENT | `n/a_semantic` | `6.1427` vs `6.1906` (correct) | `:129` |
+| `rep_to_sources_basic` | legacy keeps a stale processing selector after repetition reshape; dag-ml follows corrected native reshape scoring | dag-ml | **PASS** parity-note; `cv_best_score` pinned | `n/a_semantic` | cv_best_score `6.673486795441247` (legacy) vs `6.190624012206827` (dag-ml) | `test_conformance_dual_engine.py:199-222` |
+| `rep_to_pp_basic` | same stale-context reshape scalar divergence | dag-ml | **PASS** parity-note; `cv_best_score` pinned | `n/a_semantic` | `6.1427143240770405` vs `6.190624012206827` | `:199-222` |
+| `feature_augmentation_replace_three_views` | legacy replace-mode context excludes `raw`, but the model matrix still includes it; dag-ml follows replacement semantics | dag-ml | **PASS** parity-note; public score scalars pinned | `n/a_semantic` | best_rmse `12.506075123140343` (legacy) vs `12.627259100347944` (dag-ml) | `test_conformance_dual_engine.py:224-241` |
 | `generator_or_models_pls_ridge` | multi-model `_or_` operator-SELECT refits the **winner only**; legacy refits every loser and stores its `(train,final)`+`(test,final)` rows | dag-ml | **PASS** parity-note; `num_predictions` pinned | `cross_impl_score` (winner) | winner/score/winner-y_pred all match (Δ≈`2e-15`); only count differs **34**(legacy)/**32**(dag-ml) | `:190-195` |
 | `generator_chain_model_configs` | same SELECT semantic over `_chain_` of distinct models | dag-ml | **PASS** parity-note; `num_predictions` pinned | `cross_impl_score` (winner) | **49**(legacy)/**47**(dag-ml) | `:196-201` |
 | *(contract-wide)* `best_rmse` / `best_r2` / `best_accuracy` re-anchored on the **SELECTED** model | 0.9.x **bugfix**: the scalar shortcuts previously re-ranked per metric and could each report a *different, non-selected* CV fold; they now read from `best` | dag-ml / post-fix nirs4all | enforced (not xfail) by `assert_runresult_contract` (`best_score` = selected-metric value) | `cross_impl_score` | e.g. `best_r2` returned fold R² `0.5426` instead of selected `0.5499` | `CHANGELOG.md:44-57`; `_conformance_helpers.py:286-300` |
 
-> **XPASS discipline:** every Tier-2 `xfail(strict)` flips the suite **RED** the
-> moment the engines reconverge — a fixed divergence can never silently leave
-> coverage. The two `num_predictions` parity-notes are **not** xfail (a strict
-> xfail would wrongly assert the engines should converge on the legacy
-> refit-all count); instead the exact `34/32` and `49/47` counts are *pinned*
-> by `assert_num_predictions_divergence` (`_conformance_helpers.py:220-243`), so
-> only the one documented +2 loser-refit-row delta passes — any other count fails.
+> **Parity-note discipline:** Tier-2 semantic deltas are not hidden behind
+> `xfail(strict)`. The `num_predictions` notes pin exact `34/32` and `49/47`
+> counts, while the repetition-fusion notes pin exact `cv_best_score` scalars.
+> Any other count or score fails.
 
-### Tier 3 — RNG-nondeterministic native comparisons (comparison invalid)
+### Tier 3 — strict-xfail native comparisons
 
-The current machine-readable authority rows are the seven RNG strict-xfail
-cases below. Non-runnable fixture skips are tracked separately in §C.2;
-expected native fallbacks are tracked in §C.1.
-
-| Case | Sub-class | Authority | Disposition | Band | Evidence (`file:line`) |
-|---|---|---|---|---|---|
-| `sample_augmentation_gaussian` | RNG/order — augmentation expands the train set with a different per-op RNG draw / order across engines | neither (nondeterministic) | `xfail(strict)` | `n/a_rng` | `test_conformance_dual_engine.py:82` (Δrmse≈`9.7e-2`) |
-| `sample_augmentation_chained` | RNG/order (chained augmentation) | neither | `xfail(strict)` | `n/a_rng` | `:83` (Δrmse≈`1.1e0`) |
-| `sample_augmentation_after_savgol` | RNG/order (augmentation after preproc) | neither | `xfail(strict)` | `n/a_rng` | `:84` (Δrmse≈`9.2e-1`) |
-| `feature_augmentation_replace_three_views` | RNG — three replace-views built in a different order, so the concatenated feature matrix differs | neither | `xfail(strict)` | `n/a_rng` | `:87` (Δrmse≈`1.2e-1`) |
-| `concat_transform_pca_svd_plsr` | RNG — concat_transform view order / decomposition differs | neither | `xfail(strict)` | `n/a_rng` | `:88` (Δrmse≈`1.4e0`) |
-| `generator_finetune_params_optuna` | RNG — Optuna explores a different trial sequence per engine, so selected hyperparameters differ | neither | `xfail(strict)` | `n/a_rng` | `:102` (Δrmse≈`1.7e0`) |
-| `generator_sample_log_uniform_alpha` | RNG — unseeded `_sample_` (`_seed_` not set): variant set / winner not reproducible across engines | neither | `xfail(strict)` | `n/a_rng` | `:115` (Δrmse up to ≈`5.3e-1`, different winner) |
+There are currently **no** strict-xfail native comparison rows. The former
+`concat_transform_pca_svd_plsr` row is now an explicit `EXPECTED_FALLBACK`
+boundary (§C.1): the native FeatureConcat path fits stateful PCA/SVD fold-locally,
+while the Python oracle materializes `concat_transform` before CV.
 
 ---
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (11)
+### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (15)
 
 Shapes the dag-ml host bridge does **not serialize yet**, so `engine="dag-ml"`
 transparently re-runs legacy. These make **no parity claim** — they are pinned by
@@ -177,28 +166,30 @@ serialization, runtime work — not a tolerance question). When L5 lands native
 coverage, the entry leaves the allowlist and the boundary test then demands
 native parity.
 
-Source: `test_conformance_dual_engine.py:310-328`.
+Source: `test_conformance_dual_engine.py:310-337`.
 
 | Shape group | Cases |
 |---|---|
 | branch (duplication) + merge → multi-model | `branch_dup_three_way_merge_predictions`, `branch_dup_two_way_merge_features`, `branch_dup_named_with_metamodel`, `branch_dup_merge_all` |
-| branch separation by tag/filter | `branch_separation_by_tag`, `branch_separation_by_filter` |
+| branch separation by metadata/tag/filter | `branch_separation_by_metadata_auto`, `branch_separation_by_tag`, `branch_separation_by_filter` |
+| classification repetition + vote aggregation | `aggregation_classification_vote` |
+| legacy Optuna finetuning | `generator_finetune_params_optuna` |
+| stateful `concat_transform` pre-CV materialization | `concat_transform_pca_svd_plsr` |
 | by-source / per-source multi-source | `multi_source_by_source_branch_shared_preproc`, `multi_source_per_source_models_stacking` |
 | explicit `preprocessing` keyword + `fit_on_all` + `force_layout` | `preprocessing_explicit_keyword`, `preprocessing_fit_on_all`, `preprocessing_force_layout_2d` |
 
 **`EXPECTED_FALLBACK == ∅` is the `LOCK-DROP` D1 gate, owned by L5 — not a
 `LOCK-PYREF` gate.**
 
-### C.2 Coverage-debt fixture skips (3)
+### C.2 Coverage-debt fixture skips (0)
 
-Cannot construct / run; **no authority claim**. Disposition `skip`
-(`skip_kind="fixture"`).
+All former fixture-debt rows are now runnable. The two shapes that still lack
+native coverage moved to the explicit `EXPECTED_FALLBACK` boundary; the
+multi-filter exclusion case now runs as a live legacy-oracle parity case.
 
 | Case | Reason | Evidence |
 |---|---|---|
-| `branch_separation_by_metadata_auto` | `sample_data/regression` has no `variety` metadata column | `cases_branches_merges.py:193`, `:209` |
-| `exclude_multi_any_y_and_x` | corpus too small for a 2-filter UNION exclusion | `cases_tags_exclude.py:108`, `:126` |
-| `aggregation_classification_vote` | `aggregate_mean` fixture is regression-typed; needs a classification rep fixture | `cases_aggregation_reps.py:131`, `:153` |
+| _none_ | _n/a_ | _n/a_ |
 
 ### C.3 `Y_PRED_TOL_OVERRIDES` (6) — band `cross_impl_ypred_firstderiv` (5e-3, guarded)
 
@@ -224,6 +215,20 @@ Already recorded in **Tier 2** as `pass_parity_note`. Listed here only as a
 reminder that the count is *pinned* (`assert_num_predictions_divergence`), never
 merely exempted. Source: `test_conformance_dual_engine.py:189-202`.
 
+### C.6 `CV_BEST_SCORE_DIVERGENCE` (2)
+
+Already recorded in **Tier 2** as `pass_cv_best_score_note`. Listed here only as
+a reminder that the repetition-fusion scalars are *pinned*
+(`assert_cv_best_score_divergence`), never merely exempted. Source:
+`test_conformance_dual_engine.py:199-222`.
+
+### C.7 `RUNRESULT_SCORE_DIVERGENCE` (1)
+
+Already recorded in **Tier 2** as `pass_runresult_score_note`. Listed here only
+as a reminder that the public score scalars are *pinned*
+(`assert_runresult_score_divergence`), never merely exempted. Source:
+`test_conformance_dual_engine.py:224-241`.
+
 ---
 
 ## §D — Cross-engine surface ledger (EXISTS / PARTIAL / GAP)
@@ -247,26 +252,29 @@ report §4 and SW5 §6 for the concrete test specs).
 ## §E — Coverage meter (the LOCK-DROP instrument)
 
 Counts verified against `tests/integration/parity/cases_*.py` (95 `register()`
-calls) on `e41362b4`. The `EXPECTED_FALLBACK` shrink target is the LOCK-DROP D1
+calls) after the fixture-debt cleanup. The `EXPECTED_FALLBACK` shrink target is the LOCK-DROP D1
 gate.
 
 | Metric | Count | Note |
 |---|---|---|
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
-| Non-runnable (`skip_reason` set) | **3** | 3 `fixture` skips |
-| Runnable | **92** | 95 − 3 |
-| → fall back to legacy (`EXPECTED_FALLBACK`) | **11** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **81** | full parity asserted or strict-xfailed by documented divergence |
-| Strict-xfail (documented divergence) | **9** | 9 `KNOWN_DIVERGENCES`; no `legacy_bug` rows in the current registry |
-| `pytest.skip` (fixture) | **3** | coverage-debt fixture skips only |
+| Non-runnable (`skip_reason` set) | **0** | no fixture/unknown/legacy-bug skips in the registry |
+| Runnable | **95** | 95 − 0 |
+| → fall back to legacy (`EXPECTED_FALLBACK`) | **15** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
+| → run native on dag-ml | **80** | full parity asserted or parity-note pinned |
+| Strict-xfail (documented divergence) | **0** | `KNOWN_DIVERGENCES` is empty; no `legacy_bug` rows in the current registry |
+| `pytest.skip` (fixture) | **0** | fixture skips retired |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
+| `CV_BEST_SCORE_DIVERGENCE` parity-notes (PASS) | **2** | repetition-fusion scalars pinned |
+| `RUNRESULT_SCORE_DIVERGENCE` parity-notes (PASS) | **1** | public score scalars pinned |
 
 > **Correction to prior counts:** the current machine-readable ledger and live
-> registry have no `legacy_bug` or `unknown_semantics` skip rows. The only
-> `skip_reason` rows are the three fixture-debt cases in §C.2, so the verified
-> meter is **3** non-runnable / **92** runnable. `EXPECTED_FALLBACK` remains
-> **11**, but now includes the by-tag/by-filter branch-separation cases and no
-> longer includes the two multi-source shapes absent from the live allowlist.
+> registry have no `legacy_bug`, `unknown_semantics`, or fixture skip rows. The
+> verified meter is **0** non-runnable / **95** runnable. `EXPECTED_FALLBACK` is
+> now **15** because two retired fixture-debt shapes are runnable but still not
+> native, `finetune_params` is an explicit coverage boundary, and stateful
+> `concat_transform` now falls back until dag-ml preserves the Python oracle's
+> pre-CV materialization semantics.
 
 ---
 
@@ -276,9 +284,9 @@ gate.
    in §A.2. `1e-9` is `kernel_pls`, never the cross-engine default.
 2. **RNG is never tolerance-masked** (`DEC-PYREF-002`). An `n/a_rng` case is
    xfail/skip; widening a tolerance to absorb a stochastic path is forbidden.
-3. **XPASS = RED.** Every Tier-2 / Tier-3 `xfail(strict)` flips the suite red the
-   moment the engines reconverge — a fixed divergence cannot silently leave
-   coverage.
+3. **XPASS = RED when strict-xfail rows exist.** There are no strict-xfail rows
+   currently; any future `xfail(strict)` must flip the suite red the moment the
+   engines reconverge, so a fixed divergence cannot silently leave coverage.
 4. **The native/fallback boundary can never silently widen.**
    `test_native_fallback_boundary` is never xfailed; an off-allowlist fallback or
    a stale allowlist entry fails (`test_conformance_dual_engine.py:375`).

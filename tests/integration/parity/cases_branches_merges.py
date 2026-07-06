@@ -179,7 +179,7 @@ def _factory_sep_by_metadata_auto_discover() -> list[Any]:
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
         {
             "branch": {
-                "by_metadata": "variety",
+                "by_metadata": "group",
                 "steps": [SNV()],  # auto-discover unique values, same preproc per branch
             }
         },
@@ -191,7 +191,7 @@ def _factory_sep_by_metadata_auto_discover() -> list[Any]:
 register(
     PipelineCase(
         name="branch_separation_by_metadata_auto",
-        description="Separation branch by metadata column 'variety' with auto-discovered values + "
+        description="Separation branch by metadata column 'group' with auto-discovered values + "
         "shared SNV preprocessing → concat merge → PLSR. Tests dynamic-cardinality separation.",
         keywords=("branch", "merge", "model"),
         capabilities=(
@@ -200,13 +200,10 @@ register(
             "sklearn_model",
             "regression_model",
         ),
-        dataset_key="regression",
+        dataset_key="with_metadata",
         pipeline_factory=_factory_sep_by_metadata_auto_discover,
         expected_min_predictions=3,
         tags=_BRANCH | _MERGE | frozenset({"separation"}),
-        skip_reason="sample_data/regression has no 'variety' metadata column; "
-        "needs nir_markers fixture or synthetic metadata — Phase 3 enables.",
-        skip_kind="fixture",
     )
 )
 

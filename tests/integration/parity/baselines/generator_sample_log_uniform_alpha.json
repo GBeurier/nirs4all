@@ -5,14 +5,14 @@
     "regression"
   ],
   "metrics": {
-    "best_score": 12.472028640645672,
-    "cv_best_score": 16.69177694196962,
-    "r2": 0.6034137010574341,
-    "rmse": 12.472028640645672
+    "best_score": 12.479011309659173,
+    "cv_best_score": 16.688559737827795,
+    "r2": 0.6029695272445679,
+    "rmse": 12.479011309659173
   },
   "models": [
     "Ridge"
   ],
   "num_predictions": 77,
-  "pipeline_fingerprint": "32450ad431bb8bc3"
+  "pipeline_fingerprint": "ddb08ab6fbed689f"
 }

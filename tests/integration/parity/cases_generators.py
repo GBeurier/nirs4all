@@ -299,6 +299,7 @@ def _factory_sample_random_alpha() -> list[Any]:
                 "num": 5,
             },
             "param": "alpha",
+            "_seed_": 123,
             "model": Ridge,
         },
     ]
@@ -307,8 +308,8 @@ def _factory_sample_random_alpha() -> list[Any]:
 register(
     PipelineCase(
         name="generator_sample_log_uniform_alpha",
-        description="`_sample_` random sampling of Ridge.alpha from log-uniform distribution — 5 variants × 3 folds.",
-        keywords=("_sample_", "model"),
+        description="`_sample_` seeded sampling of Ridge.alpha from log-uniform distribution — 5 variants × 3 folds.",
+        keywords=("_sample_", "_seed_", "model"),
         capabilities=(
             "preprocessing_transform",
             "cross_validator",
