@@ -119,9 +119,6 @@ register(
         pipeline_factory=_factory_refit_params,
         expected_min_predictions=3,
         tags=frozenset({"refit", "fast"}),
-        skip_reason="refit_params semantics depend on nirs4all 0.9.x retraining logic — "
-        "confirm exact key names against api/retrain.py before flipping on.",
-        skip_kind="unknown_semantics",
     )
 )
 

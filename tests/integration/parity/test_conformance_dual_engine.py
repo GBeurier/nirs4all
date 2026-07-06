@@ -314,6 +314,10 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     "branch_dup_two_way_merge_features",
     "branch_dup_named_with_metamodel",
     "branch_dup_merge_all",
+    # by-tag/by-filter separation branches use the same branch/merge keywords and
+    # currently fall back until dag-ml serializes separation branch DAGs natively.
+    "branch_separation_by_tag",
+    "branch_separation_by_filter",
     # by-source separation / per-source models / source-concat multi-source shapes.
     "multi_source_by_source_branch_shared_preproc",
     "multi_source_per_source_models_stacking",

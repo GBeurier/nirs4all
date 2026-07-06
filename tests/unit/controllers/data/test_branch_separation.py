@@ -128,6 +128,37 @@ class TestBranchControllerHelpers:
         # Dict steps now recurse into model/preprocessing values
         assert "Mock" in names
 
+    def test_steps_for_separation_branch_shared_list(self, controller):
+        steps = [Mock(name="snv"), Mock(name="pls")]
+
+        assert controller._steps_for_separation_branch(steps, "passing") == steps
+
+    def test_steps_for_separation_branch_by_name(self, controller):
+        passing = [Mock(name="snv")]
+        failing = [Mock(name="msc")]
+
+        assert controller._steps_for_separation_branch(
+            {"passing": passing, "failing": failing},
+            "passing",
+        ) == passing
+
+    def test_steps_for_separation_branch_bool_name(self, controller):
+        true_steps = [Mock(name="outlier")]
+        false_steps = [Mock(name="normal")]
+
+        assert controller._steps_for_separation_branch(
+            {True: true_steps, False: false_steps},
+            "True",
+        ) == true_steps
+
+    def test_steps_for_separation_branch_default(self, controller):
+        default = [Mock(name="default")]
+
+        assert controller._steps_for_separation_branch(
+            {"default": default},
+            "unknown",
+        ) == default
+
 class TestMultiplyBranchContexts:
     """Test branch context multiplication for nested branching."""
 

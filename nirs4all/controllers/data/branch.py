@@ -472,11 +472,9 @@ class BranchController(OperatorController):
 
         logger.info(f"Creating separation branches by tag '{tag_name}'")
 
-        # Get tag values for all samples (training partition in train mode)
+        # Get tag values for the routed selector so concat merge can rebuild a complete matrix.
         selector = context.selector.copy()
-        if mode == "train":
-            selector = context.with_partition("train").selector
-            selector.include_augmented = False
+        selector.include_augmented = False
 
         sample_indices = dataset._indexer.x_indices(
             selector, include_augmented=False, include_excluded=False
@@ -486,8 +484,10 @@ class BranchController(OperatorController):
             logger.warning("No samples found for separation branch")
             return context, StepOutput()
 
-        # Get tag values for these samples
-        tag_values = dataset.get_tag(tag_name, selector={"indices": sample_indices.tolist()})
+        # Get tag values for the same sample IDs used by the branch split.
+        tag_selector = selector.copy()
+        tag_selector["sample"] = sample_indices.tolist()
+        tag_values = dataset.get_tag(tag_name, selector=tag_selector)
 
         # Build value mapping if not provided
         if value_mapping is None:
@@ -558,9 +558,7 @@ class BranchController(OperatorController):
 
         # Get sample indices
         selector = context.selector.copy()
-        if mode == "train":
-            selector = context.with_partition("train").selector
-            selector.include_augmented = False
+        selector.include_augmented = False
 
         sample_indices = dataset._indexer.x_indices(
             selector, include_augmented=False, include_excluded=False
@@ -640,30 +638,33 @@ class BranchController(OperatorController):
             }}
         """
         from nirs4all.operators.filters.base import SampleFilter
-        from nirs4all.pipeline.steps.deserializer import StepDeserializer
 
         filter_spec = raw_def["by_filter"]
         steps = raw_def.get("steps", [])
         names = raw_def.get("names", ["passing", "failing"])
 
-        # Deserialize filter if needed
-        if isinstance(filter_spec, dict):
-            deserializer = StepDeserializer()
-            filter_obj = deserializer.deserialize(filter_spec)
-        elif isinstance(filter_spec, SampleFilter):
+        if isinstance(filter_spec, SampleFilter):
             filter_obj = filter_spec
+        elif isinstance(filter_spec, dict):
+            from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+            filter_obj = deserialize_component(filter_spec)
         else:
             raise ValueError(
                 f"by_filter expects a SampleFilter instance or dict, got {type(filter_spec).__name__}"
+            )
+
+        if not isinstance(filter_obj, SampleFilter):
+            raise ValueError(
+                "by_filter dict must deserialize to a SampleFilter instance, "
+                f"got {type(filter_obj).__name__}"
             )
 
         logger.info(f"Creating separation branches by filter {filter_obj.__class__.__name__}")
 
         # Get sample indices
         selector = context.selector.copy()
-        if mode == "train":
-            selector = context.with_partition("train").selector
-            selector.include_augmented = False
+        selector.include_augmented = False
 
         sample_indices = dataset._indexer.x_indices(
             selector, include_augmented=False, include_excluded=False
@@ -673,12 +674,28 @@ class BranchController(OperatorController):
             logger.warning("No samples found for separation branch")
             return context, StepOutput()
 
-        # Get X and y for filter
+        # Get X and y for filter application on the routed selector.
         X = dataset.x(selector, layout="2d", concat_source=True, include_augmented=False, include_excluded=False)
         y = dataset.y(selector, include_augmented=False, include_excluded=False)
 
-        # Fit and apply filter
-        filter_obj.fit(X, y)
+        # Fit on train in training mode, then apply to the full routed selector so
+        # downstream concat merge can materialize a complete feature matrix.
+        if mode == "train":
+            fit_selector = context.with_partition("train").selector
+            fit_selector.include_augmented = False
+            fit_X = dataset.x(
+                fit_selector,
+                layout="2d",
+                concat_source=True,
+                include_augmented=False,
+                include_excluded=False,
+            )
+            fit_y = dataset.y(fit_selector, include_augmented=False, include_excluded=False)
+        else:
+            fit_X = X
+            fit_y = y
+
+        filter_obj.fit(fit_X, fit_y)
         mask = filter_obj.get_mask(X, y)  # True = passing, False = failing
 
         # Create groups
@@ -1188,6 +1205,7 @@ class BranchController(OperatorController):
             branch_name=branch_name,
             branch_path=new_branch_path
         )
+        branch_context.selector["sample"] = branch_sample_indices.tolist()
         branch_context.selector.processing = copy.deepcopy(initial_processing)
 
         # Store sample partition info for downstream controllers
@@ -1214,7 +1232,8 @@ class BranchController(OperatorController):
         branch_artifacts: list[Any] = []
 
         # Execute branch steps
-        for substep_idx, substep in enumerate(steps):
+        branch_steps = self._steps_for_separation_branch(steps, branch_name)
+        for substep_idx, substep in enumerate(branch_steps):
             if runtime_context.step_runner:
                 runtime_context.substep_number = substep_idx
 
@@ -1259,6 +1278,7 @@ class BranchController(OperatorController):
             "name": branch_name,
             "context": branch_context,
             "features_snapshot": branch_features_snapshot,
+            "initial_features_snapshot": initial_features_snapshot,
             "chain_snapshot": branch_chain_snapshot,
             "branch_mode": "separation",
             "sample_indices": branch_sample_indices.tolist() if isinstance(branch_sample_indices, np.ndarray) else list(branch_sample_indices),
@@ -1268,6 +1288,35 @@ class BranchController(OperatorController):
         logger.success(f"    Branch {branch_id} '{branch_name}' completed")
 
         return branch_dict, branch_artifacts
+
+    def _steps_for_separation_branch(self, steps: Any, branch_name: Any) -> list[Any]:
+        """Return shared or branch-specific steps for a separation branch."""
+        if steps is None:
+            return []
+
+        if not isinstance(steps, dict):
+            return list(steps) if isinstance(steps, (list, tuple)) else [steps]
+
+        candidate_keys = [branch_name, str(branch_name)]
+        if isinstance(branch_name, str):
+            normalized = branch_name.strip().lower()
+            if normalized == "true":
+                candidate_keys.append(True)
+            elif normalized == "false":
+                candidate_keys.append(False)
+
+        selected = None
+        for key in candidate_keys:
+            if key in steps:
+                selected = steps[key]
+                break
+
+        if selected is None:
+            selected = steps.get("default", steps.get("*", []))
+
+        if selected is None:
+            return []
+        return list(selected) if isinstance(selected, (list, tuple)) else [selected]
 
     def _finalize_separation_branches(
         self,
@@ -1980,9 +2029,11 @@ class BranchController(OperatorController):
                     "child_branch_id": child_id,
                     "branch_path": combined_branch_path,
                     "features_snapshot": child.get("features_snapshot"),
+                    "initial_features_snapshot": child.get("initial_features_snapshot"),
                     "chain_snapshot": child.get("chain_snapshot"),
                     "branch_mode": child.get("branch_mode", "duplication"),
                     "sample_indices": child.get("sample_indices"),
+                    "use_cow": child.get("use_cow", False),
                 })
                 flattened_id += 1
 

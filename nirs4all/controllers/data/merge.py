@@ -1827,6 +1827,14 @@ class MergeController(OperatorController):
             branch_contexts, list(range(len(branch_contexts)))
         )
 
+        initial_snapshot = branch_contexts[0].get("initial_features_snapshot") if branch_contexts else None
+        if initial_snapshot is not None:
+            self._restore_branch_initial_features(
+                dataset=dataset,
+                snapshot=initial_snapshot,
+                use_cow=bool(branch_contexts[0].get("use_cow", False)),
+            )
+
         dataset.add_merged_features(
             features=final_merged,
             processing_name=processing_name,
@@ -1869,6 +1877,23 @@ class MergeController(OperatorController):
         )
 
         return result_context, StepOutput(metadata=metadata)
+
+    def _restore_branch_initial_features(
+        self,
+        dataset: "SpectroDataset",
+        snapshot: list[Any],
+        use_cow: bool = False,
+    ) -> None:
+        """Restore feature state captured before separation branch execution."""
+        if use_cow:
+            for source, (shared, proc_ids, headers, header_unit) in zip(
+                dataset._features.sources, snapshot, strict=False
+            ):
+                source._storage.restore_from_shared(shared.acquire())
+                source._processing_mgr.reset_processings(proc_ids)
+                source._header_mgr.set_headers(headers, unit=header_unit)
+        else:
+            dataset._features.sources = copy.deepcopy(snapshot)
 
     def _execute_disjoint_branch_merge_predict_mode(
         self,

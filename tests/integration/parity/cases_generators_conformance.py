@@ -1024,29 +1024,12 @@ register(
 
 
 # =============================================================================
-# 14) count / _weights_ subsampling on _or_  (NONDETERMINISTIC — honest skip)
+# 14) count / _weights_ subsampling on _or_  (seeded deterministic)
 # =============================================================================
-# MEASURED FINDING (3 fresh-process runs each, regression sample_data): `_seed_`
-# does NOT stabilize the `count` / `_weights_` SUBSAMPLE on a `_or_` node — the
-# result varies RUN-TO-RUN within a SINGLE engine (legacy alone flipped 13.006 /
-# 11.970 / 11.973 across runs; dag-ml likewise), so it is not reproducible even
-# before comparing engines. The `_cartesian_` count path
-# (`generator_cartesian_count_seed`) IS stable (SAME=True across all 3 runs) — so
-# `_seed_` is honored by `_cartesian_`/`_sample_` count but NOT by the `_or_` /
-# `_weights_` count subsample (OrStrategy does not thread `node[_seed_]` into its
-# `sample_with_seed` call). Because the form is genuinely NONDETERMINISTIC, a parity
-# assertion is not meaningful and a strict-xfail would FLIP (it XPASSes whenever the
-# two unseeded draws happen to coincide). The HONEST disposition is `skip` with this
-# evidenced reason (skip_kind="unknown_semantics") — the form is documented and the
-# variant COUNT is still locked by expected_min_predictions, but the cross-engine
-# value parity is withheld until `_seed_` actually controls the `_or_` count RNG.
-# This is NOT a force-pass: it makes no parity claim at all.
-
-_OR_COUNT_NONDET_REASON = (
-    "`_or_` count/_weights_ subsample is NONDETERMINISTIC even with `_seed_` "
-    "(varies run-to-run within one engine; `_seed_` not threaded into OrStrategy's "
-    "sample_with_seed) — no stable cross-engine parity claim; cartesian count IS stable"
-)
+# `_seed_` is a pure `_or_` key and must seed the `count` subsample. This used to
+# be skipped because OrStrategy accepted `_seed_` but did not thread it into
+# `sample_with_seed`; the strategy now uses the local node seed, matching the
+# cartesian count behavior. These cases are live parity assertions.
 
 
 def _factory_or_count_seed() -> list[Any]:
@@ -1068,8 +1051,6 @@ register(
         pipeline_factory=_factory_or_count_seed,
         expected_min_predictions=45,
         tags=_GEN,
-        skip_reason=_OR_COUNT_NONDET_REASON,
-        skip_kind="unknown_semantics",
     )
 )
 
@@ -1093,8 +1074,6 @@ register(
         pipeline_factory=_factory_weights_count_seed,
         expected_min_predictions=30,
         tags=_GEN,
-        skip_reason=_OR_COUNT_NONDET_REASON,
-        skip_kind="unknown_semantics",
     )
 )
 

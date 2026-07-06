@@ -248,10 +248,6 @@ register(
         pipeline_factory=_factory_sep_by_tag,
         expected_min_predictions=3,
         tags=_BRANCH | _MERGE | frozenset({"separation", "tag"}),
-        skip_reason="nirs4all 0.9.1 bug: PipelineConfigs._preprocess_steps assumes string-only "
-        "dict keys but D06_separation_branches.py uses bool True/False keys for by_tag steps. "
-        "Parity oracle surfaces it; the bridge spec must include this dispatch path.",
-        skip_kind="legacy_bug",
     )
 )
 
@@ -290,10 +286,6 @@ register(
         pipeline_factory=_factory_sep_by_filter,
         expected_min_predictions=3,
         tags=_BRANCH | _MERGE | frozenset({"separation", "filter"}),
-        skip_reason="nirs4all 0.9.1 bug: branch.py:643 imports the missing module "
-        "`nirs4all.pipeline.steps.deserializer` when handling by_filter. "
-        "Parity oracle surfaces it; the bridge spec must include this path.",
-        skip_kind="legacy_bug",
     )
 )
 
