@@ -138,6 +138,31 @@ def test_constraints_prune_expand_but_not_count() -> None:
     assert len(expand_spec(spec)) == 5  # post-filter (mutex removed {A,B})
 
 
+def test_or_count_uses_local_seed() -> None:
+    """`_seed_` on a pure `_or_` node stabilizes `count` subsampling."""
+    spec = {"_or_": ["A", "B", "C", "D"], "pick": 2, "count": 3, "_seed_": 7}
+
+    first = expand_spec(spec)
+
+    assert first == expand_spec(spec)
+    assert first == expand_spec(spec)
+
+
+def test_or_weighted_count_uses_local_seed() -> None:
+    """`_weights_` + `count` on `_or_` is deterministic when `_seed_` is set."""
+    spec = {
+        "_or_": ["SNV", "MSC", "Detrend"],
+        "_weights_": [0.7, 0.2, 0.1],
+        "count": 2,
+        "_seed_": 7,
+    }
+
+    first = expand_spec(spec)
+
+    assert first == expand_spec(spec)
+    assert first == expand_spec(spec)
+
+
 # ---------------------------------------------------------------------------
 # EXACT survivor-set lock for the constraint cases (MUST-FIX 2).
 #

@@ -25,6 +25,8 @@ import re
 from collections.abc import Callable
 from typing import Any, Optional, Union
 
+import numpy as np
+
 
 def parse_value_condition(condition: Any) -> Callable[[Any], bool]:
     """Parse user-friendly value conditions into callable predicates.
@@ -56,8 +58,8 @@ def parse_value_condition(condition: Any) -> Callable[[Any], bool]:
     if callable(condition):
         return condition  # type: ignore[no-any-return]
 
-    if isinstance(condition, bool):
-        return lambda x: x == condition
+    if isinstance(condition, (bool, np.bool_)):
+        return lambda x: bool(x == condition)
 
     if isinstance(condition, (list, tuple, set)):
         condition_set = set(condition)

@@ -165,7 +165,7 @@ class PipelineConfigs:
             result = steps.copy()
 
             # Find all keys ending with '_params'
-            params_keys = [k for k in result if k.endswith('_params')]
+            params_keys = [k for k in result if isinstance(k, str) and k.endswith('_params')]
 
             for params_key in params_keys:
                 # Get the base key (remove '_params' suffix)
@@ -192,6 +192,7 @@ class PipelineConfigs:
                 # If the value is a class and the key looks like a component key
                 # (not "class" or "params" which have special meaning)
                 if (inspect.isclass(value) and
+                    isinstance(key, str) and
                     key not in ["class", "params"] and
                     not key.endswith("_params")):
                     result[key] = {"class": value}

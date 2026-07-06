@@ -167,22 +167,6 @@
       "mechanism": "legacy double-counts overlapping repetition OOF folds"
     },
     {
-      "case": "branch_separation_by_tag",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_semantic",
-      "mechanism": "legacy bug prevents an executable oracle"
-    },
-    {
-      "case": "branch_separation_by_filter",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_semantic",
-      "mechanism": "legacy bug prevents an executable oracle"
-    },
-    {
       "case": "generator_or_models_pls_ridge",
       "tier": 2,
       "disposition": "pass_parity_note",
@@ -211,18 +195,6 @@
     {
       "case": "aggregation_classification_vote",
       "skip_kind": "fixture"
-    },
-    {
-      "case": "generator_or_count_seed",
-      "skip_kind": "unknown_semantics"
-    },
-    {
-      "case": "generator_or_weights_count_seed",
-      "skip_kind": "unknown_semantics"
-    },
-    {
-      "case": "refit_params_use_all_partitions",
-      "skip_kind": "unknown_semantics"
     }
   ],
   "expected_fallback": [
@@ -243,6 +215,16 @@
     },
     {
       "case": "branch_dup_merge_all",
+      "shape": "branch+merge",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "branch_separation_by_tag",
+      "shape": "branch+merge",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "branch_separation_by_filter",
       "shape": "branch+merge",
       "owner_lane": "L5"
     },
@@ -385,12 +367,12 @@
   ],
   "coverage_meter": {
     "registered": 95,
-    "non_runnable": 8,
-    "runnable": 87,
-    "fallback": 9,
-    "native": 78,
-    "xfail_strict": 11,
-    "skip": 6,
+    "non_runnable": 3,
+    "runnable": 92,
+    "fallback": 11,
+    "native": 81,
+    "xfail_strict": 9,
+    "skip": 3,
     "num_predictions_divergence": 2,
     "expected_fallback_target": 0
   }

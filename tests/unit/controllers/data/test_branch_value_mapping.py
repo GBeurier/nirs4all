@@ -4,6 +4,7 @@ Tests the value condition parsing and sample grouping functionality
 used by separation branches.
 """
 
+import numpy as np
 import pytest
 
 from nirs4all.controllers.data.branch_utils import (
@@ -32,6 +33,12 @@ class TestParseValueCondition:
         pred = parse_value_condition(False)
         assert pred(False) is True
         assert pred(True) is False
+
+    def test_numpy_boolean(self):
+        """Test numpy scalar boolean conditions from tag arrays."""
+        pred = parse_value_condition(np.bool_(True))
+        assert pred(np.bool_(True)) is True
+        assert pred(np.bool_(False)) is False
 
     # =========================================================================
     # Numeric conditions

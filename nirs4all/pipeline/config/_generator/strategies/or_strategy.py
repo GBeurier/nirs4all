@@ -21,7 +21,7 @@ from itertools import combinations, permutations, product
 from math import comb, factorial
 from typing import Any, Optional, Union
 
-from ..keywords import ARRANGE_KEYWORD, COUNT_KEYWORD, EXCLUDE_KEYWORD, MUTEX_KEYWORD, OR_KEYWORD, PICK_KEYWORD, PURE_OR_KEYS, REQUIRES_KEYWORD, THEN_ARRANGE_KEYWORD, THEN_PICK_KEYWORD
+from ..keywords import ARRANGE_KEYWORD, COUNT_KEYWORD, EXCLUDE_KEYWORD, MUTEX_KEYWORD, OR_KEYWORD, PICK_KEYWORD, PURE_OR_KEYS, REQUIRES_KEYWORD, SEED_KEYWORD, THEN_ARRANGE_KEYWORD, THEN_PICK_KEYWORD, WEIGHTS_KEYWORD
 from ..utils.sampling import sample_with_seed
 from .base import ExpandedResult, ExpansionStrategy, GeneratorNode, SizeSpec
 from .registry import register_strategy
@@ -86,6 +86,8 @@ class OrStrategy(ExpansionStrategy):
         then_pick = node.get(THEN_PICK_KEYWORD)
         then_arrange = node.get(THEN_ARRANGE_KEYWORD)
         count = node.get(COUNT_KEYWORD)
+        node_seed = node.get(SEED_KEYWORD, seed)
+        weights = node.get(WEIGHTS_KEYWORD)
 
         # Extract constraint specifications (Phase 4)
         mutex_groups = node.get(MUTEX_KEYWORD, [])
@@ -95,11 +97,11 @@ class OrStrategy(ExpansionStrategy):
         # Determine selection mode: arrange > pick
         if arrange is not None:
             result = self._expand_with_arrange(
-                choices, arrange, then_pick, then_arrange, expand_nested, seed
+                choices, arrange, then_pick, then_arrange, expand_nested, node_seed
             )
         elif pick is not None:
             result = self._expand_with_pick(
-                choices, pick, then_pick, then_arrange, expand_nested, seed
+                choices, pick, then_pick, then_arrange, expand_nested, node_seed
             )
         else:
             # Basic expansion: each choice becomes a variant
@@ -113,7 +115,8 @@ class OrStrategy(ExpansionStrategy):
 
         # Apply count limit if specified (count <= 0 means no limit)
         if count is not None and count > 0 and len(result) > count:
-            result = sample_with_seed(result, count, seed=seed)
+            sample_weights = weights if weights is not None and len(weights) == len(result) else None
+            result = sample_with_seed(result, count, seed=node_seed, weights=sample_weights)
 
         return result
 
