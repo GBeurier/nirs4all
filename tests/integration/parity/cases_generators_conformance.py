@@ -118,12 +118,11 @@ _CAPS = (
 
 
 # =============================================================================
-# 1) SEEDED vs UNSEEDED _sample_  (deterministic -> strict parity)
+# 1) SEEDED _sample_ variants  (deterministic -> strict parity)
 # =============================================================================
-# `cases_generators.generator_sample_log_uniform_alpha` is the UNSEEDED partner
-# (no `_seed_`): genuinely stochastic across engines -> strict-xfail. This is its
-# SEEDED twin: `_seed_` pins the sampler, so both engines draw the IDENTICAL alpha
-# set, train the same variants, and select the same winner -> strict PARITY.
+# `cases_generators.generator_sample_log_uniform_alpha` is also seeded now; this
+# conformance case uses a different `_seed_` to keep a second deterministic sample
+# draw under strict parity without duplicating the base-case alpha set.
 
 
 def _factory_sample_seeded_alpha() -> list[Any]:
@@ -132,7 +131,7 @@ def _factory_sample_seeded_alpha() -> list[Any]:
         ShuffleSplit(n_splits=3, random_state=42),
         {
             "_sample_": {"distribution": "log_uniform", "from": 1e-4, "to": 1e0, "num": 5},
-            "_seed_": 123,
+            "_seed_": 321,
             "param": "alpha",
             "model": Ridge,
         },
@@ -143,7 +142,7 @@ register(
     PipelineCase(
         name="generator_sample_seeded_alpha",
         description="`_sample_` Ridge.alpha log-uniform WITH `_seed_`: deterministic across engines "
-        "-> strict parity (the seeded twin of the unseeded `generator_sample_log_uniform_alpha` xfail).",
+        "-> strict parity with a second deterministic alpha draw.",
         keywords=("_sample_", "_seed_", "model"),
         capabilities=_CAPS,
         dataset_key="regression",

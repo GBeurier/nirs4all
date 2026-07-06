@@ -22,9 +22,11 @@ from . import (  # noqa: F401
 from . import _conformance_helpers as helpers
 from ._registry import all_cases
 from .test_conformance_dual_engine import (
+    CV_BEST_SCORE_DIVERGENCE,
     EXPECTED_FALLBACK,
     KNOWN_DIVERGENCES,
     NUM_PREDICTIONS_DIVERGENCE,
+    RUNRESULT_SCORE_DIVERGENCE,
     SAME_WINNER_CASES,
     Y_PRED_TOL_OVERRIDES,
 )
@@ -45,6 +47,8 @@ def validate_compatibility_ledger(ledger: dict[str, Any] | None = None) -> None:
     _validate_authority_entries(data)
     _validate_expected_fallback(data)
     _validate_num_prediction_divergences(data)
+    _validate_cv_best_score_divergences(data)
+    _validate_runresult_score_divergences(data)
     _validate_ypred_overrides(data)
     _validate_same_winner_cases(data)
     _validate_coverage_skips(data)
@@ -108,6 +112,28 @@ def _validate_authority_entries(data: dict[str, Any]) -> None:
             f"expected={sorted(NUM_PREDICTIONS_DIVERGENCE)} actual={sorted(parity_note_rows)}"
         )
 
+    cv_note_rows = {
+        row["case"]
+        for row in data["authority"]
+        if row["disposition"] == "pass_cv_best_score_note"
+    }
+    if cv_note_rows != set(CV_BEST_SCORE_DIVERGENCE):
+        raise AssertionError(
+            "compatibility cv-best-score parity-note authority entries drifted: "
+            f"expected={sorted(CV_BEST_SCORE_DIVERGENCE)} actual={sorted(cv_note_rows)}"
+        )
+
+    score_note_rows = {
+        row["case"]
+        for row in data["authority"]
+        if row["disposition"] == "pass_runresult_score_note"
+    }
+    if score_note_rows != set(RUNRESULT_SCORE_DIVERGENCE):
+        raise AssertionError(
+            "compatibility runresult-score parity-note authority entries drifted: "
+            f"expected={sorted(RUNRESULT_SCORE_DIVERGENCE)} actual={sorted(score_note_rows)}"
+        )
+
     bands = set(_band_map(data))
     for row in data["authority"]:
         if row["case"] not in cases:
@@ -141,6 +167,45 @@ def _validate_num_prediction_divergences(data: dict[str, Any]) -> None:
         row = actual[case_name]
         if row["legacy"] != expected["legacy"] or row["dagml"] != expected["dagml"]:
             raise AssertionError(f"num_predictions divergence count drifted for {case_name}")
+
+
+def _validate_cv_best_score_divergences(data: dict[str, Any]) -> None:
+    actual = {row["case"]: row for row in data["cv_best_score_divergence"]}
+    if set(actual) != set(CV_BEST_SCORE_DIVERGENCE):
+        raise AssertionError(
+            "cv_best_score divergence case set drifted: "
+            f"expected={sorted(CV_BEST_SCORE_DIVERGENCE)} actual={sorted(actual)}"
+        )
+    for case_name, expected in CV_BEST_SCORE_DIVERGENCE.items():
+        row = actual[case_name]
+        if (
+            row["legacy"] != expected["legacy"]
+            or row["dagml"] != expected["dagml"]
+            or row["num_predictions"] != expected["num_predictions"]
+        ):
+            raise AssertionError(f"cv_best_score divergence scalar drifted for {case_name}")
+
+
+def _validate_runresult_score_divergences(data: dict[str, Any]) -> None:
+    actual = {row["case"]: row for row in data["runresult_score_divergence"]}
+    if set(actual) != set(RUNRESULT_SCORE_DIVERGENCE):
+        raise AssertionError(
+            "runresult score divergence case set drifted: "
+            f"expected={sorted(RUNRESULT_SCORE_DIVERGENCE)} actual={sorted(actual)}"
+        )
+    keys = (
+        "legacy_best_score",
+        "dagml_best_score",
+        "legacy_best_rmse",
+        "dagml_best_rmse",
+        "legacy_best_r2",
+        "dagml_best_r2",
+        "num_predictions",
+    )
+    for case_name, expected in RUNRESULT_SCORE_DIVERGENCE.items():
+        row = actual[case_name]
+        if any(row[key] != expected[key] for key in keys):
+            raise AssertionError(f"runresult score divergence scalar drifted for {case_name}")
 
 
 def _validate_ypred_overrides(data: dict[str, Any]) -> None:
@@ -189,6 +254,8 @@ def _validate_coverage_meter(data: dict[str, Any]) -> None:
         "xfail_strict": len(KNOWN_DIVERGENCES) + legacy_bug_count,
         "skip": skip_count,
         "num_predictions_divergence": len(NUM_PREDICTIONS_DIVERGENCE),
+        "cv_best_score_divergence": len(CV_BEST_SCORE_DIVERGENCE),
+        "runresult_score_divergence": len(RUNRESULT_SCORE_DIVERGENCE),
         "expected_fallback_target": 0,
     }
     if data["coverage_meter"] != expected:

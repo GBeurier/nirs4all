@@ -50,6 +50,28 @@ class _NumPredDivergence(TypedDict):
     reason: str
 
 
+class _CvBestScoreDivergence(TypedDict):
+    """The pinned EXACT cv_best_score values (+ cause) for a semantic native-vs-legacy note."""
+
+    legacy: float
+    dagml: float
+    num_predictions: int
+    reason: str
+
+
+class _RunResultScoreDivergence(TypedDict):
+    """The pinned public RunResult score scalars (+ cause) for a semantic native-vs-legacy note."""
+
+    legacy_best_score: float
+    dagml_best_score: float
+    legacy_best_rmse: float
+    dagml_best_rmse: float
+    legacy_best_r2: float
+    dagml_best_r2: float
+    num_predictions: int
+    reason: str
+
+
 # ---------------------------------------------------------------------------
 # Documented cross-engine divergences (NATIVE on dag-ml, but the engines do
 # NOT agree within tolerance). Each entry is a measured, triaged finding — the
@@ -59,14 +81,10 @@ class _NumPredDivergence(TypedDict):
 # EXPECTED to fail; an XPASS means the engines converged and the entry must be
 # removed (the suite goes RED until it is).
 #
-# Measured legacy↔dag-ml best_rmse deltas (regression sample_data) at scope time:
-#   sample_augmentation_gaussian              13.28643 vs 13.38345  (Δ≈9.7e-2)
-#   sample_augmentation_chained               13.28643 vs 12.19792  (Δ≈1.1e0)
-#   sample_augmentation_after_savgol          16.76066 vs 15.83810  (Δ≈9.2e-1)
-#   feature_augmentation_replace_three_views  12.50608 vs 12.62726  (Δ≈1.2e-1)
-#   concat_transform_pca_svd_plsr             14.13327 vs 15.53153  (Δ≈1.4e0)
-#   generator_finetune_params_optuna          19.46609 vs 21.12623  (Δ≈1.7e0)
-#   generator_sample_log_uniform_alpha        13.26828 vs 13.79983  (Δ≈5.3e-1, DIFFERENT winner)
+# The last remaining strict-xfail (`concat_transform_pca_svd_plsr`) was moved to
+# EXPECTED_FALLBACK: the dag-ml FeatureConcat path fits stateful PCA/SVD inside
+# each fold, while the Python oracle materializes concat_transform before CV.
+# That is a coverage boundary, not a native parity claim.
 # (generator_or_models_pls_ridge was here too — it is NOT a divergence in score/winner/winner-y_pred
 #  (all equal: best_rmse Δ≈2e-15, winner PLSRegression, winner y_pred Δ=0.0); its ONLY delta is
 #  num_predictions 34-legacy vs 32-native, an INTENTIONAL native-vs-legacy refit-policy divergence —
@@ -76,16 +94,20 @@ class _NumPredDivergence(TypedDict):
 #  removed from KNOWN_DIVERGENCES, see the notes there.)
 # ---------------------------------------------------------------------------
 KNOWN_DIVERGENCES: dict[str, str] = {
-    # Augmentation expands the train set; legacy vs dag-ml apply the augmentation
-    # ops in a different order / with a different per-op RNG draw, so the fitted
-    # model differs. A real numerical-parity item for the augmentation kernels.
-    "sample_augmentation_gaussian": "augmentation RNG/order differs (Δrmse≈9.7e-2)",
-    "sample_augmentation_chained": "chained augmentation RNG/order differs (Δrmse≈1.1e0)",
-    "sample_augmentation_after_savgol": "augmentation-after-preproc RNG/order differs (Δrmse≈9.2e-1)",
-    # Feature-view fan-out: the three replace-views are built in a different order
-    # across engines, so the concatenated feature matrix (and the model) differs.
-    "feature_augmentation_replace_three_views": "feature-view build order differs (Δrmse≈1.2e-1)",
-    "concat_transform_pca_svd_plsr": "concat_transform view order/decomposition differs (Δrmse≈1.4e0)",
+    # NOTE: sample_augmentation_gaussian / chained / after_savgol were REMOVED
+    # from this dict after the native path started materializing the preprocessing
+    # prefix before augmentation and threading final-test results back through the
+    # RunResult projection. They are live parity assertions now.
+    # NOTE: feature_augmentation_replace_three_views was REMOVED from this dict.
+    # Legacy includes raw in the model matrix despite the replace-mode context
+    # excluding it. dag-ml follows replace semantics. The semantic delta now
+    # passes as a RUNRESULT_SCORE_DIVERGENCE parity-note with exact score scalars.
+    # NOTE: concat_transform_pca_svd_plsr was REMOVED from this dict. The native
+    # path is not equivalent to the Python oracle for stateful concat transforms:
+    # legacy materializes the concat_transform output before CV, while dag-ml's
+    # FeatureConcat lowering fits PCA/SVD fold-locally. It is therefore an
+    # explicit EXPECTED_FALLBACK boundary until backlog #27 can preserve the
+    # pre-CV materialized semantics natively.
     # NOTE: the three tree-ensemble cases (baseline_savgol_rf_kfold,
     # baseline_detrend_firstderiv_gbr, baseline_classification_rf_stratified) were REMOVED
     # from this dict — they reach Δ=0.0 now. Their old "fold-materialization/row-order"
@@ -97,37 +119,21 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     # order, so the fixed-seed bootstrap drew different rows than legacy's storage-order
     # refit. Pinning the host to the dataset's native dtype + ordering the refit pool by
     # storage order converged both engines. These are LIVE parity assertions now.
-    # Optuna drives its own search; the two engines explore a different trial
-    # sequence, so the selected hyperparameters (and final score) differ.
-    "generator_finetune_params_optuna": "Optuna trial sequence differs across engines (Δrmse≈1.7e0)",
     # NOTE: generator_log_range_alpha was REMOVED from this dict — it reaches parity now
     # (Δrmse 2.3e-3 → 1.3e-7). It was the ill-conditioned Ridge (rcond≈2e-8) case whose
     # ONLY divergence was the engine AMPLIFYING the host's float32→float64 widening noise;
     # the same winning alpha was always selected on both engines. Pinning X to the dataset's
     # native dtype removed that ~1e-6 input noise, so the two Ridge solves now converge well
     # under the 1e-3 score tol and the per-sample y_pred tol. A LIVE parity assertion now.
-    # _sample_ random-alpha sweep that does NOT set _seed_ → genuinely UNSEEDED
-    # stochastic. The random variant set (and therefore the winner) is not
-    # reproducible across the two engines' samplers, so best_rmse differs run to
-    # run (observed Δ up to ≈5.3e-1, different winning config). Honest disposition:
-    # unseeded _sample_ is nondeterministic across engines (pin _seed_ in the case
-    # to make it deterministic and re-evaluate); not a proven fixed divergence.
-    "generator_sample_log_uniform_alpha": "unseeded _sample_ (_seed_ not set) → "
-    "nondeterministic variant set/winner across engines (Δrmse up to ≈5.3e-1)",
-    # No-test-set rep shapes: the only score they produce is cv_best_score, a SCALAR
-    # that DIVERGES (rep_to_sources 6.6735 vs 6.1906; rep_to_pp 6.1427 vs 6.1906).
-    # The cause is the rep OOF-aggregation difference — legacy DOUBLE-COUNTS the
-    # overlapping rep folds (ShuffleSplit reps appear in several folds; legacy
-    # concatenates them, so each rep pipeline scores a different cv), while dag-ml
-    # aggregates each sample's OOF exactly ONCE (6.1906 for both). dag-ml is the
-    # CORRECT value; this is a PERMANENT semantic divergence, not a fixable bug.
-    # A2 (2a-iii) surfaced the per-sample OOF avg y_pred but does NOT touch this
-    # scalar — the divergence is in the score's aggregation semantics, not the
-    # per-sample values — so these stay xfailed (measured: still XFAIL after A2).
-    "rep_to_sources_basic": "PERMANENT semantic divergence in cv_best_score: legacy double-counts "
-    "overlapping rep folds (6.6735); dag-ml aggregates each OOF sample once (6.1906, the correct value)",
-    "rep_to_pp_basic": "PERMANENT semantic divergence in cv_best_score: legacy double-counts "
-    "overlapping rep folds (6.1427); dag-ml aggregates each OOF sample once (6.1906, the correct value)",
+    # NOTE: generator_sample_log_uniform_alpha was REMOVED from this dict after
+    # pinning `_seed_` in the case. The unseeded generator sweep remains invalid
+    # as a native comparison shape; this conformance case is now deliberately
+    # seeded and must pass as a live parity assertion.
+    # NOTE: rep_to_sources_basic / rep_to_pp_basic were REMOVED from this dict.
+    # They are native dag-ml cases whose only score is cv_best_score. The legacy
+    # reshape leaves a stale processing selector and scores a different scalar;
+    # dag-ml should not emulate that legacy bug. They now pass as pinned
+    # CV_BEST_SCORE_DIVERGENCE parity-notes instead of strict xfails.
     # Sample-level aggregation (mean/median/outlier-exclude) now flows the final-(test) y_pred across the
     # bridge at parity (Gap 2 / A1): the repetition concrete path threads the node results + identity into
     # the projection, so the refit's already-aggregated `(test, None)` sample block fills the final-(test)
@@ -198,6 +204,49 @@ NUM_PREDICTIONS_DIVERGENCE: dict[str, _NumPredDivergence] = {
         "dagml": 47,
         "reason": "multi-model `_chain_` operator-SELECT refits the WINNER only (47) — legacy refits every "
         "loser model and stores its (train,final)+(test,final) rows (49); winner/best_score/winner-y_pred all match (slice F)",
+    },
+}
+
+
+# INTENTIONAL native-vs-legacy cv_best_score semantic divergences.
+#
+# These no-test-set repetition-fusion shapes expose only `cv_best_score` as a
+# scalar score. The legacy reshaper mutates dataset axes but returns a stale
+# ExecutionContext selector, so downstream preprocessing is applied to a stale
+# view. dag-ml follows the corrected native semantics and should not chase that
+# legacy scalar. They pass as parity-notes by pinning both exact scalars plus the
+# public no-test-set RunResult contract; any drift on either engine fails.
+CV_BEST_SCORE_DIVERGENCE: dict[str, _CvBestScoreDivergence] = {
+    "rep_to_sources_basic": {
+        "legacy": 6.673486795441247,
+        "dagml": 6.190624012206827,
+        "num_predictions": 11,
+        "reason": "legacy rep_to_sources keeps a stale processing selector after reshape; dag-ml scores each OOF sample once",
+    },
+    "rep_to_pp_basic": {
+        "legacy": 6.1427143240770405,
+        "dagml": 6.190624012206827,
+        "num_predictions": 21,
+        "reason": "legacy rep_to_pp keeps a stale processing selector after reshape; dag-ml scores each OOF sample once",
+    },
+}
+
+
+# INTENTIONAL native-vs-legacy public-score semantic divergences.
+#
+# These run native on dag-ml and keep the same model/config/count contract, but
+# a documented legacy semantic bug changes the public selected-score scalars.
+# They pass by pinning both engines' exact scalars, not by relaxing tolerances.
+RUNRESULT_SCORE_DIVERGENCE: dict[str, _RunResultScoreDivergence] = {
+    "feature_augmentation_replace_three_views": {
+        "legacy_best_score": 12.506075123140343,
+        "dagml_best_score": 12.627259100347944,
+        "legacy_best_rmse": 12.506075123140343,
+        "dagml_best_rmse": 12.627259100347944,
+        "legacy_best_r2": 0.601245573618067,
+        "dagml_best_r2": 0.5934802643140145,
+        "num_predictions": 17,
+        "reason": "legacy feature_augmentation replace keeps raw in the model matrix; dag-ml follows replacement semantics",
     },
 }
 
@@ -316,8 +365,24 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     "branch_dup_merge_all",
     # by-tag/by-filter separation branches use the same branch/merge keywords and
     # currently fall back until dag-ml serializes separation branch DAGs natively.
+    # The metadata-auto fixture is now runnable on legacy, but its shape is
+    # preproc-in-branch → feature concat → downstream model; the native path only
+    # supports model-in-branch concat today, so this remains a documented boundary.
+    "branch_separation_by_metadata_auto",
     "branch_separation_by_tag",
     "branch_separation_by_filter",
+    # Classification repetition + vote aggregation requires the final-test surface
+    # to be scored at the legacy sample-vote grain; the native repetition path still
+    # scores classification final-test at the repetition-row grain.
+    "aggregation_classification_vote",
+    # Legacy Optuna finetuning mutates model parameters before the final run. The
+    # native dag-ml path does not serialize/execute `finetune_params` yet, so it must
+    # fall back rather than silently run the untuned model.
+    "generator_finetune_params_optuna",
+    # Stateful concat_transform sub-operations (PCA/SVD/scalers) are materialized
+    # pre-CV by the Python oracle; dag-ml's current FeatureConcat lowering fits
+    # them fold-locally, so native execution would compare the wrong semantics.
+    "concat_transform_pca_svd_plsr",
     # by-source separation / per-source models / source-concat multi-source shapes.
     "multi_source_by_source_branch_shared_preproc",
     "multi_source_per_source_models_stacking",
@@ -441,6 +506,48 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
         H.assert_score_parity_metrics_only(legacy, dagml, case)
         H.assert_runresult_contract(legacy, dagml, case, num_predictions_exempt=True)
         H.assert_winner_y_pred_parity(legacy, dagml, case)
+        return
+
+    if case.name in CV_BEST_SCORE_DIVERGENCE:
+        # INTENTIONAL native-vs-legacy cv_best_score divergence for no-test-set
+        # repetition-fusion shapes. dag-ml follows the corrected reshape semantics;
+        # legacy exposes a stale-context scalar. Pin the exact scalars while still
+        # asserting the rest of the public no-test-set RunResult contract.
+        expected = CV_BEST_SCORE_DIVERGENCE[case.name]
+        H.assert_num_predictions_parity(legacy, dagml)
+        assert legacy.num_predictions == expected["num_predictions"], (
+            f"{case.name}: documented num_predictions changed — expected {expected['num_predictions']}, "
+            f"got legacy={legacy.num_predictions} dag-ml={dagml.num_predictions}"
+        )
+        H.assert_runresult_contract(legacy, dagml, case)
+        H.assert_cv_best_score_divergence(legacy, dagml, case, expected["legacy"], expected["dagml"])
+        return
+
+    if case.name in RUNRESULT_SCORE_DIVERGENCE:
+        # INTENTIONAL native-vs-legacy public-score divergence. The engines agree
+        # on the selected model/config and prediction-row count; only the public
+        # score scalars are documented as different and pinned exactly.
+        expected = RUNRESULT_SCORE_DIVERGENCE[case.name]
+        H.assert_num_predictions_parity(legacy, dagml)
+        assert legacy.num_predictions == expected["num_predictions"], (
+            f"{case.name}: documented num_predictions changed — expected {expected['num_predictions']}, "
+            f"got legacy={legacy.num_predictions} dag-ml={dagml.num_predictions}"
+        )
+        assert legacy.best.get("metric") == dagml.best.get("metric"), (
+            f"{case.name}: selected metric legacy={legacy.best.get('metric')!r} dag-ml={dagml.best.get('metric')!r}"
+        )
+        H.assert_same_winner(legacy, dagml, case)
+        H.assert_runresult_score_divergence(
+            legacy,
+            dagml,
+            case,
+            legacy_best_score=expected["legacy_best_score"],
+            dagml_best_score=expected["dagml_best_score"],
+            legacy_best_rmse=expected["legacy_best_rmse"],
+            dagml_best_rmse=expected["dagml_best_rmse"],
+            legacy_best_r2=expected["legacy_best_r2"],
+            dagml_best_r2=expected["dagml_best_r2"],
+        )
         return
 
     # NATIVE: the real both-engines-agree contract. For a KNOWN_DIVERGENCES case

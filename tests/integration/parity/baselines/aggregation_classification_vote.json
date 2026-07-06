@@ -1,0 +1,17 @@
+{
+  "backend": "legacy",
+  "case": "aggregation_classification_vote",
+  "datasets": [
+    "classification"
+  ],
+  "metrics": {
+    "accuracy": 0.16666666666666666,
+    "best_score": 0.17777777777777778,
+    "cv_best_score": 0.12577977577977578
+  },
+  "models": [
+    "RandomForestClassifier"
+  ],
+  "num_predictions": 17,
+  "pipeline_fingerprint": "64b830040fff1e16"
+}

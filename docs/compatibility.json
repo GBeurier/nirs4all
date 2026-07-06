@@ -3,8 +3,8 @@
   "owner": "nirs4all compatibility ledger",
   "consumer_of": "dag-ml.nirs4all.parity_oracle.v1",
   "last_reconciled": {
-    "date": "2026-06-30",
-    "nirs4all_commit": "e41362b4",
+    "date": "2026-07-06",
+    "nirs4all_commit": "refactor/L17-pyref",
     "dag_ml_commit": "f58d7bf"
   },
   "tolerance_bands": [
@@ -95,76 +95,28 @@
   ],
   "authority": [
     {
-      "case": "sample_augmentation_gaussian",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "augmentation RNG/order differs"
-    },
-    {
-      "case": "sample_augmentation_chained",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "chained augmentation RNG/order differs"
-    },
-    {
-      "case": "sample_augmentation_after_savgol",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "augmentation-after-preprocessing RNG/order differs"
-    },
-    {
       "case": "feature_augmentation_replace_three_views",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "feature-view build order differs"
-    },
-    {
-      "case": "concat_transform_pca_svd_plsr",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "concat_transform view order/decomposition differs"
-    },
-    {
-      "case": "generator_finetune_params_optuna",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "Optuna trial sequence differs across engines"
-    },
-    {
-      "case": "generator_sample_log_uniform_alpha",
-      "tier": 3,
-      "disposition": "xfail_strict",
-      "authoritative_engine": "neither",
-      "tolerance_band": "n/a_rng",
-      "mechanism": "unseeded _sample_ variant set/winner is nondeterministic"
+      "tier": 2,
+      "disposition": "pass_runresult_score_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "legacy feature_augmentation replace keeps raw in the model matrix; score divergence pinned"
     },
     {
       "case": "rep_to_sources_basic",
       "tier": 2,
-      "disposition": "xfail_strict",
+      "disposition": "pass_cv_best_score_note",
       "authoritative_engine": "dag-ml",
       "tolerance_band": "n/a_semantic",
-      "mechanism": "legacy double-counts overlapping repetition OOF folds"
+      "mechanism": "legacy stale processing selector after repetition reshape; cv_best_score divergence pinned"
     },
     {
       "case": "rep_to_pp_basic",
       "tier": 2,
-      "disposition": "xfail_strict",
+      "disposition": "pass_cv_best_score_note",
       "authoritative_engine": "dag-ml",
       "tolerance_band": "n/a_semantic",
-      "mechanism": "legacy double-counts overlapping repetition OOF folds"
+      "mechanism": "legacy stale processing selector after repetition reshape; cv_best_score divergence pinned"
     },
     {
       "case": "generator_or_models_pls_ridge",
@@ -183,20 +135,7 @@
       "mechanism": "operator-select refits the winner only; legacy stores loser final rows"
     }
   ],
-  "coverage_skips": [
-    {
-      "case": "branch_separation_by_metadata_auto",
-      "skip_kind": "fixture"
-    },
-    {
-      "case": "exclude_multi_any_y_and_x",
-      "skip_kind": "fixture"
-    },
-    {
-      "case": "aggregation_classification_vote",
-      "skip_kind": "fixture"
-    }
-  ],
+  "coverage_skips": [],
   "expected_fallback": [
     {
       "case": "branch_dup_three_way_merge_predictions",
@@ -219,6 +158,11 @@
       "owner_lane": "L5"
     },
     {
+      "case": "branch_separation_by_metadata_auto",
+      "shape": "branch+merge",
+      "owner_lane": "L5"
+    },
+    {
       "case": "branch_separation_by_tag",
       "shape": "branch+merge",
       "owner_lane": "L5"
@@ -226,6 +170,21 @@
     {
       "case": "branch_separation_by_filter",
       "shape": "branch+merge",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "aggregation_classification_vote",
+      "shape": "repetition_vote_aggregation",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "generator_finetune_params_optuna",
+      "shape": "finetune_params",
+      "owner_lane": "L5"
+    },
+    {
+      "case": "concat_transform_pca_svd_plsr",
+      "shape": "stateful_concat_transform_pre_cv",
       "owner_lane": "L5"
     },
     {
@@ -266,6 +225,35 @@
       "legacy": 49,
       "dagml": 47,
       "disposition": "pass_parity_note"
+    }
+  ],
+  "cv_best_score_divergence": [
+    {
+      "case": "rep_to_sources_basic",
+      "legacy": 6.673486795441247,
+      "dagml": 6.190624012206827,
+      "num_predictions": 11,
+      "disposition": "pass_cv_best_score_note"
+    },
+    {
+      "case": "rep_to_pp_basic",
+      "legacy": 6.1427143240770405,
+      "dagml": 6.190624012206827,
+      "num_predictions": 21,
+      "disposition": "pass_cv_best_score_note"
+    }
+  ],
+  "runresult_score_divergence": [
+    {
+      "case": "feature_augmentation_replace_three_views",
+      "legacy_best_score": 12.506075123140343,
+      "dagml_best_score": 12.627259100347944,
+      "legacy_best_rmse": 12.506075123140343,
+      "dagml_best_rmse": 12.627259100347944,
+      "legacy_best_r2": 0.601245573618067,
+      "dagml_best_r2": 0.5934802643140145,
+      "num_predictions": 17,
+      "disposition": "pass_runresult_score_note"
     }
   ],
   "ypred_tol_overrides": [
@@ -367,13 +355,15 @@
   ],
   "coverage_meter": {
     "registered": 95,
-    "non_runnable": 3,
-    "runnable": 92,
-    "fallback": 11,
-    "native": 81,
-    "xfail_strict": 9,
-    "skip": 3,
+    "non_runnable": 0,
+    "runnable": 95,
+    "fallback": 15,
+    "native": 80,
+    "xfail_strict": 0,
+    "skip": 0,
     "num_predictions_divergence": 2,
+    "cv_best_score_divergence": 2,
+    "runresult_score_divergence": 1,
     "expected_fallback_target": 0
   }
 }

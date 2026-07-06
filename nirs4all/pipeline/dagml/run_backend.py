@@ -114,6 +114,45 @@ __all__ = [
 ]
 
 
+def _has_finetune_params(pipeline: list[Any]) -> bool:
+    """Whether any pipeline step asks legacy Optuna finetuning to mutate model params."""
+    return any(isinstance(step, dict) and "finetune_params" in step for step in pipeline)
+
+
+def _iter_concat_transform_leaf_ops(operation: Any):
+    """Yield concrete transformer leaves from a ``concat_transform`` operation tree."""
+    if operation is None:
+        return
+    if isinstance(operation, (list, tuple)):
+        for item in operation:
+            yield from _iter_concat_transform_leaf_ops(item)
+        return
+    yield operation
+
+
+def _has_stateful_concat_transform(pipeline: list[Any]) -> bool:
+    """Whether a top-level ``concat_transform`` needs legacy pre-CV materialization.
+
+    Legacy ``concat_transform`` materializes the concatenated feature matrix before CV,
+    while the current dag-ml lowering fits the hstacked X-chain fold-locally. Those are
+    equivalent for row-independent/stateless sub-transforms (SNV, SavGol), but not for
+    PCA/SVD/scalers or other learned transforms. Fail closed: if the stateless probe
+    cannot prove every leaf stateless, the shape must fall back to the Python oracle.
+    """
+    for step in pipeline:
+        if not (isinstance(step, dict) and "concat_transform" in step):
+            continue
+        config = step["concat_transform"]
+        operations = config.get("operations") if isinstance(config, dict) else config
+        if not isinstance(operations, (list, tuple)):
+            return True
+        for operation in operations:
+            for leaf in _iter_concat_transform_leaf_ops(operation):
+                if not _operator_is_stateless(leaf):
+                    return True
+    return False
+
+
 # Residual ``run()`` ``**runner_kwargs`` keys the dag-ml path POSITIVELY honors (acts on). The dag-ml
 # backend has its OWN (Rust) execution and never builds a ``PipelineRunner``, so NO ``PipelineRunner`` /
 # ``runner.run()`` option (n_jobs, continue_on_error, max_generation_count, log_*, workspace_path, …)
@@ -582,6 +621,18 @@ def _dispatch_run(
     detected_source_concat = _detect_source_concat_merge(list(pipeline), spectro.features_sources())
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
+    if _has_finetune_params(list(pipeline)):
+        raise NotImplementedError(
+            "engine='dag-ml' does not yet support finetune_params; the native path would ignore "
+            "legacy Optuna-tuned model parameters instead of preserving Python-reference parity."
+        )
+    if _has_stateful_concat_transform(list(pipeline)):
+        raise NotImplementedError(
+            "engine='dag-ml' does not yet support stateful concat_transform with Python-reference "
+            "pre-CV materialization semantics; the native FeatureConcat path fits PCA/SVD/scalers "
+            "fold-locally and would not preserve legacy parity (backlog #27)."
+        )
+
     # REP FUSION (`rep_to_sources` / `rep_to_pp`, #31): a one-time HOST RESHAPE that turns each replicate
     # of a physical sample into a feature SOURCE (→ MULTI-SOURCE early fusion S3 / MB-PLS S5) or a
     # PROCESSING layer (→ the feature-axis concat S6). After the reshape the unit of analysis is the
@@ -607,6 +658,12 @@ def _dispatch_run(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
+        if is_classification and getattr(spectro, "aggregate_method", None) == "vote":
+            raise NotImplementedError(
+                "engine='dag-ml' does not yet support classification repetition datasets with "
+                "sample-level vote aggregation; the final-test surface would be scored at the "
+                "repetition row grain instead of the legacy sample-vote grain (backlog #21)."
+            )
         if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or detected_by_source is not None or detected_by_source_distinct_concat is not None or any(_is_exclude_step(step) for step in pipeline):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "

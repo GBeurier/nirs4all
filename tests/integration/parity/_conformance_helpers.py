@@ -243,6 +243,53 @@ def assert_num_predictions_divergence(legacy: Any, dagml: Any, case: PipelineCas
     )
 
 
+def assert_cv_best_score_divergence(legacy: Any, dagml: Any, case: PipelineCase, expected_legacy: float, expected_dagml: float, tol: float = 1e-9) -> None:
+    """Assert the EXACT documented ``cv_best_score`` divergence for a native-vs-legacy semantic note.
+
+    This is the score analogue of :func:`assert_num_predictions_divergence`: it is
+    not an exemption. Both engines are pinned to their measured scalar values so a
+    future drift fails unless the product contract is deliberately updated.
+    """
+    legacy_score = float(legacy.cv_best_score)
+    dagml_score = float(dagml.cv_best_score)
+    assert abs(legacy_score - expected_legacy) <= tol, (
+        f"{case.name}: documented LEGACY cv_best_score changed — expected {expected_legacy}, "
+        f"got {legacy_score} (the semantic divergence is pinned to the exact measured scalar)"
+    )
+    assert abs(dagml_score - expected_dagml) <= tol, (
+        f"{case.name}: documented dag-ml cv_best_score changed — expected {expected_dagml}, "
+        f"got {dagml_score} (the semantic divergence is pinned to the exact measured scalar)"
+    )
+
+
+def assert_runresult_score_divergence(
+    legacy: Any,
+    dagml: Any,
+    case: PipelineCase,
+    *,
+    legacy_best_score: float,
+    dagml_best_score: float,
+    legacy_best_rmse: float,
+    dagml_best_rmse: float,
+    legacy_best_r2: float,
+    dagml_best_r2: float,
+    tol: float = 1e-9,
+) -> None:
+    """Assert exact documented public-score scalars for a semantic native-vs-legacy note."""
+    pairs = {
+        "best_score": (float(legacy.best_score), legacy_best_score, float(dagml.best_score), dagml_best_score),
+        "best_rmse": (float(legacy.best_rmse), legacy_best_rmse, float(dagml.best_rmse), dagml_best_rmse),
+        "best_r2": (float(legacy.best_r2), legacy_best_r2, float(dagml.best_r2), dagml_best_r2),
+    }
+    for metric, (legacy_value, expected_legacy, dagml_value, expected_dagml) in pairs.items():
+        assert abs(legacy_value - expected_legacy) <= tol, (
+            f"{case.name}: documented LEGACY {metric} changed — expected {expected_legacy}, got {legacy_value}"
+        )
+        assert abs(dagml_value - expected_dagml) <= tol, (
+            f"{case.name}: documented dag-ml {metric} changed — expected {expected_dagml}, got {dagml_value}"
+        )
+
+
 def _close_or_both_nan(a: float, b: float, tol: float) -> bool:
     """Floats are equal for parity if both NaN (a no-score metric) or within ``tol``."""
     if np.isnan(a) and np.isnan(b):
