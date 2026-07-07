@@ -265,9 +265,29 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
     oracle_path = artifacts_dir / "python-oracle.json"
     predictions_path = artifacts_dir / "python-predictions.parquet"
     predictions_json_path = artifacts_dir / "python-predictions.json"
+    python_open_ledger_path = artifacts_dir / "python-open-ledger.json"
     workspace_dir = artifacts_dir / "python-workspace"
 
     _write_json(pipeline_path, pipeline)
+    reopened_pipeline = json.loads(pipeline_path.read_text(encoding="utf-8"))
+    pipeline_sha256 = _stable_hash(pipeline)
+    reopened_pipeline_sha256 = _stable_hash(reopened_pipeline)
+    python_open_pipeline = {
+        "schema_version": "n4a.e2e.python_open_pipeline.v1",
+        "scenario_id": SCENARIO_ID,
+        "status": "passed",
+        "pipeline_reopened": True,
+        "pipeline_path": pipeline_path.name,
+        "pipeline_sha256": pipeline_sha256,
+        "reopened_pipeline_sha256": reopened_pipeline_sha256,
+        "pipeline_hash_match": reopened_pipeline_sha256 == pipeline_sha256,
+        "name": reopened_pipeline.get("name"),
+        "name_match": reopened_pipeline.get("name") == pipeline["name"],
+        "source_count": reopened_pipeline.get("multimodal_contract", {}).get("source_count"),
+        "source_count_match": reopened_pipeline.get("multimodal_contract", {}).get("source_count") == len(dataset["sources"]),
+        "dataset_sha256": dataset["sha256"],
+    }
+    _write_json(python_open_ledger_path, python_open_pipeline)
     _write_json(dataset_path, dataset)
     _write_json(
         oracle_path,
@@ -275,7 +295,7 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
             "scenario_id": SCENARIO_ID,
             "schema_version": "n4a.e2e.multimodal_oracle.v1",
             "dataset_sha256": dataset["sha256"],
-            "pipeline_sha256": _stable_hash(pipeline),
+            "pipeline_sha256": pipeline_sha256,
             "metadata": {
                 "prediction_abs_tolerance": PREDICTION_TOLERANCE,
                 "parity_candidate_runtimes": ["nirs4all-core-python", "r", "javascript_wasm"],
@@ -331,8 +351,12 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
         },
         "pipeline": {
             "path": pipeline_path.name,
-            "sha256": _stable_hash(pipeline),
+            "sha256": pipeline_sha256,
             "name": pipeline["name"],
+        },
+        "python_open_pipeline": {
+            **python_open_pipeline,
+            "ledger": python_open_ledger_path.name,
         },
         "python_oracle": {
             "path": oracle_path.name,
@@ -350,6 +374,10 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
     _write_json(artifacts_dir / "roundtrip-evidence.json", evidence)
 
     assert pipeline_path.exists()
+    assert python_open_ledger_path.exists()
+    assert python_open_pipeline["pipeline_hash_match"] is True
+    assert python_open_pipeline["name_match"] is True
+    assert python_open_pipeline["source_count_match"] is True
     assert dataset_path.exists()
     assert predictions_path.exists()
     assert len(oracle["selected"]["predictions"]) == len(oracle["targets"])
