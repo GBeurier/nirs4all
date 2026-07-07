@@ -266,6 +266,7 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
     predictions_path = artifacts_dir / "python-predictions.parquet"
     predictions_json_path = artifacts_dir / "python-predictions.json"
     python_open_ledger_path = artifacts_dir / "python-open-ledger.json"
+    python_rerun_ledger_path = artifacts_dir / "python-rerun-ledger.json"
     workspace_dir = artifacts_dir / "python-workspace"
 
     _write_json(pipeline_path, pipeline)
@@ -289,6 +290,70 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
     }
     _write_json(python_open_ledger_path, python_open_pipeline)
     _write_json(dataset_path, dataset)
+    reopened_dataset = json.loads(dataset_path.read_text(encoding="utf-8"))
+    reopened_dataset_sha256 = _stable_hash(reopened_dataset["portable_view"])
+    rerun_oracle = _execute_python_oracle(reopened_pipeline, reopened_dataset)
+    original_predictions = np.asarray(oracle["selected"]["predictions"], dtype=np.float64)
+    rerun_predictions = np.asarray(rerun_oracle["selected"]["predictions"], dtype=np.float64)
+    original_targets = np.asarray(oracle["targets"], dtype=np.float64)
+    rerun_targets = np.asarray(rerun_oracle["targets"], dtype=np.float64)
+    prediction_shape_match = original_predictions.shape == rerun_predictions.shape
+    target_shape_match = original_targets.shape == rerun_targets.shape
+    prediction_max_abs_delta = (
+        float(np.max(np.abs(original_predictions - rerun_predictions))) if prediction_shape_match and original_predictions.size else None
+    )
+    target_max_abs_delta = float(np.max(np.abs(original_targets - rerun_targets))) if target_shape_match and original_targets.size else None
+    rmse_delta = abs(float(oracle["selected"]["rmse"]) - float(rerun_oracle["selected"]["rmse"]))
+    split_hash = _stable_hash(oracle["split"])
+    rerun_split_hash = _stable_hash(rerun_oracle["split"])
+    finite_predictions = bool(np.all(np.isfinite(rerun_predictions)) and np.all(np.isfinite(rerun_targets)))
+    python_rerun_pipeline = {
+        "schema_version": "n4a.e2e.python_rerun_pipeline.v1",
+        "scenario_id": SCENARIO_ID,
+        "status": "passed",
+        "pipeline_reopened": True,
+        "dataset_reopened": True,
+        "python_rerun_executed": True,
+        "finite_predictions": finite_predictions,
+        "prediction_rows": int(rerun_predictions.size),
+        "pipeline_sha256": pipeline_sha256,
+        "reopened_pipeline_sha256": reopened_pipeline_sha256,
+        "pipeline_hash_match": reopened_pipeline_sha256 == pipeline_sha256,
+        "dataset_sha256": dataset["sha256"],
+        "reopened_dataset_sha256": reopened_dataset_sha256,
+        "dataset_hash_match": reopened_dataset_sha256 == dataset["sha256"],
+        "split_sha256": split_hash,
+        "rerun_split_sha256": rerun_split_hash,
+        "split_hash_match": rerun_split_hash == split_hash,
+        "selected_n_components": int(oracle["selected"]["n_components"]),
+        "rerun_selected_n_components": int(rerun_oracle["selected"]["n_components"]),
+        "selected_n_components_match": int(rerun_oracle["selected"]["n_components"]) == int(oracle["selected"]["n_components"]),
+        "prediction_shape_match": prediction_shape_match,
+        "prediction_max_abs_delta": prediction_max_abs_delta,
+        "prediction_tolerance": PREDICTION_TOLERANCE,
+        "target_shape_match": target_shape_match,
+        "target_max_abs_delta": target_max_abs_delta,
+        "target_tolerance": PREDICTION_TOLERANCE,
+        "rmse_delta": rmse_delta,
+        "rmse_tolerance": PREDICTION_TOLERANCE,
+    }
+    python_rerun_pipeline["status"] = (
+        "passed"
+        if (
+            finite_predictions
+            and python_rerun_pipeline["pipeline_hash_match"]
+            and python_rerun_pipeline["dataset_hash_match"]
+            and python_rerun_pipeline["split_hash_match"]
+            and python_rerun_pipeline["selected_n_components_match"]
+            and prediction_max_abs_delta is not None
+            and prediction_max_abs_delta <= PREDICTION_TOLERANCE
+            and target_max_abs_delta is not None
+            and target_max_abs_delta <= PREDICTION_TOLERANCE
+            and rmse_delta <= PREDICTION_TOLERANCE
+        )
+        else "failed"
+    )
+    _write_json(python_rerun_ledger_path, python_rerun_pipeline)
     _write_json(
         oracle_path,
         {
@@ -365,6 +430,10 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
             "selected_rmse": float(oracle["selected"]["rmse"]),
             "predictions_parquet": predictions_path.name,
         },
+        "python_rerun_pipeline": {
+            **python_rerun_pipeline,
+            "ledger": python_rerun_ledger_path.name,
+        },
         "workspace_save": run_summary,
         "remaining_blockers": [
             "Run nirs4all-core/scripts/e2e/run_multimodal_roundtrip.py to execute available core/R/WASM parity checks.",
@@ -378,6 +447,11 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
     assert python_open_pipeline["pipeline_hash_match"] is True
     assert python_open_pipeline["name_match"] is True
     assert python_open_pipeline["source_count_match"] is True
+    assert python_rerun_ledger_path.exists()
+    assert python_rerun_pipeline["status"] == "passed"
+    assert python_rerun_pipeline["prediction_rows"] > 0
+    assert python_rerun_pipeline["prediction_max_abs_delta"] <= PREDICTION_TOLERANCE
+    assert python_rerun_pipeline["rmse_delta"] <= PREDICTION_TOLERANCE
     assert dataset_path.exists()
     assert predictions_path.exists()
     assert len(oracle["selected"]["predictions"]) == len(oracle["targets"])
