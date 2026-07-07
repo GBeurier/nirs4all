@@ -24,6 +24,7 @@ from tests.integration.parity._datasets import dataset_path
 SCENARIO_ID = "e2e-multisource-branching-stacking-replay"
 PIPELINE_NAME = "multisource_duplication_stacking_native_replay"
 SCORE_TOLERANCE = 1e-3
+PREDICTION_TOLERANCE = 1e-8
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -101,11 +102,43 @@ def _load_multi_dataset() -> Any:
     return DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
 
 
-def _direct_stacking_oracle() -> dict[str, Any]:
+def _branch_specs(pipeline_contract: dict[str, Any]) -> list[dict[str, Any]]:
+    transform_factories: dict[str, Callable[[], Any]] = {
+        "nirs4all.operators.transforms.StandardNormalVariate": SNV,
+        "nirs4all.operators.transforms.MultiplicativeScatterCorrection": MSC,
+        "nirs4all.operators.transforms.FirstDerivative": FirstDerivative,
+    }
+    short_names = {
+        "nirs4all.operators.transforms.StandardNormalVariate": "SNV",
+        "nirs4all.operators.transforms.MultiplicativeScatterCorrection": "MSC",
+        "nirs4all.operators.transforms.FirstDerivative": "FirstDerivative",
+    }
+    specs: list[dict[str, Any]] = []
+    for branch in pipeline_contract["pipeline"][1]["branch"]:
+        transform_class = branch[0]["class"]
+        n_components = int(branch[1]["model"]["params"]["n_components"])
+        specs.append(
+            {
+                "name": f"{short_names[transform_class]}_PLS{n_components}",
+                "transform_class": transform_class,
+                "factory": transform_factories[transform_class],
+                "n_components": n_components,
+                "model_class": branch[1]["model"]["class"],
+            }
+        )
+    return specs
+
+
+def _direct_stacking_oracle(pipeline_contract: dict[str, Any] | None = None) -> dict[str, Any]:
+    pipeline_contract = pipeline_contract or _pipeline_contract()
     dataset = _load_multi_dataset()
     train = dataset.index_column("sample", {"partition": "train"})
     test = dataset.index_column("sample", {"partition": "test"})
-    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=3, shuffle=True, random_state=42).split(train)]
+    split_params = pipeline_contract["pipeline"][0]["params"]
+    final_model_params = pipeline_contract["pipeline"][-1]["model"]["params"]
+    branch_specs = _branch_specs(pipeline_contract)
+    branch_descriptors = [{key: value for key, value in spec.items() if key != "factory"} for spec in branch_specs]
+    folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(**split_params).split(train)]
 
     def x(ids: list[int]) -> np.ndarray:
         return np.asarray(dataset.x({"sample": [int(sample) for sample in ids]}, layout="2d", concat_source=True))
@@ -116,16 +149,10 @@ def _direct_stacking_oracle() -> dict[str, Any]:
         values = np.asarray(dataset.y({"sample": [int(sample) for sample in ids]}), dtype=float).reshape(len(stored), -1)
         return values[[row_of[int(sample)] for sample in ids], 0]
 
-    branch_factories: list[tuple[str, Callable[[], Any]]] = [
-        ("SNV_PLS8", SNV),
-        ("MSC_PLS8", MSC),
-        ("FirstDerivative_PLS8", FirstDerivative),
-    ]
-
-    def fit_branch(factory: Callable[[], Any], sample_ids: list[int]) -> tuple[Any, PLSRegression]:
-        transform = factory()
+    def fit_branch(spec: dict[str, Any], sample_ids: list[int]) -> tuple[Any, PLSRegression]:
+        transform = spec["factory"]()
         transformed = transform.fit_transform(x(sample_ids))
-        model = PLSRegression(n_components=8).fit(transformed, y(sample_ids))
+        model = PLSRegression(n_components=spec["n_components"]).fit(transformed, y(sample_ids))
         return transform, model
 
     def predict_branch(fitted: tuple[Any, PLSRegression], sample_ids: list[int]) -> np.ndarray:
@@ -134,15 +161,16 @@ def _direct_stacking_oracle() -> dict[str, Any]:
 
     truth: dict[int, float] = {}
     meta_oof: dict[int, float] = {}
-    base_oof: dict[str, dict[int, float]] = {name: {} for name, _factory in branch_factories}
+    base_oof: dict[str, dict[int, float]] = {spec["name"]: {} for spec in branch_specs}
     fold_summaries: list[dict[str, Any]] = []
 
     for fold_index, (train_ids, val_ids) in enumerate(folds):
         val_ids = [int(sample) for sample in val_ids]
         meta_columns: list[np.ndarray] = []
         base_scores: dict[str, float] = {}
-        for branch_name, factory in branch_factories:
-            fitted = fit_branch(factory, train_ids)
+        for spec in branch_specs:
+            branch_name = spec["name"]
+            fitted = fit_branch(spec, train_ids)
             predictions = predict_branch(fitted, val_ids)
             meta_columns.append(predictions)
             for position, sample_id in enumerate(val_ids):
@@ -151,7 +179,7 @@ def _direct_stacking_oracle() -> dict[str, Any]:
 
         x_meta = np.column_stack(meta_columns)
         y_meta = y(val_ids)
-        meta_predictions = Ridge(alpha=1.0, random_state=42).fit(x_meta, y_meta).predict(x_meta)
+        meta_predictions = Ridge(**final_model_params).fit(x_meta, y_meta).predict(x_meta)
         for position, sample_id in enumerate(val_ids):
             truth[sample_id] = float(y_meta[position])
             meta_oof[sample_id] = float(meta_predictions[position])
@@ -166,11 +194,11 @@ def _direct_stacking_oracle() -> dict[str, Any]:
 
     keys = sorted(truth)
     cv_rmse = float(np.sqrt(mean_squared_error([truth[key] for key in keys], [meta_oof[key] for key in keys])))
-    meta_model = Ridge(alpha=1.0, random_state=42).fit(
-        np.array([[base_oof[branch_name][sample_id] for branch_name, _factory in branch_factories] for sample_id in keys]),
+    meta_model = Ridge(**final_model_params).fit(
+        np.array([[base_oof[spec["name"]][sample_id] for spec in branch_specs] for sample_id in keys]),
         np.array([truth[sample_id] for sample_id in keys]),
     )
-    refit_branches = [fit_branch(factory, train) for _branch_name, factory in branch_factories]
+    refit_branches = [fit_branch(spec, train) for spec in branch_specs]
     test_meta = np.column_stack([predict_branch(fitted, test) for fitted in refit_branches])
     test_predictions = meta_model.predict(test_meta)
     best_rmse = float(np.sqrt(mean_squared_error(y(test), test_predictions)))
@@ -179,6 +207,9 @@ def _direct_stacking_oracle() -> dict[str, Any]:
         "schema_version": "n4a.e2e.oof_ledger.v1",
         "scenario_id": SCENARIO_ID,
         "oracle": "direct Python sklearn stacking over nirs4all multi-source fused feature view",
+        "pipeline_sha256": _stable_hash(pipeline_contract["pipeline"]),
+        "branch_descriptors": branch_descriptors,
+        "branch_identity_sha256": _stable_hash(branch_descriptors),
         "folds": fold_summaries,
         "scores": {"cv_best_score": cv_rmse, "best_rmse": best_rmse},
         "test": {
@@ -217,7 +248,7 @@ def _result_summary(result: Any, warning_messages: list[str]) -> dict[str, Any]:
 def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
     artifacts_dir.mkdir(parents=True, exist_ok=True)
     pipeline_contract = _pipeline_contract()
-    oracle = _direct_stacking_oracle()
+    oracle = _direct_stacking_oracle(pipeline_contract)
 
     native_root = artifacts_dir / "native-results"
     with warnings.catch_warnings(record=True) as caught:
@@ -280,6 +311,7 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
 
     replay_path = artifacts_dir / "stacking-replay.n4a.json"
     python_open_ledger_path = artifacts_dir / "python-open-ledger.json"
+    python_rerun_ledger_path = artifacts_dir / "python-rerun-ledger.json"
     _write_json(replay_path, replay_manifest)
     reopened_replay = json.loads(replay_path.read_text(encoding="utf-8"))
     reopened_pipeline = reopened_replay["pipeline"]
@@ -315,6 +347,69 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
         "branch_identity_sha256": _stable_hash(branch_descriptors),
     }
     _write_json(python_open_ledger_path, python_open_pipeline)
+
+    rerun_oracle = _direct_stacking_oracle(reopened_pipeline)
+    original_predictions = np.asarray(oracle["test"]["predictions"], dtype=float)
+    rerun_predictions = np.asarray(rerun_oracle["test"]["predictions"], dtype=float)
+    original_targets = np.asarray(oracle["test"]["targets"], dtype=float)
+    rerun_targets = np.asarray(rerun_oracle["test"]["targets"], dtype=float)
+    prediction_shape_match = original_predictions.shape == rerun_predictions.shape
+    target_shape_match = original_targets.shape == rerun_targets.shape
+    prediction_max_abs_delta = (
+        float(np.max(np.abs(original_predictions - rerun_predictions))) if prediction_shape_match and original_predictions.size else None
+    )
+    target_max_abs_delta = float(np.max(np.abs(original_targets - rerun_targets))) if target_shape_match and original_targets.size else None
+    cv_best_score_delta_rerun = abs(float(oracle["scores"]["cv_best_score"]) - float(rerun_oracle["scores"]["cv_best_score"]))
+    best_rmse_delta_rerun = abs(float(oracle["scores"]["best_rmse"]) - float(rerun_oracle["scores"]["best_rmse"]))
+    fold_hash = _stable_hash(oracle["folds"])
+    rerun_fold_hash = _stable_hash(rerun_oracle["folds"])
+    finite_predictions = bool(np.all(np.isfinite(rerun_predictions)) and np.all(np.isfinite(rerun_targets)))
+    python_rerun_pipeline = {
+        "schema_version": "n4a.e2e.python_rerun_pipeline.v1",
+        "scenario_id": SCENARIO_ID,
+        "status": "passed",
+        "pipeline_reopened": True,
+        "replay_manifest_reopened": True,
+        "python_rerun_executed": True,
+        "finite_predictions": finite_predictions,
+        "prediction_rows": int(rerun_predictions.size),
+        "replay_manifest_sha256": _file_hash(replay_path),
+        "pipeline_sha256": pipeline_contract["sha256"],
+        "reopened_pipeline_sha256": _stable_hash(reopened_pipeline["pipeline"]),
+        "pipeline_hash_match": _stable_hash(reopened_pipeline["pipeline"]) == pipeline_contract["sha256"],
+        "branch_identity_sha256": oracle["branch_identity_sha256"],
+        "rerun_branch_identity_sha256": rerun_oracle["branch_identity_sha256"],
+        "branch_hash_match": rerun_oracle["branch_identity_sha256"] == oracle["branch_identity_sha256"],
+        "fold_sha256": fold_hash,
+        "rerun_fold_sha256": rerun_fold_hash,
+        "fold_hash_match": rerun_fold_hash == fold_hash,
+        "prediction_shape_match": prediction_shape_match,
+        "prediction_max_abs_delta": prediction_max_abs_delta,
+        "prediction_tolerance": PREDICTION_TOLERANCE,
+        "target_shape_match": target_shape_match,
+        "target_max_abs_delta": target_max_abs_delta,
+        "target_tolerance": PREDICTION_TOLERANCE,
+        "cv_best_score_delta": cv_best_score_delta_rerun,
+        "best_rmse_delta": best_rmse_delta_rerun,
+        "score_tolerance": PREDICTION_TOLERANCE,
+    }
+    python_rerun_pipeline["status"] = (
+        "passed"
+        if (
+            finite_predictions
+            and python_rerun_pipeline["pipeline_hash_match"]
+            and python_rerun_pipeline["branch_hash_match"]
+            and python_rerun_pipeline["fold_hash_match"]
+            and prediction_max_abs_delta is not None
+            and prediction_max_abs_delta <= PREDICTION_TOLERANCE
+            and target_max_abs_delta is not None
+            and target_max_abs_delta <= PREDICTION_TOLERANCE
+            and cv_best_score_delta_rerun <= PREDICTION_TOLERANCE
+            and best_rmse_delta_rerun <= PREDICTION_TOLERANCE
+        )
+        else "failed"
+    )
+    _write_json(python_rerun_ledger_path, python_rerun_pipeline)
     _write_json(artifacts_dir / "oof-ledger.json", oof_ledger)
 
     assert replay_path.exists()
@@ -324,5 +419,10 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
     assert python_open_pipeline["name_match"] is True
     assert python_open_pipeline["source_count_match"] is True
     assert python_open_pipeline["branch_count_match"] is True
+    assert python_rerun_ledger_path.exists()
+    assert python_rerun_pipeline["status"] == "passed"
+    assert python_rerun_pipeline["prediction_rows"] > 0
+    assert python_rerun_pipeline["prediction_max_abs_delta"] <= PREDICTION_TOLERANCE
+    assert python_rerun_pipeline["best_rmse_delta"] <= PREDICTION_TOLERANCE
     assert (artifacts_dir / "oof-ledger.json").exists()
     assert json.loads((artifacts_dir / "oof-ledger.json").read_text(encoding="utf-8"))["status"] == "passed"
