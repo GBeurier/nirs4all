@@ -229,8 +229,10 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
 
     summary = _result_summary(result, warning_messages)
     assert summary["is_dagml"] is True
-    assert abs(summary["cv_best_score"] - oracle["scores"]["cv_best_score"]) <= SCORE_TOLERANCE
-    assert abs(summary["best_rmse"] - oracle["scores"]["best_rmse"]) <= SCORE_TOLERANCE
+    cv_best_score_delta = abs(summary["cv_best_score"] - oracle["scores"]["cv_best_score"])
+    best_rmse_delta = abs(summary["best_rmse"] - oracle["scores"]["best_rmse"])
+    assert cv_best_score_delta <= SCORE_TOLERANCE
+    assert best_rmse_delta <= SCORE_TOLERANCE
 
     native_dir = Path(summary["native_results_dir"])
     assert native_dir.is_dir(), summary
@@ -246,9 +248,11 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
         "oracle_scores": oracle["scores"],
         "dagml_native": summary,
         "parity": {
+            "status": "passed",
             "score_tolerance": SCORE_TOLERANCE,
-            "cv_best_score_abs": abs(summary["cv_best_score"] - oracle["scores"]["cv_best_score"]),
-            "best_rmse_abs": abs(summary["best_rmse"] - oracle["scores"]["best_rmse"]),
+            "cv_best_score_delta": cv_best_score_delta,
+            "best_rmse_delta": best_rmse_delta,
+            "within_tolerance": True,
         },
         "known_boundaries": [
             "The richer by_source stacking legacy case remains fallback-only because native leakage-safe stacking diverges from the current legacy summary.",
@@ -256,8 +260,19 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
         ],
     }
 
+    oof_ledger = {
+        **oracle,
+        "status": "passed",
+        "parity_ok": True,
+        "within_tolerance": True,
+        "score_tolerance": SCORE_TOLERANCE,
+        "cv_best_score_delta": cv_best_score_delta,
+        "best_rmse_delta": best_rmse_delta,
+    }
+
     _write_json(artifacts_dir / "stacking-replay.n4a.json", replay_manifest)
-    _write_json(artifacts_dir / "oof-ledger.json", oracle)
+    _write_json(artifacts_dir / "oof-ledger.json", oof_ledger)
 
     assert (artifacts_dir / "stacking-replay.n4a.json").exists()
     assert (artifacts_dir / "oof-ledger.json").exists()
+    assert json.loads((artifacts_dir / "oof-ledger.json").read_text(encoding="utf-8"))["status"] == "passed"
