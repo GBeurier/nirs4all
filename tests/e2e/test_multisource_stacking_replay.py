@@ -36,6 +36,14 @@ def _stable_hash(payload: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _file_hash(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 def _finite(value: Any) -> float:
     number = float(value)
     if not math.isfinite(number):
@@ -270,9 +278,51 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
         "best_rmse_delta": best_rmse_delta,
     }
 
-    _write_json(artifacts_dir / "stacking-replay.n4a.json", replay_manifest)
+    replay_path = artifacts_dir / "stacking-replay.n4a.json"
+    python_open_ledger_path = artifacts_dir / "python-open-ledger.json"
+    _write_json(replay_path, replay_manifest)
+    reopened_replay = json.loads(replay_path.read_text(encoding="utf-8"))
+    reopened_pipeline = reopened_replay["pipeline"]
+    branch_descriptors = [
+        {
+            "branch_index": index,
+            "transform_class": branch[0]["class"],
+            "model_class": branch[1]["model"]["class"],
+            "n_components": branch[1]["model"]["params"]["n_components"],
+        }
+        for index, branch in enumerate(reopened_pipeline["pipeline"][1]["branch"])
+    ]
+    python_open_pipeline = {
+        "schema_version": "n4a.e2e.python_open_pipeline.v1",
+        "scenario_id": SCENARIO_ID,
+        "status": "passed",
+        "pipeline_reopened": True,
+        "replay_manifest": replay_path.name,
+        "reopened_scenario_id": reopened_replay.get("scenario_id"),
+        "scenario_id_match": reopened_replay.get("scenario_id") == SCENARIO_ID,
+        "replay_manifest_sha256": _file_hash(replay_path),
+        "pipeline_sha256": pipeline_contract["sha256"],
+        "reopened_pipeline_sha256": _stable_hash(reopened_pipeline["pipeline"]),
+        "pipeline_hash_match": _stable_hash(reopened_pipeline["pipeline"]) == pipeline_contract["sha256"],
+        "name": reopened_pipeline["name"],
+        "name_match": reopened_pipeline["name"] == PIPELINE_NAME,
+        "dataset_key": reopened_pipeline["dataset"]["key"],
+        "source_count": reopened_pipeline["dataset"]["source_count"],
+        "source_count_match": reopened_pipeline["dataset"]["source_count"] == 3,
+        "branch_count": len(branch_descriptors),
+        "branch_count_match": len(branch_descriptors) == 3,
+        "branch_descriptors": branch_descriptors,
+        "branch_identity_sha256": _stable_hash(branch_descriptors),
+    }
+    _write_json(python_open_ledger_path, python_open_pipeline)
     _write_json(artifacts_dir / "oof-ledger.json", oof_ledger)
 
-    assert (artifacts_dir / "stacking-replay.n4a.json").exists()
+    assert replay_path.exists()
+    assert python_open_ledger_path.exists()
+    assert python_open_pipeline["scenario_id_match"] is True
+    assert python_open_pipeline["pipeline_hash_match"] is True
+    assert python_open_pipeline["name_match"] is True
+    assert python_open_pipeline["source_count_match"] is True
+    assert python_open_pipeline["branch_count_match"] is True
     assert (artifacts_dir / "oof-ledger.json").exists()
     assert json.loads((artifacts_dir / "oof-ledger.json").read_text(encoding="utf-8"))["status"] == "passed"
