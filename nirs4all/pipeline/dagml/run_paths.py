@@ -1731,4 +1731,15 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # ensemble's `cv_best_score`) AND a `(test, fold_id=None)` block (`best_rmse`): the refit meta-model
     # predicting the held-out test from the base producers' REFIT-test predictions (`…oof:refit`).
     model_label = f"MetaModel_{type(meta_learner).__name__}"
-    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_META_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])
+    return _scores_to_run_result(
+        outcome["scores"],
+        spectro.name,
+        model_label,
+        metric,
+        task_type,
+        producer=_META_NODE_ID,
+        config_name=config_name,
+        results=outcome["results"],
+        identity=identity,
+        refit_artifacts=outcome["refit_artifacts"],
+    )

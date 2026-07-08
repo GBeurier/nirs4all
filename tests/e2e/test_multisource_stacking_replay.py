@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+import polars as pl
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.metrics import mean_squared_error
@@ -277,6 +278,31 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
     assert native_dir.is_dir(), summary
     for filename in ("manifest.json", "score_set.json", "predictions.parquet"):
         assert (native_dir / filename).exists(), f"missing native result artifact {filename}"
+    native_predictions = pl.read_parquet(native_dir / "predictions.parquet")
+    native_meta_test = native_predictions.filter(
+        (pl.col("model_name") == "MetaModel_Ridge")
+        & (pl.col("partition") == "test")
+        & (pl.col("refit_context") == "standalone")
+    )
+    assert native_meta_test.height == 1
+    native_meta_row = native_meta_test.row(0, named=True)
+    assert native_meta_row["arrays_present"] is True
+    native_sample_ids = [int(sample) for sample in native_meta_row["sample_indices"]]
+    native_by_sample = dict(zip(native_sample_ids, np.asarray(native_meta_row["y_pred"], dtype=float), strict=True))
+    native_targets_by_sample = dict(zip(native_sample_ids, np.asarray(native_meta_row["y_true"], dtype=float), strict=True))
+    oracle_by_sample = dict(zip(oracle["test"]["sample_ids"], oracle["test"]["predictions"], strict=True))
+    oracle_targets_by_sample = dict(zip(oracle["test"]["sample_ids"], oracle["test"]["targets"], strict=True))
+    assert set(native_by_sample) == set(oracle_by_sample)
+    native_prediction_delta = max(
+        abs(native_by_sample[sample] - oracle_by_sample[sample])
+        for sample in sorted(oracle_by_sample)
+    )
+    native_target_delta = max(
+        abs(native_targets_by_sample[sample] - oracle_targets_by_sample[sample])
+        for sample in sorted(oracle_targets_by_sample)
+    )
+    assert native_prediction_delta <= PREDICTION_TOLERANCE
+    assert native_target_delta <= PREDICTION_TOLERANCE
 
     pipeline_contract["sha256"] = _stable_hash(pipeline_contract["pipeline"])
     replay_manifest = {
@@ -305,6 +331,7 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
         "parity_ok": True,
         "within_tolerance": True,
         "score_tolerance": SCORE_TOLERANCE,
+        "prediction_tolerance": PREDICTION_TOLERANCE,
         "cv_best_score_delta": cv_best_score_delta,
         "best_rmse_delta": best_rmse_delta,
     }
