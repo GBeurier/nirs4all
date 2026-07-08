@@ -6,6 +6,7 @@ Complete reference documentation for NIRS4ALL APIs, syntax, and operators.
 :maxdepth: 2
 
 pipeline_syntax
+nodes/index
 pipeline_keywords
 operator_catalog
 transforms
@@ -20,6 +21,7 @@ configuration/index
 metrics
 predictions_api
 api/session
+public_interfaces
 cli
 workspace
 storage
@@ -48,6 +50,16 @@ All dict keywords: `model`, `y_processing`, `branch`, `merge`, `tag`, `exclude`,
 
 +++
 {bdg-primary}`Keywords`
+:::
+
+:::{grid-item-card} Pipeline Nodes
+:link: nodes/index
+:link-type: doc
+
+Every pipeline node keyword, parser rule, syntax form, and YAML/JSON example.
+
++++
+{bdg-warning}`Lookup`
 :::
 
 :::{grid-item-card} Generator Keywords
@@ -178,10 +190,20 @@ Stateful Session workflows and model persistence.
 :link: cli
 :link-type: doc
 
-Command-line interface for workspace commands.
+Command-line interface for config, dataset, workspace, and artifact commands.
 
 +++
 {bdg-warning}`Commands`
+:::
+
+:::{grid-item-card} Public Interfaces
+:link: public_interfaces
+:link-type: doc
+
+Python API, CLI, language wrapper patterns, and runtime engine switches.
+
++++
+{bdg-primary}`API`
 :::
 
 :::{grid-item-card} Workspace

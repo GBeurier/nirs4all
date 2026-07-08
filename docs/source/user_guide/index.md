@@ -13,6 +13,7 @@ models/index
 predictions/index
 deployment/index
 visualization/index
+python/index
 troubleshooting/index
 logging
 scoring_and_refit
@@ -105,11 +106,22 @@ Migration guides, common issues, and solutions.
 {bdg-warning}`Help`
 :::
 
+:::{grid-item-card} Python API
+:link: python/index
+:link-type: doc
+
+Extended Python functions, operators, controllers, and common recipes.
+
++++
+{bdg-primary}`Advanced`
+:::
+
 ::::
 
 ## Additional Topics
 
 - {doc}`logging` - Configure logging for debugging and monitoring
+- {doc}`python/index` - Extended Python API, operators, controllers, and recipes
 
 ## See Also
 
