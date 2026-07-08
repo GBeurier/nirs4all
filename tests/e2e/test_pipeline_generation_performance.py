@@ -13,9 +13,12 @@ from typing import Any
 import numpy as np
 
 import nirs4all
+from nirs4all.data import DatasetConfigs
 from tests.integration.parity import cases_generators  # noqa: F401 - registers generator cases
 from tests.integration.parity._datasets import dataset_path
 from tests.integration.parity._registry import get as get_case
+
+_WEB_WASM_PREDICTION_TOLERANCE = 5e-4
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -158,6 +161,109 @@ def _selected_model_identity(selected: dict[str, Any]) -> str:
     return str(selected.get("model_name") or selected.get("model_classname") or "")
 
 
+def _sample_indices(best: dict[str, Any]) -> list[int]:
+    values = np.asarray(best.get("sample_indices"), dtype=int).reshape(-1)
+    return [int(value) for value in values]
+
+
+def _selected_generator_choices(best: dict[str, Any]) -> list[dict[str, Any]]:
+    metadata = best.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except json.JSONDecodeError:
+            metadata = {}
+    if not isinstance(metadata, dict):
+        return []
+    choices = metadata.get("generator_choices")
+    return choices if isinstance(choices, list) else []
+
+
+def _prediction_oracle(
+    legacy: Any,
+    dagml: Any,
+    legacy_pred: np.ndarray,
+    dagml_pred: np.ndarray,
+    legacy_true: np.ndarray,
+    dagml_true: np.ndarray,
+    tolerance: float,
+) -> dict[str, Any]:
+    legacy_indices = _sample_indices(legacy.best)
+    dagml_indices = _sample_indices(dagml.best)
+    assert legacy_indices == dagml_indices
+    legacy_pred = legacy_pred.reshape(-1)
+    dagml_pred = dagml_pred.reshape(-1)
+    legacy_true = legacy_true.reshape(-1)
+    dagml_true = dagml_true.reshape(-1)
+    assert len(legacy_indices) == legacy_pred.shape[0] == dagml_pred.shape[0] == legacy_true.shape[0] == dagml_true.shape[0]
+
+    rows = []
+    for i, sample_index in enumerate(legacy_indices):
+        actual = float(legacy_true[i])
+        dagml_actual = float(dagml_true[i])
+        legacy_value = float(legacy_pred[i])
+        dagml_value = float(dagml_pred[i])
+        rows.append(
+            {
+                "sample_index": sample_index,
+                "sample_id": str(sample_index),
+                "actual": actual,
+                "dag_ml_actual": dagml_actual,
+                "legacy_predicted": legacy_value,
+                "dag_ml_predicted": dagml_value,
+                "legacy_residual": legacy_value - actual,
+                "dag_ml_residual": dagml_value - dagml_actual,
+                "prediction_abs_delta": abs(legacy_value - dagml_value),
+                "target_abs_delta": abs(actual - dagml_actual),
+            }
+        )
+
+    return {
+        "schema_version": "n4a.e2e.python_dagml_prediction_oracle.v1",
+        "status": "passed",
+        "partition": str(legacy.best.get("partition") or "test"),
+        "selected": {
+            "legacy_model": _selected_model_identity(legacy.best),
+            "dag_ml_model": _selected_model_identity(dagml.best),
+            "metric": str(legacy.best.get("metric") or ""),
+            "generator_choices": _selected_generator_choices(legacy.best),
+        },
+        "rows": rows,
+        "prediction_rows": len(rows),
+        "tolerance": tolerance,
+        "web_wasm_tolerance": _WEB_WASM_PREDICTION_TOLERANCE,
+        "prediction_abs_max": max((row["prediction_abs_delta"] for row in rows), default=0.0),
+        "target_abs_max": max((row["target_abs_delta"] for row in rows), default=0.0),
+    }
+
+
+def _web_dataset_fixture(dataset_key: str) -> dict[str, Any]:
+    dataset = DatasetConfigs(dataset_path(dataset_key)).get_dataset_at(0)
+    x = np.asarray(dataset.x({}, layout="2d"), dtype=float)
+    y = _as_vector(dataset.y({}))
+    sample_ids = [str(int(sample)) for sample in dataset.index_column("sample", {})]
+    train_samples = {str(int(sample)) for sample in dataset.index_column("sample", {"partition": "train"})}
+    test_samples = {str(int(sample)) for sample in dataset.index_column("sample", {"partition": "test"})}
+    partitions = ["test" if sample in test_samples else "train" if sample in train_samples else "train" for sample in sample_ids]
+    assert x.shape[0] == y.shape[0] == len(sample_ids) == len(partitions)
+    assert "test" in partitions
+    return {
+        "schema_version": "n4a.e2e.web_materialized_dataset.v1",
+        "status": "passed",
+        "dataset_key": dataset_key,
+        "targetName": "y",
+        "taskType": "regression",
+        "nSamples": int(x.shape[0]),
+        "nFeatures": int(x.shape[1]),
+        "axis": list(range(int(x.shape[1]))),
+        "axisUnit": "index",
+        "sampleIds": sample_ids,
+        "partitions": partitions,
+        "X": x.reshape(-1).tolist(),
+        "y": y.tolist(),
+    }
+
+
 def _run_timed(engine: str, artifacts_dir: Path, pipeline: list[Any], dataset_key: str) -> tuple[Any, float, list[str]]:
     kwargs: dict[str, Any] = {
         "engine": engine,
@@ -247,6 +353,13 @@ def test_generate_family(artifacts_dir: Path) -> None:
         "prediction_rows": int(legacy_pred.shape[0]),
         "tolerance": 1e-8,
     }
+    prediction_oracle = _prediction_oracle(legacy, dagml, legacy_pred, dagml_pred, legacy_true, dagml_true, parity["tolerance"])
+    assert prediction_oracle["prediction_abs_max"] <= prediction_oracle["tolerance"]
+    assert prediction_oracle["target_abs_max"] <= prediction_oracle["tolerance"]
+    web_dataset = _web_dataset_fixture(reopened_candidate["dataset_key"])
+    web_dataset_path = artifacts_dir / "dataset-web-oracle.json"
+    _write_json(web_dataset_path, web_dataset)
+    web_dataset_sha256 = _stable_hash(web_dataset)
     assert parity["best_rmse_abs"] <= 1e-9
     assert parity["best_score_abs"] <= 1e-9
     assert parity["prediction_abs_max"] <= parity["tolerance"]
@@ -294,6 +407,13 @@ def test_generate_family(artifacts_dir: Path) -> None:
             "dag_ml": dagml_summary,
         },
         "parity": parity,
+        "prediction_oracle": prediction_oracle,
+        "web_dataset": {
+            "path": web_dataset_path.name,
+            "sha256": web_dataset_sha256,
+            "n_samples": web_dataset["nSamples"],
+            "n_features": web_dataset["nFeatures"],
+        },
         "performance": {
             "legacy_seconds": legacy_seconds,
             "dag_ml_seconds": dagml_seconds,
