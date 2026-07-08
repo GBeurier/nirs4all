@@ -66,6 +66,11 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def _stable_hash(payload: Any) -> str:
+    encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def _vector(value: Any) -> np.ndarray:
     return np.asarray(value, dtype=float).reshape(-1)
 
@@ -105,6 +110,43 @@ def _repository_refit_recipe() -> dict[str, Any]:
                 "name": "PLS_repository_refit",
             },
         ],
+    }
+
+
+def _write_web_upload_dataset(artifacts_dir: Path, dataset: Any) -> dict[str, Any]:
+    x_train = np.asarray(dataset.x({"partition": "train"}, include_augmented=False, layout="2d"), dtype=float)
+    y_train = _vector(dataset.y({"partition": "train"}, include_augmented=False))
+    sample_indices = [int(sample) for sample in dataset.index_column("sample", {"partition": "train"})]
+    assert x_train.shape[0] == y_train.shape[0] == len(sample_indices)
+    axis = np.arange(x_train.shape[1], dtype=float)
+
+    x_path = artifacts_dir / "repository_X_train.csv"
+    y_path = artifacts_dir / "repository_y_train.csv"
+    metadata_path = artifacts_dir / "repository_metadata.csv"
+    np.savetxt(x_path, np.vstack([axis, x_train]), delimiter=",", fmt="%.17g")
+    np.savetxt(y_path, y_train, delimiter=",", fmt="%.17g", header="target", comments="")
+    metadata_path.write_text(
+        "sample_id,dataset_id,source_sample_index\n"
+        + "".join(f"python-regression-{index},python-regression-train,{index}\n" for index in sample_indices),
+        encoding="utf-8",
+    )
+
+    files = {
+        x_path.name: _sha256(x_path),
+        y_path.name: _sha256(y_path),
+        metadata_path.name: _sha256(metadata_path),
+    }
+    return {
+        "schema_version": "n4a.e2e.web_upload_dataset.v1",
+        "status": "passed",
+        "path": ".",
+        "files": files,
+        "files_sha256": _stable_hash(files),
+        "rows": int(x_train.shape[0]),
+        "cols": int(x_train.shape[1]),
+        "target_rows": int(y_train.shape[0]),
+        "metadata_rows": len(sample_indices),
+        "expected_badge": f"{x_train.shape[0]} samples × {x_train.shape[1]} wavelengths",
     }
 
 
@@ -156,6 +198,7 @@ def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
 
     dataset = DatasetConfigs(dataset_config, task_type="regression").get_dataset_at(0)
     x_train = dataset.x({"partition": "train"}, include_augmented=False)
+    web_upload_dataset = _write_web_upload_dataset(artifacts_dir, dataset)
     reopened_bundle = NIRSPipeline.from_bundle(bundle_path)
     bundle_pred = _vector(reopened_bundle.predict(x_train))
     legacy_final_pred = _vector(legacy.final["y_pred"])
@@ -207,6 +250,7 @@ def test_reopen_rerun_parity(artifacts_dir: Path) -> None:
             "train_rows": int(x_train.shape[0]),
             "feature_count": int(x_train.shape[1]),
         },
+        "web_upload_dataset": web_upload_dataset,
         "bundle_reopen": {
             "path": Path(bundle_path).name,
             "sha256": _sha256(Path(bundle_path)),
