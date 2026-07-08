@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`dag-ml` is now a fully selectable execution backend.** Pass `engine="dag-ml"` (or set
   `$N4A_ENGINE=dag-ml`) and `nirs4all.run()` dispatches to the dag-ml backend — the pipeline
   runs natively (Rust) and returns a `RunResult` of dag-ml's native scores. This is the first
-  half of the "nirs4all = the lite skeleton + Python controllers" North Star.
+  half of the "nirs4all = nirs4all-core aggregate + Python controllers" North Star.
   **The DEFAULT engine stays `legacy`** — the public-maintained nirs4all remains pure-Python by
   default until a planned global refactoring, after which the legacy-DROP cutover makes dag-ml
   the default. (The ADR-17 flip briefly defaulted to dag-ml; it was rolled back to legacy for
