@@ -1,126 +1,51 @@
-# Welcome to NIRS4ALL's documentation!
+# NIRS4ALL Documentation
 
-<div align="center" style="margin-bottom: 20px;">
-<img src="_static/nirs4all_logo.png" width="300" alt="NIRS4ALL Logo" style="margin-bottom: 15px;">
-<br>
-<img src="_static/logo-cirad-en.jpg" width="180" alt="CIRAD Logo">
-</div>
+NIRS4ALL runs spectroscopy machine-learning workflows from two portable files:
 
-**NIRS4ALL** is a comprehensive machine learning library specifically designed for Near-Infrared Spectroscopy (NIRS) data analysis. It bridges the gap between spectroscopic data and machine learning by providing a unified framework for data loading, preprocessing, model training, and evaluation.
+- a **dataset configuration** (`dataset.yaml` or `dataset.json`) that describes where spectra, targets, metadata, sources, folds, and loading options live;
+- a **pipeline configuration** (`pipeline.yaml` or `pipeline.json`) that describes the DAG nodes to execute: preprocessing, splitters, branching, merging, models, charts, export, and runtime options.
 
-> 🚀 **New here? Start with {doc}`Getting Started <getting_started/index>`** — install, run your first pipeline, then follow the tutorial. The other sections below are for when you need them.
+The same YAML/JSON contract is the stable user surface across Python and language wrappers. Python also exposes native objects for users who want direct sklearn/nirs4all composition.
 
-::::{grid} 3
-:gutter: 3
+## Feature Availability by Language
 
-:::{grid-item-card} Getting Started
-:link: getting_started/index
-:link-type: doc
-:class-card: sd-bg-light
+| Surface | Status in this repository | Reads dataset/pipeline YAML/JSON | Native object API | Train/evaluate | Predict/export | Best entry point |
+| --- | --- | --- | --- | --- | --- | --- |
+| Python | Native, complete public API | Yes | Yes, sklearn + nirs4all objects | `nirs4all.run(...)` | `nirs4all.predict(...)`, `result.export(...)` | {doc}`getting_started/hello_world` |
+| CLI | Native for validation, dataset inspection, workspace, artifacts | Yes, for validation/inspection | No | No `run` command in this repo yet | Workspace/artifact management only | {doc}`reference/cli` |
+| R | Portable wrapper pattern | Yes | Through `reticulate` or a binding wrapper | Calls the Python runtime today | Calls the Python runtime today | {doc}`getting_started/hello_world` |
+| Julia | Portable wrapper pattern | Yes | Through `PythonCall` or a binding wrapper | Calls the Python runtime today | Calls the Python runtime today | {doc}`getting_started/hello_world` |
+| JavaScript/TypeScript | Portable process/runtime wrapper pattern | Yes | No native JS API in this repo | Calls a Python/runtime process today | Calls a Python/runtime process today | {doc}`getting_started/hello_world` |
+| dag-ml runtime | Selectable from Python | Yes, for covered shapes | No Python object construction | `engine="dag-ml"` with legacy fallback | Native results optional; bundle export is bridged | {doc}`reference/public_interfaces` |
 
-New to nirs4all? Installation, quickstart, and a progressive tutorial.
-
-+++
-{bdg-primary}`Beginner` {bdg-info}`5-20 min`
+:::{note}
+The language-independent contract is the pair of config files. Native R, Julia, or JavaScript package APIs can wrap that contract without changing user pipelines.
 :::
 
-:::{grid-item-card} Concepts
-:link: concepts/index
-:link-type: doc
-:class-card: sd-bg-light
+## Hello World
 
-Pipelines, datasets, branching, generators, cross-validation, augmentation, and deployment.
+Start with one page: {doc}`getting_started/hello_world`.
 
-+++
-{bdg-info}`Conceptual` {bdg-success}`Essential`
-:::
+It shows the smallest complete workflow:
 
-:::{grid-item-card} User Guide
-:link: user_guide/index
-:link-type: doc
-:class-card: sd-bg-light
+1. Write `dataset.yaml`.
+2. Write `pipeline.yaml`.
+3. Run the same files from Python, R, Julia, JavaScript, or a shell wrapper.
+4. Read the best score and export a `.n4a` bundle.
 
-Step-by-step how-to guides for preprocessing, stacking, export, and more.
+## Task Lookup
 
-+++
-{bdg-secondary}`How-to` {bdg-success}`Task-oriented`
-:::
-
-:::{grid-item-card} Reference
-:link: reference/index
-:link-type: doc
-:class-card: sd-bg-light
-
-Complete API reference, pipeline syntax, and operator catalog by category.
-
-+++
-{bdg-warning}`Reference` {bdg-dark}`Lookup`
-:::
-
-:::{grid-item-card} Developer Guide
-:link: developer/index
-:link-type: doc
-:class-card: sd-bg-light
-
-Architecture, internals, the controller pattern, and contribution guidelines.
-
-+++
-{bdg-danger}`Advanced` {bdg-info}`Contribute`
-:::
-
-::::
-
----
-
-## Quick Start
-
-```python
-import nirs4all
-from sklearn.preprocessing import MinMaxScaler
-from sklearn.cross_decomposition import PLSRegression
-from sklearn.model_selection import ShuffleSplit
-
-# Define and run a pipeline in one step
-result = nirs4all.run(
-    pipeline=[
-        MinMaxScaler(),
-        ShuffleSplit(n_splits=3),
-        {"model": PLSRegression(n_components=10)}
-    ],
-    dataset="path/to/data",
-    verbose=1
-)
-
-print(f"Best RMSE: {result.best_rmse:.4f}")
-result.export("exports/best_model.n4a")
-```
-
-### Try Without Data
-
-No dataset? Generate synthetic NIRS spectra to get started:
-
-```python
-import nirs4all
-
-# Generate realistic synthetic NIRS data
-dataset = nirs4all.generate.regression(
-    n_samples=500,
-    components=["water", "protein", "lipid"],
-    complexity="realistic",
-    random_state=42
-)
-
-# Run a pipeline on synthetic data
-result = nirs4all.run(
-    pipeline=[MinMaxScaler(), {"model": PLSRegression(10)}],
-    dataset=dataset
-)
-print(f"RMSE: {result.best_rmse:.4f}")
-```
-
-:::{tip}
-See {doc}`examples/index` for 50+ working examples organized by topic.
-:::
+| Question | Go to |
+| --- | --- |
+| How do I describe my files? | {doc}`reference/configuration` |
+| What can I put in a pipeline? | {doc}`reference/nodes/index` |
+| How do I merge two sources? | {doc}`reference/nodes/merge` |
+| How do I create a cartesian preprocessing search? | {doc}`reference/nodes/generators` |
+| How do I branch by source, tag, metadata, or filter? | {doc}`reference/nodes/branch` |
+| How do I add sample or feature augmentation? | {doc}`reference/nodes/sample_augmentation`, {doc}`reference/nodes/feature_augmentation` |
+| Which operators/models/splitters exist? | {doc}`reference/operator_catalog` |
+| Which public API/CLI/runtime commands exist? | {doc}`reference/public_interfaces` |
+| What is the extended Python API? | {doc}`user_guide/python/index` |
 
 ```{toctree}
 :maxdepth: 3
@@ -135,139 +60,24 @@ examples/index
 api/modules
 ```
 
-## What is Near-Infrared Spectroscopy (NIRS)?
-
-Near-Infrared Spectroscopy (NIRS) is a rapid and non-destructive analytical technique that uses the near-infrared region of the electromagnetic spectrum (approximately 700-2500 nm). NIRS measures how near-infrared light interacts with the molecular bonds in materials, particularly C-H, N-H, and O-H bonds, providing information about the chemical composition of samples.
-
-### Key advantages of NIRS:
-- Non-destructive analysis
-- Minimal sample preparation
-- Rapid results (seconds to minutes)
-- Potential for on-line/in-line implementation
-- Simultaneous measurement of multiple parameters
-
-### Common applications:
-- Agriculture: soil analysis, crop quality assessment
-- Food industry: quality control, authenticity verification
-- Pharmaceutical: raw material verification, process monitoring
-- Medical: tissue monitoring, brain imaging
-- Environmental: pollutant detection, water quality monitoring
-
-## Features
-
-NIRS4ALL offers a wide range of functionalities:
-
-1. **Spectrum Preprocessing**:
-   - Baseline correction
-   - Standard normal variate (SNV)
-   - Robust normal variate
-   - Savitzky-Golay filtering
-   - Normalization
-   - Detrending
-   - Multiplicative scatter correction
-   - Derivative computation
-   - Gaussian filtering
-   - Haar wavelet transformation
-   - And more...
-
-2. **Data Splitting Methods**:
-   - Kennard Stone
-   - SPXY
-   - Random sampling
-   - Stratified sampling
-   - K-means
-   - And more...
-
-3. **Model Integration**:
-   - Scikit-learn models
-   - TensorFlow/Keras models
-   - Pre-configured neural networks dedicated to the NIRS: nicon & decon (see publication below)
-   - PyTorch models (via extensions)
-   - JAX models (via extensions)
-
-4. **Model Fine-tuning**:
-   - Hyperparameter optimization with Optuna
-   - Grid search and random search
-   - Cross-validation strategies
-
-5. **Visualization**:
-   - Preprocessing effect visualization
-   - Model performance visualization
-   - Feature importance analysis
-   - Classification metrics
-   - Residual analysis
-
-6. **Synthetic Data Generation**:
-   - Physically-motivated NIRS spectra (Beer-Lambert law)
-   - Predefined spectral components (water, protein, lipid, etc.)
-   - Configurable complexity levels for testing
-   - Classification and regression targets
-   - Export to CSV for loader testing
-
-## Installation
-
-### Basic Installation
+## Install
 
 ```bash
 pip install nirs4all
 ```
-This installs the core library with scikit-learn support. Deep learning frameworks are optional.
 
-### With Additional ML Frameworks
-
-```bash
-# With TensorFlow support (CPU)
-pip install nirs4all[tensorflow]
-
-# With TensorFlow support (GPU)
-pip install nirs4all[gpu]
-
-# With PyTorch support
-pip install nirs4all[torch]
-
-# With Keras support
-pip install nirs4all[keras]
-
-# With JAX support
-pip install nirs4all[jax]
-
-# With all ML frameworks
-pip install nirs4all[all]
-
-# With all ML frameworks and GPU support for TensorFlow
-pip install nirs4all[all-gpu]
-```
-
-### Development Installation
-
-For developers who want to contribute:
+Optional extras:
 
 ```bash
-git clone https://github.com/gbeurier/nirs4all.git
-cd nirs4all
-pip install -e .[dev]
+pip install "nirs4all[viz,explain]"
+pip install "nirs4all[torch]"
+pip install "nirs4all[tensorflow]"
+pip install "nirs4all[jax]"
+pip install "nirs4all[all]"
 ```
 
-## Research Applications
+Verify the installation:
 
-NIRS4ALL has been successfully used in published research:
-
-**Houngbo, M. E., Desfontaines, L., Diman, J. L., Arnau, G., Mestres, C., Davrieux, F., Rouan, L., Beurier, G., Marie‐Magdeleine, C., Meghar, K., Alamu, E. O., Otegbayo, B. O., & Cornet, D. (2024).** *Convolutional neural network allows amylose content prediction in yam (Dioscorea alata L.) flour using near infrared spectroscopy.* **Journal of the Science of Food and Agriculture, 104(8), 4915-4921.** John Wiley & Sons, Ltd.
-
-## How to Cite
-
-If you use NIRS4ALL in your research, please cite:
-
+```bash
+nirs4all --test-install
 ```
-@software{beurier2025nirs4all,
-  author = {Gregory Beurier and Denis Cornet and Camille Noûs and Lauriane Rouan},
-  title = {nirs4all is all your nirs: Open spectroscopy for everyone},
-  url = {https://github.com/gbeurier/nirs4all},
-  version = {0.10.3},
-  year = {2026},
-}
-```
-
-## License
-
-nirs4all is distributed under a **dual license**: by default **AGPL-3.0-or-later** (with GPL-3.0-or-later and CeCILL-2.1 variants available), plus a separate **commercial license** for closed-source use. See the [`LICENSE`](https://github.com/gbeurier/nirs4all/blob/main/LICENSE) file for the full terms.
