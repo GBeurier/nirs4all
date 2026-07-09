@@ -223,8 +223,7 @@ class TestFeatureMergePredictionMode:
 
         # Get a test prediction to use for prediction mode
         test_preds = predictions.filter_predictions(partition="test")
-        if len(test_preds) == 0:
-            pytest.skip("No test predictions available")
+        assert len(test_preds) > 0, "merge pipeline should produce test predictions for prediction mode"
         best_pred = test_preds[0]
 
         # Create new data for prediction
