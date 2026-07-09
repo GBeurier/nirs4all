@@ -90,10 +90,9 @@ dependencies = [
     "pyopls>=20.0",
     "trendfitter>=0.0.6",
 
-    # dag-ml execution core — the DEFAULT engine since the ADR-17 cutover (the
-    # "nirs4all = nirs4all-core aggregate + Python controllers" North Star). A hard
-    # dependency, not an extra: run() dispatches to dag-ml by default and falls
-    # back to legacy with a warning only when the native backend is unavailable.
+    # dag-ml execution core — hard dependency, not an extra, so the native backend
+    # is selectable out of the box via engine="dag-ml" or N4A_ENGINE=dag-ml. The
+    # public Python line remains legacy-default until the explicit ADR-17 drop.
     "dag-ml>=0.2.7",
     "dag-ml-data>=0.2.8",
 ]
