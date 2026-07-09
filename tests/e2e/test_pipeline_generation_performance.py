@@ -264,7 +264,7 @@ def _web_dataset_fixture(dataset_key: str) -> dict[str, Any]:
     }
 
 
-def _run_timed(engine: str, artifacts_dir: Path, pipeline: list[Any], dataset_key: str) -> tuple[Any, float, list[str]]:
+def _run_timed(engine: str, artifacts_dir: Path, pipeline: list[Any], dataset_key: str, *, sample_index: int = 0) -> tuple[Any, float, list[str]]:
     kwargs: dict[str, Any] = {
         "engine": engine,
         "verbose": 0,
@@ -274,7 +274,7 @@ def _run_timed(engine: str, artifacts_dir: Path, pipeline: list[Any], dataset_ke
         "refit": True,
     }
     if engine == "dag-ml":
-        kwargs["results_path"] = str(artifacts_dir / "native-results")
+        kwargs["results_path"] = str(artifacts_dir / f"native-results-{sample_index}")
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -288,6 +288,37 @@ def _run_timed(engine: str, artifacts_dir: Path, pipeline: list[Any], dataset_ke
         assert result._is_dagml_engine(), "engine='dag-ml' must not report a legacy fallback result"  # noqa: SLF001
         _assert_native_results_dir(getattr(result, "_dagml_results_dir", None))
     return result, elapsed, warning_messages
+
+
+def _run_timed_best(
+    engine: str,
+    artifacts_dir: Path,
+    descriptor: dict[str, Any],
+    dataset_key: str,
+    *,
+    repeats: int = 3,
+) -> tuple[Any, float, list[str], list[dict[str, Any]]]:
+    best: tuple[Any, float, list[str]] | None = None
+    samples: list[dict[str, Any]] = []
+    for sample_index in range(repeats):
+        result, elapsed, warning_messages = _run_timed(
+            engine,
+            artifacts_dir,
+            _pipeline_from_descriptor(descriptor),
+            dataset_key,
+            sample_index=sample_index,
+        )
+        samples.append(
+            {
+                "sample_index": sample_index,
+                "elapsed_seconds": elapsed,
+                "warning_count": len(warning_messages),
+            }
+        )
+        if best is None or elapsed < best[1]:
+            best = (result, elapsed, warning_messages)
+    assert best is not None
+    return best[0], best[1], best[2], samples
 
 
 def _result_summary(result: Any, elapsed_seconds: float, warning_messages: list[str]) -> dict[str, Any]:
@@ -319,16 +350,16 @@ def test_generate_family(artifacts_dir: Path) -> None:
     candidate_sha256 = _stable_hash(candidate)
     reopened_candidate_sha256 = _stable_hash(reopened_candidate)
 
-    legacy, legacy_seconds, legacy_warnings = _run_timed(
+    legacy, legacy_seconds, legacy_warnings, legacy_timing_samples = _run_timed_best(
         "legacy",
         artifacts_dir,
-        _pipeline_from_descriptor(reopened_candidate),
+        reopened_candidate,
         reopened_candidate["dataset_key"],
     )
-    dagml, dagml_seconds, dagml_warnings = _run_timed(
+    dagml, dagml_seconds, dagml_warnings, dagml_timing_samples = _run_timed_best(
         "dag-ml",
         artifacts_dir,
-        _pipeline_from_descriptor(reopened_candidate),
+        reopened_candidate,
         reopened_candidate["dataset_key"],
     )
 
@@ -368,6 +399,8 @@ def test_generate_family(artifacts_dir: Path) -> None:
     speedup = legacy_seconds / dagml_seconds if dagml_seconds > 0 else None
     legacy_summary = _result_summary(legacy, legacy_seconds, legacy_warnings)
     dagml_summary = _result_summary(dagml, dagml_seconds, dagml_warnings)
+    legacy_summary["timing_samples"] = legacy_timing_samples
+    dagml_summary["timing_samples"] = dagml_timing_samples
     python_open_pipeline = {
         "schema_version": "n4a.e2e.python_open_pipeline.v1",
         "scenario_id": "e2e-pipeline-generation-performance-compare",
@@ -418,6 +451,7 @@ def test_generate_family(artifacts_dir: Path) -> None:
             "legacy_seconds": legacy_seconds,
             "dag_ml_seconds": dagml_seconds,
             "legacy_over_dag_ml_ratio": speedup,
+            "measurement_strategy": "best_of_3",
             "verdict": "dag_ml_faster" if speedup is not None and speedup > 1.0 else "no_speedup_on_this_run",
         },
         "python_open_pipeline": python_open_pipeline,
