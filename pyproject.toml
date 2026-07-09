@@ -94,8 +94,8 @@ dependencies = [
     # "nirs4all = nirs4all-core aggregate + Python controllers" North Star). A hard
     # dependency, not an extra: run() dispatches to dag-ml by default and falls
     # back to legacy with a warning only when the native backend is unavailable.
-    "dag-ml>=0.2.1",
-    "dag-ml-data>=0.2.1",
+    "dag-ml>=0.2.7",
+    "dag-ml-data>=0.2.8",
 ]
 
 [project.optional-dependencies]
