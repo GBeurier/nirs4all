@@ -19,6 +19,7 @@ from tests.integration.parity._datasets import dataset_path
 from tests.integration.parity._registry import get as get_case
 
 _WEB_WASM_PREDICTION_TOLERANCE = 5e-4
+_PERFORMANCE_ZIP_COMPONENTS = [3, 5, 7, 9, 11, 13, 15, 17, 19]
 
 
 def _write_json(path: Path, payload: dict[str, Any]) -> None:
@@ -128,7 +129,7 @@ def _variants_from_descriptor(pipeline: list[dict[str, Any]]) -> list[dict[str, 
 
 def _candidate_descriptor(case: Any) -> dict[str, Any]:
     pipeline = [_step_descriptor(step) for step in case.pipeline_factory()]
-    return {
+    candidate = {
         "schema_version": "n4a.e2e.generated_pipeline_candidate.v1",
         "scenario_id": "e2e-pipeline-generation-performance-compare",
         "status": "passed",
@@ -141,6 +142,27 @@ def _candidate_descriptor(case: Any) -> dict[str, Any]:
         "variants": _variants_from_descriptor(pipeline),
         "pipeline": pipeline,
     }
+    _amplify_performance_candidate(candidate)
+    return candidate
+
+
+def _amplify_performance_candidate(candidate: dict[str, Any]) -> None:
+    """Make the performance gate large enough to measure dag-ml's batch benefit."""
+    if candidate.get("case_name") != "generator_zip_paired":
+        return
+    for step in candidate["pipeline"]:
+        zipped = step.get("_zip_") if isinstance(step, dict) else None
+        if isinstance(zipped, dict) and "n_components" in zipped and "scale" in zipped:
+            zipped["n_components"] = list(_PERFORMANCE_ZIP_COMPONENTS)
+            zipped["scale"] = [True] * len(_PERFORMANCE_ZIP_COMPONENTS)
+            candidate["variants"] = _variants_from_descriptor(candidate["pipeline"])
+            candidate["expected_min_predictions"] = max(
+                int(candidate.get("expected_min_predictions") or 0),
+                len(candidate["variants"]) * 3,
+            )
+            candidate["description"] += " Expanded for CI-stable dag-ml timing evidence."
+            return
+    raise AssertionError("generator_zip_paired candidate did not expose the expected _zip_ model step")
 
 
 def _pipeline_from_descriptor(descriptor: dict[str, Any]) -> list[Any]:
