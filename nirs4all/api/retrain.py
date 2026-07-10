@@ -56,7 +56,6 @@ def retrain(
     session: Session | None = None,
     verbose: int = 1,
     save_artifacts: bool = True,
-    engine: str | None = None,
     **kwargs: Any
 ) -> RunResult:
     """Retrain a pipeline on new data.
@@ -99,15 +98,13 @@ def retrain(
         save_artifacts: Whether to save retrained artifacts.
             Default: True
 
-        engine: Execution backend selector. ``"legacy"`` keeps the current
-            retraining path. ``"dag-ml"`` is intentionally rejected for this
-            transition release until native retraining is implemented. ``None``
-            follows ``$N4A_ENGINE`` and then the default engine.
-
         **kwargs: Additional retraining parameters:
             - learning_rate: Learning rate for fine-tuning
             - freeze_layers: List of layers to freeze during fine-tuning
             - step_modes: Per-step mode overrides (advanced)
+            - engine: Backend selector for the transition release. Only
+              ``"legacy"`` is supported by this helper until native retraining
+              is implemented.
 
     Returns:
         RunResult containing:
@@ -178,6 +175,7 @@ def retrain(
     if mode not in valid_modes:
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
 
+    engine = kwargs.pop("engine", None)
     require_legacy_engine("retrain", engine)
 
     # Use session runner if provided, otherwise create new
