@@ -113,6 +113,7 @@ from nirs4all.pipeline.storage.store_queries import (
 )
 from nirs4all.pipeline.storage.store_schema import create_schema
 from nirs4all.pipeline.trace.execution_trace import fold_key_candidates
+from nirs4all.workspace.compat import warn_if_legacy_workspace
 
 _MAX_RETRIES = 8
 _BASE_DELAY = 0.15
@@ -267,6 +268,13 @@ class WorkspaceStore:
 
     def __init__(self, workspace_path: Path) -> None:
         self._workspace_path = Path(workspace_path)
+        if self._workspace_path.exists():
+            format_info = warn_if_legacy_workspace(self._workspace_path)
+            if format_info.format == "fs-runs-legacy":
+                raise RuntimeError(
+                    f"Cannot open legacy filesystem workspace at {self._workspace_path} in-place. "
+                    f"Run: {format_info.conversion_command}"
+                )
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._atexit_callback: Callable[[], None] | None = None
