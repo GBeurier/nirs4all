@@ -1071,7 +1071,11 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     # reference fold/model remap for augmentation-before-splitter pipelines.
     identity = mint_identity(spectro)
     cv_universe = base_train
-    fold_children = {f"fold{index}": {} for index in range(len(base_folds))} | {"refit": {}}
+    empty_fold_children: dict[str, dict[int, list[int]]] = {
+        f"fold{index}": {} for index in range(len(base_folds))
+    }
+    empty_fold_children["refit"] = {}
+    fold_children = empty_fold_children
     augmentation_by_sample_int = {}
 
     envelope = build_envelope(spectro, identity, sample_ints=cv_universe, augmentation_by_sample=augmentation_by_sample_int)

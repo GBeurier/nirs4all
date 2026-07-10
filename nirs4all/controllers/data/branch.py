@@ -64,7 +64,7 @@ Examples:
 
 import contextlib
 import copy
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, cast
 
 import numpy as np
 
@@ -695,8 +695,11 @@ class BranchController(OperatorController):
             fit_X = X
             fit_y = y
 
-        filter_obj.fit(fit_X, fit_y)
-        mask = filter_obj.get_mask(X, y)  # True = passing, False = failing
+        fit_matrix = cast(np.ndarray, fit_X)
+        data_matrix = cast(np.ndarray, X)
+
+        filter_obj.fit(fit_matrix, fit_y)
+        mask = filter_obj.get_mask(data_matrix, y)  # True = passing, False = failing
 
         # Create groups
         passing_indices = [i for i, m in enumerate(mask) if m]

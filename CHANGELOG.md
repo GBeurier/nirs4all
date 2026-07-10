@@ -19,8 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default until a planned global refactoring, after which the legacy-DROP cutover makes dag-ml
   the default. (The ADR-17 flip briefly defaulted to dag-ml; it was rolled back to legacy for
   the public version — see `ADR-17_LEGACY_DROP_HANDOFF.md`.) `predict()` / `explain()` /
-  `retrain()` / `Session.run()` use `PipelineRunner` directly and never route through the engine
-  selector.
+  `retrain()` preserve their existing public signatures and remain legacy-only for this
+  transition release: passing `engine="dag-ml"` through their existing keyword passthrough, or
+  setting `$N4A_ENGINE=dag-ml`, fails loudly until native replay/explain/retrain contracts exist.
+  `Session.run()` continues to use the session's `PipelineRunner` directly.
 - **In-process dag-ml execution is the default mechanism for `engine="dag-ml"`.** The native PyO3
   path runs without the per-call subprocess import tax. An unset `N4A_DAGML_INPROCESS` means
   in-process; set it to one of `0`/`false`/`off` (case-insensitive) to force the subprocess
