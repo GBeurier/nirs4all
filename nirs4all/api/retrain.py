@@ -23,6 +23,7 @@ import numpy as np
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
+from nirs4all.pipeline.engine import require_legacy_engine
 
 from .result import RunResult
 from .session import Session
@@ -55,6 +56,7 @@ def retrain(
     session: Session | None = None,
     verbose: int = 1,
     save_artifacts: bool = True,
+    engine: str | None = None,
     **kwargs: Any
 ) -> RunResult:
     """Retrain a pipeline on new data.
@@ -96,6 +98,11 @@ def retrain(
 
         save_artifacts: Whether to save retrained artifacts.
             Default: True
+
+        engine: Execution backend selector. ``"legacy"`` keeps the current
+            retraining path. ``"dag-ml"`` is intentionally rejected for this
+            transition release until native retraining is implemented. ``None``
+            follows ``$N4A_ENGINE`` and then the default engine.
 
         **kwargs: Additional retraining parameters:
             - learning_rate: Learning rate for fine-tuning
@@ -170,6 +177,8 @@ def retrain(
     valid_modes = {"full", "transfer", "finetune"}
     if mode not in valid_modes:
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
+
+    require_legacy_engine("retrain", engine)
 
     # Use session runner if provided, otherwise create new
     runner = session.runner if session is not None else PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
