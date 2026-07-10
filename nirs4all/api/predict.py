@@ -33,6 +33,7 @@ import numpy as np
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
+from nirs4all.pipeline.engine import require_legacy_engine
 
 from .result import PredictResult
 from .session import Session
@@ -64,6 +65,7 @@ def predict(
     all_predictions: bool = False,
     session: Session | None = None,
     verbose: int = 0,
+    engine: str | None = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Make predictions with a trained model on new data.
@@ -116,6 +118,11 @@ def predict(
         verbose: Verbosity level (0=quiet, 1=info, 2=debug).
             Default: 0
 
+        engine: Execution backend selector. ``"legacy"`` keeps the current
+            prediction path. ``"dag-ml"`` is intentionally rejected for this
+            transition release until native prediction replay is implemented.
+            ``None`` follows ``$N4A_ENGINE`` and then the default engine.
+
         **runner_kwargs: Additional PipelineRunner parameters.
             Common options: plots_visible
 
@@ -166,6 +173,8 @@ def predict(
         raise ValueError("Provide either 'model' or 'chain_id'.")
     if data is None:
         raise ValueError("'data' is required.")
+
+    require_legacy_engine("predict", engine)
 
     # ---- Store-based path (chain_id) ----
     if chain_id is not None:

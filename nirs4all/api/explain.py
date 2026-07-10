@@ -23,6 +23,7 @@ import numpy as np
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
+from nirs4all.pipeline.engine import require_legacy_engine
 
 from .result import ExplainResult
 from .session import Session
@@ -54,6 +55,7 @@ def explain(
     # SHAP-specific parameters
     n_samples: int | None = None,
     explainer_type: str = "auto",
+    engine: str | None = None,
     **shap_params: Any
 ) -> ExplainResult:
     """Generate SHAP explanations for a trained model.
@@ -96,6 +98,11 @@ def explain(
             - "deep": DeepExplainer (for neural networks)
             - "linear": LinearExplainer (for linear models)
             Default: "auto"
+
+        engine: Execution backend selector. ``"legacy"`` keeps the current
+            explanation path. ``"dag-ml"`` is intentionally rejected for this
+            transition release until native explanation replay is implemented.
+            ``None`` follows ``$N4A_ENGINE`` and then the default engine.
 
         **shap_params: Additional SHAP configuration parameters.
             Common options:
@@ -162,6 +169,8 @@ def explain(
         - :func:`nirs4all.predict`: Make predictions
         - :class:`nirs4all.api.result.ExplainResult`: Result class
     """
+    require_legacy_engine("explain", engine)
+
     # Build SHAP params dict
     full_shap_params = dict(shap_params)
     if n_samples is not None:

@@ -59,3 +59,15 @@ def resolve_engine(engine: str | None = None) -> Engine:
             "use 'legacy' or 'dag-ml' (see dag-ml/docs/migration-nirs4all/)"
         )
     return cast(Engine, name)
+
+
+def require_legacy_engine(operation: str, engine: str | None = None) -> Engine:
+    """Resolve an API backend selector and reject operations not yet backed by dag-ml."""
+    selected = resolve_engine(engine)
+    if selected == "dag-ml":
+        raise NotImplementedError(
+            f"nirs4all.{operation} does not have a dag-ml execution path yet; "
+            "use engine='legacy' for this transition release. nirs4all.run supports "
+            "engine='dag-ml' with documented fallback boundaries."
+        )
+    return selected
