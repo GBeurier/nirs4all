@@ -12,6 +12,7 @@ Tests cover:
 
 import sys
 from pathlib import Path
+from types import ModuleType
 from unittest.mock import Mock, patch
 
 import pytest
@@ -105,6 +106,47 @@ class TestCLISubcommandHelp:
         """Test that 'workspace convert --help' exits cleanly."""
         exit_code = invoke_cli(["workspace", "convert", "--help"])
         assert exit_code == 0
+
+    def test_workspace_convert_delegates_to_transition_tools(self, monkeypatch, tmp_path):
+        """Transition CLI must call nirs4all-tools with the V1 workspace target."""
+        seen: dict[str, list[str]] = {}
+
+        tools_package = ModuleType("nirs4all_tools")
+        tools_cli = ModuleType("nirs4all_tools.cli")
+
+        def fake_tools_main(argv):
+            seen["argv"] = list(argv)
+            return 17
+
+        tools_cli.main = fake_tools_main
+        monkeypatch.setitem(sys.modules, "nirs4all_tools", tools_package)
+        monkeypatch.setitem(sys.modules, "nirs4all_tools.cli", tools_cli)
+
+        source = tmp_path / "legacy-workspace"
+        target = tmp_path / "workspace-v2"
+
+        exit_code = invoke_cli([
+            "workspace",
+            "convert",
+            str(source),
+            "--output",
+            str(target),
+            "--verify",
+            "--strict",
+        ])
+
+        assert exit_code == 17
+        assert seen["argv"] == [
+            "legacy",
+            "migrate",
+            str(source),
+            "--output",
+            str(target),
+            "--target",
+            "nirs4all-workspace-v2",
+            "--verify",
+            "--strict",
+        ]
 
 class TestCLIErrorHandling:
     """Test CLI error handling wrapper (CLI-04)."""
