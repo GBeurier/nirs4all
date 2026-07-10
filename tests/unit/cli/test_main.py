@@ -11,6 +11,7 @@ Tests cover:
 """
 
 import sys
+import tomllib
 from pathlib import Path
 from types import ModuleType
 from unittest.mock import Mock, patch
@@ -147,6 +148,15 @@ class TestCLISubcommandHelp:
             "--verify",
             "--strict",
         ]
+
+    def test_transition_extra_installs_full_converter_readers(self):
+        """nirs4all[transition] must be sufficient for real legacy conversion."""
+        pyproject = Path(__file__).resolve().parents[3] / "pyproject.toml"
+        metadata = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+
+        transition_deps = metadata["project"]["optional-dependencies"]["transition"]
+
+        assert "nirs4all-tools[duckdb,parquet]>=0.0.5" in transition_deps
 
 class TestCLIErrorHandling:
     """Test CLI error handling wrapper (CLI-04)."""

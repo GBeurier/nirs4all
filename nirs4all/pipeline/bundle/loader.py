@@ -41,6 +41,7 @@ if TYPE_CHECKING:
 
 import contextlib
 
+from nirs4all.pipeline.bundle.constants import BUNDLE_FORMAT_VERSION
 from nirs4all.pipeline.config.context import (
     ArtifactProvider,
     MapArtifactProvider,
@@ -50,6 +51,31 @@ from nirs4all.pipeline.trace import ExecutionTrace, StepArtifacts
 from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
 
 logger = logging.getLogger(__name__)
+
+
+def _bundle_format_key(version: str) -> tuple[int, int, int]:
+    """Parse a bundle format version for forward-compatibility checks."""
+    raw_parts = str(version).split(".")
+    if not raw_parts or len(raw_parts) > 3:
+        raise ValueError(f"Invalid bundle format version: {version!r}")
+
+    try:
+        parts = [int(part) for part in raw_parts]
+    except ValueError as exc:
+        raise ValueError(f"Invalid bundle format version: {version!r}") from exc
+
+    padded = (parts + [0, 0, 0])[:3]
+    return padded[0], padded[1], padded[2]
+
+
+def _validate_bundle_format_version(version: str) -> None:
+    if _bundle_format_key(version) <= _bundle_format_key(BUNDLE_FORMAT_VERSION):
+        return
+
+    raise ValueError(
+        f"Bundle format version {version!r} is newer than supported version {BUNDLE_FORMAT_VERSION!r}. "
+        "Upgrade nirs4all before loading this bundle."
+    )
 
 @dataclass
 class BundleMetadata:
@@ -412,6 +438,7 @@ class BundleLoader:
                 with zf.open('manifest.json') as f:
                     manifest_data = json.load(f)
                     self.metadata = BundleMetadata.from_dict(manifest_data)
+                    _validate_bundle_format_version(self.metadata.bundle_format_version)
             else:
                 raise ValueError("Bundle missing manifest.json")
 

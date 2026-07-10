@@ -118,8 +118,10 @@ migration = ["duckdb>=1.0.0"]
 
 # Transition-release workspace converter wrapper. The runtime detects legacy
 # workspaces without this dependency; install this extra to run
-# ``nirs4all workspace convert`` from the library CLI.
-transition = ["nirs4all-tools>=0.0.5"]
+# ``nirs4all workspace convert`` from the library CLI.  The DuckDB/Parquet
+# readers are pulled here so the transition extra is enough for real legacy
+# workspace conversion instead of only installing the detector scaffold.
+transition = ["nirs4all-tools[duckdb,parquet]>=0.0.5"]
 
 # AutoML
 autogluon = ["autogluon>=1.0.0"]
