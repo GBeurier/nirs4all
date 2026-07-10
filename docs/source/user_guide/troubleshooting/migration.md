@@ -216,6 +216,22 @@ nirs4all v0.8 moved prediction arrays from DuckDB to Parquet sidecar files for b
 
 Migration is **fully automatic**. When you open a workspace with a legacy `prediction_arrays` table, nirs4all auto-migrates all rows to Parquet sidecar files and drops the DuckDB table. No manual action required.
 
+### Transition Converter
+
+For the V1 transition release, use the offline converter when you need a
+non-mutating migration path, when Studio warns that a legacy workspace should be
+converted, or when the workspace will be shared with Web/WASM or other V1
+runtimes:
+
+```bash
+pip install "nirs4all[transition]"
+nirs4all workspace convert /path/to/workspace --output /path/to/workspace-v2 --verify
+```
+
+The transition extra installs the converter and its DuckDB/Parquet readers. The
+original workspace remains available; the converted workspace is written to the
+explicit `--output` directory.
+
 ### Manual Migration (Optional)
 
 For explicit control, use the migration tool:

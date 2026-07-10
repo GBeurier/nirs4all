@@ -54,6 +54,18 @@ install the migration extra once:
 pip install nirs4all[migration]
 ```
 
+For the transition release, especially before switching a workspace between
+Python, Studio, Web/WASM, or other V1 runtimes, prefer the offline converter so
+the source workspace is left untouched:
+
+```bash
+pip install "nirs4all[transition]"
+nirs4all workspace convert /path/to/workspace --output /path/to/workspace-v2 --verify
+```
+
+When nirs4all detects a legacy workspace that should be converted offline, the
+warning includes the exact command for that workspace.
+
 ### Developers importing WorkspaceStore directly
 
 `WorkspaceStore` keeps exactly the same methods and signatures.  The only
