@@ -96,6 +96,16 @@ class TestCLISubcommandHelp:
         exit_code = invoke_cli(["workspace", "list-runs", "--help"])
         assert exit_code == 0
 
+    def test_workspace_inspect_help(self):
+        """Test that 'workspace inspect --help' exits cleanly."""
+        exit_code = invoke_cli(["workspace", "inspect", "--help"])
+        assert exit_code == 0
+
+    def test_workspace_convert_help(self):
+        """Test that 'workspace convert --help' exits cleanly."""
+        exit_code = invoke_cli(["workspace", "convert", "--help"])
+        assert exit_code == 0
+
 class TestCLIErrorHandling:
     """Test CLI error handling wrapper (CLI-04)."""
 

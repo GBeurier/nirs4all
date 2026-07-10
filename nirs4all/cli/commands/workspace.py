@@ -161,6 +161,46 @@ def workspace_list_library(args):
     for t in templates:
         logger.info(f"  - {t['name']}: {t.get('description', 'No description')}")
 
+def workspace_inspect(args):
+    """Inspect workspace format without opening it writable."""
+    from nirs4all.workspace.compat import inspect_workspace_format
+
+    info = inspect_workspace_format(Path(args.path))
+    logger.info(f"Path: {info.path}")
+    logger.info(f"Format: {info.format}")
+    logger.info(f"Conversion required: {info.conversion_required}")
+    logger.info(info.message)
+    if info.conversion_command:
+        logger.info(f"Conversion command: {info.conversion_command}")
+
+def workspace_convert(args):
+    """Convert a legacy workspace by delegating to nirs4all-tools."""
+    try:
+        from nirs4all_tools.cli import main as tools_main
+    except Exception as exc:
+        logger.error(
+            "nirs4all-tools is required for conversion. Install it with: "
+            "pip install nirs4all[transition] or pip install nirs4all-tools"
+        )
+        raise SystemExit(1) from exc
+
+    argv = [
+        "legacy",
+        "migrate",
+        str(args.input),
+        "--output",
+        str(args.output),
+        "--target",
+        "nirs4all-workspace-v2",
+    ]
+    if args.verify:
+        argv.append("--verify")
+    if args.dry_run:
+        argv.append("--dry-run")
+    if args.strict:
+        argv.append("--strict")
+    raise SystemExit(tools_main(argv))
+
 def add_workspace_commands(subparsers):
     """Add workspace commands to CLI."""
 
@@ -295,3 +335,49 @@ def add_workspace_commands(subparsers):
         help='Workspace root directory (default: workspace)'
     )
     list_library_parser.set_defaults(func=workspace_list_library)
+
+    # workspace inspect
+    inspect_parser = workspace_subparsers.add_parser(
+        'inspect',
+        help='Inspect workspace format without opening it writable'
+    )
+    inspect_parser.add_argument(
+        'path',
+        type=str,
+        help='Workspace directory or legacy artifact to inspect'
+    )
+    inspect_parser.set_defaults(func=workspace_inspect)
+
+    # workspace convert
+    convert_parser = workspace_subparsers.add_parser(
+        'convert',
+        help='Convert a legacy workspace/artifact into a fresh V1 workspace'
+    )
+    convert_parser.add_argument(
+        'input',
+        type=str,
+        help='Legacy workspace directory or artifact (read-only input)'
+    )
+    convert_parser.add_argument(
+        '--output',
+        required=True,
+        type=str,
+        help='Fresh output directory for the converted workspace'
+    )
+    convert_mode = convert_parser.add_mutually_exclusive_group()
+    convert_mode.add_argument(
+        '--verify',
+        action='store_true',
+        help='Verify the converted output after migration'
+    )
+    convert_mode.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Inspect and simulate conversion without writing an output store'
+    )
+    convert_parser.add_argument(
+        '--strict',
+        action='store_true',
+        help='Abort on the first unsupported legacy item'
+    )
+    convert_parser.set_defaults(func=workspace_convert)
