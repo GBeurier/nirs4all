@@ -1,5 +1,7 @@
 """Tests for sklearn PLS model operators."""
 
+import importlib.util
+
 import numpy as np
 import pytest
 from sklearn.datasets import make_classification, make_regression
@@ -36,6 +38,29 @@ def _jax_available() -> bool:
         return True
     except ImportError:
         return False
+
+
+def _module_available(module_name: str) -> bool:
+    """Check whether an optional runtime submodule can be imported."""
+    try:
+        return importlib.util.find_spec(module_name) is not None
+    except (ModuleNotFoundError, ValueError):
+        return False
+
+
+def _ikpls_jax_available() -> bool:
+    """Check if IKPLS exposes the JAX backend modules used by the wrapper."""
+    return (
+        _jax_available()
+        and _module_available("ikpls.jax_ikpls_alg_1")
+        and _module_available("ikpls.jax_ikpls_alg_2")
+    )
+
+
+requires_ikpls_jax_backend = pytest.mark.skipif(
+    not _ikpls_jax_available(),
+    reason="ikpls JAX backend is not installed",
+)
 
 
 class TestPLSDA:
@@ -466,7 +491,7 @@ class TestIKPLSJAX:
         )
         return X, y
 
-    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
+    @requires_ikpls_jax_backend
     def test_fit_jax_backend(self, regression_data):
         """Test IKPLS fit with JAX backend."""
         X, y = regression_data
@@ -481,7 +506,7 @@ class TestIKPLSJAX:
         assert model.n_features_in_ == 50
         assert model.n_components_ == 10
 
-    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
+    @requires_ikpls_jax_backend
     def test_predict_jax_backend(self, regression_data):
         """Test IKPLS predict with JAX backend."""
         X, y = regression_data
@@ -495,7 +520,7 @@ class TestIKPLSJAX:
         assert predictions.shape == y.shape
         assert not np.isnan(predictions).any()
 
-    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
+    @requires_ikpls_jax_backend
     def test_fit_jax_multi_target(self, multi_target_data):
         """Test IKPLS fit on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -507,7 +532,7 @@ class TestIKPLSJAX:
         assert isinstance(model.coef_, np.ndarray)
         assert model.coef_.shape == (50, 3)
 
-    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
+    @requires_ikpls_jax_backend
     def test_predict_jax_multi_target(self, multi_target_data):
         """Test IKPLS predict on multi-target data with JAX backend."""
         X, y = multi_target_data
@@ -519,7 +544,7 @@ class TestIKPLSJAX:
         assert isinstance(predictions, np.ndarray)
         assert predictions.shape == y.shape
 
-    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
+    @requires_ikpls_jax_backend
     def test_jax_algorithm_variants(self, regression_data):
         """Test both IKPLS algorithm variants with JAX backend."""
         X, y = regression_data
@@ -541,7 +566,8 @@ class TestIKPLSJAX:
         assert not np.isnan(pred1).any()
         assert not np.isnan(pred2).any()
 
-    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
+    @requires_ikpls_numpy_backend
+    @requires_ikpls_jax_backend
     def test_jax_numpy_similar_results(self, regression_data):
         """Test that JAX and NumPy backends produce similar results."""
         X, y = regression_data
@@ -558,7 +584,7 @@ class TestIKPLSJAX:
         # Results should be very similar (not exactly equal due to floating point)
         np.testing.assert_allclose(pred_numpy, pred_jax, rtol=1e-5)
 
-    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
+    @requires_ikpls_jax_backend
     def test_jax_sklearn_clone(self, regression_data):
         """Test that IKPLS with JAX backend works with sklearn clone."""
         from sklearn.base import clone
@@ -3039,7 +3065,8 @@ class TestPLSBackendParity:
         )
         return X, y
 
-    @pytest.mark.skipif(not _jax_available(), reason="JAX not installed")
+    @requires_ikpls_numpy_backend
+    @requires_ikpls_jax_backend
     def test_ikpls_backend_parity(self, regression_data):
         """Test IKPLS produces identical results with NumPy and JAX backends."""
         X, y = regression_data
