@@ -61,6 +61,8 @@ def test_example_runs_on_engine(example: str, engine: str) -> None:
     env = dict(os.environ)
     env["N4A_ENGINE"] = engine
     env["MPLBACKEND"] = "Agg"  # headless: no interactive backend in CI
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONUTF8"] = "1"
     current_pythonpath = env.get("PYTHONPATH")
     env["PYTHONPATH"] = str(_PROJECT_ROOT) + (os.pathsep + current_pythonpath if current_pythonpath else "")
 
