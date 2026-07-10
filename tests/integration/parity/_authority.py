@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from . import _conformance_helpers as helpers
+
 # Side-effect imports keep this module usable outside pytest collection, where
 # parity/conftest.py may not have populated the registry yet.
 from . import (  # noqa: F401
@@ -19,7 +21,6 @@ from . import (  # noqa: F401
     cases_refit_predict,
     cases_tags_exclude,
 )
-from . import _conformance_helpers as helpers
 from ._registry import all_cases
 from .test_conformance_dual_engine import (
     CV_BEST_SCORE_DIVERGENCE,
@@ -30,7 +31,6 @@ from .test_conformance_dual_engine import (
     SAME_WINNER_CASES,
     Y_PRED_TOL_OVERRIDES,
 )
-
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPATIBILITY_JSON = REPO_ROOT / "docs" / "compatibility.json"
