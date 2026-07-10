@@ -45,13 +45,11 @@ from enum import Enum, StrEnum
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from nirs4all.pipeline.bundle.constants import BUNDLE_FORMAT_VERSION
 from nirs4all.pipeline.resolver import PredictionResolver, ResolvedPrediction
 from nirs4all.pipeline.trace import ExecutionTrace
 
 logger = logging.getLogger(__name__)
-
-# Bundle format version for compatibility checking
-BUNDLE_FORMAT_VERSION = "1.0"
 
 class BundleFormat(StrEnum):
     """Supported bundle export formats.
