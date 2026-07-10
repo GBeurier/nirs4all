@@ -20,6 +20,12 @@ from nirs4all.operators.models.sklearn import (
     RobustPLS,
     SparsePLS,
 )
+from nirs4all.utils.backend import is_ikpls_available
+
+requires_ikpls_numpy_backend = pytest.mark.skipif(
+    not is_ikpls_available(),
+    reason="ikpls NumPy backend is not installed",
+)
 
 
 def _jax_available() -> bool:
@@ -241,6 +247,7 @@ class TestIKPLS:
         assert model.center is False
         assert model.scale is False
 
+    @requires_ikpls_numpy_backend
     def test_fit(self, regression_data):
         """Test IKPLS fit on regression data."""
         X, y = regression_data
@@ -256,6 +263,7 @@ class TestIKPLS:
         assert model.n_features_in_ == 50
         assert model.n_components_ == 10
 
+    @requires_ikpls_numpy_backend
     def test_fit_multi_target(self, multi_target_data):
         """Test IKPLS fit on multi-target regression data."""
         X, y = multi_target_data
@@ -266,6 +274,7 @@ class TestIKPLS:
         # coef_ shape is (n_features, n_targets)
         assert model.coef_.shape == (50, 3)  # 50 features, 3 targets
 
+    @requires_ikpls_numpy_backend
     def test_predict(self, regression_data):
         """Test IKPLS predict on regression data."""
         X, y = regression_data
@@ -276,6 +285,7 @@ class TestIKPLS:
 
         assert predictions.shape == y.shape
 
+    @requires_ikpls_numpy_backend
     def test_predict_multi_target(self, multi_target_data):
         """Test IKPLS predict on multi-target regression data."""
         X, y = multi_target_data
@@ -286,6 +296,7 @@ class TestIKPLS:
 
         assert predictions.shape == y.shape
 
+    @requires_ikpls_numpy_backend
     def test_predict_with_n_components(self, regression_data):
         """Test IKPLS predict with different n_components."""
         X, y = regression_data
@@ -332,6 +343,7 @@ class TestIKPLS:
         assert cloned.algorithm == 2
         assert cloned is not model
 
+    @requires_ikpls_numpy_backend
     def test_sklearn_cross_val_score(self, regression_data):
         """Test that IKPLS works with sklearn cross_val_score."""
         from sklearn.model_selection import cross_val_score
@@ -343,6 +355,7 @@ class TestIKPLS:
 
         assert len(scores) == 3
 
+    @requires_ikpls_numpy_backend
     def test_n_components_exceeds_features(self):
         """Test IKPLS handles n_components > n_features gracefully."""
         X = np.random.randn(50, 10)  # Only 10 features
@@ -356,6 +369,7 @@ class TestIKPLS:
         predictions = model.predict(X)
         assert predictions.shape == y.shape
 
+    @requires_ikpls_numpy_backend
     def test_n_components_exceeds_samples(self):
         """Test IKPLS handles n_components > n_samples gracefully."""
         X = np.random.randn(20, 50)  # Only 20 samples
@@ -369,6 +383,7 @@ class TestIKPLS:
         predictions = model.predict(X)
         assert predictions.shape == y.shape
 
+    @requires_ikpls_numpy_backend
     def test_algorithm_variants(self, regression_data):
         """Test both IKPLS algorithm variants produce valid results."""
         X, y = regression_data

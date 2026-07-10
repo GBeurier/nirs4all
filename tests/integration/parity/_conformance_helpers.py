@@ -273,9 +273,13 @@ def assert_runresult_score_divergence(
     dagml_best_rmse: float,
     legacy_best_r2: float,
     dagml_best_r2: float,
-    tol: float = 1e-9,
+    tol: float = 1e-6,
 ) -> None:
-    """Assert exact documented public-score scalars for a semantic native-vs-legacy note."""
+    """Assert documented public-score scalars for a semantic native-vs-legacy note.
+
+    The values remain pinned, but allow sub-micro platform noise from BLAS/Python
+    combinations on the already-documented semantic divergence path.
+    """
     pairs = {
         "best_score": (float(legacy.best_score), legacy_best_score, float(dagml.best_score), dagml_best_score),
         "best_rmse": (float(legacy.best_rmse), legacy_best_rmse, float(dagml.best_rmse), dagml_best_rmse),
