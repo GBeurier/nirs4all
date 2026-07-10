@@ -55,7 +55,6 @@ def explain(
     # SHAP-specific parameters
     n_samples: int | None = None,
     explainer_type: str = "auto",
-    engine: str | None = None,
     **shap_params: Any
 ) -> ExplainResult:
     """Generate SHAP explanations for a trained model.
@@ -99,16 +98,14 @@ def explain(
             - "linear": LinearExplainer (for linear models)
             Default: "auto"
 
-        engine: Execution backend selector. ``"legacy"`` keeps the current
-            explanation path. ``"dag-ml"`` is intentionally rejected for this
-            transition release until native explanation replay is implemented.
-            ``None`` follows ``$N4A_ENGINE`` and then the default engine.
-
         **shap_params: Additional SHAP configuration parameters.
             Common options:
             - feature_names: List of feature names
             - background_samples: Number of background samples
             - max_display: Max features to show in plots
+            - engine: Backend selector for the transition release. Only
+              ``"legacy"`` is supported by this helper until native explanation
+              replay is implemented.
 
     Returns:
         ExplainResult containing:
@@ -169,6 +166,7 @@ def explain(
         - :func:`nirs4all.predict`: Make predictions
         - :class:`nirs4all.api.result.ExplainResult`: Result class
     """
+    engine = shap_params.pop("engine", None)
     require_legacy_engine("explain", engine)
 
     # Build SHAP params dict

@@ -65,7 +65,6 @@ def predict(
     all_predictions: bool = False,
     session: Session | None = None,
     verbose: int = 0,
-    engine: str | None = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Make predictions with a trained model on new data.
@@ -118,13 +117,10 @@ def predict(
         verbose: Verbosity level (0=quiet, 1=info, 2=debug).
             Default: 0
 
-        engine: Execution backend selector. ``"legacy"`` keeps the current
-            prediction path. ``"dag-ml"`` is intentionally rejected for this
-            transition release until native prediction replay is implemented.
-            ``None`` follows ``$N4A_ENGINE`` and then the default engine.
-
         **runner_kwargs: Additional PipelineRunner parameters.
-            Common options: plots_visible
+            Common options: plots_visible. ``engine`` is accepted here for the
+            transition release; only ``"legacy"`` is supported by this helper
+            until native prediction replay is implemented.
 
     Returns:
         PredictResult containing:
@@ -174,6 +170,7 @@ def predict(
     if data is None:
         raise ValueError("'data' is required.")
 
+    engine = runner_kwargs.pop("engine", None)
     require_legacy_engine("predict", engine)
 
     # ---- Store-based path (chain_id) ----
