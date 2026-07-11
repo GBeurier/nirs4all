@@ -23,7 +23,7 @@ jobs:
       VG_ATTR: "__version__"
       VG_TAG_PREFIX: ""
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v5
