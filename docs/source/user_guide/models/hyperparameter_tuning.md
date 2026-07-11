@@ -439,6 +439,24 @@ Pruning reports each fold's aggregated score and stops unpromising trials early.
 `racing` is the **fold-safe** choice when folds are exchangeable (successive
 halving assumes rank-preservation across rungs, which CV folds do not guarantee).
 
+**Conditional attributes (`when`).** A parameter can be made active only when a
+sibling categorical takes a given value — the `object__attribute` conditional
+case. Add a `when` (or `when_not`) clause to a dict spec:
+
+```python
+"model_params": {
+    "kernel": ["linear", "rbf", "poly"],
+    "gamma":  {"type": "float_log", "min": 1e-4, "max": 1e1, "when": {"kernel": ["rbf", "poly"]}},
+    "degree": {"type": "int", "min": 2, "max": 4, "when": {"kernel": "poly"}},
+}
+```
+
+`gamma` is then sampled (and passed to the model) **only** when `kernel` is `rbf`
+or `poly`; `degree` only for `poly`. Conditions **nest** (a conditional attribute
+can itself gate deeper attributes), which is the substrate for tuning
+sub-pipelines / operators in the search space. Use `tpe` (tree-structured) for
+conditional spaces. This clause is native-engine only.
+
 **Requirements.** An up-to-date `nirs4all-methods` install exposing the native
 optimizer — verify with
 `python -c "from n4m.model_selection.optimizer import Optimizer"`. When the

@@ -180,6 +180,56 @@ result_pruned = nirs4all.run(
 print(f"\nBest RMSE (native + median pruner): {result_pruned.best_score:.4f}")
 
 # =============================================================================
+# Section 4: Conditional attributes (object__attribute in the search space)
+# =============================================================================
+print("\n" + "-" * 60)
+print("Section 4: Conditional hyperparameters (`when` clause)")
+print("-" * 60)
+print("""
+Some attributes only matter for a particular choice of another attribute — e.g.
+an SVR's `gamma` is only relevant for the RBF/poly kernels, and `degree` only for
+poly. A `when` clause makes a parameter active *only* when a sibling categorical
+takes a given value, so the sampler never wastes trials on irrelevant dimensions
+and the model is built with exactly the right attributes.
+""")
+
+from sklearn.svm import SVR
+
+result_cond = nirs4all.run(
+    pipeline=[
+        StandardNormalVariate(),
+        ShuffleSplit(n_splits=3, random_state=42),
+        {
+            "model": SVR(),
+            "name": "SVR-n4m-Conditional",
+            "finetune_params": {
+                "engine": "n4m",
+                "n_trials": 20,
+                "sampler": "tpe",           # tree-structured — handles conditional spaces
+                "approach": "single",
+                "metric": "rmse",
+                "seed": 42,
+                "verbose": 1,
+                "model_params": {
+                    "kernel": ["linear", "rbf", "poly"],
+                    "C": ("float_log", 1e-1, 1e3),
+                    # gamma only when kernel is rbf or poly:
+                    "gamma": {"type": "float_log", "min": 1e-4, "max": 1e1,
+                              "when": {"kernel": ["rbf", "poly"]}},
+                    # degree only when kernel is poly:
+                    "degree": {"type": "int", "min": 2, "max": 4,
+                               "when": {"kernel": "poly"}},
+                },
+            },
+        },
+    ],
+    dataset="sample_data/regression",
+    name="n4m-Conditional",
+    verbose=1,
+)
+print(f"\nBest RMSE (conditional SVR): {result_cond.best_score:.4f}")
+
+# =============================================================================
 # Summary
 # =============================================================================
 print("\n" + "=" * 60)
