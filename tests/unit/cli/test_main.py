@@ -106,6 +106,7 @@ class TestCLISubcommandHelp:
     def test_workspace_inspect_legacy_artifact_prints_conversion_command(self, monkeypatch, tmp_path):
         """Transition CLI must show users the exact artifact conversion command."""
         from nirs4all.cli.commands import workspace as workspace_commands
+        from nirs4all.workspace.compat import build_conversion_command
 
         messages: list[str] = []
 
@@ -123,7 +124,7 @@ class TestCLISubcommandHelp:
         assert exit_code == 0
         assert "Format: legacy-artifact" in output
         assert "Conversion required: True" in output
-        assert f"nirs4all workspace convert {artifact} --output {artifact.with_name('old-export.n4a-workspace-v2')} --verify" in output
+        assert build_conversion_command(artifact) in output
 
     def test_workspace_convert_help(self):
         """Test that 'workspace convert --help' exits cleanly."""
