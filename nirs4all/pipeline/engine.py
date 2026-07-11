@@ -22,6 +22,7 @@ backend. See ``dag-ml/docs/migration-nirs4all/``.
 from __future__ import annotations
 
 import os
+import warnings
 from typing import Literal, cast
 
 Engine = Literal["legacy", "dag-ml", "dual"]
@@ -65,6 +66,16 @@ def require_legacy_engine(operation: str, engine: str | None = None) -> Engine:
     """Resolve an API backend selector and reject operations not yet backed by dag-ml."""
     selected = resolve_engine(engine)
     if selected == "dag-ml":
+        env_requested = (os.environ.get(ENGINE_ENV_VAR) or "").strip().lower()
+        if engine is None and env_requested == "dag-ml":
+            warnings.warn(
+                f"{ENGINE_ENV_VAR}=dag-ml is ignored for nirs4all.{operation} in this transition "
+                "release because this helper does not have a dag-ml execution path yet; using "
+                "engine='legacy'. Pass engine='dag-ml' explicitly to fail fast.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+            return "legacy"
         raise NotImplementedError(
             f"nirs4all.{operation} does not have a dag-ml execution path yet; "
             "use engine='legacy' for this transition release. nirs4all.run supports "
