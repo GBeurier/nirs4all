@@ -913,6 +913,31 @@ class BaseModelController(OperatorController, ABC):
 
         self.dataset = dataset
 
+        # Engine selection: the native libn4m optimizer runs the same DSL as Optuna
+        # but is portable across bindings. Optuna stays the default. An unknown value
+        # is rejected (a typo must not silently fall back to a different optimizer).
+        engine = str((finetune_params or {}).get("engine", "optuna")).strip().lower()
+        if engine in ("n4m", "native", "methods", "libn4m"):
+            if getattr(self, "_n4m_manager", None) is None:
+                from nirs4all.optimization.n4m_engine import N4MFinetuneManager
+                self._n4m_manager = N4MFinetuneManager()
+            return self._n4m_manager.finetune(
+                dataset,
+                model_config=model_config,
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                folds=folds,
+                finetune_params=finetune_params,
+                context=context,
+                controller=self,
+            )
+
+        if engine not in ("optuna", ""):
+            raise ValueError(
+                f"Unknown finetuning engine '{engine}'. Use 'optuna' (default) or 'n4m'.")
+
         result: FinetuneResult | list[FinetuneResult] = self.optuna_manager.finetune(
             dataset,
             model_config=model_config,

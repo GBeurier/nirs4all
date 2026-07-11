@@ -395,6 +395,74 @@ analyzer.plot_top_k(k=10, rank_metric='rmse')
 analyzer.plot_heatmap(x_var="model_name", y_var="preprocessings", rank_metric='rmse')
 ```
 
+## Native engine (`n4m`) — portable, cross-language finetuning
+
+By default finetuning runs on **Optuna**. Adding `"engine": "n4m"` to
+`finetune_params` runs the **native optimizer** shipped in `nirs4all-methods`
+(`libn4m`) instead — the same C-ABI optimizer that powers finetuning in R,
+MATLAB/Octave and WebAssembly. At a fixed `seed`, the trial sequence is
+**identical across every binding**.
+
+```python
+{
+    "model": PLSRegression(),
+    "finetune_params": {
+        "engine": "n4m",                # <-- the only change vs. the Optuna engine
+        "n_trials": 30,
+        "sampler": "tpe",               # random|sobol|lhs|ternary|ga|pso|cmaes|tpe|gp_ei
+        "pruner": "median",             # none|median|successive_halving|hyperband|racing
+        "approach": "grouped",          # single|grouped|individual
+        "metric": "rmse",               # direction auto-inferred
+        "seed": 42,
+        "model_params": {
+            "n_components": ("int", 1, 30),
+        },
+    },
+}
+```
+
+Everything else is unchanged: the **search-space DSL** (tuple ranges, choice
+lists, dict specs, `__`-nested groups), the **approaches** (`single` / `grouped`
+/ `individual`), `metric` / `direction`, `eval_mode`, and `force_params`
+warm-start all behave exactly as on the Optuna engine, and the same
+`FinetuneResult` (best params, trial history) is returned. Drop `"engine"` (or
+set it to `"optuna"`) to go back.
+
+**Samplers.** `random`, `sobol` (low-discrepancy, bit-exact to
+`scipy.stats.qmc.Sobol`), `lhs`, `ternary` (unimodal integers, e.g. PLS
+`n_components`), `ga`, `pso`, `cmaes` (continuous spaces), `tpe`
+(mixed/conditional spaces), `gp_ei` (Bayesian, sample-efficient). `auto` maps to
+`tpe`; the Optuna-only `grid` maps to `random`.
+
+**Pruners.** `median`, `successive_halving` (ASHA), `hyperband`, and `racing`.
+Pruning reports each fold's aggregated score and stops unpromising trials early.
+`racing` is the **fold-safe** choice when folds are exchangeable (successive
+halving assumes rank-preservation across rungs, which CV folds do not guarantee).
+
+**Conditional attributes (`when`).** A parameter can be made active only when a
+sibling categorical takes a given value — the `object__attribute` conditional
+case. Add a `when` (or `when_not`) clause to a dict spec:
+
+```python
+"model_params": {
+    "kernel": ["linear", "rbf", "poly"],
+    "gamma":  {"type": "float_log", "min": 1e-4, "max": 1e1, "when": {"kernel": ["rbf", "poly"]}},
+    "degree": {"type": "int", "min": 2, "max": 4, "when": {"kernel": "poly"}},
+}
+```
+
+`gamma` is then sampled (and passed to the model) **only** when `kernel` is `rbf`
+or `poly`; `degree` only for `poly`. Conditions **nest** (a conditional attribute
+can itself gate deeper attributes), which is the substrate for tuning
+sub-pipelines / operators in the search space. Use `tpe` (tree-structured) for
+conditional spaces. This clause is native-engine only.
+
+**Requirements.** An up-to-date `nirs4all-methods` install exposing the native
+optimizer — verify with
+`python -c "from n4m.model_selection.optimizer import Optimizer"`. When the
+native optimizer is unavailable, `finetune_params` without `"engine"` still runs
+on Optuna.
+
 ## Best Practices
 
 1. **Start small**: Begin with `n_trials=10` and `sampler="random"` to establish a baseline
@@ -417,5 +485,6 @@ analyzer.plot_heatmap(x_var="model_name", y_var="preprocessings", rank_metric='r
 **Related Examples:**
 - [U02: Hyperparameter Tuning](../../../examples/user/04_models/U02_hyperparameter_tuning.py) - Grid, random, Bayesian search
 - [U05: Advanced Finetuning](../../../examples/user/04_models/U05_advanced_finetuning.py) - Multi-phase, custom metrics, force-params
+- [U08: Native Finetuning](../../../examples/user/04_models/U08_native_finetuning.py) - The portable `n4m` optimizer engine
 - [D01: Generator Syntax](../../../examples/developer/02_generators/D01_generator_syntax.py) - Generator syntax for parameter sweeps
 ```
