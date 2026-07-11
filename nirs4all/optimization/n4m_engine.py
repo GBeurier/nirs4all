@@ -252,6 +252,8 @@ class N4MFinetuneManager:
                 f"'when'/'when_not' for '{name}' must be a single {{parent: value_or_list}} mapping")
         parent, val = next(iter(raw.items()))
         labels = list(val) if isinstance(val, (list, tuple)) else [val]
+        if not labels:
+            raise ValueError(f"'when'/'when_not' for '{name}' has an empty label set")
         return (name, parent, labels, is_in), spec
 
     def _add_axis(self, space, native, origin, spec, *, is_train) -> _Slot | None:
@@ -313,12 +315,18 @@ class N4MFinetuneManager:
             # key on a name, not a fragile str(instance)); resolution returns the
             # mapped object. This is how operators/estimators enter the search space.
             if "options" in cfg:
-                opts = dict(cfg["options"])
-                if not opts:
-                    raise ValueError(f"Categorical parameter '{origin}' has empty 'options'")
-                names, values = list(opts.keys()), list(opts.values())
-                space.add_categorical(native, [str(n) for n in names])
-                return _Slot(native, origin, "categorical", choices=values, is_train=is_train)
+                opts = cfg["options"]
+                if not isinstance(opts, dict) or not opts:
+                    raise ValueError(f"'options' for '{origin}' must be a non-empty mapping")
+                names = list(opts.keys())
+                for n in names:  # names ARE the native labels (`when` matches them)
+                    if not isinstance(n, str) or n == "" or "\0" in n:
+                        raise ValueError(
+                            f"'options' names for '{origin}' must be non-empty NUL-free "
+                            f"strings (got {n!r}); wrap the value's identity in a name")
+                space.add_categorical(native, names)
+                return _Slot(native, origin, "categorical", choices=list(opts.values()),
+                             is_train=is_train)
             choices = cfg.get("choices", cfg.get("values", []))
             return self._add_categorical(space, native, origin, choices, is_train=is_train)
         if ptype in ("int", "int_log", "float", "float_log"):
@@ -341,7 +349,7 @@ class N4MFinetuneManager:
         raise ValueError(f"Unknown parameter type '{ptype}' for '{origin}'")
 
     # -- trial resolution ----------------------------------------------------
-    def _resolve(self, trial, slots, static_model, static_train) -> tuple[dict, dict]:
+    def _resolve(self, trial, slots, static_model, static_train, flat_heads) -> tuple[dict, dict]:
         # Static model params carry FLAT keys; merge them with the sampled flat
         # params BEFORE unflattening so a nested static value (e.g. cfg__mode) lands
         # in the right nested group instead of a bogus top-level "cfg__mode" key.
@@ -358,18 +366,23 @@ class N4MFinetuneManager:
                 idx, _ = trial.get_category(s.native)
                 val = s.choices[idx]
             (sampled_train if s.is_train else flat_model)[s.origin_name] = val
-        # A key `a__b` whose head `a` is ITSELF a standalone param is scikit-learn
+        # A key `a__b` whose head `a` is a DECLARED standalone param is scikit-learn
         # set_params addressing (choose operator `a`, then set its sub-param `a__b`)
-        # — keep it flat. A head that only ever appears with "__" is a genuine nested
-        # group (e.g. cfg__mode) and IS unflattened.
-        standalone = {k for k in flat_model if "__" not in k}
-        model_params = self._unflatten(flat_model, keep_flat_heads=standalone)
+        # — keep it flat. `flat_heads` is computed from the declared slots/static keys
+        # (NOT the resolved active dict), so an inactive `est` still keeps `est__alpha`
+        # flat. A head that only ever appears with "__" is a genuine nested group
+        # (e.g. cfg__mode) and IS unflattened.
+        model_params = self._unflatten(flat_model, keep_flat_heads=flat_heads)
         return model_params, sampled_train
 
     # -- optimization loop ---------------------------------------------------
     def _optimize(self, dataset, model_config, X, y, folds, params, n_trials, eval_mode,
                   context, controller, verbose, *, holdout=None, study_name=None) -> FinetuneResult:
         space, slots, static_model, static_train = self._compile_space(params)
+        # Standalone declared param heads (set_params addressing targets) — computed
+        # from the DECLARATION, not per-trial activity, so it is stable across trials.
+        flat_heads = ({s.origin_name for s in slots if not s.is_train and "__" not in s.origin_name}
+                      | {k for k in static_model if "__" not in k})
         direction = params.get("direction", "minimize")
         opt_metric = params.get("metric")
         pruner_name = _PRUNER_MAP[params.get("pruner", "none")]
@@ -405,7 +418,7 @@ class N4MFinetuneManager:
             # fold loop and must not escape untold, or the optimizer state and best()
             # would be left inconsistent and the whole run would abort.
             try:
-                model_params, sampled_train = self._resolve(trial, slots, static_model, static_train)
+                model_params, sampled_train = self._resolve(trial, slots, static_model, static_train, flat_heads)
                 if hasattr(controller, "process_hyperparameters"):
                     model_params = controller.process_hyperparameters(model_params)
             except Exception as e:
@@ -435,7 +448,7 @@ class N4MFinetuneManager:
                                   n_pruned=n_pruned, n_failed=n_failed, trials=trials,
                                   study_name=study_name, metric=opt_metric, direction=direction)
         best_trial, best_value = best
-        best_params, _ = self._resolve(best_trial, slots, static_model, static_train)
+        best_params, _ = self._resolve(best_trial, slots, static_model, static_train, flat_heads)
         if hasattr(controller, "process_hyperparameters"):
             best_params = controller.process_hyperparameters(best_params)
         if verbose > 1:
@@ -501,14 +514,13 @@ class N4MFinetuneManager:
         if isinstance(cfg, (list, tuple)):
             return True
         if isinstance(cfg, dict):
-            return "type" in cfg or "min" in cfg or "low" in cfg or "choices" in cfg or "values" in cfg
+            return any(k in cfg for k in ("type", "min", "low", "choices", "values", "options"))
         return False
 
     def _is_param_spec(self, value: Any) -> bool:
         if not isinstance(value, dict):
             return False
-        return ("type" in value or "min" in value or "low" in value
-                or "choices" in value or "values" in value)
+        return any(k in value for k in ("type", "min", "low", "choices", "values", "options"))
 
     def _flatten(self, params: dict[str, Any], prefix: str = "") -> dict[str, Any]:
         flat: dict[str, Any] = {}

@@ -261,6 +261,44 @@ def test_operator_choice_with_conditional_gating(data):
         assert "est__alpha" in res.best_params and "est__n_components" not in res.best_params
 
 
+def test_options_without_explicit_type(data):
+    """`{"options": {...}}` with no explicit 'type' is still a sampled categorical."""
+    from sklearn.linear_model import Ridge
+
+    class RidgeCtl(_StubController):
+        def _get_model_instance(self, dataset, model_config, force_params=None):
+            fp = dict(force_params or {})
+            self.seen.append(fp) if hasattr(self, "seen") else None
+            m = fp.pop("est", Ridge())
+            return m
+
+    X, y, folds = data
+    res = N4MFinetuneManager().finetune(
+        _StubDataset(), {"model": None}, X, y, None, None, folds,
+        {"engine": "n4m", "n_trials": 8, "sampler": "random", "approach": "grouped",
+         "seed": 1, "metric": "rmse", "model_params": {
+             "est": {"options": {"a": Ridge(alpha=0.1), "b": Ridge(alpha=1.0)}}}},
+        None, RidgeCtl())
+    # 'est' was sampled (an operator), not treated as a static value
+    assert type(res.best_params["est"]).__name__ == "Ridge"
+
+
+def test_bad_option_names_raise(data):
+    with pytest.raises(ValueError):
+        _run(N4MFinetuneManager(), data, {
+            "n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1,
+            "model_params": {"est": {"type": "categorical", "options": {1: "a", "1": "b"}}}})
+
+
+def test_empty_when_raises(data):
+    with pytest.raises(ValueError):
+        _run(N4MFinetuneManager(), data, {
+            "n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1,
+            "model_params": {
+                "k": ["x", "y"],
+                "z": {"type": "int", "min": 1, "max": 3, "when": {"k": []}}}})
+
+
 def test_categorical_and_log_dsl(data):
     """Categorical + float_log axes compile and resolve to real Python values."""
     X, y, folds = data
