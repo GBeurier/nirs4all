@@ -35,7 +35,7 @@ import argparse
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import ShuffleSplit
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
 from nirs4all.operators.transforms import StandardNormalVariate
@@ -228,6 +228,57 @@ result_cond = nirs4all.run(
     verbose=1,
 )
 print(f"\nBest RMSE (conditional SVR): {result_cond.best_score:.4f}")
+
+# =============================================================================
+# Section 5: Operators in the search space (choose the operator, tune each)
+# =============================================================================
+print("\n" + "-" * 60)
+print("Section 5: Operators in the search space")
+print("-" * 60)
+print("""
+Go beyond primitive hyperparameters: put the OPERATORS themselves in the search
+space. With a scikit-learn Pipeline as the model, a `{"options": {...}}`
+categorical selects which operator fills a step, and `object__attribute`
+addressing (with a `when` clause) tunes each operator's own hyperparameters
+conditionally — one joint search over structure + hyperparameters.
+""")
+
+from sklearn.pipeline import Pipeline
+
+result_ops = nirs4all.run(
+    pipeline=[
+        StandardNormalVariate(),
+        ShuffleSplit(n_splits=3, random_state=42),
+        {
+            "model": Pipeline([("scale", StandardScaler()), ("est", PLSRegression())]),
+            "name": "Pipeline-OperatorSearch",
+            "finetune_params": {
+                "engine": "n4m",
+                "n_trials": 30,
+                "sampler": "tpe",
+                "approach": "single",
+                "metric": "rmse",
+                "seed": 42,
+                "verbose": 1,
+                "model_params": {
+                    # choose the scaler operator:
+                    "scale": {"type": "categorical",
+                              "options": {"standard": StandardScaler(), "minmax": MinMaxScaler()}},
+                    # choose the estimator operator:
+                    "est": {"type": "categorical",
+                            "options": {"pls": PLSRegression(), "ridge": Ridge()}},
+                    # tune each estimator's own params, conditionally:
+                    "est__n_components": {"type": "int", "min": 1, "max": 20, "when": {"est": "pls"}},
+                    "est__alpha": {"type": "float_log", "min": 1e-4, "max": 1e2, "when": {"est": "ridge"}},
+                },
+            },
+        },
+    ],
+    dataset="sample_data/regression",
+    name="OperatorSearch",
+    verbose=1,
+)
+print(f"\nBest RMSE (operator search): {result_ops.best_score:.4f}")
 
 # =============================================================================
 # Summary

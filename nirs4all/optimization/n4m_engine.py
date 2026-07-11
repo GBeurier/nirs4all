@@ -308,6 +308,17 @@ class N4MFinetuneManager:
     def _add_dict(self, space, native, origin, cfg, *, is_train):
         ptype = cfg.get("type", "categorical")
         if ptype == "categorical":
+            # Named options: {"options": {"pls": PLSRegression(), "ridge": Ridge()}}.
+            # The native categorical ranges over the stable NAMES (so `when` clauses
+            # key on a name, not a fragile str(instance)); resolution returns the
+            # mapped object. This is how operators/estimators enter the search space.
+            if "options" in cfg:
+                opts = dict(cfg["options"])
+                if not opts:
+                    raise ValueError(f"Categorical parameter '{origin}' has empty 'options'")
+                names, values = list(opts.keys()), list(opts.values())
+                space.add_categorical(native, [str(n) for n in names])
+                return _Slot(native, origin, "categorical", choices=values, is_train=is_train)
             choices = cfg.get("choices", cfg.get("values", []))
             return self._add_categorical(space, native, origin, choices, is_train=is_train)
         if ptype in ("int", "int_log", "float", "float_log"):
@@ -347,7 +358,12 @@ class N4MFinetuneManager:
                 idx, _ = trial.get_category(s.native)
                 val = s.choices[idx]
             (sampled_train if s.is_train else flat_model)[s.origin_name] = val
-        model_params = self._unflatten(flat_model)
+        # A key `a__b` whose head `a` is ITSELF a standalone param is scikit-learn
+        # set_params addressing (choose operator `a`, then set its sub-param `a__b`)
+        # — keep it flat. A head that only ever appears with "__" is a genuine nested
+        # group (e.g. cfg__mode) and IS unflattened.
+        standalone = {k for k in flat_model if "__" not in k}
+        model_params = self._unflatten(flat_model, keep_flat_heads=standalone)
         return model_params, sampled_train
 
     # -- optimization loop ---------------------------------------------------
@@ -505,9 +521,13 @@ class N4MFinetuneManager:
         return flat
 
     @staticmethod
-    def _unflatten(flat_params: dict[str, Any]) -> dict[str, Any]:
+    def _unflatten(flat_params: dict[str, Any], keep_flat_heads: set | None = None) -> dict[str, Any]:
+        keep_flat_heads = keep_flat_heads or set()
         nested: dict[str, Any] = {}
         for key, value in flat_params.items():
+            if "__" in key and key.split("__", 1)[0] in keep_flat_heads:
+                nested[key] = value  # set_params addressing (operator sub-param): keep flat
+                continue
             parts = key.split("__")
             cur = nested
             for part in parts[:-1]:
