@@ -42,24 +42,15 @@ def test_public_helpers_reject_dagml_until_native_paths_exist(operation: str, ca
 
 
 @pytest.mark.parametrize(
-    ("operation", "call"),
+    "operation",
     [
-        (
-            "predict",
-            lambda: predict(model={"model_name": "dummy"}, data=np.zeros((2, 3))),
-        ),
-        (
-            "explain",
-            lambda: explain({"model_name": "dummy"}, np.zeros((2, 3))),
-        ),
-        (
-            "retrain",
-            lambda: retrain({"model_name": "dummy"}, (np.zeros((2, 3)), np.zeros(2))),
-        ),
+        "predict",
+        "explain",
+        "retrain",
     ],
 )
-def test_public_helpers_honor_dagml_env_boundary(monkeypatch: pytest.MonkeyPatch, operation: str, call) -> None:
+def test_public_helpers_ignore_dagml_env_with_warning(monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
     monkeypatch.setenv("N4A_ENGINE", "dag-ml")
 
-    with pytest.raises(NotImplementedError, match=rf"nirs4all\.{operation}.*dag-ml"):
-        call()
+    with pytest.warns(RuntimeWarning, match=rf"N4A_ENGINE=dag-ml.*nirs4all\.{operation}.*legacy"):
+        assert require_legacy_engine(operation) == "legacy"
