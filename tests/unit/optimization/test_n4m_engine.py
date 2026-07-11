@@ -199,6 +199,68 @@ def test_seed_none_ok(data):
     assert res.n_trials == 5
 
 
+def test_operator_choice_with_conditional_gating(data):
+    """Choose operators (scaler + estimator) AND tune per-operator params
+    conditionally — the "operators in the search space" case. Assert conditional
+    attributes never leak across the chosen operator."""
+    from sklearn.base import clone
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.linear_model import Ridge
+    from sklearn.pipeline import Pipeline
+    from sklearn.preprocessing import MinMaxScaler, StandardScaler
+
+    X, y, folds = data
+
+    class PipeCtl:
+        def __init__(self):
+            self.trials = []
+
+        def _get_model_instance(self, dataset, model_config, force_params=None):
+            m = clone(model_config["model"])
+            if force_params:
+                m.set_params(**force_params)
+            self.trials.append(dict(force_params or {}))
+            return m
+
+        def _prepare_data(self, X, y, context):
+            return np.asarray(X, float), np.asarray(y, float).ravel()
+
+        def _train_model(self, m, X_tr, y_tr, X_val, y_val, **kw):
+            m.fit(X_tr, y_tr)
+            return m
+
+        def _evaluate_model(self, m, X_val, y_val, metric=None, direction="minimize"):
+            from sklearn.metrics import mean_squared_error
+            return float(np.sqrt(mean_squared_error(y_val, m.predict(X_val))))
+
+    base = Pipeline([("scale", StandardScaler()), ("est", PLSRegression())])
+    ctl = PipeCtl()
+    res = N4MFinetuneManager().finetune(
+        _StubDataset(), {"model": base}, X, y, None, None, folds,
+        {"engine": "n4m", "n_trials": 30, "sampler": "tpe", "approach": "grouped",
+         "seed": 3, "metric": "rmse", "model_params": {
+             "scale": {"type": "categorical",
+                       "options": {"std": StandardScaler(), "mm": MinMaxScaler()}},
+             "est": {"type": "categorical",
+                     "options": {"pls": PLSRegression(), "ridge": Ridge()}},
+             "est__n_components": {"type": "int", "min": 1, "max": 6, "when": {"est": "pls"}},
+             "est__alpha": {"type": "float_log", "min": 1e-4, "max": 1e2, "when": {"est": "ridge"}},
+         }}, None, ctl)
+    # both operators explored, and no conditional attribute leaked across the choice
+    ests = {type(t.get("est")).__name__ for t in ctl.trials}
+    assert ests == {"PLSRegression", "Ridge"}
+    assert {type(t.get("scale")).__name__ for t in ctl.trials} == {"StandardScaler", "MinMaxScaler"}
+    for t in ctl.trials:
+        if isinstance(t.get("est"), PLSRegression):
+            assert "est__alpha" not in t
+        elif isinstance(t.get("est"), Ridge):
+            assert "est__n_components" not in t
+    # best_params picks one estimator + only ITS param (set_params addressing stays flat)
+    assert type(res.best_params["est"]).__name__ in ("PLSRegression", "Ridge")
+    if isinstance(res.best_params["est"], Ridge):
+        assert "est__alpha" in res.best_params and "est__n_components" not in res.best_params
+
+
 def test_categorical_and_log_dsl(data):
     """Categorical + float_log axes compile and resolve to real Python values."""
     X, y, folds = data
