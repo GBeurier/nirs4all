@@ -118,6 +118,87 @@ def test_matches_optuna_optimum(data):
     assert n4m.best_params["n_components"] == opt.best_params["n_components"]
 
 
+def test_aggregate_direction():
+    m = N4MFinetuneManager()
+    assert m._aggregate([0.2, 0.9, 0.5], "best", "maximize") == 0.9
+    assert m._aggregate([0.2, 0.9, 0.5], "best", "minimize") == 0.2
+    assert m._aggregate([float("inf"), 0.5], "best", "maximize") == 0.5
+    assert m._aggregate([], "best", "maximize") == float("-inf")
+    assert m._aggregate([], "best", "minimize") == float("inf")
+
+
+def test_conditional_when_clause(data):
+    """A `when` clause makes an attribute active only for a chosen sibling label —
+    the object__attribute conditional case (operators/attributes in the space)."""
+    X, y, folds = data
+
+    class SVRCtl(_StubController):
+        def _get_model_instance(self, dataset, model_config, force_params=None):
+            from sklearn.svm import SVR
+            fp = dict(force_params or {})
+            self.seen_params.append(fp)
+            return SVR(**fp)
+
+    ctl = SVRCtl()
+    N4MFinetuneManager().finetune(
+        _StubDataset(), {"model": None}, X, y, None, None, folds,
+        {"engine": "n4m", "n_trials": 20, "sampler": "tpe", "approach": "grouped",
+         "seed": 1, "metric": "rmse", "model_params": {
+             "kernel": ["linear", "rbf"],
+             "gamma": {"type": "float_log", "min": 1e-4, "max": 1e1, "when": {"kernel": "rbf"}},
+         }}, None, ctl)
+    saw_linear, saw_rbf_gamma = False, False
+    for fp in ctl.seen_params:
+        if fp.get("kernel") == "linear":
+            assert "gamma" not in fp  # inactive attribute must not reach the model
+            saw_linear = True
+        elif fp.get("kernel") == "rbf" and "gamma" in fp:
+            saw_rbf_gamma = True
+    assert saw_linear and saw_rbf_gamma
+
+
+def test_nested_static_unflatten(data):
+    """A static nested value alongside a sampled sibling stays correctly nested."""
+    X, y, folds = data
+
+    class Ctl(_StubController):
+        def _get_model_instance(self, dataset, model_config, force_params=None):
+            self.seen_params.append(dict(force_params or {}))
+
+            class _M:
+                def fit(self, *a):
+                    return self
+
+                def predict(self, X):
+                    return np.zeros(len(X))
+
+            return _M()
+
+    ctl = Ctl()
+    N4MFinetuneManager().finetune(
+        _StubDataset(), {"model": None}, X, y, None, None, folds,
+        {"engine": "n4m", "n_trials": 3, "sampler": "random", "approach": "grouped",
+         "seed": 1, "metric": "rmse",
+         "model_params": {"n_components": ("int", 1, 5), "cfg": {"mode": "fast"}}},
+        None, ctl)
+    assert all(p.get("cfg") == {"mode": "fast"} for p in ctl.seen_params)
+    assert all("cfg__mode" not in p for p in ctl.seen_params)
+
+
+def test_sorted_tuple_rejected(data):
+    with pytest.raises(NotImplementedError):
+        _run(N4MFinetuneManager(), data, {
+            "n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1,
+            "model_params": {"a": {"type": "sorted_tuple", "length": 3, "min": 0, "max": 1}}})
+
+
+def test_seed_none_ok(data):
+    res = _run(N4MFinetuneManager(), data, {
+        "n_trials": 5, "sampler": "tpe", "approach": "grouped", "seed": None,
+        "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
+    assert res.n_trials == 5
+
+
 def test_categorical_and_log_dsl(data):
     """Categorical + float_log axes compile and resolve to real Python values."""
     X, y, folds = data
