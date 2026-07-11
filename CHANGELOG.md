@@ -33,6 +33,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Added
 
+- **Transition workspace compatibility and offline conversion guidance.** The Python
+  library keeps the transition release compatible with both legacy workspaces and the
+  V1 SQLite workspace format. Legacy DuckDB, legacy filesystem-run, and legacy
+  prediction-array layouts are detected before use and warn with the concrete
+  `nirs4all workspace convert <workspace> --output <workspace-v2> --verify` command
+  for a non-mutating migration. Install `nirs4all[transition]` to bundle the
+  `nirs4all-tools` converter plus DuckDB/Parquet readers; the original workspace is
+  not overwritten by the offline converter. The legacy reader/converter path is scoped
+  to the Python transition line and Studio. Other V1 language/package surfaces consume
+  the new workspace format only, and a later release will remove the Python legacy
+  compatibility layer after the transition window.
 - **Transparent legacy fallback when the dag-ml backend is unavailable.** A new narrow
   `DagMlUnavailable` error is raised by a dag-ml-backend preflight when NEITHER mechanism
   is installed (no in-process `dag_ml._dag_ml` extension AND no `dag-ml-cli` binary).
