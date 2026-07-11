@@ -45,6 +45,17 @@ def test_inspect_sqlite_prediction_arrays_reports_legacy(tmp_path):
     assert info.conversion_command == build_conversion_command(workspace)
 
 
+def test_inspect_legacy_artifact_reports_conversion_command(tmp_path):
+    artifact = tmp_path / "legacy-model.n4a"
+    artifact.write_bytes(b"legacy artifact placeholder")
+
+    info = inspect_workspace_format(artifact)
+
+    assert info.format == "legacy-artifact"
+    assert info.conversion_required is True
+    assert info.conversion_command == build_conversion_command(artifact)
+
+
 def test_warn_if_legacy_workspace_includes_command(tmp_path):
     workspace = tmp_path / "legacy"
     workspace.mkdir()
