@@ -20,9 +20,11 @@ from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
+
 
 def _setup_store_hierarchy(store: WorkspaceStore, dataset_name: str = "wheat") -> tuple[str, str]:
     """Create run -> pipeline -> chain hierarchy and return (pipeline_id, chain_id).
@@ -55,6 +57,7 @@ def _setup_store_hierarchy(store: WorkspaceStore, dataset_name: str = "wheat") -
     )
     return pipeline_id, chain_id
 
+
 def _make_predictions_with_store(tmp_path: Path) -> tuple[Predictions, WorkspaceStore, str, str]:
     """Create a Predictions instance backed by a WorkspaceStore.
 
@@ -65,6 +68,7 @@ def _make_predictions_with_store(tmp_path: Path) -> tuple[Predictions, Workspace
     pipeline_id, chain_id = _setup_store_hierarchy(store)
     preds = Predictions(store=store)
     return preds, store, pipeline_id, chain_id
+
 
 def _add_sample_predictions(preds: Predictions, n: int = 10) -> list[str]:
     """Add *n* sample predictions to the buffer and return their IDs."""
@@ -95,9 +99,11 @@ def _add_sample_predictions(preds: Predictions, n: int = 10) -> list[str]:
         ids.append(pred_id)
     return ids
 
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
+
 
 class TestPredictionsBufferFlush:
     """Test buffer accumulation and flush to store."""
@@ -214,6 +220,7 @@ class TestPredictionsBufferFlush:
         assert len(df) == 2
         assert set(df["chain_id"].to_list()) == {chain_id_1, chain_id_2}
 
+
 class TestPredictionsTop:
     """Test top() ranking from in-memory buffer."""
 
@@ -250,6 +257,7 @@ class TestPredictionsTop:
         preds = Predictions()
         results = preds.top(5, rank_metric="rmse", rank_partition="val")
         assert len(results) == 0
+
 
 class TestPredictionsFilter:
     """Test filter_predictions on in-memory buffer."""
@@ -298,6 +306,7 @@ class TestPredictionsFilter:
 
         corn_preds = preds.filter_predictions(dataset_name="corn")
         assert len(corn_preds) == 2
+
 
 class TestPredictionsArraysRoundtrip:
     """Test array storage and retrieval through flush."""
@@ -366,6 +375,94 @@ class TestPredictionsArraysRoundtrip:
         loaded = store.get_prediction(pred_id, load_arrays=True)
         assert loaded is not None
         np.testing.assert_array_almost_equal(loaded["weights"], weights)
+
+    def test_spectral_replay_evidence_roundtrip_through_add_prediction(self, tmp_path):
+        """add_prediction publishes executable X and result_metadata to the array sidecar."""
+        preds, store, pipeline_id, chain_id = _make_predictions_with_store(tmp_path)
+
+        X = np.array([[1.0, 10.0], [2.0, 20.0]], dtype=float)
+        result_metadata = {
+            "robustness_evidence": {
+                "X": "prediction_arrays.X",
+                "predictor_bundle": "models/pls.n4a",
+                "publisher": "nirs4all.predictions.add_prediction",
+            }
+        }
+
+        prediction_id = preds.add_prediction(
+            dataset_name="wheat",
+            model_name="PLS_10",
+            model_classname="PLSRegression",
+            fold_id="final",
+            partition="test",
+            y_pred=np.array([1.1, 1.9], dtype=float),
+            X=X,
+            result_metadata=result_metadata,
+            sample_indices=np.array([10, 20], dtype=np.int64),
+            val_score=0.15,
+            metric="rmse",
+            task_type="regression",
+            n_samples=2,
+            n_features=2,
+        )
+
+        preds.flush(pipeline_id=pipeline_id, chain_id=chain_id)
+        loaded = store.get_prediction(prediction_id, load_arrays=True)
+        assert loaded is not None
+        np.testing.assert_allclose(loaded["X"], X)
+        assert loaded["result_metadata"] == result_metadata
+
+        reloaded = Predictions.from_workspace(tmp_path / "workspace", load_arrays=True)
+        result = reloaded.get_predict_result_by_id(prediction_id)
+        assert result is not None
+        np.testing.assert_allclose(result.metadata["X"], X)
+        assert result.robustness_evidence == result_metadata["robustness_evidence"]
+        assert result.spectral_replay_evidence_status["status"] == "ready_for_spectral_replay"
+
+    def test_merge_stores_copies_spectral_replay_sidecar_evidence(self, tmp_path):
+        """merge_stores preserves X/spectra and result_metadata evidence."""
+        source_store = WorkspaceStore(tmp_path / "source")
+        pipeline_id, chain_id = _setup_store_hierarchy(source_store)
+        preds = Predictions(store=source_store)
+        X = np.array([[1.0, 10.0], [2.0, 20.0]], dtype=float)
+        result_metadata = {
+            "robustness_evidence": {
+                "X": "prediction_arrays.X",
+                "predictor_bundle": "models/pls.n4a",
+            }
+        }
+        preds.add_prediction(
+            dataset_name="wheat",
+            model_name="PLS_10",
+            model_classname="PLSRegression",
+            fold_id="final",
+            partition="test",
+            y_pred=np.array([1.1, 1.9], dtype=float),
+            X=X,
+            result_metadata=result_metadata,
+            sample_indices=np.array([10, 20], dtype=np.int64),
+            metric="rmse",
+            task_type="regression",
+            n_samples=2,
+            n_features=2,
+        )
+        preds.flush(pipeline_id=pipeline_id, chain_id=chain_id)
+        source_store.close()
+
+        target_dir = tmp_path / "target"
+        report = Predictions.merge_stores([tmp_path / "source"], target_dir)
+
+        assert report.predictions_merged == 1
+        target_store = WorkspaceStore(target_dir)
+        try:
+            row = target_store.query_predictions().to_dicts()[0]
+            loaded = target_store.get_prediction(row["prediction_id"], load_arrays=True)
+        finally:
+            target_store.close()
+        assert loaded is not None
+        np.testing.assert_allclose(loaded["X"], X)
+        assert loaded["result_metadata"] == result_metadata
+
 
 class TestResultBestScore:
     """Test that result scores are correctly computed from store-backed predictions."""
@@ -445,6 +542,7 @@ class TestResultBestScore:
         assert len(results_r2) == 1
         assert results_r2[0]["rank_score"] == 0.01
 
+
 class TestFlushAndQueryStore:
     """End-to-end: buffer -> flush -> query store."""
 
@@ -516,9 +614,11 @@ class TestFlushAndQueryStore:
         assert loaded_scores["val"]["r2"] == 0.85
         assert loaded_scores["test"]["mae"] == 0.14
 
+
 # ---------------------------------------------------------------------------
 # Phase 3 — User-Facing API tests
 # ---------------------------------------------------------------------------
+
 
 def _flush_predictions_to_store(
     store: WorkspaceStore,
@@ -548,6 +648,7 @@ def _flush_predictions_to_store(
     preds.flush(pipeline_id=pipeline_id, chain_id=chain_id)
     return preds
 
+
 class TestPredictionsFromWorkspacePath:
     """Test Predictions(db_path=workspace_dir)."""
 
@@ -576,6 +677,7 @@ class TestPredictionsFromWorkspacePath:
         assert preds.num_predictions == 3
         preds.close()
 
+
 class TestPredictionsFromParquet:
     """Test Predictions.from_parquet() portable mode."""
 
@@ -586,39 +688,43 @@ class TestPredictionsFromParquet:
 
         records = []
         for i in range(n):
-            records.append({
-                "prediction_id": f"pred_{i:04d}",
-                "dataset_name": dataset_name,
-                "model_name": f"PLS_{i + 1}",
-                "fold_id": "0",
-                "partition": "val",
-                "metric": "rmse",
-                "val_score": 0.1 * (i + 1),
-                "task_type": "regression",
-                "y_true": [1.0, 2.0, 3.0],
-                "y_pred": [1.1 + 0.1 * i, 2.1, 3.1],
-                "y_proba": None,
-                "y_proba_shape": None,
-                "sample_indices": None,
-                "weights": None,
-            })
+            records.append(
+                {
+                    "prediction_id": f"pred_{i:04d}",
+                    "dataset_name": dataset_name,
+                    "model_name": f"PLS_{i + 1}",
+                    "fold_id": "0",
+                    "partition": "val",
+                    "metric": "rmse",
+                    "val_score": 0.1 * (i + 1),
+                    "task_type": "regression",
+                    "y_true": [1.0, 2.0, 3.0],
+                    "y_pred": [1.1 + 0.1 * i, 2.1, 3.1],
+                    "y_proba": None,
+                    "y_proba_shape": None,
+                    "sample_indices": None,
+                    "weights": None,
+                }
+            )
 
-        schema = pa.schema([
-            ("prediction_id", pa.utf8()),
-            ("dataset_name", pa.utf8()),
-            ("model_name", pa.utf8()),
-            ("fold_id", pa.utf8()),
-            ("partition", pa.utf8()),
-            ("metric", pa.utf8()),
-            ("val_score", pa.float64()),
-            ("task_type", pa.utf8()),
-            ("y_true", pa.list_(pa.float64())),
-            ("y_pred", pa.list_(pa.float64())),
-            ("y_proba", pa.list_(pa.float64())),
-            ("y_proba_shape", pa.list_(pa.int32())),
-            ("sample_indices", pa.list_(pa.int32())),
-            ("weights", pa.list_(pa.float64())),
-        ])
+        schema = pa.schema(
+            [
+                ("prediction_id", pa.utf8()),
+                ("dataset_name", pa.utf8()),
+                ("model_name", pa.utf8()),
+                ("fold_id", pa.utf8()),
+                ("partition", pa.utf8()),
+                ("metric", pa.utf8()),
+                ("val_score", pa.float64()),
+                ("task_type", pa.utf8()),
+                ("y_true", pa.list_(pa.float64())),
+                ("y_pred", pa.list_(pa.float64())),
+                ("y_proba", pa.list_(pa.float64())),
+                ("y_proba_shape", pa.list_(pa.int32())),
+                ("sample_indices", pa.list_(pa.int32())),
+                ("weights", pa.list_(pa.float64())),
+            ]
+        )
 
         columns = {field.name: [rec[field.name] for rec in records] for field in schema}
         table = pa.table(columns, schema=schema)
@@ -653,6 +759,7 @@ class TestPredictionsFromParquet:
             preds.query("SELECT 1")
         with pytest.raises(RuntimeError, match="requires a workspace store"):
             preds.store_stats()
+
 
 class TestMergeStores:
     """Test Predictions.merge_stores()."""
@@ -710,6 +817,7 @@ class TestMergeStores:
         assert report.predictions_merged == 3
         assert report.datasets_merged == ["wheat"]
 
+
 class TestCleanDeadLinks:
     """Test clean_dead_links maintenance helper."""
 
@@ -725,6 +833,7 @@ class TestCleanDeadLinks:
         assert result["metadata_orphans_removed"] == 0
         assert result["array_orphans_found"] == 0
         store.close()
+
 
 class TestRemoveBottom:
     """Test remove_bottom maintenance helper."""
@@ -746,6 +855,7 @@ class TestRemoveBottom:
         df = store.query_predictions()
         assert len(df) == 8
         store.close()
+
 
 class TestRemoveDataset:
     """Test remove_dataset maintenance helper."""
@@ -792,6 +902,7 @@ class TestRemoveDataset:
         assert len(df) == 5
         store.close()
 
+
 class TestRemoveRun:
     """Test remove_run maintenance helper."""
 
@@ -833,6 +944,7 @@ class TestRemoveRun:
         assert len(df) == 0
         store.close()
 
+
 class TestCompact:
     """Test compact() maintenance helper."""
 
@@ -855,6 +967,7 @@ class TestCompact:
         assert stats["wheat"]["rows_removed"] >= 2
         store.close()
 
+
 class TestStoreStats:
     """Test store_stats() helper."""
 
@@ -876,6 +989,7 @@ class TestStoreStats:
         assert stats["arrays"]["total_rows"] == 5
         store.close()
 
+
 class TestQuerySQL:
     """Test query() method."""
 
@@ -895,6 +1009,7 @@ class TestQuerySQL:
         assert len(result2) == 1
         assert result2["n"][0] == 5
         store.close()
+
 
 class TestContextManager:
     """Test context manager protocol."""

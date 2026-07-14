@@ -12,7 +12,7 @@ examples/
 │   ├── 01_getting_started/  # U01-U04: Your first pipelines
 │   ├── 02_data_handling/    # U01-U06: Loading and managing data
 │   ├── 03_preprocessing/    # U01-U04: NIRS preprocessing techniques
-│   ├── 04_models/           # U01-U07: Model training and comparison
+│   ├── 04_models/           # U01-U10: Model training, tuning, calibration, robustness
 │   ├── 05_cross_validation/ # U01-U04: Validation strategies
 │   ├── 06_deployment/       # U01-U04: Saving, loading, and deploying
 │   └── 07_explainability/   # U01-U03: SHAP and feature importance
@@ -89,6 +89,9 @@ The User Path provides a complete introduction to nirs4all, from your first pipe
 | U05_advanced_finetuning.py | Advanced model fine-tuning patterns | ★★★★☆ |
 | U06_tabpfn_nirs.py | Fixed-recipe TabPFN for NIRS | ★★☆☆☆ |
 | U07_aom_panoply.py | AOM-PLS, AOM-Ridge, AutoSelector, Blender, FastAOM | ★★★★★ |
+| U08_native_finetuning.py | Native n4m optimizer for finetuning | ★★★☆☆ |
+| U09_native_tuning_conformal.py | Native `run(tuning)` + conformal calibration + calibrated prediction + robustness report + workspace/artifact reload | ★★★☆☆ |
+| U10_native_pls_conformal_robustness.py | Native PLS `n_components` tuning + conformal intervals + robustness audit | ★★★☆☆ |
 
 ### 05_cross_validation/ - Cross-Validation
 

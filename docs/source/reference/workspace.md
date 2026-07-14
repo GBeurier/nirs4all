@@ -59,7 +59,7 @@ workspace/
 
 ## Parquet Array Storage
 
-Dense prediction arrays (y_true, y_pred, y_proba, sample_indices, weights) are stored in per-dataset Parquet files under `arrays/`, managed by `ArrayStore`. This separation provides:
+Dense prediction arrays (`y_true`, `y_pred`, `y_proba`, optional spectral replay `X`/`spectra`, `sample_indices`, `weights`, `sample_metadata` and `result_metadata`) are stored in per-dataset Parquet files under `arrays/`, managed by `ArrayStore`. This separation provides:
 
 - **Efficient I/O**: Zstd-compressed columnar storage for large numerical arrays
 - **Per-dataset files**: One Parquet file per dataset for fast batch queries

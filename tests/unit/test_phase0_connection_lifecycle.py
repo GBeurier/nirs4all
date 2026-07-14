@@ -13,8 +13,10 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import numpy as np
+import polars as pl
 import pytest
 
+from nirs4all.api.result import PredictResult
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
@@ -331,6 +333,113 @@ class TestBatchArrayLoading:
             assert y_pred is not None, f"Missing y_pred for {entry.get('model_name')}"
             assert len(y_true) == 5
             assert len(y_pred) == 5
+
+    def test_batch_loading_preserves_spectral_replay_evidence(self) -> None:
+        """Batch loading preserves X/spectra and result_metadata for PredictResult replay."""
+
+        X = np.array([[1.0, 10.0], [2.0, 20.0]])
+
+        class _ArrayStore:
+            def load_batch(self, prediction_ids, dataset_name=None):
+                assert prediction_ids == ["pred-spectral"]
+                assert dataset_name == "dataset-a"
+                return {
+                    "pred-spectral": {
+                        "y_true": np.array([1.0, 2.0]),
+                        "y_pred": np.array([1.1, 1.9]),
+                        "y_proba": None,
+                        "X": X,
+                        "spectra": None,
+                        "sample_indices": np.array([10, 20]),
+                        "sample_metadata": {"operator": "pipeline"},
+                        "result_metadata": {
+                            "robustness_evidence": {
+                                "X": "prediction_arrays.X",
+                                "predictor_bundle": "models/pls.n4a",
+                            }
+                        },
+                        "tuning_calibration_source": {
+                            "source": "tuning.winner",
+                            "score_data_role": "hpo_objective_only",
+                            "score_data_used": False,
+                        },
+                    }
+                }
+
+        class _Store:
+            array_store = _ArrayStore()
+
+            def get_chains_for_pipeline(self, pipeline_id):
+                assert pipeline_id == "pipe-001"
+                return pl.DataFrame(
+                    {
+                        "chain_id": ["chain-001"],
+                        "model_step_idx": [0],
+                        "branch_path": [None],
+                    }
+                )
+
+        df = pl.DataFrame(
+            {
+                "prediction_id": ["pred-spectral"],
+                "dataset_name": ["dataset-a"],
+                "pipeline_id": ["pipe-001"],
+                "chain_id": ["chain-001"],
+                "model_name": ["PLSRegression"],
+                "model_class": ["sklearn.cross_decomposition.PLSRegression"],
+                "fold_id": ["final"],
+                "partition": ["test"],
+                "val_score": [None],
+                "test_score": [None],
+                "train_score": [None],
+                "metric": ["rmse"],
+                "task_type": ["regression"],
+                "n_samples": [2],
+                "n_features": [2],
+                "preprocessings": ['["SNV"]'],
+                "scores": [None],
+                "best_params": [None],
+                "branch_id": [None],
+                "branch_name": [None],
+                "refit_context": [None],
+            }
+        )
+
+        preds = Predictions()
+        preds._populate_buffer_from_store(_Store(), df, load_arrays=True)
+        record = preds.get_prediction_by_id("pred-spectral")
+
+        assert record is not None
+        np.testing.assert_allclose(record["X"], X)
+        np.testing.assert_allclose(record["metadata"]["X"], X)
+        assert record["result_metadata"]["robustness_evidence"]["predictor_bundle"] == "models/pls.n4a"
+        assert record["metadata"]["result_metadata"] == record["result_metadata"]
+        assert record["tuning_calibration_source"]["source"] == "tuning.winner"
+
+        result = PredictResult.from_prediction_record(record)
+        assert result.spectral_replay_evidence_status["status"] == "ready_for_spectral_replay"
+        assert result.tuning_calibration_source == {
+            "source": "tuning.winner",
+            "score_data_role": "hpo_objective_only",
+            "score_data_used": False,
+        }
+
+        direct_result = preds.get_predict_result_by_id("pred-spectral")
+        assert direct_result is not None
+        assert direct_result.spectral_replay_evidence_status["status"] == "ready_for_spectral_replay"
+        assert direct_result.tuning_calibration_source == result.tuning_calibration_source
+
+        all_results = preds.to_predict_results()
+        assert len(all_results) == 1
+        assert all_results[0].model_name == "PLSRegression"
+        assert all_results[0].spectral_replay_evidence_status["predictor_bundle"] == "models/pls.n4a"
+        assert all_results[0].tuning_calibration_source == result.tuning_calibration_source
+
+        metadata_only_record = preds.get_prediction_by_id("pred-spectral", load_arrays=False)
+        assert metadata_only_record is not None
+        assert "y_pred" not in metadata_only_record
+        assert "X" not in metadata_only_record
+        assert "spectra" not in metadata_only_record
 
     def test_batch_loading_multiple_datasets(self, tmp_path: Path) -> None:
         """Batch loading handles multiple datasets correctly."""

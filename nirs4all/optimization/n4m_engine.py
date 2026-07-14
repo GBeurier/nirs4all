@@ -19,10 +19,11 @@ eval loop reuses the controller hooks (``_get_model_instance`` /``_prepare_data`
 Optuna manager does, so the refit path is unchanged: it returns the same
 :class:`FinetuneResult` objects.
 """
+
 from __future__ import annotations
 
 import time
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -58,29 +59,52 @@ _ALL_RANGE_TYPES = _INT_TYPES + _INT_LOG_TYPES + _FLOAT_TYPES + _FLOAT_LOG_TYPES
 
 # nirs4all finetune_params sampler/pruner names -> native enum.
 _SAMPLER_MAP = {
-    "auto": "tpe", "grid": "random", "binary": "ternary", "sample": "tpe",
-    "random": "random", "sobol": "sobol", "lhs": "lhs", "ternary": "ternary",
-    "ga": "ga", "pso": "pso", "cmaes": "cmaes", "tpe": "tpe", "gp_ei": "gp_ei",
+    "auto": "tpe",
+    "grid": "grid",
+    "binary": "ternary",
+    "sample": "tpe",
+    "random": "random",
+    "sobol": "sobol",
+    "lhs": "lhs",
+    "ternary": "ternary",
+    "ga": "ga",
+    "pso": "pso",
+    "cmaes": "cmaes",
+    "tpe": "tpe",
+    "gp_ei": "gp_ei",
 }
 _PRUNER_MAP = {
-    "none": "none", "median": "median", "successive_halving": "asha",
-    "asha": "asha", "hyperband": "hyperband", "racing": "racing",
+    "none": "none",
+    "median": "median",
+    "successive_halving": "asha",
+    "asha": "asha",
+    "hyperband": "hyperband",
+    "racing": "racing",
 }
 
 
 class _Slot:
     """One sampled search-space axis (native name + how to read it back)."""
 
-    __slots__ = ("native", "origin_name", "kind", "choices", "length", "elem_int", "is_train")
+    __slots__ = (
+        "native",
+        "origin_name",
+        "kind",
+        "choices",
+        "native_choices",
+        "length",
+        "elem_int",
+        "is_train",
+    )
 
-    def __init__(self, native, origin_name, kind, *, choices=None, length=0,
-                 elem_int=False, is_train=False):
-        self.native = native            # param name in the native SearchSpace
+    def __init__(self, native, origin_name, kind, *, choices=None, length=0, native_choices=None, elem_int=False, is_train=False):
+        self.native = native  # param name in the native SearchSpace
         self.origin_name = origin_name  # flat model name, or train param name
-        self.kind = kind                # 'int' | 'float' | 'categorical' | 'sorted_tuple'
-        self.choices = choices          # original Python choices (categorical)
-        self.length = length            # sorted_tuple length
-        self.elem_int = elem_int        # sorted_tuple element is int
+        self.kind = kind  # 'int' | 'float' | 'categorical' | 'sorted_tuple'
+        self.choices = choices  # original Python choices (categorical)
+        self.native_choices = native_choices  # labels passed to native SearchSpace
+        self.length = length  # sorted_tuple length
+        self.elem_int = elem_int  # sorted_tuple element is int
         self.is_train = is_train
 
 
@@ -119,67 +143,74 @@ class N4MFinetuneManager:
         verbose = int(params.get("verbose", 0))
 
         if verbose > 1:
-            logger.info(
-                f"n4m finetuning: sampler={params.get('sampler', 'auto')} "
-                f"pruner={params.get('pruner', 'none')} trials={n_trials} "
-                f"approach={approach} folds={len(folds) if folds else 0}"
-            )
+            logger.info(f"n4m finetuning: sampler={params.get('sampler', 'auto')} pruner={params.get('pruner', 'none')} trials={n_trials} approach={approach} folds={len(folds) if folds else 0}")
 
         if folds and approach == "individual":
             results = []
             for fi, (tr, va) in enumerate(folds):
-                results.append(self._optimize(
-                    dataset, model_config, X_train, y_train, [(tr, va)],
-                    params, n_trials, eval_mode, context, controller, verbose,
-                    study_name=f"fold_{fi}"))
+                results.append(self._optimize(dataset, model_config, X_train, y_train, [(tr, va)], params, n_trials, eval_mode, context, controller, verbose, study_name=f"fold_{fi}"))
             return results
 
         if folds and approach == "grouped":
-            return self._optimize(dataset, model_config, X_train, y_train, folds,
-                                  params, n_trials, eval_mode, context, controller, verbose)
+            return self._optimize(dataset, model_config, X_train, y_train, folds, params, n_trials, eval_mode, context, controller, verbose)
 
         # approach == "single" (even with folds), or no folds -> holdout split
         # (matches the Optuna path).
         from sklearn.model_selection import train_test_split
+
         Xtr, Xva, ytr, yva = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
-        return self._optimize(dataset, model_config, Xtr, ytr, [(None, None)], params,
-                              n_trials, eval_mode, context, controller, verbose,
-                              holdout=(Xva, yva))
+        return self._optimize(dataset, model_config, Xtr, ytr, [(None, None)], params, n_trials, eval_mode, context, controller, verbose, holdout=(Xva, yva))
 
     # -- validation / metric -------------------------------------------------
     def _normalize(self, finetune_params: dict[str, Any]) -> dict[str, Any]:
         p = dict(finetune_params)
-        if "sample" in p and "sampler" not in p:
-            p["sampler"] = p.pop("sample")
+        if "sample" in p:
+            sample_alias = p.pop("sample")
+            if "sampler" not in p:
+                p["sampler"] = sample_alias
         p.pop("engine", None)
-        sampler = p.get("sampler", "auto")
+
+        sampler = self._normalize_token(p.get("sampler"), default="auto")
         if sampler not in _SAMPLER_MAP:
-            raise ValueError(
-                f"Unknown n4m sampler '{sampler}'. Valid: {sorted(_SAMPLER_MAP)}")
-        pruner = p.get("pruner", "none")
+            raise ValueError(f"Unknown n4m sampler '{sampler}'. Valid: {sorted(_SAMPLER_MAP)}")
+        p["sampler"] = sampler
+
+        pruner = self._normalize_token(p.get("pruner"), default="none")
         if pruner not in _PRUNER_MAP:
-            raise ValueError(
-                f"Unknown n4m pruner '{pruner}'. Valid: {sorted(_PRUNER_MAP)}")
-        approach = p.get("approach", "grouped")
+            raise ValueError(f"Unknown n4m pruner '{pruner}'. Valid: {sorted(_PRUNER_MAP)}")
+        p["pruner"] = pruner
+
+        approach = self._normalize_token(p.get("approach"), default="grouped")
         if approach not in ("single", "grouped", "individual"):
-            raise ValueError(
-                f"Unknown approach '{approach}'. Valid: single, grouped, individual")
-        em = p.get("eval_mode", "best")
+            raise ValueError(f"Unknown approach '{approach}'. Valid: single, grouped, individual")
+        p["approach"] = approach
+
+        em = self._normalize_token(p.get("eval_mode"), default="best")
         if em == "avg":
             em = "mean"
         if em not in ("best", "mean", "robust_best"):
             raise ValueError(f"Unknown eval_mode '{em}'. Valid: best, mean, robust_best")
         p["eval_mode"] = em
+
         direction = p.get("direction")
         if direction is not None:
-            direction = str(direction).lower()
+            direction = self._normalize_token(direction)
             if direction not in ("minimize", "maximize"):
                 raise ValueError(f"Unknown direction '{direction}'. Valid: minimize, maximize")
             p["direction"] = direction
         return p
 
+    @staticmethod
+    def _normalize_token(value: Any, *, default: str | None = None) -> str:
+        if value is None:
+            if default is None:
+                return ""
+            value = default
+        return str(value).strip().lower()
+
     def _resolve_metric_direction(self, params: dict[str, Any], dataset: Any) -> dict[str, Any]:
         from nirs4all.core.metrics import is_higher_better
+
         p = dict(params)
         metric = p.get("metric")
         if metric is not None:
@@ -194,9 +225,9 @@ class N4MFinetuneManager:
     def _compile_space(self, params: dict[str, Any]) -> tuple[Any, list[_Slot], dict, dict]:
         space = SearchSpace()
         slots: list[_Slot] = []
-        static_model: dict[str, Any] = {}   # FLAT keys (merged + unflattened at resolve time)
+        static_model: dict[str, Any] = {}  # FLAT keys (merged + unflattened at resolve time)
         static_train: dict[str, Any] = {}
-        conditions: list[tuple] = []         # (child_native, parent, labels, is_in)
+        conditions: list[tuple] = []  # (child_native, parent, labels, is_in)
 
         flat_model = self._flatten(params.get("model_params", {}) or {})
         for name, spec in flat_model.items():
@@ -248,8 +279,7 @@ class N4MFinetuneManager:
             raw = spec.pop("when_not")
             is_in = False
         if not isinstance(raw, dict) or len(raw) != 1:
-            raise ValueError(
-                f"'when'/'when_not' for '{name}' must be a single {{parent: value_or_list}} mapping")
+            raise ValueError(f"'when'/'when_not' for '{name}' must be a single {{parent: value_or_list}} mapping")
         parent, val = next(iter(raw.items()))
         labels = list(val) if isinstance(val, (list, tuple)) else [val]
         if not labels:
@@ -260,24 +290,20 @@ class N4MFinetuneManager:
         """Add one axis to the native space; return its slot, or None if static."""
         # list
         if isinstance(spec, list):
-            if (len(spec) == 3 and spec[0] in _ALL_RANGE_TYPES
-                    and isinstance(spec[1], (int, float)) and isinstance(spec[2], (int, float))):
+            if len(spec) == 3 and spec[0] in _ALL_RANGE_TYPES and isinstance(spec[1], (int, float)) and isinstance(spec[2], (int, float)):
                 use_log = spec[0] in _INT_LOG_TYPES or spec[0] in _FLOAT_LOG_TYPES
-                return self._add_range(space, native, origin, spec[0], spec[1], spec[2],
-                                       use_log=use_log, is_train=is_train)
-            if len(spec) == 2 and isinstance(spec[0], str) and spec[0] in ("bool", "categorical") \
-                    and isinstance(spec[1], list):
-                return self._add_categorical(space, native, origin, spec[1], is_train=is_train)
-            return self._add_categorical(space, native, origin, spec, is_train=is_train)
+                return cast(_Slot | None, self._add_range(space, native, origin, spec[0], spec[1], spec[2], use_log=use_log, is_train=is_train))
+            if len(spec) == 2 and isinstance(spec[0], str) and spec[0] in ("bool", "categorical") and isinstance(spec[1], list):
+                return cast(_Slot | None, self._add_categorical(space, native, origin, spec[1], is_train=is_train))
+            return cast(_Slot | None, self._add_categorical(space, native, origin, spec, is_train=is_train))
         # tuple
         if isinstance(spec, tuple) and len(spec) == 3:
             use_log = spec[0] in _INT_LOG_TYPES or spec[0] in _FLOAT_LOG_TYPES
-            return self._add_range(space, native, origin, spec[0], spec[1], spec[2],
-                                   use_log=use_log, is_train=is_train)
+            return cast(_Slot | None, self._add_range(space, native, origin, spec[0], spec[1], spec[2], use_log=use_log, is_train=is_train))
         if isinstance(spec, tuple) and len(spec) == 2:
             th, val = spec
             if isinstance(th, str) and th in ("bool", "categorical") and isinstance(val, list):
-                return self._add_categorical(space, native, origin, val, is_train=is_train)
+                return cast(_Slot | None, self._add_categorical(space, native, origin, val, is_train=is_train))
             if isinstance(th, int) and isinstance(val, int):
                 space.add_int(native, int(th), int(val))
                 return _Slot(native, origin, "int", is_train=is_train)
@@ -285,7 +311,7 @@ class N4MFinetuneManager:
             return _Slot(native, origin, "float", is_train=is_train)
         # dict
         if isinstance(spec, dict):
-            return self._add_dict(space, native, origin, spec, is_train=is_train)
+            return cast(_Slot | None, self._add_dict(space, native, origin, spec, is_train=is_train))
         # scalar -> static
         return None
 
@@ -305,7 +331,7 @@ class N4MFinetuneManager:
         if not choices:
             raise ValueError(f"Categorical parameter '{origin}' requires a non-empty choice list")
         space.add_categorical(native, choices)
-        return _Slot(native, origin, "categorical", choices=choices, is_train=is_train)
+        return _Slot(native, origin, "categorical", choices=choices, native_choices=choices, is_train=is_train)
 
     def _add_dict(self, space, native, origin, cfg, *, is_train):
         ptype = cfg.get("type", "categorical")
@@ -321,12 +347,16 @@ class N4MFinetuneManager:
                 names = list(opts.keys())
                 for n in names:  # names ARE the native labels (`when` matches them)
                     if not isinstance(n, str) or n == "" or "\0" in n:
-                        raise ValueError(
-                            f"'options' names for '{origin}' must be non-empty NUL-free "
-                            f"strings (got {n!r}); wrap the value's identity in a name")
+                        raise ValueError(f"'options' names for '{origin}' must be non-empty NUL-free strings (got {n!r}); wrap the value's identity in a name")
                 space.add_categorical(native, names)
-                return _Slot(native, origin, "categorical", choices=list(opts.values()),
-                             is_train=is_train)
+                return _Slot(
+                    native,
+                    origin,
+                    "categorical",
+                    choices=list(opts.values()),
+                    native_choices=names,
+                    is_train=is_train,
+                )
             choices = cfg.get("choices", cfg.get("values", []))
             return self._add_categorical(space, native, origin, choices, is_train=is_train)
         if ptype in ("int", "int_log", "float", "float_log"):
@@ -337,15 +367,12 @@ class N4MFinetuneManager:
             step = cfg.get("step")
             # Explicit `log` wins; otherwise the type suffix decides.
             use_log = bool(cfg["log"]) if "log" in cfg else ptype in ("int_log", "float_log")
-            return self._add_range(space, native, origin, ptype, lo, hi,
-                                   use_log=use_log, step=step, is_train=is_train)
+            return self._add_range(space, native, origin, ptype, lo, hi, use_log=use_log, step=step, is_train=is_train)
         if ptype == "sorted_tuple":
             # sorted_tuple has non-trivial dynamic-length / step / log semantics that
             # the native space does not yet cover losslessly; fail loudly rather than
             # silently change the space. Use the Optuna engine for sorted_tuple.
-            raise NotImplementedError(
-                f"the n4m engine does not support sorted_tuple ('{origin}'); "
-                f"use the Optuna engine (drop \"engine\": \"n4m\") for this parameter")
+            raise NotImplementedError(f'the n4m engine does not support sorted_tuple (\'{origin}\'); use the Optuna engine (drop "engine": "n4m") for this parameter')
         raise ValueError(f"Unknown parameter type '{ptype}' for '{origin}'")
 
     # -- trial resolution ----------------------------------------------------
@@ -376,13 +403,11 @@ class N4MFinetuneManager:
         return model_params, sampled_train
 
     # -- optimization loop ---------------------------------------------------
-    def _optimize(self, dataset, model_config, X, y, folds, params, n_trials, eval_mode,
-                  context, controller, verbose, *, holdout=None, study_name=None) -> FinetuneResult:
+    def _optimize(self, dataset, model_config, X, y, folds, params, n_trials, eval_mode, context, controller, verbose, *, holdout=None, study_name=None) -> FinetuneResult:
         space, slots, static_model, static_train = self._compile_space(params)
         # Standalone declared param heads (set_params addressing targets) — computed
         # from the DECLARATION, not per-trial activity, so it is stable across trials.
-        flat_heads = ({s.origin_name for s in slots if not s.is_train and "__" not in s.origin_name}
-                      | {k for k in static_model if "__" not in k})
+        flat_heads = {s.origin_name for s in slots if not s.is_train and "__" not in s.origin_name} | {k for k in static_model if "__" not in k}
         direction = params.get("direction", "minimize")
         opt_metric = params.get("metric")
         pruner_name = _PRUNER_MAP[params.get("pruner", "none")]
@@ -390,7 +415,7 @@ class N4MFinetuneManager:
 
         opt = Optimizer(
             space,
-            sampler=Sampler[_SAMPLER_MAP[params.get("sampler", "auto")].upper()],
+            sampler=self._native_sampler(params.get("sampler", "auto")),
             pruner=Pruner[pruner_name.upper()],
             direction=Direction.MAXIMIZE if direction == "maximize" else Direction.MINIMIZE,
             n_startup_trials=int(params.get("n_startup_trials", 10)),
@@ -402,12 +427,7 @@ class N4MFinetuneManager:
         # Warm-start: honour force_params as an enqueued first trial (like Optuna).
         force = params.get("force_params")
         if force:
-            try:
-                opt.enqueue({s.origin_name: force[s.origin_name] for s in slots
-                             if not s.is_train and s.origin_name in force})
-            except Exception as e:  # enqueue is best-effort
-                if verbose > 1:
-                    logger.debug(f"n4m enqueue(force_params) skipped: {e}")
+            self._enqueue_force_params(opt, slots, force)
 
         trials: list[TrialSummary] = []
         n_pruned = n_failed = 0
@@ -424,42 +444,80 @@ class N4MFinetuneManager:
             except Exception as e:
                 opt.tell_result(trial.id, TrialStatus.FAILED, error=str(e)[:200])
                 n_failed += 1
-                trials.append(TrialSummary(number=trial.id, params={}, value=None,
-                                           duration_seconds=time.perf_counter() - t0, state="FAIL"))
+                trials.append(TrialSummary(number=trial.id, params={}, value=None, duration_seconds=time.perf_counter() - t0, state="FAIL"))
                 if verbose >= 2:
                     logger.debug(f"   n4m trial resolution failed: {e}")
                 continue
-            score, state = self._eval_trial(
-                opt, trial, dataset, model_config, X, y, folds, holdout,
-                model_params, sampled_train, eval_mode, opt_metric, direction,
-                context, controller, use_pruner, verbose)
+            score, state = self._eval_trial(opt, trial, dataset, model_config, X, y, folds, holdout, model_params, sampled_train, eval_mode, opt_metric, direction, context, controller, use_pruner, verbose)
             dur = time.perf_counter() - t0
             if state == "PRUNED":
                 n_pruned += 1
             elif state == "FAIL":
                 n_failed += 1
-            trials.append(TrialSummary(number=trial.id, params=dict(model_params),
-                                       value=(None if not np.isfinite(score) else score),
-                                       duration_seconds=dur, state=state))
+            trials.append(TrialSummary(number=trial.id, params=dict(model_params), value=(None if not np.isfinite(score) else score), duration_seconds=dur, state=state))
 
         best = opt.best()
         if best is None:
-            return FinetuneResult(best_params={}, best_value=float("inf"), n_trials=n_trials,
-                                  n_pruned=n_pruned, n_failed=n_failed, trials=trials,
-                                  study_name=study_name, metric=opt_metric, direction=direction)
+            return FinetuneResult(best_params={}, best_value=float("inf"), n_trials=n_trials, n_pruned=n_pruned, n_failed=n_failed, trials=trials, study_name=study_name, metric=opt_metric, direction=direction)
         best_trial, best_value = best
         best_params, _ = self._resolve(best_trial, slots, static_model, static_train, flat_heads)
         if hasattr(controller, "process_hyperparameters"):
             best_params = controller.process_hyperparameters(best_params)
         if verbose > 1:
             logger.success(f"n4m best score: {best_value:.4f}  params: {best_params}")
-        return FinetuneResult(best_params=best_params, best_value=best_value, n_trials=n_trials,
-                              n_pruned=n_pruned, n_failed=n_failed, trials=trials,
-                              study_name=study_name, metric=opt_metric, direction=direction)
+        return FinetuneResult(best_params=best_params, best_value=best_value, n_trials=n_trials, n_pruned=n_pruned, n_failed=n_failed, trials=trials, study_name=study_name, metric=opt_metric, direction=direction)
 
-    def _eval_trial(self, opt, trial, dataset, model_config, X, y, folds, holdout,
-                    model_params, sampled_train, eval_mode, opt_metric, direction,
-                    context, controller, use_pruner, verbose) -> tuple[float, str]:
+    def _native_sampler(self, sampler_name: str) -> Any:
+        native_name = _SAMPLER_MAP[sampler_name]
+        enum_name = native_name.upper()
+        try:
+            return Sampler[enum_name]
+        except Exception as exc:
+            raise NotImplementedError(f"n4m sampler '{sampler_name}' requires native Sampler.{enum_name} support; upgrade n4m/libn4m or choose another sampler") from exc
+
+    def _enqueue_force_params(self, opt: Any, slots: list[_Slot], force_params: dict[str, Any]) -> None:
+        if not hasattr(opt, "enqueue"):
+            raise NotImplementedError("n4m force_params requires native optimizer.enqueue(...) support; upgrade n4m/libn4m or use the Optuna engine")
+
+        payload = self._encode_force_params(slots, force_params)
+        try:
+            opt.enqueue(payload)
+        except Exception as exc:
+            raise RuntimeError("n4m force_params could not be enqueued through optimizer.enqueue(...); the warm-start contract is fail-closed") from exc
+
+    def _encode_force_params(self, slots: list[_Slot], force_params: dict[str, Any]) -> dict[str, Any]:
+        if not isinstance(force_params, dict):
+            raise TypeError("n4m force_params must be a mapping of model parameter names to values")
+
+        model_slots = {slot.origin_name: slot for slot in slots if not slot.is_train}
+        unknown = sorted(set(force_params) - set(model_slots))
+        if unknown:
+            raise ValueError(f"n4m force_params keys must be a subset of sampled finetune_params.model_params; unknown keys: {unknown}")
+
+        encoded: dict[str, Any] = {}
+        for name, value in force_params.items():
+            slot = model_slots[name]
+            if slot.kind == "categorical":
+                encoded[name] = self._encode_categorical_force_value(slot, value)
+            else:
+                encoded[name] = value
+        return encoded
+
+    @staticmethod
+    def _encode_categorical_force_value(slot: _Slot, value: Any) -> Any:
+        choices = list(slot.choices or [])
+        native_choices = list(slot.native_choices or choices)
+        for index, choice in enumerate(choices):
+            if value is choice:
+                return native_choices[index]
+            try:
+                if value == choice:
+                    return native_choices[index]
+            except Exception:
+                continue
+        raise ValueError(f"n4m force_params for categorical parameter '{slot.origin_name}' must use one of the public decoded choices")
+
+    def _eval_trial(self, opt, trial, dataset, model_config, X, y, folds, holdout, model_params, sampled_train, eval_mode, opt_metric, direction, context, controller, use_pruner, verbose) -> tuple[float, str]:
         scores: list[float] = []
         for fold_idx, (tr_idx, va_idx) in enumerate(folds):
             try:
@@ -476,8 +534,7 @@ class N4MFinetuneManager:
                 train_kw.update(model_params)
                 train_kw.setdefault("task_type", dataset.task_type)
                 trained = controller._train_model(model, X_tr_p, y_tr_p, X_va_p, y_va_p, **train_kw)
-                score = controller._evaluate_model(trained, X_va_p, y_va_p,
-                                                   metric=opt_metric, direction=direction)
+                score = controller._evaluate_model(trained, X_va_p, y_va_p, metric=opt_metric, direction=direction)
                 scores.append(float(score))
             except Exception as e:  # a fold failure is a bad trial, not a crash
                 if verbose >= 2:
