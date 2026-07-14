@@ -79,6 +79,7 @@ class TestMultiphaseValidation:
         result = manager._validate_and_normalize_finetune_params(fp)
         assert result["phases"] is None
 
+
 class TestMultiphaseOptimization:
     """Tests for _optimize_multiphase execution."""
 
@@ -131,6 +132,7 @@ class TestMultiphaseOptimization:
         assert "phases" not in model_params
         assert "n_trials" not in model_params
 
+
 class TestCreateSampler:
     """Tests for _create_sampler helper."""
 
@@ -140,24 +142,28 @@ class TestCreateSampler:
 
     def test_tpe_sampler(self, manager):
         from optuna.samplers import TPESampler
+
         fp = {"model_params": {"x": ("float", 0, 1)}}
         sampler = manager._create_sampler("tpe", fp, seed=42)
         assert isinstance(sampler, TPESampler)
 
     def test_random_sampler(self, manager):
         from optuna.samplers import RandomSampler
+
         fp = {"model_params": {"x": ("float", 0, 1)}}
         sampler = manager._create_sampler("random", fp, seed=42)
         assert isinstance(sampler, RandomSampler)
 
     def test_cmaes_sampler(self, manager):
         from optuna.samplers import CmaEsSampler
+
         fp = {"model_params": {"x": ("float", 0, 1)}}
         sampler = manager._create_sampler("cmaes", fp, seed=42)
         assert isinstance(sampler, CmaEsSampler)
 
     def test_grid_sampler_with_categorical(self, manager):
         from optuna.samplers import GridSampler
+
         fp = {"model_params": {"x": [1, 2, 3]}}
         sampler = manager._create_sampler("grid", fp, seed=42)
         assert isinstance(sampler, GridSampler)
@@ -165,18 +171,33 @@ class TestCreateSampler:
     def test_grid_sampler_falls_back_to_tpe(self, manager):
         """Grid sampler with continuous params should fall back to TPE."""
         from optuna.samplers import TPESampler
+
         fp = {"model_params": {"x": ("float", 0, 1)}}
         sampler = manager._create_sampler("grid", fp, seed=42)
         assert isinstance(sampler, TPESampler)
 
     def test_auto_selects_grid_for_categorical(self, manager):
         from optuna.samplers import GridSampler
+
         fp = {"model_params": {"x": [1, 2, 3]}}
         sampler = manager._create_sampler("auto", fp, seed=42)
         assert isinstance(sampler, GridSampler)
 
     def test_auto_selects_tpe_for_continuous(self, manager):
         from optuna.samplers import TPESampler
+
         fp = {"model_params": {"x": ("float", 0, 1)}}
         sampler = manager._create_sampler("auto", fp, seed=42)
         assert isinstance(sampler, TPESampler)
+
+    def test_sampler_helper_normalizes_public_spelling(self, manager):
+        from optuna.samplers import RandomSampler
+
+        fp = {"model_params": {"x": ("float", 0, 1)}}
+        sampler = manager._create_sampler(" RANDOM ", fp, seed=42)
+        assert isinstance(sampler, RandomSampler)
+
+    def test_unknown_sampler_helper_raises(self, manager):
+        fp = {"model_params": {"x": ("float", 0, 1)}}
+        with pytest.raises(ValueError, match="Unknown sampler 'bogus'"):
+            manager._create_sampler(" bogus ", fp, seed=42)

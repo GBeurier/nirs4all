@@ -1,7 +1,7 @@
 """Parquet-based storage for prediction arrays.
 
-Stores dense numerical arrays (y_true, y_pred, y_proba, sample_indices,
-weights) in one Parquet file per dataset, with Zstd compression.  Each
+Stores dense numerical arrays (y_true, y_pred, y_proba, optional replay X,
+sample_indices, weights) in one Parquet file per dataset, with Zstd compression.  Each
 file embeds lightweight metadata columns (model_name, fold_id, partition,
 metric, val_score, task_type) making it self-describing and portable.
 
@@ -57,11 +57,14 @@ def _locked(method: Callable[Concatenate[ArrayStore, _P], _R]) -> Callable[Conca
 
     See :meth:`ArrayStore._process_lock` for the locking semantics.
     """
+
     @functools.wraps(method)
     def wrapper(self: ArrayStore, *args: _P.args, **kwargs: _P.kwargs) -> _R:
         with self._process_lock():
             return method(self, *args, **kwargs)
+
     return wrapper
+
 
 # Zstd level 3: good compression ratio, fast decompression
 _COMPRESSION = "zstd"
@@ -70,6 +73,7 @@ _TOMBSTONE_FILE = "_tombstones.json"
 
 # Characters invalid in filenames across platforms
 _UNSAFE_FILENAME_RE = re.compile(r'[/\\:*?"<>|\s.]+')
+
 
 def _sanitize_dataset_filename(dataset_name: str) -> str:
     """Convert a dataset name to a safe filename (without extension).
@@ -81,6 +85,7 @@ def _sanitize_dataset_filename(dataset_name: str) -> str:
     sanitized = _UNSAFE_FILENAME_RE.sub("_", dataset_name)
     return sanitized.strip("_") or "unnamed"
 
+
 def _arr_to_list(arr: np.ndarray | None, dtype: str = "float") -> list | None:
     """Convert a numpy array to a Python list for Arrow storage."""
     if arr is None:
@@ -89,6 +94,7 @@ def _arr_to_list(arr: np.ndarray | None, dtype: str = "float") -> list | None:
     if dtype == "int":
         return flat.astype(np.int32).tolist()
     return flat.astype(np.float64).tolist()
+
 
 def _json_default(obj: Any) -> Any:
     """Handle numpy scalars for json.dumps."""
@@ -100,11 +106,13 @@ def _json_default(obj: Any) -> Any:
         return obj.tolist()
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
+
 def _shape_to_list(arr: np.ndarray | None) -> list[int] | None:
     """Return the shape of an array as a list of ints, or None."""
     if arr is None:
         return None
     return list(arr.shape)
+
 
 def _align_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table:
     """Align a table to the target schema, adding missing columns (as null) and dropping extra ones."""
@@ -121,23 +129,31 @@ def _align_to_schema(table: pa.Table, target_schema: pa.Schema) -> pa.Table:
 
 
 # Shared Arrow schema for all Parquet files
-_PARQUET_SCHEMA = pa.schema([
-    ("prediction_id", pa.utf8()),
-    ("dataset_name", pa.utf8()),
-    ("model_name", pa.utf8()),
-    ("fold_id", pa.utf8()),
-    ("partition", pa.utf8()),
-    ("metric", pa.utf8()),
-    ("val_score", pa.float64()),
-    ("task_type", pa.utf8()),
-    ("y_true", pa.list_(pa.float64())),
-    ("y_pred", pa.list_(pa.float64())),
-    ("y_proba", pa.list_(pa.float64())),
-    ("y_proba_shape", pa.list_(pa.int32())),
-    ("sample_indices", pa.list_(pa.int32())),
-    ("weights", pa.list_(pa.float64())),
-    ("sample_metadata", pa.utf8()),
-])
+_PARQUET_SCHEMA = pa.schema(
+    [
+        ("prediction_id", pa.utf8()),
+        ("dataset_name", pa.utf8()),
+        ("model_name", pa.utf8()),
+        ("fold_id", pa.utf8()),
+        ("partition", pa.utf8()),
+        ("metric", pa.utf8()),
+        ("val_score", pa.float64()),
+        ("task_type", pa.utf8()),
+        ("y_true", pa.list_(pa.float64())),
+        ("y_pred", pa.list_(pa.float64())),
+        ("y_proba", pa.list_(pa.float64())),
+        ("y_proba_shape", pa.list_(pa.int32())),
+        ("X", pa.list_(pa.float64())),
+        ("X_shape", pa.list_(pa.int32())),
+        ("spectra", pa.list_(pa.float64())),
+        ("spectra_shape", pa.list_(pa.int32())),
+        ("sample_indices", pa.list_(pa.int32())),
+        ("weights", pa.list_(pa.float64())),
+        ("sample_metadata", pa.utf8()),
+        ("result_metadata", pa.utf8()),
+    ]
+)
+
 
 class ArrayStore:
     """Parquet-backed storage for prediction arrays.
@@ -259,6 +275,8 @@ class ArrayStore:
             y_true = rec.get("y_true")
             y_pred = rec.get("y_pred")
             y_proba = rec.get("y_proba")
+            X = rec.get("X")
+            spectra = rec.get("spectra")
             sample_indices = rec.get("sample_indices")
             weights = rec.get("weights")
 
@@ -266,6 +284,10 @@ class ArrayStore:
             columns["y_pred"].append(_arr_to_list(y_pred))
             columns["y_proba"].append(_arr_to_list(y_proba))
             columns["y_proba_shape"].append(_shape_to_list(y_proba))
+            columns["X"].append(_arr_to_list(X))
+            columns["X_shape"].append(_shape_to_list(X))
+            columns["spectra"].append(_arr_to_list(spectra))
+            columns["spectra_shape"].append(_shape_to_list(spectra))
             columns["sample_indices"].append(_arr_to_list(sample_indices, dtype="int"))
             columns["weights"].append(_arr_to_list(weights))
 
@@ -275,6 +297,12 @@ class ArrayStore:
                 columns["sample_metadata"].append(json.dumps(metadata, default=_json_default))
             else:
                 columns["sample_metadata"].append(None)
+
+            result_metadata = rec.get("result_metadata")
+            if result_metadata:
+                columns["result_metadata"].append(json.dumps(result_metadata, default=_json_default))
+            else:
+                columns["result_metadata"].append(None)
 
         arrays = [pa.array(columns[field.name], type=field.type) for field in _PARQUET_SCHEMA]
         return pa.table(arrays, schema=_PARQUET_SCHEMA)
@@ -314,7 +342,8 @@ class ArrayStore:
 
             {prediction_id, dataset_name, model_name, fold_id, partition,
              metric, val_score, task_type, y_true, y_pred, y_proba,
-             y_proba_shape, sample_indices, weights}
+             y_proba_shape, X, X_shape, spectra, spectra_shape,
+             sample_indices, weights, sample_metadata, result_metadata}
 
         Records are grouped by ``dataset_name``; each group is appended
         to its dataset Parquet file.  Writes are idempotent by
@@ -378,7 +407,8 @@ class ArrayStore:
             dataset_name: If given, reads only that dataset's file.
 
         Returns:
-            ``{prediction_id: {y_true, y_pred, y_proba, sample_indices, weights, sample_metadata}}``
+            ``{prediction_id: {y_true, y_pred, y_proba, X, spectra,
+            sample_indices, weights, sample_metadata, result_metadata}}``
         """
         if not prediction_ids:
             return {}
@@ -394,9 +424,7 @@ class ArrayStore:
 
             # Read with predicate pushdown via Polars for efficiency
             try:
-                df = pl.scan_parquet(path).filter(
-                    pl.col("prediction_id").is_in(list(id_set))
-                ).collect()
+                df = pl.scan_parquet(path).filter(pl.col("prediction_id").is_in(list(id_set))).collect()
             except Exception:
                 logger.warning("Failed to read Parquet file %s", path)
                 continue
@@ -422,6 +450,17 @@ class ArrayStore:
                         with contextlib.suppress(ValueError):
                             arrays["y_proba"] = arrays["y_proba"].reshape(shape)
 
+                for field, shape_field in (("X", "X_shape"), ("spectra", "spectra_shape")):
+                    val = row.get(field)
+                    if val is not None:
+                        arrays[field] = np.array(val, dtype=np.float64)
+                        shape = row.get(shape_field)
+                        if shape is not None and len(shape) > 1:
+                            with contextlib.suppress(ValueError):
+                                arrays[field] = arrays[field].reshape(shape)
+                    else:
+                        arrays[field] = None
+
                 val = row.get("sample_indices")
                 if val is not None:
                     arrays["sample_indices"] = np.array(val, dtype=np.int32)
@@ -437,6 +476,15 @@ class ArrayStore:
                         arrays["sample_metadata"] = {}
                 else:
                     arrays["sample_metadata"] = {}
+
+                raw_result_metadata = row.get("result_metadata")
+                if raw_result_metadata is not None and isinstance(raw_result_metadata, str):
+                    try:
+                        arrays["result_metadata"] = json.loads(raw_result_metadata)
+                    except (json.JSONDecodeError, TypeError):
+                        arrays["result_metadata"] = {}
+                else:
+                    arrays["result_metadata"] = {}
 
                 result[pid] = arrays
                 id_set.discard(pid)
@@ -588,8 +636,7 @@ class ArrayStore:
             stale_ids = tombstone_ids & live_ids
             if stale_ids:
                 logger.warning(
-                    "compact: ignoring %d stale tombstone(s) referencing live predictions; "
-                    "dropping the tombstone(s) and keeping the arrays.",
+                    "compact: ignoring %d stale tombstone(s) referencing live predictions; dropping the tombstone(s) and keeping the arrays.",
                     len(stale_ids),
                 )
             tombstone_ids -= live_ids

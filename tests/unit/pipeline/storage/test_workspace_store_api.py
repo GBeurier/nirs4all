@@ -825,6 +825,16 @@ class TestMethodInventory:
         "query_aggregated_predictions",
         "query_top_aggregated_predictions",
         "top_predictions",
+        # Native assurance result sidecars
+        "save_conformal_result",
+        "load_conformal_result",
+        "list_conformal_results",
+        "save_robustness_result",
+        "load_robustness_result",
+        "list_robustness_results",
+        "save_tuning_result",
+        "load_tuning_result",
+        "list_tuning_results",
         # Queries -- Chain Summaries
         "update_chain_summary",
         "bulk_update_chain_summaries",
@@ -915,4 +925,4 @@ class TestMethodInventory:
 
     def test_total_method_count(self):
         """The expected method count matches the design doc."""
-        assert len(self.EXPECTED_METHODS) == 58
+        assert len(self.EXPECTED_METHODS) == 67

@@ -11,20 +11,46 @@ from nirs4all.core.task_type import resolve_task_type_sql
 
 # Columns that can be used for ordering / grouping in prediction queries.
 # Used to guard against SQL injection when column names are interpolated.
-_PREDICTION_COLUMNS: frozenset[str] = frozenset({
-    "prediction_id", "pipeline_id", "chain_id", "dataset_name",
-    "model_name", "model_class", "fold_id", "partition",
-    "val_score", "test_score", "train_score",
-    "metric", "task_type", "n_samples", "n_features",
-    "scores", "best_params", "preprocessings",
-    "branch_id", "branch_name",
-    "exclusion_count", "exclusion_rate", "refit_context",
-    "prediction_scope", "prediction_level", "evaluation_scope",
-    "reduction_role", "reduction_id",
-    "physical_sample_id", "origin_sample_id", "derived_unit_id",
-    "unit_level", "unit_id", "row_id", "sample_influence_weight",
-    "created_at",
-})
+_PREDICTION_COLUMNS: frozenset[str] = frozenset(
+    {
+        "prediction_id",
+        "pipeline_id",
+        "chain_id",
+        "dataset_name",
+        "model_name",
+        "model_class",
+        "fold_id",
+        "partition",
+        "val_score",
+        "test_score",
+        "train_score",
+        "metric",
+        "task_type",
+        "n_samples",
+        "n_features",
+        "scores",
+        "best_params",
+        "preprocessings",
+        "branch_id",
+        "branch_name",
+        "exclusion_count",
+        "exclusion_rate",
+        "refit_context",
+        "prediction_scope",
+        "prediction_level",
+        "evaluation_scope",
+        "reduction_role",
+        "reduction_id",
+        "physical_sample_id",
+        "origin_sample_id",
+        "derived_unit_id",
+        "unit_level",
+        "unit_id",
+        "row_id",
+        "sample_influence_weight",
+        "created_at",
+    }
+)
 
 # =========================================================================
 # Run queries
@@ -149,6 +175,60 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
 DELETE_PREDICTION = "DELETE FROM predictions WHERE prediction_id = ?"
 
 QUERY_PREDICTIONS_BASE = "SELECT * FROM predictions"
+
+# =========================================================================
+# Conformal result queries
+# =========================================================================
+
+GET_CONFORMAL_RESULT = "SELECT * FROM conformal_results WHERE conformal_id = ?"
+
+GET_CONFORMAL_RESULT_BY_FINGERPRINT = "SELECT * FROM conformal_results WHERE result_fingerprint = ?"
+
+INSERT_CONFORMAL_RESULT = """
+INSERT INTO conformal_results
+    (conformal_id, name, run_id, pipeline_id, chain_id, prediction_id,
+     artifact_fingerprint, result_fingerprint, target_name, coverages,
+     artifact_json, result_json, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+LIST_CONFORMAL_RESULTS_BASE = "SELECT * FROM conformal_results"
+
+# =========================================================================
+# Tuning result queries
+# =========================================================================
+
+GET_TUNING_RESULT = "SELECT * FROM tuning_results WHERE tuning_id = ?"
+
+GET_TUNING_RESULT_BY_FINGERPRINT = "SELECT * FROM tuning_results WHERE result_fingerprint = ?"
+
+INSERT_TUNING_RESULT = """
+INSERT INTO tuning_results
+    (tuning_id, name, run_id, pipeline_id, chain_id, tuning_fingerprint,
+     result_fingerprint, engine, metric, direction, best_value, n_trials,
+     tuning_json, result_json, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+LIST_TUNING_RESULTS_BASE = "SELECT * FROM tuning_results"
+
+# =========================================================================
+# Robustness result queries
+# =========================================================================
+
+GET_ROBUSTNESS_RESULT = "SELECT * FROM robustness_results WHERE robustness_id = ?"
+
+GET_ROBUSTNESS_RESULT_BY_FINGERPRINT = "SELECT * FROM robustness_results WHERE result_fingerprint = ?"
+
+INSERT_ROBUSTNESS_RESULT = """
+INSERT INTO robustness_results
+    (robustness_id, name, run_id, pipeline_id, chain_id, conformal_id,
+     prediction_id, result_fingerprint, mode, scenario_count, slice_by,
+     report_json, metadata)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+"""
+
+LIST_ROBUSTNESS_RESULTS_BASE = "SELECT * FROM robustness_results"
 
 # =========================================================================
 # Artifact queries
@@ -316,6 +396,7 @@ DELETE_CHAIN = "DELETE FROM chains WHERE chain_id = ?"
 
 QUERY_CHAIN_SUMMARY_BASE = "SELECT * FROM v_chain_summary"
 
+
 def build_chain_predictions_query(
     *,
     chain_id: str,
@@ -346,6 +427,7 @@ def build_chain_predictions_query(
     where = " WHERE " + " AND ".join(conditions)
     sql = f"SELECT * FROM predictions{where} ORDER BY partition, fold_id"
     return sql, params
+
 
 def build_prediction_query(
     *,
@@ -421,6 +503,7 @@ def build_prediction_query(
 
     return base + where + order + pagination, params
 
+
 def build_top_predictions_query(
     *,
     n: int,
@@ -481,37 +564,52 @@ def build_top_predictions_query(
     where = " WHERE " + " AND ".join(conditions)
 
     if group_by is not None:
-        sql = (
-            f"SELECT * FROM ("
-            f"SELECT *, ROW_NUMBER() OVER (PARTITION BY {group_by} ORDER BY ({metric} IS NULL), {metric} {direction}) AS _rn "
-            f"FROM predictions{where}"
-            f") sub WHERE _rn <= ?"
-        )
+        sql = f"SELECT * FROM (SELECT *, ROW_NUMBER() OVER (PARTITION BY {group_by} ORDER BY ({metric} IS NULL), {metric} {direction}) AS _rn FROM predictions{where}) sub WHERE _rn <= ?"
         params.append(n)
     else:
-        sql = (
-            f"SELECT * FROM predictions{where} "
-            f"ORDER BY ({metric} IS NULL), {metric} {direction} "
-            f"LIMIT ?"
-        )
+        sql = f"SELECT * FROM predictions{where} ORDER BY ({metric} IS NULL), {metric} {direction} LIMIT ?"
         params.append(n)
 
     return sql, params
+
 
 # =========================================================================
 # Chain summary query builders (v_chain_summary VIEW)
 # =========================================================================
 
-_CHAIN_SUMMARY_COLUMNS: frozenset[str] = frozenset({
-    "chain_id", "pipeline_id", "model_class", "model_step_idx",
-    "model_name", "preprocessings", "branch_path", "source_index",
-    "metric", "task_type", "best_params", "dataset_name",
-    "cv_val_score", "cv_test_score", "cv_train_score", "cv_fold_count",
-    "cv_scores", "final_test_score", "final_train_score", "final_scores",
-    "final_agg_test_score", "final_agg_train_score", "final_agg_scores",
-    "relation_replay_manifest", "relation_replay_version", "relation_replay_fingerprint",
-    "run_id", "pipeline_status",
-})
+_CHAIN_SUMMARY_COLUMNS: frozenset[str] = frozenset(
+    {
+        "chain_id",
+        "pipeline_id",
+        "model_class",
+        "model_step_idx",
+        "model_name",
+        "preprocessings",
+        "branch_path",
+        "source_index",
+        "metric",
+        "task_type",
+        "best_params",
+        "dataset_name",
+        "cv_val_score",
+        "cv_test_score",
+        "cv_train_score",
+        "cv_fold_count",
+        "cv_scores",
+        "final_test_score",
+        "final_train_score",
+        "final_scores",
+        "final_agg_test_score",
+        "final_agg_train_score",
+        "final_agg_scores",
+        "relation_replay_manifest",
+        "relation_replay_version",
+        "relation_replay_fingerprint",
+        "run_id",
+        "pipeline_status",
+    }
+)
+
 
 def _append_filter_conditions(
     conditions: list[str],
@@ -568,21 +666,26 @@ def build_chain_summary_query(
     conditions: list[str] = []
     params: list[object] = []
 
-    _append_filter_conditions(conditions, params, [
-        ("run_id", run_id),
-        ("pipeline_id", pipeline_id),
-        ("chain_id", chain_id),
-        ("dataset_name", dataset_name),
-        ("model_class", model_class),
-        ("metric", metric),
-        ("task_type", task_type),
-    ])
+    _append_filter_conditions(
+        conditions,
+        params,
+        [
+            ("run_id", run_id),
+            ("pipeline_id", pipeline_id),
+            ("chain_id", chain_id),
+            ("dataset_name", dataset_name),
+            ("model_class", model_class),
+            ("metric", metric),
+            ("task_type", task_type),
+        ],
+    )
 
     where = ""
     if conditions:
         where = " WHERE " + " AND ".join(conditions)
 
     return QUERY_CHAIN_SUMMARY_BASE + where, params
+
 
 def build_chain_summary_count_query(
     *,
@@ -604,15 +707,19 @@ def build_chain_summary_count_query(
     """
     conditions: list[str] = []
     params: list[object] = []
-    _append_filter_conditions(conditions, params, [
-        ("run_id", run_id),
-        ("pipeline_id", pipeline_id),
-        ("chain_id", chain_id),
-        ("dataset_name", dataset_name),
-        ("model_class", model_class),
-        ("metric", metric),
-        ("task_type", task_type),
-    ])
+    _append_filter_conditions(
+        conditions,
+        params,
+        [
+            ("run_id", run_id),
+            ("pipeline_id", pipeline_id),
+            ("chain_id", chain_id),
+            ("dataset_name", dataset_name),
+            ("model_class", model_class),
+            ("metric", metric),
+            ("task_type", task_type),
+        ],
+    )
     where = ""
     if conditions:
         where = " WHERE " + " AND ".join(conditions)
@@ -651,14 +758,25 @@ def build_top_chains_query(
     Raises:
         ValueError: If *score_column* is not a valid column.
     """
-    valid_score_columns = frozenset({
-        "cv_val_score", "cv_test_score", "cv_train_score",
-        "final_test_score", "final_train_score",
-        # Deprecated aliases for backward compatibility
-        "min_val_score", "max_val_score", "avg_val_score",
-        "min_test_score", "max_test_score", "avg_test_score",
-        "min_train_score", "max_train_score", "avg_train_score",
-    })
+    valid_score_columns = frozenset(
+        {
+            "cv_val_score",
+            "cv_test_score",
+            "cv_train_score",
+            "final_test_score",
+            "final_train_score",
+            # Deprecated aliases for backward compatibility
+            "min_val_score",
+            "max_val_score",
+            "avg_val_score",
+            "min_test_score",
+            "max_test_score",
+            "avg_test_score",
+            "min_train_score",
+            "max_train_score",
+            "avg_train_score",
+        }
+    )
     # Map old aggregated column names to new chain summary columns
     _column_aliases: dict[str, str] = {
         "avg_val_score": "cv_val_score",
@@ -682,12 +800,16 @@ def build_top_chains_query(
         conditions.append("metric = ?")
         params.append(metric)
 
-    _append_filter_conditions(conditions, params, [
-        ("run_id", run_id),
-        ("pipeline_id", pipeline_id),
-        ("dataset_name", dataset_name),
-        ("model_class", model_class),
-    ])
+    _append_filter_conditions(
+        conditions,
+        params,
+        [
+            ("run_id", run_id),
+            ("pipeline_id", pipeline_id),
+            ("dataset_name", dataset_name),
+            ("model_class", model_class),
+        ],
+    )
 
     where = ""
     if conditions:
@@ -695,11 +817,7 @@ def build_top_chains_query(
 
     direction = "ASC" if ascending else "DESC"
 
-    sql = (
-        f"SELECT * FROM v_chain_summary{where} "
-        f"ORDER BY ({resolved_column} IS NULL), {resolved_column} {direction} "
-        f"LIMIT ?"
-    )
+    sql = f"SELECT * FROM v_chain_summary{where} ORDER BY ({resolved_column} IS NULL), {resolved_column} {direction} LIMIT ?"
     params.append(n)
     if offset:
         sql += " OFFSET ?"

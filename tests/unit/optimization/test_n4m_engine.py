@@ -3,6 +3,7 @@
 Skipped when the native optimizer is not installed
 (``from n4m.model_selection.optimizer import Optimizer`` fails).
 """
+
 from __future__ import annotations
 
 import numpy as np
@@ -24,6 +25,7 @@ class _StubController:
 
     def _get_model_instance(self, dataset, model_config, force_params=None):
         from sklearn.cross_decomposition import PLSRegression
+
         self.seen_params.append(dict(force_params or {}))
         return PLSRegression(**(force_params or {}))
 
@@ -36,6 +38,7 @@ class _StubController:
 
     def _evaluate_model(self, model, X_val, y_val, metric=None, direction="minimize"):
         from sklearn.metrics import mean_squared_error
+
         return float(np.sqrt(mean_squared_error(y_val, model.predict(X_val))))
 
 
@@ -50,21 +53,18 @@ def data():
     # y depends on a few features so PLS n_components matters
     y = X[:, :4] @ np.array([2.0, -1.0, 0.5, 1.5]) + 0.1 * rng.standard_normal(80)
     from sklearn.model_selection import KFold
+
     folds = list(KFold(4, shuffle=True, random_state=1).split(X))
     return X, y, folds
 
 
 def _run(engine, data, ft):
     X, y, folds = data
-    return engine.finetune(
-        _StubDataset(), {"model": None}, X, y, None, None, folds,
-        dict(ft, engine="n4m"), None, _StubController())
+    return engine.finetune(_StubDataset(), {"model": None}, X, y, None, None, folds, dict(ft, engine="n4m"), None, _StubController())
 
 
 def test_grouped_tpe_finds_best(data):
-    res = _run(N4MFinetuneManager(), data, {
-        "n_trials": 20, "sampler": "tpe", "approach": "grouped",
-        "seed": 3, "metric": "rmse", "model_params": {"n_components": ("int", 1, 10)}})
+    res = _run(N4MFinetuneManager(), data, {"n_trials": 20, "sampler": "tpe", "approach": "grouped", "seed": 3, "metric": "rmse", "model_params": {"n_components": ("int", 1, 10)}})
     assert "n_components" in res.best_params
     assert 1 <= res.best_params["n_components"] <= 10
     assert res.best_value >= 0.0
@@ -73,8 +73,7 @@ def test_grouped_tpe_finds_best(data):
 
 
 def test_determinism(data):
-    ft = {"n_trials": 12, "sampler": "tpe", "approach": "grouped", "seed": 7,
-          "metric": "rmse", "model_params": {"n_components": ("int", 1, 10)}}
+    ft = {"n_trials": 12, "sampler": "tpe", "approach": "grouped", "seed": 7, "metric": "rmse", "model_params": {"n_components": ("int", 1, 10)}}
     a = _run(N4MFinetuneManager(), data, ft).best_params
     b = _run(N4MFinetuneManager(), data, ft).best_params
     assert a == b
@@ -82,39 +81,53 @@ def test_determinism(data):
 
 @pytest.mark.parametrize("sampler", ["random", "sobol", "lhs", "cmaes", "ga", "pso", "gp_ei", "ternary"])
 def test_all_samplers_run(data, sampler):
-    res = _run(N4MFinetuneManager(), data, {
-        "n_trials": 10, "sampler": sampler, "approach": "grouped", "seed": 1,
-        "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
+    res = _run(N4MFinetuneManager(), data, {"n_trials": 10, "sampler": sampler, "approach": "grouped", "seed": 1, "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
     assert 1 <= res.best_params["n_components"] <= 8
+
+
+def test_grid_sampler_runs_or_fails_closed_by_native_capability(data):
+    manager = N4MFinetuneManager()
+    ft = {
+        "n_trials": 2,
+        "sampler": "grid",
+        "approach": "grouped",
+        "seed": 1,
+        "metric": "rmse",
+        "model_params": {"n_components": [1, 2]},
+    }
+
+    try:
+        manager._native_sampler("grid")
+    except NotImplementedError:
+        with pytest.raises(NotImplementedError, match="Sampler.GRID"):
+            _run(manager, data, ft)
+        return
+
+    res = _run(manager, data, ft)
+    assert res.n_trials == 2
+    assert res.best_params["n_components"] in {1, 2}
 
 
 @pytest.mark.parametrize("pruner", ["median", "successive_halving", "hyperband", "racing"])
 def test_pruners_run(data, pruner):
-    res = _run(N4MFinetuneManager(), data, {
-        "n_trials": 15, "sampler": "tpe", "pruner": pruner, "approach": "grouped",
-        "seed": 1, "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
+    res = _run(N4MFinetuneManager(), data, {"n_trials": 15, "sampler": "tpe", "pruner": pruner, "approach": "grouped", "seed": 1, "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
     assert res.n_trials == 15
     assert res.n_pruned >= 0
 
 
 def test_single_holdout(data):
-    res = _run(N4MFinetuneManager(), data, {
-        "n_trials": 8, "sampler": "tpe", "approach": "single", "seed": 1,
-        "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
+    res = _run(N4MFinetuneManager(), data, {"n_trials": 8, "sampler": "tpe", "approach": "single", "seed": 1, "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
     assert 1 <= res.best_params["n_components"] <= 8
 
 
 def test_matches_optuna_optimum(data):
     """On a clean problem the native TPE should reach the same integer optimum."""
     from nirs4all.optimization.optuna import OptunaManager
+
     X, y, folds = data
-    ft = {"n_trials": 30, "sampler": "tpe", "approach": "grouped", "seed": 5,
-          "metric": "rmse", "model_params": {"n_components": ("int", 1, 10)}}
+    ft = {"n_trials": 30, "sampler": "tpe", "approach": "grouped", "seed": 5, "metric": "rmse", "model_params": {"n_components": ("int", 1, 10)}}
     n4m = _run(N4MFinetuneManager(), data, ft)
-    opt = OptunaManager().finetune(
-        _StubDataset(), model_config={"model": None}, X_train=X, y_train=y,
-        X_test=None, y_test=None, folds=folds, finetune_params=dict(ft), context=None,
-        controller=_StubController())
+    opt = OptunaManager().finetune(_StubDataset(), model_config={"model": None}, X_train=X, y_train=y, X_test=None, y_test=None, folds=folds, finetune_params=dict(ft), context=None, controller=_StubController())
     assert n4m.best_params["n_components"] == opt.best_params["n_components"]
 
 
@@ -135,18 +148,35 @@ def test_conditional_when_clause(data):
     class SVRCtl(_StubController):
         def _get_model_instance(self, dataset, model_config, force_params=None):
             from sklearn.svm import SVR
+
             fp = dict(force_params or {})
             self.seen_params.append(fp)
             return SVR(**fp)
 
     ctl = SVRCtl()
     N4MFinetuneManager().finetune(
-        _StubDataset(), {"model": None}, X, y, None, None, folds,
-        {"engine": "n4m", "n_trials": 20, "sampler": "tpe", "approach": "grouped",
-         "seed": 1, "metric": "rmse", "model_params": {
-             "kernel": ["linear", "rbf"],
-             "gamma": {"type": "float_log", "min": 1e-4, "max": 1e1, "when": {"kernel": "rbf"}},
-         }}, None, ctl)
+        _StubDataset(),
+        {"model": None},
+        X,
+        y,
+        None,
+        None,
+        folds,
+        {
+            "engine": "n4m",
+            "n_trials": 20,
+            "sampler": "tpe",
+            "approach": "grouped",
+            "seed": 1,
+            "metric": "rmse",
+            "model_params": {
+                "kernel": ["linear", "rbf"],
+                "gamma": {"type": "float_log", "min": 1e-4, "max": 1e1, "when": {"kernel": "rbf"}},
+            },
+        },
+        None,
+        ctl,
+    )
     saw_linear, saw_rbf_gamma = False, False
     for fp in ctl.seen_params:
         if fp.get("kernel") == "linear":
@@ -176,26 +206,28 @@ def test_nested_static_unflatten(data):
 
     ctl = Ctl()
     N4MFinetuneManager().finetune(
-        _StubDataset(), {"model": None}, X, y, None, None, folds,
-        {"engine": "n4m", "n_trials": 3, "sampler": "random", "approach": "grouped",
-         "seed": 1, "metric": "rmse",
-         "model_params": {"n_components": ("int", 1, 5), "cfg": {"mode": "fast"}}},
-        None, ctl)
+        _StubDataset(),
+        {"model": None},
+        X,
+        y,
+        None,
+        None,
+        folds,
+        {"engine": "n4m", "n_trials": 3, "sampler": "random", "approach": "grouped", "seed": 1, "metric": "rmse", "model_params": {"n_components": ("int", 1, 5), "cfg": {"mode": "fast"}}},
+        None,
+        ctl,
+    )
     assert all(p.get("cfg") == {"mode": "fast"} for p in ctl.seen_params)
     assert all("cfg__mode" not in p for p in ctl.seen_params)
 
 
 def test_sorted_tuple_rejected(data):
     with pytest.raises(NotImplementedError):
-        _run(N4MFinetuneManager(), data, {
-            "n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1,
-            "model_params": {"a": {"type": "sorted_tuple", "length": 3, "min": 0, "max": 1}}})
+        _run(N4MFinetuneManager(), data, {"n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1, "model_params": {"a": {"type": "sorted_tuple", "length": 3, "min": 0, "max": 1}}})
 
 
 def test_seed_none_ok(data):
-    res = _run(N4MFinetuneManager(), data, {
-        "n_trials": 5, "sampler": "tpe", "approach": "grouped", "seed": None,
-        "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
+    res = _run(N4MFinetuneManager(), data, {"n_trials": 5, "sampler": "tpe", "approach": "grouped", "seed": None, "metric": "rmse", "model_params": {"n_components": ("int", 1, 8)}})
     assert res.n_trials == 5
 
 
@@ -231,21 +263,36 @@ def test_operator_choice_with_conditional_gating(data):
 
         def _evaluate_model(self, m, X_val, y_val, metric=None, direction="minimize"):
             from sklearn.metrics import mean_squared_error
+
             return float(np.sqrt(mean_squared_error(y_val, m.predict(X_val))))
 
     base = Pipeline([("scale", StandardScaler()), ("est", PLSRegression())])
     ctl = PipeCtl()
     res = N4MFinetuneManager().finetune(
-        _StubDataset(), {"model": base}, X, y, None, None, folds,
-        {"engine": "n4m", "n_trials": 30, "sampler": "tpe", "approach": "grouped",
-         "seed": 3, "metric": "rmse", "model_params": {
-             "scale": {"type": "categorical",
-                       "options": {"std": StandardScaler(), "mm": MinMaxScaler()}},
-             "est": {"type": "categorical",
-                     "options": {"pls": PLSRegression(), "ridge": Ridge()}},
-             "est__n_components": {"type": "int", "min": 1, "max": 6, "when": {"est": "pls"}},
-             "est__alpha": {"type": "float_log", "min": 1e-4, "max": 1e2, "when": {"est": "ridge"}},
-         }}, None, ctl)
+        _StubDataset(),
+        {"model": base},
+        X,
+        y,
+        None,
+        None,
+        folds,
+        {
+            "engine": "n4m",
+            "n_trials": 30,
+            "sampler": "tpe",
+            "approach": "grouped",
+            "seed": 3,
+            "metric": "rmse",
+            "model_params": {
+                "scale": {"type": "categorical", "options": {"std": StandardScaler(), "mm": MinMaxScaler()}},
+                "est": {"type": "categorical", "options": {"pls": PLSRegression(), "ridge": Ridge()}},
+                "est__n_components": {"type": "int", "min": 1, "max": 6, "when": {"est": "pls"}},
+                "est__alpha": {"type": "float_log", "min": 1e-4, "max": 1e2, "when": {"est": "ridge"}},
+            },
+        },
+        None,
+        ctl,
+    )
     # both operators explored, and no conditional attribute leaked across the choice
     ests = {type(t.get("est")).__name__ for t in ctl.trials}
     assert ests == {"PLSRegression", "Ridge"}
@@ -274,29 +321,29 @@ def test_options_without_explicit_type(data):
 
     X, y, folds = data
     res = N4MFinetuneManager().finetune(
-        _StubDataset(), {"model": None}, X, y, None, None, folds,
-        {"engine": "n4m", "n_trials": 8, "sampler": "random", "approach": "grouped",
-         "seed": 1, "metric": "rmse", "model_params": {
-             "est": {"options": {"a": Ridge(alpha=0.1), "b": Ridge(alpha=1.0)}}}},
-        None, RidgeCtl())
+        _StubDataset(),
+        {"model": None},
+        X,
+        y,
+        None,
+        None,
+        folds,
+        {"engine": "n4m", "n_trials": 8, "sampler": "random", "approach": "grouped", "seed": 1, "metric": "rmse", "model_params": {"est": {"options": {"a": Ridge(alpha=0.1), "b": Ridge(alpha=1.0)}}}},
+        None,
+        RidgeCtl(),
+    )
     # 'est' was sampled (an operator), not treated as a static value
     assert type(res.best_params["est"]).__name__ == "Ridge"
 
 
 def test_bad_option_names_raise(data):
     with pytest.raises(ValueError):
-        _run(N4MFinetuneManager(), data, {
-            "n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1,
-            "model_params": {"est": {"type": "categorical", "options": {1: "a", "1": "b"}}}})
+        _run(N4MFinetuneManager(), data, {"n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1, "model_params": {"est": {"type": "categorical", "options": {1: "a", "1": "b"}}}})
 
 
 def test_empty_when_raises(data):
     with pytest.raises(ValueError):
-        _run(N4MFinetuneManager(), data, {
-            "n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1,
-            "model_params": {
-                "k": ["x", "y"],
-                "z": {"type": "int", "min": 1, "max": 3, "when": {"k": []}}}})
+        _run(N4MFinetuneManager(), data, {"n_trials": 2, "sampler": "random", "approach": "grouped", "seed": 1, "model_params": {"k": ["x", "y"], "z": {"type": "int", "min": 1, "max": 3, "when": {"k": []}}}})
 
 
 def test_categorical_and_log_dsl(data):
@@ -306,15 +353,22 @@ def test_categorical_and_log_dsl(data):
     class RidgeCtl(_StubController):
         def _get_model_instance(self, dataset, model_config, force_params=None):
             from sklearn.linear_model import Ridge
+
             self.seen_params.append(dict(force_params or {}))
             return Ridge(**(force_params or {}))
 
     res = N4MFinetuneManager().finetune(
-        _StubDataset(), {"model": None}, X, y, None, None, folds,
-        {"engine": "n4m", "n_trials": 10, "sampler": "tpe", "approach": "grouped",
-         "seed": 1, "metric": "rmse",
-         "model_params": {"alpha": ("float_log", 1e-3, 1e2), "fit_intercept": [True, False]}},
-        None, RidgeCtl())
+        _StubDataset(),
+        {"model": None},
+        X,
+        y,
+        None,
+        None,
+        folds,
+        {"engine": "n4m", "n_trials": 10, "sampler": "tpe", "approach": "grouped", "seed": 1, "metric": "rmse", "model_params": {"alpha": ("float_log", 1e-3, 1e2), "fit_intercept": [True, False]}},
+        None,
+        RidgeCtl(),
+    )
     assert isinstance(res.best_params["alpha"], float)
     assert isinstance(res.best_params["fit_intercept"], bool)
     assert 1e-3 <= res.best_params["alpha"] <= 1e2

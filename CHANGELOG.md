@@ -33,6 +33,882 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Added
 
+- **Public replayed-array conformal calibration surface.**
+  `nirs4all.calibrate()` now supports the narrow V1 split-conformal path for
+  already replayed calibration predictions and prediction outputs with explicit
+  physical sample ids. Dataset loading and automatic predictor replay for
+  calibration fitting remain fail-closed with structured missing-gate errors.
+- **Grouped replayed-array conformal calibration.**
+  `nirs4all.calibrate(..., group_by=...)` now executes grouped split conformal
+  when calibration and prediction rows provide matching group evidence.
+  `prediction_groups` and `prediction_metadata` route prediction rows to
+  retained group quantiles; missing or unseen groups fail closed without global
+  fallback. Filesystem stores, workspace `conformal_results` rows,
+  conformal-only `.n4a` bundles and model `.n4a` sidecars preserve
+  `group_keys`, `group_calibrators`, row-aligned grouped `qhat` vectors and
+  strict non-boolean integer grouped `n_samples` summaries, then revalidate them
+  on reload.
+- **Joint-max multi-target conformal calibration.**
+  `nirs4all.calibrate(..., multi_target="joint_max")` now supports
+  two-dimensional replayed-array regression outputs. nirs4all retains one
+  score per physical sample, `max(abs(y_true - y_pred))` across target columns,
+  materializes intervals with the same shape as `y_pred`, and publishes a
+  simultaneous target-vector guarantee.
+- **Prediction-entry calibration input.**
+  `nirs4all.calibrate(calibration_data=result.best, ...)` now accepts nirs4all
+  prediction dictionaries that already contain `y_true`, `y_pred`, and explicit
+  physical sample ids. Extra result metadata is ignored; missing IDs remain
+  fail-closed.
+- **Raw replayed-array calibration aliases.**
+  `nirs4all.calibrate(calibration_data={...})` now accepts
+  `y_pred_calibration` / `calibration_predictions`, `calibration_sample_ids` /
+  `physical_sample_ids`, `calibration_groups`, and `calibration_metadata` in the
+  replayed-array mapping form. The runtime canonicalizes exactly one alias per
+  field and rejects ambiguous alias collisions before calibration.
+- **Conformal calibration alias registry entries.**
+  The keyword/effect registry now publishes `calibrate.calibration_data.groups`
+  and `calibrate.calibration_data.metadata` with their read-only aliases for
+  bindings, docs static exports and future Studio forms. It also publishes
+  `calibration_sample_ids` as a read-only alias for
+  `calibrate.calibration_data.sample_ids`, matching the runtime and docs.
+- **Dataset-backed calibration sample-id aliases.**
+  Raw dataset-backed `calibration_data={...}` mappings now accept
+  `calibration_sample_ids` alongside `sample_ids`, `physical_sample_ids`, and
+  `sample_id_column` for explicit calibration cohort identities. Multiple
+  explicit sample-id aliases in one dataset-backed mapping are rejected as
+  ambiguous before cohort extraction.
+- **Dataset-backed calibration group/metadata aliases.**
+  Raw dataset-backed `calibration_data={...}` mappings now accept
+  `calibration_groups` and `calibration_metadata` alongside canonical `groups`
+  and `metadata`, with ambiguous alias pairs rejected before cohort extraction.
+- **Uniform robustness noise scenarios.**
+  `prediction_noise` and `spectral_noise` robustness scenarios now accept
+  `distribution="uniform"` in addition to `normal`. Uniform noise is centered and
+  samples from `[-severity, +severity]`; registry/static exports and typed
+  `RobustnessScenarioSpec` validation expose the same vocabulary.
+- **Explicit `SpectroDataset` calibration cohorts.**
+  `nirs4all.calibrate(calibration_data={"dataset": spectro_dataset,
+  "selector": {...}, "y_pred": ...}, ...)` now extracts calibration targets,
+  physical sample ids, optional groups and metadata from a selected
+  `SpectroDataset` cohort while keeping replayed calibration predictions
+  explicit. The replayed calibration predictions may also be supplied through
+  the top-level `y_pred_calibration=` argument.
+- **DatasetConfigs/path calibration cohorts.**
+  The same `calibration_data.dataset` lane now accepts a `DatasetConfigs`
+  object, dataset config mapping, or config/path string resolved by existing
+  nirs4all dataset loaders. The resolved source must contain exactly one
+  dataset and still requires an explicit selector.
+- **In-memory predictor replay for calibration cohorts.**
+  `calibration_data.predictor` can now replay a sklearn-like in-memory
+  predictor on the selected dataset-backed calibration cohort when
+  `calibration_data.y_pred` is not supplied. nirs4all forwards selected
+  sample ids, groups and metadata to `predict()` when accepted.
+- **Saved predictor path replay for calibration cohorts.**
+  `calibration_data.predictor_bundle` now routes through public
+  `nirs4all.predict()` on the selected dataset-backed calibration `X`, allowing
+  explicit saved bundle/config paths to produce calibration predictions.
+- **RunResult and workspace-chain replay for calibration cohorts.**
+  `calibration_data.predictor_result` now accepts `RunResult.best`-like
+  prediction entries, and `calibration_data.predictor_chain_id` replays a stored
+  workspace chain when paired with nested `calibration_data.workspace_path`.
+  Both routes use public `nirs4all.predict()` on the selected calibration `X`
+  and preserve selected sample ids, groups and metadata. `predictor_chain_id`
+  and its typed-helper read alias `workspace_chain_id` must now be canonical
+  non-empty workspace chain ids without surrounding whitespace or NULs; invalid
+  values fail before replay or provenance publication.
+- **Physical sample ids are fail-closed before conformal publication.**
+  `calibrate(..., calibration_sample_ids=..., prediction_sample_ids=...)` and
+  `predict_calibrated(..., prediction_sample_ids=...)` now require canonical
+  non-empty strings without surrounding whitespace or NULs. Invalid IDs are
+  rejected before conformal prediction rows, intervals or replay provenance are
+  published, instead of being cleaned with `strip()`.
+  Conformal artifact identity/provenance strings and guarantee-status strings
+  now apply the same NUL-byte rejection on direct construction and reload.
+- **Grouped conformal labels no longer use implicit stripping.**
+  `calibration_groups`, `prediction_groups` and persisted prediction
+  `group_keys` now reject whitespace-padded, NUL-containing or non-string labels
+  before group quantiles are fitted or selected.
+- **Lifecycle registry entries for explicit calibration cohorts.**
+  The keyword/effect registry now documents the public
+  `calibration_data.dataset`, `selector`, `y_pred`, `sample_ids`,
+  `sample_id_column`, `group_column`, and `metadata_columns` keys so generated
+  docs and downstream UI forms can distinguish calibration evidence, replayed
+  predictions, identities, groups, and audit metadata.
+- **Dataset-backed calibration helper payloads are stricter.**
+  `ConformalCalibrationData(dataset=..., selector=...)` now rejects selector
+  keys that are not canonical non-empty strings, rejects non-JSON-native
+  selector values, and requires `include_augmented` to be a boolean before
+  publishing the runtime mapping. Raw `calibration_data={...}` mappings now use
+  the same selector and `include_augmented` boundary before cohort extraction.
+  Dataset-backed calibration column selectors are strict on both the typed
+  helper and raw mapping paths: `sample_id_column` and `group_column` must be
+  canonical non-empty strings, and `metadata_columns` must be one canonical
+  string or a duplicate-free sequence instead of being coerced with `str(...)`.
+- **Native tuning contracts are fail-closed on direct construction.**
+  `SearchSpaceParameter`, `ParameterPatch`, `OrderedSearchSpaceSpec`,
+  `DagMLTuningSpec`, `TrialResult` and `TuningResult` now canonicalize tuning
+  paths, reject non-TCV1 values, non-finite scores, boolean integer contract
+  fields, duplicate trial ids and params outside `tuning.space` before
+  fingerprinting, JSON persistence or summary publication.
+  `TuningResult.from_dict()` and `load_json()` now apply the same strict
+  `best_value` check, rejecting booleans and numeric strings instead of
+  coercing them with `float()`.
+  Direct `OrderedSearchSpaceSpec.parameter_patches(...)` calls now reject
+  non-string patch keys instead of converting them with `str(...)`; string keys
+  still use the documented dotted/double-underscore canonicalization.
+  `TuningResult.summary_artifact()` now also rejects non-scalar payloads under
+  its whitelisted compact diagnostic keys instead of publishing stringified
+  lists or mappings in CI/UI summary cards.
+- **Structured passthrough markers are literal.**
+  The native linear `run(tuning=...)` subset still accepts `None`, the plain
+  `"passthrough"` string and `{"kind": "passthrough"}` for non-final
+  preprocessing no-ops, but the structured marker now requires `kind` to be the
+  literal string `"passthrough"` instead of accepting host objects via
+  `str(...)` coercion.
+- **Native optimizer adapter seams are fail-closed on direct construction.**
+  `ObjectiveTuningRunResult` now requires a real `TuningResult` and canonical
+  optional `tuning_id`; the internal categorical codec now rejects empty or
+  duplicate choices, non-native choices without a decoder, mismatched decoder
+  keys, duplicate decoded public values and non-TCV1 decoded payloads before
+  Optuna/n4m can enqueue or decode categorical trials.
+- **Public tuning helper payloads are stricter.**
+  `TuningScoreData(dataset=..., selector=...)` and
+  `TuningWinner(dataset=..., selector=...)` now reject non-string or
+  whitespace-padded selector keys plus non-JSON-native selector values and
+  require boolean `include_augmented`;
+  `TuningWinner.score` rejects booleans and numeric strings;
+  `TuningCalibration.as_predict_result` must be boolean; tuning
+  metadata/extra mappings require canonical string keys and strict JSON-native
+  finite values before runtime publication. Non-finite numbers, bytes, tuples,
+  sets and arbitrary Python objects are rejected instead of being silently
+  published. Raw `NativeTuning(score_data={...})`, `winner={...}` and
+  `calibration={...}` mappings now enforce the same boundary before `to_dict()`
+  can publish them, including rejection of nested `calibration_data`. Raw
+  `calibration.coverage`, `method`, `unit`, `workspace_metadata` and
+  `workspace_conformal_id` now use the same strict validation and
+  canonicalization as the typed `TuningCalibration(...)` helper. Coverage
+  values, including every element in multi-coverage lists, must be real numeric
+  scalars; numeric strings are rejected instead of being coerced with
+  `float(...)`. Top-level
+  `NativeTuning` core fields are now validated through the `DagMLTuningSpec`
+  contract before publication, so engine/metric/direction strings are
+  canonicalized, integer/bool fields reject coercive strings and booleans, and
+  optimizer persistence fields must be canonical strings.
+  `TuningScoreData.metric`/`score_metric`, raw
+  `NativeTuning.score_data.metric`/`score_metric`, `TuningWinner.metric`,
+  `dataset_name`, `model_name`, `task_type` and the corresponding raw winner
+  aliases now reject non-string, blank and NUL-containing values before
+  publication instead of stringifying them; score/winner metrics and task types
+  publish lowercase canonical values, while winner dataset/model labels publish
+  trimmed strings.
+  Dataset-backed tuning `sample_id_column` and `group_column` now require
+  canonical non-empty strings, and `metadata_columns` must be one canonical
+  string or a duplicate-free sequence of canonical strings; raw
+  `NativeTuning.score_data` and `NativeTuning.winner` mappings enforce the same
+  rule before publication.
+  Tuple/list `NativeTuning.score_data` now validates its 2–5 field arity and
+  strict metadata keys and JSON-native metadata values before publication, and
+  valid tuple inputs publish as JSON-native lists instead of raw Python tuples.
+  Scalar strings, bytes, numbers and arbitrary objects are rejected because
+  public `score_data` must be a mapping or tuple/list cohort.
+  The keyword registry now publishes the same strict JSON-native finite-value
+  schema for tuning metadata, workspace metadata and calibration extras, so
+  Studio, forms and bindings can reject non-canonical metadata before calling
+  Python helpers.
+  Workspace tuning/conformal persistence now applies the same rule when writing
+  `tuning_results` and `conformal_results` rows; invalid metadata fails closed
+  instead of being serialized through `default=str`. Workspace conformal-row
+  metadata is validated before insertion, so invalid application metadata cannot
+  bypass reload-time conformal artifact checks via the database row.
+  Public conformal result metadata now uses the same strict JSON-native boundary
+  in `calibrate(..., result_metadata=...)` and
+  `predict_calibrated(..., result_metadata=...)` before generated guarantee
+  metadata is merged. The keyword registry publishes both entries with the same
+  strict schema, including their effect on calibrated result metadata and
+  fingerprints.
+  Robustness workspace metadata uses the same strict JSON-native row boundary
+  when writing
+  `robustness_results`; `save_workspace_robustness_report(...)` and
+  `robustness(..., workspace_path=..., workspace_metadata=...)` fail closed on
+  non-canonical keys, Python objects, tuples and non-finite numbers before
+  persistence.
+  `RobustnessReport.metadata`, which enters the report fingerprint and JSON
+  artifacts, now applies the same no-stringify key boundary on direct
+  construction and reload: non-string or NUL-containing keys and non-TCV1 values
+  fail closed instead of being coerced by `to_dict()`.
+  `RobustnessScenarioResult.scenario` and `RobustnessSliceResult.slice_key`,
+  which feed report JSON, fingerprints, summary rows and tabular exports, now
+  use the same strict mapping boundary on direct construction and reload:
+  non-string or NUL-containing keys, non-TCV1 values and boolean result
+  severities fail closed instead of being stringified into published evidence.
+  Prediction workspace publication now applies the same strict JSON-native
+  boundary to `workspace_metadata`/`workspace_result_metadata` and
+  `save_workspace_predict_result(..., metadata=..., result_metadata=...)`;
+  invalid keys, Python objects, tuples and non-finite numbers fail before the
+  prediction sidecar is written.
+- **Robustness scenario helpers are fail-closed on direct construction.**
+  `RobustnessScenarioSpec` now rejects non-string `kind`/`distribution` values,
+  boolean or numeric-string severities and non-canonical or NUL-containing
+  `extra` keys before `to_dict()` can publish a scenario payload, instead of
+  accepting host objects through `str(...)`, coercing `true` to `1.0` or
+  converting non-string keys to strings.
+- **Raw robustness scenario mappings reject coercive payloads.**
+  `robustness.scenarios=[{...}]` now rejects non-string `kind`/`distribution`
+  values, non-canonical or NUL-containing mapping keys and boolean or
+  numeric-string severities before execution, matching the typed
+  `RobustnessScenarioSpec` boundary.
+- **Lifecycle registry correction for `predict.coverage`.**
+  `predict.coverage` is now marked as partial support, matching the implemented
+  calibrated replayed-array result/store/bundle lane and `.n4a` bundles with an
+  attached conformal sidecar. If a bundle advertises an invalid `conformal/`
+  sidecar, `predict(..., coverage=...)` now fails sidecar validation instead of
+  falling back to uncalibrated prediction. A structurally complete sidecar whose
+  `calibrated_result.json` has non-empty predictions but no canonical physical
+  `sample_ids` is rejected before raw model prediction runs, so invalid
+  conformal identity cannot be hidden by a successful uncalibrated replay. Full
+  native predictor replay remains planned.
+- **Conformal reload identity is fail-closed.**
+  Filesystem conformal stores, workspace `conformal_results` rows and `.n4a`
+  conformal sidecars now share the same reload contract: a stored
+  `calibrated_result.json` whose non-empty prediction cohort lacks canonical
+  physical `sample_ids` fails reload. Corrupted workspace conformal rows with
+  the same missing prediction identity are rejected by both
+  `load_workspace_calibrated_result(...)` and
+  `load_workspace_calibrated_predict_result(...)` before a partial
+  `CalibratedRunResult` or conformal `PredictResult` can be exposed. Result
+  metadata must also be strict JSON-compatible at construction and reload time:
+  non-finite floats, Python objects, non-string keys or whitespace-padded keys
+  fail closed before fingerprinting or persistence. Nested mapping keys are
+  checked the same way, and tuple values are rejected instead of being silently
+  coerced into JSON arrays. Conformal calibration cohort rows built directly or
+  reloaded from JSON now require a strict non-boolean integer `row_index`,
+  canonical non-whitespace `sample_id`, `role` and optional `group`, plus strict
+  JSON-native metadata with string keys, before the cohort manifest can be
+  fingerprinted. The optional serialized `n_samples` summary must also be a
+  strict non-boolean integer matching the row count. Row-aligned calibration
+  metadata supplied as either column mappings or per-row mappings uses the same
+  strict key rule: non-string or whitespace-padded metadata keys fail before
+  manifest JSON coercion. `ConformalCalibrationSpec`
+  validates direct construction the same way as
+  `parse_conformal_calibration_spec()`: coverage values must be real numeric
+  scalars, not booleans or numeric strings, and method, unit, group keys and
+  multi-target mode are canonicalized before fingerprinting. Reloaded cohort
+  manifest `unit` and calibrated prediction `method`/`unit` payloads must
+  already be strings. Serialized method/unit contract fields reject arbitrary
+  Python objects instead of accepting their `__str__` output as evidence.
+  Conformal numeric arrays (`y_true`, `y_pred`,
+  interval bounds and `qhat`) reject boolean payloads instead of coercing them
+  to `0.0`/`1.0`, and reject numeric strings such as `"1.0"` instead of parsing
+  them as floats. Python-side `from_dict(...)` payloads carrying NumPy boolean
+  scalars in serialized scores or quantiles now fail closed the same way.
+  Serialized numeric fields also reject NumPy ndarray scalars instead of
+  coercing them to JSON numbers.
+  Empirical `ConformalMetricSet` diagnostics now fail closed
+  before fingerprinting or publication when observed coverage, coverage gap,
+  width, interval score or count consistency is non-finite, out of range,
+  negative or arithmetically inconsistent; positive infinity remains valid for
+  unbounded interval metrics. Direct `ConformalIntervalBlock` and
+  `CalibratedPredictionBlock` construction now fails closed for coverage-key
+  mismatches, interval shape mismatches, inverted bounds, unsupported
+  method/unit values, invalid group-key lengths, and negative or non-row-aligned
+  `qhat` values. Direct `SplitConformalCalibrator` construction now validates
+  retained residual scores, coverage keys, recomputed quantiles, method and unit
+  before `apply()`, so negative scores, edited `qhat` values or unsupported
+  vocabulary fail closed instead of materializing invalid intervals. Version
+  fields on conformal cohort manifests, calibration artifacts and calibrated
+  results are strict integer contract tags: boolean
+  `true`/`false` and numeric strings fail closed instead of being coerced to
+  schema version `1`. Optional conformal artifact identity strings
+  (`target_name`, `predictor_fingerprint`, `calibration_data_fingerprint`) must
+  be null or non-empty strings without surrounding whitespace; invalid
+  direct-construction and reload payloads fail closed before provenance
+  publication. Guarantee metadata string fields (`effective_engine`,
+  `requested_engine`, `source_calibrated_result_fingerprint`,
+  `invalidation_reasons`) are also strict provenance fields; booleans, objects,
+  empty or whitespace-padded values fail closed instead of being stringified, and
+  persisted `conformal_guarantee_status.version` must be the strict integer `1`.
+  Status `predictor_fingerprint`, `calibration_data_fingerprint`, `guarantee`,
+  and `scope` must also match the embedded artifact on construction and reload.
+  A persisted status must include the complete generated field set, and `status`
+  must be `active` exactly when `invalidation_reasons` is empty, otherwise
+  `invalidated`. The generated `limitations` list must also match the embedded
+  artifact's guarantee mode exactly; edited, shortened, empty or non-string
+  limitation payloads fail closed.
+- **Conformal reload intervals are artifact-derived.**
+  Stored conformal quantiles must recompute from retained non-negative residual
+  scores, and each materialized interval must equal `y_pred ± qhat` for the
+  embedded artifact. Filesystem stores, workspace rows and `.n4a` sidecars reject
+  edited intervals or quantiles even when the stored JSON has been made
+  self-consistent.
+- **DAG-ML D10 cache namespace boundary published.**
+  Native training/replay objects carrying `cache_namespace_fingerprints` are
+  treated as signed DAG-ML control-plane proofs. nirs4all forwards them
+  unchanged through the native client; DAG-ML owns validation, namespace-aware
+  handle derivation, file-store payload naming and columnar manifest exposure.
+  There is no nirs4all keyword for post-signature mutation of these proofs.
+- **Native HPO warm-start contract published.**
+  `run(tuning=...)` and `NativeTuning` now expose `force_params` as a strict
+  HPO contract key for the shared Optuna/n4m `PipelineObjective` lane. It
+  enqueues a caller-provided first trial, requires keys to be a subset of
+  `tuning.space`, preserves public decoded categorical values in results, and
+  fails closed when n4m bindings do not expose native `optimizer.enqueue(...)`.
+- **n4m failed-trial reporting is fail-closed.**
+  The n4m `PipelineObjective` adapter now requires native bindings to expose
+  either `optimizer.tell_result(...)` with a failed trial status or
+  `optimizer.tell(...)` before it can preserve `TrialResult(state="FAIL")`
+  entries after candidate fit/score errors. Older bindings that cannot report
+  failed candidates fail closed instead of silently losing HPO tape evidence.
+- **Optuna pruned trials remain distinct in the HPO tape.**
+  The shared `PipelineObjective` adapter now preserves
+  `optuna.exceptions.TrialPruned` as `TrialResult(state="PRUNED", value=None)`
+  with compact diagnostics `score_extractor="pruned"`, and
+  `TuningResult.summary_artifact()` counts `PRUNED` separately from `FAIL`.
+- **n4m pruned trials use native `TrialStatus.PRUNED` or fail closed.**
+  The n4m `PipelineObjective` adapter now preserves shared-objective prune
+  exceptions as `TrialResult(state="PRUNED", value=None)` when the installed
+  binding exposes `optimizer.tell_result(..., TrialStatus.PRUNED)`. Older
+  bindings that cannot record a pruned terminal state fail closed instead of
+  rewriting the candidate as `FAIL` or as a worst completed score.
+- **Native keyword/effect quick map published.**
+  The native tuning/conformal guide now includes a compact integration map that
+  links each supported syntax (`run.tuning.space`, `run.tuning.force_params`,
+  `run.tuning.score_data`, temporary conformal scoring, final calibration,
+  `predict(coverage)`, `robustness`, spectral/OOD replay and the workspace
+  `Predictions` bridge) to its runtime effect, published evidence and
+  fail-closed boundary. The release audit and extended Python API index point to
+  the same map, and document that integrations should use
+  `PredictResult.calibration_replay_source`,
+  `PredictResult.tuning_calibration_source` and
+  `PredictResult.spectral_replay_evidence_status` instead of scraping sidecar
+  rows or synthesizing missing spectral replay inputs.
+- **Fail-loud conformal guarantee display in `PredictResult`.**
+  Conformal `PredictResult` objects now expose materialized interval coverages
+  and `conformal_guarantee_status` in the public prediction reference, and their
+  string representation reports the guarantee status, effective engine and
+  selected coverages instead of making interactive users infer a statistical
+  guarantee from interval arrays alone.
+- **Top-level keyword/effect registry exports.**
+  `nirs4all.get_keyword_registry()` and `nirs4all.keyword_registry_json()` now
+  expose the machine-readable keyword/effect registry from the primary Python
+  API, so generated docs, Studio/forms and bindings can discover paths,
+  schemas, effects, invalidation rules and UI hints without importing private
+  pipeline modules. The same document is exportable from CI/build systems with
+  `nirs4all keyword-registry --output keyword-registry.json`, and successful
+  HTML documentation builds publish `_static/keyword-registry.json` for
+  Studio/Web/static consumers. `get_keyword_registry_schema()`,
+  `keyword_registry_schema_json()`, `nirs4all keyword-registry --schema`, and
+  `_static/keyword-registry.schema.json` provide a JSON Schema for validating
+  the published registry. The published JSON payload now has an explicit
+  SHA-256 contract test so schema/content drift is visible before release.
+- **Audit-only robustness/generalization reports.**
+  `nirs4all.robustness()` now exposes the first public robustness surface for
+  already replayed `PredictResult` or `CalibratedRunResult` objects. The initial
+  `clean_frozen` lane computes point metrics, conformal diagnostics when
+  intervals are materialized, and diagnostic metadata slices without perturbing
+  spectra, replaying predictors, recalibrating, or refitting. It also supports
+  deterministic `prediction_bias`, seeded `prediction_noise`, and explicit
+  `X` + `predictor` or `predictor_bundle` spectral stress cells over already
+  materialized predictions and intervals. The saved-bundle route replays
+  perturbed spectra through public `nirs4all.predict(model=predictor_bundle,
+  data={"X": X, "sample_ids": ...}, all_predictions=False)` without refit or
+  recalibration, and remains mutually exclusive with in-memory `predictor`.
+  Spectral reports now record `metadata["spectral_replay"]` with the replay
+  source, saved bundle path when applicable, replay route, and sample-id
+  forwarding status, and `RobustnessReport.summary_artifact()` carries that block
+  when present for lightweight UI/CI consumers.
+  Broader perturbations and modes remain fail-closed.
+  Reports support deterministic JSON export/reload with fingerprint
+  verification, deterministic Markdown and standalone HTML summaries, and
+  reloadable Parquet-directory tabular export with table row counts and
+  fingerprints for CI/release artifacts. Public
+  helpers now derive degradation rows against a reference scenario and worst
+  diagnostic slices for quick robustness triage. `RobustnessReport.summary_rows()`
+  now exposes compact per-scenario cards for CI and Studio, Markdown/HTML
+  summaries render the same compact scenario section, and the Parquet
+  directory export includes the derived `summary` table. `nirs4all
+  robustness-report` republishes verified robustness JSON artifacts as JSON,
+  Markdown, HTML, or Parquet-directory outputs for CI/release jobs without
+  re-running the audit. `RobustnessReport.save_artifacts()` now writes one
+  deterministic publication directory with manifest plus JSON, lightweight
+  `summary.json`, Markdown, HTML, and Parquet artifacts for CI, release
+  automation, bindings, and Studio. The summary payload is also exposed through
+  `summary_artifact()`, `to_summary_json()`, `save_summary(...)`, and CLI
+  `--format summary`; `get_robustness_summary_schema()` and
+  `robustness_summary_schema_json()` publish its JSON Schema for CI, bindings
+  and Studio validation, and `nirs4all robustness-summary-schema` exports the
+  same schema from CLI. The full bundle is available from `nirs4all
+  robustness-report --format artifacts` and `nirs4all workspace robustness export
+  --format artifacts`.
+  `RobustnessReport.load_artifacts()` reloads these directories and verifies the
+  manifest fingerprint, deterministic summary JSON, Markdown/HTML artifacts and
+  Parquet table manifest before returning the report. `nirs4all robustness-report`
+  now accepts either a verified JSON report or one of these artifact directories
+  as input before republishing to any supported output format.
+  `save_workspace_robustness_report()` and
+  `load_workspace_robustness_report()` persist/reload verified robustness
+  reports in the workspace, with `nirs4all workspace robustness list/show/export`
+  exposing the same inventory and artifact publication path for CI and future Studio adapters.
+  `robustness(workspace_path=..., workspace_robustness_id=...)` can now persist
+  the verified report directly after audit computation, and the keyword/effect
+  registry documents the workspace persistence keys separately from scientific
+  robustness controls. `PredictResult.robustness(...)` and
+  `CalibratedRunResult.robustness(...)` provide result-container convenience
+  syntax equivalent to `nirs4all.robustness(result, ...)`. Markdown and HTML
+  robustness exports now render fail-loud conformal guarantee details when
+  present, including requested/effective engine, method, unit, selected and
+  calibrated coverages, invalidation reasons and limitations. The lightweight
+  robustness `summary.json` artifact and its JSON Schema now also carry optional
+  `conformal_guarantee_status` and `spectral_replay`, so CI, bindings and
+  Studio cards can display engine, coverage, invalidation state and spectral
+  replay provenance without parsing the full report.
+  `RobustnessScenarioSpec` is
+  now a public typed helper for `robustness(scenarios=...)`, giving Python,
+  Studio, forms and bindings a stable constructor plus fail-closed
+  `to_dict()` serialization for observed, prediction-bias, prediction-noise
+  and spectral audit cells. The machine-readable keyword registry now also
+  exposes `robustness.scenarios.kind`, `.severity`, `.distribution`,
+  `robustness.X`, `robustness.predictor`, and `robustness.predictor_bundle` so
+  generated docs, Studio/forms and bindings can present scenario syntax and
+  effects without parsing prose.
+- **Lifecycle registry entries for public `run(tuning=...)` runtime keys.**
+  The keyword/effect registry now documents `run.tuning.score_data`,
+  `winner`, `calibration`, the top-level `run.calibration` alias, workspace ids/metadata, `resume`, and
+  `calibration.workspace_conformal_id` with explicit effects and boundaries.
+  The entries keep the current completed-result replay distinct from true
+  interrupted optimizer checkpoint resume.
+- **Compact tuning summary diagnostics.**
+  `TuningResult.summary_artifact()` now includes scalar
+  `trials[*].diagnostics` fields such as `error_type`, `score_family`,
+  `score_extractor`, `search_space_fingerprint` and `tuning_fingerprint`.
+  This lets CLI, bindings, CI cards and future Studio panels explain failed or
+  conformal-aware trials from the lightweight summary artifact without parsing
+  the full HPO tape. Candidate params and raw exception messages stay out of
+  the compact summary.
+- **Direct workspace prediction-to-`PredictResult` helper.**
+  `nirs4all.save_workspace_predict_result(workspace_path, result, ...)`,
+  `nirs4all.predict(..., save_to_workspace=True, workspace_result_metadata=...)`,
+  `nirs4all.load_workspace_predict_result(workspace_path, prediction_id)` and
+  `nirs4all.load_workspace_predict_results(workspace_path, dataset_name=None)`
+  now expose the explicit publisher, prediction-time publisher shortcut,
+  one-record loader and bulk workspace/store bridges as public APIs. The
+  publisher writes `PredictResult` values plus optional executable
+  `X`/`spectra` evidence and `result_metadata`; the loaders open the workspace
+  with arrays, convert through
+  `PredictResult.from_prediction_record()`, and preserve sample ids, model
+  metadata, intervals and conformal/tuning/robustness replay provenance for
+  notebooks, bindings, CI and Studio. Explicit lower-level workspace
+  `prediction_id` values must now be canonical non-empty strings without
+  surrounding whitespace or NULs; omitted ids still generate UUIDs, while invalid
+  provided ids fail before insertion instead of being ignored or stringified.
+- **Direct workspace prediction-to-robustness helper.**
+  `nirs4all.robustness_from_workspace_prediction(workspace_path, prediction_id, ...)`
+  now loads one stored prediction through the public `PredictResult` bridge,
+  delegates to `nirs4all.robustness()`, consumes executable stored `X`/`spectra`
+  plus `predictor_bundle` evidence as spectral/OOD defaults, and can persist the
+  report back to the workspace linked to the same `prediction_id`.
+  The CLI now exposes the same path as
+  `nirs4all workspace robustness from-prediction --prediction-id ...`, with
+  `--y-true`/`--y-true-json`, `--scenarios-json`, optional slicing metadata,
+  `--save-to-workspace`, and the same JSON/summary/Markdown/HTML/Parquet/artifact
+  output formats as persisted robustness exports.
+- **Executable spectral/OOD evidence publishing through `Predictions`.**
+  Store-backed `Predictions.add_prediction(...)` now accepts `X=...`,
+  `spectra=...`, and `result_metadata=...` so Python publishers can write
+  row-aligned spectral replay arrays and `robustness_evidence` into the
+  workspace array sidecar directly. Reloading with `load_arrays=True` restores
+  the arrays into `PredictResult.metadata`, and `Predictions.merge_stores(...)`
+  preserves the same sidecar evidence during workspace consolidation.
+- **Conformal-aware development objective scoring.**
+  `run(tuning=...).score_data` can now include an explicit
+  `conformal_calibration` cohort and a conformal metric such as
+  `conformal_mean_width` or `conformal_interval_score`. Each candidate gets a
+  temporary split conformal calibrator for objective scoring only; the final
+  `run(..., calibration=...)` result remains derived from the projected winner.
+  Trial diagnostics now expose the conformal score family, temporary-calibration
+  extractor, and final-calibration boundary for audit/replay.
+  The typed Python syntax now includes `TuningConformalScoreCalibration` and
+  validates conformal metric/calibration/coverage consistency before execution.
+  Its `metadata`/`calibration_metadata` payloads, and raw
+  `score_data.conformal_calibration.metadata`, now reject non-string or
+  whitespace-padded keys for both column-style and row-style metadata mappings
+  before runtime publication.
+  The keyword/effect registry now separately documents
+  `run.tuning.score_data.conformal_coverage` and its read-only `coverage` alias.
+  The U09 runnable example now exercises the typed conformal-aware objective
+  scoring syntax before final winner calibration.
+- **Tuning cohort metadata keys are strict before publication.**
+  `TuningScoreData.metadata`, `TuningWinner.metadata` and their raw
+  `NativeTuning.score_data.metadata` / `NativeTuning.winner.metadata` mapping
+  forms now reject non-string or whitespace-padded keys for both column-style
+  and row-style metadata before runtime publication.
+  The public API regression contract now freezes the native tuning/conformal
+  exports, `run(tuning=..., calibration=...)`, and `predict(coverage=...)`.
+  `tune_single_estimator()` now consumes `NativeTuning(score_data=...)` directly
+  for explicit array/tuple scoring cohorts, including typed conformal-aware
+  temporary scoring; dataset-backed `score_data` remains routed through
+  `run(tuning=...)`.
+  Its public call signature is now frozen by the API regression contract.
+  The same contract now also guards the result accessors consumed by downstream
+  integrations: `RunResult.tuning_*` and `PredictResult` interval/guarantee
+  helpers.
+  The native tuning/conformal guide now shows those public accessors directly,
+  so downstream code can avoid private fields and serialized JSON layouts.
+  The regression contract also freezes the public conformal/robustness function
+  signatures: calibration, calibrated prediction, metrics, robustness reports,
+  bundle helpers and workspace save/load helpers.
+  The same contract now guards the public member surface of typed tuning helpers
+  and robustness report containers.
+  It also snapshots typed tuning helper serialization (`to_dict()`), including
+  conformal-aware scoring and dataset-backed score/winner payloads used by
+  downstream forms and bindings.
+  `TunedSingleEstimatorConformalResult` now proxies `tuning_best_params` and
+  `tuning_best_value` in addition to `tuning_result` and `tuning_id`, so callers
+  can inspect the composite tuned+calibrated result without reaching through
+  `result.run` for the common tuning evidence.
+  `CalibratedRunResult` and `ConformalMetricSet` are now exported from both
+  `nirs4all` and `nirs4all.api`, matching the public function annotations and
+  documentation for conformal calibration and diagnostics.
+  Their public serialization is now covered by the API regression contract:
+  `ConformalMetricSet.to_dict()` is snapshotted and `CalibratedRunResult`
+  JSON round-trip plus artifact/prediction/guarantee fields are guarded.
+  File-oriented conformal helpers now advertise `Path` support in their public
+  signatures (`load_calibrated_result`, `export_calibrated_result`,
+  `attach_calibrated_result_to_bundle`), matching the runtime behavior tested by
+  the calibration suite.
+  `calibrate(store_path=..., bundle_path=...)` now also advertises `Path`
+  support in its public signature, and the persistence/export tests exercise
+  direct `Path` inputs.
+  `RobustnessReport.to_dict()` serialization is now covered by the API
+  regression contract with a deterministic audit-only report snapshot and JSON
+  round-trip, protecting publication artifacts consumed by CI, docs and Studio.
+  Artifact container method signatures for conformal and robustness outputs are
+  now frozen as public contracts, including JSON/Markdown/HTML/Parquet save/load
+  methods used by release automation.
+  The native tuning/conformal guide now documents the public result containers
+  importable from `nirs4all`: `TunedSingleEstimatorConformalResult`,
+  `CalibratedRunResult`, `ConformalMetricSet`, and `RobustnessReport`, including
+  their intended accessor/export roles for Python users, CI, Studio and
+  bindings.
+  `calibrate(calibration_data=(y_true, y_pred, sample_ids, groups, metadata),
+  ...)` now accepts a compact replayed-array tuple form with fail-closed arity,
+  matching the explicit tuple conventions used by native tuning cohorts while
+  still requiring physical calibration sample ids.
+  `ConformalCalibrationData` is now exported as a typed helper for
+  `calibrate(calibration_data=...)`, covering replayed-array evidence and
+  selected dataset-backed calibration cohorts without widening the runtime
+  subset. The typed helper now has execution coverage for explicit
+  dataset-backed replay lanes (`y_pred`, in-memory `predictor`,
+  `predictor_bundle`, `predictor_result`, and `predictor_chain_id` with
+  `workspace_path`), including identity/metadata transport and fail-closed
+  ambiguity checks. The public `calibrate()` signature now advertises the typed
+  helper, mapping, tuple and `PredictResult` calibration evidence forms.
+  The U09 executable example now smoke-tests the standalone
+  `ConformalCalibrationData` path alongside the integrated
+  `run(tuning=..., calibration=...)` workflow.
+  The manual module-level API and public-interface reference now list the native
+  conformal, robustness and tuning entry points instead of leaving them only in
+  the specialized guide.
+- **Prediction interval transport in `PredictResult`.**
+  `PredictResult` now accepts optional materialized interval blocks, exposes
+  `interval(coverage)` / `interval_coverages`, and includes lower/upper interval
+  columns in `to_dataframe()`. `nirs4all.calibrate(..., as_predict_result=True)`
+  returns this prediction container for the replayed-array conformal surface.
+- **Fail-loud conformal guarantee metadata.**
+  `CalibratedRunResult.conformal_guarantee_status` and
+  `PredictResult.conformal_guarantee_status` now expose the requested/effective
+  conformal engine, method, unit, calibrated and selected coverages,
+  fingerprints, limitations, and invalidation reasons. `predict(...,
+  coverage=...)` updates the selected coverage metadata without recalibrating.
+- **Internal filesystem store for conformal calibration results.**
+  `nirs4all.pipeline.dagml.conformal_store` persists calibrated replayed-array
+  results as a verified directory containing manifest, artifact, and result JSON
+  files. Loading checks manifest/result/artifact fingerprints and refuses
+  mismatched artifacts. The public replayed-array surface can write the same
+  layout with `nirs4all.calibrate(..., store_path=...)` and reload it with
+  `nirs4all.load_calibrated_result(path)`.
+- **Workspace persistence for conformal calibration results.**
+  Workspace schema v3 adds a `conformal_results` table. `nirs4all.calibrate(...,
+  workspace_path=..., workspace_conformal_id=...)`,
+  `nirs4all.save_workspace_calibrated_result(...)`, and
+  `nirs4all.load_workspace_calibrated_result(...)` persist and reload the same
+  verified conformal artifact/result JSON from the nirs4all SQLite workspace.
+- **Portable `.n4a` archives for calibrated replayed-array results.**
+  `nirs4all.calibrate(..., bundle_path="result.n4a")` and
+  `nirs4all.export_calibrated_result(result, "result.n4a")` package the verified
+  conformal store into a reloadable archive. These bundles contain the conformal
+  result/artifact, not yet the predictor/model artifact.
+- **Reusing conformal calibrators for new point predictions.**
+  `nirs4all.predict_calibrated(result_or_path, y_pred=..., prediction_sample_ids=...)`
+  applies a saved replayed-array calibrator to already computed point
+  predictions and returns either `PredictResult` with intervals or
+  `CalibratedRunResult`.
+- **`predict()` bridge for calibrated replayed arrays.**
+  `nirs4all.predict(model=calibrated_result_or_path, data={"y_pred": ..., "sample_ids": ...}, coverage=...)`
+  now routes to the same conformal replayed-array surface and selects only
+  already materialized coverages.
+- **Prediction coverage selector validation.**
+  `predict(..., coverage=...)` now rejects empty, duplicate, non-finite, or
+  out-of-range coverage selectors before selecting calibrated intervals,
+  matching the keyword registry schema.
+- **Conformal sidecars for existing model `.n4a` bundles.**
+  `nirs4all.attach_calibrated_result_to_bundle(model_bundle, calibrated, output_path=...)`
+  copies a model bundle and adds the verified `conformal/` sidecar. When such a
+  bundle is passed to `nirs4all.predict(..., data={"X": ..., "sample_ids": ...},
+  coverage=...)`, nirs4all replays the model bundle first and then applies the
+  attached conformal intervals.
+- **Empirical conformal diagnostics.**
+  `nirs4all.conformal_metrics(result_or_path, y_true=...)` computes observed
+  coverage, coverage gap, interval width, interval score, and miss counts for
+  already materialized conformal intervals. These metrics are diagnostics on the
+  supplied cohort and do not recalibrate or renew a guarantee. Metric payloads
+  are validated at construction: observed coverage must match the covered count,
+  coverage gap must match `observed_coverage - coverage`, and width/score
+  diagnostics must be non-negative or positive infinity for unbounded intervals.
+  The underlying prediction/interval blocks also validate coverage keys, shapes,
+  method/unit vocabulary, group-key lengths, interval bounds and `qhat` alignment
+  before metrics can be evaluated or serialized. Version fields on conformal
+  cohort manifests, calibration artifacts and calibrated results reject boolean
+  or numeric-string payloads instead of coercing them to schema version `1`.
+  Optional artifact identity strings reject empty, non-string or
+  whitespace-padded values on construction and reload. Guarantee metadata rejects
+  coerced engines, source fingerprints, invalidation reasons and boolean versions
+  before conversion to `PredictResult`, and stale predictor/data fingerprints,
+  guarantee names or scopes no longer survive reload. Partial or internally
+  incoherent guarantee-status payloads also fail closed.
+- **Versioned lifecycle keyword/effect registry.**
+  `nirs4all.pipeline.get_keyword_registry()` and `keyword_registry_json()` expose a
+  deterministic, machine-readable description of current and planned tuning,
+  training, calibration, prediction, and robustness syntax. Each entry records
+  data reads, state changes, calibration invalidation, per-engine support,
+  read-only aliases, documentation anchors, and Studio form hints. The pipeline
+  reference renders the same registry and clearly distinguishes implemented,
+  partial, and planned surfaces; the registry does not dispatch runtime behavior.
+- **Workspace persistence for native tuning results.**
+  Workspace schema v4 adds a `tuning_results` table. `WorkspaceStore` now
+  persists verified `TuningResult` JSON with contract/result fingerprints, and
+  `nirs4all.save_workspace_tuning_result(...)` /
+  `nirs4all.load_workspace_tuning_result(...)` expose the round-trip for
+  already-produced native tuning results. The internal
+  `run_pipeline_objective_tuning(..., workspace_path=...)` seam also stores the
+  completed tuning result before terminal refit, preserving the HPO evidence
+  tape if refit fails later.
+- **RunResult carrier for native tuning evidence.**
+  `RunResult` now exposes `tuning_result`, `tuning_id`,
+  `tuning_best_params`, and `tuning_best_value` when a native tuning trace is
+  attached. The internal
+  `project_objective_tuning_to_run_result()` seam projects an
+  `ObjectiveTuningRunResult` into that carrier without fabricating prediction
+  rows or test scores by default. When callers provide explicit `winner_x`,
+  `winner_score`, and `winner_metric`, the same seam now projects a refit
+  winner prediction row while treating the score as externally supplied
+  evaluation evidence. Public `run(tuning=...)` compiler/wiring remains a
+  separate gate.
+- **Single-estimator and linear compiler seam for native tuning objectives.**
+  `nirs4all.pipeline.dagml.pipeline_objective_compiler.compile_pipeline_objective()`
+  now compiles the narrow supported shapes `estimator`, `[estimator]`,
+  `{"model": estimator}`, `[{"model": estimator}]`, and linear
+  transformer→estimator chains into the shared `PipelineObjective`. Broader
+  pipeline syntax remains fail-closed until the public `run(tuning=...)`
+  compiler is complete.
+- **Prediction-based score extractor for native tuning objectives.**
+  `make_prediction_score_extractor(metric, X_score, y_score)` now provides a
+  standard `PipelineObjective` scorer that evaluates `predict(X_score)` against
+  an explicit score cohort. This removes the need for ad hoc
+  `training_result_` callbacks in the internal linear tuning lane while
+  keeping data splitting explicit.
+- **Linear compile→tune→refit→RunResult orchestration seam.**
+  `run_single_estimator_tuning_to_run_result()` stitches the narrow compiler,
+  optimizer adapters, optional workspace persistence, terminal refit, and
+  `RunResult` projection into one internal path. It supports either one final
+  estimator or a linear transformer→estimator chain. Winner prediction
+  projection still requires explicit caller-provided
+  `winner_score`/`winner_metric`; the helper does not convert development
+  objective values into test scores.
+- **Python API for the native single-estimator/linear tuning lane.**
+  `nirs4all.tune_single_estimator(...)` exposes the implemented native
+  single-estimator and linear transformer→estimator lane through the public
+  Python package. It requires explicit scoring via `X_score`/`y_score` or a
+  custom `score_extractor`, supports workspace tuning-result persistence, and
+  returns a `RunResult` with attached tuning evidence.
+- **First executable `run(tuning=...)` subset.**
+  `nirs4all.run(..., engine="dag-ml", tuning={...})` now executes the same
+  native lane for explicit array datasets when `tuning.score_data` is supplied.
+  The subset now accepts both single-estimator pipelines and linear
+  transformer→estimator chains with parameter paths such as `model.alpha` or
+  `scale.factor`. String `transform` and final `model` mappings can now use
+  explicit `sklearn.*` import paths with constructor `params`, e.g.
+  `{"transform": "sklearn.preprocessing.StandardScaler", "params":
+  {"with_mean": false}}` or `{"model": "sklearn.linear_model.Ridge", "params":
+  {"fit_intercept": false}}`, while short aliases and arbitrary imports remain
+  fail-closed. Constructor `params` must now use canonical string keys and
+  TCV1-compatible JSON-native values before import or instantiation.
+  Unsupported runtime keys, legacy-engine tuning, dataset loaders, splitters,
+  branches and non-linear preprocessing graphs remain fail-closed.
+- **Typed Python helpers for public native tuning syntax.**
+  `NativeTuning`, `TuningScoreData`, `TuningWinner`, and `TuningCalibration`
+  now provide an explicit object syntax for the same public `run(tuning=...)`
+  subset. The helpers normalize to the existing mapping form, expose
+  `NativeTuning.to_tuning_spec()` for the deterministic optimizer contract, and
+  keep runtime-only blocks such as scoring, winner projection, calibration and
+  workspace ids outside the tuning fingerprint.
+- **Workspace persistence for public `run(tuning=...)` subset.**
+  The single-estimator/linear array subset now honors `workspace_path` plus
+  `tuning.workspace_tuning_id` / `tuning.workspace_metadata`, persisting the
+  completed `TuningResult` before terminal refit and exposing the id on
+  `RunResult.tuning_id`. Workspace tuning ids supplied through
+  `NativeTuning.workspace_tuning_id`, the raw `tuning_id` alias,
+  `save_workspace_tuning_result(..., tuning_id=...)` or the internal objective
+  persistence path must now be canonical non-empty strings without surrounding
+  whitespace or NULs; omit the id to request an auto-generated UUID.
+  Workspace conformal ids and robustness ids now follow the same rule through
+  `calibrate(..., workspace_conformal_id=...)`,
+  `save_workspace_calibrated_result(..., conformal_id=...)`,
+  `robustness(..., workspace_robustness_id=...)` and
+  `save_workspace_robustness_report(..., robustness_id=...)`.
+  Optional workspace link ids stored beside tuning, conformal and robustness
+  rows, including `run_id`, `pipeline_id`, `chain_id`, source `prediction_id`
+  and source `conformal_id`, are now validated with the same strict boundary
+  instead of being inserted after host-side coercion.
+- **Idempotent resume for public `run(tuning=...)` subset.**
+  `run(..., engine="dag-ml", tuning={..., "resume": True})` can now reload a
+  completed workspace `TuningResult` for the single-estimator/linear array subset when
+  `workspace_path` and `tuning.workspace_tuning_id` are supplied. The resume bit
+  is treated as operational metadata for contract matching, optimizer-driving is
+  skipped, and the call performs only terminal refit/projection. Broader
+  pipeline shapes remain fail-closed; n4m optimizer-state resume in the shared
+  objective seam is now covered by the N4MOPT checkpoint path below.
+- **Optuna storage resume reconstructs compact trial diagnostics.**
+  Trials already present in a storage-backed Optuna study no longer fall back to
+  metric/direction-only diagnostics when `resume=True`: completed rows use
+  `score_extractor="optuna_storage"`, failed rows use
+  `score_extractor="failed"` and pruned rows use `score_extractor="pruned"` in
+  `TuningResult.trials` and summary artifacts. Resume also fails closed before
+  optimizer execution if existing materialized trial params do not match the
+  current `tuning.space` keys, preventing a persisted study from mixing
+  incompatible search spaces under the same `study_name`/`storage`. Existing
+  categorical values must also remain present in the current choices for their
+  key, so removed or renamed choices fail closed before optimizer execution.
+  Existing numeric values must also remain inside the current range for their
+  key, so narrowed ranges that exclude stored trials fail closed before optimizer
+  execution. If the current numeric space declares a `step`, stored values must
+  also lie on that grid. During storage-backed resume, `n_trials` is now treated
+  as the target total trial count instead of an unconditional number of
+  additional trials. New storage-backed studies persist nirs4all
+  `study.user_attrs` for format, schema version, optimizer contract fingerprint
+  and search-space fingerprint; non-empty studies missing those attrs or
+  carrying mismatched fingerprints fail closed during resume.
+  Restored Optuna `COMPLETE` rows must carry a finite numeric value; missing or
+  non-finite storage values fail closed instead of becoming completed trials
+  with no usable objective value.
+  Restored non-`COMPLETE` rows must not carry a final storage value; failed,
+  pruned or in-flight rows with final values are rejected as corrupted optimizer
+  history.
+  Restored `RUNNING` rows fail closed during resume because interrupted active
+  trials cannot be safely recovered into a terminal HPO tape.
+  Restored terminal Optuna rows must keep exactly the current `tuning.space`
+  parameter keys when the search space is non-empty; rows whose stored parameter
+  table was removed fail closed instead of becoming completed trials with empty
+  public params.
+  Restored queued Optuna `WAITING` rows that already carry materialized params
+  or `fixed_params` must also satisfy the current `tuning.space`; incompatible
+  values are rejected before Optuna can consume them.
+  Restored Optuna trial numbers must be canonical unique integers; corrupt
+  storage that yields non-integer or duplicate trial numbers fails closed before
+  the HPO tape is projected.
+- **n4m optimizer checkpoints are resumable in the shared objective seam.**
+  The n4m `PipelineObjective` adapter now accepts
+  `storage="file:///absolute/checkpoint-dir"` plus a filename-safe `study_name`
+  and writes a JSON manifest containing native N4MOPT checkpoint bytes after
+  each terminal trial. `resume=True` reloads only a matching optimizer contract
+  and treats `n_trials` as the target total trial count, so a checkpoint with one
+  completed trial and `n_trials=2` runs one remaining trial. Restored trial rows
+  are decoded back to public `TrialResult.params` and ordered canonically by
+  numeric trial id; duplicate restored trial ids or ids that are not canonical
+  integers fail closed before `TuningResult` construction. Named categorical
+  `options` whose optimizer labels differ from their JSON-native public values
+  are decoded before publication.
+  Restored checkpoint row params must still match the current `tuning.space` keys
+  and value domains: edited or incompatible checkpoint keys, categorical choices,
+  numeric ranges or numeric steps fail closed before they can contribute
+  optimizer history. Restored `COMPLETE` rows must carry a finite numeric score;
+  missing, boolean or non-finite scores fail closed instead of becoming complete
+  trials with no usable value.
+  Restored failed, pruned and cancelled rows keep compact
+  `score_extractor="failed"`, `score_extractor="pruned"` or
+  `score_extractor="cancelled"` diagnostics for summary cards. Non-terminal
+  checkpoint rows such as `RUNNING` fail closed during resume.
+  Restored n4m non-`COMPLETE` rows must not carry a final score; failed, pruned
+  or cancelled checkpoint rows with scores are rejected as corrupted optimizer
+  history.
+- **Integrated `run(tuning=...)` + conformal calibration subset.**
+  `run(..., engine="dag-ml", tuning={..., "winner": {...}, "calibration": {...}})`
+  now chains the projected winner entry into the replayed-array conformal
+  surface and returns `TunedSingleEstimatorConformalResult(run, calibrated)`.
+  The calibration payload cannot override `calibration_data`; it is derived from
+  the winner projection to preserve the explicit tune→refit→calibrate order.
+  When `workspace_path` is supplied to `run()`, the same workspace is used by
+  default for `tuning.calibration`, so `workspace_conformal_id` can persist the
+  calibrated result beside the tuning trace.
+- **Explicit scoring identities for native tuning.**
+  `tune_single_estimator()` and the public `run(tuning=...)` subset now accept
+  row-aligned `score_sample_ids`/`score_groups`/`score_metadata` or equivalent
+  `tuning.score_data` keys. Compatible estimators receive those values in
+  `predict()` during objective scoring, while sklearn-style estimators without
+  those predict kwargs continue to score normally. Winner ids also accept
+  `prediction_sample_ids` and `physical_sample_ids` aliases. Tuple datasets in
+  the public `run(tuning=...)` subset can now carry fit identities as
+  `(X, y, sample_ids, groups, metadata)`, with row-alignment checks and explicit
+  rejection of longer ambiguous tuples. `tuning.score_data` now supports the
+  analogous tuple form `(X_score, y_score, sample_ids, groups, metadata)` for
+  explicit scoring cohorts.
+- **Explicit `SpectroDataset` fit-cohort extraction for native tuning.**
+  The public `run(tuning=...)` subset now accepts
+  `dataset={"dataset": spectro_dataset, "selector": {...}, ...}`. The selector
+  is mandatory, bare `SpectroDataset` inputs remain fail-closed, and optional
+  `sample_id_column`, `group_column`, and `metadata_columns` transport fit
+  identities into the native tuning lane. `tuning.score_data` now supports the
+  same explicit `SpectroDataset` mapping form for objective scoring cohorts.
+- **DatasetConfigs/path-backed native tuning cohorts.**
+  The explicit dataset-backed mapping used by `run(tuning=...)`, `score_data`,
+  and `winner` now accepts `DatasetConfigs`, dataset config mappings, and
+  config/path strings resolved by existing nirs4all loaders. The source must
+  resolve to exactly one dataset and still requires a selector, so fit, scoring,
+  and winner cohorts remain explicit.
+- **Explicit `SpectroDataset` winner projection for native tuning.**
+  `tuning.winner` can now select a `SpectroDataset` cohort with
+  `{"dataset": spectro_dataset, "selector": {...}, ...}`. The selected rows
+  supply `winner_x`, `winner_y_true`, physical sample ids and optional metadata
+  for `RunResult.best` and downstream conformal calibration, while mixed
+  `dataset` + explicit `X/y_true` payloads remain fail-closed. Single-target
+  `(n, 1)` `SpectroDataset` targets are normalized to one-dimensional
+  `winner_y_true` before the conformal contract is applied.
+- **Executable example for native tuning + conformal calibration.**
+  `examples/user/04_models/U09_native_tuning_conformal.py` demonstrates
+  `run(tuning, calibration=...)` over a linear transformer→estimator chain, conformal
+  calibration, workspace reload of both artifacts, and
+  `predict_calibrated()` on new point predictions. A dedicated integration
+  smoke test keeps the documented flow executable. The user guide now includes a
+  dedicated native tuning + conformal page with Python syntax, keyword effects,
+  workspace CLI commands, and current fail-closed limits.
+- **CLI inspection for native tuning and conformal workspace artifacts.**
+  `nirs4all workspace tuning list/show` and
+  `nirs4all workspace conformal list/show/predict` expose read-only inspection
+  and application of persisted `TuningResult` and `CalibratedRunResult`
+  records, with `--json` output for CI/release audits. The `show` commands
+  reload and verify the stored typed result before printing it; `conformal
+  predict` applies the stored calibrator to explicit point predictions without
+  modifying the workspace.
+- **Single-estimator tuning output can feed conformal calibration.**
+  The `RunResult.best` prediction entry produced by
+  `tune_single_estimator(..., winner_x=..., winner_y_true=...,
+  winner_sample_ids=...)` now has a covered public test path into
+  `nirs4all.calibrate(calibration_data=result.best, ...)`, producing conformal
+  `PredictResult` intervals for replayed point predictions.
+- **Integrated single-estimator tuning + conformal result.**
+  `tune_single_estimator(..., calibration={...})` now runs the same conformal
+  replayed-array calibration immediately after winner projection and returns a
+  `TunedSingleEstimatorConformalResult` carrying both the tuning `RunResult` and
+  calibrated prediction result.
 - **Transition workspace compatibility and offline conversion guidance.** The Python
   library keeps the transition release compatible with both legacy workspaces and the
   V1 SQLite workspace format. Legacy DuckDB, legacy filesystem-run, and legacy
