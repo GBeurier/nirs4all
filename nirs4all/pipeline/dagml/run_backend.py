@@ -29,6 +29,7 @@ from typing import Any
 import numpy as np
 
 from nirs4all.api.result import RunResult
+from nirs4all.core.metrics import is_higher_better
 
 from .dataset import _dataset_inputs, _materialize_dataset
 from .detect import (
@@ -51,6 +52,11 @@ from .detect import (
 )
 from .errors import DagMlUnavailable, DagMlUnsupported, _OperatorLoweringUnsupported
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
+from .finetune_lowering import (
+    PUBLIC_DAGML_SELECTION_METRICS,
+    lower_deterministic_finetune_params_to_generators,
+    reject_native_training_param_overrides,
+)
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
 from .native_results import native_results_enabled, write_native_results
 from .result import _project_operator_sweep, _scores_to_run_result
@@ -117,6 +123,30 @@ __all__ = [
 def _has_finetune_params(pipeline: list[Any]) -> bool:
     """Whether any pipeline step asks legacy Optuna finetuning to mutate model params."""
     return any(isinstance(step, dict) and "finetune_params" in step for step in pipeline)
+
+
+def _metric_objective(metric: str) -> str:
+    """Return the native selection direction implied by a metric name."""
+
+    return "maximize" if is_higher_better(metric) else "minimize"
+
+
+def _lower_public_finetune_params(pipeline: Any) -> tuple[list[Any], dict[str, str]]:
+    """Lower public deterministic ``finetune_params`` before dag-ml routing."""
+
+    steps = list(pipeline)
+    if not _has_finetune_params(steps):
+        return steps, {}
+    try:
+        return lower_deterministic_finetune_params_to_generators(
+            steps,
+            context="public engine='dag-ml'",
+            supported_selection_metrics=PUBLIC_DAGML_SELECTION_METRICS,
+        )
+    except (TypeError, ValueError) as exc:
+        raise NotImplementedError(
+            f"engine='dag-ml' supports only deterministic finetune_params.model_params grids/ranges natively; adaptive n4m/Optuna finetune_params still require the Python optimizer path. Details: {exc}"
+        ) from exc
 
 
 def _iter_concat_transform_leaf_ops(operation: Any):
@@ -196,34 +226,20 @@ def _reject_unsupported_run_options(*, refit: Any, project: str | None, session:
       generic rule naming the key.
     """
     if refit is not True:
-        raise DagMlUnsupported(
-            f"engine='dag-ml' always runs native CV+refit on the single CV winner and cannot honor "
-            f"refit={refit!r} (disable / custom top-k / ranking selection); falling back to legacy."
-        )
+        raise DagMlUnsupported(f"engine='dag-ml' always runs native CV+refit on the single CV winner and cannot honor refit={refit!r} (disable / custom top-k / ranking selection); falling back to legacy.")
     if project is not None:
-        raise DagMlUnsupported(
-            f"engine='dag-ml' returns scores in memory and creates no workspace store, so it cannot tag "
-            f"the run with project={project!r}; falling back to legacy."
-        )
+        raise DagMlUnsupported(f"engine='dag-ml' returns scores in memory and creates no workspace store, so it cannot tag the run with project={project!r}; falling back to legacy.")
     if session is not None:
-        raise DagMlUnsupported(
-            "engine='dag-ml' creates no runner/workspace and cannot share a Session's runner+workspace; "
-            "falling back to legacy (which reuses session.runner)."
-        )
+        raise DagMlUnsupported("engine='dag-ml' creates no runner/workspace and cannot share a Session's runner+workspace; falling back to legacy (which reuses session.runner).")
     if cache is not None:
-        raise DagMlUnsupported(
-            "engine='dag-ml' runs no nirs4all StepCache, so it cannot honor a CacheConfig; falling back to legacy."
-        )
+        raise DagMlUnsupported("engine='dag-ml' runs no nirs4all StepCache, so it cannot honor a CacheConfig; falling back to legacy.")
     # General no-silent-drop rule: ANY runner_kwarg the dag-ml path does not POSITIVELY honor falls back.
     for key in runner_kwargs:
         if key in _HONORED_RUNNER_KWARGS:
             continue
         if key in _PERSISTENCE_REJECT_MESSAGES:
             raise DagMlUnsupported(_PERSISTENCE_REJECT_MESSAGES[key])
-        raise DagMlUnsupported(
-            f"engine='dag-ml' builds no PipelineRunner and does not honor the run() option {key!r}; "
-            f"falling back to legacy (which does)."
-        )
+        raise DagMlUnsupported(f"engine='dag-ml' builds no PipelineRunner and does not honor the run() option {key!r}; falling back to legacy (which does).")
 
 
 def preflight_dagml_backend(cli: str) -> None:
@@ -591,6 +607,8 @@ def _dispatch_run(
     """
     from nirs4all.core import detect_task_type
 
+    pipeline, finetune_overrides = _lower_public_finetune_params(pipeline)
+    reject_native_training_param_overrides(list(pipeline), context="engine='dag-ml'")
     config_name = _derive_config_name(pipeline, name)
     # The ordered legacy per-variant config names for a SWEEP (empty for a single concrete pipeline). The
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
@@ -608,6 +626,14 @@ def _dispatch_run(
     # `BalancedAccuracy` kind reachable via `--selection-metric balanced_accuracy` (CLI) and the in-process
     # bridge's `parse_selection_metric`. Regression stays `rmse`.
     metric = "balanced_accuracy" if is_classification else "rmse"
+    if "selection_metric" in finetune_overrides:
+        metric = finetune_overrides["selection_metric"]
+    if "selection_objective" in finetune_overrides:
+        expected_objective = _metric_objective(metric)
+        if finetune_overrides["selection_objective"] != expected_objective:
+            raise NotImplementedError(
+                f"engine='dag-ml' does not yet support overriding the native selection direction for metric {metric!r}; use direction={expected_objective!r} or choose a metric with the desired objective."
+            )
     task_type = "classification" if is_classification else "regression"
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
@@ -622,10 +648,7 @@ def _dispatch_run(
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
     if _has_finetune_params(list(pipeline)):
-        raise NotImplementedError(
-            "engine='dag-ml' does not yet support finetune_params; the native path would ignore "
-            "legacy Optuna-tuned model parameters instead of preserving Python-reference parity."
-        )
+        raise NotImplementedError("engine='dag-ml' did not lower finetune_params before native dispatch; this is an internal routing bug, not a supported execution path.")
     if _has_stateful_concat_transform(list(pipeline)):
         raise NotImplementedError(
             "engine='dag-ml' does not yet support stateful concat_transform with Python-reference "
@@ -643,7 +666,21 @@ def _dispatch_run(
     # such structure). A reshape combined with branch/exclude/augmentation is rejected by `_detect_rep_fusion`
     # (returns None) and falls through to the bridge's fail-loud path naming #31.
     if detected_rep_fusion is not None:
-        return _run_rep_fusion(list(pipeline), detected_rep_fusion, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "rep_fusion", metric, task_type, config_name=config_name, variant_config_names=variant_config_names, is_classification=is_classification, random_state=random_state)
+        return _run_rep_fusion(
+            list(pipeline),
+            detected_rep_fusion,
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python or sys.executable,
+            base_dir / "rep_fusion",
+            metric,
+            task_type,
+            config_name=config_name,
+            variant_config_names=variant_config_names,
+            is_classification=is_classification,
+            random_state=random_state,
+        )
 
     # REPETITIONS (sample-grain grouping): when the dataset declares a repetition column, several stored
     # rows share one physical sample. The split must be GROUP-aware — all replicates of a sample land on
@@ -664,12 +701,19 @@ def _dispatch_run(
                 "sample-level vote aggregation; the final-test surface would be scored at the "
                 "repetition row grain instead of the legacy sample-vote grain (backlog #21)."
             )
-        if augmentation_steps or detected is not None or detected_duplication is not None or detected_stacking is not None or detected_by_source is not None or detected_by_source_distinct_concat is not None or any(_is_exclude_step(step) for step in pipeline):
-            raise NotImplementedError(
-                "engine='dag-ml' does not yet support a repetition dataset combined with "
-                "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
-            )
-        return _run_repetition(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+        if (
+            augmentation_steps
+            or detected is not None
+            or detected_duplication is not None
+            or detected_stacking is not None
+            or detected_by_source is not None
+            or detected_by_source_distinct_concat is not None
+            or any(_is_exclude_step(step) for step in pipeline)
+        ):
+            raise NotImplementedError("engine='dag-ml' does not yet support a repetition dataset combined with exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21.")
+        return _run_repetition(
+            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state
+        )
 
     # Separation branch (by_metadata/by_tag) + concat merge → ONE native fan-out run: dag-ml fans the
     # branch into one model node per partition value (discovered from the envelope metadata/tags),
@@ -678,14 +722,42 @@ def _dispatch_run(
     # branch is still visible — exclude+branch is rejected (out of scope) rather than silently dropped.
     if detected is not None:
         branch_step, branch_body = detected
-        return _run_separation_branch(list(pipeline), branch_step, branch_body, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "branch", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+        return _run_separation_branch(
+            list(pipeline),
+            branch_step,
+            branch_body,
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python or sys.executable,
+            base_dir / "branch",
+            metric,
+            task_type,
+            dataset_pickle=host_pickle,
+            config_name=config_name,
+            random_state=random_state,
+        )
 
     # Duplication branch (`{"branch": [[A], [B], …]}`) + avg/mean fusion merge → ONE native run: each
     # branch is a full-data model node (NO fan-out / NO branch_view); dag-ml's native fusion merge handler
     # averages the branches' held-out Validation OOF per sample (leakage-safe) into one full-universe OOF.
     if detected_duplication is not None:
         branches, aggregate = detected_duplication
-        return _run_duplication_branch(list(pipeline), branches, aggregate, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "duplication", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+        return _run_duplication_branch(
+            list(pipeline),
+            branches,
+            aggregate,
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python or sys.executable,
+            base_dir / "duplication",
+            metric,
+            task_type,
+            dataset_pickle=host_pickle,
+            config_name=config_name,
+            random_state=random_state,
+        )
 
     # by_source separation branch (`{"branch": {"by_source": True, "steps": [...model...]}}`) + avg/mean
     # fusion merge on a MULTI-source dataset → ONE native run: dag-ml fans the shared body into one
@@ -695,7 +767,22 @@ def _dispatch_run(
     # (a feature-axis selection, not a sample partition like by_metadata).
     if detected_by_source is not None:
         by_source_body, by_source_aggregate = detected_by_source
-        return _run_by_source_branch(list(pipeline), by_source_body, by_source_aggregate, spectro.features_sources(), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "by_source", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+        return _run_by_source_branch(
+            list(pipeline),
+            by_source_body,
+            by_source_aggregate,
+            spectro.features_sources(),
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python or sys.executable,
+            base_dir / "by_source",
+            metric,
+            task_type,
+            dataset_pickle=host_pickle,
+            config_name=config_name,
+            random_state=random_state,
+        )
 
     # by_source per-source DICT preprocessing + concat feature merge + downstream model:
     # one native model node materializes source blocks, fits each source's transform chain
@@ -725,7 +812,21 @@ def _dispatch_run(
     # matrix and diverge for row-wise ops such as SNV.
     if detected_source_concat is not None:
         pre_merge_steps, post_merge_steps, source_indices = detected_source_concat
-        return _run_source_concat_merge(pre_merge_steps, post_merge_steps, source_indices, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "source_concat", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+        return _run_source_concat_merge(
+            pre_merge_steps,
+            post_merge_steps,
+            source_indices,
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python or sys.executable,
+            base_dir / "source_concat",
+            metric,
+            task_type,
+            dataset_pickle=host_pickle,
+            config_name=config_name,
+            random_state=random_state,
+        )
 
     # STACKING (backlog #10): a duplication branch (`{"branch": [[A], [B], …]}`) + `{"merge": "predictions"}`
     # + a downstream meta-model (`{"model": MetaModel(Ridge())}` or a plain `{"model": Ridge()}`) → ONE
@@ -735,7 +836,21 @@ def _dispatch_run(
     # the meta-learner on the per-fold OOF meta-feature matrix and emits its own scored OOF.
     if detected_stacking is not None:
         branches, meta_learner = detected_stacking
-        return _run_stacking_branch(list(pipeline), branches, meta_learner, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "stacking", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state)
+        return _run_stacking_branch(
+            list(pipeline),
+            branches,
+            meta_learner,
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python or sys.executable,
+            base_dir / "stacking",
+            metric,
+            task_type,
+            dataset_pickle=host_pickle,
+            config_name=config_name,
+            random_state=random_state,
+        )
 
     # A STACKING merge that is NOT the handled shape above (a per-branch predictions config, a missing /
     # mis-ordered meta-model, a MetaModel carrying unhandled options) must fail LOUD here, naming #10,
@@ -778,7 +893,22 @@ def _dispatch_run(
     # generators (`_or_`/`_cartesian_`, multi-model) stay on the Python `expand_spec` path below.
     if _generation_kind(list(pipeline)) == "param_model":
         return _run_native_generation(
-            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, variant_model_params=variant_model_params, random_state=random_state
+            list(pipeline),
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python or sys.executable,
+            base_dir / "native",
+            metric,
+            task_type,
+            cv_pool,
+            excluded,
+            tags_by_sample,
+            dataset_pickle=host_pickle,
+            config_name=config_name,
+            variant_config_names=variant_config_names,
+            variant_model_params=variant_model_params,
+            random_state=random_state,
         )
 
     # FLAT-SINGLE operator `_or_` (a bare-operator preprocessing sweep) → ONE native dag-ml operator-SELECT
@@ -812,10 +942,26 @@ def _dispatch_run(
     # (with an EMPTY constraints set) + content-keyed config map align. arrange (ordered permutations) reaches
     # parity because dag-ml's permutation order matches legacy AND the config map is content-keyed; `then_*` /
     # `count` / `_seed_` / `_weights_` / oversize-pick / non-routable shapes are demoted by the predicate.
-    if _generation_kind(list(pipeline)) == "operator" and (_is_flat_single_operator_generator(list(pipeline)) or _is_constrained_operator_generator(list(pipeline)) or _is_unconstrained_operator_generator(list(pipeline))):
+    if _generation_kind(list(pipeline)) == "operator" and (
+        _is_flat_single_operator_generator(list(pipeline)) or _is_constrained_operator_generator(list(pipeline)) or _is_unconstrained_operator_generator(list(pipeline))
+    ):
         try:
             return _run_native_operator_generation(
-                list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "native_op", metric, task_type, cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, config_name=config_name, variant_config_names=variant_config_names, random_state=random_state
+                list(pipeline),
+                spectro,
+                dataset_arg,
+                cli,
+                venv_python or sys.executable,
+                base_dir / "native_op",
+                metric,
+                task_type,
+                cv_pool,
+                excluded,
+                tags_by_sample,
+                dataset_pickle=host_pickle,
+                config_name=config_name,
+                variant_config_names=variant_config_names,
+                random_state=random_state,
             )
         except _OperatorLoweringUnsupported:
             pass  # lowering-unsupported generator → fall through to the Python expand path (stays on dag-ml)
@@ -850,4 +996,6 @@ def _dispatch_run(
     results_by_index = [results for _scores, _model_name, _skip_refit, results, _identity, _artifacts in variant_runs]
     refit_artifacts_by_index = [artifacts for _scores, _model_name, _skip_refit, _results, _identity, artifacts in variant_runs]
     identity = variant_runs[0][4]
-    return _project_operator_sweep(variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names, results_by_index=results_by_index, identity=identity, refit_artifacts_by_index=refit_artifacts_by_index)
+    return _project_operator_sweep(
+        variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names, results_by_index=results_by_index, identity=identity, refit_artifacts_by_index=refit_artifacts_by_index
+    )

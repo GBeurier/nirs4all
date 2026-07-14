@@ -173,6 +173,100 @@ pred = nirs4all.predict(
 )
 ```
 
+## Recipe: Conformal Intervals and Robustness Summary Artifacts
+
+The native conformal/robustness lane has two distinct layers:
+
+- conformal calibration produces prediction intervals and a guarantee-status
+  payload for the calibrated cohort;
+- robustness reports are audit artifacts. They summarize what happened under
+  observed or perturbed scenarios, but they do not recalibrate the model and do
+  not renew a conformal guarantee.
+
+```python
+import nirs4all
+
+calibrated = nirs4all.calibrate(
+    calibration_data={
+        "y_true": y_calibration,
+        "y_pred": y_calibration_pred,
+        "sample_ids": calibration_sample_ids,
+    },
+    coverage=0.9,
+    workspace_path="workspace/",
+    workspace_conformal_id="pls-moisture-conformal",
+)
+
+pred = nirs4all.predict_calibrated(
+    calibrated,
+    y_pred=y_new_pred,
+    prediction_sample_ids=new_sample_ids,
+)
+
+report = pred.robustness(
+    y_true=y_new_observed,
+    scenarios=[
+        {"kind": "observed", "severity": 0.0},
+        {"kind": "prediction_noise", "severity": 0.02, "distribution": "normal"},
+        {"kind": "spectral_offset", "severity": 0.01},
+        {"kind": "spectral_scale", "severity": 0.03},
+        {"kind": "spectral_slope", "severity": 0.02},
+        {"kind": "spectral_shift", "severity": 0.5},
+    ],
+    slice_by=["Instrument", "Site"],
+    workspace_path="workspace/",
+    workspace_robustness_id="pls-moisture-robustness",
+)
+```
+
+Use the full report for audit/release evidence:
+
+```python
+report.save_artifacts("artifacts/robustness/pls-moisture")
+```
+
+The artifact directory contains a verified full report plus a lightweight
+`summary.json` payload intended for CI, bindings, Studio, dashboards, and release
+cards:
+
+```python
+summary = report.summary_artifact()
+report.save_summary("artifacts/robustness/pls-moisture/summary.json")
+schema = nirs4all.get_robustness_summary_schema()
+```
+
+`summary.json` is a stable, JSON-compatible contract with:
+
+| Field | Meaning |
+| --- | --- |
+| `format` | Always `nirs4all.robustness.summary`. |
+| `schema_version` | Summary payload schema version, currently `1`. |
+| `fingerprint` | Fingerprint of the verified full `RobustnessReport`. |
+| `mode` | Audit mode: `clean_frozen`, `matched_recalibration`, or `structural_refit`. |
+| `report_version` | Full report contract version. |
+| `slice_by` | Metadata columns used for slice diagnostics. |
+| `summary` | One compact row per scenario/severity cell. |
+
+Each summary row contains point metrics (`rmse`, `mae`, `bias`,
+`max_abs_error`), deltas versus the reference scenario, optional ratios, worst
+slice information, and optional conformal diagnostics such as
+`conformal_min_observed_coverage`, `conformal_max_abs_coverage_gap`, and
+`conformal_mean_width_mean` when the input prediction object carries conformal
+intervals.
+
+The key interpretation rule is fail-loud: robustness metrics are diagnostics.
+They can show degradation, coverage drift, or slice-specific risk, but they do
+not change the fitted predictor, the stored conformal calibrator, or the
+declared marginal conformal guarantee. If a training parameter, preprocessing
+graph, model, calibration cohort, or physical sample identity changes, create a
+new calibration/report pair instead of reusing the old artifacts.
+
+For native tuning plus conformal calibration, use
+{doc}`/user_guide/models/native_tuning_conformal` as the operational reference.
+Its `Native keyword/effect quick map` links each supported keyword to its
+runtime effect, published evidence and fail-closed boundary, including the
+workspace/store `Predictions` bridge into native `PredictResult` diagnostics.
+
 ## Custom Operators
 
 The easiest extension point is an sklearn-compatible object:

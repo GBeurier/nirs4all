@@ -18,6 +18,8 @@ Phase 1 Implementation (v0.6.0):
 from __future__ import annotations
 
 import contextlib
+import json
+import math
 import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -29,8 +31,10 @@ import numpy as np
 from nirs4all.core.logging import get_logger
 
 if TYPE_CHECKING:
+    from nirs4all.api.robustness import RobustnessReport
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline import PipelineRunner
+    from nirs4all.pipeline.dagml.tuning_contracts import TuningResult
     from nirs4all.pipeline.execution.refit.config_extractor import RefitConfig
     from nirs4all.pipeline.execution.refit.model_selector import PerModelSelection
 
@@ -46,6 +50,390 @@ def _plain_mapping(value: Any) -> dict[str, Any] | None:
 
 def _metadata_mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _is_executable_spectral_matrix(value: Any, *, expected_rows: int) -> bool:
+    """Return True when *value* is an actual row-aligned finite 2D matrix."""
+
+    if value is None or isinstance(value, (str, bytes, Mapping)):
+        return False
+    try:
+        array = np.asarray(value, dtype=float)
+    except (TypeError, ValueError):
+        return False
+    return bool(expected_rows > 0 and array.ndim == 2 and array.shape[0] == expected_rows and np.all(np.isfinite(array)))
+
+
+def _non_empty_array_or_none(value: Any, *, dtype: Any | None = None) -> np.ndarray | None:
+    """Return *value* as an ndarray, treating missing and empty values as absent."""
+
+    if value is None:
+        return None
+    array = np.asarray(value, dtype=dtype)
+    if array.size == 0:
+        return None
+    return array
+
+
+def _prediction_record_preprocessing_steps(record: Mapping[str, Any]) -> list[str]:
+    """Normalize store-shaped preprocessing metadata to ``PredictResult`` steps."""
+
+    raw = record.get("preprocessing_steps", record.get("preprocessings"))
+    if raw is None:
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        with contextlib.suppress(ValueError, TypeError):
+            import json
+
+            decoded = json.loads(text)
+            if isinstance(decoded, Sequence) and not isinstance(decoded, (str, bytes)):
+                return [str(item) for item in decoded if str(item)]
+        return [text]
+    if isinstance(raw, Sequence) and not isinstance(raw, (str, bytes)):
+        return [str(item) for item in raw if str(item)]
+    return [str(raw)]
+
+
+def _metadata_from_prediction_record(record: Mapping[str, Any]) -> dict[str, Any]:
+    """Build ``PredictResult.metadata`` from a workspace prediction record."""
+
+    metadata: dict[str, Any] = {}
+    raw_metadata = record.get("metadata")
+    if isinstance(raw_metadata, Mapping):
+        metadata.update(dict(raw_metadata))
+    elif raw_metadata is not None:
+        metadata["sample_metadata"] = raw_metadata
+
+    for key in (
+        "result_metadata",
+        "robustness_evidence",
+        "conformal_guarantee_status",
+        "calibration_replay_source",
+        "tuning_calibration_source",
+        "relation_replay_manifest",
+        "relation_materialization_manifest",
+        "feature_lineage",
+        "explanation_level",
+        "lineage_warning",
+        "predictor_bundle",
+        "model_path",
+    ):
+        value = record.get(key)
+        if value is not None:
+            metadata[key] = dict(value) if isinstance(value, Mapping) else value
+
+    for key in ("X", "spectra"):
+        value = record.get(key)
+        if value is not None:
+            metadata[key] = value
+
+    result_metadata = _plain_mapping(metadata.get("result_metadata"))
+    if result_metadata is not None:
+        for key in (
+            "conformal_guarantee_status",
+            "calibration_replay_source",
+            "tuning_calibration_source",
+            "predictor_bundle",
+            "model_path",
+        ):
+            if key in result_metadata and key not in metadata:
+                value = result_metadata[key]
+                metadata[key] = dict(value) if isinstance(value, Mapping) else value
+
+    return metadata
+
+
+def _predict_result_result_metadata(
+    result: PredictResult,
+    explicit: Mapping[str, Any] | None,
+) -> dict[str, Any]:
+    """Build result-level metadata for a persisted ``PredictResult``."""
+
+    payload = dict(result.metadata or {})
+    nested = payload.pop("result_metadata", None)
+    if isinstance(nested, Mapping):
+        payload = {**dict(nested), **payload}
+    payload.pop("X", None)
+    payload.pop("spectra", None)
+    if explicit is not None:
+        payload.update(dict(explicit))
+    return _strict_json_mapping(payload, "save_workspace_predict_result.result_metadata")
+
+
+def _strict_json_mapping(payload: Mapping[str, Any] | None, label: str) -> dict[str, Any]:
+    """Return a strict JSON-native mapping without object stringification."""
+
+    if payload is None:
+        return {}
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{label} must be a mapping")
+    normalized: dict[str, Any] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not key.strip() or key != key.strip() or "\x00" in key:
+            raise ValueError(f"{label} keys must be canonical non-empty strings")
+        if key in normalized:
+            raise ValueError(f"{label} contains duplicate keys")
+        normalized[key] = _strict_json_value(value, f"{label}[{key}]")
+    return normalized
+
+
+def _strict_json_value(value: Any, label: str) -> Any:
+    if value is None or isinstance(value, (str, bool)):
+        return value
+    if isinstance(value, (int, float)):
+        if not math.isfinite(float(value)):
+            raise ValueError(f"{label} must be JSON-native and finite")
+        return value
+    if isinstance(value, (bytes, tuple, set, frozenset)):
+        raise ValueError(f"{label} must be JSON-native")
+    if isinstance(value, Mapping):
+        return _strict_json_mapping(value, label)
+    if isinstance(value, list):
+        return [_strict_json_value(item, f"{label}[{index}]") for index, item in enumerate(value)]
+    raise ValueError(f"{label} must be JSON-native")
+
+
+def _predict_result_replay_matrix(result: PredictResult, key: str, explicit: Any) -> np.ndarray | None:
+    """Return an optional replay matrix from explicit input or result metadata."""
+
+    value = explicit
+    if value is None and isinstance(result.metadata, Mapping):
+        value = result.metadata.get(key)
+    if value is None:
+        return None
+    array = np.asarray(value)
+    if array.size == 0:
+        return None
+    return array
+
+
+def save_workspace_predict_result(
+    workspace_path: str | Path,
+    result: PredictResult,
+    *,
+    dataset_name: str = "prediction_dataset",
+    metadata: Mapping[str, Any] | None = None,
+    result_metadata: Mapping[str, Any] | None = None,
+    X: Any | None = None,
+    spectra: Any | None = None,
+    sample_indices: Any | None = None,
+    model_name: str | None = None,
+    model_classname: str = "",
+    pipeline_id: str | None = None,
+    chain_id: str | None = None,
+    partition: str = "prediction",
+    metric: str = "",
+    task_type: str = "regression",
+    n_features: int | None = None,
+    preprocessings: str | Sequence[str] | None = None,
+) -> str:
+    """Persist a public ``PredictResult`` as a workspace prediction row.
+
+    This is the high-level Python publisher for the workspace/store →
+    ``PredictResult`` bridge. It writes prediction values and optional
+    row-aligned executable ``X``/``spectra`` evidence through
+    ``Predictions.add_prediction(...)`` so downstream helpers such as
+    ``load_workspace_predict_result(...)`` and
+    ``robustness_from_workspace_prediction(...)`` can reload the same evidence
+    without callers manipulating the lower-level ``Predictions`` facade.
+
+    Conformal calibration artifacts and interval guarantees remain owned by
+    ``save_workspace_calibrated_result(...)``; this helper publishes prediction
+    rows plus replay evidence/provenance.
+
+    Args:
+        workspace_path: nirs4all workspace directory.
+        result: Prediction result to persist.
+        dataset_name: Dataset label for the prediction row.
+        metadata: Optional per-sample/sample-level metadata stored in the array
+            sidecar as ``sample_metadata``.
+        result_metadata: Optional result-level metadata merged over
+            ``result.metadata`` after removing executable arrays.
+        X: Optional row-aligned feature matrix for spectral/OOD replay.
+        spectra: Optional row-aligned spectra matrix for spectral/OOD replay.
+        sample_indices: Optional row indices. Defaults to
+            ``result.sample_indices``.
+        model_name: Optional model label. Defaults to ``result.model_name``.
+        model_classname: Optional fully qualified model class name.
+        pipeline_id: Optional workspace pipeline id.
+        chain_id: Optional workspace chain id.
+        partition: Prediction partition label.
+        metric: Optional metric name.
+        task_type: Prediction task type.
+        n_features: Optional feature count. Inferred from ``X`` or ``spectra``
+            when omitted.
+        preprocessings: Optional preprocessing summary. Defaults to the
+            ``PredictResult.preprocessing_steps`` JSON list.
+
+    Returns:
+        Stored workspace prediction id.
+
+    Raises:
+        TypeError: If ``result`` is not a ``PredictResult``.
+    """
+
+    if not isinstance(result, PredictResult):
+        raise TypeError("save_workspace_predict_result() expects a PredictResult")
+
+    from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+    X_array = _predict_result_replay_matrix(result, "X", X)
+    spectra_array = _predict_result_replay_matrix(result, "spectra", spectra)
+    if n_features is None:
+        source = X_array if X_array is not None else spectra_array
+        n_features = int(source.shape[1]) if source is not None and source.ndim >= 2 else 0
+
+    sample_indices_array = sample_indices if sample_indices is not None else result.sample_indices
+    if preprocessings is None:
+        preprocessings_text = json.dumps(list(result.preprocessing_steps), sort_keys=True)
+    elif isinstance(preprocessings, str):
+        preprocessings_text = preprocessings
+    else:
+        preprocessings_text = json.dumps([str(item) for item in preprocessings], sort_keys=True)
+
+    store = WorkspaceStore(Path(workspace_path))
+    try:
+        effective_model_name = model_name if model_name is not None else result.model_name
+        effective_model_classname = model_classname or effective_model_name
+        effective_pipeline_id = pipeline_id
+        if effective_pipeline_id is None:
+            run_id = store.begin_run(
+                "workspace_prediction_publish",
+                config={"publisher": "nirs4all.save_workspace_predict_result", "metric": metric},
+                datasets=[
+                    {
+                        "name": dataset_name,
+                        "n_samples": len(result),
+                        "n_features": int(n_features),
+                    }
+                ],
+            )
+            effective_pipeline_id = store.begin_pipeline(
+                run_id=run_id,
+                name="workspace_prediction_publish",
+                expanded_config=[{"predict_result": effective_model_name}],
+                generator_choices=[],
+                dataset_name=dataset_name,
+                dataset_hash="sha256:workspace-prediction-publish",
+            )
+
+        effective_chain_id = chain_id
+        if effective_chain_id is None:
+            effective_chain_id = store.save_chain(
+                pipeline_id=effective_pipeline_id,
+                steps=[
+                    {
+                        "step_idx": 0,
+                        "operator_class": effective_model_classname,
+                        "params": {},
+                        "artifact_id": None,
+                        "stateless": False,
+                    }
+                ],
+                model_step_idx=0,
+                model_class=effective_model_classname,
+                preprocessings=preprocessings_text,
+                fold_strategy="final",
+                fold_artifacts={},
+                shared_artifacts={},
+                dataset_name=dataset_name,
+            )
+
+        predictions = Predictions(store=store)
+        prediction_id = predictions.add_prediction(
+            dataset_name=dataset_name,
+            model_name=effective_model_name,
+            model_classname=effective_model_classname,
+            fold_id="final",
+            partition=partition,
+            sample_indices=sample_indices_array,
+            metadata=_strict_json_mapping(metadata, "save_workspace_predict_result.metadata"),
+            y_pred=np.asarray(result.y_pred),
+            X=X_array,
+            spectra=spectra_array,
+            result_metadata=_predict_result_result_metadata(result, result_metadata),
+            metric=metric,
+            task_type=task_type,
+            n_samples=len(result),
+            n_features=int(n_features),
+            preprocessings=preprocessings_text,
+        )
+        predictions.flush(pipeline_id=effective_pipeline_id, chain_id=effective_chain_id)
+    finally:
+        store.close()
+    return prediction_id
+
+
+def load_workspace_predict_result(workspace_path: str | Path, prediction_id: str) -> PredictResult:
+    """Load a workspace prediction row as a public ``PredictResult``.
+
+    This is the direct one-record public API for the existing
+    ``Predictions(...).get_predict_result_by_id(...)`` bridge. It loads arrays
+    from the workspace so intervals, provenance metadata, executable ``X`` or
+    ``spectra`` evidence, sample ids and model metadata can flow through
+    ``PredictResult.from_prediction_record()`` without callers depending on the
+    lower-level ``Predictions`` buffer API.
+
+    Args:
+        workspace_path: nirs4all workspace directory.
+        prediction_id: Stored prediction identifier.
+
+    Returns:
+        Native ``PredictResult`` converted from the stored prediction record.
+
+    Raises:
+        KeyError: If the prediction id is not present in the workspace.
+        ValueError: If the stored record was not loadable with prediction
+            arrays, propagated from ``PredictResult.from_prediction_record``.
+    """
+
+    from nirs4all.data.predictions import Predictions
+
+    predictions = Predictions(Path(workspace_path), load_arrays=True)
+    try:
+        result = predictions.get_predict_result_by_id(prediction_id)
+    finally:
+        predictions.close()
+    if result is None:
+        raise KeyError(f"workspace prediction not found: {prediction_id}")
+    return result
+
+
+def load_workspace_predict_results(
+    workspace_path: str | Path,
+    *,
+    dataset_name: str | None = None,
+) -> list[PredictResult]:
+    """Load workspace prediction rows as public ``PredictResult`` objects.
+
+    This is the bulk public API for the existing
+    ``Predictions(...).to_predict_results()`` bridge. It opens the workspace
+    with arrays and returns native prediction containers that preserve
+    intervals, sample ids, model metadata and replay provenance.
+
+    Args:
+        workspace_path: nirs4all workspace directory.
+        dataset_name: Optional dataset filter applied by the workspace query.
+
+    Returns:
+        List of native ``PredictResult`` objects in workspace query order.
+
+    Raises:
+        ValueError: If any stored record cannot be converted because its arrays
+            are unavailable or incomplete.
+    """
+
+    from nirs4all.data.predictions import Predictions
+
+    predictions = Predictions(Path(workspace_path), dataset_name=dataset_name, load_arrays=True)
+    try:
+        return predictions.to_predict_results()
+    finally:
+        predictions.close()
 
 
 def _materialization_manifest(value: Any) -> dict[str, Any] | None:
@@ -179,6 +567,7 @@ class ModelRefitResult:
     cv_score: float | None = None
     metric: str = ""
 
+
 class LazyModelRefitResult:
     """Lazy per-model refit result that triggers refit on first access.
 
@@ -259,10 +648,7 @@ class LazyModelRefitResult:
                     prediction_store=refit_predictions,
                 )
             except Exception:
-                logger.warning(
-                    f"Lazy refit for model '{self.model_name}' failed. "
-                    f"Resources may have been destroyed."
-                )
+                logger.warning(f"Lazy refit for model '{self.model_name}' failed. Resources may have been destroyed.")
                 # Return a minimal result with just the CV info
                 self._result = ModelRefitResult(
                     model_name=self.model_name,
@@ -329,6 +715,7 @@ class LazyModelRefitResult:
     def __repr__(self) -> str:
         status = "resolved" if self.is_resolved else "pending"
         return f"LazyModelRefitResult(model='{self.model_name}', status={status})"
+
 
 @dataclass
 class RunResult:
@@ -435,6 +822,12 @@ class RunResult:
     # ``export()`` still defer to the P1c legacy-refit bridge.
     _dagml_results_dir: Path | None = field(default=None, repr=False)
 
+    # Native full-DAG tuning evidence. This is populated by the tuning
+    # projection seam before public run(tuning=...) is opened end-to-end. It
+    # deliberately does not fabricate prediction rows or test scores.
+    _tuning_result: TuningResult | None = field(default=None, repr=False)
+    _tuning_id: str | None = field(default=None, repr=False)
+
     # --- Lifecycle ---
 
     def detach(self) -> None:
@@ -448,7 +841,7 @@ class RunResult:
         """
         if self._runner is not None and self._owns_runner:
             if self._workspace_path is None:
-                self._workspace_path = getattr(self._runner, 'workspace_path', None)
+                self._workspace_path = getattr(self._runner, "workspace_path", None)
             self._runner.close()
             self._runner = None
 
@@ -514,26 +907,26 @@ class RunResult:
         """
         best = self.best
         if not best:
-            return float('nan')
+            return float("nan")
 
         # Flat key first (from display_metrics)
         if metric in best and best[metric] is not None:
             return float(best[metric])
 
         # Nested per-partition scores dict
-        scores = best.get('scores', {})
+        scores = best.get("scores", {})
         if isinstance(scores, dict):
-            test_scores = scores.get('test', {})
+            test_scores = scores.get("test", {})
             if metric in test_scores and test_scores[metric] is not None:
                 return float(test_scores[metric])
 
         # Fall back to test_score when the selection metric IS this metric (or an alias)
-        if test_score_aliases and best.get('metric', '') in test_score_aliases:
-            test_score = best.get('test_score')
+        if test_score_aliases and best.get("metric", "") in test_score_aliases:
+            test_score = best.get("test_score")
             if test_score is not None:
                 return float(test_score)
 
-        return float('nan')
+        return float("nan")
 
     @property
     def best_score(self) -> float:
@@ -542,8 +935,8 @@ class RunResult:
         Returns:
             The test_score value from best prediction, or NaN if unavailable.
         """
-        score = self.best.get('test_score')
-        return float(score) if score is not None else float('nan')
+        score = self.best.get("test_score")
+        return float(score) if score is not None else float("nan")
 
     @property
     def best_rmse(self) -> float:
@@ -556,7 +949,7 @@ class RunResult:
         Returns:
             RMSE value or NaN if unavailable.
         """
-        return self._selected_metric('rmse', 'rmse', 'mse')
+        return self._selected_metric("rmse", "rmse", "mse")
 
     @property
     def best_r2(self) -> float:
@@ -568,7 +961,7 @@ class RunResult:
         Returns:
             R² value or NaN if unavailable.
         """
-        return self._selected_metric('r2', 'r2')
+        return self._selected_metric("r2", "r2")
 
     @property
     def best_accuracy(self) -> float:
@@ -581,7 +974,7 @@ class RunResult:
         Returns:
             Accuracy value or NaN if unavailable.
         """
-        return self._selected_metric('accuracy', 'accuracy')
+        return self._selected_metric("accuracy", "accuracy")
 
     # --- Refit accessors ---
 
@@ -744,7 +1137,7 @@ class RunResult:
         """
         if self._workspace_path is not None:
             return self._workspace_path
-        if self._runner and hasattr(self._runner, 'workspace_path'):
+        if self._runner and hasattr(self._runner, "workspace_path"):
             return self._runner.workspace_path
         return None
 
@@ -756,6 +1149,34 @@ class RunResult:
             Number of prediction entries.
         """
         return self.predictions.num_predictions
+
+    @property
+    def tuning_result(self) -> TuningResult | None:
+        """Native full-DAG tuning result attached to this run, if available."""
+
+        return self._tuning_result
+
+    @property
+    def tuning_id(self) -> str | None:
+        """Workspace identifier for the attached native tuning result, if stored."""
+
+        return self._tuning_id
+
+    @property
+    def tuning_best_params(self) -> dict[str, Any]:
+        """Best parameter patch selected by the attached tuning result."""
+
+        if self._tuning_result is None:
+            return {}
+        return dict(self._tuning_result.best_params)
+
+    @property
+    def tuning_best_value(self) -> float | None:
+        """Best objective value selected by the attached tuning result."""
+
+        if self._tuning_result is None:
+            return None
+        return float(self._tuning_result.best_value)
 
     # --- Query methods ---
 
@@ -1012,15 +1433,18 @@ class RunResult:
             # Re-run the export-bound pipeline on the legacy engine: save_artifacts=True persists the
             # workspace + chain the export path needs; the same name/random_state keep the refit aligned
             # with the dag-ml run. verbose=0 keeps the on-demand refit quiet (export is not a training call).
-            self._dagml_legacy_result = _run(
-                spec["pipeline"],
-                spec["dataset"],
-                name=spec.get("name", ""),
-                random_state=spec.get("random_state"),
-                save_artifacts=True,
-                save_charts=False,
-                verbose=0,
-                engine="legacy",
+            self._dagml_legacy_result = cast(
+                RunResult,
+                _run(
+                    spec["pipeline"],
+                    spec["dataset"],
+                    name=spec.get("name", ""),
+                    random_state=spec.get("random_state"),
+                    save_artifacts=True,
+                    save_charts=False,
+                    verbose=0,
+                    engine="legacy",
+                ),
             )
         return self._dagml_legacy_result
 
@@ -1215,13 +1639,7 @@ class RunResult:
         joblib.dump(model, output_path, compress=3)
         return output_path
 
-    def export_model(
-        self,
-        output_path: str | Path,
-        source: dict[str, Any] | None = None,
-        format: str | None = None,
-        fold: int | None = None
-    ) -> Path:
+    def export_model(self, output_path: str | Path, source: dict[str, Any] | None = None, format: str | None = None, fold: int | None = None) -> Path:
         """Export only the model artifact (lightweight).
 
         Unlike export() which creates a full bundle, this exports just the model.
@@ -1327,11 +1745,20 @@ class RunResult:
 
         if format is None:
             ext = output_path.suffix.lower()
-            format_map = {'.joblib': 'joblib', '.pkl': 'cloudpickle', '.pickle': 'cloudpickle', '.h5': 'keras_h5', '.hdf5': 'keras_h5', '.keras': 'tensorflow_keras', '.pt': 'pytorch_state_dict', '.pth': 'pytorch_state_dict'}
-            format = format_map.get(ext, 'joblib')
+            format_map = {
+                ".joblib": "joblib",
+                ".pkl": "cloudpickle",
+                ".pickle": "cloudpickle",
+                ".h5": "keras_h5",
+                ".hdf5": "keras_h5",
+                ".keras": "tensorflow_keras",
+                ".pt": "pytorch_state_dict",
+                ".pth": "pytorch_state_dict",
+            }
+            format = format_map.get(ext, "joblib")
 
         data, _actual_format = to_bytes(model, format)
-        with open(output_path, 'wb') as f:
+        with open(output_path, "wb") as f:
             f.write(data)
 
         return output_path
@@ -1356,8 +1783,7 @@ class RunResult:
 
         models = self.get_models()
         if models:
-            lines.append(f"  Models: {', '.join(models[:5])}" +
-                        (f" (+{len(models)-5} more)" if len(models) > 5 else ""))
+            lines.append(f"  Models: {', '.join(models[:5])}" + (f" (+{len(models) - 5} more)" if len(models) > 5 else ""))
 
         best = self.best
         if best:
@@ -1367,6 +1793,15 @@ class RunResult:
                 lines.append(f"    rmse: {self.best_rmse:.4f}")
             if not np.isnan(self.best_r2):
                 lines.append(f"    r2: {self.best_r2:.4f}")
+
+        if self._tuning_result is not None:
+            lines.append("  Tuning:")
+            if self._tuning_id is not None:
+                lines.append(f"    tuning_id: {self._tuning_id}")
+            lines.append(f"    optimizer: {self._tuning_result.optimizer}")
+            lines.append(f"    metric: {self._tuning_result.tuning.metric}")
+            lines.append(f"    best_value: {self._tuning_result.best_value:.4f}")
+            lines.append(f"    n_trials: {self._tuning_result.n_trials}")
 
         return "\n".join(lines)
 
@@ -1378,13 +1813,7 @@ class RunResult:
         """User-friendly string representation."""
         return self.summary()
 
-    def validate(
-        self,
-        check_nan_metrics: bool = True,
-        check_empty: bool = True,
-        raise_on_failure: bool = True,
-        nan_threshold: float = 0.0
-    ) -> dict[str, Any]:
+    def validate(self, check_nan_metrics: bool = True, check_empty: bool = True, raise_on_failure: bool = True, nan_threshold: float = 0.0) -> dict[str, Any]:
         """Validate the run result for common issues.
 
         Checks for NaN values in metrics, empty predictions, and other issues
@@ -1419,7 +1848,7 @@ class RunResult:
         total_count = self.num_predictions
 
         # Check for empty predictions
-        if check_empty and total_count == 0:
+        if check_empty and total_count == 0 and self._tuning_result is None:
             issues.append("No predictions found")
 
         # Check for NaN metrics
@@ -1428,7 +1857,7 @@ class RunResult:
             for pred in all_preds:
                 has_nan = False
                 # Check common metrics
-                for metric in ['rmse', 'r2', 'accuracy', 'mse', 'mae']:
+                for metric in ["rmse", "r2", "accuracy", "mse", "mae"]:
                     value = pred.get(metric)
                     if value is not None and np.isnan(value):
                         has_nan = True
@@ -1436,7 +1865,7 @@ class RunResult:
 
                 # Check scores dict
                 if not has_nan:
-                    scores = pred.get('scores', {})
+                    scores = pred.get("scores", {})
                     if isinstance(scores, dict):
                         for partition_scores in scores.values():
                             if isinstance(partition_scores, dict):
@@ -1447,7 +1876,7 @@ class RunResult:
 
                 # Check score fields
                 if not has_nan:
-                    for score_key in ('test_score', 'val_score', 'train_score'):
+                    for score_key in ("test_score", "val_score", "train_score"):
                         score_val = pred.get(score_key)
                         if score_val is not None and isinstance(score_val, float) and np.isnan(score_val):
                             has_nan = True
@@ -1460,27 +1889,22 @@ class RunResult:
             if nan_count > 0:
                 nan_ratio = nan_count / total_count if total_count > 0 else 0
                 if nan_ratio > nan_threshold:
-                    issues.append(
-                        f"NaN ratio ({nan_ratio:.1%}) exceeds threshold ({nan_threshold:.1%}): "
-                        f"{nan_count} of {total_count} predictions have NaN metrics"
-                    )
+                    issues.append(f"NaN ratio ({nan_ratio:.1%}) exceeds threshold ({nan_threshold:.1%}): {nan_count} of {total_count} predictions have NaN metrics")
 
         valid = len(issues) == 0
 
         report = {
-            'valid': valid,
-            'issues': issues,
-            'nan_count': nan_count,
-            'total_count': total_count,
+            "valid": valid,
+            "issues": issues,
+            "nan_count": nan_count,
+            "total_count": total_count,
         }
 
         if raise_on_failure and not valid:
-            raise ValueError(
-                "RunResult validation failed:\n" +
-                "\n".join(f"  - {issue}" for issue in issues)
-            )
+            raise ValueError("RunResult validation failed:\n" + "\n".join(f"  - {issue}" for issue in issues))
 
         return report
+
 
 @dataclass
 class PredictResult:
@@ -1494,17 +1918,26 @@ class PredictResult:
         sample_indices: Optional indices of predicted samples.
         model_name: Name of the model used for prediction.
         preprocessing_steps: List of preprocessing steps applied.
+        intervals: Materialized conformal intervals keyed by coverage.
 
     Properties:
         values: Alias for y_pred (for consistency).
         shape: Shape of prediction array.
         is_multioutput: True if predictions have multiple outputs.
+        interval_coverages: Materialized interval coverages in deterministic order.
+        conformal_guarantee_status: Fail-loud guarantee metadata when present.
+        calibration_replay_source: Provenance for conformal calibration prediction replay when present.
+        tuning_calibration_source: Provenance for native tuning-driven calibration when present.
+        robustness_evidence: Published robustness replay evidence metadata when present.
+        spectral_replay_evidence_status: Fail-closed readiness diagnostic for spectral/OOD replay.
 
     Key Operations:
+        from_prediction_record(record): Convert a workspace/store prediction record to PredictResult.
         to_numpy(): Get predictions as numpy array.
         to_list(): Get predictions as Python list.
         to_dataframe(): Get predictions as pandas DataFrame.
         flatten(): Get flattened 1D predictions.
+        interval(coverage): Get intervals for an already materialized coverage.
 
     Example:
         >>> result = nirs4all.predict(model, X_new)
@@ -1517,6 +1950,7 @@ class PredictResult:
     sample_indices: np.ndarray | None = None
     model_name: str = ""
     preprocessing_steps: list[str] = field(default_factory=list)
+    intervals: dict[float, Any] = field(default_factory=dict)
 
     def __post_init__(self):
         """Ensure y_pred is a numpy array."""
@@ -1524,6 +1958,54 @@ class PredictResult:
             self.y_pred = np.asarray(self.y_pred)
         if self.metadata is None:
             self.metadata = {}
+        if self.intervals is None:
+            self.intervals = {}
+        else:
+            self.intervals = {float(coverage): interval for coverage, interval in self.intervals.items()}
+
+    @classmethod
+    def from_prediction_record(cls, record: Mapping[str, Any]) -> PredictResult:
+        """Create a :class:`PredictResult` from a workspace prediction record.
+
+        The accepted shape is the dictionary returned by
+        ``Predictions.get_prediction_by_id(..., load_arrays=True)`` or
+        ``Predictions.to_dicts(load_arrays=True)``. The conversion preserves
+        store-level ``result_metadata`` and executable row-aligned ``X`` or
+        ``spectra`` arrays in ``metadata`` so conformal and robustness accessors
+        work on reloaded predictions without manual metadata plumbing.
+
+        Args:
+            record: Workspace/store prediction record carrying at least
+                ``y_pred``. Use ``load_arrays=True`` when loading records.
+
+        Returns:
+            A ``PredictResult`` with prediction values, sample indices, model
+            name, preprocessing metadata, intervals and replay evidence.
+
+        Raises:
+            TypeError: If ``record`` is not mapping-like.
+            ValueError: If ``record`` does not carry non-empty ``y_pred``.
+        """
+
+        if not isinstance(record, Mapping):
+            raise TypeError("PredictResult.from_prediction_record() expects a mapping record")
+
+        y_pred = _non_empty_array_or_none(record.get("y_pred"))
+        if y_pred is None:
+            raise ValueError("Prediction record does not contain non-empty 'y_pred'; load prediction records with load_arrays=True before converting to PredictResult")
+
+        sample_indices = _non_empty_array_or_none(record.get("sample_indices"), dtype=np.int64)
+        raw_intervals = record.get("intervals")
+        intervals = dict(raw_intervals) if isinstance(raw_intervals, Mapping) else {}
+
+        return cls(
+            y_pred=y_pred,
+            metadata=_metadata_from_prediction_record(record),
+            sample_indices=sample_indices,
+            model_name=str(record.get("model_name") or ""),
+            preprocessing_steps=_prediction_record_preprocessing_steps(record),
+            intervals=intervals,
+        )
 
     @property
     def values(self) -> np.ndarray:
@@ -1598,6 +2080,135 @@ class PredictResult:
         """Check if predictions have multiple outputs."""
         return len(self.shape) > 1 and self.shape[1] > 1
 
+    @property
+    def interval_coverages(self) -> tuple[float, ...]:
+        """Return materialized prediction interval coverages in deterministic order."""
+
+        return tuple(sorted(self.intervals))
+
+    @property
+    def conformal_guarantee_status(self) -> dict[str, Any] | None:
+        """Return conformal guarantee metadata when this result carries intervals."""
+
+        return _plain_mapping(_metadata_mapping(self.metadata).get("conformal_guarantee_status"))
+
+    @property
+    def calibration_replay_source(self) -> dict[str, Any] | None:
+        """Return conformal calibration replay provenance when present."""
+
+        status = self.conformal_guarantee_status
+        if status is not None:
+            source = _plain_mapping(status.get("calibration_replay_source"))
+            if source is not None:
+                return source
+        return _plain_mapping(_metadata_mapping(self.metadata).get("calibration_replay_source"))
+
+    @property
+    def tuning_calibration_source(self) -> dict[str, Any] | None:
+        """Return native tuning calibration provenance when present."""
+
+        return _plain_mapping(_metadata_mapping(self.metadata).get("tuning_calibration_source"))
+
+    @property
+    def robustness_evidence(self) -> dict[str, Any] | None:
+        """Return published robustness replay evidence metadata when present."""
+
+        metadata = _metadata_mapping(self.metadata)
+        direct = _plain_mapping(metadata.get("robustness_evidence"))
+        if direct is not None:
+            return direct
+        result_metadata = _plain_mapping(metadata.get("result_metadata"))
+        if result_metadata is None:
+            return None
+        return _plain_mapping(result_metadata.get("robustness_evidence"))
+
+    @property
+    def spectral_replay_evidence_status(self) -> dict[str, Any]:
+        """Return fail-closed readiness metadata for spectral/OOD replay evidence."""
+
+        metadata = _metadata_mapping(self.metadata)
+        direct_evidence = _plain_mapping(metadata.get("robustness_evidence"))
+        result_metadata = _plain_mapping(metadata.get("result_metadata"))
+        nested_evidence = _plain_mapping(result_metadata.get("robustness_evidence")) if result_metadata is not None else None
+        evidence = direct_evidence or nested_evidence or {}
+        source = "metadata.robustness_evidence" if direct_evidence is not None else ("metadata.result_metadata.robustness_evidence" if nested_evidence is not None else "metadata")
+        has_x = "X" in evidence or "spectra" in evidence or metadata.get("X") is not None or metadata.get("spectra") is not None
+        expected_rows = len(self)
+        has_executable_x = bool(
+            _is_executable_spectral_matrix(
+                metadata.get("X"),
+                expected_rows=expected_rows,
+            )
+            or _is_executable_spectral_matrix(
+                metadata.get("spectra"),
+                expected_rows=expected_rows,
+            )
+        )
+        predictor_bundle = evidence.get("predictor_bundle") or evidence.get("model_path") or metadata.get("predictor_bundle") or metadata.get("model_path")
+        has_predictor_bundle = predictor_bundle is not None and str(predictor_bundle).strip() != ""
+        missing: list[str] = []
+        if not has_executable_x:
+            missing.append("row_aligned_executable_X_or_spectra")
+        if not has_predictor_bundle:
+            missing.append("predictor_bundle")
+        return {
+            "status": "ready_for_spectral_replay" if not missing else "needs_spectral_replay_evidence",
+            "has_X_or_spectra": has_x,
+            "has_executable_X_or_spectra": has_executable_x,
+            "has_predictor_bundle": has_predictor_bundle,
+            "predictor_bundle": str(predictor_bundle) if has_predictor_bundle else None,
+            "missing": missing,
+            "source": source,
+        }
+
+    def interval(self, coverage: float) -> Any:
+        """Return prediction intervals for an already materialized coverage."""
+
+        cov = float(coverage)
+        try:
+            return self.intervals[cov]
+        except KeyError as exc:
+            available = ", ".join(str(value) for value in self.interval_coverages)
+            raise KeyError(f"coverage {cov} was not materialized; available coverages: {available}") from exc
+
+    def robustness(
+        self,
+        *,
+        y_true: Any,
+        X: Any | None = None,
+        predictor: Any | None = None,
+        predictor_bundle: str | Path | None = None,
+        mode: str = "clean_frozen",
+        scenarios: Sequence[Any] | None = None,
+        slice_by: Sequence[str] | None = None,
+        metadata: Mapping[str, Any] | Sequence[Mapping[str, Any]] | None = None,
+        seed: int | None = None,
+        workspace_path: str | Path | None = None,
+        workspace_name: str = "",
+        workspace_robustness_id: str | None = None,
+        workspace_metadata: Mapping[str, Any] | None = None,
+    ) -> RobustnessReport:
+        """Compute an audit-only robustness report for these predictions."""
+
+        from nirs4all.api.robustness import RobustnessMode, robustness
+
+        return robustness(
+            self,
+            y_true=y_true,
+            X=X,
+            predictor=predictor,
+            predictor_bundle=predictor_bundle,
+            mode=cast(RobustnessMode, mode),
+            scenarios=scenarios,
+            slice_by=slice_by,
+            metadata=metadata,
+            seed=seed,
+            workspace_path=workspace_path,
+            workspace_name=workspace_name,
+            workspace_robustness_id=workspace_robustness_id,
+            workspace_metadata=workspace_metadata,
+        )
+
     def __len__(self) -> int:
         """Return number of predictions."""
         if self.y_pred is None:
@@ -1642,13 +2253,27 @@ class PredictResult:
         data = {}
 
         if include_indices and self.sample_indices is not None:
-            data['sample_index'] = self.sample_indices
+            data["sample_index"] = self.sample_indices
 
         if self.is_multioutput:
             for i in range(self.shape[1]):
-                data[f'y_pred_{i}'] = self.y_pred[:, i]
+                data[f"y_pred_{i}"] = self.y_pred[:, i]
         else:
-            data['y_pred'] = self.y_pred.flatten()
+            data["y_pred"] = self.y_pred.flatten()
+
+        for coverage in self.interval_coverages:
+            interval = self.intervals[coverage]
+            lower = np.asarray(interval.lower)
+            upper = np.asarray(interval.upper)
+            if lower.shape != self.y_pred.shape or upper.shape != self.y_pred.shape:
+                raise ValueError(f"interval arrays for coverage {coverage} must match y_pred shape")
+            if self.is_multioutput:
+                for i in range(self.shape[1]):
+                    data[f"interval_{coverage}_lower_{i}"] = lower[:, i]
+                    data[f"interval_{coverage}_upper_{i}"] = upper[:, i]
+            else:
+                data[f"interval_{coverage}_lower"] = lower.flatten()
+                data[f"interval_{coverage}_upper"] = upper.flatten()
 
         return pd.DataFrame(data)
 
@@ -1675,8 +2300,23 @@ class PredictResult:
             lines.append(f"  Preprocessing: {' -> '.join(self.preprocessing_steps)}")
         if self.relation_replay_manifest is not None or self.relation_materialization_manifest is not None:
             lines.append("  Relation provenance: available")
+        if self.intervals:
+            lines.append(f"  Intervals: {', '.join(str(value) for value in self.interval_coverages)}")
+        guarantee_status = self.conformal_guarantee_status
+        if guarantee_status is not None:
+            status = str(guarantee_status.get("status", "unknown"))
+            effective_engine = guarantee_status.get("effective_engine")
+            coverage = guarantee_status.get("coverage")
+            detail_parts = []
+            if effective_engine:
+                detail_parts.append(f"engine={effective_engine}")
+            if isinstance(coverage, list) and coverage:
+                detail_parts.append("coverage=" + ",".join(str(value) for value in coverage))
+            details = f" ({'; '.join(detail_parts)})" if detail_parts else ""
+            lines.append(f"  Conformal guarantee: {status}{details}")
         lines.append(f"  Shape: {self.shape}")
         return "\n".join(lines)
+
 
 @dataclass
 class ExplainResult:
@@ -1729,11 +2369,11 @@ class ExplainResult:
 
     def __post_init__(self):
         """Extract metadata from shap_values if available."""
-        if hasattr(self.shap_values, 'values'):
+        if hasattr(self.shap_values, "values"):
             # It's a shap.Explanation object
-            if self.feature_names is None and hasattr(self.shap_values, 'feature_names'):
+            if self.feature_names is None and hasattr(self.shap_values, "feature_names"):
                 self.feature_names = list(self.shap_values.feature_names)
-            if self.base_value is None and hasattr(self.shap_values, 'base_values'):
+            if self.base_value is None and hasattr(self.shap_values, "base_values"):
                 self.base_value = self.shap_values.base_values
             if self.n_samples == 0:
                 self.n_samples = len(self.shap_values.values)
@@ -1745,7 +2385,7 @@ class ExplainResult:
         Returns:
             Numpy array of SHAP values (n_samples, n_features).
         """
-        if hasattr(self.shap_values, 'values'):
+        if hasattr(self.shap_values, "values"):
             return np.asarray(self.shap_values.values)
         return np.asarray(self.shap_values)
 
@@ -1781,11 +2421,7 @@ class ExplainResult:
             return [self.feature_names[i] for i in sorted_indices]
         return [str(i) for i in sorted_indices]
 
-    def get_feature_importance(
-        self,
-        top_n: int | None = None,
-        normalize: bool = False
-    ) -> dict[str, float]:
+    def get_feature_importance(self, top_n: int | None = None, normalize: bool = False) -> dict[str, float]:
         """Get feature importance ranking.
 
         Args:
@@ -1812,10 +2448,7 @@ class ExplainResult:
 
         return result
 
-    def get_sample_explanation(
-        self,
-        idx: int
-    ) -> dict[str, float]:
+    def get_sample_explanation(self, idx: int) -> dict[str, float]:
         """Get SHAP explanation for a single sample.
 
         Args:

@@ -38,28 +38,35 @@ from nirs4all.core.task_type import matches_task_type
 from ._predictions.result import PredictionResult, PredictionResultsList
 
 if TYPE_CHECKING:
+    from nirs4all.api.result import PredictResult
     from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 logger = get_logger(__name__)
 
 __all__ = ["MergeReport", "Predictions", "PredictionResult", "PredictionResultsList"]
 
+_PREDICTION_ARRAY_KEYS = {"y_true", "y_pred", "y_proba", "X", "spectra"}
+
 # ---------------------------------------------------------------------------
 # Public dataclasses
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class MergeReport:
     """Report returned by :meth:`Predictions.merge_stores`."""
+
     total_sources: int = 0
     predictions_merged: int = 0
     conflicts_resolved: int = 0
     datasets_merged: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
 
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
+
 
 def _json_default(obj: Any) -> Any:
     """Handle numpy scalars for json.dumps."""
@@ -69,9 +76,11 @@ def _json_default(obj: Any) -> Any:
         return float(obj)
     raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
 
+
 from nirs4all.core.metrics import infer_ascending as _infer_ascending
 
 _CASE_INSENSITIVE_COLS = {"model_name", "model_classname", "preprocessings", "dataset_name", "config_name"}
+
 
 def _make_group_key(row: dict[str, Any], group_by: list[str]) -> tuple:
     """Create a hashable group key from row values.
@@ -91,6 +100,7 @@ def _make_group_key(row: dict[str, Any], group_by: list[str]) -> tuple:
         else:
             parts.append(val)
     return tuple(parts)
+
 
 def _build_prediction_row(
     *,
@@ -112,6 +122,9 @@ def _build_prediction_row(
     y_true: np.ndarray | None = None,
     y_pred: np.ndarray | None = None,
     y_proba: np.ndarray | None = None,
+    X: np.ndarray | None = None,
+    spectra: np.ndarray | None = None,
+    result_metadata: dict[str, Any] | None = None,
     val_score: float | None = None,
     test_score: float | None = None,
     train_score: float | None = None,
@@ -154,6 +167,9 @@ def _build_prediction_row(
         "y_true": y_true if y_true is not None else np.array([]),
         "y_pred": y_pred if y_pred is not None else np.array([]),
         "y_proba": y_proba if y_proba is not None else np.array([]),
+        "X": X if X is not None else np.array([]),
+        "spectra": spectra if spectra is not None else np.array([]),
+        "result_metadata": result_metadata if result_metadata is not None else {},
         "val_score": val_score,
         "test_score": test_score,
         "train_score": train_score,
@@ -176,9 +192,11 @@ def _build_prediction_row(
         "created_at": datetime.now().isoformat(),
     }
 
+
 # ---------------------------------------------------------------------------
 # Predictions facade
 # ---------------------------------------------------------------------------
+
 
 class Predictions:
     """Facade for prediction management.
@@ -373,11 +391,7 @@ class Predictions:
         # such as model_step_idx used for variant-specific lookups after reload.
         chain_context_by_id: dict[str, dict[str, Any]] = {}
         if "pipeline_id" in df.columns and "chain_id" in df.columns:
-            pipeline_ids = {
-                str(pipeline_id)
-                for pipeline_id in df["pipeline_id"].to_list()
-                if pipeline_id is not None and str(pipeline_id)
-            }
+            pipeline_ids = {str(pipeline_id) for pipeline_id in df["pipeline_id"].to_list() if pipeline_id is not None and str(pipeline_id)}
             for pipeline_id in pipeline_ids:
                 chains_df = store.get_chains_for_pipeline(pipeline_id)
                 if chains_df.is_empty():
@@ -405,6 +419,8 @@ class Predictions:
             chain_context = chain_context_by_id.get(str(chain_id), {}) if chain_id is not None else {}
 
             y_true = y_pred = y_proba = sample_indices = None
+            X = spectra = None
+            result_metadata: dict[str, Any] = {}
             metadata: dict[str, Any] = {}
             if load_arrays:
                 arrays = arrays_by_id.get(pred_id)
@@ -412,9 +428,28 @@ class Predictions:
                     y_true = arrays.get("y_true")
                     y_pred = arrays.get("y_pred")
                     y_proba = arrays.get("y_proba")
+                    X = arrays.get("X")
+                    spectra = arrays.get("spectra")
                     sample_indices = arrays.get("sample_indices")
                     raw_meta = arrays.get("sample_metadata")
                     metadata = raw_meta if isinstance(raw_meta, dict) else {}
+                    raw_result_metadata = arrays.get("result_metadata")
+                    result_metadata = raw_result_metadata if isinstance(raw_result_metadata, dict) else {}
+                    if result_metadata:
+                        metadata["result_metadata"] = result_metadata
+                    for replay_key in (
+                        "conformal_guarantee_status",
+                        "calibration_replay_source",
+                        "tuning_calibration_source",
+                        "robustness_evidence",
+                    ):
+                        replay_value = arrays.get(replay_key)
+                        if replay_value is not None:
+                            metadata[replay_key] = replay_value
+                    if X is not None:
+                        metadata["X"] = X
+                    if spectra is not None:
+                        metadata["spectra"] = spectra
 
             scores = row.get("scores")
             if isinstance(scores, str):
@@ -469,6 +504,21 @@ class Predictions:
             loaded_row["prediction_id"] = pred_id
             loaded_row["pipeline_id"] = row.get("pipeline_id", "")
             loaded_row["chain_id"] = chain_id or ""
+            if result_metadata:
+                loaded_row["result_metadata"] = result_metadata
+            for replay_key in (
+                "conformal_guarantee_status",
+                "calibration_replay_source",
+                "tuning_calibration_source",
+                "robustness_evidence",
+            ):
+                replay_value = metadata.get(replay_key)
+                if replay_value is not None:
+                    loaded_row[replay_key] = replay_value
+            if X is not None:
+                loaded_row["X"] = X
+            if spectra is not None:
+                loaded_row["spectra"] = spectra
 
     # ------------------------------------------------------------------
     # Context manager
@@ -507,10 +557,7 @@ class Predictions:
     def _require_store_backend(cls) -> type[WorkspaceStore]:
         """Return the registered WorkspaceStore class, or raise if it is unavailable."""
         if cls._store_backend is None:
-            raise RuntimeError(
-                "WorkspaceStore backend is not registered. Import nirs4all (or "
-                "nirs4all.pipeline) before opening a store from a path."
-            )
+            raise RuntimeError("WorkspaceStore backend is not registered. Import nirs4all (or nirs4all.pipeline) before opening a store from a path.")
         return cls._store_backend
 
     # =========================================================================
@@ -713,19 +760,11 @@ class Predictions:
         if df.is_empty() or "pipeline_id" not in df.columns:
             return
 
-        pipeline_ids = {
-            str(pipeline_id)
-            for pipeline_id in df["pipeline_id"].to_list()
-            if pipeline_id is not None and str(pipeline_id)
-        }
+        pipeline_ids = {str(pipeline_id) for pipeline_id in df["pipeline_id"].to_list() if pipeline_id is not None and str(pipeline_id)}
         if not pipeline_ids:
             return
 
-        dataset_names = {
-            str(dataset_name)
-            for dataset_name in df["dataset_name"].to_list()
-            if dataset_name is not None and str(dataset_name)
-        }
+        dataset_names = {str(dataset_name) for dataset_name in df["dataset_name"].to_list() if dataset_name is not None and str(dataset_name)}
         if not dataset_names:
             return
 
@@ -808,6 +847,9 @@ class Predictions:
         y_true: np.ndarray | None = None,
         y_pred: np.ndarray | None = None,
         y_proba: np.ndarray | None = None,
+        X: np.ndarray | None = None,
+        spectra: np.ndarray | None = None,
+        result_metadata: dict[str, Any] | None = None,
         val_score: float | None = None,
         test_score: float | None = None,
         train_score: float | None = None,
@@ -853,6 +895,10 @@ class Predictions:
             y_true: True labels.
             y_pred: Predicted labels.
             y_proba: Class probabilities (n_samples x n_classes).
+            X: Row-aligned feature matrix to persist for spectral/OOD replay.
+            spectra: Row-aligned spectra matrix to persist for spectral/OOD replay.
+            result_metadata: Result-level metadata persisted alongside arrays
+                (for example ``robustness_evidence`` with a predictor bundle).
             val_score: Validation score.
             test_score: Test score.
             train_score: Training score.
@@ -897,6 +943,9 @@ class Predictions:
             y_true=y_true,
             y_pred=y_pred,
             y_proba=y_proba,
+            X=X,
+            spectra=spectra,
+            result_metadata=result_metadata,
             val_score=val_score,
             test_score=test_score,
             train_score=train_score,
@@ -979,11 +1028,7 @@ class Predictions:
                 row["chain_id"] = resolved_chain_id
 
                 fold_id = fold_id_override if fold_id_override is not None else row["fold_id"]
-                refit_context = (
-                    refit_context_override
-                    if refit_context_override is not None
-                    else row.get("refit_context")
-                )
+                refit_context = refit_context_override if refit_context_override is not None else row.get("refit_context")
 
                 pred_id = target_store.save_prediction(
                     pipeline_id=pipeline_id or "",
@@ -1015,29 +1060,41 @@ class Predictions:
                 y_true = row.get("y_true")
                 y_pred = row.get("y_pred")
                 y_proba = row.get("y_proba")
+                X = row.get("X")
+                spectra = row.get("spectra")
                 sample_indices = row.get("sample_indices")
                 weights = row.get("weights")
+                result_metadata = row.get("result_metadata")
 
                 has_y_true = y_true is not None and (isinstance(y_true, np.ndarray) and y_true.size > 0)
                 has_y_pred = y_pred is not None and (isinstance(y_pred, np.ndarray) and y_pred.size > 0)
+                has_X = X is not None and isinstance(X, np.ndarray) and X.size > 0
+                has_spectra = spectra is not None and isinstance(spectra, np.ndarray) and spectra.size > 0
+                has_sample_indices = sample_indices is not None and len(sample_indices) > 0
+                has_weights = weights is not None and len(weights) > 0
 
-                if has_y_true or has_y_pred:
-                    array_records.append({
-                        "prediction_id": pred_id,
-                        "dataset_name": row["dataset_name"],
-                        "model_name": row["model_name"],
-                        "fold_id": str(fold_id),
-                        "partition": row["partition"],
-                        "metric": row["metric"],
-                        "val_score": row.get("val_score"),
-                        "task_type": row["task_type"],
-                        "y_true": y_true if has_y_true else None,
-                        "y_pred": y_pred if has_y_pred else None,
-                        "y_proba": y_proba if (y_proba is not None and isinstance(y_proba, np.ndarray) and y_proba.size > 0) else None,
-                        "sample_indices": np.array(sample_indices, dtype=np.int64) if sample_indices and len(sample_indices) > 0 else None,
-                        "weights": np.array(weights, dtype=np.float64) if weights and len(weights) > 0 else None,
-                        "sample_metadata": row.get("metadata") or None,
-                    })
+                if has_y_true or has_y_pred or has_X or has_spectra:
+                    array_records.append(
+                        {
+                            "prediction_id": pred_id,
+                            "dataset_name": row["dataset_name"],
+                            "model_name": row["model_name"],
+                            "fold_id": str(fold_id),
+                            "partition": row["partition"],
+                            "metric": row["metric"],
+                            "val_score": row.get("val_score"),
+                            "task_type": row["task_type"],
+                            "y_true": y_true if has_y_true else None,
+                            "y_pred": y_pred if has_y_pred else None,
+                            "y_proba": y_proba if (y_proba is not None and isinstance(y_proba, np.ndarray) and y_proba.size > 0) else None,
+                            "X": X if has_X else None,
+                            "spectra": spectra if has_spectra else None,
+                            "sample_indices": np.array(sample_indices, dtype=np.int64) if has_sample_indices else None,
+                            "weights": np.array(weights, dtype=np.float64) if has_weights else None,
+                            "sample_metadata": row.get("metadata") or None,
+                            "result_metadata": result_metadata if isinstance(result_metadata, dict) and result_metadata else None,
+                        }
+                    )
 
             # Batch write all arrays to Parquet (one write per dataset)
             if array_records:
@@ -1135,9 +1192,7 @@ class Predictions:
             ``PredictionResultsList`` or grouped dict.
         """
         # Phase 1: resolve repetition options from caller args + dataset context.
-        effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers = self._resolve_repetition_options(
-            by_repetition, repetition_method, repetition_exclude_outliers
-        )
+        effective_by_repetition, effective_repetition_method, effective_repetition_exclude_outliers = self._resolve_repetition_options(by_repetition, repetition_method, repetition_exclude_outliers)
 
         # Phase 2: strip non-filter kwargs and normalise the score_scope alias.
         self._strip_non_filter_kwargs(filters)
@@ -1241,9 +1296,7 @@ class Predictions:
         if effective_by_repetition is True:
             if self._dataset_repetition is None:
                 warnings.warn(
-                    "by_repetition=True specified but no repetition column available from dataset context. "
-                    "Use set_repetition_column() or pass an explicit column name. "
-                    "Skipping aggregation.",
+                    "by_repetition=True specified but no repetition column available from dataset context. Use set_repetition_column() or pass an explicit column name. Skipping aggregation.",
                     UserWarning,
                     stacklevel=3,  # +1 frame: warning emitted from this helper, attribute to top()'s caller
                 )
@@ -1392,8 +1445,7 @@ class Predictions:
             has_reg = "regression" in task_types_in_candidates
             if has_clf and has_reg:
                 warnings.warn(
-                    f"Mixed task types found ({task_types_in_candidates}). "
-                    "Specify task_type or rank_metric to avoid cross-task comparison.",
+                    f"Mixed task types found ({task_types_in_candidates}). Specify task_type or rank_metric to avoid cross-task comparison.",
                     UserWarning,
                     stacklevel=3,  # +1 frame: warning emitted from this helper, attribute to top()'s caller
                 )
@@ -1541,8 +1593,14 @@ class Predictions:
             if y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0 and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
                 metadata = row.get("metadata", {})
                 agg_y_true, agg_y_pred, _, was_agg = self._apply_aggregation(
-                    y_true, y_pred, row.get("y_proba"), metadata, by_repetition,
-                    row.get("model_name", ""), repetition_method, repetition_exclude_outliers,
+                    y_true,
+                    y_pred,
+                    row.get("y_proba"),
+                    metadata,
+                    by_repetition,
+                    row.get("model_name", ""),
+                    repetition_method,
+                    repetition_exclude_outliers,
                 )
                 if was_agg and agg_y_true is not None and agg_y_pred is not None:
                     try:
@@ -1619,8 +1677,7 @@ class Predictions:
             if by_repetition not in metadata:
                 if model_name:
                     warnings.warn(
-                        f"Aggregation column '{by_repetition}' not found in metadata for model '{model_name}'. "
-                        f"Available columns: {list(metadata.keys())}. Skipping aggregation.",
+                        f"Aggregation column '{by_repetition}' not found in metadata for model '{model_name}'. Available columns: {list(metadata.keys())}. Skipping aggregation.",
                         UserWarning,
                         stacklevel=2,
                     )
@@ -1630,8 +1687,7 @@ class Predictions:
         if len(group_ids) != len(y_pred):
             if model_name:
                 warnings.warn(
-                    f"Aggregation column '{by_repetition}' length ({len(group_ids)}) doesn't match "
-                    f"predictions length ({len(y_pred)}) for model '{model_name}'. Skipping aggregation.",
+                    f"Aggregation column '{by_repetition}' length ({len(group_ids)}) doesn't match predictions length ({len(y_pred)}) for model '{model_name}'. Skipping aggregation.",
                     UserWarning,
                     stacklevel=2,
                 )
@@ -1787,14 +1843,13 @@ class Predictions:
 
         # Single-pass filter instead of sequential list comprehensions
         filter_items = list(filter_map.items())
-        _ARRAY_KEYS = {"y_true", "y_pred", "y_proba"}
         results: list[dict[str, Any]] = []
         for row in self._buffer:
             if all(row.get(k) == v for k, v in filter_items):
                 if task_type is not None and not matches_task_type(row.get("task_type"), task_type):
                     continue
                 if not load_arrays:
-                    results.append({k: v for k, v in row.items() if k not in _ARRAY_KEYS})
+                    results.append({k: v for k, v in row.items() if k not in _PREDICTION_ARRAY_KEYS})
                 else:
                     results.append(row)
 
@@ -1825,9 +1880,31 @@ class Predictions:
         for row in self._buffer:
             if row.get("id") == prediction_id:
                 if not load_arrays:
-                    return {k: v for k, v in row.items() if k not in ("y_true", "y_pred", "y_proba")}
+                    return {k: v for k, v in row.items() if k not in _PREDICTION_ARRAY_KEYS}
                 return dict(row)
         return None
+
+    def get_predict_result_by_id(self, prediction_id: str) -> PredictResult | None:
+        """Get a buffered prediction as a native ``PredictResult``.
+
+        The prediction record must have been loaded with arrays, for example
+        via ``Predictions.from_workspace(..., load_arrays=True)``. Records
+        loaded without arrays fail through ``PredictResult.from_prediction_record``
+        instead of creating a partial result.
+
+        Args:
+            prediction_id: Unique prediction identifier.
+
+        Returns:
+            A native ``PredictResult`` or ``None`` when the id is absent.
+        """
+
+        record = self.get_prediction_by_id(prediction_id, load_arrays=True)
+        if record is None:
+            return None
+        from nirs4all.api.result import PredictResult
+
+        return PredictResult.from_prediction_record(record)
 
     # =========================================================================
     # METADATA / UTILITY
@@ -2127,7 +2204,23 @@ class Predictions:
         """
         if load_arrays:
             return [dict(r) for r in self._buffer]
-        return [{k: v for k, v in r.items() if k not in ("y_true", "y_pred", "y_proba")} for r in self._buffer]
+        return [{k: v for k, v in r.items() if k not in _PREDICTION_ARRAY_KEYS} for r in self._buffer]
+
+    def to_predict_results(self) -> list[PredictResult]:
+        """Convert all buffered predictions to native ``PredictResult`` objects.
+
+        This is the bulk equivalent of :meth:`get_predict_result_by_id`. It
+        requires records with loaded arrays and preserves native conformal and
+        robustness replay metadata through
+        ``PredictResult.from_prediction_record``.
+
+        Returns:
+            List of native ``PredictResult`` objects in buffer order.
+        """
+
+        from nirs4all.api.result import PredictResult
+
+        return [PredictResult.from_prediction_record(record) for record in self.to_dicts(load_arrays=True)]
 
     def to_pandas(self) -> Any:
         """Get predictions as pandas DataFrame (metadata only)."""
@@ -2312,6 +2405,7 @@ class Predictions:
 
             if effective_method == "vote":
                 from scipy import stats
+
                 for g in range(n_groups):
                     mask = (inverse_indices == g) & valid_mask
                     if np.any(mask):
@@ -2339,6 +2433,7 @@ class Predictions:
             aggregated_true = np.zeros(n_groups)
             if is_classification:
                 from scipy import stats
+
                 for g in range(n_groups):
                     mask = (inverse_indices == g) & valid_mask
                     if np.any(mask):
@@ -2431,8 +2526,14 @@ class Predictions:
         """
         metadata = row.get("metadata", {})
         agg_y_true, agg_y_pred, agg_y_proba, was_aggregated = self._apply_aggregation(
-            y_true, y_pred, y_proba, metadata, by_repetition, row.get("model_name", ""),
-            repetition_method, repetition_exclude_outliers,
+            y_true,
+            y_pred,
+            y_proba,
+            metadata,
+            by_repetition,
+            row.get("model_name", ""),
+            repetition_method,
+            repetition_exclude_outliers,
         )
         if was_aggregated:
             enriched["y_true"] = agg_y_true
@@ -2524,7 +2625,15 @@ class Predictions:
 
         for m in display_metrics:
             # If aggregation changed the display arrays, always recalculate.
-            if display_was_aggregated and display_y_true is not None and isinstance(display_y_true, np.ndarray) and display_y_true.size > 0 and display_y_pred is not None and isinstance(display_y_pred, np.ndarray) and display_y_pred.size > 0:
+            if (
+                display_was_aggregated
+                and display_y_true is not None
+                and isinstance(display_y_true, np.ndarray)
+                and display_y_true.size > 0
+                and display_y_pred is not None
+                and isinstance(display_y_pred, np.ndarray)
+                and display_y_pred.size > 0
+            ):
                 try:
                     enriched[m] = evaluator.eval(display_y_true, display_y_pred, m)
                 except Exception:
@@ -2567,16 +2676,29 @@ class Predictions:
 
         if by_repetition and y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0:
             y_true, y_pred, was_aggregated = self._enrich_apply_aggregation(
-                row, enriched, y_true, y_pred, y_proba,
-                by_repetition, repetition_method, repetition_exclude_outliers,
+                row,
+                enriched,
+                y_true,
+                y_pred,
+                y_proba,
+                by_repetition,
+                repetition_method,
+                repetition_exclude_outliers,
             )
 
         # Compute display metrics on the fly
         if display_metrics:
             self._enrich_display_metrics(
-                row, enriched, display_metrics, display_partition,
-                y_true, y_pred, was_aggregated,
-                by_repetition, repetition_method, repetition_exclude_outliers,
+                row,
+                enriched,
+                display_metrics,
+                display_partition,
+                y_true,
+                y_pred,
+                was_aggregated,
+                by_repetition,
+                repetition_method,
+                repetition_exclude_outliers,
             )
 
         # Aggregate partitions if requested
@@ -2664,11 +2786,7 @@ class Predictions:
         conflict = False
         if not existing.is_empty():
             for ex_row in existing.iter_rows(named=True):
-                if (
-                    ex_row.get("model_name") == row.get("model_name")
-                    and ex_row.get("fold_id") == row.get("fold_id")
-                    and ex_row.get("partition") == row.get("partition")
-                ):
+                if ex_row.get("model_name") == row.get("model_name") and ex_row.get("fold_id") == row.get("fold_id") and ex_row.get("partition") == row.get("partition"):
                     conflict = True
                     if on_conflict == "keep_existing":
                         break
@@ -2750,23 +2868,38 @@ class Predictions:
         if arrays:
             y_true = arrays.get("y_true")
             y_pred = arrays.get("y_pred")
-            has_arrays = (y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0) or (y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0)
+            X = arrays.get("X")
+            spectra = arrays.get("spectra")
+            has_arrays = (
+                (y_true is not None and isinstance(y_true, np.ndarray) and y_true.size > 0)
+                or (y_pred is not None and isinstance(y_pred, np.ndarray) and y_pred.size > 0)
+                or (X is not None and isinstance(X, np.ndarray) and X.size > 0)
+                or (spectra is not None and isinstance(spectra, np.ndarray) and spectra.size > 0)
+            )
             if has_arrays:
-                target_store.array_store.save_batch([{
-                    "prediction_id": new_pred_id,
-                    "dataset_name": ds,
-                    "model_name": row.get("model_name", ""),
-                    "fold_id": row.get("fold_id", ""),
-                    "partition": row.get("partition", ""),
-                    "metric": row.get("metric", ""),
-                    "val_score": row.get("val_score"),
-                    "task_type": row.get("task_type", ""),
-                    "y_true": y_true,
-                    "y_pred": y_pred,
-                    "y_proba": arrays.get("y_proba"),
-                    "sample_indices": arrays.get("sample_indices"),
-                    "weights": arrays.get("weights"),
-                }])
+                target_store.array_store.save_batch(
+                    [
+                        {
+                            "prediction_id": new_pred_id,
+                            "dataset_name": ds,
+                            "model_name": row.get("model_name", ""),
+                            "fold_id": row.get("fold_id", ""),
+                            "partition": row.get("partition", ""),
+                            "metric": row.get("metric", ""),
+                            "val_score": row.get("val_score"),
+                            "task_type": row.get("task_type", ""),
+                            "y_true": y_true,
+                            "y_pred": y_pred,
+                            "y_proba": arrays.get("y_proba"),
+                            "X": arrays.get("X"),
+                            "spectra": arrays.get("spectra"),
+                            "sample_indices": arrays.get("sample_indices"),
+                            "weights": arrays.get("weights"),
+                            "sample_metadata": arrays.get("sample_metadata"),
+                            "result_metadata": arrays.get("result_metadata"),
+                        }
+                    ]
+                )
 
     @classmethod
     def merge_stores(
@@ -2823,7 +2956,11 @@ class Predictions:
 
                     # Create a merge run/pipeline/chain in the target for this source
                     target_pipeline_id, target_chain_id = cls._merge_ensure_target_context(
-                        target_store, _merge_pipelines, src_key, source_path, relevant_datasets,
+                        target_store,
+                        _merge_pipelines,
+                        src_key,
+                        source_path,
+                        relevant_datasets,
                     )
 
                     for row in src_df.iter_rows(named=True):
@@ -2839,8 +2976,13 @@ class Predictions:
                             continue
 
                         cls._merge_save_row(
-                            target_store, source_store, row, ds, pred_id,
-                            target_pipeline_id, target_chain_id,
+                            target_store,
+                            source_store,
+                            row,
+                            ds,
+                            pred_id,
+                            target_pipeline_id,
+                            target_chain_id,
                         )
 
                         report.predictions_merged += 1

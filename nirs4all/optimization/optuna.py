@@ -8,7 +8,7 @@ hyperparameter optimization across different strategies and frameworks.
 
 import os
 
-os.environ['DISABLE_EMOJIS'] = '1'  # Set to '1' to disable emojis in print statements
+os.environ["DISABLE_EMOJIS"] = "1"  # Set to '1' to disable emojis in print statements
 
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Optional, Union
@@ -28,6 +28,7 @@ try:
     import optuna
     from optuna.pruners import HyperbandPruner, MedianPruner, SuccessiveHalvingPruner
     from optuna.samplers import BaseSampler, CmaEsSampler, GridSampler, RandomSampler, TPESampler
+
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False
@@ -48,6 +49,7 @@ _SAMPLER_ALIASES = {"sample": "sampler"}
 # ============================================================================
 # Binary Search Sampler for Unimodal Integer Parameters
 # ============================================================================
+
 
 class BinarySearchSampler(BaseSampler):
     """Gradient-based binary search sampler for unimodal integer parameters.
@@ -109,9 +111,7 @@ class BinarySearchSampler(BaseSampler):
         self._search_space: dict[str, Any] = {}
         self._rng = np.random.RandomState(seed)
 
-    def infer_relative_search_space(
-        self, study: "optuna.Study", trial: "optuna.trial.FrozenTrial"
-    ) -> dict[str, Any]:
+    def infer_relative_search_space(self, study: "optuna.Study", trial: "optuna.trial.FrozenTrial") -> dict[str, Any]:
         """Infer relative search space (not used by binary search).
 
         Args:
@@ -191,10 +191,7 @@ class BinarySearchSampler(BaseSampler):
         low, high = space["low"], space["high"]
         search_low, search_high = space["search_low"], space["search_high"]
 
-        completed_trials = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE and param_name in t.params
-        ]
+        completed_trials = [t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE and param_name in t.params]
 
         # Phase 1: Initial triplet
         if len(completed_trials) < 3:
@@ -276,6 +273,7 @@ class BinarySearchSampler(BaseSampler):
         space["tested"].add(candidate)
         return candidate
 
+
 @dataclass
 class TrialSummary:
     """Summary of a single Optuna trial.
@@ -293,6 +291,7 @@ class TrialSummary:
     value: float | None
     duration_seconds: float
     state: str
+
 
 @dataclass
 class FinetuneResult:
@@ -335,6 +334,7 @@ class FinetuneResult:
             "direction": self.direction,
         }
 
+
 class OptunaManager:
     """
     External Optuna manager for hyperparameter optimization.
@@ -374,63 +374,85 @@ class OptunaManager:
         """
         params = finetune_params.copy()
 
-        # Normalize "sample" key → "sampler"
         if "sample" in params:
+            sample_alias = params.pop("sample")
             if "sampler" not in params:
-                params["sampler"] = params.pop("sample")
-            else:
-                params.pop("sample")
+                params["sampler"] = sample_alias
 
-        # Normalize eval_mode aliases
-        eval_mode = params.get("eval_mode", "best")
+        sampler = self._normalize_token(params.get("sampler"), default="auto")
+        if "sampler" in params:
+            params["sampler"] = sampler
+
+        approach = self._normalize_token(params.get("approach"), default="grouped")
+        if "approach" in params:
+            params["approach"] = approach
+
+        eval_mode = self._normalize_token(params.get("eval_mode"), default="best")
         if eval_mode in _EVAL_MODE_ALIASES:
-            params["eval_mode"] = _EVAL_MODE_ALIASES[eval_mode]
-            eval_mode = params["eval_mode"]
+            eval_mode = _EVAL_MODE_ALIASES[eval_mode]
+        if "eval_mode" in params:
+            params["eval_mode"] = eval_mode
+
+        pruner = self._normalize_token(params.get("pruner"), default="none")
+        if "pruner" in params:
+            params["pruner"] = pruner
+
+        direction = params.get("direction")
+        if direction is not None:
+            direction = self._normalize_token(direction)
+            if direction not in ("minimize", "maximize"):
+                raise ValueError(f"Unknown direction '{direction}'. Valid: minimize, maximize")
+            params["direction"] = direction
 
         # Validate sampler
-        sampler = params.get("sampler", "auto")
         if sampler not in VALID_SAMPLERS:
-            raise ValueError(
-                f"Unknown sampler '{sampler}'. Valid: {sorted(VALID_SAMPLERS)}"
-            )
+            raise ValueError(f"Unknown sampler '{sampler}'. Valid: {sorted(VALID_SAMPLERS)}")
 
         # Validate approach
-        approach = params.get("approach", "grouped")
         if approach not in VALID_APPROACHES:
-            raise ValueError(
-                f"Unknown approach '{approach}'. Valid: {sorted(VALID_APPROACHES)}"
-            )
+            raise ValueError(f"Unknown approach '{approach}'. Valid: {sorted(VALID_APPROACHES)}")
 
         # Validate eval_mode
         if eval_mode not in VALID_EVAL_MODES:
-            raise ValueError(
-                f"Unknown eval_mode '{eval_mode}'. Valid: {sorted(VALID_EVAL_MODES)}"
-            )
+            raise ValueError(f"Unknown eval_mode '{eval_mode}'. Valid: {sorted(VALID_EVAL_MODES)}")
 
         # Validate pruner
-        pruner = params.get("pruner", "none")
         if pruner not in VALID_PRUNERS:
-            raise ValueError(
-                f"Unknown pruner '{pruner}'. Valid: {sorted(VALID_PRUNERS)}"
-            )
+            raise ValueError(f"Unknown pruner '{pruner}'. Valid: {sorted(VALID_PRUNERS)}")
 
         # Validate phases (if present)
         phases = params.get("phases")
         if phases is not None:
             if not isinstance(phases, list) or len(phases) == 0:
                 raise ValueError("'phases' must be a non-empty list of phase configurations")
+            normalized_phases = []
             for i, phase in enumerate(phases):
                 if not isinstance(phase, dict):
                     raise ValueError(f"Phase {i} must be a dict, got {type(phase).__name__}")
+                phase = phase.copy()
+                if "sample" in phase:
+                    sample_alias = phase.pop("sample")
+                    if "sampler" not in phase:
+                        phase["sampler"] = sample_alias
                 if "n_trials" not in phase:
                     raise ValueError(f"Phase {i} must include 'n_trials'")
-                phase_sampler = phase.get("sampler", "tpe")
+                phase_sampler = self._normalize_token(phase.get("sampler"), default="tpe")
+                if "sampler" in phase:
+                    phase["sampler"] = phase_sampler
                 if phase_sampler not in VALID_SAMPLERS:
-                    raise ValueError(
-                        f"Unknown sampler '{phase_sampler}' in phase {i}. Valid: {sorted(VALID_SAMPLERS)}"
-                    )
+                    raise ValueError(f"Unknown sampler '{phase_sampler}' in phase {i}. Valid: {sorted(VALID_SAMPLERS)}")
+                normalized_phases.append(phase)
+            params["phases"] = normalized_phases
 
         return params
+
+    @staticmethod
+    def _normalize_token(value: Any, *, default: str | None = None) -> str:
+        if value is None:
+            if default is None:
+                return ""
+            value = default
+        return str(value).strip().lower()
 
     def _build_finetune_result(self, study: Any, finetune_params: dict[str, Any]) -> FinetuneResult:
         """Build a FinetuneResult from a completed Optuna study.
@@ -446,26 +468,24 @@ class OptunaManager:
         n_pruned = 0
         n_failed = 0
         for trial in study.trials:
-            duration = (
-                (trial.datetime_complete - trial.datetime_start).total_seconds()
-                if trial.datetime_complete and trial.datetime_start
-                else 0.0
-            )
+            duration = (trial.datetime_complete - trial.datetime_start).total_seconds() if trial.datetime_complete and trial.datetime_start else 0.0
             state_str = trial.state.name  # COMPLETE, PRUNED, FAIL, etc.
             if trial.state == optuna.trial.TrialState.PRUNED:
                 n_pruned += 1
             elif trial.state == optuna.trial.TrialState.FAIL:
                 n_failed += 1
-            trials.append(TrialSummary(
-                number=trial.number,
-                params=dict(trial.params),
-                value=trial.value,
-                duration_seconds=duration,
-                state=state_str,
-            ))
+            trials.append(
+                TrialSummary(
+                    number=trial.number,
+                    params=dict(trial.params),
+                    value=trial.value,
+                    duration_seconds=duration,
+                    state=state_str,
+                )
+            )
 
-        metric = finetune_params.get('metric')
-        direction = finetune_params.get('direction', 'minimize')
+        metric = finetune_params.get("metric")
+        direction = finetune_params.get("direction", "minimize")
 
         return FinetuneResult(
             best_params=dict(study.best_params),
@@ -481,7 +501,7 @@ class OptunaManager:
 
     def finetune(
         self,
-        dataset: 'SpectroDataset',
+        dataset: "SpectroDataset",
         model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -489,8 +509,8 @@ class OptunaManager:
         y_test: Any,
         folds: list | None,
         finetune_params: dict[str, Any],
-        context: 'ExecutionContext',
-        controller: Any  # The model controller instance
+        context: "ExecutionContext",
+        controller: Any,  # The model controller instance
     ) -> FinetuneResult | list[FinetuneResult]:
         """
         Main finetune entry point - delegates to appropriate optimization strategy.
@@ -512,7 +532,7 @@ class OptunaManager:
         """
         if not self.is_available:
             logger.warning("Optuna not available, skipping finetuning")
-            return FinetuneResult(best_params={}, best_value=float('inf'), n_trials=0)
+            return FinetuneResult(best_params={}, best_value=float("inf"), n_trials=0)
 
         # Validate and normalize configuration
         finetune_params = self._validate_and_normalize_finetune_params(finetune_params)
@@ -521,11 +541,11 @@ class OptunaManager:
         finetune_params = self._resolve_metric_direction(finetune_params, dataset)
 
         # Extract configuration
-        strategy = finetune_params.get('approach', 'grouped')
-        eval_mode = finetune_params.get('eval_mode', 'best')
-        n_trials = finetune_params.get('n_trials', 50)
-        verbose = finetune_params.get('verbose', 0)
-        phases = finetune_params.get('phases')
+        strategy = finetune_params.get("approach", "grouped")
+        eval_mode = finetune_params.get("eval_mode", "best")
+        n_trials = finetune_params.get("n_trials", 50)
+        verbose = finetune_params.get("verbose", 0)
+        phases = finetune_params.get("phases")
 
         if verbose > 1:
             logger.info("Starting hyperparameter optimization:")
@@ -535,47 +555,31 @@ class OptunaManager:
             logger.info(f"   Folds: {len(folds) if folds else 0}")
             if phases:
                 logger.info(f"   Phases: {len(phases)}")
-            metric = finetune_params.get('metric')
+            metric = finetune_params.get("metric")
             if metric:
                 logger.info(f"   Metric: {metric} ({finetune_params.get('direction', 'minimize')})")
 
         # Multi-phase search: when 'phases' is present, run phases sequentially on one study
         if phases:
-            return self._optimize_multiphase(
-                dataset, model_config, X_train, y_train, X_test, y_test,
-                folds, finetune_params, context, controller, eval_mode, verbose
-            )
+            return self._optimize_multiphase(dataset, model_config, X_train, y_train, X_test, y_test, folds, finetune_params, context, controller, eval_mode, verbose)
 
         # Route to appropriate optimization strategy
-        if folds and strategy == 'individual':
+        if folds and strategy == "individual":
             # Individual fold optimization: best_params = [], foreach fold: best_params.append(optuna.loop(...))
-            return self._optimize_individual_folds(
-                dataset,
-                model_config, X_train, y_train, folds, finetune_params,
-                n_trials, context, controller, verbose
-            )
+            return self._optimize_individual_folds(dataset, model_config, X_train, y_train, folds, finetune_params, n_trials, context, controller, verbose)
 
-        elif folds and strategy == 'grouped':
+        elif folds and strategy == "grouped":
             # Grouped fold optimization: return best_param = optuna.loop(objective(folds, data, evalMode))
-            return self._optimize_grouped_folds(
-                dataset,
-                model_config, X_train, y_train, folds, finetune_params,
-                n_trials, context, controller, eval_mode, verbose
-            )
+            return self._optimize_grouped_folds(dataset, model_config, X_train, y_train, folds, finetune_params, n_trials, context, controller, eval_mode, verbose)
 
         else:
             # Single optimization (no folds): use holdout split for validation
             from sklearn.model_selection import train_test_split
-            X_opt_train, X_val, y_opt_train, y_val = train_test_split(
-                X_train, y_train, test_size=0.2, random_state=42
-            )
-            return self._optimize_single(
-                dataset,
-                model_config, X_opt_train, y_opt_train, X_val, y_val,
-                finetune_params, n_trials, context, controller, verbose
-            )
 
-    def _resolve_metric_direction(self, finetune_params: dict[str, Any], dataset: 'SpectroDataset') -> dict[str, Any]:
+            X_opt_train, X_val, y_opt_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
+            return self._optimize_single(dataset, model_config, X_opt_train, y_opt_train, X_val, y_val, finetune_params, n_trials, context, controller, verbose)
+
+    def _resolve_metric_direction(self, finetune_params: dict[str, Any], dataset: "SpectroDataset") -> dict[str, Any]:
         """Resolve metric name and direction from finetune_params and dataset task_type.
 
         When ``metric`` is set, auto-infers ``direction`` from the centralized
@@ -591,34 +595,24 @@ class OptunaManager:
             Updated finetune_params with resolved metric/direction.
         """
         params = finetune_params.copy()
-        metric = params.get('metric')
+        metric = params.get("metric")
 
         if metric is not None:
             # Auto-infer direction if not explicitly set
-            if 'direction' not in finetune_params:
-                params['direction'] = "maximize" if _is_higher_better(metric) else "minimize"
+            if "direction" not in finetune_params:
+                params["direction"] = "maximize" if _is_higher_better(metric) else "minimize"
         else:
             # No explicit metric — use defaults based on task_type
-            task_type = getattr(dataset, 'task_type', 'regression')
-            if 'classification' in task_type:
-                params.setdefault('direction', 'maximize')
+            task_type = getattr(dataset, "task_type", "regression")
+            if "classification" in task_type:
+                params.setdefault("direction", "maximize")
             else:
-                params.setdefault('direction', 'minimize')
+                params.setdefault("direction", "minimize")
 
         return params
 
     def _optimize_individual_folds(
-        self,
-        dataset: 'SpectroDataset',
-        model_config: dict[str, Any],
-        X_train: Any,
-        y_train: Any,
-        folds: list,
-        finetune_params: dict[str, Any],
-        n_trials: int,
-        context: 'ExecutionContext',
-        controller: Any,
-        verbose: int
+        self, dataset: "SpectroDataset", model_config: dict[str, Any], X_train: Any, y_train: Any, folds: list, finetune_params: dict[str, Any], n_trials: int, context: "ExecutionContext", controller: Any, verbose: int
     ) -> list[FinetuneResult]:
         """
         Optimize each fold individually.
@@ -638,11 +632,7 @@ class OptunaManager:
             y_val_fold = y_train[val_indices]
 
             # Run optimization for this fold
-            fold_result = self._run_single_optimization(
-                dataset,
-                model_config, X_train_fold, y_train_fold, X_val_fold, y_val_fold,
-                finetune_params, n_trials, context, controller, verbose=0
-            )
+            fold_result = self._run_single_optimization(dataset, model_config, X_train_fold, y_train_fold, X_val_fold, y_val_fold, finetune_params, n_trials, context, controller, verbose=0)
 
             results.append(fold_result)
 
@@ -653,17 +643,17 @@ class OptunaManager:
 
     def _optimize_grouped_folds(
         self,
-        dataset: 'SpectroDataset',
+        dataset: "SpectroDataset",
         model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
         folds: list,
         finetune_params: dict[str, Any],
         n_trials: int,
-        context: 'ExecutionContext',
+        context: "ExecutionContext",
         controller: Any,
         eval_mode: str,
-        verbose: int
+        verbose: int,
     ) -> FinetuneResult:
         """
         Optimize using grouped fold evaluation.
@@ -672,11 +662,11 @@ class OptunaManager:
         Supports pruning: reports intermediate scores after each fold and prunes
         unpromising trials early.
         """
-        pruner_type = finetune_params.get('pruner', 'none')
+        pruner_type = finetune_params.get("pruner", "none")
 
         # Extract metric/direction for _evaluate_model
-        opt_metric = finetune_params.get('metric')
-        opt_direction = finetune_params.get('direction', 'minimize')
+        opt_metric = finetune_params.get("metric")
+        opt_direction = finetune_params.get("direction", "minimize")
 
         # Create objective function that evaluates across all folds
         def objective(trial):
@@ -684,7 +674,7 @@ class OptunaManager:
             model_params, sampled_train_params = self.sample_hyperparameters(trial, finetune_params)
 
             # Process model parameters if controller supports it
-            if hasattr(controller, 'process_hyperparameters'):
+            if hasattr(controller, "process_hyperparameters"):
                 model_params = controller.process_hyperparameters(model_params)
 
             if verbose > 2:
@@ -709,14 +699,14 @@ class OptunaManager:
                     train_params_for_trial.update(model_params)
 
                     # Ensure task_type is passed for models that need it (e.g., TensorFlow)
-                    if 'task_type' not in train_params_for_trial:
-                        train_params_for_trial['task_type'] = dataset.task_type
+                    if "task_type" not in train_params_for_trial:
+                        train_params_for_trial["task_type"] = dataset.task_type
                     trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
                     score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep, metric=opt_metric, direction=opt_direction)  # noqa: SLF001
                     scores.append(score)
 
                     # Pruning: report intermediate score and check for pruning
-                    if pruner_type != 'none':
+                    if pruner_type != "none":
                         intermediate_score = self._aggregate_scores(scores, eval_mode)
                         trial.report(intermediate_score, fold_idx)
                         if trial.should_prune():
@@ -727,7 +717,7 @@ class OptunaManager:
                 except Exception as e:
                     if verbose >= 2:
                         logger.debug(f"   Fold failed: {e}")
-                    scores.append(float('inf'))
+                    scores.append(float("inf"))
 
             # Return evaluation based on eval_mode
             return self._aggregate_scores(scores, eval_mode)
@@ -740,7 +730,7 @@ class OptunaManager:
             logger.starting(f"Running grouped optimization ({n_trials} trials)...")
 
         # Extract n_jobs for parallel trial evaluation (default=1 to avoid conflicts with branch parallelization)
-        n_jobs = finetune_params.get('n_jobs', 1)
+        n_jobs = finetune_params.get("n_jobs", 1)
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False, n_jobs=n_jobs)
 
         if verbose > 1:
@@ -751,7 +741,7 @@ class OptunaManager:
 
     def _optimize_single(
         self,
-        dataset: 'SpectroDataset',
+        dataset: "SpectroDataset",
         model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -759,20 +749,16 @@ class OptunaManager:
         y_val: Any,
         finetune_params: dict[str, Any],
         n_trials: int,
-        context: 'ExecutionContext',
+        context: "ExecutionContext",
         controller: Any,
-        verbose: int
+        verbose: int,
     ) -> FinetuneResult:
         """Optimize without folds - single train/val split."""
-        return self._run_single_optimization(
-            dataset,
-            model_config, X_train, y_train, X_val, y_val,
-            finetune_params, n_trials, context, controller, verbose
-        )
+        return self._run_single_optimization(dataset, model_config, X_train, y_train, X_val, y_val, finetune_params, n_trials, context, controller, verbose)
 
     def _optimize_multiphase(
         self,
-        dataset: 'SpectroDataset',
+        dataset: "SpectroDataset",
         model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -780,10 +766,10 @@ class OptunaManager:
         y_test: Any,
         folds: list | None,
         finetune_params: dict[str, Any],
-        context: 'ExecutionContext',
+        context: "ExecutionContext",
         controller: Any,
         eval_mode: str,
-        verbose: int
+        verbose: int,
     ) -> FinetuneResult:
         """Run multi-phase optimization with different samplers on the same study.
 
@@ -808,19 +794,19 @@ class OptunaManager:
         Returns:
             FinetuneResult with trial history across all phases.
         """
-        phases = finetune_params['phases']
+        phases = finetune_params["phases"]
 
         # Extract metric/direction for _evaluate_model
-        opt_metric = finetune_params.get('metric')
-        opt_direction = finetune_params.get('direction', 'minimize')
+        opt_metric = finetune_params.get("metric")
+        opt_direction = finetune_params.get("direction", "minimize")
 
         # Build the objective function (same for all phases)
         if folds:
-            pruner_type = finetune_params.get('pruner', 'none')
+            pruner_type = finetune_params.get("pruner", "none")
 
             def objective(trial):
                 model_params, sampled_train_params = self.sample_hyperparameters(trial, finetune_params)
-                if hasattr(controller, 'process_hyperparameters'):
+                if hasattr(controller, "process_hyperparameters"):
                     model_params = controller.process_hyperparameters(model_params)
                 scores = []
                 for fold_idx, (train_indices, val_indices) in enumerate(folds):
@@ -834,12 +820,12 @@ class OptunaManager:
                         X_val_prep, y_val_prep = controller._prepare_data(X_val_fold, y_val_fold, context)  # noqa: SLF001
                         train_params_for_trial = sampled_train_params.copy()
                         train_params_for_trial.update(model_params)
-                        if 'task_type' not in train_params_for_trial:
-                            train_params_for_trial['task_type'] = dataset.task_type
+                        if "task_type" not in train_params_for_trial:
+                            train_params_for_trial["task_type"] = dataset.task_type
                         trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
                         score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep, metric=opt_metric, direction=opt_direction)  # noqa: SLF001
                         scores.append(score)
-                        if pruner_type != 'none':
+                        if pruner_type != "none":
                             intermediate_score = self._aggregate_scores(scores, eval_mode)
                             trial.report(intermediate_score, fold_idx)
                             if trial.should_prune():
@@ -849,18 +835,17 @@ class OptunaManager:
                     except Exception as e:
                         if verbose >= 2:
                             logger.debug(f"   Fold failed: {e}")
-                        scores.append(float('inf'))
+                        scores.append(float("inf"))
                 return self._aggregate_scores(scores, eval_mode)
         else:
             # Single split for no-folds case
             from sklearn.model_selection import train_test_split
-            X_opt_train, X_val, y_opt_train, y_val = train_test_split(
-                X_train, y_train, test_size=0.2, random_state=42
-            )
+
+            X_opt_train, X_val, y_opt_train, y_val = train_test_split(X_train, y_train, test_size=0.2, random_state=42)
 
             def objective(trial):
                 model_params, sampled_train_params = self.sample_hyperparameters(trial, finetune_params)
-                if hasattr(controller, 'process_hyperparameters'):
+                if hasattr(controller, "process_hyperparameters"):
                     model_params = controller.process_hyperparameters(model_params)
                 try:
                     model = controller._get_model_instance(dataset, model_config, force_params=model_params)  # noqa: SLF001
@@ -868,15 +853,15 @@ class OptunaManager:
                     X_val_prep, y_val_prep = controller._prepare_data(X_val, y_val, context)  # noqa: SLF001
                     train_params_for_trial = sampled_train_params.copy()
                     train_params_for_trial.update(model_params)
-                    if 'task_type' not in train_params_for_trial:
-                        train_params_for_trial['task_type'] = dataset.task_type
+                    if "task_type" not in train_params_for_trial:
+                        train_params_for_trial["task_type"] = dataset.task_type
                     trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
                     score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep, metric=opt_metric, direction=opt_direction)  # noqa: SLF001
                     return score
                 except Exception as e:
                     if verbose >= 2:
                         logger.warning(f"Trial failed: {e}")
-                    return float('inf')
+                    return float("inf")
 
         # Create study with first phase's config (inherits direction, pruner, storage, seed from top-level)
         study = self._create_study(finetune_params)
@@ -884,9 +869,9 @@ class OptunaManager:
 
         # Run phases sequentially, changing sampler between phases
         for phase_idx, phase_config in enumerate(phases):
-            phase_n_trials = phase_config['n_trials']
-            phase_sampler_type = phase_config.get('sampler', 'tpe')
-            seed = finetune_params.get('seed')
+            phase_n_trials = phase_config["n_trials"]
+            phase_sampler_type = phase_config.get("sampler", "tpe")
+            seed = finetune_params.get("seed")
 
             # Create new sampler for this phase
             sampler = self._create_sampler(phase_sampler_type, finetune_params, seed)
@@ -896,7 +881,7 @@ class OptunaManager:
                 logger.info(f"Phase {phase_idx + 1}/{len(phases)}: {phase_sampler_type} sampler, {phase_n_trials} trials")
 
             # Extract n_jobs for parallel trial evaluation (default=1)
-            n_jobs = finetune_params.get('n_jobs', 1)
+            n_jobs = finetune_params.get("n_jobs", 1)
             study.optimize(objective, n_trials=phase_n_trials, show_progress_bar=False, n_jobs=n_jobs)
 
         if verbose > 1:
@@ -916,7 +901,11 @@ class OptunaManager:
         Returns:
             Optuna sampler instance.
         """
-        if sampler_type == 'grid':
+        sampler_type = self._normalize_token(sampler_type, default="auto")
+        if sampler_type not in VALID_SAMPLERS:
+            raise ValueError(f"Unknown sampler '{sampler_type}'. Valid: {sorted(VALID_SAMPLERS)}")
+
+        if sampler_type == "grid":
             is_grid_suitable = self._is_grid_search_suitable(finetune_params)
             if is_grid_suitable:
                 search_space = self._create_grid_search_space(finetune_params)
@@ -924,24 +913,23 @@ class OptunaManager:
             else:
                 logger.warning("Grid sampler requested but parameters are not all categorical. Using TPE.")
                 return TPESampler(seed=seed)
-        elif sampler_type == 'random':
+        elif sampler_type == "random":
             return RandomSampler(seed=seed)
-        elif sampler_type == 'cmaes':
+        elif sampler_type == "cmaes":
             return CmaEsSampler(seed=seed)
-        elif sampler_type == 'binary':
+        elif sampler_type == "binary":
             return BinarySearchSampler(seed=seed)
-        elif sampler_type == 'auto':
+        elif sampler_type == "auto":
             is_grid_suitable = self._is_grid_search_suitable(finetune_params)
             if is_grid_suitable:
                 search_space = self._create_grid_search_space(finetune_params)
                 return GridSampler(search_space, seed=seed)
             return TPESampler(seed=seed)
-        else:  # tpe (default)
-            return TPESampler(seed=seed)
+        return TPESampler(seed=seed)
 
     def _run_single_optimization(
         self,
-        dataset: 'SpectroDataset',
+        dataset: "SpectroDataset",
         model_config: dict[str, Any],
         X_train: Any,
         y_train: Any,
@@ -949,9 +937,9 @@ class OptunaManager:
         y_val: Any,
         finetune_params: dict[str, Any],
         n_trials: int,
-        context: 'ExecutionContext',
+        context: "ExecutionContext",
         controller: Any,
-        verbose: int = 1
+        verbose: int = 1,
     ) -> FinetuneResult:
         """
         Run single optimization study for a train/val split.
@@ -959,15 +947,15 @@ class OptunaManager:
         Core optimization logic used by both individual fold and single optimization.
         """
         # Extract metric/direction for _evaluate_model
-        opt_metric = finetune_params.get('metric')
-        opt_direction = finetune_params.get('direction', 'minimize')
+        opt_metric = finetune_params.get("metric")
+        opt_direction = finetune_params.get("direction", "minimize")
 
         def objective(trial):
             # Sample hyperparameters (returns model_params and train_params separately)
             model_params, sampled_train_params = self.sample_hyperparameters(trial, finetune_params)
 
             # Process model parameters if controller supports it
-            if hasattr(controller, 'process_hyperparameters'):
+            if hasattr(controller, "process_hyperparameters"):
                 model_params = controller.process_hyperparameters(model_params)
 
             if verbose > 2:
@@ -985,8 +973,8 @@ class OptunaManager:
                 train_params_for_trial.update(model_params)
 
                 # Ensure task_type is passed for models that need it (e.g., TensorFlow)
-                if 'task_type' not in train_params_for_trial:
-                    train_params_for_trial['task_type'] = dataset.task_type
+                if "task_type" not in train_params_for_trial:
+                    train_params_for_trial["task_type"] = dataset.task_type
                 trained_model = controller._train_model(model, X_train_prep, y_train_prep, X_val_prep, y_val_prep, **train_params_for_trial)  # noqa: SLF001
                 score = controller._evaluate_model(trained_model, X_val_prep, y_val_prep, metric=opt_metric, direction=opt_direction)  # noqa: SLF001
 
@@ -995,7 +983,7 @@ class OptunaManager:
             except Exception as e:
                 if verbose >= 2:
                     logger.warning(f"Trial failed: {e}")
-                return float('inf')
+                return float("inf")
 
         # Create and run optimization
         study = self._create_study(finetune_params)
@@ -1005,7 +993,7 @@ class OptunaManager:
             logger.starting(f"Running optimization ({n_trials} trials)...")
 
         # Extract n_jobs for parallel trial evaluation (default=1 to avoid conflicts with branch parallelization)
-        n_jobs = finetune_params.get('n_jobs', 1)
+        n_jobs = finetune_params.get("n_jobs", 1)
         study.optimize(objective, n_trials=n_trials, show_progress_bar=False, n_jobs=n_jobs)
 
         if verbose > 1:
@@ -1029,47 +1017,27 @@ class OptunaManager:
             raise ImportError("Optuna is not available")
 
         # Extract seed for reproducible sampling
-        seed = finetune_params.get('seed')
+        seed = finetune_params.get("seed")
 
-        # Determine optimal sampler strategy (already normalized by _validate_and_normalize_finetune_params)
-        sampler_type = finetune_params.get('sampler', 'auto')
-
-        if sampler_type == 'auto':
-            # Auto-detect best sampler based on parameter types
-            is_grid_suitable = self._is_grid_search_suitable(finetune_params)
-            sampler_type = 'grid' if is_grid_suitable else 'tpe'
-        elif sampler_type == 'grid':
-            # Verify grid is suitable even if explicitly requested
-            is_grid_suitable = self._is_grid_search_suitable(finetune_params)
-            if not is_grid_suitable:
-                logger.warning("Grid sampler requested but parameters are not all categorical. Using TPE sampler instead.")
-                sampler_type = 'tpe'
-
-        # Create sampler instance with seed support
-        sampler: BaseSampler
-        if sampler_type == 'grid':
-            search_space = self._create_grid_search_space(finetune_params)
-            sampler = GridSampler(search_space, seed=seed)
-        elif sampler_type == 'random':
-            sampler = RandomSampler(seed=seed)
-        elif sampler_type == 'cmaes':
-            sampler = CmaEsSampler(seed=seed)
-        elif sampler_type == 'binary':
-            sampler = BinarySearchSampler(seed=seed)
-        else:  # tpe (default)
-            sampler = TPESampler(seed=seed)
+        # Determine optimal sampler strategy (normally normalized by
+        # _validate_and_normalize_finetune_params; helper calls are normalized
+        # here too so direct test/tool usage remains fail-closed).
+        sampler_type = finetune_params.get("sampler", "auto")
+        sampler = self._create_sampler(sampler_type, finetune_params, seed=seed)
 
         # Create pruner instance
-        pruner_type = finetune_params.get('pruner', 'none')
+        pruner_type = finetune_params.get("pruner", "none")
         pruner = self._create_pruner(pruner_type)
 
-        # Direction: minimize by default (loss-based metrics)
-        direction = finetune_params.get('direction', 'minimize')
+        # Direction: minimize by default (loss-based metrics).
+        direction = self._normalize_token(finetune_params.get("direction"), default="minimize")
+        if direction not in ("minimize", "maximize"):
+            raise ValueError(f"Unknown direction '{direction}'. Valid: minimize, maximize")
 
         # Storage/resume support
-        storage = finetune_params.get('storage')
-        study_name = finetune_params.get('study_name')
-        resume = finetune_params.get('resume', False)
+        storage = finetune_params.get("storage")
+        study_name = finetune_params.get("study_name")
+        resume = finetune_params.get("resume", False)
 
         # Create study
         study = optuna.create_study(
@@ -1082,7 +1050,7 @@ class OptunaManager:
         )
 
         # Enqueue force_params as trial 0 if provided
-        force_params = finetune_params.get('force_params')
+        force_params = finetune_params.get("force_params")
         if force_params:
             study.enqueue_trial(force_params)
 
@@ -1097,16 +1065,19 @@ class OptunaManager:
         Returns:
             Pruner instance, or None for 'none'.
         """
-        if pruner_type == 'none':
+        pruner_type = self._normalize_token(pruner_type, default="none")
+        if pruner_type not in VALID_PRUNERS:
+            raise ValueError(f"Unknown pruner '{pruner_type}'. Valid: {sorted(VALID_PRUNERS)}")
+
+        if pruner_type == "none":
             return None
-        elif pruner_type == 'median':
+        elif pruner_type == "median":
             return MedianPruner()
-        elif pruner_type == 'successive_halving':
+        elif pruner_type == "successive_halving":
             return SuccessiveHalvingPruner()
-        elif pruner_type == 'hyperband':
+        elif pruner_type == "hyperband":
             return HyperbandPruner()
-        else:
-            return None
+        return None
 
     def _configure_logging(self, verbose: int):
         """Configure Optuna logging based on verbosity level."""
@@ -1124,22 +1095,18 @@ class OptunaManager:
         Returns:
             Aggregated score
         """
-        if eval_mode == 'best':
+        if eval_mode == "best":
             return min(scores)
-        elif eval_mode == 'mean':
+        elif eval_mode == "mean":
             return float(np.mean(scores))
-        elif eval_mode == 'robust_best':
+        elif eval_mode == "robust_best":
             # Exclude infinite scores (failed trials) then take best
-            valid_scores = [s for s in scores if s != float('inf')]
-            return min(valid_scores) if valid_scores else float('inf')
+            valid_scores = [s for s in scores if s != float("inf")]
+            return min(valid_scores) if valid_scores else float("inf")
         else:
             raise ValueError(f"Unknown eval_mode '{eval_mode}'. Valid: 'best', 'mean', 'robust_best'")
 
-    def sample_hyperparameters(
-        self,
-        trial: Any,
-        finetune_params: dict[str, Any]
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
+    def sample_hyperparameters(self, trial: Any, finetune_params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
         """
         Sample hyperparameters for an Optuna trial.
 
@@ -1161,7 +1128,7 @@ class OptunaManager:
             train_params: sampled and static training parameters.
         """
         # Get model parameters - support both nested and flat structure
-        model_params_spec = finetune_params.get('model_params', {})
+        model_params_spec = finetune_params.get("model_params", {})
 
         # Flatten nested parameter dicts (e.g. inference_config: {PARAM: [True, False]})
         flat_params_spec = self._flatten_nested_params(model_params_spec)
@@ -1176,12 +1143,10 @@ class OptunaManager:
 
         # Sample train_params (new in Phase 3)
         sampled_train_params = {}
-        train_params_spec = finetune_params.get('train_params', {})
+        train_params_spec = finetune_params.get("train_params", {})
         for param_name, param_config in train_params_spec.items():
             if self._is_sampable(param_config):
-                sampled_train_params[param_name] = self._sample_single_parameter(
-                    trial, f"train_{param_name}", param_config
-                )
+                sampled_train_params[param_name] = self._sample_single_parameter(trial, f"train_{param_name}", param_config)
             else:
                 sampled_train_params[param_name] = param_config  # Pass through static values
 
@@ -1203,7 +1168,7 @@ class OptunaManager:
         """
         if not isinstance(value, dict):
             return False
-        return 'type' in value or 'min' in value or 'low' in value or 'choices' in value or 'values' in value
+        return "type" in value or "min" in value or "low" in value or "choices" in value or "values" in value
 
     def _flatten_nested_params(self, params: dict[str, Any], prefix: str = "") -> dict[str, Any]:
         """Flatten nested parameter dicts into flat keys with ``__`` separator.
@@ -1255,10 +1220,7 @@ class OptunaManager:
             current = nested
             for part in parts[:-1]:
                 if part in current and not isinstance(current[part], dict):
-                    raise ValueError(
-                        f"Conflicting nested parameter structure: '{part}' is both "
-                        f"a scalar value and a nested group in key '{key}'"
-                    )
+                    raise ValueError(f"Conflicting nested parameter structure: '{part}' is both a scalar value and a nested group in key '{key}'")
                 current = current.setdefault(part, {})
             current[parts[-1]] = value
         return nested
@@ -1280,14 +1242,14 @@ class OptunaManager:
             return True
         if isinstance(config, dict):
             # Dict with 'type' key or 'min'/'max' keys is a param spec
-            return 'type' in config or 'min' in config or 'low' in config
+            return "type" in config or "min" in config or "low" in config
         return False
 
     # Supported parameter type strings for tuple format ('type', min, max)
-    _INT_TYPES = ('int', int, 'builtins.int')
-    _INT_LOG_TYPES = ('int_log', 'log_int')
-    _FLOAT_TYPES = ('float', float, 'builtins.float')
-    _FLOAT_LOG_TYPES = ('float_log', 'log_float')
+    _INT_TYPES = ("int", int, "builtins.int")
+    _INT_LOG_TYPES = ("int_log", "log_int")
+    _FLOAT_TYPES = ("float", float, "builtins.float")
+    _FLOAT_LOG_TYPES = ("float_log", "log_float")
     _ALL_RANGE_TYPES = _INT_TYPES + _INT_LOG_TYPES + _FLOAT_TYPES + _FLOAT_LOG_TYPES
 
     def _sample_single_parameter(self, trial: Any, param_name: str, param_config: Any) -> Any:
@@ -1331,19 +1293,13 @@ class OptunaManager:
         if isinstance(param_config, list):
             # Check if this is actually a type specification that was converted from tuple to list
             # Pattern: ['int'/'float'/etc., min, max] from tuple ('type', min, max)
-            if (len(param_config) == 3 and
-                param_config[0] in self._ALL_RANGE_TYPES and
-                isinstance(param_config[1], (int, float)) and
-                isinstance(param_config[2], (int, float))):
+            if len(param_config) == 3 and param_config[0] in self._ALL_RANGE_TYPES and isinstance(param_config[1], (int, float)) and isinstance(param_config[2], (int, float)):
                 # This is a range specification, not a categorical list
                 param_type, min_val, max_val = param_config
                 return self._suggest_from_type(trial, param_name, param_type, min_val, max_val)
 
             # Pattern: ['bool'/'categorical', [choices]] from tuple ('bool'/'categorical', [choices])
-            if (len(param_config) == 2 and
-                isinstance(param_config[0], str) and
-                param_config[0] in ('bool', 'categorical') and
-                isinstance(param_config[1], list)):
+            if len(param_config) == 2 and isinstance(param_config[0], str) and param_config[0] in ("bool", "categorical") and isinstance(param_config[1], list):
                 return trial.suggest_categorical(param_name, param_config[1])
 
             # Regular categorical parameter: [val1, val2, val3]
@@ -1356,7 +1312,7 @@ class OptunaManager:
 
         elif isinstance(param_config, tuple) and len(param_config) == 2:
             type_hint, values = param_config
-            if isinstance(type_hint, str) and type_hint in ('bool', 'categorical') and isinstance(values, list):
+            if isinstance(type_hint, str) and type_hint in ("bool", "categorical") and isinstance(values, list):
                 return trial.suggest_categorical(param_name, values)
             # Range tuple: (min, max) - infer type from values
             min_val, max_val = type_hint, values
@@ -1373,16 +1329,7 @@ class OptunaManager:
             # Single value - pass through unchanged
             return param_config
 
-    def _suggest_from_type(
-        self,
-        trial: Any,
-        param_name: str,
-        param_type: Any,
-        min_val: float,
-        max_val: float,
-        step: float | None = None,
-        log: bool = False
-    ) -> Any:
+    def _suggest_from_type(self, trial: Any, param_name: str, param_type: Any, min_val: float, max_val: float, step: float | None = None, log: bool = False) -> Any:
         """
         Suggest a parameter value based on type string.
 
@@ -1411,10 +1358,7 @@ class OptunaManager:
             return trial.suggest_float(param_name, float(min_val), float(max_val), step=step, log=use_log)
 
         else:
-            raise ValueError(
-                f"Unknown parameter type '{param_type}' for parameter '{param_name}'. "
-                f"Supported types: 'int', 'int_log', 'float', 'float_log' (or Python int/float types)"
-            )
+            raise ValueError(f"Unknown parameter type '{param_type}' for parameter '{param_name}'. Supported types: 'int', 'int_log', 'float', 'float_log' (or Python int/float types)")
 
     def _suggest_from_dict(self, trial: Any, param_name: str, param_config: dict[str, Any]) -> Any:
         """
@@ -1435,44 +1379,41 @@ class OptunaManager:
         Returns:
             Sampled value
         """
-        param_type = param_config.get('type', 'categorical')
+        param_type = param_config.get("type", "categorical")
 
-        if param_type == 'categorical':
-            choices = param_config.get('choices', param_config.get('values', []))
+        if param_type == "categorical":
+            choices = param_config.get("choices", param_config.get("values", []))
             if not choices:
                 raise ValueError(f"Categorical parameter '{param_name}' requires 'choices' or 'values' list")
             return trial.suggest_categorical(param_name, choices)
 
-        elif param_type in ('int', 'int_log'):
-            min_val = param_config.get('min', param_config.get('low'))
-            max_val = param_config.get('max', param_config.get('high'))
-            step = param_config.get('step', 1)
-            log = param_config.get('log', param_type == 'int_log')
+        elif param_type in ("int", "int_log"):
+            min_val = param_config.get("min", param_config.get("low"))
+            max_val = param_config.get("max", param_config.get("high"))
+            step = param_config.get("step", 1)
+            log = param_config.get("log", param_type == "int_log")
 
             if min_val is None or max_val is None:
                 raise ValueError(f"Integer parameter '{param_name}' requires 'min'/'max' or 'low'/'high'")
 
             return trial.suggest_int(param_name, int(min_val), int(max_val), step=int(step), log=log)
 
-        elif param_type in ('float', 'float_log'):
-            min_val = param_config.get('min', param_config.get('low'))
-            max_val = param_config.get('max', param_config.get('high'))
-            step = param_config.get('step')  # None means continuous
-            log = param_config.get('log', param_type == 'float_log')
+        elif param_type in ("float", "float_log"):
+            min_val = param_config.get("min", param_config.get("low"))
+            max_val = param_config.get("max", param_config.get("high"))
+            step = param_config.get("step")  # None means continuous
+            log = param_config.get("log", param_type == "float_log")
 
             if min_val is None or max_val is None:
                 raise ValueError(f"Float parameter '{param_name}' requires 'min'/'max' or 'low'/'high'")
 
             return trial.suggest_float(param_name, float(min_val), float(max_val), step=step, log=log)
 
-        elif param_type == 'sorted_tuple':
+        elif param_type == "sorted_tuple":
             return self._suggest_sorted_tuple(trial, param_name, param_config)
 
         else:
-            raise ValueError(
-                f"Unknown parameter type '{param_type}' for parameter '{param_name}'. "
-                f"Supported types: 'categorical', 'int', 'int_log', 'float', 'float_log', 'sorted_tuple'"
-            )
+            raise ValueError(f"Unknown parameter type '{param_type}' for parameter '{param_name}'. Supported types: 'categorical', 'int', 'int_log', 'float', 'float_log', 'sorted_tuple'")
 
     def _suggest_sorted_tuple(self, trial: Any, param_name: str, param_config: dict[str, Any]) -> tuple:
         """
@@ -1496,7 +1437,7 @@ class OptunaManager:
             Sorted tuple of sampled values
         """
         # Get tuple length - can be fixed or a range
-        length_config = param_config.get('length', 3)
+        length_config = param_config.get("length", 3)
         if isinstance(length_config, int):
             length = length_config
         elif isinstance(length_config, (tuple, list)) and len(length_config) == 3:
@@ -1508,28 +1449,28 @@ class OptunaManager:
             min_len, max_len = length_config
             length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
         elif isinstance(length_config, dict):
-            min_len = length_config.get('min', None) or length_config.get('low', 2)
-            max_len = length_config.get('max', None) or length_config.get('high', 5)
+            min_len = length_config.get("min", None) or length_config.get("low", 2)
+            max_len = length_config.get("max", None) or length_config.get("high", 5)
             length = trial.suggest_int(f"{param_name}_length", int(min_len), int(max_len))
         else:
             length = int(length_config)
 
         # Get value range
-        min_val = param_config.get('min', param_config.get('low', 0.0))
-        max_val = param_config.get('max', param_config.get('high', 1.0))
-        step = param_config.get('step')
-        element_type = param_config.get('element_type', 'float')
+        min_val = param_config.get("min", param_config.get("low", 0.0))
+        max_val = param_config.get("max", param_config.get("high", 1.0))
+        step = param_config.get("step")
+        element_type = param_config.get("element_type", "float")
 
         # Sample individual elements
         values = []
         for i in range(length):
             elem_name = f"{param_name}_{i}"
-            if element_type in ('int', 'int_log'):
-                log = param_config.get('log', element_type == 'int_log')
+            if element_type in ("int", "int_log"):
+                log = param_config.get("log", element_type == "int_log")
                 int_step = int(step) if step is not None else 1
                 val = trial.suggest_int(elem_name, int(min_val), int(max_val), step=int_step, log=log)
             else:  # float or float_log
-                log = param_config.get('log', element_type == 'float_log')
+                log = param_config.get("log", element_type == "float_log")
                 val = trial.suggest_float(elem_name, float(min_val), float(max_val), step=step, log=log)
             values.append(val)
 
@@ -1543,7 +1484,7 @@ class OptunaManager:
         Grid search only works well when all parameters are categorical (discrete choices).
         Continuous parameters need random/TPE sampling.
         """
-        model_params = finetune_params.get('model_params', {})
+        model_params = finetune_params.get("model_params", {})
 
         for _, param_config in model_params.items():
             # Check if this is a range specification disguised as a list (from tuple-to-list conversion)
@@ -1577,7 +1518,7 @@ class OptunaManager:
 
         Returns search space suitable for GridSampler.
         """
-        model_params = finetune_params.get('model_params', {})
+        model_params = finetune_params.get("model_params", {})
 
         search_space = {}
         for param_name, param_config in model_params.items():
@@ -1588,14 +1529,13 @@ class OptunaManager:
 
         return search_space
 
+
 # ============================================================================
 # Parameter helpers for complex sklearn models
 # ============================================================================
 
-def stack_params(
-    final_estimator_params: dict[str, Any] | None = None,
-    **other_params: Any
-) -> dict[str, Any]:
+
+def stack_params(final_estimator_params: dict[str, Any] | None = None, **other_params: Any) -> dict[str, Any]:
     """Create Optuna-compatible parameter structure for sklearn Stacking models.
 
     Helper to finetune the final_estimator (metamodel) of a StackingRegressor

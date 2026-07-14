@@ -48,13 +48,10 @@ def _oof_avg_row_count(workdir: Path, subdir: str) -> int | None:
     bundle_path = workdir / subdir / "bundle.json"
     if not bundle_path.exists():
         return None
-    winner_avg = [
-        report
-        for report in json.loads(bundle_path.read_text())["scores"]["reports"]
-        if report["partition"] == "validation" and report.get("fold_id") == "avg" and report.get("variant_id") is None
-    ]
+    winner_avg = [report for report in json.loads(bundle_path.read_text())["scores"]["reports"] if report["partition"] == "validation" and report.get("fold_id") == "avg" and report.get("variant_id") is None]
     assert len(winner_avg) == 1, "the bundle scores must carry exactly one SELECTED (winner) cross-fold OOF average"
     return int(winner_avg[0]["row_count"])
+
 
 pytestmark = [pytest.mark.parity]
 
@@ -135,8 +132,13 @@ def test_end_to_end_cli_oof_matches_sklearn(tmp_path) -> None:
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_path("regression"),
-        workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable,
+        dsl=dsl,
+        envelope=envelope,
+        graph=graph,
+        dataset_path=dataset_path("regression"),
+        workdir=tmp_path,
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
     )
     assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
 
@@ -178,8 +180,13 @@ def test_end_to_end_cli_snv_pls_chain(tmp_path) -> None:
     dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="snv_pls", n_splits=_N_SPLITS)
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_path("regression"),
-        workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable,
+        dsl=dsl,
+        envelope=envelope,
+        graph=graph,
+        dataset_path=dataset_path("regression"),
+        workdir=tmp_path,
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
     )
     assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
 
@@ -225,8 +232,13 @@ def test_end_to_end_cli_full_vertical_slice(tmp_path) -> None:
     dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="vslice", n_splits=_N_SPLITS)
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_path("regression"),
-        workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable,
+        dsl=dsl,
+        envelope=envelope,
+        graph=graph,
+        dataset_path=dataset_path("regression"),
+        workdir=tmp_path,
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
     )
     assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
 
@@ -268,8 +280,13 @@ def test_end_to_end_cli_persists_native_scores(tmp_path) -> None:
     dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="snv_pls", n_splits=_N_SPLITS)
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_path("regression"),
-        workdir=tmp_path, dagml_cli=str(_DAGML_CLI), venv_python=sys.executable,
+        dsl=dsl,
+        envelope=envelope,
+        graph=graph,
+        dataset_path=dataset_path("regression"),
+        workdir=tmp_path,
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
     )
     assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
 
@@ -781,6 +798,39 @@ def test_public_run_engine_dagml_native_param_sweep(tmp_path) -> None:
     final.fit(np.asarray(dataset.x({"sample": train}, layout="2d")), np.asarray(dataset.y({"sample": train}), dtype=float))
     best_test = float(np.sqrt(mean_squared_error(np.asarray(dataset.y({"sample": test_ints}), dtype=float).ravel(), np.asarray(final.predict(np.asarray(dataset.x({"sample": test_ints}, layout="2d")))).ravel())))
     assert abs(result.best_rmse - best_test) < 1e-3  # and reports that variant's final-test RMSE
+
+
+@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
+def test_public_run_engine_dagml_deterministic_finetune_grid_routes_native(tmp_path) -> None:
+    """A deterministic ``finetune_params.model_params`` grid is public native DAG-ML routing.
+
+    Public ``run(engine="dag-ml")`` lowers this compatibility spelling before dispatch, so the
+    existing native param-model generation path runs once. Adaptive Optuna/n4m controls remain a
+    separate fail-closed boundary.
+    """
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+    pipeline = [
+        StandardNormalVariate(),
+        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
+        {
+            "model": PLSRegression(),
+            "finetune_params": {
+                "engine": "dag-ml",
+                "metric": "rmse",
+                "direction": "minimize",
+                "model_params": {"n_components": [3, 9, 15]},
+            },
+        },
+    ]
+
+    result = run_via_dagml(pipeline, dataset_path("regression"), workdir=tmp_path)
+
+    assert result.num_predictions > 0
+    assert np.isfinite(result.cv_best_score)
+    assert not list(tmp_path.glob("variant*")), "deterministic finetune must not use Python-expand variants"
+    _oof_avg_row_count(tmp_path, "native")
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -1769,8 +1819,13 @@ def test_run_cv_refit_bundle_drops_stale_pickle_env(tmp_path, monkeypatch) -> No
 
     # No dataset_pickle and no sample_metadata → both stale vars must be DROPPED from the child env.
     cli_runner.run_cv_refit_bundle(
-        dsl={"id": "x", "pipeline": []}, envelope={}, graph={"nodes": [], "edges": []},
-        dataset_path="/real/dataset", workdir=tmp_path, dagml_cli="/bin/true", venv_python="/usr/bin/python3",
+        dsl={"id": "x", "pipeline": []},
+        envelope={},
+        graph={"nodes": [], "edges": []},
+        dataset_path="/real/dataset",
+        workdir=tmp_path,
+        dagml_cli="/bin/true",
+        venv_python="/usr/bin/python3",
     )
     env = captured["env"]
     assert "N4A_DAGML_DATASET_PICKLE" not in env, "a non-augmentation run must not carry a stale pickle var"
@@ -1779,8 +1834,13 @@ def test_run_cv_refit_bundle_drops_stale_pickle_env(tmp_path, monkeypatch) -> No
 
     # WITH a pickle → exactly that value is set (no stale leakage, the fresh value wins).
     cli_runner.run_cv_refit_bundle(
-        dsl={"id": "x", "pipeline": []}, envelope={}, graph={"nodes": [], "edges": []},
-        dataset_path="/real/dataset", workdir=tmp_path, dagml_cli="/bin/true", venv_python="/usr/bin/python3",
+        dsl={"id": "x", "pipeline": []},
+        envelope={},
+        graph={"nodes": [], "edges": []},
+        dataset_path="/real/dataset",
+        workdir=tmp_path,
+        dagml_cli="/bin/true",
+        venv_python="/usr/bin/python3",
         dataset_pickle=str(tmp_path / "augmented.pkl"),
     )
     assert captured["env"]["N4A_DAGML_DATASET_PICKLE"] == str(tmp_path / "augmented.pkl")
@@ -2636,8 +2696,8 @@ def test_repetition_classification_vote_aggregation_falls_back_boundary() -> Non
         run_via_dagml(pipeline, configs, dagml_cli=str(_DAGML_CLI))
 
 
-def test_finetune_params_fall_back_boundary() -> None:
-    """finetune_params must not run native until dag-ml can execute legacy tuning."""
+def test_adaptive_finetune_params_remain_fail_closed_boundary() -> None:
+    """Adaptive finetune_params must stay outside native DAG-ML until optimizer adapters exist."""
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import ShuffleSplit
 
@@ -3318,8 +3378,14 @@ def test_public_run_engine_dagml_multi_target(tmp_path) -> None:
     # corpus on disk is single-target; the synthetic y columns live only in memory).
     (tmp_path / "multi_target.pkl").write_bytes(pickle.dumps(dataset))
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path="UNUSED", workdir=tmp_path,
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, dataset_pickle=str(tmp_path / "multi_target.pkl"),
+        dsl=dsl,
+        envelope=envelope,
+        graph=graph,
+        dataset_path="UNUSED",
+        workdir=tmp_path,
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        dataset_pickle=str(tmp_path / "multi_target.pkl"),
     )
     assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
 
@@ -3375,12 +3441,17 @@ def test_multi_target_emission_single_target_unchanged() -> None:
 
     # The single-target representation is the exact legacy literal (so schema_fingerprint is unchanged).
     legacy = {
-        "id": "tabular_numeric", "type_id": "table", "rank": 2,
+        "id": "tabular_numeric",
+        "type_id": "table",
+        "rank": 2,
         "axes": [
             {"name": "sample", "kind": "sample", "unit": None, "size": 130, "variable": False},
             {"name": "target", "kind": "target", "unit": None, "size": 1, "variable": False},
         ],
-        "container": "dataframe", "dtype": "float64", "sparse": False, "ragged": False,
+        "container": "dataframe",
+        "dtype": "float64",
+        "sparse": False,
+        "ragged": False,
     }
     assert _target_representation(dataset, 130) == legacy
 
@@ -3524,10 +3595,7 @@ def test_w54_contract_by_source_distinct_preproc_has_source_layout_order() -> No
     blocks = source_layout["blocks"]
     assert [block["source_name"] for block in blocks] == ["source_0", "source_1", "source_2"]
     assert [block["source_id"] for block in blocks] == ["src0", "src1", "src2"]
-    assert [block["preprocessing_output"] for block in blocks] == [
-        {key: value for key, value in outputs[source_name].items() if key not in {"source_id", "source_index"}}
-        for source_name in source_layout["source_order"]
-    ]
+    assert [block["preprocessing_output"] for block in blocks] == [{key: value for key, value in outputs[source_name].items() if key not in {"source_id", "source_index"}} for source_name in source_layout["source_order"]]
 
 
 def test_w54_contract_sources_concat_rf_has_concat_layout() -> None:
@@ -3996,8 +4064,15 @@ def test_by_source_genuinely_restricts_to_one_source(tmp_path) -> None:
 
     (tmp_path / "two_source.pkl").write_bytes(pickle.dumps(dataset))
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path="UNUSED", workdir=tmp_path,
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, selection_metric="rmse", dataset_pickle=str(tmp_path / "two_source.pkl"),
+        dsl=canonical_dsl,
+        envelope=envelope,
+        graph=graph,
+        dataset_path="UNUSED",
+        workdir=tmp_path,
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        selection_metric="rmse",
+        dataset_pickle=str(tmp_path / "two_source.pkl"),
     )
     assert outcome["returncode"] == 0, outcome["stdout"][-2000:]
     reports = [r for r in json.loads((tmp_path / "bundle.json").read_text())["scores"]["reports"] if r.get("producer_node") == _FUSION_MERGE_NODE_ID]
@@ -4547,6 +4622,7 @@ def test_dagml_result_export_roundtrip(tmp_path: Path) -> None:
 # (leaving a bare class that `clone` rejected), and the nested-sub-pipeline shapes that lowered an inner
 # `[]` to a `builtins.list` node (→ `make_pipeline([], model)`). `run_backend._expand_operator_generators`
 # now serializes → expands → deserializes + flattens, so the variants are flat lists of live instances.
+
 
 def _gen_case(name: str, _dataset_key: str = "regression") -> list[Any]:
     """Build a fresh pipeline for parity case `name` from the case registry (single source of truth).

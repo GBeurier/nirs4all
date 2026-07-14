@@ -27,6 +27,7 @@ import inspect
 import io
 import json
 import logging
+import math
 import random
 import sqlite3
 import threading
@@ -45,6 +46,7 @@ import yaml
 
 logger = logging.getLogger(__name__)
 
+
 def _parse_sqlite_timestamp(raw_value: bytes) -> datetime:
     """Parse SQLite ``TIMESTAMP`` values into ``datetime`` objects."""
     text = raw_value.decode("utf-8")
@@ -53,6 +55,7 @@ def _parse_sqlite_timestamp(raw_value: bytes) -> datetime:
     elif " " in text and "T" not in text:
         text = text.replace(" ", "T", 1)
     return datetime.fromisoformat(text)
+
 
 sqlite3.register_converter("TIMESTAMP", _parse_sqlite_timestamp)
 sqlite3.register_converter("DATETIME", _parse_sqlite_timestamp)
@@ -82,24 +85,36 @@ from nirs4all.pipeline.storage.store_queries import (
     GET_ARTIFACT_BY_HASH,
     GET_CHAIN,
     GET_CHAINS_FOR_PIPELINE,
+    GET_CONFORMAL_RESULT,
+    GET_CONFORMAL_RESULT_BY_FINGERPRINT,
     GET_PIPELINE,
     GET_PIPELINE_LOG,
     GET_PREDICTION,
     GET_PROJECT,
     GET_PROJECT_BY_NAME,
+    GET_ROBUSTNESS_RESULT,
+    GET_ROBUSTNESS_RESULT_BY_FINGERPRINT,
     GET_RUN,
     GET_RUN_LOG_SUMMARY,
+    GET_TUNING_RESULT,
+    GET_TUNING_RESULT_BY_FINGERPRINT,
     INCREMENT_ARTIFACT_REF,
     INSERT_ARTIFACT,
     INSERT_ARTIFACT_WITH_CACHE_KEY,
     INSERT_CHAIN,
+    INSERT_CONFORMAL_RESULT,
     INSERT_LOG,
     INSERT_PIPELINE,
     INSERT_PREDICTION,
     INSERT_PROJECT,
+    INSERT_ROBUSTNESS_RESULT,
     INSERT_RUN,
+    INSERT_TUNING_RESULT,
     INVALIDATE_DATASET_CACHE,
+    LIST_CONFORMAL_RESULTS_BASE,
     LIST_PROJECTS,
+    LIST_ROBUSTNESS_RESULTS_BASE,
+    LIST_TUNING_RESULTS_BASE,
     SET_RUN_PROJECT,
     UPDATE_ARTIFACT_CACHE_KEY,
     UPDATE_CHAIN_SUMMARY,
@@ -121,7 +136,7 @@ _BASE_DELAY = 0.15
 
 def _jittered_delay(base: float, attempt: int) -> float:
     """Exponential backoff with random jitter to avoid thundering herd."""
-    return float(base * (2 ** attempt) * (0.5 + random.random() * 0.5))
+    return float(base * (2**attempt) * (0.5 + random.random() * 0.5))
 
 
 def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -148,21 +163,73 @@ def _retry_on_lock(func: Callable[..., Any]) -> Callable[..., Any]:
                     delay = _jittered_delay(_BASE_DELAY, attempt)
                     logger.warning(
                         "SQLite lock conflict in %s (attempt %d/%d), retrying in %.2fs: %s",
-                        func.__name__, attempt + 1, _MAX_RETRIES, delay, e,
+                        func.__name__,
+                        attempt + 1,
+                        _MAX_RETRIES,
+                        delay,
+                        e,
                     )
                     time.sleep(delay)
         logger.error(
             "SQLite lock conflict persisted after %d retries in %s",
-            _MAX_RETRIES, func.__name__,
+            _MAX_RETRIES,
+            func.__name__,
         )
         raise last_error
+
     return wrapper
+
 
 def _to_json(obj: Any) -> str | None:
     """Serialize *obj* to a JSON string, or return ``None``."""
     if obj is None:
         return None
     return json.dumps(obj, default=str)
+
+
+def _strict_json_mapping(payload: Mapping[str, Any] | None, label: str) -> dict[str, Any]:
+    """Return a strict JSON-native mapping without Python object stringification."""
+
+    if payload is None:
+        return {}
+    if not isinstance(payload, Mapping):
+        raise ValueError(f"{label} must be a mapping")
+    normalized: dict[str, Any] = {}
+    for key, value in payload.items():
+        if not isinstance(key, str) or not key.strip() or key != key.strip() or "\x00" in key:
+            raise ValueError(f"{label} keys must be canonical non-empty strings")
+        if key in normalized:
+            raise ValueError(f"{label} contains duplicate keys")
+        normalized[key] = _strict_json_value(value, f"{label}[{key}]")
+    return normalized
+
+
+def _canonical_optional_id(value: Any, label: str) -> str | None:
+    """Return a caller-provided workspace id without stringification."""
+
+    if value is None:
+        return None
+    if not isinstance(value, str) or not value.strip() or value != value.strip() or "\x00" in value:
+        raise ValueError(f"{label} must be a canonical non-empty string")
+    return value
+
+
+def _strict_json_value(value: Any, label: str) -> Any:
+    if value is None or isinstance(value, str | bool):
+        return value
+    if isinstance(value, int | float):
+        numeric = float(value)
+        if not math.isfinite(numeric):
+            raise ValueError(f"{label} must be JSON-native and finite")
+        return value
+    if isinstance(value, bytes | tuple | set | frozenset):
+        raise ValueError(f"{label} must be JSON-native")
+    if isinstance(value, Mapping):
+        return _strict_json_mapping(value, label)
+    if isinstance(value, list):
+        return [_strict_json_value(item, f"{label}[{index}]") for index, item in enumerate(value)]
+    raise ValueError(f"{label} must be JSON-native")
+
 
 def _from_json(val: str | None) -> Any:
     """Deserialize a JSON string back to a Python object."""
@@ -180,9 +247,7 @@ def _relation_replay_manifest_payload(value: Any | None) -> dict[str, Any] | Non
     elif hasattr(value, "to_dict"):
         payload = value.to_dict()
     else:
-        raise TypeError(
-            "relation_replay_manifest must be a mapping or expose to_dict()."
-        )
+        raise TypeError("relation_replay_manifest must be a mapping or expose to_dict().")
     if not isinstance(payload, dict):
         raise TypeError("relation_replay_manifest.to_dict() must return a dict.")
     json.dumps(payload, default=str)
@@ -201,6 +266,7 @@ def _serialize_artifact(obj: Any, fmt: str) -> bytes:
 
     return pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
 
+
 def _deserialize_artifact(data: bytes, fmt: str) -> Any:
     """Deserialize bytes produced by :func:`_serialize_artifact`."""
     if fmt == "joblib":
@@ -210,6 +276,7 @@ def _deserialize_artifact(data: bytes, fmt: str) -> Any:
     import pickle
 
     return pickle.loads(data)  # noqa: S301
+
 
 def _format_to_ext(fmt: str) -> str:
     """Map serialisation format to file extension."""
@@ -271,10 +338,7 @@ class WorkspaceStore:
         if self._workspace_path.exists():
             format_info = warn_if_legacy_workspace(self._workspace_path)
             if format_info.format == "fs-runs-legacy":
-                raise RuntimeError(
-                    f"Cannot open legacy filesystem workspace at {self._workspace_path} in-place. "
-                    f"Run: {format_info.conversion_command}"
-                )
+                raise RuntimeError(f"Cannot open legacy filesystem workspace at {self._workspace_path} in-place. Run: {format_info.conversion_command}")
         self._workspace_path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._atexit_callback: Callable[[], None] | None = None
@@ -285,12 +349,11 @@ class WorkspaceStore:
         # Auto-detect and migrate legacy DuckDB stores
         if not sqlite_path.exists() and duckdb_path.exists():
             from nirs4all.pipeline.storage.migration import migrate_duckdb_to_sqlite
+
             report = migrate_duckdb_to_sqlite(self._workspace_path)
             if not sqlite_path.exists():
                 reason = "; ".join(report.errors) or "migration did not produce store.sqlite"
-                raise RuntimeError(
-                    f"Cannot open legacy workspace at {self._workspace_path}: {reason}"
-                )
+                raise RuntimeError(f"Cannot open legacy workspace at {self._workspace_path}: {reason}")
 
         self._conn: sqlite3.Connection | None = sqlite3.connect(
             str(sqlite_path),
@@ -388,7 +451,10 @@ class WorkspaceStore:
                         delay = _jittered_delay(base_delay, attempt)
                         logger.warning(
                             "SQLite lock conflict (attempt %d/%d), retrying in %.2fs: %s",
-                            attempt + 1, max_retries, delay, e,
+                            attempt + 1,
+                            max_retries,
+                            delay,
+                            e,
                         )
                         time.sleep(delay)
             raise last_error
@@ -483,6 +549,7 @@ class WorkspaceStore:
     def __del__(self) -> None:
         """Safety net: close connection if caller forgot to call :meth:`close`."""
         import sys
+
         if sys.is_finalizing():
             return
         with contextlib.suppress(Exception):
@@ -597,11 +664,19 @@ class WorkspaceStore:
             A unique pipeline identifier (UUID-based string).
         """
         pipeline_id = str(uuid4())
-        self._execute_with_retry(INSERT_PIPELINE, [
-            pipeline_id, run_id, name,
-            _to_json(expanded_config), _to_json(original_template), _to_json(generator_choices),
-            dataset_name, dataset_hash,
-        ])
+        self._execute_with_retry(
+            INSERT_PIPELINE,
+            [
+                pipeline_id,
+                run_id,
+                name,
+                _to_json(expanded_config),
+                _to_json(original_template),
+                _to_json(generator_choices),
+                dataset_name,
+                dataset_hash,
+            ],
+        )
         return pipeline_id
 
     def complete_pipeline(
@@ -729,13 +804,26 @@ class WorkspaceStore:
                 ).fetchone()
                 if row is not None:
                     dataset_name = row[0]
-        self._execute_with_retry(INSERT_CHAIN, [
-            chain_id, pipeline_id, _to_json(steps), model_step_idx,
-            model_class, preprocessings, fold_strategy,
-            _to_json(fold_artifacts), _to_json(shared_artifacts),
-            _to_json(branch_path), source_index, dataset_name,
-            _to_json(relation_payload), relation_version, relation_fingerprint,
-        ])
+        self._execute_with_retry(
+            INSERT_CHAIN,
+            [
+                chain_id,
+                pipeline_id,
+                _to_json(steps),
+                model_step_idx,
+                model_class,
+                preprocessings,
+                fold_strategy,
+                _to_json(fold_artifacts),
+                _to_json(shared_artifacts),
+                _to_json(branch_path),
+                source_index,
+                dataset_name,
+                _to_json(relation_payload),
+                relation_version,
+                relation_fingerprint,
+            ],
+        )
         return chain_id
 
     def get_chain(self, chain_id: str) -> dict | None:
@@ -763,6 +851,254 @@ class WorkspaceStore:
             ``branch_path``, and ``source_index``.
         """
         return self._fetch_pl(GET_CHAINS_FOR_PIPELINE, [pipeline_id])
+
+    # =====================================================================
+    # Conformal calibration result management
+    # =====================================================================
+
+    def save_conformal_result(
+        self,
+        result: Any,
+        *,
+        name: str = "",
+        run_id: str | None = None,
+        pipeline_id: str | None = None,
+        chain_id: str | None = None,
+        prediction_id: str | None = None,
+        conformal_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Persist a verified conformal calibration result in the workspace.
+
+        Args:
+            result: A ``CalibratedRunResult`` instance.
+            name: Optional human-readable label.
+            run_id: Optional owning run id.
+            pipeline_id: Optional owning pipeline id.
+            chain_id: Optional source chain id.
+            prediction_id: Optional source prediction id.
+            conformal_id: Optional caller-provided identifier; generated when omitted.
+            metadata: Optional strict JSON-native workspace metadata.
+
+        Returns:
+            The stored conformal result identifier.
+        """
+
+        from nirs4all.pipeline.dagml.conformal_contracts import CalibratedRunResult
+
+        if not isinstance(result, CalibratedRunResult):
+            raise TypeError("save_conformal_result expects a CalibratedRunResult")
+        canonical_conformal_id = _canonical_optional_id(conformal_id, "save_conformal_result.conformal_id")
+        canonical_run_id = _canonical_optional_id(run_id, "save_conformal_result.run_id")
+        canonical_pipeline_id = _canonical_optional_id(pipeline_id, "save_conformal_result.pipeline_id")
+        canonical_chain_id = _canonical_optional_id(chain_id, "save_conformal_result.chain_id")
+        canonical_prediction_id = _canonical_optional_id(prediction_id, "save_conformal_result.prediction_id")
+        cid = canonical_conformal_id if canonical_conformal_id is not None else str(uuid4())
+        coverages = list(result.prediction.coverages)
+        payload_metadata = _strict_json_mapping(metadata, "save_conformal_result.metadata")
+        self._execute_with_retry(
+            INSERT_CONFORMAL_RESULT,
+            [
+                cid,
+                name,
+                canonical_run_id,
+                canonical_pipeline_id,
+                canonical_chain_id,
+                canonical_prediction_id,
+                result.artifact.fingerprint,
+                result.fingerprint,
+                result.artifact.target_name,
+                _to_json(coverages),
+                result.artifact.to_json(indent=None),
+                result.to_json(indent=None),
+                _to_json(payload_metadata),
+            ],
+        )
+        return cid
+
+    def load_conformal_result(self, conformal_id_or_fingerprint: str) -> Any:
+        """Load and verify a conformal result by workspace id or result fingerprint."""
+
+        from nirs4all.pipeline.dagml.conformal_contracts import CalibratedRunResult
+
+        row = self._fetch_one(GET_CONFORMAL_RESULT, [conformal_id_or_fingerprint])
+        if row is None:
+            row = self._fetch_one(GET_CONFORMAL_RESULT_BY_FINGERPRINT, [conformal_id_or_fingerprint])
+        if row is None:
+            raise KeyError(f"conformal result not found: {conformal_id_or_fingerprint}")
+        result = CalibratedRunResult.from_json(row["result_json"])
+        if result.fingerprint != row["result_fingerprint"]:
+            raise ValueError("workspace conformal result fingerprint mismatch")
+        if result.artifact.fingerprint != row["artifact_fingerprint"]:
+            raise ValueError("workspace conformal artifact fingerprint mismatch")
+        return result
+
+    def list_conformal_results(self, *, limit: int = 100, offset: int = 0) -> pl.DataFrame:
+        """List persisted conformal calibration results."""
+
+        sql = f"{LIST_CONFORMAL_RESULTS_BASE} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        return self._fetch_pl(sql, [limit, offset])
+
+    # =====================================================================
+    # Robustness report management
+    # =====================================================================
+
+    def save_robustness_result(
+        self,
+        report: Any,
+        *,
+        name: str = "",
+        run_id: str | None = None,
+        pipeline_id: str | None = None,
+        chain_id: str | None = None,
+        conformal_id: str | None = None,
+        prediction_id: str | None = None,
+        robustness_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Persist a verified robustness/generalization report in the workspace."""
+
+        from nirs4all.api.robustness import RobustnessReport
+
+        if not isinstance(report, RobustnessReport):
+            raise TypeError("save_robustness_result expects a RobustnessReport")
+        canonical_robustness_id = _canonical_optional_id(robustness_id, "save_robustness_result.robustness_id")
+        canonical_run_id = _canonical_optional_id(run_id, "save_robustness_result.run_id")
+        canonical_pipeline_id = _canonical_optional_id(pipeline_id, "save_robustness_result.pipeline_id")
+        canonical_chain_id = _canonical_optional_id(chain_id, "save_robustness_result.chain_id")
+        canonical_conformal_id = _canonical_optional_id(conformal_id, "save_robustness_result.conformal_id")
+        canonical_prediction_id = _canonical_optional_id(prediction_id, "save_robustness_result.prediction_id")
+        rid = canonical_robustness_id if canonical_robustness_id is not None else str(uuid4())
+        payload_metadata = _strict_json_mapping(metadata, "save_robustness_result.metadata")
+        self._execute_with_retry(
+            INSERT_ROBUSTNESS_RESULT,
+            [
+                rid,
+                name,
+                canonical_run_id,
+                canonical_pipeline_id,
+                canonical_chain_id,
+                canonical_conformal_id,
+                canonical_prediction_id,
+                report.fingerprint,
+                report.mode,
+                len(report.scenarios),
+                _to_json(list(report.slice_by)),
+                report.to_json(indent=None),
+                _to_json(payload_metadata),
+            ],
+        )
+        return rid
+
+    def load_robustness_result(self, robustness_id_or_fingerprint: str) -> Any:
+        """Load and verify a robustness report by workspace id or fingerprint."""
+
+        from nirs4all.api.robustness import RobustnessReport
+
+        row = self._fetch_one(GET_ROBUSTNESS_RESULT, [robustness_id_or_fingerprint])
+        if row is None:
+            row = self._fetch_one(GET_ROBUSTNESS_RESULT_BY_FINGERPRINT, [robustness_id_or_fingerprint])
+        if row is None:
+            raise KeyError(f"robustness report not found: {robustness_id_or_fingerprint}")
+        report = RobustnessReport.from_json(row["report_json"])
+        if report.fingerprint != row["result_fingerprint"]:
+            raise ValueError("workspace robustness report fingerprint mismatch")
+        if report.mode != row["mode"]:
+            raise ValueError("workspace robustness report mode mismatch")
+        if len(report.scenarios) != row["scenario_count"]:
+            raise ValueError("workspace robustness report scenario count mismatch")
+        return report
+
+    def list_robustness_results(self, *, limit: int = 100, offset: int = 0) -> pl.DataFrame:
+        """List persisted robustness/generalization reports."""
+
+        sql = f"{LIST_ROBUSTNESS_RESULTS_BASE} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        return self._fetch_pl(sql, [limit, offset])
+
+    # =====================================================================
+    # Native tuning result management
+    # =====================================================================
+
+    def save_tuning_result(
+        self,
+        result: Any,
+        *,
+        name: str = "",
+        run_id: str | None = None,
+        pipeline_id: str | None = None,
+        chain_id: str | None = None,
+        tuning_id: str | None = None,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> str:
+        """Persist a verified native tuning result in the workspace.
+
+        Args:
+            result: A ``TuningResult`` instance.
+            name: Optional human-readable label.
+            run_id: Optional owning run id.
+            pipeline_id: Optional owning pipeline id.
+            chain_id: Optional terminal/winner chain id.
+            tuning_id: Optional caller-provided identifier; generated when omitted.
+            metadata: Optional strict JSON-native workspace metadata.
+
+        Returns:
+            The stored tuning result identifier.
+        """
+
+        from nirs4all.pipeline.dagml.tuning_contracts import TuningResult
+
+        if not isinstance(result, TuningResult):
+            raise TypeError("save_tuning_result expects a TuningResult")
+        canonical_tuning_id = _canonical_optional_id(tuning_id, "save_tuning_result.tuning_id")
+        canonical_run_id = _canonical_optional_id(run_id, "save_tuning_result.run_id")
+        canonical_pipeline_id = _canonical_optional_id(pipeline_id, "save_tuning_result.pipeline_id")
+        canonical_chain_id = _canonical_optional_id(chain_id, "save_tuning_result.chain_id")
+        tid = canonical_tuning_id if canonical_tuning_id is not None else str(uuid4())
+        payload_metadata = _strict_json_mapping(metadata, "save_tuning_result.metadata")
+        self._execute_with_retry(
+            INSERT_TUNING_RESULT,
+            [
+                tid,
+                name,
+                canonical_run_id,
+                canonical_pipeline_id,
+                canonical_chain_id,
+                result.tuning.fingerprint,
+                result.fingerprint,
+                result.tuning.engine,
+                result.tuning.metric,
+                result.tuning.direction,
+                result.best_value,
+                result.n_trials,
+                _to_json(result.tuning.to_dict() | {"fingerprint": result.tuning.fingerprint}),
+                result.to_json(indent=None),
+                _to_json(payload_metadata),
+            ],
+        )
+        return tid
+
+    def load_tuning_result(self, tuning_id_or_fingerprint: str) -> Any:
+        """Load and verify a native tuning result by workspace id or result fingerprint."""
+
+        from nirs4all.pipeline.dagml.tuning_contracts import TuningResult
+
+        row = self._fetch_one(GET_TUNING_RESULT, [tuning_id_or_fingerprint])
+        if row is None:
+            row = self._fetch_one(GET_TUNING_RESULT_BY_FINGERPRINT, [tuning_id_or_fingerprint])
+        if row is None:
+            raise KeyError(f"tuning result not found: {tuning_id_or_fingerprint}")
+        result = TuningResult.from_json(row["result_json"])
+        if result.fingerprint != row["result_fingerprint"]:
+            raise ValueError("workspace tuning result fingerprint mismatch")
+        if result.tuning.fingerprint != row["tuning_fingerprint"]:
+            raise ValueError("workspace tuning contract fingerprint mismatch")
+        return result
+
+    def list_tuning_results(self, *, limit: int = 100, offset: int = 0) -> pl.DataFrame:
+        """List persisted native tuning results."""
+
+        sql = f"{LIST_TUNING_RESULTS_BASE} ORDER BY created_at DESC LIMIT ? OFFSET ?"
+        return self._fetch_pl(sql, [limit, offset])
 
     @_retry_on_lock
     def update_chain_summary(self, chain_id: str) -> None:
@@ -800,20 +1136,12 @@ class WorkspaceStore:
             fold_count = cv_row[3] if cv_row else 0
 
             representative_row = conn.execute(
-                "SELECT model_name, metric, task_type "
-                "FROM predictions "
-                "WHERE chain_id = ? AND refit_context IS NULL "
-                "ORDER BY created_at ASC, prediction_id ASC "
-                "LIMIT 1",
+                "SELECT model_name, metric, task_type FROM predictions WHERE chain_id = ? AND refit_context IS NULL ORDER BY created_at ASC, prediction_id ASC LIMIT 1",
                 [chain_id],
             ).fetchone()
             if representative_row is None:
                 representative_row = conn.execute(
-                    "SELECT model_name, metric, task_type "
-                    "FROM predictions "
-                    "WHERE chain_id = ? "
-                    "ORDER BY created_at ASC, prediction_id ASC "
-                    "LIMIT 1",
+                    "SELECT model_name, metric, task_type FROM predictions WHERE chain_id = ? ORDER BY created_at ASC, prediction_id ASC LIMIT 1",
                     [chain_id],
                 ).fetchone()
 
@@ -822,22 +1150,12 @@ class WorkspaceStore:
             task_type = representative_row[2] if representative_row else None
 
             best_params_row = conn.execute(
-                "SELECT best_params "
-                "FROM predictions "
-                "WHERE chain_id = ? AND refit_context IS NULL "
-                "  AND best_params IS NOT NULL AND best_params != '{}' "
-                "ORDER BY created_at ASC, prediction_id ASC "
-                "LIMIT 1",
+                "SELECT best_params FROM predictions WHERE chain_id = ? AND refit_context IS NULL   AND best_params IS NOT NULL AND best_params != '{}' ORDER BY created_at ASC, prediction_id ASC LIMIT 1",
                 [chain_id],
             ).fetchone()
             if best_params_row is None:
                 best_params_row = conn.execute(
-                    "SELECT best_params "
-                    "FROM predictions "
-                    "WHERE chain_id = ? "
-                    "  AND best_params IS NOT NULL AND best_params != '{}' "
-                    "ORDER BY created_at ASC, prediction_id ASC "
-                    "LIMIT 1",
+                    "SELECT best_params FROM predictions WHERE chain_id = ?   AND best_params IS NOT NULL AND best_params != '{}' ORDER BY created_at ASC, prediction_id ASC LIMIT 1",
                     [chain_id],
                 ).fetchone()
             best_params = best_params_row[0] if best_params_row else None
@@ -845,10 +1163,7 @@ class WorkspaceStore:
             # --- CV multi-metric averages (cv_scores JSON) ---
             cv_scores_json: str | None = None
             cv_metrics_rows = conn.execute(
-                "SELECT partition, scores FROM predictions "
-                "WHERE chain_id = ? AND refit_context IS NULL "
-                "AND partition IN ('val', 'test') "
-                "AND SUBSTR(fold_id, -4) != '_agg'",
+                "SELECT partition, scores FROM predictions WHERE chain_id = ? AND refit_context IS NULL AND partition IN ('val', 'test') AND SUBSTR(fold_id, -4) != '_agg'",
                 [chain_id],
             ).fetchall()
             if cv_metrics_rows:
@@ -878,12 +1193,7 @@ class WorkspaceStore:
 
             # --- Final/refit scores ---
             final_row = conn.execute(
-                "SELECT test_score, train_score, scores "
-                "FROM predictions "
-                "WHERE chain_id = ? AND refit_context IS NOT NULL "
-                "AND fold_id = 'final' AND partition = 'test' "
-                "ORDER BY created_at ASC, prediction_id ASC "
-                "LIMIT 1",
+                "SELECT test_score, train_score, scores FROM predictions WHERE chain_id = ? AND refit_context IS NOT NULL AND fold_id = 'final' AND partition = 'test' ORDER BY created_at ASC, prediction_id ASC LIMIT 1",
                 [chain_id],
             ).fetchone()
 
@@ -893,35 +1203,34 @@ class WorkspaceStore:
 
             # --- Repetition-aggregated refit scores (fold_id='final_agg') ---
             final_agg_row = conn.execute(
-                "SELECT test_score, train_score, scores "
-                "FROM predictions "
-                "WHERE chain_id = ? AND fold_id = 'final_agg' AND partition = 'test' "
-                "ORDER BY created_at ASC, prediction_id ASC "
-                "LIMIT 1",
+                "SELECT test_score, train_score, scores FROM predictions WHERE chain_id = ? AND fold_id = 'final_agg' AND partition = 'test' ORDER BY created_at ASC, prediction_id ASC LIMIT 1",
                 [chain_id],
             ).fetchone()
             final_agg_test = final_agg_row[0] if final_agg_row else None
             final_agg_train = final_agg_row[1] if final_agg_row else None
             final_agg_scores_json = final_agg_row[2] if final_agg_row else None
 
-            conn.execute(UPDATE_CHAIN_SUMMARY, [
-                model_name,
-                metric,
-                task_type,
-                best_params,
-                avg_val,
-                avg_test,
-                avg_train,
-                fold_count or 0,
-                cv_scores_json,
-                final_test,
-                final_train,
-                final_scores_json,
-                final_agg_test,
-                final_agg_train,
-                final_agg_scores_json,
-                chain_id,
-            ])
+            conn.execute(
+                UPDATE_CHAIN_SUMMARY,
+                [
+                    model_name,
+                    metric,
+                    task_type,
+                    best_params,
+                    avg_val,
+                    avg_test,
+                    avg_train,
+                    fold_count or 0,
+                    cv_scores_json,
+                    final_test,
+                    final_train,
+                    final_scores_json,
+                    final_agg_test,
+                    final_agg_train,
+                    final_agg_scores_json,
+                    chain_id,
+                ],
+            )
 
     def _bulk_chain_setup_temp_table(self, conn: sqlite3.Connection, chain_ids: list[str]) -> None:
         """Create/clear the ``_bulk_chain_ids`` temp table and load *chain_ids*.
@@ -1122,11 +1431,7 @@ class WorkspaceStore:
         import json as _json
 
         rows = conn.execute(
-            "SELECT chain_id, partition, scores FROM predictions "
-            "WHERE refit_context IS NULL "
-            "AND partition IN ('val', 'test') "
-            "AND SUBSTR(fold_id, -4) != '_agg' "
-            "AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
+            "SELECT chain_id, partition, scores FROM predictions WHERE refit_context IS NULL AND partition IN ('val', 'test') AND SUBSTR(fold_id, -4) != '_agg' AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
         ).fetchall()
 
         if rows:
@@ -1282,6 +1587,7 @@ class WorkspaceStore:
         Returns:
             A unique prediction identifier (UUID-based string).
         """
+        prediction_id = _canonical_optional_id(prediction_id, "save_prediction.prediction_id")
         with self._lock:
             conn = self._ensure_open()
 
@@ -1289,18 +1595,12 @@ class WorkspaceStore:
             # predictions from different branches with the same model name.
             if branch_id is not None:
                 existing = conn.execute(
-                    "SELECT prediction_id FROM predictions "
-                    "WHERE pipeline_id = ? AND chain_id = ? AND fold_id = ? AND partition = ? "
-                    "AND model_name = ? AND branch_id = ? "
-                    "LIMIT 1",
+                    "SELECT prediction_id FROM predictions WHERE pipeline_id = ? AND chain_id = ? AND fold_id = ? AND partition = ? AND model_name = ? AND branch_id = ? LIMIT 1",
                     [pipeline_id, chain_id, fold_id, partition, model_name, branch_id],
                 ).fetchone()
             else:
                 existing = conn.execute(
-                    "SELECT prediction_id FROM predictions "
-                    "WHERE pipeline_id = ? AND chain_id = ? AND fold_id = ? AND partition = ? "
-                    "AND model_name = ? AND branch_id IS NULL "
-                    "LIMIT 1",
+                    "SELECT prediction_id FROM predictions WHERE pipeline_id = ? AND chain_id = ? AND fold_id = ? AND partition = ? AND model_name = ? AND branch_id IS NULL LIMIT 1",
                     [pipeline_id, chain_id, fold_id, partition, model_name],
                 ).fetchone()
 
@@ -1326,18 +1626,46 @@ class WorkspaceStore:
             if prediction_id is None:
                 prediction_id = str(uuid4())
 
-            conn.execute(INSERT_PREDICTION, [
-                prediction_id, pipeline_id, chain_id, dataset_name, model_name,
-                model_class, fold_id, partition, val_score, test_score, train_score,
-                metric, task_type, n_samples, n_features,
-                _to_json(scores), _to_json(best_params),
-                preprocessings, branch_id, branch_name,
-                exclusion_count, exclusion_rate, refit_context,
-                prediction_scope, prediction_level, evaluation_scope,
-                reduction_role, reduction_id,
-                physical_sample_id, origin_sample_id, derived_unit_id,
-                unit_level, unit_id, row_id, sample_influence_weight,
-            ])
+            conn.execute(
+                INSERT_PREDICTION,
+                [
+                    prediction_id,
+                    pipeline_id,
+                    chain_id,
+                    dataset_name,
+                    model_name,
+                    model_class,
+                    fold_id,
+                    partition,
+                    val_score,
+                    test_score,
+                    train_score,
+                    metric,
+                    task_type,
+                    n_samples,
+                    n_features,
+                    _to_json(scores),
+                    _to_json(best_params),
+                    preprocessings,
+                    branch_id,
+                    branch_name,
+                    exclusion_count,
+                    exclusion_rate,
+                    refit_context,
+                    prediction_scope,
+                    prediction_level,
+                    evaluation_scope,
+                    reduction_role,
+                    reduction_id,
+                    physical_sample_id,
+                    origin_sample_id,
+                    derived_unit_id,
+                    unit_level,
+                    unit_id,
+                    row_id,
+                    sample_influence_weight,
+                ],
+            )
             return prediction_id
 
     # =====================================================================
@@ -1396,10 +1724,18 @@ class WorkspaceStore:
             absolute_path.parent.mkdir(parents=True, exist_ok=True)
             absolute_path.write_bytes(data)
 
-            conn.execute(INSERT_ARTIFACT, [
-                artifact_id, relative_path, content_hash, operator_class,
-                artifact_type, format, len(data),
-            ])
+            conn.execute(
+                INSERT_ARTIFACT,
+                [
+                    artifact_id,
+                    relative_path,
+                    content_hash,
+                    operator_class,
+                    artifact_type,
+                    format,
+                    len(data),
+                ],
+            )
             return artifact_id
 
     def register_existing_artifact(
@@ -1441,10 +1777,18 @@ class WorkspaceStore:
             if existing is not None:
                 return artifact_id
 
-            conn.execute(INSERT_ARTIFACT, [
-                artifact_id, path, content_hash, operator_class,
-                artifact_type, format, size_bytes,
-            ])
+            conn.execute(
+                INSERT_ARTIFACT,
+                [
+                    artifact_id,
+                    path,
+                    content_hash,
+                    operator_class,
+                    artifact_type,
+                    format,
+                    size_bytes,
+                ],
+            )
             return artifact_id
 
     def load_artifact(self, artifact_id: str) -> Any:
@@ -1537,12 +1881,15 @@ class WorkspaceStore:
                 conn.execute(INCREMENT_ARTIFACT_REF, [existing["artifact_id"]])
                 # Update cache key on the existing record
                 # UPDATE_ARTIFACT_CACHE_KEY param order: [chain_path_hash, input_data_hash, dataset_hash, artifact_id]
-                conn.execute(UPDATE_ARTIFACT_CACHE_KEY, [
-                    chain_path_hash,
-                    input_data_hash,
-                    dataset_hash,
-                    existing["artifact_id"],
-                ])
+                conn.execute(
+                    UPDATE_ARTIFACT_CACHE_KEY,
+                    [
+                        chain_path_hash,
+                        input_data_hash,
+                        dataset_hash,
+                        existing["artifact_id"],
+                    ],
+                )
                 return str(existing["artifact_id"])
 
             artifact_id = str(uuid4())
@@ -1553,11 +1900,21 @@ class WorkspaceStore:
             absolute_path.parent.mkdir(parents=True, exist_ok=True)
             absolute_path.write_bytes(data)
 
-            conn.execute(INSERT_ARTIFACT_WITH_CACHE_KEY, [
-                artifact_id, relative_path, content_hash, operator_class,
-                artifact_type, format, len(data),
-                chain_path_hash, input_data_hash, dataset_hash,
-            ])
+            conn.execute(
+                INSERT_ARTIFACT_WITH_CACHE_KEY,
+                [
+                    artifact_id,
+                    relative_path,
+                    content_hash,
+                    operator_class,
+                    artifact_type,
+                    format,
+                    len(data),
+                    chain_path_hash,
+                    input_data_hash,
+                    dataset_hash,
+                ],
+            )
             return artifact_id
 
     def update_artifact_cache_key(
@@ -1582,9 +1939,15 @@ class WorkspaceStore:
         with self._lock:
             conn = self._ensure_open()
             # UPDATE_ARTIFACT_CACHE_KEY param order: [chain_path_hash, input_data_hash, dataset_hash, artifact_id]
-            conn.execute(UPDATE_ARTIFACT_CACHE_KEY, [
-                chain_path_hash, input_data_hash, dataset_hash, artifact_id,
-            ])
+            conn.execute(
+                UPDATE_ARTIFACT_CACHE_KEY,
+                [
+                    chain_path_hash,
+                    input_data_hash,
+                    dataset_hash,
+                    artifact_id,
+                ],
+            )
 
     def find_cached_artifact(
         self,
@@ -1633,8 +1996,7 @@ class WorkspaceStore:
             conn = self._ensure_open()
             # Count matching rows before invalidation
             count_row = conn.execute(
-                "SELECT COUNT(*) AS cnt FROM artifacts "
-                "WHERE dataset_hash = ? AND chain_path_hash IS NOT NULL",
+                "SELECT COUNT(*) AS cnt FROM artifacts WHERE dataset_hash = ? AND chain_path_hash IS NOT NULL",
                 [dataset_hash],
             ).fetchone()
             count = count_row[0] if count_row else 0
@@ -1678,10 +2040,20 @@ class WorkspaceStore:
                 ``"error"``).
         """
         log_id = str(uuid4())
-        self._safe_execute(INSERT_LOG, [
-            log_id, pipeline_id, step_idx, operator_class, event,
-            duration_ms, message, _to_json(details), level,
-        ])
+        self._safe_execute(
+            INSERT_LOG,
+            [
+                log_id,
+                pipeline_id,
+                step_idx,
+                operator_class,
+                event,
+                duration_ms,
+                message,
+                _to_json(details),
+                level,
+            ],
+        )
 
     # =====================================================================
     # Queries -- Runs
@@ -1821,8 +2193,9 @@ class WorkspaceStore:
         Args:
             prediction_id: Unique prediction identifier.
             load_arrays: If ``True``, the returned dictionary includes
-                ``y_true``, ``y_pred``, ``y_proba``, ``sample_indices``,
-                and ``weights`` as :class:`numpy.ndarray` objects
+                ``y_true``, ``y_pred``, ``y_proba``, optional replay
+                ``X``/``spectra``, ``sample_indices`` and ``weights``
+                as :class:`numpy.ndarray` objects
                 (loaded from the Parquet array store).
                 If ``False`` (default), arrays are omitted for speed.
 
@@ -1840,7 +2213,17 @@ class WorkspaceStore:
         if load_arrays:
             arrays = self._array_store.load_single(prediction_id, dataset_name=row.get("dataset_name"))
             if arrays:
-                for field in ("y_true", "y_pred", "y_proba", "sample_indices", "weights"):
+                for field in (
+                    "y_true",
+                    "y_pred",
+                    "y_proba",
+                    "X",
+                    "spectra",
+                    "sample_indices",
+                    "weights",
+                    "sample_metadata",
+                    "result_metadata",
+                ):
                     row[field] = arrays.get(field)
 
         return row
@@ -2232,9 +2615,7 @@ class WorkspaceStore:
     # Projects
     # =====================================================================
 
-    def create_project(
-        self, name: str, description: str = "", color: str = "#14b8a6"
-    ) -> str:
+    def create_project(self, name: str, description: str = "", color: str = "#14b8a6") -> str:
         """Create a new project and return its ID."""
         with self._lock:
             conn = self._ensure_open()
@@ -2254,9 +2635,7 @@ class WorkspaceStore:
         """Retrieve a project by its unique name."""
         return self._fetch_one(GET_PROJECT_BY_NAME, [name])
 
-    def update_project(
-        self, project_id: str, name: str, description: str = "", color: str = "#14b8a6"
-    ) -> None:
+    def update_project(self, project_id: str, name: str, description: str = "", color: str = "#14b8a6") -> None:
         """Update project attributes."""
         with self._lock:
             conn = self._ensure_open()
@@ -2389,12 +2768,18 @@ class WorkspaceStore:
         # Write ZIP bundle
         with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-            zf.writestr("chain.json", json.dumps({
-                "steps": chain["steps"],
-                "model_step_idx": chain["model_step_idx"],
-                "fold_artifacts": export_fold_artifacts,
-                "shared_artifacts": shared_artifacts,
-            }, indent=2))
+            zf.writestr(
+                "chain.json",
+                json.dumps(
+                    {
+                        "steps": chain["steps"],
+                        "model_step_idx": chain["model_step_idx"],
+                        "fold_artifacts": export_fold_artifacts,
+                        "shared_artifacts": shared_artifacts,
+                    },
+                    indent=2,
+                ),
+            )
             if relation_manifest_payload is not None:
                 zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest_payload, indent=2, sort_keys=True))
 
@@ -2479,17 +2864,19 @@ class WorkspaceStore:
                 p = self.get_pipeline(pid)
                 chains_df = self.get_chains_for_pipeline(pid)
                 chains_list = chains_df.to_dicts() if len(chains_df) > 0 else []
-                pipelines_list.append({
-                    "pipeline_id": pid,
-                    "name": p["name"] if p else row.get("name"),
-                    "status": p["status"] if p else row.get("status"),
-                    "dataset_name": p["dataset_name"] if p else row.get("dataset_name"),
-                    "best_val": p["best_val"] if p else None,
-                    "best_test": p["best_test"] if p else None,
-                    "metric": p["metric"] if p else None,
-                    "duration_ms": p["duration_ms"] if p else None,
-                    "chains": chains_list,
-                })
+                pipelines_list.append(
+                    {
+                        "pipeline_id": pid,
+                        "name": p["name"] if p else row.get("name"),
+                        "status": p["status"] if p else row.get("status"),
+                        "dataset_name": p["dataset_name"] if p else row.get("dataset_name"),
+                        "best_val": p["best_val"] if p else None,
+                        "best_test": p["best_test"] if p else None,
+                        "metric": p["metric"] if p else None,
+                        "duration_ms": p["duration_ms"] if p else None,
+                        "chains": chains_list,
+                    }
+                )
 
         # Convert timestamps to strings for YAML
         created_at = run.get("created_at")
@@ -2570,8 +2957,7 @@ class WorkspaceStore:
 
             # Collect prediction_ids for Parquet array deletion
             pred_ids_result = conn.execute(
-                "SELECT prediction_id FROM predictions WHERE pipeline_id IN "
-                "(SELECT pipeline_id FROM pipelines WHERE run_id = ?)",
+                "SELECT prediction_id FROM predictions WHERE pipeline_id IN (SELECT pipeline_id FROM pipelines WHERE run_id = ?)",
                 [run_id],
             ).fetchall()
             pred_ids = {row[0] for row in pred_ids_result}
@@ -2833,10 +3219,16 @@ class WorkspaceStore:
             conn = self._ensure_open()
 
             # Permanent fold IDs whose model artifacts should never be cleaned
-            permanent_fold_ids = frozenset({
-                "final", "avg", "w_avg",
-                "fold_final", "fold_avg", "fold_w_avg",
-            })
+            permanent_fold_ids = frozenset(
+                {
+                    "final",
+                    "avg",
+                    "w_avg",
+                    "fold_final",
+                    "fold_avg",
+                    "fold_w_avg",
+                }
+            )
 
             # Get all pipelines for this run and dataset
             all_pipelines = conn.execute(
@@ -2847,13 +3239,9 @@ class WorkspaceStore:
             winning_set = set(winning_pipeline_ids)
 
             all_pipeline_ids = [pid for (pid,) in all_pipelines]
-            chains_by_pipeline, chain_lookup = self._cleanup_load_chains(
-                conn, run_id, dataset_name, all_pipeline_ids
-            )
+            chains_by_pipeline, chain_lookup = self._cleanup_load_chains(conn, run_id, dataset_name, all_pipeline_ids)
 
-            protected_folds_by_chain = self._cleanup_build_protected_folds(
-                conn, run_id, dataset_name, chain_lookup
-            )
+            protected_folds_by_chain = self._cleanup_build_protected_folds(conn, run_id, dataset_name, chain_lookup)
 
             artifacts_to_decrement = self._cleanup_collect_decrements(
                 all_pipelines,
@@ -2921,10 +3309,7 @@ class WorkspaceStore:
 
         if all_pipeline_ids:
             all_chain_rows = conn.execute(
-                "SELECT pipeline_id, chain_id, fold_artifacts, shared_artifacts "
-                "FROM chains WHERE pipeline_id IN ("
-                "  SELECT pipeline_id FROM pipelines WHERE run_id = ? AND dataset_name = ?"
-                ")",
+                "SELECT pipeline_id, chain_id, fold_artifacts, shared_artifacts FROM chains WHERE pipeline_id IN (  SELECT pipeline_id FROM pipelines WHERE run_id = ? AND dataset_name = ?)",
                 [run_id, dataset_name],
             ).fetchall()
 
@@ -2932,16 +3317,8 @@ class WorkspaceStore:
                 row_tuple = (chain_id, fold_artifacts_raw, shared_artifacts_raw)
                 chains_by_pipeline.setdefault(pipeline_id, []).append(row_tuple)
 
-                fold_artifacts = (
-                    _from_json(fold_artifacts_raw)
-                    if isinstance(fold_artifacts_raw, str)
-                    else fold_artifacts_raw
-                ) or {}
-                shared_artifacts = (
-                    _from_json(shared_artifacts_raw)
-                    if isinstance(shared_artifacts_raw, str)
-                    else shared_artifacts_raw
-                ) or {}
+                fold_artifacts = (_from_json(fold_artifacts_raw) if isinstance(fold_artifacts_raw, str) else fold_artifacts_raw) or {}
+                shared_artifacts = (_from_json(shared_artifacts_raw) if isinstance(shared_artifacts_raw, str) else shared_artifacts_raw) or {}
                 chain_lookup[chain_id] = (fold_artifacts, shared_artifacts)
 
         return chains_by_pipeline, chain_lookup
@@ -3009,16 +3386,8 @@ class WorkspaceStore:
             is_winner = pipeline_id in winning_set
 
             for chain_id, fold_artifacts_raw, shared_artifacts_raw in chains:
-                fold_artifacts = (
-                    _from_json(fold_artifacts_raw)
-                    if isinstance(fold_artifacts_raw, str)
-                    else fold_artifacts_raw
-                ) or {}
-                shared_artifacts = (
-                    _from_json(shared_artifacts_raw)
-                    if isinstance(shared_artifacts_raw, str)
-                    else shared_artifacts_raw
-                ) or {}
+                fold_artifacts = (_from_json(fold_artifacts_raw) if isinstance(fold_artifacts_raw, str) else fold_artifacts_raw) or {}
+                shared_artifacts = (_from_json(shared_artifacts_raw) if isinstance(shared_artifacts_raw, str) else shared_artifacts_raw) or {}
 
                 protected_fold_ids = protected_folds_by_chain.get(chain_id, set())
                 protect_shared = chain_id in protected_folds_by_chain
@@ -3067,14 +3436,14 @@ class WorkspaceStore:
         # decremented, then issue one UPDATE per distinct decrement count.
         if artifacts_to_decrement:
             from collections import Counter
+
             decrement_counts: dict[int, list[str]] = {}
             for aid, cnt in Counter(artifacts_to_decrement).items():
                 decrement_counts.setdefault(cnt, []).append(aid)
             for delta, ids in decrement_counts.items():
                 placeholders = ", ".join("?" for _ in ids)
                 conn.execute(
-                    f"UPDATE artifacts SET ref_count = ref_count - ? "
-                    f"WHERE artifact_id IN ({placeholders})",
+                    f"UPDATE artifacts SET ref_count = ref_count - ? WHERE artifact_id IN ({placeholders})",
                     [delta, *ids],
                 )
 
@@ -3093,12 +3462,7 @@ class WorkspaceStore:
             orphans = conn.execute(GC_ARTIFACTS).fetchall()
 
             # Keep files that are still referenced by at least one live row.
-            live_paths = {
-                row[0]
-                for row in conn.execute(
-                    "SELECT DISTINCT artifact_path FROM artifacts WHERE ref_count > 0"
-                ).fetchall()
-            }
+            live_paths = {row[0] for row in conn.execute("SELECT DISTINCT artifact_path FROM artifacts WHERE ref_count > 0").fetchall()}
 
             removed_paths: set[str] = set()
             count = 0
@@ -3154,10 +3518,7 @@ class WorkspaceStore:
         with self._lock:
             conn = self._ensure_open()
             if conn.in_transaction:
-                raise RuntimeError(
-                    "compact_arrays() must not run inside an open transaction(); "
-                    "call it after the transaction commits."
-                )
+                raise RuntimeError("compact_arrays() must not run inside an open transaction(); call it after the transaction commits.")
             # Snapshot the live ids UNDER the array-store process lock: otherwise a
             # concurrent process could delete a row (SQLite-first) and tombstone it
             # between our snapshot and the compaction — the fresh tombstone would
@@ -3248,10 +3609,7 @@ class WorkspaceStore:
             supports_wavelengths = False
             try:
                 params = inspect.signature(transformer.transform).parameters
-                supports_wavelengths = (
-                    "wavelengths" in params
-                    or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
-                )
+                supports_wavelengths = "wavelengths" in params or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values())
             except (TypeError, ValueError):
                 supports_wavelengths = False
 
@@ -3343,8 +3701,7 @@ class WorkspaceStore:
                 continue
 
             result = conn.execute(
-                "SELECT pipeline_id, fold_artifacts, shared_artifacts "
-                "FROM chains WHERE chain_id = ?",
+                "SELECT pipeline_id, fold_artifacts, shared_artifacts FROM chains WHERE chain_id = ?",
                 [chain_id],
             )
             row = result.fetchone()
