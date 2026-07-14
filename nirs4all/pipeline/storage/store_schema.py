@@ -2,7 +2,8 @@
 
 Defines the table schema used by :class:`WorkspaceStore`:
 ``runs``, ``pipelines``, ``chains``, ``predictions``,
-``artifacts``, ``logs``, and ``projects``.
+``artifacts``, ``logs``, ``projects``, ``conformal_results``,
+``tuning_results`` and ``robustness_results``.
 
 Dense prediction arrays (y_true, y_pred, etc.) are stored in Parquet
 sidecar files managed by :class:`ArrayStore`, not in SQLite.
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 
 # Bump when the schema changes in a non-additive or otherwise
 # version-significant way. Stamped into the database via PRAGMA user_version.
-SCHEMA_VERSION: int = 2
+SCHEMA_VERSION: int = 5
 
 # =========================================================================
 # Refit context constants
@@ -183,6 +184,59 @@ CREATE TABLE IF NOT EXISTS projects (
     created_at TIMESTAMP DEFAULT current_timestamp,
     updated_at TIMESTAMP DEFAULT current_timestamp
 );
+
+CREATE TABLE IF NOT EXISTS conformal_results (
+    conformal_id TEXT PRIMARY KEY,
+    name TEXT DEFAULT '',
+    run_id TEXT REFERENCES runs(run_id),
+    pipeline_id TEXT REFERENCES pipelines(pipeline_id),
+    chain_id TEXT REFERENCES chains(chain_id),
+    prediction_id TEXT REFERENCES predictions(prediction_id),
+    artifact_fingerprint TEXT NOT NULL,
+    result_fingerprint TEXT NOT NULL,
+    target_name TEXT,
+    coverages TEXT NOT NULL,
+    artifact_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    metadata TEXT,
+    created_at TIMESTAMP DEFAULT current_timestamp
+);
+
+CREATE TABLE IF NOT EXISTS tuning_results (
+    tuning_id TEXT PRIMARY KEY,
+    name TEXT DEFAULT '',
+    run_id TEXT REFERENCES runs(run_id),
+    pipeline_id TEXT REFERENCES pipelines(pipeline_id),
+    chain_id TEXT REFERENCES chains(chain_id),
+    tuning_fingerprint TEXT NOT NULL,
+    result_fingerprint TEXT NOT NULL,
+    engine TEXT NOT NULL,
+    metric TEXT NOT NULL,
+    direction TEXT NOT NULL,
+    best_value REAL NOT NULL,
+    n_trials INTEGER NOT NULL,
+    tuning_json TEXT NOT NULL,
+    result_json TEXT NOT NULL,
+    metadata TEXT,
+    created_at TIMESTAMP DEFAULT current_timestamp
+);
+
+CREATE TABLE IF NOT EXISTS robustness_results (
+    robustness_id TEXT PRIMARY KEY,
+    name TEXT DEFAULT '',
+    run_id TEXT REFERENCES runs(run_id),
+    pipeline_id TEXT REFERENCES pipelines(pipeline_id),
+    chain_id TEXT REFERENCES chains(chain_id),
+    conformal_id TEXT REFERENCES conformal_results(conformal_id),
+    prediction_id TEXT REFERENCES predictions(prediction_id),
+    result_fingerprint TEXT NOT NULL,
+    mode TEXT NOT NULL,
+    scenario_count INTEGER NOT NULL,
+    slice_by TEXT NOT NULL,
+    report_json TEXT NOT NULL,
+    metadata TEXT,
+    created_at TIMESTAMP DEFAULT current_timestamp
+);
 """
 
 # =========================================================================
@@ -248,6 +302,17 @@ CREATE INDEX IF NOT EXISTS idx_artifacts_content_hash ON artifacts(content_hash)
 CREATE INDEX IF NOT EXISTS idx_artifacts_cache_key ON artifacts(chain_path_hash, input_data_hash);
 CREATE INDEX IF NOT EXISTS idx_artifacts_dataset_hash ON artifacts(dataset_hash);
 CREATE INDEX IF NOT EXISTS idx_runs_project_id ON runs(project_id);
+CREATE INDEX IF NOT EXISTS idx_conformal_results_run_id ON conformal_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_conformal_results_chain_id ON conformal_results(chain_id);
+CREATE INDEX IF NOT EXISTS idx_conformal_results_result_fingerprint ON conformal_results(result_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_tuning_results_run_id ON tuning_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_tuning_results_pipeline_id ON tuning_results(pipeline_id);
+CREATE INDEX IF NOT EXISTS idx_tuning_results_result_fingerprint ON tuning_results(result_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_tuning_results_tuning_fingerprint ON tuning_results(tuning_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_robustness_results_run_id ON robustness_results(run_id);
+CREATE INDEX IF NOT EXISTS idx_robustness_results_chain_id ON robustness_results(chain_id);
+CREATE INDEX IF NOT EXISTS idx_robustness_results_result_fingerprint ON robustness_results(result_fingerprint);
+CREATE INDEX IF NOT EXISTS idx_robustness_results_mode ON robustness_results(mode);
 """
 
 # =========================================================================
@@ -262,7 +327,11 @@ TABLE_NAMES: list[str] = [
     "artifacts",
     "logs",
     "projects",
+    "conformal_results",
+    "tuning_results",
+    "robustness_results",
 ]
+
 
 def _auto_migrate_prediction_arrays(conn: sqlite3.Connection, workspace_path: Path) -> None:
     """Auto-migrate legacy ``prediction_arrays`` table to Parquet sidecar files.
@@ -292,9 +361,7 @@ def _auto_migrate_prediction_arrays(conn: sqlite3.Connection, workspace_path: Pa
             return parsed
         return list(val)  # type: ignore[call-overload,no-any-return]
 
-    has_table = conn.execute(
-        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='prediction_arrays'"
-    ).fetchone()
+    has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='prediction_arrays'").fetchone()
     if has_table is None:
         return
 
@@ -309,12 +376,7 @@ def _auto_migrate_prediction_arrays(conn: sqlite3.Connection, workspace_path: Pa
     array_store = ArrayStore(workspace_path)
 
     # Get distinct datasets with arrays
-    dataset_rows = conn.execute(
-        "SELECT DISTINCT p.dataset_name "
-        "FROM predictions p "
-        "INNER JOIN prediction_arrays pa ON p.prediction_id = pa.prediction_id "
-        "ORDER BY p.dataset_name"
-    ).fetchall()
+    dataset_rows = conn.execute("SELECT DISTINCT p.dataset_name FROM predictions p INNER JOIN prediction_arrays pa ON p.prediction_id = pa.prediction_id ORDER BY p.dataset_name").fetchall()
 
     batch_size = 10_000
     for (dataset_name,) in dataset_rows:
@@ -338,10 +400,7 @@ def _auto_migrate_prediction_arrays(conn: sqlite3.Connection, workspace_path: Pa
 
             records = []
             for row in rows:
-                (prediction_id, y_true, y_pred, y_proba,
-                 sample_indices, weights,
-                 model_name, fold_id, partition, metric,
-                 val_score, task_type) = row
+                (prediction_id, y_true, y_pred, y_proba, sample_indices, weights, model_name, fold_id, partition, metric, val_score, task_type) = row
 
                 _yt = _parse_array(y_true)
                 _yp = _parse_array(y_pred)
@@ -349,27 +408,30 @@ def _auto_migrate_prediction_arrays(conn: sqlite3.Connection, workspace_path: Pa
                 _si = _parse_array(sample_indices)
                 _wt = _parse_array(weights)
 
-                records.append({
-                    "prediction_id": prediction_id,
-                    "dataset_name": dataset_name,
-                    "model_name": model_name or "",
-                    "fold_id": fold_id or "",
-                    "partition": partition or "",
-                    "metric": metric or "",
-                    "val_score": val_score,
-                    "task_type": task_type or "",
-                    "y_true": np.array(_yt, dtype=np.float64) if _yt is not None else None,
-                    "y_pred": np.array(_yp, dtype=np.float64) if _yp is not None else None,
-                    "y_proba": np.array(_ypr, dtype=np.float64) if _ypr is not None else None,
-                    "sample_indices": np.array(_si, dtype=np.int32) if _si is not None else None,
-                    "weights": np.array(_wt, dtype=np.float64) if _wt is not None else None,
-                })
+                records.append(
+                    {
+                        "prediction_id": prediction_id,
+                        "dataset_name": dataset_name,
+                        "model_name": model_name or "",
+                        "fold_id": fold_id or "",
+                        "partition": partition or "",
+                        "metric": metric or "",
+                        "val_score": val_score,
+                        "task_type": task_type or "",
+                        "y_true": np.array(_yt, dtype=np.float64) if _yt is not None else None,
+                        "y_pred": np.array(_yp, dtype=np.float64) if _yp is not None else None,
+                        "y_proba": np.array(_ypr, dtype=np.float64) if _ypr is not None else None,
+                        "sample_indices": np.array(_si, dtype=np.int32) if _si is not None else None,
+                        "weights": np.array(_wt, dtype=np.float64) if _wt is not None else None,
+                    }
+                )
 
             array_store.save_batch(records)
             offset += batch_size
 
     conn.execute("DROP TABLE prediction_arrays")
     logger.info("Auto-migration complete. Dropped prediction_arrays table.")
+
 
 def _backfill_chain_summaries(conn: sqlite3.Connection) -> None:
     """Backfill chain summary columns from existing prediction data.
@@ -381,9 +443,7 @@ def _backfill_chain_summaries(conn: sqlite3.Connection) -> None:
         conn: An open SQLite connection.
     """
     # Check whether there are any predictions to backfill from
-    has_predictions = conn.execute(
-        "SELECT 1 FROM predictions LIMIT 1"
-    ).fetchone()
+    has_predictions = conn.execute("SELECT 1 FROM predictions LIMIT 1").fetchone()
     if has_predictions is None:
         return
 
@@ -539,17 +599,12 @@ def _backfill_chain_summaries(conn: sqlite3.Connection) -> None:
     """)
 
     # Backfill cv_scores (averaged multi-metric JSON) via Python
-    chain_ids = [
-        row[0] for row in conn.execute(
-            "SELECT DISTINCT chain_id FROM chains WHERE chain_id IS NOT NULL"
-        ).fetchall()
-    ]
+    chain_ids = [row[0] for row in conn.execute("SELECT DISTINCT chain_id FROM chains WHERE chain_id IS NOT NULL").fetchall()]
     import json
+
     for cid in chain_ids:
         rows = conn.execute(
-            "SELECT partition, scores FROM predictions "
-            "WHERE chain_id = ? AND refit_context IS NULL "
-            "AND partition IN ('val', 'test')",
+            "SELECT partition, scores FROM predictions WHERE chain_id = ? AND refit_context IS NULL AND partition IN ('val', 'test')",
             [cid],
         ).fetchall()
         if not rows:
@@ -578,6 +633,7 @@ def _backfill_chain_summaries(conn: sqlite3.Connection) -> None:
                 [json.dumps(averaged), cid],
             )
 
+
 def create_schema(conn: sqlite3.Connection, workspace_path: Path | None = None) -> None:
     """Create all tables, views, and indexes in the given SQLite connection.
 
@@ -597,11 +653,7 @@ def create_schema(conn: sqlite3.Connection, workspace_path: Path | None = None) 
     # ``PRAGMA user_version`` is a pure read and does not mutate the file.
     existing_version = conn.execute("PRAGMA user_version").fetchone()[0]
     if existing_version > SCHEMA_VERSION:
-        raise RuntimeError(
-            f"Workspace SQLite schema version {existing_version} is newer than "
-            f"this nirs4all supports (max {SCHEMA_VERSION}). "
-            f"Upgrade nirs4all to open this workspace."
-        )
+        raise RuntimeError(f"Workspace SQLite schema version {existing_version} is newer than this nirs4all supports (max {SCHEMA_VERSION}). Upgrade nirs4all to open this workspace.")
 
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
@@ -631,6 +683,7 @@ def create_schema(conn: sqlite3.Connection, workspace_path: Path | None = None) 
     # int constant, so f-string interpolation here carries no user input).
     conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
+
 def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
     """Return the set of column names for a table using PRAGMA table_info.
 
@@ -642,6 +695,7 @@ def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
         Set of column name strings.
     """
     return {row[1] for row in conn.execute(f"PRAGMA table_info('{table_name}')").fetchall()}
+
 
 def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     """Check whether a table exists in the SQLite database.
@@ -655,6 +709,7 @@ def _table_exists(conn: sqlite3.Connection, table_name: str) -> bool:
     """
     return conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?", [table_name]).fetchone() is not None
 
+
 def _get_index_names(conn: sqlite3.Connection, table_name: str) -> set[str]:
     """Return the set of index names for a table using PRAGMA index_list.
 
@@ -666,6 +721,7 @@ def _get_index_names(conn: sqlite3.Connection, table_name: str) -> set[str]:
         Set of index name strings.
     """
     return {row[1] for row in conn.execute(f"PRAGMA index_list('{table_name}')").fetchall()}
+
 
 def _migrate_schema(conn: sqlite3.Connection, *, workspace_path: Path | None = None) -> None:
     """Apply incremental schema migrations to existing databases.

@@ -123,17 +123,56 @@ class TestValidateAndNormalizeFinetuneParams:
 
     def test_sample_key_ignored_when_sampler_present(self, manager):
         """When both 'sample' and 'sampler' exist, 'sampler' wins."""
-        params = manager._validate_and_normalize_finetune_params({
-            "sample": "grid",
-            "sampler": "tpe",
-        })
+        params = manager._validate_and_normalize_finetune_params(
+            {
+                "sample": "grid",
+                "sampler": "tpe",
+            }
+        )
         assert params["sampler"] == "tpe"
         assert "sample" not in params
+
+    def test_public_string_knobs_are_canonicalized(self, manager):
+        """Public string controls are trim/lower normalized before validation."""
+        params = manager._validate_and_normalize_finetune_params(
+            {
+                "sample": " GRID ",
+                "pruner": " HyperBand ",
+                "approach": " Individual ",
+                "eval_mode": " AVG ",
+                "direction": " MAXIMIZE ",
+            }
+        )
+
+        assert "sample" not in params
+        assert params["sampler"] == "grid"
+        assert params["pruner"] == "hyperband"
+        assert params["approach"] == "individual"
+        assert params["eval_mode"] == "mean"
+        assert params["direction"] == "maximize"
+
+    def test_sample_alias_is_dropped_when_sampler_is_explicit(self, manager):
+        params = manager._validate_and_normalize_finetune_params(
+            {
+                "sample": "grid",
+                "sampler": " TPE ",
+            }
+        )
+
+        assert "sample" not in params
+        assert params["sampler"] == "tpe"
 
     def test_avg_eval_mode_normalized_to_mean(self, manager):
         """Legacy 'avg' must be normalized to 'mean'."""
         params = manager._validate_and_normalize_finetune_params({"eval_mode": "avg"})
         assert params["eval_mode"] == "mean"
+
+    def test_phase_samplers_are_canonicalized_without_mutating_input(self, manager):
+        phase = {"sample": " RANDOM ", "n_trials": 2}
+        params = manager._validate_and_normalize_finetune_params({"phases": [phase]})
+
+        assert phase == {"sample": " RANDOM ", "n_trials": 2}
+        assert params["phases"] == [{"sampler": "random", "n_trials": 2}]
 
     # ---- Default values ----
 

@@ -30,6 +30,7 @@ def temp_workspace(tmp_path):
     workspace.mkdir()
     return workspace
 
+
 @pytest.fixture
 def regression_data():
     rng = np.random.RandomState(42)
@@ -38,6 +39,7 @@ def regression_data():
     X = rng.randn(n_samples, n_features)
     y = X[:, 0] * 2 + X[:, 1] * 0.5 + rng.randn(n_samples) * 0.1
     return X, y
+
 
 class TestFullPipelineWithParquetArrays:
     """nirs4all.run() → predictions.top() → arrays load correctly from Parquet."""
@@ -76,10 +78,7 @@ class TestFullPipelineWithParquetArrays:
 
         store = WorkspaceStore(temp_workspace)
         try:
-            result = store._conn.execute(
-                "SELECT name FROM sqlite_master "
-                "WHERE type='table' AND name='prediction_arrays'"
-            ).fetchall()
+            result = store._conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='prediction_arrays'").fetchall()
             assert len(result) == 0, "prediction_arrays table should not exist"
         finally:
             store.close()
@@ -183,5 +182,57 @@ class TestFullPipelineWithParquetArrays:
             # Array columns
             assert "y_true" in columns
             assert "y_pred" in columns
+            assert "X" in columns
+            assert "X_shape" in columns
+            assert "result_metadata" in columns
+        finally:
+            store.close()
+
+    def test_array_store_roundtrips_spectral_replay_evidence(self, temp_workspace):
+        """ArrayStore can persist row-aligned X and robustness evidence metadata."""
+        X = np.arange(12, dtype=float).reshape(3, 4)
+        y_true = np.array([1.0, 2.0, 3.0])
+        y_pred = np.array([1.1, 1.9, 3.2])
+
+        store = WorkspaceStore(temp_workspace)
+        try:
+            store.array_store.save_batch(
+                [
+                    {
+                        "prediction_id": "pred-spectral-evidence",
+                        "dataset_name": "dataset-a",
+                        "model_name": "PLSRegression",
+                        "fold_id": "final",
+                        "partition": "test",
+                        "metric": "rmse",
+                        "val_score": None,
+                        "task_type": "regression",
+                        "y_true": y_true,
+                        "y_pred": y_pred,
+                        "X": X,
+                        "result_metadata": {
+                            "robustness_evidence": {
+                                "X": "prediction_arrays.X",
+                                "predictor_bundle": "/workspace/models/model.n4a",
+                            },
+                        },
+                    },
+                ]
+            )
+
+            loaded = store.array_store.load_single(
+                "pred-spectral-evidence",
+                dataset_name="dataset-a",
+            )
+            assert loaded is not None
+            np.testing.assert_allclose(loaded["X"], X)
+            np.testing.assert_allclose(loaded["y_true"], y_true)
+            np.testing.assert_allclose(loaded["y_pred"], y_pred)
+            assert loaded["result_metadata"] == {
+                "robustness_evidence": {
+                    "X": "prediction_arrays.X",
+                    "predictor_bundle": "/workspace/models/model.n4a",
+                },
+            }
         finally:
             store.close()

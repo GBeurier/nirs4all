@@ -22,11 +22,13 @@ import yaml
 
 from nirs4all.data.raw_multisource import RepresentationPlan
 from nirs4all.data.relation_replay_manifest import build_relation_replay_manifest
+from nirs4all.pipeline.dagml.tuning_contracts import TrialResult, TuningResult, parse_tuning_spec
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 # =========================================================================
 # Helpers
 # =========================================================================
+
 
 class _WavelengthAwareAdder:
     """Simple transformer that requires wavelengths in transform()."""
@@ -37,15 +39,18 @@ class _WavelengthAwareAdder:
         wl = np.asarray(wavelengths, dtype=float).reshape(1, -1)
         return np.asarray(X, dtype=float) + wl
 
+
 class _SummingModel:
     """Simple model used for chain replay tests."""
 
     def predict(self, X):  # noqa: ANN001
         return np.asarray(X, dtype=float).sum(axis=1)
 
+
 def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
+
 
 def _create_full_run(store: WorkspaceStore, *, dataset_name: str = "wheat") -> dict:
     """Create a run -> pipeline -> chain -> prediction hierarchy and return all IDs."""
@@ -110,9 +115,36 @@ def _create_full_run(store: WorkspaceStore, *, dataset_name: str = "wheat") -> d
         "artifact_id": art_id,
     }
 
+
+def _make_tuning_result() -> TuningResult:
+    """Create a small deterministic native tuning result for workspace tests."""
+    tuning = parse_tuning_spec(
+        {
+            "engine": "optuna",
+            "space": {"model.n_components": [2, 3]},
+            "metric": "rmse",
+            "direction": "minimize",
+            "n_trials": 2,
+            "sampler": "grid",
+            "seed": 7,
+        }
+    )
+    return TuningResult(
+        tuning=tuning,
+        best_params={"model.n_components": 2},
+        best_value=0.12,
+        trials=(
+            TrialResult(number=0, params={"model.n_components": 3}, value=0.2, state="COMPLETE", diagnostics={"metric": "rmse"}),
+            TrialResult(number=1, params={"model.n_components": 2}, value=0.12, state="COMPLETE", diagnostics={"metric": "rmse"}),
+        ),
+        optimizer="optuna",
+    )
+
+
 # =========================================================================
 # test_run_lifecycle
 # =========================================================================
+
 
 class TestRunLifecycle:
     """begin -> complete -> query."""
@@ -142,9 +174,11 @@ class TestRunLifecycle:
 
         store.close()
 
+
 # =========================================================================
 # test_run_failure
 # =========================================================================
+
 
 class TestRunFailure:
     """begin -> fail -> verify no leaked data."""
@@ -163,9 +197,11 @@ class TestRunFailure:
 
         store.close()
 
+
 # =========================================================================
 # test_pipeline_crud
 # =========================================================================
+
 
 class TestPipelineCrud:
     """Create, query, complete, fail pipelines."""
@@ -242,9 +278,11 @@ class TestPipelineCrud:
 
         store.close()
 
+
 # =========================================================================
 # test_chain_save_load
 # =========================================================================
+
 
 class TestChainSaveLoad:
     """Save chain with fold_artifacts, shared_artifacts; load by ID."""
@@ -341,6 +379,7 @@ class TestChainSaveLoad:
 
         store.close()
 
+
 class TestChainReplay:
     """Chain replay behavior including wavelength passthrough."""
 
@@ -386,9 +425,11 @@ class TestChainReplay:
         np.testing.assert_allclose(y_pred, expected)
         store.close()
 
+
 # =========================================================================
 # test_prediction_save_query
 # =========================================================================
+
 
 class TestPredictionSaveQuery:
     """Save 100 predictions; query by dataset, model, partition."""
@@ -598,6 +639,53 @@ class TestPredictionSaveQuery:
 
         store.close()
 
+    def test_save_prediction_rejects_coercive_prediction_ids(self, tmp_path):
+        """Explicit workspace prediction ids are strict keys, including upsert calls."""
+        store = _make_store(tmp_path)
+        run_id = store.begin_run("run", config={}, datasets=[])
+        pid = store.begin_pipeline(run_id, "p", {}, [], "wheat", "h")
+        chain_id = store.save_chain(
+            pid,
+            [{"step_idx": 0, "operator_class": "M", "params": {}, "artifact_id": None, "stateless": True}],
+            0,
+            "Model",
+            "",
+            "per_fold",
+            {},
+            {},
+        )
+        kwargs = {
+            "pipeline_id": pid,
+            "chain_id": chain_id,
+            "dataset_name": "wheat",
+            "model_name": "PLS",
+            "model_class": "PLS",
+            "fold_id": "fold_0",
+            "partition": "val",
+            "val_score": 0.50,
+            "test_score": 0.60,
+            "train_score": 0.40,
+            "metric": "rmse",
+            "task_type": "regression",
+            "n_samples": 10,
+            "n_features": 5,
+            "scores": {},
+            "best_params": {},
+            "branch_id": None,
+            "branch_name": None,
+            "exclusion_count": 0,
+            "exclusion_rate": 0.0,
+        }
+
+        generated = store.save_prediction(**kwargs)
+        assert isinstance(generated, str)
+        assert generated
+
+        for prediction_id in ("", " pred-main ", "bad\x00id", 123):
+            with pytest.raises(ValueError, match="save_prediction.prediction_id must be a canonical non-empty string"):
+                store.save_prediction(**kwargs, prediction_id=prediction_id)  # type: ignore[arg-type]
+        store.close()
+
     def test_prediction_upsert_replaces_arrays(self, tmp_path):
         """Upsert with same natural key should replace array payloads cleanly."""
         store = _make_store(tmp_path)
@@ -637,18 +725,22 @@ class TestPredictionSaveQuery:
             exclusion_rate=0.0,
             prediction_id="pred_arrays",
         )
-        store.array_store.save_batch([{
-            "prediction_id": first_id,
-            "dataset_name": "wheat",
-            "model_name": "PLS",
-            "fold_id": "fold_0",
-            "partition": "val",
-            "metric": "rmse",
-            "val_score": 0.50,
-            "task_type": "regression",
-            "y_true": np.array([1.0, 2.0, 3.0]),
-            "y_pred": np.array([1.1, 2.1, 3.1]),
-        }])
+        store.array_store.save_batch(
+            [
+                {
+                    "prediction_id": first_id,
+                    "dataset_name": "wheat",
+                    "model_name": "PLS",
+                    "fold_id": "fold_0",
+                    "partition": "val",
+                    "metric": "rmse",
+                    "val_score": 0.50,
+                    "task_type": "regression",
+                    "y_true": np.array([1.0, 2.0, 3.0]),
+                    "y_pred": np.array([1.1, 2.1, 3.1]),
+                }
+            ]
+        )
 
         second_id = store.save_prediction(
             pipeline_id=pid,
@@ -673,18 +765,22 @@ class TestPredictionSaveQuery:
             exclusion_rate=0.0,
             prediction_id="pred_arrays_new",
         )
-        store.array_store.save_batch([{
-            "prediction_id": second_id,
-            "dataset_name": "wheat",
-            "model_name": "PLS",
-            "fold_id": "fold_0",
-            "partition": "val",
-            "metric": "rmse",
-            "val_score": 0.10,
-            "task_type": "regression",
-            "y_true": np.array([10.0, 20.0]),
-            "y_pred": np.array([10.5, 20.5]),
-        }])
+        store.array_store.save_batch(
+            [
+                {
+                    "prediction_id": second_id,
+                    "dataset_name": "wheat",
+                    "model_name": "PLS",
+                    "fold_id": "fold_0",
+                    "partition": "val",
+                    "metric": "rmse",
+                    "val_score": 0.10,
+                    "task_type": "regression",
+                    "y_true": np.array([10.0, 20.0]),
+                    "y_pred": np.array([10.5, 20.5]),
+                }
+            ]
+        )
 
         # Compact to apply the tombstone from the upsert deletion
         store.array_store.compact("wheat")
@@ -698,9 +794,11 @@ class TestPredictionSaveQuery:
 
         store.close()
 
+
 # =========================================================================
 # test_prediction_arrays
 # =========================================================================
+
 
 class TestPredictionArrays:
     """Save y_true/y_pred as DOUBLE[]; load; verify numpy roundtrip."""
@@ -715,20 +813,24 @@ class TestPredictionArrays:
         sample_indices = np.array([0, 1, 2, 3, 4])
         weights = np.array([1.0, 1.0, 1.0, 1.0, 1.0])
 
-        store.array_store.save_batch([{
-            "prediction_id": ids["pred_id"],
-            "dataset_name": "wheat",
-            "model_name": "PLSRegression",
-            "fold_id": "fold_0",
-            "partition": "val",
-            "metric": "rmse",
-            "val_score": 0.12,
-            "task_type": "regression",
-            "y_true": y_true,
-            "y_pred": y_pred,
-            "sample_indices": sample_indices,
-            "weights": weights,
-        }])
+        store.array_store.save_batch(
+            [
+                {
+                    "prediction_id": ids["pred_id"],
+                    "dataset_name": "wheat",
+                    "model_name": "PLSRegression",
+                    "fold_id": "fold_0",
+                    "partition": "val",
+                    "metric": "rmse",
+                    "val_score": 0.12,
+                    "task_type": "regression",
+                    "y_true": y_true,
+                    "y_pred": y_pred,
+                    "sample_indices": sample_indices,
+                    "weights": weights,
+                }
+            ]
+        )
 
         pred = store.get_prediction(ids["pred_id"], load_arrays=True)
         assert pred is not None
@@ -744,18 +846,22 @@ class TestPredictionArrays:
         store = _make_store(tmp_path)
         ids = _create_full_run(store)
 
-        store.array_store.save_batch([{
-            "prediction_id": ids["pred_id"],
-            "dataset_name": "wheat",
-            "model_name": "PLSRegression",
-            "fold_id": "fold_0",
-            "partition": "val",
-            "metric": "rmse",
-            "val_score": 0.12,
-            "task_type": "regression",
-            "y_true": np.array([1.0, 2.0]),
-            "y_pred": np.array([1.1, 2.1]),
-        }])
+        store.array_store.save_batch(
+            [
+                {
+                    "prediction_id": ids["pred_id"],
+                    "dataset_name": "wheat",
+                    "model_name": "PLSRegression",
+                    "fold_id": "fold_0",
+                    "partition": "val",
+                    "metric": "rmse",
+                    "val_score": 0.12,
+                    "task_type": "regression",
+                    "y_true": np.array([1.0, 2.0]),
+                    "y_pred": np.array([1.1, 2.1]),
+                }
+            ]
+        )
 
         pred = store.get_prediction(ids["pred_id"], load_arrays=True)
         assert pred["y_proba"] is None
@@ -776,9 +882,11 @@ class TestPredictionArrays:
 
         store.close()
 
+
 # =========================================================================
 # test_top_predictions
 # =========================================================================
+
 
 class TestTopPredictions:
     """Top-N with group_by, ascending/descending."""
@@ -793,15 +901,26 @@ class TestTopPredictions:
         # Create predictions with different val_scores (unique fold_id per row)
         for i in range(20):
             store.save_prediction(
-                pipeline_id=pid, chain_id=cid, dataset_name="wheat",
-                model_name="PLS", model_class="PLS" if i < 10 else "Ridge",
-                fold_id=f"f{i}", partition="val",
-                val_score=float(i), test_score=float(i), train_score=float(i),
-                metric="rmse", task_type="regression",
-                n_samples=50, n_features=100,
-                scores={}, best_params={},
-                branch_id=None, branch_name=None,
-                exclusion_count=0, exclusion_rate=0.0,
+                pipeline_id=pid,
+                chain_id=cid,
+                dataset_name="wheat",
+                model_name="PLS",
+                model_class="PLS" if i < 10 else "Ridge",
+                fold_id=f"f{i}",
+                partition="val",
+                val_score=float(i),
+                test_score=float(i),
+                train_score=float(i),
+                metric="rmse",
+                task_type="regression",
+                n_samples=50,
+                n_features=100,
+                scores={},
+                best_params={},
+                branch_id=None,
+                branch_name=None,
+                exclusion_count=0,
+                exclusion_rate=0.0,
             )
 
         # Top 5 ascending (lower is better)
@@ -829,15 +948,26 @@ class TestTopPredictions:
         for i in range(10):
             model = "PLS" if i < 5 else "Ridge"
             store.save_prediction(
-                pipeline_id=pid, chain_id=cid, dataset_name="wheat",
-                model_name=model, model_class=model,
-                fold_id=f"f{i}", partition="val",
-                val_score=float(i), test_score=0.0, train_score=0.0,
-                metric="rmse", task_type="regression",
-                n_samples=50, n_features=100,
-                scores={}, best_params={},
-                branch_id=None, branch_name=None,
-                exclusion_count=0, exclusion_rate=0.0,
+                pipeline_id=pid,
+                chain_id=cid,
+                dataset_name="wheat",
+                model_name=model,
+                model_class=model,
+                fold_id=f"f{i}",
+                partition="val",
+                val_score=float(i),
+                test_score=0.0,
+                train_score=0.0,
+                metric="rmse",
+                task_type="regression",
+                n_samples=50,
+                n_features=100,
+                scores={},
+                best_params={},
+                branch_id=None,
+                branch_name=None,
+                exclusion_count=0,
+                exclusion_rate=0.0,
             )
 
         # Top 2 per model_class
@@ -857,15 +987,26 @@ class TestTopPredictions:
         for i in range(10):
             ds = "wheat" if i < 5 else "corn"
             store.save_prediction(
-                pipeline_id=pid, chain_id=cid, dataset_name=ds,
-                model_name="PLS", model_class="PLS",
-                fold_id=f"f{i}", partition="val",
-                val_score=float(i), test_score=0.0, train_score=0.0,
-                metric="rmse", task_type="regression",
-                n_samples=50, n_features=100,
-                scores={}, best_params={},
-                branch_id=None, branch_name=None,
-                exclusion_count=0, exclusion_rate=0.0,
+                pipeline_id=pid,
+                chain_id=cid,
+                dataset_name=ds,
+                model_name="PLS",
+                model_class="PLS",
+                fold_id=f"f{i}",
+                partition="val",
+                val_score=float(i),
+                test_score=0.0,
+                train_score=0.0,
+                metric="rmse",
+                task_type="regression",
+                n_samples=50,
+                n_features=100,
+                scores={},
+                best_params={},
+                branch_id=None,
+                branch_name=None,
+                exclusion_count=0,
+                exclusion_rate=0.0,
             )
 
         df = store.top_predictions(3, dataset_name="wheat")
@@ -874,9 +1015,11 @@ class TestTopPredictions:
 
         store.close()
 
+
 # =========================================================================
 # test_artifact_dedup
 # =========================================================================
+
 
 class TestArtifactDedup:
     """Save same binary twice -> same artifact_id, ref_count=2."""
@@ -902,9 +1045,11 @@ class TestArtifactDedup:
 
         store.close()
 
+
 # =========================================================================
 # test_artifact_gc
 # =========================================================================
+
 
 class TestArtifactGC:
     """Delete chain -> ref_count decrements -> gc removes file."""
@@ -933,9 +1078,11 @@ class TestArtifactGC:
 
         store.close()
 
+
 # =========================================================================
 # test_log_step
 # =========================================================================
+
 
 class TestLogStep:
     """Log events; query per pipeline; aggregate per run."""
@@ -975,7 +1122,10 @@ class TestLogStep:
         pid = store.begin_pipeline(run_id, "p", {}, [], "ds", "h")
 
         store.log_step(
-            pid, 0, "Scaler", "end",
+            pid,
+            0,
+            "Scaler",
+            "end",
             duration_ms=10,
             details={"transform_shape": [100, 200]},
             level="info",
@@ -986,9 +1136,11 @@ class TestLogStep:
 
         store.close()
 
+
 # =========================================================================
 # test_delete_cascade
 # =========================================================================
+
 
 class TestDeleteCascade:
     """Delete run -> pipelines, chains, predictions, arrays deleted."""
@@ -999,18 +1151,22 @@ class TestDeleteCascade:
         ids = _create_full_run(store)
 
         # Save arrays too
-        store.array_store.save_batch([{
-            "prediction_id": ids["pred_id"],
-            "dataset_name": "wheat",
-            "model_name": "PLSRegression",
-            "fold_id": "fold_0",
-            "partition": "val",
-            "metric": "rmse",
-            "val_score": 0.12,
-            "task_type": "regression",
-            "y_true": np.array([1.0, 2.0]),
-            "y_pred": np.array([1.1, 2.1]),
-        }])
+        store.array_store.save_batch(
+            [
+                {
+                    "prediction_id": ids["pred_id"],
+                    "dataset_name": "wheat",
+                    "model_name": "PLSRegression",
+                    "fold_id": "fold_0",
+                    "partition": "val",
+                    "metric": "rmse",
+                    "val_score": 0.12,
+                    "task_type": "regression",
+                    "y_true": np.array([1.0, 2.0]),
+                    "y_pred": np.array([1.1, 2.1]),
+                }
+            ]
+        )
 
         # Also add a log entry
         store.log_step(ids["pipeline_id"], 0, "Scaler", "end", duration_ms=10)
@@ -1042,18 +1198,22 @@ class TestDeleteCascade:
         store = _make_store(tmp_path)
         ids = _create_full_run(store)
 
-        store.array_store.save_batch([{
-            "prediction_id": ids["pred_id"],
-            "dataset_name": "wheat",
-            "model_name": "PLSRegression",
-            "fold_id": "fold_0",
-            "partition": "val",
-            "metric": "rmse",
-            "val_score": 0.12,
-            "task_type": "regression",
-            "y_true": np.array([1.0]),
-            "y_pred": np.array([1.1]),
-        }])
+        store.array_store.save_batch(
+            [
+                {
+                    "prediction_id": ids["pred_id"],
+                    "dataset_name": "wheat",
+                    "model_name": "PLSRegression",
+                    "fold_id": "fold_0",
+                    "partition": "val",
+                    "metric": "rmse",
+                    "val_score": 0.12,
+                    "task_type": "regression",
+                    "y_true": np.array([1.0]),
+                    "y_pred": np.array([1.1]),
+                }
+            ]
+        )
 
         result = store.delete_prediction(ids["pred_id"])
         assert result is True
@@ -1174,9 +1334,11 @@ class TestDeleteCascade:
 
         store.close()
 
+
 # =========================================================================
 # test_export_chain_n4a
 # =========================================================================
+
 
 class TestExportChainN4a:
     """Export chain -> valid .n4a ZIP with manifest + artifacts."""
@@ -1251,9 +1413,11 @@ class TestExportChainN4a:
             store.export_chain("nonexistent", tmp_path / "out.n4a")
         store.close()
 
+
 # =========================================================================
 # test_export_pipeline_config
 # =========================================================================
+
 
 class TestExportPipelineConfig:
     """Export pipeline config -> valid JSON."""
@@ -1282,9 +1446,11 @@ class TestExportPipelineConfig:
             store.export_pipeline_config("nonexistent", tmp_path / "out.json")
         store.close()
 
+
 # =========================================================================
 # test_export_run
 # =========================================================================
+
 
 class TestExportRun:
     """Export run -> valid YAML with all pipelines."""
@@ -1321,9 +1487,11 @@ class TestExportRun:
             store.export_run("nonexistent", tmp_path / "out.yaml")
         store.close()
 
+
 # =========================================================================
 # test_concurrent_read_write
 # =========================================================================
+
 
 class TestConcurrentReadWrite:
     """Two threads: one writing, one reading -> no corruption."""
@@ -1365,9 +1533,11 @@ class TestConcurrentReadWrite:
 
         assert errors == [], f"Concurrent access errors: {errors}"
 
+
 # =========================================================================
 # test_empty_workspace
 # =========================================================================
+
 
 class TestEmptyWorkspace:
     """All queries return empty DataFrames on fresh store."""
@@ -1415,9 +1585,11 @@ class TestEmptyWorkspace:
 
         store.close()
 
+
 # =========================================================================
 # test_schema_creation (via WorkspaceStore)
 # =========================================================================
+
 
 class TestSchemaCreationViaStore:
     """Create store from scratch; verify all tables exist."""
@@ -1427,20 +1599,15 @@ class TestSchemaCreationViaStore:
         store = _make_store(tmp_path)
         conn = store._ensure_open()
 
-        result = conn.execute(
-            "SELECT name FROM sqlite_master "
-            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' "
-            "ORDER BY name"
-        ).fetchall()
+        result = conn.execute("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").fetchall()
         tables = sorted([row[0] for row in result])
 
         from nirs4all.pipeline.storage.store_schema import TABLE_NAMES
+
         assert tables == sorted(TABLE_NAMES)
 
         # Verify chain summary VIEW exists
-        views = conn.execute(
-            "SELECT name FROM sqlite_master WHERE type = 'view'"
-        ).fetchall()
+        views = conn.execute("SELECT name FROM sqlite_master WHERE type = 'view'").fetchall()
         view_names = [row[0] for row in views]
         assert "v_chain_summary" in view_names
 
@@ -1482,9 +1649,11 @@ class TestSchemaCreationViaStore:
         assert fk == 1
         store.close()
 
+
 # =========================================================================
 # test_export_predictions_parquet
 # =========================================================================
+
 
 class TestExportPredictionsParquet:
     """Export filtered predictions via Polars write_parquet."""
@@ -1514,9 +1683,11 @@ class TestExportPredictionsParquet:
         assert len(df) == 0
         store.close()
 
+
 # =========================================================================
 # test_artifact_load
 # =========================================================================
+
 
 class TestArtifactLoad:
     """Save and load artifact round-trip."""
@@ -1565,9 +1736,11 @@ class TestArtifactLoad:
             store.get_artifact_path("nonexistent")
         store.close()
 
+
 # =========================================================================
 # test_close
 # =========================================================================
+
 
 class TestClose:
     """Verify close and post-close behavior."""
@@ -1606,9 +1779,111 @@ class TestClose:
 
         assert store_ref() is None
 
+
+# =========================================================================
+# test_tuning_results
+# =========================================================================
+
+
+class TestTuningResults:
+    """Persist and reload native DAG-ML tuning results."""
+
+    def test_save_and_load_tuning_result_by_id_and_fingerprint(self, tmp_path):
+        """TuningResult round-trips through the workspace store with fingerprint checks."""
+        store = _make_store(tmp_path)
+        ids = _create_full_run(store)
+        result = _make_tuning_result()
+
+        tuning_id = store.save_tuning_result(
+            result,
+            name="pls hpo",
+            run_id=ids["run_id"],
+            pipeline_id=ids["pipeline_id"],
+            chain_id=ids["chain_id"],
+            tuning_id="tune-main",
+            metadata={"purpose": "unit-test"},
+        )
+        restored = store.load_tuning_result(tuning_id)
+        restored_by_fingerprint = store.load_tuning_result(result.fingerprint)
+
+        assert tuning_id == "tune-main"
+        assert restored.to_dict() == result.to_dict()
+        assert restored_by_fingerprint.to_dict() == result.to_dict()
+        store.close()
+
+    def test_list_tuning_results(self, tmp_path):
+        """Persisted TuningResult rows are listable for CLI/workspace inspection."""
+        store = _make_store(tmp_path)
+        first = _make_tuning_result()
+        second = TuningResult(
+            tuning=first.tuning,
+            best_params={"model.n_components": 3},
+            best_value=0.2,
+            trials=first.trials,
+            optimizer="optuna",
+        )
+
+        store.save_tuning_result(first, tuning_id="tune-a", name="first tuning")
+        store.save_tuning_result(second, tuning_id="tune-b", name="second tuning")
+
+        rows = store.list_tuning_results(limit=10).to_dicts()
+
+        assert {row["tuning_id"] for row in rows} == {"tune-a", "tune-b"}
+        assert {row["result_fingerprint"] for row in rows} == {first.fingerprint, second.fingerprint}
+        assert all(row["engine"] == "optuna" for row in rows)
+        store.close()
+
+    def test_save_tuning_result_metadata_is_strict_json_native(self, tmp_path):
+        """Workspace tuning metadata is not silently stringified."""
+        store = _make_store(tmp_path)
+        result = _make_tuning_result()
+
+        tuning_id = store.save_tuning_result(
+            result,
+            tuning_id="tune-json",
+            metadata={"site": "north", "nested": {"ok": [1, True, None]}},
+        )
+        rows = store.list_tuning_results(limit=10).to_dicts()
+
+        assert tuning_id == "tune-json"
+        assert json.loads(rows[0]["metadata"]) == {"site": "north", "nested": {"ok": [1, True, None]}}
+
+        for metadata, message in (
+            ({" bad": 1}, "save_tuning_result.metadata keys must be canonical non-empty strings"),
+            ({"bad": object()}, r"save_tuning_result.metadata\[bad\] must be JSON-native"),
+            ({"bad": float("nan")}, r"save_tuning_result.metadata\[bad\] must be JSON-native and finite"),
+            ({"bad": (1, 2)}, r"save_tuning_result.metadata\[bad\] must be JSON-native"),
+        ):
+            with pytest.raises(ValueError, match=message):
+                store.save_tuning_result(result, metadata=metadata)
+        store.close()
+
+    def test_save_tuning_result_rejects_coercive_tuning_ids(self, tmp_path):
+        """Caller-provided workspace tuning ids are strict identifiers, not display labels."""
+        store = _make_store(tmp_path)
+        result = _make_tuning_result()
+
+        generated = store.save_tuning_result(result)
+        assert isinstance(generated, str)
+        assert generated
+
+        for tuning_id in ("", " tune-main ", "bad\x00id", 123):
+            with pytest.raises(ValueError, match="save_tuning_result.tuning_id must be a canonical non-empty string"):
+                store.save_tuning_result(result, tuning_id=tuning_id)  # type: ignore[arg-type]
+        store.close()
+
+    def test_save_tuning_result_rejects_wrong_type(self, tmp_path):
+        """Only typed TuningResult objects can be persisted."""
+        store = _make_store(tmp_path)
+        with pytest.raises(TypeError, match="TuningResult"):
+            store.save_tuning_result({"not": "typed"})
+        store.close()
+
+
 # =========================================================================
 # test_vacuum
 # =========================================================================
+
 
 class TestVacuum:
     """Verify vacuum runs without error."""
@@ -1621,9 +1896,11 @@ class TestVacuum:
         store.vacuum()  # Should not raise
         store.close()
 
+
 # =========================================================================
 # test_list_runs
 # =========================================================================
+
 
 class TestListRuns:
     """Verify list_runs filtering."""
@@ -1692,9 +1969,11 @@ class TestListRuns:
 
         store.close()
 
+
 # =========================================================================
 # test_sql_injection_guard
 # =========================================================================
+
 
 class TestSQLInjectionGuard:
     """Verify that metric and group_by parameters are validated."""

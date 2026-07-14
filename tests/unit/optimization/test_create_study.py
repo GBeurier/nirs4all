@@ -78,6 +78,23 @@ class TestCreateStudySamplers:
         study = manager._create_study(fp)
         assert isinstance(study.sampler, TPESampler)
 
+    def test_create_study_normalizes_sampler_public_spelling(self, manager):
+        fp = {
+            "sampler": " RANDOM ",
+            "model_params": {"alpha": ("float", 0.01, 1.0)},
+        }
+        study = manager._create_study(fp)
+        assert isinstance(study.sampler, RandomSampler)
+
+    def test_create_study_rejects_unknown_sampler(self, manager):
+        fp = {
+            "sampler": " bogus ",
+            "model_params": {"alpha": ("float", 0.01, 1.0)},
+        }
+        with pytest.raises(ValueError, match="Unknown sampler 'bogus'"):
+            manager._create_study(fp)
+
+
 class TestCreateStudySeed:
     """Tests for seed support in _create_study."""
 
@@ -145,6 +162,7 @@ class TestCreateStudySeed:
         values2 = [t.params["x"] for t in study2.trials]
         assert values1 == values2
 
+
 class TestCreateStudyPruners:
     """Tests for pruner instantiation in _create_study."""
 
@@ -185,6 +203,7 @@ class TestCreateStudyPruners:
         study = manager._create_study(fp)
         assert isinstance(study.pruner, HyperbandPruner)
 
+
 class TestCreatePruner:
     """Tests for _create_pruner helper."""
 
@@ -204,8 +223,13 @@ class TestCreatePruner:
     def test_hyperband_returns_pruner(self, manager):
         assert isinstance(manager._create_pruner("hyperband"), HyperbandPruner)
 
-    def test_unknown_returns_none(self, manager):
-        assert manager._create_pruner("unknown_pruner") is None
+    def test_pruner_helper_normalizes_public_spelling(self, manager):
+        assert isinstance(manager._create_pruner(" HyperBand "), HyperbandPruner)
+
+    def test_unknown_pruner_helper_raises(self, manager):
+        with pytest.raises(ValueError, match="Unknown pruner 'unknown_pruner'"):
+            manager._create_pruner("unknown_pruner")
+
 
 class TestCreateStudyDirection:
     """Tests for direction parameter in _create_study."""
@@ -226,6 +250,23 @@ class TestCreateStudyDirection:
         }
         study = manager._create_study(fp)
         assert study.direction == optuna.study.StudyDirection.MAXIMIZE
+
+    def test_direction_is_normalized(self, manager):
+        fp = {
+            "direction": " MAXIMIZE ",
+            "model_params": {"n_components": ("int", 1, 30)},
+        }
+        study = manager._create_study(fp)
+        assert study.direction == optuna.study.StudyDirection.MAXIMIZE
+
+    def test_unknown_direction_raises(self, manager):
+        fp = {
+            "direction": "up",
+            "model_params": {"n_components": ("int", 1, 30)},
+        }
+        with pytest.raises(ValueError, match="Unknown direction 'up'"):
+            manager._create_study(fp)
+
 
 class TestCreateStudyStorage:
     """Tests for storage/resume in _create_study."""
@@ -280,6 +321,7 @@ class TestCreateStudyStorage:
         study2 = manager._create_study(fp2)
         # Should have the trial from the first study
         assert len(study2.trials) == 1
+
 
 class TestCreateStudyForceParams:
     """Tests for force_params enqueue in _create_study."""

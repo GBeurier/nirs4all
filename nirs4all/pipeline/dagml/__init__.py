@@ -6,3 +6,20 @@ operator-routing registry, and the data-plan envelope builder. All additive and
 import-guarded — production ``nirs4all`` never imports this unless the dag-ml
 backend is selected. See ``dag-ml/docs/migration-nirs4all/``.
 """
+
+__all__ = [
+    "conformal_contracts",
+    "conformal_store",
+    "estimator",
+    "finetune_lowering",
+    "fit_identity",
+    "native_client",
+    "pipeline_objective",
+    "pipeline_objective_compiler",
+    "raw_training_lowerer",
+    "training_compiler",
+    "training_contracts",
+    "tuning_adapters",
+    "tuning_contracts",
+    "tuning_projection",
+]

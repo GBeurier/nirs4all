@@ -37,6 +37,7 @@ from nirs4all.pipeline.storage.array_store import ArrayStore
 
 try:
     import duckdb
+
     HAS_DUCKDB = True
 except ImportError:
     HAS_DUCKDB = False
@@ -44,6 +45,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 _MIGRATION_LOCK_STALE_SECONDS = 300.0
+
 
 @dataclass
 class MigrationReport:
@@ -62,22 +64,21 @@ class MigrationReport:
     duration_seconds: float = 0.0
     errors: list[str] = field(default_factory=list)
 
+
 def _require_duckdb():
     """Raise ImportError with helpful message if duckdb is not installed."""
     if not HAS_DUCKDB:
-        raise ImportError(
-            "The 'duckdb' package is required to migrate legacy DuckDB workspaces. "
-            "Install it with: pip install nirs4all[migration]"
-        )
+        raise ImportError("The 'duckdb' package is required to migrate legacy DuckDB workspaces. Install it with: pip install nirs4all[migration]")
+
 
 def _table_exists_duckdb(conn, table_name: str) -> bool:
     """Check whether a table exists in a DuckDB database."""
     result = conn.execute(
-        "SELECT 1 FROM information_schema.tables "
-        "WHERE table_name = $1 AND table_type = 'BASE TABLE'",
+        "SELECT 1 FROM information_schema.tables WHERE table_name = $1 AND table_type = 'BASE TABLE'",
         [table_name],
     ).fetchone()
     return result is not None
+
 
 def _array_checksum(arr: list | np.ndarray | None) -> str:
     """Compute a stable checksum for an array (or None)."""
@@ -87,6 +88,7 @@ def _array_checksum(arr: list | np.ndarray | None) -> str:
         arr = np.array(arr, dtype=np.float64)
     return hashlib.md5(np.ascontiguousarray(arr, dtype=np.float64).tobytes()).hexdigest()
 
+
 def _sqlite_compatible_value(value: object) -> object:
     """Normalize values before inserting them into SQLite."""
     if isinstance(value, datetime):
@@ -94,6 +96,7 @@ def _sqlite_compatible_value(value: object) -> object:
     if isinstance(value, date):
         return value.isoformat()
     return value
+
 
 def _read_lock_metadata(lock_path: Path) -> dict[str, object]:
     """Read JSON metadata from a migration lock file.
@@ -105,6 +108,7 @@ def _read_lock_metadata(lock_path: Path) -> dict[str, object]:
         return result
     except (FileNotFoundError, OSError, ValueError, TypeError):
         return {}
+
 
 def _is_pid_running(pid: int) -> bool:
     """Return ``True`` when *pid* appears to reference a live process."""
@@ -118,6 +122,7 @@ def _is_pid_running(pid: int) -> bool:
         return True
     return True
 
+
 def _lock_owner_pid(lock_path: Path) -> int | None:
     """Extract the owning PID from a lock file, if available."""
     metadata = _read_lock_metadata(lock_path)
@@ -127,6 +132,7 @@ def _lock_owner_pid(lock_path: Path) -> int | None:
     if isinstance(raw_pid, str) and raw_pid.isdigit():
         return int(raw_pid)
     return None
+
 
 def _is_stale_migration_lock(lock_path: Path) -> bool:
     """Return ``True`` when the migration lock is stale and safe to remove."""
@@ -139,6 +145,7 @@ def _is_stale_migration_lock(lock_path: Path) -> bool:
     except FileNotFoundError:
         return False
     return age_seconds > _MIGRATION_LOCK_STALE_SECONDS
+
 
 def _acquire_migration_lock(lock_path: Path, sqlite_tmp: Path) -> None:
     """Acquire the migration lock or raise if another process owns it."""
@@ -161,9 +168,7 @@ def _acquire_migration_lock(lock_path: Path, sqlite_tmp: Path) -> None:
     owner_pid = _lock_owner_pid(lock_path)
     if not _is_stale_migration_lock(lock_path):
         owner_note = f" (pid {owner_pid})" if owner_pid is not None else ""
-        raise RuntimeError(
-            f"Another DuckDB-to-SQLite migration is already in progress for {lock_path.parent}{owner_note}."
-        )
+        raise RuntimeError(f"Another DuckDB-to-SQLite migration is already in progress for {lock_path.parent}{owner_note}.")
 
     logger.warning("Removing stale DuckDB-to-SQLite migration lock: %s", lock_path)
     with contextlib.suppress(FileNotFoundError):
@@ -174,9 +179,8 @@ def _acquire_migration_lock(lock_path: Path, sqlite_tmp: Path) -> None:
     try:
         _write_lock()
     except FileExistsError as exc:
-        raise RuntimeError(
-            f"Another DuckDB-to-SQLite migration is already in progress for {lock_path.parent}."
-        ) from exc
+        raise RuntimeError(f"Another DuckDB-to-SQLite migration is already in progress for {lock_path.parent}.") from exc
+
 
 def migrate_arrays_to_parquet(
     workspace_path: str | Path,
@@ -247,18 +251,15 @@ def migrate_arrays_to_parquet(
             return report
 
         # Get distinct dataset names from predictions table
-        dataset_rows = conn.execute(
-            "SELECT DISTINCT p.dataset_name "
-            "FROM predictions p "
-            "INNER JOIN prediction_arrays pa ON p.prediction_id = pa.prediction_id "
-            "ORDER BY p.dataset_name"
-        ).fetchall()
+        dataset_rows = conn.execute("SELECT DISTINCT p.dataset_name FROM predictions p INNER JOIN prediction_arrays pa ON p.prediction_id = pa.prediction_id ORDER BY p.dataset_name").fetchall()
         dataset_names = [row[0] for row in dataset_rows]
 
         if dry_run:
             logger.info(
                 "DRY RUN: Would migrate %d rows across %d datasets: %s",
-                report.total_rows, len(dataset_names), dataset_names,
+                report.total_rows,
+                len(dataset_names),
+                dataset_names,
             )
             report.datasets_migrated = dataset_names
             report.rows_migrated = report.total_rows
@@ -281,9 +282,7 @@ def migrate_arrays_to_parquet(
 
             if report.verification_mismatches > 0:
                 report.verification_passed = False
-                report.errors.append(
-                    f"Verification failed: {report.verification_mismatches} mismatches."
-                )
+                report.errors.append(f"Verification failed: {report.verification_mismatches} mismatches.")
                 # Rollback: delete arrays directory
                 if arrays_dir.exists():
                     shutil.rmtree(arrays_dir)
@@ -297,9 +296,7 @@ def migrate_arrays_to_parquet(
                 conn.execute("VACUUM")
 
                 report.duckdb_size_after = db_path.stat().st_size
-                report.parquet_total_size = sum(
-                    f.stat().st_size for f in arrays_dir.glob("*.parquet")
-                )
+                report.parquet_total_size = sum(f.stat().st_size for f in arrays_dir.glob("*.parquet"))
 
         except Exception as e:
             report.errors.append(f"Migration error: {e}")
@@ -314,6 +311,7 @@ def migrate_arrays_to_parquet(
         report.duration_seconds = time.monotonic() - start_time
 
     return report
+
 
 def _migrate_dataset(
     conn: duckdb.DuckDBPyConnection,
@@ -344,26 +342,25 @@ def _migrate_dataset(
 
         records = []
         for row in rows:
-            (prediction_id, y_true, y_pred, y_proba,
-             sample_indices, weights,
-             model_name, fold_id, partition, metric,
-             val_score, task_type) = row
+            (prediction_id, y_true, y_pred, y_proba, sample_indices, weights, model_name, fold_id, partition, metric, val_score, task_type) = row
 
-            records.append({
-                "prediction_id": prediction_id,
-                "dataset_name": dataset_name,
-                "model_name": model_name or "",
-                "fold_id": fold_id or "",
-                "partition": partition or "",
-                "metric": metric or "",
-                "val_score": val_score,
-                "task_type": task_type or "",
-                "y_true": np.array(y_true, dtype=np.float64) if y_true is not None else None,
-                "y_pred": np.array(y_pred, dtype=np.float64) if y_pred is not None else None,
-                "y_proba": np.array(y_proba, dtype=np.float64) if y_proba is not None else None,
-                "sample_indices": np.array(sample_indices, dtype=np.int32) if sample_indices is not None else None,
-                "weights": np.array(weights, dtype=np.float64) if weights is not None else None,
-            })
+            records.append(
+                {
+                    "prediction_id": prediction_id,
+                    "dataset_name": dataset_name,
+                    "model_name": model_name or "",
+                    "fold_id": fold_id or "",
+                    "partition": partition or "",
+                    "metric": metric or "",
+                    "val_score": val_score,
+                    "task_type": task_type or "",
+                    "y_true": np.array(y_true, dtype=np.float64) if y_true is not None else None,
+                    "y_pred": np.array(y_pred, dtype=np.float64) if y_pred is not None else None,
+                    "y_proba": np.array(y_proba, dtype=np.float64) if y_proba is not None else None,
+                    "sample_indices": np.array(sample_indices, dtype=np.int32) if sample_indices is not None else None,
+                    "weights": np.array(weights, dtype=np.float64) if weights is not None else None,
+                }
+            )
 
         array_store.save_batch(records)
         report.rows_migrated += len(records)
@@ -371,8 +368,12 @@ def _migrate_dataset(
 
         logger.info(
             "Migrated %d rows for dataset '%s' (total: %d/%d)",
-            len(records), dataset_name, report.rows_migrated, report.total_rows,
+            len(records),
+            dataset_name,
+            report.rows_migrated,
+            report.total_rows,
         )
+
 
 def _verify_migration(
     conn: duckdb.DuckDBPyConnection,
@@ -383,11 +384,7 @@ def _verify_migration(
     # Sample ~1% of prediction_ids, minimum 1
     sample_size = max(1, report.total_rows // 100)
     sample_rows = conn.execute(
-        "SELECT pa.prediction_id, pa.y_true, pa.y_pred, p.dataset_name "
-        "FROM prediction_arrays pa "
-        "INNER JOIN predictions p ON pa.prediction_id = p.prediction_id "
-        "ORDER BY md5(pa.prediction_id) "
-        "LIMIT $1",
+        "SELECT pa.prediction_id, pa.y_true, pa.y_pred, p.dataset_name FROM prediction_arrays pa INNER JOIN predictions p ON pa.prediction_id = p.prediction_id ORDER BY md5(pa.prediction_id) LIMIT $1",
         [sample_size],
     ).fetchall()
 
@@ -408,7 +405,9 @@ def _verify_migration(
             mismatches += 1
             logger.warning(
                 "Verification: y_true mismatch for %s (DuckDB=%s, Parquet=%s)",
-                prediction_id, duckdb_checksum, parquet_checksum,
+                prediction_id,
+                duckdb_checksum,
+                parquet_checksum,
             )
             continue
 
@@ -419,10 +418,13 @@ def _verify_migration(
             mismatches += 1
             logger.warning(
                 "Verification: y_pred mismatch for %s (DuckDB=%s, Parquet=%s)",
-                prediction_id, duckdb_checksum, parquet_checksum,
+                prediction_id,
+                duckdb_checksum,
+                parquet_checksum,
             )
 
     report.verification_mismatches = mismatches
+
 
 def verify_migrated_store(workspace_path: str | Path) -> MigrationReport:
     """Verify an already-migrated workspace.
@@ -463,15 +465,9 @@ def verify_migrated_store(workspace_path: str | Path) -> MigrationReport:
         report.verification_passed = report.verification_mismatches == 0
 
         if integrity["missing_ids"]:
-            report.errors.append(
-                f"{len(integrity['missing_ids'])} predictions missing from Parquet: "
-                f"{integrity['missing_ids'][:10]}..."
-            )
+            report.errors.append(f"{len(integrity['missing_ids'])} predictions missing from Parquet: {integrity['missing_ids'][:10]}...")
         if integrity["orphan_ids"]:
-            report.errors.append(
-                f"{len(integrity['orphan_ids'])} orphan rows in Parquet (not in DuckDB): "
-                f"{integrity['orphan_ids'][:10]}..."
-            )
+            report.errors.append(f"{len(integrity['orphan_ids'])} orphan rows in Parquet (not in DuckDB): {integrity['orphan_ids'][:10]}...")
         if integrity["corrupt_files"]:
             report.errors.append(f"Corrupt Parquet files: {integrity['corrupt_files']}")
 
@@ -485,12 +481,25 @@ def verify_migrated_store(workspace_path: str | Path) -> MigrationReport:
 
     return report
 
+
 # =========================================================================
 # DuckDB → SQLite migration  🗑️ remove-at-v1
 # =========================================================================
 
 # Tables in FK-safe insertion order
-_MIGRATION_TABLES = ["projects", "runs", "pipelines", "chains", "predictions", "artifacts", "logs"]
+_MIGRATION_TABLES = [
+    "projects",
+    "runs",
+    "pipelines",
+    "chains",
+    "predictions",
+    "artifacts",
+    "logs",
+    "conformal_results",
+    "tuning_results",
+    "robustness_results",
+]
+
 
 def migrate_duckdb_to_sqlite(workspace_path: str | Path) -> MigrationReport:
     """Migrate workspace metadata from store.duckdb to store.sqlite.
@@ -563,6 +572,7 @@ def migrate_duckdb_to_sqlite(workspace_path: str | Path) -> MigrationReport:
         try:
             # Create SQLite schema
             from nirs4all.pipeline.storage.store_schema import create_schema
+
             create_schema(lite_conn)
 
             # Copy tables in FK order
@@ -592,10 +602,7 @@ def migrate_duckdb_to_sqlite(workspace_path: str | Path) -> MigrationReport:
 
                 rows = duck_conn.execute(f"SELECT {col_list} FROM {table_name}").fetchall()
                 if rows:
-                    sqlite_rows = [
-                        tuple(_sqlite_compatible_value(value) for value in row)
-                        for row in rows
-                    ]
+                    sqlite_rows = [tuple(_sqlite_compatible_value(value) for value in row) for row in rows]
                     lite_conn.executemany(
                         f"INSERT INTO {table_name} ({col_list}) VALUES ({placeholders})",
                         sqlite_rows,
@@ -659,6 +666,7 @@ def migrate_duckdb_to_sqlite(workspace_path: str | Path) -> MigrationReport:
         report.duration_seconds = time.monotonic() - start_time
 
     return report
+
 
 # =========================================================================
 # CLI entry point

@@ -134,7 +134,7 @@ The SQLite database contains seven tables:
 | `logs` | Structured step-level execution logs |
 | `projects` | Project grouping for runs |
 
-Dense arrays (y_true, y_pred, y_proba) are stored in per-dataset Parquet sidecar files under `arrays/`, managed by `ArrayStore`. This separation enables efficient I/O with Zstd compression and per-dataset file granularity.
+Dense arrays (`y_true`, `y_pred`, `y_proba`, optional spectral replay `X`/`spectra`, `sample_indices`, `weights`, `sample_metadata` and `result_metadata`) are stored in per-dataset Parquet sidecar files under `arrays/`, managed by `ArrayStore`. This separation enables efficient I/O with Zstd compression and per-dataset file granularity.
 
 This architecture means:
 

@@ -304,7 +304,7 @@ class TestDDLStrings:
 
     def test_table_names_list(self):
         """TABLE_NAMES has expected number of entries."""
-        assert len(TABLE_NAMES) == 7
+        assert len(TABLE_NAMES) == 10
 
     def test_view_ddl_contains_chain_summary(self):
         """VIEW_DDL defines the v_chain_summary view."""
