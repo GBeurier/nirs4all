@@ -7,6 +7,7 @@ This section covers model training, comparison, and optimization in NIRS4ALL.
 
 training
 hyperparameter_tuning
+native_tuning_conformal
 aom_models
 deep_learning
 tabpfn_nirs
@@ -37,6 +38,18 @@ Optimize models with Optuna integration and grid search.
 
 +++
 {bdg-success}`Optimization`
+:::
+
+:::{grid-item-card} Native Tuning + Conformal
+:link: native_tuning_conformal
+:link-type: doc
+
+Use the native `run(tuning=...)` subset, persist tuning/conformal evidence, and apply calibrated intervals.
+Includes the smoke-tested tune→calibrate→predict→robustness example.
+Includes a native PLS example that tunes `model.n_components`.
+
++++
+{bdg-info}`Experimental`
 :::
 
 :::{grid-item-card} 🧠 Deep Learning

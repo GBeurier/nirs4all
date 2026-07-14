@@ -1,0 +1,67 @@
+{
+  "fingerprint": "ad5d4673e67321692f1635e3d8ed74efd3dbd26ad6ec236429d08c18f3466f5d",
+  "force_params": [
+    {
+      "path": "model.n_components",
+      "segments": [
+        "model",
+        "n_components"
+      ],
+      "value": 6
+    },
+    {
+      "path": "train.batch_size",
+      "segments": [
+        "train",
+        "batch_size"
+      ],
+      "value": 32
+    }
+  ],
+  "format": "nirs4all.tuning.ordered_search_space",
+  "parameters": [
+    {
+      "index": 0,
+      "path": "model.alpha",
+      "segments": [
+        "model",
+        "alpha"
+      ],
+      "spec": {
+        "high": 1,
+        "log": true,
+        "low": 0.0001,
+        "type": "log_float"
+      }
+    },
+    {
+      "index": 1,
+      "path": "model.n_components",
+      "segments": [
+        "model",
+        "n_components"
+      ],
+      "spec": {
+        "high": 12,
+        "low": 2,
+        "step": 1,
+        "type": "int"
+      }
+    },
+    {
+      "index": 2,
+      "path": "train.batch_size",
+      "segments": [
+        "train",
+        "batch_size"
+      ],
+      "spec": [
+        16,
+        32,
+        64
+      ]
+    }
+  ],
+  "schema_version": 1,
+  "tuning_fingerprint": "97695b1bd406085eb72fbd254a7e1f348616729acfedf802099b0abb028da9ec"
+}

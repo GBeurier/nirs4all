@@ -20,6 +20,8 @@ configuration/index
 metrics
 predictions_api
 api/session
+public_interfaces
+native_conformal_finetuning_release_audit
 cli
 workspace
 storage
