@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.core.task_type import TaskType
+from nirs4all.pipeline.dagml.loss_runtime import DagMLTrainingLossExecution
 from nirs4all.pipeline.storage.artifacts.artifact_persistence import ArtifactMeta
 from nirs4all.utils.backend import is_available, is_gpu_available, require_backend
 
@@ -60,6 +61,12 @@ def _get_keras():
     if 'keras' not in _tf_modules:
         _get_tf()  # This will populate the cache
     return _tf_modules['keras']
+
+def _resolve_loss_function(loss_config: Any) -> Any:
+    """Resolve a configured Keras loss while preserving DAG-ML semantics."""
+    if isinstance(loss_config, DagMLTrainingLossExecution):
+        return loss_config.invoke_target_prediction
+    return loss_config
 
 @register_controller
 class TensorFlowModelController(BaseModelController):
@@ -314,6 +321,7 @@ class TensorFlowModelController(BaseModelController):
 
         # 1. Prepare compilation configuration
         compile_config = TensorFlowCompilationConfig.prepare(train_params, task_type)
+        compile_config['loss'] = _resolve_loss_function(compile_config['loss'])
         model.compile(**compile_config)
         if verbose > 2:
             print(f"   Compilation config: {compile_config}")
@@ -685,4 +693,3 @@ class TensorFlowModelController(BaseModelController):
 
         # Call parent execute method
         return super().execute(step_info, dataset, context, runtime_context, source, mode, loaded_binaries, prediction_store)
-
