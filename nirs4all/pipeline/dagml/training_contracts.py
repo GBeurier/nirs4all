@@ -45,6 +45,7 @@ class DagMLTrainingRequestSpec:
     parameter_patches: Sequence[Mapping[str, Any]] = ()
     patch_policies: Sequence[Mapping[str, Any]] = ()
     influence_requirements: Sequence[Mapping[str, Any]] = ()
+    training_losses: Sequence[Mapping[str, Any]] = ()
     selection_required_metric_level: str | None = None
     selection_evaluation_scope: str | None = None
 
@@ -66,6 +67,8 @@ def assemble_training_request(spec: DagMLTrainingRequestSpec) -> dict[str, Any]:
         "options": _training_options(spec),
         "request_fingerprint": "0" * 64,
     }
+    if spec.training_losses:
+        request["training_losses"] = _sorted_training_losses(spec.training_losses)
     request["request_fingerprint"] = tcv1_fingerprint_without(request, "request_fingerprint")
     return request
 
@@ -159,6 +162,35 @@ def _sorted_controller_manifests(manifests: Sequence[Mapping[str, Any]]) -> list
 
 _PHASE_ORDER = {name: index for index, name in enumerate(("COMPILE", "PLAN", "FIT_CV", "SELECT", "REFIT", "PREDICT", "EXPLAIN"))}
 
+
+def _sorted_training_losses(roles: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    canonical_roles = [_canonical_training_loss_role(role) for role in roles]
+    return sorted(canonical_roles, key=_training_loss_sort_key)
+
+
+def _canonical_training_loss_role(role: Mapping[str, Any]) -> dict[str, Any]:
+    out = dict(role)
+    phases = out.get("phases")
+    if not isinstance(phases, Sequence) or isinstance(phases, str | bytes | bytearray):
+        raise TypeError("training loss role phases must be a sequence")
+    out["phases"] = sorted(set(phases), key=_PHASE_ORDER.__getitem__)
+    return out
+
+
+def _training_loss_sort_key(role: Mapping[str, Any]) -> tuple[str, tuple[bool, str], tuple[int, ...]]:
+    node_id = role.get("node_id")
+    output_id = role.get("output_id")
+    phases = role["phases"]
+    if not isinstance(node_id, str):
+        raise TypeError("training loss role node_id must be a string")
+    if output_id is not None and not isinstance(output_id, str):
+        raise TypeError("training loss role output_id must be a string or None")
+    return (
+        node_id,
+        (output_id is not None, output_id or ""),
+        tuple(_PHASE_ORDER[phase] for phase in phases),
+    )
+
 _CAPABILITY_ORDER = {
     name: index
     for index, name in enumerate(
@@ -182,6 +214,9 @@ _CAPABILITY_ORDER = {
             "supports_row_resampling",
             "supports_backend_loss_weights",
             "supports_missing_masks",
+            "supports_configurable_loss",
+            "supports_custom_loss",
+            "supports_differentiable_loss",
             "uses_training_weights",
             "uses_early_stopping",
             "performs_internal_tuning",
