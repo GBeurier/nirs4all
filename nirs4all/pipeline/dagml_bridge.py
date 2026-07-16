@@ -35,6 +35,8 @@ from nirs4all.pipeline.dagml.errors import DagMlUnsupported
 # operator-selector token that keeps the meta-model manifest out of the generic model-kind catch-all.
 _META_MODEL_CONTROLLER_ID = "controller:nirs4all.meta_model"
 _META_MODEL_REF = "nirs4all.meta_model"
+_PYTORCH_MODEL_CONTROLLER_ID = "controller:nirs4all.pytorch_model"
+_TENSORFLOW_MODEL_CONTROLLER_ID = "controller:nirs4all.tensorflow_model"
 
 # Every nirs4all generation keyword (mirrors config._generator.keywords.GENERATION_KEYWORDS). Used
 # to detect a generator-shaped model sibling that this bridge does NOT lower natively, so it can fail
@@ -124,6 +126,44 @@ def _qualname(obj: Any) -> str:
     """Fully-qualified ``module.QualName`` of an instance or class."""
     cls = obj if isinstance(obj, type) else type(obj)
     return f"{cls.__module__}.{cls.__qualname__}"
+
+
+def _model_controller_id(obj: Any) -> str | None:
+    """Return the dedicated native controller for a differentiable model."""
+
+    framework = str(getattr(obj, "framework", "")).lower()
+    cls = obj if isinstance(obj, type) else type(obj)
+    modules = {
+        str(getattr(base, "__module__", "")).lower()
+        for base in getattr(cls, "__mro__", (cls,))
+    }
+    if framework in {"pytorch", "torch"} or any(
+        module == "torch" or module.startswith("torch.") for module in modules
+    ):
+        return _PYTORCH_MODEL_CONTROLLER_ID
+    if framework in {"tensorflow", "keras"} or any(
+        module == "tensorflow"
+        or module.startswith("tensorflow.")
+        or module == "keras"
+        or module.startswith("keras.")
+        for module in modules
+    ):
+        return _TENSORFLOW_MODEL_CONTROLLER_ID
+    return None
+
+
+def _json_safe_mapping(value: Any, *, name: str) -> dict[str, Any]:
+    """Round-trip one mapping through strict JSON for native task metadata."""
+
+    if not isinstance(value, dict):
+        raise TypeError(f"{name} must be a mapping")
+    try:
+        normalized = json.loads(json.dumps(value, allow_nan=False))
+    except (TypeError, ValueError) as error:
+        raise TypeError(f"{name} must contain only finite JSON values") from error
+    if not isinstance(normalized, dict):
+        raise TypeError(f"{name} must normalize to a JSON object")
+    return normalized
 
 
 def _json_safe_params(obj: Any) -> dict[str, Any]:
@@ -928,6 +968,17 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             # The model id is the fully-qualified class (like transforms), so any sklearn-style
             # estimator — regressor or classifier — resolves by import, not a hardcoded table.
             dsl_step: dict[str, Any] = {"model": _qualname(op), "params": _json_safe_params(op)}
+            metadata: dict[str, Any] = {}
+            controller_id = _model_controller_id(op)
+            if controller_id is not None:
+                metadata["controller_id"] = controller_id
+            if "train_params" in step:
+                metadata["nirs4all_train_params"] = _json_safe_mapping(
+                    step["train_params"],
+                    name="train_params",
+                )
+            if metadata:
+                dsl_step["metadata"] = metadata
             # Non-reserved siblings are model hyperparameters: plain values extend ``params``;
             # param-level generator dicts lower to native dag-ml ``generators`` so the compiler
             # expands variants and dag-ml runs generation + SELECT + refit natively (no Python expand).
@@ -1078,6 +1129,60 @@ def controller_manifests() -> list[dict[str, Any]]:
             "data_requirements": None,
             "capabilities": ["deterministic", "thread_safe", "process_safe", "uses_core_rng"],
             "operator_selectors": [],  # empty => bind any y_transform-kind node (the {"y_processing": …} wrapper, not the class)
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+        {
+            "controller_id": _PYTORCH_MODEL_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 10,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "output_ports": [
+                {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+            ],
+            "data_requirements": _model_data_requirements(),
+            "capabilities": [
+                "needs_python_gil",
+                "uses_core_rng",
+                "emits_predictions",
+                "emits_artifacts",
+                "stateful",
+                "supports_configurable_loss",
+                "supports_custom_loss",
+                "supports_differentiable_loss",
+            ],
+            "operator_selectors": [{"refs": ["nirs4all.pytorch_model"]}],
+            "fit_scope": "fold_train",
+            "rng_policy": "uses_core_seed",
+            "artifact_policy": "serializable",
+        },
+        {
+            "controller_id": _TENSORFLOW_MODEL_CONTROLLER_ID,
+            "controller_version": _NIRS4ALL_VERSION,
+            "operator_kind": "model",
+            "priority": 10,
+            "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+            "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
+            "output_ports": [
+                {"name": "y_hat", "kind": "prediction", "representation": None, "cardinality": "one"},
+                {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+            ],
+            "data_requirements": _model_data_requirements(),
+            "capabilities": [
+                "needs_python_gil",
+                "uses_core_rng",
+                "emits_predictions",
+                "emits_artifacts",
+                "stateful",
+                "supports_configurable_loss",
+                "supports_custom_loss",
+                "supports_differentiable_loss",
+            ],
+            "operator_selectors": [{"refs": ["nirs4all.tensorflow_model"]}],
             "fit_scope": "fold_train",
             "rng_policy": "uses_core_seed",
             "artifact_policy": "serializable",
