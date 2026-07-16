@@ -93,6 +93,11 @@ class DagMLTrainingLossExecution:
 
         return self(target, prediction)
 
+    def invoke_target_prediction(self, target: Any, prediction: Any) -> Any:
+        """Expose the semantic ordering expected by TensorFlow/Keras."""
+
+        return self(target, prediction)
+
     def __reduce__(self) -> Any:
         raise TypeError("DAG-ML training loss executions cannot be serialized")
 
