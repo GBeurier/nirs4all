@@ -7,12 +7,16 @@ import-guarded — production ``nirs4all`` never imports this unless the dag-ml
 backend is selected. See ``dag-ml/docs/migration-nirs4all/``.
 """
 
+from .loss_runtime import DagMLTrainingLossExecution
+
 __all__ = [
+    "DagMLTrainingLossExecution",
     "conformal_contracts",
     "conformal_store",
     "estimator",
     "finetune_lowering",
     "fit_identity",
+    "loss_runtime",
     "native_client",
     "pipeline_objective",
     "pipeline_objective_compiler",

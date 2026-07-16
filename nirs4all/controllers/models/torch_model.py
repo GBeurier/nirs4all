@@ -21,6 +21,7 @@ import numpy as np
 
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
+from nirs4all.pipeline.dagml.loss_runtime import DagMLTrainingLossExecution
 from nirs4all.utils.backend import is_available, is_gpu_available, require_backend
 
 from ..models.base_model import BaseModelController
@@ -62,6 +63,29 @@ def _get_nn():
     if 'nn' not in _torch_modules:
         _get_torch()
     return _torch_modules['nn']
+
+def _resolve_loss_function(loss_config: Any, nn: Any) -> Any:
+    """Resolve a configured PyTorch loss without silently changing intent."""
+    if isinstance(loss_config, DagMLTrainingLossExecution):
+        return loss_config.invoke_prediction_target
+    if not isinstance(loss_config, str):
+        return loss_config
+
+    aliases = {
+        'mse': nn.MSELoss,
+        'mae': nn.L1Loss,
+        'crossentropy': nn.CrossEntropyLoss,
+    }
+    loss_class = aliases.get(loss_config.lower())
+    if loss_class is None and hasattr(nn, loss_config):
+        loss_class = getattr(nn, loss_config)
+    if loss_class is None:
+        raise ValueError(
+            f"Unknown PyTorch loss {loss_config!r}. "
+            "Use a torch.nn loss class name, one of the aliases "
+            "'mse', 'mae', or 'crossentropy', or pass a callable."
+        )
+    return loss_class()
 
 @register_controller
 class PyTorchModelController(BaseModelController):
@@ -194,21 +218,7 @@ class PyTorchModelController(BaseModelController):
             optimizer = optimizer_config
 
         # Setup loss function
-        loss_fn_config = train_params.get('loss', 'MSELoss')
-        if isinstance(loss_fn_config, str):
-            # Handle common loss names
-            if loss_fn_config.lower() == 'mse':
-                loss_fn = nn.MSELoss()
-            elif loss_fn_config.lower() == 'mae':
-                loss_fn = nn.L1Loss()
-            elif loss_fn_config.lower() == 'crossentropy':
-                loss_fn = nn.CrossEntropyLoss()
-            elif hasattr(nn, loss_fn_config):
-                loss_fn = getattr(nn, loss_fn_config)()
-            else:
-                loss_fn = nn.MSELoss() # Default
-        else:
-            loss_fn = loss_fn_config
+        loss_fn = _resolve_loss_function(train_params.get('loss', 'MSELoss'), nn)
 
         # Training parameters
         epochs = train_params.get('epochs', 100)
