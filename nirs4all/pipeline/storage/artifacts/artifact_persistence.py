@@ -191,7 +191,10 @@ def to_bytes(obj: Any, format_hint: str | None = None) -> tuple[bytes, str]:
         (bytes, format_string) tuple
     """
     # Determine format
-    format = f"{format_hint}_pickle" if format_hint else _detect_framework(obj)
+    if format_hint == 'tensorflow':
+        format = 'tensorflow_keras'
+    else:
+        format = f"{format_hint}_pickle" if format_hint else _detect_framework(obj)
 
     try:
         # Sklearn objects - use joblib if available, else pickle
@@ -340,7 +343,8 @@ def from_bytes(data: bytes, format: str) -> Any:
                 tmp_path = tmp.name
 
             try:
-                model = tf.keras.models.load_model(tmp_path)
+                # Training compile state may reference process-local callbacks.
+                model = tf.keras.models.load_model(tmp_path, compile=False)
                 return model
             finally:
                 Path(tmp_path).unlink(missing_ok=True)
