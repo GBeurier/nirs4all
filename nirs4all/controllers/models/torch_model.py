@@ -21,6 +21,7 @@ import numpy as np
 
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
+from nirs4all.pipeline.dagml.loss_runtime import DagMLTrainingLossExecution
 from nirs4all.utils.backend import is_available, is_gpu_available, require_backend
 
 from ..models.base_model import BaseModelController
@@ -65,6 +66,8 @@ def _get_nn():
 
 def _resolve_loss_function(loss_config: Any, nn: Any) -> Any:
     """Resolve a configured PyTorch loss without silently changing intent."""
+    if isinstance(loss_config, DagMLTrainingLossExecution):
+        return loss_config.invoke_prediction_target
     if not isinstance(loss_config, str):
         return loss_config
 

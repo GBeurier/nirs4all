@@ -1,10 +1,47 @@
 """Tests for PyTorch models."""
 
+import pickle
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from nirs4all.utils.backend import TORCH_AVAILABLE
+
+
+class _RecordingLossRegistry:
+    def __init__(self, *, fail: bool = False) -> None:
+        self.bind_calls: list[tuple[dict[str, Any], int]] = []
+        self.calls: list[tuple[dict[str, Any], Any, Any, int]] = []
+        self.fail = fail
+
+    def bind_training_loss(
+        self,
+        task: dict[str, Any],
+        *,
+        role_index: int,
+    ) -> dict[str, Any]:
+        self.bind_calls.append((task, role_index))
+
+        def invoke(target: Any, prediction: Any) -> Any:
+            if self.fail:
+                raise RuntimeError("custom loss failed")
+            self.calls.append((task, target, prediction, role_index))
+            value = (prediction - target) ** 2
+            mean = getattr(value, "mean", None)
+            return mean() if callable(mean) else value
+
+        return {
+            "invoke": invoke,
+            "required_attestation": {
+                "phase": task["phase"],
+                "loss_id": "example.loss.squared@1",
+            },
+        }
+
+
+def _loss_task(phase: str = "FIT_CV") -> dict[str, Any]:
+    return {"phase": phase, "node_plan": {"training_losses": [{}]}}
 
 
 class TestPyTorchLossResolution:
@@ -55,6 +92,62 @@ class TestPyTorchLossResolution:
         with pytest.raises(ValueError, match="Unknown PyTorch loss 'not_a_loss'"):
             _resolve_loss_function("not_a_loss", self._fake_nn())
 
+    def test_dagml_execution_adapts_prediction_target_order(self):
+        from nirs4all.controllers.models.torch_model import _resolve_loss_function
+        from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
+
+        registry = _RecordingLossRegistry()
+        execution = DagMLTrainingLossExecution(_loss_task(), registry)
+        loss_fn = _resolve_loss_function(execution, self._fake_nn())
+
+        assert loss_fn(3.0, 1.0) == 4.0
+
+        assert len(registry.bind_calls) == 1
+        assert registry.calls[0][1:] == (1.0, 3.0, 0)
+        assert execution.loss_attestations == [
+            {"phase": "FIT_CV", "loss_id": "example.loss.squared@1"}
+        ]
+
+    def test_dagml_execution_is_process_local_and_attests_only_after_success(self):
+        from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
+
+        execution = DagMLTrainingLossExecution(
+            _loss_task("REFIT"), _RecordingLossRegistry(fail=True)
+        )
+
+        assert execution.loss_attestations == []
+        with pytest.raises(RuntimeError, match="custom loss failed"):
+            execution(1.0, 2.0)
+        assert execution.loss_attestations == []
+        with pytest.raises(TypeError, match="cannot be serialized"):
+            pickle.dumps(execution)
+
+    @pytest.mark.parametrize(
+        ("phase", "role_index", "message"),
+        [
+            ("PREDICT", 0, "only in FIT_CV or REFIT"),
+            ("FIT_CV", -1, "non-negative integer"),
+            ("FIT_CV", True, "non-negative integer"),
+        ],
+    )
+    def test_dagml_execution_rejects_invalid_scope(
+        self, phase: str, role_index: int, message: str
+    ):
+        from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
+
+        with pytest.raises(ValueError, match=message):
+            DagMLTrainingLossExecution(
+                _loss_task(phase), _RecordingLossRegistry(), role_index=role_index
+            )
+
+    def test_dagml_execution_rejects_malformed_binding(self):
+        from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
+
+        registry = SimpleNamespace(bind_training_loss=lambda *_args, **_kwargs: {})
+
+        with pytest.raises(ValueError, match="lacks invoke or required_attestation"):
+            DagMLTrainingLossExecution(_loss_task(), registry)
+
 
 @pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch not available")
@@ -79,3 +172,34 @@ class TestPyTorchModels:
         x = torch.randn(1, 5)
         y = model(x)
         assert y.shape == (1, 1)
+
+    def test_training_loop_executes_dagml_loss_and_captures_attestation(self):
+        import torch
+        import torch.nn as nn
+
+        from nirs4all.controllers.models.torch_model import PyTorchModelController
+        from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
+
+        model = nn.Linear(1, 1, bias=False)
+        with torch.no_grad():
+            model.weight.zero_()
+        registry = _RecordingLossRegistry()
+        execution = DagMLTrainingLossExecution(_loss_task(), registry)
+
+        trained = PyTorchModelController()._train_model(
+            model,
+            torch.ones((4, 1)),
+            torch.ones((4, 1)),
+            optimizer="SGD",
+            lr=0.1,
+            epochs=1,
+            batch_size=2,
+            loss=execution,
+        )
+
+        assert trained.weight.detach().cpu().item() > 0.0
+        assert execution.invocation_count == 2
+        assert len(registry.bind_calls) == 1
+        assert execution.loss_attestations == [
+            {"phase": "FIT_CV", "loss_id": "example.loss.squared@1"}
+        ]
