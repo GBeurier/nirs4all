@@ -43,7 +43,13 @@ class _RecordingLossRegistry:
 
 
 def _loss_task(phase: str = "FIT_CV") -> dict[str, Any]:
-    return {"phase": phase, "node_plan": {"training_losses": [{}]}}
+    return {
+        "phase": phase,
+        "node_plan": {"training_losses": [{}]},
+        "required_loss_attestations": [
+            {"phase": phase, "loss_id": "example.loss.tensorflow-squared@1"}
+        ],
+    }
 
 
 def _train_with_dagml_loss(
