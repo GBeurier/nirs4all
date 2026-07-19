@@ -154,6 +154,32 @@ class TestPyTorchLossResolution:
         with pytest.raises(ValueError, match="lacks invoke or required_attestation"):
             DagMLTrainingLossExecution(_loss_task(), registry)
 
+    @pytest.mark.parametrize(
+        ("required_loss_attestations", "error_type", "message"),
+        [
+            (None, TypeError, "must be a sequence"),
+            ("loss@1", TypeError, "must be a sequence"),
+            ([], ValueError, "require a loss attestation"),
+            ([object()], TypeError, "must be a mapping"),
+        ],
+    )
+    def test_dagml_execution_requires_task_owned_attestation(
+        self,
+        required_loss_attestations: Any,
+        error_type: type[Exception],
+        message: str,
+    ):
+        from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
+
+        task = _loss_task()
+        if required_loss_attestations is None:
+            task.pop("required_loss_attestations")
+        else:
+            task["required_loss_attestations"] = required_loss_attestations
+
+        with pytest.raises(error_type, match=message):
+            DagMLTrainingLossExecution(task, _RecordingLossRegistry())
+
     def test_dagml_execution_rejects_attestation_mismatch(self):
         from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
 
