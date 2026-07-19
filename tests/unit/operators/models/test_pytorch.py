@@ -41,7 +41,13 @@ class _RecordingLossRegistry:
 
 
 def _loss_task(phase: str = "FIT_CV") -> dict[str, Any]:
-    return {"phase": phase, "node_plan": {"training_losses": [{}]}}
+    return {
+        "phase": phase,
+        "node_plan": {"training_losses": [{}]},
+        "required_loss_attestations": [
+            {"phase": phase, "loss_id": "example.loss.squared@1"}
+        ],
+    }
 
 
 class TestPyTorchLossResolution:
@@ -147,6 +153,26 @@ class TestPyTorchLossResolution:
 
         with pytest.raises(ValueError, match="lacks invoke or required_attestation"):
             DagMLTrainingLossExecution(_loss_task(), registry)
+
+    def test_dagml_execution_rejects_attestation_mismatch(self):
+        from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
+
+        class _MismatchedRegistry(_RecordingLossRegistry):
+            def bind_training_loss(
+                self,
+                task: dict[str, Any],
+                *,
+                role_index: int,
+            ) -> dict[str, Any]:
+                binding = super().bind_training_loss(task, role_index=role_index)
+                binding["required_attestation"] = {
+                    "phase": task["phase"],
+                    "loss_id": "example.loss.other@1",
+                }
+                return binding
+
+        with pytest.raises(ValueError, match="does not match the NodeTask requirement"):
+            DagMLTrainingLossExecution(_loss_task(), _MismatchedRegistry())
 
 
 @pytest.mark.xdist_group("gpu")
