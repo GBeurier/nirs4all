@@ -12,9 +12,12 @@ A GENUINE dag-ml bug still propagates untouched.
 
 from __future__ import annotations
 
+import contextlib
 import warnings
 from pathlib import Path
+from typing import Any
 
+import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
@@ -32,6 +35,21 @@ from ._datasets import dataset_path  # noqa: E402
 _DAGML_CLI = Path(__file__).resolve().parents[3].parent / "dag-ml" / "target" / "release" / "dag-ml-cli"
 
 _FALLBACK_WARNING = "falling back to the legacy engine"
+
+with contextlib.suppress(ImportError):
+    import torch
+
+
+if "torch" in globals():
+
+    class _TinyTorchRegressor(torch.nn.Module):
+        def __init__(self) -> None:
+            super().__init__()
+            self.linear = torch.nn.Linear(2, 1, bias=False)
+            torch.nn.init.zeros_(self.linear.weight)
+
+        def forward(self, features: Any) -> Any:
+            return self.linear(features)
 
 
 def test_resolve_engine_default_is_legacy() -> None:
@@ -155,6 +173,113 @@ def test_run_forwards_dagml_training_losses_without_legacy_fallback(monkeypatch:
             training_losses=(role,),
             local_implementations=registry,
         )
+
+
+@pytest.mark.torch
+@pytest.mark.xdist_group("torch")
+def test_public_run_executes_local_torch_loss_and_carries_native_attestations() -> None:
+    """Public run() uses DAG-ML-owned loss roles all the way through FIT_CV and REFIT."""
+    if "torch" not in globals():
+        pytest.skip("PyTorch not available")
+    dag_ml = pytest.importorskip("dag_ml")
+    if not hasattr(dag_ml, "LocalImplementationRegistry"):
+        pytest.skip("installed dag_ml does not expose local loss contracts yet")
+
+    calls: list[tuple[tuple[int, ...], tuple[int, ...], bool]] = []
+
+    def squared_loss(target: Any, prediction: Any) -> Any:
+        calls.append((tuple(target.shape), tuple(prediction.shape), bool(prediction.requires_grad)))
+        return torch.mean(torch.square(prediction - target))
+
+    registry = dag_ml.LocalImplementationRegistry()
+    loss_reference = registry.register_local_loss(
+        {
+            "schema_version": 1,
+            "loss_id": "example.loss.nirs4all-public-run-torch-squared@1",
+            "kind": "custom",
+            "task_kinds": ["regression"],
+            "prediction_kinds": ["regression_point"],
+            "objective": "minimize",
+            "reduction": "mean",
+            "required_inputs": ["target", "prediction"],
+            "capabilities": ["differentiable"],
+            "parameters": {},
+        },
+        squared_loss,
+        registry_key="loss:nirs4all:public-run-torch-squared",
+        implementation_fingerprint="d" * 64,
+        capabilities=["differentiable"],
+    )
+
+    class _CountingRegistry:
+        def __init__(self) -> None:
+            self.bind_calls: list[tuple[str, str | None, int]] = []
+
+        def bind_training_loss(
+            self,
+            task: dict[str, Any],
+            *,
+            role_index: int,
+        ) -> Any:
+            self.bind_calls.append((task["phase"], task.get("fold_id"), role_index))
+            return registry.bind_training_loss(task, role_index=role_index)
+
+    local_implementations = _CountingRegistry()
+    role = {
+        "schema_version": 1,
+        "node_id": "model:compat.0",
+        "output_id": "oof",
+        "phases": ["FIT_CV", "REFIT"],
+        "loss": loss_reference,
+    }
+
+    result = nirs4all.run(
+        [
+            KFold(n_splits=2),
+            {
+                "model": _TinyTorchRegressor(),
+                "train_params": {
+                    "epochs": 1,
+                    "batch_size": 2,
+                    "optimizer": "SGD",
+                    "learning_rate": 0.1,
+                    "patience": 1,
+                    "verbose": 0,
+                },
+            },
+        ],
+        (
+            np.ones((8, 2), dtype=np.float32),
+            np.ones(8, dtype=np.float32),
+        ),
+        engine="dag-ml",
+        training_losses=(role,),
+        local_implementations=local_implementations,
+        random_state=42,
+    )
+
+    assert isinstance(result, RunResult)
+    assert calls
+    assert any(prediction_requires_grad for _, _, prediction_requires_grad in calls)
+    assert {phase for phase, _, _ in local_implementations.bind_calls} == {"FIT_CV", "REFIT"}
+    assert all(role_index == 0 for _, _, role_index in local_implementations.bind_calls)
+
+    node_results = result._dagml_node_results  # noqa: SLF001
+    assert node_results
+    model_lineage = [
+        node_result["lineage"]
+        for frame in node_results
+        for node_result in [frame.get("result") if frame.get("type") == "result" else frame]
+        if node_result
+        and (node_result.get("lineage") or {}).get("node_id") == "model:compat.0"
+        and (node_result.get("lineage") or {}).get("phase") in {"FIT_CV", "REFIT"}
+    ]
+    assert {record["phase"] for record in model_lineage} == {"FIT_CV", "REFIT"}
+    assert all(
+        [attestation["loss_id"] for attestation in record["loss_attestations"]]
+        == ["example.loss.nirs4all-public-run-torch-squared@1"]
+        for record in model_lineage
+    )
 
 
 def test_run_rejects_process_local_losses_on_legacy_engine() -> None:
