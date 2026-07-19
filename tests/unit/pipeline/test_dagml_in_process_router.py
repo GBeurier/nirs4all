@@ -14,6 +14,9 @@ These pin the SELECTION/AVAILABILITY logic without running a real dag-ml campaig
 
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import pytest
 
 from nirs4all.pipeline.dagml import in_process_runner
@@ -97,6 +100,63 @@ def test_router_threads_process_local_training_losses_to_in_process(monkeypatch:
     assert outcome["returncode"] == 0
     assert captured["training_losses"] == (role,)
     assert captured["local_implementations"] is registry
+
+
+def test_in_process_runner_prefers_public_dagml_facade_for_training_losses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """dag-ml owns the in-process scheduler surface; nirs4all should call the public facade when present."""
+    dsl = {"pipeline": "dsl"}
+    envelope = {"data": "envelope"}
+    manifests = [{"controller_id": "controller:nirs4all.test"}]
+    role = {"schema_version": 1, "node_id": "model:compat.0", "output_id": "oof", "phases": ["FIT_CV"], "loss": {"loss_id": "example.loss@1"}}
+    registry = object()
+    dataset = object()
+    captured: dict[str, object] = {}
+
+    def _fake_facade_runner(
+        received_dsl: object,
+        received_envelope: object,
+        received_manifests: object,
+        received_roles: object,
+        op_callback: object,
+        selection_metric: str,
+    ) -> dict[str, object]:
+        captured.update(
+            {
+                "dsl": received_dsl,
+                "envelope": received_envelope,
+                "manifests": received_manifests,
+                "roles": received_roles,
+                "op_callback": op_callback,
+                "selection_metric": selection_metric,
+            }
+        )
+        return {"node_results": [], "scores": {"reports": []}}
+
+    monkeypatch.setitem(sys.modules, "dag_ml", SimpleNamespace(run_cv_refit_in_process_with_training_losses=_fake_facade_runner))
+    monkeypatch.delitem(sys.modules, "dag_ml._dag_ml", raising=False)
+    monkeypatch.setattr(in_process_runner, "controller_manifests", lambda: manifests)
+    monkeypatch.setattr(in_process_runner, "mint_identity", lambda _dataset: "dataset:test")
+    monkeypatch.setattr(in_process_runner, "MaterializationResolver", lambda *_args, **_kwargs: object())
+
+    outcome = in_process_runner.run_cv_refit_bundle(
+        dsl=dsl,
+        envelope=envelope,
+        graph={"nodes": [], "edges": []},
+        dataset_path="unused",
+        selection_metric="rmse",
+        dataset=dataset,
+        training_losses=(role,),
+        local_implementations=registry,
+    )
+
+    assert outcome["returncode"] == 0
+    assert outcome["scores"] == {"reports": []}
+    assert captured["dsl"] is dsl
+    assert captured["envelope"] is envelope
+    assert captured["manifests"] == manifests
+    assert captured["roles"] == [role]
+    assert callable(captured["op_callback"])
+    assert captured["selection_metric"] == "rmse"
 
 
 def test_router_rejects_process_local_training_losses_on_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
