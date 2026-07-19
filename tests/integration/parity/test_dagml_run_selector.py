@@ -114,6 +114,76 @@ def test_dagml_run_uses_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result is marker
 
 
+def test_run_forwards_dagml_training_losses_without_legacy_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Public process-local custom losses are a DAG-ML-only contract: run() forwards the native role
+    references and local registry, and a DAG-ML refusal is not hidden by legacy fallback."""
+    import nirs4all.pipeline.dagml.run_backend as run_backend
+    from nirs4all.data.predictions import Predictions
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+
+    role = {"schema_version": 1, "node_id": "model:compat.0", "output_id": "oof", "phases": ["FIT_CV", "REFIT"], "loss": {"loss_id": "example.loss@1"}}
+    registry = object()
+    marker = RunResult(predictions=Predictions(), per_dataset={})
+    captured: dict[str, object] = {}
+
+    def _fake_dagml(*_args: object, **kwargs: object) -> RunResult:
+        captured.update(kwargs)
+        return marker
+
+    monkeypatch.setattr(run_backend, "run_via_dagml", _fake_dagml)
+    result = nirs4all.run(
+        [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+        dataset_path("regression"),
+        engine="dag-ml",
+        training_losses=(role,),
+        local_implementations=registry,
+    )
+
+    assert result is marker
+    assert captured["training_losses"] == (role,)
+    assert captured["local_implementations"] is registry
+
+    def _unsupported(*_args: object, **_kwargs: object) -> RunResult:
+        raise DagMlUnsupported("custom loss unsupported")
+
+    monkeypatch.setattr(run_backend, "run_via_dagml", _unsupported)
+    with pytest.raises(DagMlUnsupported, match="custom loss unsupported"):
+        nirs4all.run(
+            [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+            dataset_path("regression"),
+            engine="dag-ml",
+            training_losses=(role,),
+            local_implementations=registry,
+        )
+
+
+def test_run_rejects_process_local_losses_on_legacy_engine() -> None:
+    role = {"schema_version": 1, "node_id": "model:compat.0", "output_id": "oof", "phases": ["FIT_CV"], "loss": {"loss_id": "example.loss@1"}}
+
+    with pytest.raises(ValueError, match="require engine='dag-ml'"):
+        nirs4all.run(
+            [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+            dataset_path("regression"),
+            engine="legacy",
+            training_losses=(role,),
+            local_implementations=object(),
+        )
+
+
+def test_run_rejects_process_local_losses_on_native_tuning_bypass() -> None:
+    role = {"schema_version": 1, "node_id": "model:compat.0", "output_id": "oof", "phases": ["FIT_CV"], "loss": {"loss_id": "example.loss@1"}}
+
+    with pytest.raises(NotImplementedError, match="does not yet thread DAG-ML process-local training losses"):
+        nirs4all.run(
+            [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+            dataset_path("regression"),
+            engine="dag-ml",
+            tuning={"space": {}, "score_data": {"X": [[1.0, 2.0]], "y": [1.0]}},
+            training_losses=(role,),
+            local_implementations=object(),
+        )
+
+
 def test_dagml_run_falls_back_to_legacy_when_backend_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
     """An explicit ``engine="dag-ml"`` run() transparently falls back to the LEGACY engine WITH A
     WARNING when the dag-ml backend is unavailable — simulated by the preflight raising

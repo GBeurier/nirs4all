@@ -23,6 +23,7 @@ from __future__ import annotations
 import shutil
 import sys
 import tempfile
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -272,6 +273,23 @@ def preflight_dagml_backend(cli: str) -> None:
     )
 
 
+def _reject_unavailable_process_local_losses(training_losses: tuple[Mapping[str, Any], ...], local_implementations: Any | None) -> None:
+    if not training_losses and local_implementations is None:
+        return
+    if not training_losses:
+        raise DagMlUnsupported("local_implementations was supplied without DAG-ML training_losses")
+    if local_implementations is None:
+        raise DagMlUnsupported("DAG-ML training_losses require a process-local implementation registry")
+
+    from .in_process_runner import _dagml_extension_loads, in_process_enabled
+
+    if not in_process_enabled() or not _dagml_extension_loads():
+        raise DagMlUnsupported(
+            "DAG-ML process-local training losses require the in-process backend; "
+            "they cannot be serialized through the subprocess adapter or legacy fallback."
+        )
+
+
 def run_via_dagml(
     pipeline: Any,
     dataset: Any,
@@ -287,6 +305,8 @@ def run_via_dagml(
     venv_python: str | None = None,
     workdir: str | Path | None = None,
     results_path: str | Path | None = None,
+    training_losses: tuple[Mapping[str, Any], ...] = (),
+    local_implementations: Any | None = None,
 ) -> RunResult:
     """Execute ``pipeline`` on ``dataset`` via dag-ml-cli; return a RunResult of dag-ml's native scores.
 
@@ -330,6 +350,11 @@ def run_via_dagml(
             ``predictions.parquet``); env-only defaults to ``./nirs4all_results/<run_id>/``. ``None`` +
             unset env → nothing written (behaviorally identical to a pure in-memory run). The writer
             NEVER touches the legacy workspace store.
+        training_losses: DAG-ML-native training loss role references to bind
+            into the execution plan for ``FIT_CV`` / ``REFIT`` model tasks.
+            Process-local losses are supported only by the in-process backend.
+        local_implementations: Process-local DAG-ML implementation registry
+            used by nirs4all controllers to invoke the training loss callables.
 
     Returns:
         A :class:`~nirs4all.api.result.RunResult` whose ``best_rmse`` is the native final-test score
@@ -358,6 +383,7 @@ def run_via_dagml(
     # — a genuine dag-ml runtime/operator error is NOT caught here (it surfaces later and propagates).
     cli = str(dagml_cli or _DEFAULT_CLI)
     preflight_dagml_backend(cli)
+    _reject_unavailable_process_local_losses(training_losses, local_implementations)
 
     # Materialize the host dataset from ANY input legacy `run()` accepts (path / config /
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
@@ -375,7 +401,19 @@ def run_via_dagml(
     # `_scores_to_run_result`), so it is safe to delete on every dispatch return/raise path. A
     # caller-provided `workdir` is theirs — never delete it.
     try:
-        result = _dispatch_run(pipeline, spectro, base_dir, dataset_arg, host_pickle, cli, venv_python, name, random_state)
+        result = _dispatch_run(
+            pipeline,
+            spectro,
+            base_dir,
+            dataset_arg,
+            host_pickle,
+            cli,
+            venv_python,
+            name,
+            random_state,
+            training_losses=training_losses,
+            local_implementations=local_implementations,
+        )
         _attach_export_spec(result, pipeline, dataset, name, random_state)
         # NATIVE RESULTS SEAM (P3 Slice 2b-i): write the ADDITIVE native results directory when enabled
         # (explicit `results_path` OR $N4A_NATIVE_RESULTS) — OFF by default, so a plain run skips this
@@ -586,6 +624,8 @@ def _dispatch_run(
     venv_python: str | None,
     name: str = "",
     random_state: int | None = None,
+    training_losses: tuple[Mapping[str, Any], ...] = (),
+    local_implementations: Any | None = None,
 ) -> RunResult:
     """Route the materialized run to the matching native dag-ml path and map its scores.
 
@@ -635,6 +675,7 @@ def _dispatch_run(
                 f"engine='dag-ml' does not yet support overriding the native selection direction for metric {metric!r}; use direction={expected_objective!r} or choose a metric with the desired objective."
             )
     task_type = "classification" if is_classification else "regression"
+    custom_training_loss_requested = bool(training_losses) or local_implementations is not None
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
     # unsupported combination BEFORE any non-group dispatch path (branch/augmentation/exclude) runs.
@@ -654,6 +695,25 @@ def _dispatch_run(
             "engine='dag-ml' does not yet support stateful concat_transform with Python-reference "
             "pre-CV materialization semantics; the native FeatureConcat path fits PCA/SVD/scalers "
             "fold-locally and would not preserve legacy parity (backlog #27)."
+        )
+    if custom_training_loss_requested and (
+        detected is not None
+        or detected_duplication is not None
+        or detected_stacking is not None
+        or detected_by_source is not None
+        or detected_by_source_distinct_concat is not None
+        or detected_rep_fusion is not None
+        or detected_source_concat is not None
+        or augmentation_steps
+        or _is_repetition_dataset(spectro)
+        or _generation_kind(list(pipeline)) != "none"
+        or any(_is_exclude_step(step) for step in pipeline)
+    ):
+        raise DagMlUnsupported(
+            "DAG-ML process-local training losses are currently wired only for one concrete "
+            "linear model pipeline with a cross-validator; branch, augmentation, repetition, "
+            "source-layout, exclude and generator shapes must fail explicitly until their "
+            "controllers thread local loss registries."
         )
 
     # REP FUSION (`rep_to_sources` / `rep_to_pp`, #31): a one-time HOST RESHAPE that turns each replicate
@@ -974,7 +1034,21 @@ def _dispatch_run(
     # nirs4all) and emitting the winner's refit rows only.
     variants = _expand_operator_generators(list(pipeline))
     variant_runs = [
-        _run_concrete_scores(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, random_state=random_state)
+        _run_concrete_scores(
+            variant,
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python or sys.executable,
+            base_dir / f"variant{index}",
+            cv_pool,
+            excluded,
+            tags_by_sample,
+            dataset_pickle=host_pickle,
+            random_state=random_state,
+            training_losses=training_losses,
+            local_implementations=local_implementations,
+        )
         for index, variant in enumerate(variants)
     ]
     if len(variant_runs) == 1:

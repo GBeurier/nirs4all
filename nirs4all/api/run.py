@@ -220,6 +220,8 @@ def run(
     tuning: Any | None = None,
     calibration: Any | None = None,
     results_path: str | Path | None = None,
+    training_losses: tuple[Mapping[str, Any], ...] = (),
+    local_implementations: Any | None = None,
     # All other PipelineRunner options
     **runner_kwargs: Any,
 ) -> "RunResult | TunedSingleEstimatorConformalResult":
@@ -331,6 +333,15 @@ def run(
             an explicit ``results_path`` is threaded as a named ``run()`` parameter (not a runner_kwarg),
             so it bypasses the dag-ml runner_kwarg allowlist. It has no effect on ``engine="legacy"``.
 
+        training_losses: DAG-ML-native training loss role references for
+            process-local custom training losses. This is honored only with
+            ``engine="dag-ml"`` and must be paired with ``local_implementations``.
+
+        local_implementations: Process-local DAG-ML implementation registry
+            (for Python, typically ``dag_ml.LocalImplementationRegistry``) used
+            to bind ``training_losses`` to callable custom losses. It cannot be
+            serialized or forwarded to the legacy backend.
+
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
             - workspace_path: Workspace root directory
@@ -433,6 +444,9 @@ def run(
         - :func:`nirs4all.session`: Create execution session for resource reuse
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
+    custom_training_loss_requested = bool(training_losses) or local_implementations is not None
+    if custom_training_loss_requested and resolve_engine(engine) != "dag-ml":
+        raise ValueError("training_losses/local_implementations require engine='dag-ml'")
 
     if calibration is not None:
         if tuning is None:
@@ -446,6 +460,12 @@ def run(
         tuning["calibration"] = _coerce_public_runtime_payload(calibration)
 
     if tuning is not None:
+        if custom_training_loss_requested:
+            raise NotImplementedError(
+                "run(tuning=...) does not yet thread DAG-ML process-local training losses; "
+                "use a concrete engine='dag-ml' pipeline until the native tuning adapter binds "
+                "training_losses and local_implementations."
+            )
         tuning = _coerce_public_tuning_payload(tuning)
         if resolve_engine(engine) == "dag-ml":
             return _run_single_estimator_tuning_subset(
@@ -656,14 +676,20 @@ def run(
                 cache=cache,
                 runner_kwargs=runner_kwargs,
                 results_path=results_path,
+                training_losses=training_losses,
+                local_implementations=local_implementations,
             )
         except DagMlUnavailable as e:
+            if custom_training_loss_requested:
+                raise
             warnings.warn(
                 f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
                 stacklevel=2,
             )
             return _run_legacy()
         except (DagMlUnsupported, NotImplementedError) as e:
+            if custom_training_loss_requested:
+                raise
             warnings.warn(
                 f"engine='dag-ml' does not support this pipeline shape ({e}); falling back to the legacy engine",
                 stacklevel=2,
