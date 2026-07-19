@@ -17,7 +17,7 @@ from __future__ import annotations
 import pytest
 
 from nirs4all.pipeline.dagml import in_process_runner
-from nirs4all.pipeline.dagml.errors import DagMlUnavailable
+from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
 from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled, run_cv_refit_bundle_router
 
 
@@ -72,6 +72,52 @@ def test_router_picks_in_process_when_selected_and_extension_loads(monkeypatch: 
     outcome = run_cv_refit_bundle_router(**_router_kwargs())
     assert called["in_process"] is True
     assert outcome is sentinel
+
+
+def test_router_threads_process_local_training_losses_to_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The router keeps executable local losses on the in-process branch and passes only the registry
+    object to the Python callback side."""
+    monkeypatch.delenv("N4A_DAGML_INPROCESS", raising=False)
+    monkeypatch.setattr(in_process_runner, "_dagml_extension_loads", lambda: True)
+    role = {"schema_version": 1, "node_id": "model:compat.0", "output_id": "oof", "phases": ["FIT_CV"], "loss": {"loss_id": "example.loss@1"}}
+    registry = object()
+    captured: dict[str, object] = {}
+
+    def _fake_in_process(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"scores": {"reports": []}, "results": [], "returncode": 0, "stdout": ""}
+
+    monkeypatch.setattr(in_process_runner, "run_cv_refit_bundle", _fake_in_process)
+    outcome = run_cv_refit_bundle_router(
+        **_router_kwargs(),
+        training_losses=(role,),
+        local_implementations=registry,
+    )
+
+    assert outcome["returncode"] == 0
+    assert captured["training_losses"] == (role,)
+    assert captured["local_implementations"] is registry
+
+
+def test_router_rejects_process_local_training_losses_on_subprocess(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "off")
+    monkeypatch.setattr(in_process_runner, "_dagml_extension_loads", lambda: True)
+    role = {"schema_version": 1, "node_id": "model:compat.0", "output_id": "oof", "phases": ["FIT_CV"], "loss": {"loss_id": "example.loss@1"}}
+
+    with pytest.raises(DagMlUnsupported, match="subprocess adapter cannot receive local callables"):
+        run_cv_refit_bundle_router(
+            **_router_kwargs(dagml_cli="/nonexistent/dag-ml-cli"),
+            training_losses=(role,),
+            local_implementations=object(),
+        )
+
+
+def test_router_rejects_registry_without_training_losses() -> None:
+    with pytest.raises(DagMlUnsupported, match="without DAG-ML training_losses"):
+        run_cv_refit_bundle_router(
+            **_router_kwargs(),
+            local_implementations=object(),
+        )
 
 
 def test_router_falls_through_to_subprocess_when_extension_missing(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
