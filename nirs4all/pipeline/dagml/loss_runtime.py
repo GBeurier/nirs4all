@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
+import math
 from collections.abc import Mapping, Sequence
+from numbers import Real
 from typing import Any
 
 
@@ -101,6 +103,8 @@ class DagMLTrainingLossExecution:
         """Invoke the semantic ``(target, prediction)`` DAG-ML loss callback."""
 
         value = self._invoke(target, prediction, *args, **kwargs)
+        if isinstance(value, Real) and not isinstance(value, bool) and not math.isfinite(value):
+            raise ValueError("DAG-ML training loss callback returned a non-finite scalar")
         self._attestation = copy.deepcopy(self._required_attestation)
         self._invocation_count += 1
         return value
