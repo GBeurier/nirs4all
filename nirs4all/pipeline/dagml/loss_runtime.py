@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import copy
-from collections.abc import Mapping
+import math
+from collections.abc import Mapping, Sequence
+from numbers import Real
 from typing import Any
 
 
@@ -40,6 +42,20 @@ class DagMLTrainingLossExecution:
             raise TypeError("DAG-ML loss registry must expose bind_training_loss()")
         if isinstance(role_index, bool) or not isinstance(role_index, int) or role_index < 0:
             raise ValueError("DAG-ML training loss role_index must be a non-negative integer")
+        expected_attestations = task.get("required_loss_attestations")
+        if not isinstance(expected_attestations, Sequence) or isinstance(
+            expected_attestations,
+            (str, bytes),
+        ):
+            raise TypeError("DAG-ML required_loss_attestations must be a sequence")
+        if not expected_attestations:
+            raise ValueError("DAG-ML training loss tasks require a loss attestation")
+        if role_index >= len(expected_attestations):
+            raise ValueError("DAG-ML training loss role_index is outside required_loss_attestations")
+        expected = expected_attestations[role_index]
+        if not isinstance(expected, Mapping):
+            raise TypeError("DAG-ML required loss attestation must be a mapping")
+        expected_attestation = copy.deepcopy(dict(expected))
 
         binding = bind_training_loss(
             copy.deepcopy(dict(task)),
@@ -51,12 +67,15 @@ class DagMLTrainingLossExecution:
         required_attestation = binding.get("required_attestation")
         if not callable(invoke) or not isinstance(required_attestation, Mapping):
             raise ValueError("DAG-ML loss binding lacks invoke or required_attestation")
-        if required_attestation.get("phase") != phase:
+        required_attestation_dict = copy.deepcopy(dict(required_attestation))
+        if required_attestation_dict.get("phase") != phase:
             raise ValueError("DAG-ML loss binding attestation phase does not match its task")
+        if required_attestation_dict != expected_attestation:
+            raise ValueError("DAG-ML loss binding attestation does not match the NodeTask requirement")
 
         self._invoke = invoke
         self._phase = str(phase)
-        self._required_attestation = copy.deepcopy(dict(required_attestation))
+        self._required_attestation = required_attestation_dict
         self._attestation: dict[str, Any] | None = None
         self._invocation_count = 0
 
@@ -84,6 +103,8 @@ class DagMLTrainingLossExecution:
         """Invoke the semantic ``(target, prediction)`` DAG-ML loss callback."""
 
         value = self._invoke(target, prediction, *args, **kwargs)
+        if isinstance(value, Real) and not isinstance(value, bool) and not math.isfinite(value):
+            raise ValueError("DAG-ML training loss callback returned a non-finite scalar")
         self._attestation = copy.deepcopy(self._required_attestation)
         self._invocation_count += 1
         return value
