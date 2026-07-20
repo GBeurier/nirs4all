@@ -10,10 +10,11 @@ from nirs4all.utils.backend import TORCH_AVAILABLE
 
 
 class _RecordingLossRegistry:
-    def __init__(self, *, fail: bool = False) -> None:
+    def __init__(self, *, fail: bool = False, value: Any = None) -> None:
         self.bind_calls: list[tuple[dict[str, Any], int]] = []
         self.calls: list[tuple[dict[str, Any], Any, Any, int]] = []
         self.fail = fail
+        self.value = value
 
     def bind_training_loss(
         self,
@@ -27,6 +28,8 @@ class _RecordingLossRegistry:
             if self.fail:
                 raise RuntimeError("custom loss failed")
             self.calls.append((task, target, prediction, role_index))
+            if self.value is not None:
+                return self.value
             value = (prediction - target) ** 2
             mean = getattr(value, "mean", None)
             return mean() if callable(mean) else value
@@ -127,6 +130,19 @@ class TestPyTorchLossResolution:
         assert execution.loss_attestations == []
         with pytest.raises(TypeError, match="cannot be serialized"):
             pickle.dumps(execution)
+
+    @pytest.mark.parametrize("value", [float("nan"), float("inf"), -float("inf")])
+    def test_dagml_execution_rejects_non_finite_scalar_before_attestation(self, value: float):
+        from nirs4all.pipeline.dagml import DagMLTrainingLossExecution
+
+        execution = DagMLTrainingLossExecution(
+            _loss_task("REFIT"), _RecordingLossRegistry(value=value)
+        )
+
+        with pytest.raises(ValueError, match="non-finite scalar"):
+            execution(1.0, 2.0)
+        assert execution.invocation_count == 0
+        assert execution.loss_attestations == []
 
     @pytest.mark.parametrize(
         ("phase", "role_index", "message"),
