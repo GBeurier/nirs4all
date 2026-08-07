@@ -69,20 +69,15 @@ def test_vertical_slice_controller_manifests_validate() -> None:
     # the generic base-model catch-all, and the stacking meta-model. The latter
     # binds via metadata.controller_id and consumes OOF predictions. The other
     # node kinds each have one controller.
-    assert sorted(m["operator_kind"] for m in manifests) == [
-        "model",
-        "model",
-        "model",
-        "model",
-        "prediction_join",
-        "transform",
-        "y_transform",
-    ]
-    assert sorted(m["controller_id"] for m in manifests) == [
-        "controller:nirs4all.merge_concat", "controller:nirs4all.meta_model", "controller:nirs4all.model",
-        "controller:nirs4all.pytorch_model", "controller:nirs4all.tensorflow_model",
-        "controller:nirs4all.transform", "controller:nirs4all.y_transform",
-    ]
+    assert {(m["controller_id"], m["operator_kind"]) for m in manifests} == {
+        ("controller:nirs4all.merge_concat", "prediction_join"),
+        ("controller:nirs4all.meta_model", "model"),
+        ("controller:nirs4all.model", "model"),
+        ("controller:nirs4all.pytorch_model", "model"),
+        ("controller:nirs4all.tensorflow_model", "model"),
+        ("controller:nirs4all.transform", "transform"),
+        ("controller:nirs4all.y_transform", "y_transform"),
+    }
     for manifest in manifests:
         dag_ml.ControllerManifest(manifest)  # raises on an invalid manifest
     dag_ml.ControllerManifests(manifests)  # raises on an invalid list / duplicate controller_id

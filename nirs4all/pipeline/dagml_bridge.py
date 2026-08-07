@@ -1087,9 +1087,10 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
 def controller_manifests() -> list[dict[str, Any]]:
     """The host-controller manifests for the vertical-slice node kinds.
 
-    One manifest per ``operator_kind`` — a dag-ml manifest serves exactly one node
-    kind, so ``transform`` / ``y_transform`` / ``model`` each need their own. These
-    are **control-plane declarations only**: no process-adapter command lives here
+    Each manifest serves exactly one node kind. The registry supplies catch-all
+    transform, y-transform, and model controllers, plus targeted model controllers
+    for PyTorch and TensorFlow and the specialized merge/stacking roles. These are
+    **control-plane declarations only**: no process-adapter command lives here
     (that is a runtime concern of the later execution phase).
 
     Binding is **by node kind**, mirroring nirs4all's one-controller-per-role
