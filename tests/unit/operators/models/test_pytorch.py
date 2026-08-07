@@ -217,7 +217,7 @@ class TestPyTorchLossResolution:
             DagMLTrainingLossExecution(_loss_task(), _MismatchedRegistry())
 
 
-@pytest.mark.xdist_group("gpu")
+@pytest.mark.xdist_group("torch")
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch not available")
 class TestPyTorchModels:
     """Test suite for PyTorch models."""
