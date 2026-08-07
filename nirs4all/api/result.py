@@ -813,6 +813,11 @@ class RunResult:
     # default (the writer fires solely when native results are enabled).
     _dagml_refit_artifacts: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
+    # Native dag-ml node results retained for controller-level audit attestations
+    # (including process-local training losses). They are in-memory metadata only
+    # and empty for legacy results.
+    _dagml_node_results: list[dict[str, Any]] = field(default_factory=list, repr=False)
+
     # The on-disk native results directory the 2b-i writer produced for this dag-ml run (recorded by
     # ``run_via_dagml`` when native results were enabled; ``None`` for an in-memory-only dag-ml run or a
     # legacy result). It holds ``manifest.json`` + ``score_set.json`` + ``predictions.parquet`` + the
