@@ -383,6 +383,12 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # pre-CV by the Python oracle; dag-ml's current FeatureConcat lowering fits
     # them fold-locally, so native execution would compare the wrong semantics.
     "concat_transform_pca_svd_plsr",
+    # Legacy `refit_params: {use_all_partitions: True}` can expand the terminal
+    # refit universe beyond the CV train/validation pool. dag-ml deliberately
+    # enforces `REFIT FullTrain == fold_set.sample_ids` and structurally excludes
+    # held-out test samples from refit, so the transition backend must fall back
+    # rather than ignore the override or emulate the legacy leakage-prone shape.
+    "refit_params_use_all_partitions",
     # by-source separation / per-source models / source-concat multi-source shapes.
     "multi_source_by_source_branch_shared_preproc",
     "multi_source_per_source_models_stacking",
