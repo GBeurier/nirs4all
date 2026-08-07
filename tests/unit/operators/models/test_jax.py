@@ -4,6 +4,7 @@ import pytest
 from nirs4all.utils.backend import JAX_AVAILABLE
 
 
+@pytest.mark.jax
 @pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not JAX_AVAILABLE, reason="JAX not available")
 class TestJaxModels:
