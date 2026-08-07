@@ -93,7 +93,7 @@ dependencies = [
     # dag-ml execution core — hard dependency, not an extra, so the native backend
     # is selectable out of the box via engine="dag-ml" or N4A_ENGINE=dag-ml. The
     # public Python line remains legacy-default until the explicit ADR-17 drop.
-    "dag-ml>=0.2.7",
+    "dag-ml>=0.3.0",
     "dag-ml-data>=0.2.8",
 ]
 
