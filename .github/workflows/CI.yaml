@@ -100,10 +100,12 @@ jobs:
             # macOS: run serially to avoid fork() deadlocks
             python -m pytest -v --timeout=120 "${MARK[@]}" tests/unit/
           else
-            # ``loadgroup`` honors @pytest.mark.xdist_group. This keeps native
-            # deep-learning runtimes in one worker instead of concurrently
-            # initializing PyTorch/TensorFlow in separate workers.
-            python -m pytest -v -n auto --dist loadgroup --timeout=300 tests/unit/
+            # Native DL runtimes are process-global and unsafe under concurrent
+            # xdist workers. Exercise them serially, then keep the remainder fast.
+            python -m pytest -v --timeout=300 \
+              -m "torch or tensorflow or keras or jax" tests/unit/
+            python -m pytest -v -n auto --dist worksteal --timeout=300 \
+              -m "not torch and not tensorflow and not keras and not jax" tests/unit/
           fi
 
       - name: Run quick integration pytest
@@ -125,8 +127,14 @@ jobs:
               tests/integration/pipeline/test_merge_mixed.py \
               tests/integration/pipeline/test_merge_per_branch.py
 
+            # Native DL replays persist framework artifacts and must not share
+            # xdist workers with another initialized framework runtime.
+            python -m pytest -v --timeout=300 \
+              -m "torch or tensorflow or keras or jax" tests/integration/pipeline/
+
             # Parallel remainder
             python -m pytest -v -n auto --dist worksteal --timeout=300 tests/integration/pipeline/ \
+              -m "not torch and not tensorflow and not keras and not jax" \
               --ignore=tests/integration/pipeline/test_merge_mixed.py \
               --ignore=tests/integration/pipeline/test_merge_per_branch.py
           fi
