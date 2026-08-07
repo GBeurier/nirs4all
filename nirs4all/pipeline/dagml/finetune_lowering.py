@@ -24,13 +24,15 @@ def reject_native_training_param_overrides(
     steps: list[Any],
     *,
     context: str = "native DAG-ML",
+    allowed_keys: frozenset[str] = frozenset(),
 ) -> None:
     """Reject fit/refit kwargs that native DAG-ML would otherwise ignore."""
 
+    rejected_keys = UNSUPPORTED_NATIVE_TRAINING_PARAM_KEYS - allowed_keys
     hits: list[str] = []
     for step in steps:
         if isinstance(step, dict):
-            hits.extend(sorted(UNSUPPORTED_NATIVE_TRAINING_PARAM_KEYS & set(step)))
+            hits.extend(sorted(rejected_keys & set(step)))
     if hits:
         raise NotImplementedError(f"{context} does not yet support step-level {sorted(set(hits))}; running natively would ignore fit/refit arguments instead of preserving legacy parity.")
 

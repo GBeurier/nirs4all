@@ -32,8 +32,14 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 from sklearn.pipeline import make_pipeline
 
-from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID
+from nirs4all.pipeline.dagml_bridge import (
+    _META_MODEL_CONTROLLER_ID,
+    _PYTORCH_MODEL_CONTROLLER_ID,
+    _TENSORFLOW_MODEL_CONTROLLER_ID,
+)
 
+from .errors import DagMlUnsupported
+from .loss_runtime import DagMLTrainingLossExecution
 from .operator_routing import route_graph_node
 
 if TYPE_CHECKING:
@@ -353,7 +359,14 @@ def _output_handles(task: dict[str, Any], handle: int) -> dict[str, Any]:
     return outputs
 
 
-def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artifacts: list[dict[str, Any]], artifact_handles: dict[str, Any], regression_targets: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+def _build_result(
+    task: dict[str, Any],
+    predictions: list[dict[str, Any]],
+    artifacts: list[dict[str, Any]],
+    artifact_handles: dict[str, Any],
+    regression_targets: list[dict[str, Any]] | None = None,
+    loss_attestations: list[dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     """Assemble the schema-complete ``NodeResult`` the runtime validates (outputs + full lineage).
 
     ``regression_targets`` (the real ``y_true`` for the predicted samples) lets dag-ml score the
@@ -394,8 +407,173 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
             "seed": task.get("seed"),
             "unsafe_flags": [],
             "metrics": metrics,
+            "loss_attestations": loss_attestations or [],
         },
     }
+
+
+def _bind_training_loss(
+    task: dict[str, Any],
+    controller_id: str,
+    local_implementations: Any,
+) -> DagMLTrainingLossExecution | None:
+    requirements = task.get("required_loss_attestations") or []
+    if not requirements:
+        return None
+    if controller_id not in {
+        _PYTORCH_MODEL_CONTROLLER_ID,
+        _TENSORFLOW_MODEL_CONTROLLER_ID,
+    }:
+        raise DagMlUnsupported(
+            f"controller {controller_id!r} cannot execute a configurable training loss"
+        )
+    if len(requirements) != 1:
+        raise DagMlUnsupported(
+            "native nirs4all deep-learning nodes currently support one training loss per task"
+        )
+    if local_implementations is None:
+        raise RuntimeError(
+            "DAG-ML training task requires a process-local loss registry"
+        )
+    return DagMLTrainingLossExecution(task, local_implementations)
+
+
+def _backend_train_params(node: dict[str, Any]) -> dict[str, Any]:
+    params = (node.get("metadata") or {}).get("nirs4all_train_params", {})
+    if not isinstance(params, dict):
+        raise TypeError("nirs4all_train_params graph metadata must be a mapping")
+    return dict(params)
+
+
+def _seed_differentiable_backend(controller_id: str, seed: Any) -> None:
+    if isinstance(seed, bool) or not isinstance(seed, int):
+        raise TypeError("native differentiable model tasks require an integer core seed")
+    if controller_id == _PYTORCH_MODEL_CONTROLLER_ID:
+        import torch
+
+        torch.manual_seed(seed % (2**64))
+        return
+    if controller_id == _TENSORFLOW_MODEL_CONTROLLER_ID:
+        import tensorflow as tf
+
+        tf.keras.utils.set_random_seed(seed % (2**32))
+        return
+    raise DagMlUnsupported(
+        f"controller {controller_id!r} is not a differentiable model controller"
+    )
+
+
+def _prediction_only_refit_estimator(
+    controller_id: str,
+    estimator: Any,
+    loss_execution: DagMLTrainingLossExecution | None,
+) -> Any:
+    if (
+        controller_id != _TENSORFLOW_MODEL_CONTROLLER_ID
+        or loss_execution is None
+    ):
+        return estimator
+
+    from nirs4all.pipeline.storage.artifacts.artifact_persistence import (
+        from_bytes,
+        to_bytes,
+    )
+
+    data, format_name = to_bytes(estimator, format_hint="tensorflow")
+    return from_bytes(data, format_name)
+
+
+def _train_differentiable_model(
+    controller_id: str,
+    model: Any,
+    x_train: Any,
+    y_train: Any,
+    x_val: Any | None,
+    y_val: Any | None,
+    train_params: dict[str, Any],
+    loss_execution: DagMLTrainingLossExecution | None,
+) -> Any:
+    params = dict(train_params)
+    if loss_execution is not None:
+        params["loss"] = loss_execution
+    params.setdefault("verbose", 0)
+    if controller_id == _PYTORCH_MODEL_CONTROLLER_ID:
+        from nirs4all.controllers.models.torch_model import PyTorchModelController
+        from nirs4all.pipeline.config.context import ExecutionContext
+
+        controller = PyTorchModelController()
+        context = ExecutionContext()
+        prepared_x, prepared_y = controller._prepare_data(
+            np.asarray(x_train), np.asarray(y_train), context
+        )
+        prepared_x_val, prepared_y_val = (
+            controller._prepare_data(np.asarray(x_val), np.asarray(y_val), context)
+            if x_val is not None and y_val is not None
+            else (None, None)
+        )
+        return controller._train_model(
+            model,
+            prepared_x,
+            prepared_y,
+            prepared_x_val,
+            prepared_y_val,
+            **params,
+        )
+    if controller_id == _TENSORFLOW_MODEL_CONTROLLER_ID:
+        from nirs4all.controllers.models.tensorflow_model import TensorFlowModelController
+        from nirs4all.core.task_type import TaskType
+
+        tf_controller = TensorFlowModelController()
+        prepared_x, prepared_y = tf_controller._prepare_data(
+            np.asarray(x_train),
+            np.asarray(y_train),
+            {},
+        )
+        prepared_x_val, prepared_y_val = (
+            tf_controller._prepare_data(
+                np.asarray(x_val),
+                np.asarray(y_val),
+                {},
+            )
+            if x_val is not None and y_val is not None
+            else (None, None)
+        )
+        if prepared_y is None:
+            raise RuntimeError("TensorFlow training data preparation dropped targets")
+        params.setdefault("task_type", TaskType.REGRESSION)
+        return tf_controller._train_model(
+            model,
+            prepared_x,
+            prepared_y,
+            prepared_x_val,
+            prepared_y_val,
+            **params,
+        )
+    raise DagMlUnsupported(
+        f"controller {controller_id!r} is not a differentiable model controller"
+    )
+
+
+def _predict_differentiable_model(
+    controller_id: str,
+    model: Any,
+    features: Any,
+) -> np.ndarray:
+    if controller_id == _PYTORCH_MODEL_CONTROLLER_ID:
+        from nirs4all.controllers.models.torch_model import PyTorchModelController
+
+        return np.asarray(
+            PyTorchModelController()._predict_model(model, np.asarray(features))
+        )
+    if controller_id == _TENSORFLOW_MODEL_CONTROLLER_ID:
+        from nirs4all.controllers.models.tensorflow_model import TensorFlowModelController
+
+        return np.asarray(
+            TensorFlowModelController()._predict_model(model, np.asarray(features))
+        )
+    raise DagMlUnsupported(
+        f"controller {controller_id!r} is not a differentiable model controller"
+    )
 
 
 def run_model_node(
@@ -406,6 +584,7 @@ def run_model_node(
     edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,
+    local_implementations: Any = None,
 ) -> dict[str, Any]:
     """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``.
 
@@ -435,6 +614,10 @@ def run_model_node(
     # fold (the branch_view filtered it out). The model cannot fit, so emit an empty NodeResult — the
     # other partitions cover the fold, and the native concat-merge reassembles full coverage.
     if phase != "PREDICT" and not train_ids:
+        if task.get("required_loss_attestations"):
+            raise DagMlUnsupported(
+                "a required training loss cannot execute on an empty training partition"
+            )
         return _build_result(task, [], [], {}, [])
 
     estimator: Any
@@ -456,11 +639,23 @@ def run_model_node(
         multi_block = isinstance(estimator, _MultiBlockEstimator)
         source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
+        if controller_id in {
+            _PYTORCH_MODEL_CONTROLLER_ID,
+            _TENSORFLOW_MODEL_CONTROLLER_ID,
+        }:
+            _seed_differentiable_backend(controller_id, task.get("seed"))
         model = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
         source_chains = _source_concat_chains(node_lookup(node_id))
         source_concat = source_chains is not None
         multi_block = not source_concat and _is_multi_block_model(model) and resolver.is_multi_source()
+        if controller_id in {
+            _PYTORCH_MODEL_CONTROLLER_ID,
+            _TENSORFLOW_MODEL_CONTROLLER_ID,
+        } and (upstream or source_concat or multi_block or source_index is not None):
+            raise DagMlUnsupported(
+                "native differentiable model nodes currently require a single raw feature block"
+            )
         if source_concat:
             estimator = _SourceConcatEstimator(
                 model,
@@ -506,7 +701,52 @@ def run_model_node(
             y_fit = y_transform.fit_transform(y_train) if y_transform is not None else y_train
         else:
             y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
-        estimator.fit(x_train, y_fit)
+        loss_execution = _bind_training_loss(
+            task,
+            controller_id,
+            local_implementations,
+        )
+        if controller_id in {
+            _PYTORCH_MODEL_CONTROLLER_ID,
+            _TENSORFLOW_MODEL_CONTROLLER_ID,
+        }:
+            x_val = None
+            y_val = None
+            if phase == "FIT_CV" and predict_ids:
+                x_val = np.asarray(
+                    resolver.resolve_features(
+                        predict_ids,
+                        include_augmented=False,
+                    )["values"]
+                )
+                raw_y_val = np.asarray(
+                    resolver.resolve_targets(predict_ids)["values"],
+                    dtype=float,
+                )
+                if y_transform is not None:
+                    y_val = (
+                        y_transform.transform(raw_y_val)
+                        if raw_y_val.ndim > 1 and raw_y_val.shape[1] > 1
+                        else y_transform.transform(raw_y_val.reshape(-1, 1)).ravel()
+                    )
+                else:
+                    y_val = raw_y_val
+            estimator = _train_differentiable_model(
+                controller_id,
+                estimator,
+                x_train,
+                y_fit,
+                x_val,
+                y_val,
+                _backend_train_params(node_lookup(node_id)),
+                loss_execution,
+            )
+        else:
+            if loss_execution is not None:
+                raise DagMlUnsupported(
+                    f"controller {controller_id!r} cannot consume a DAG-ML training loss"
+                )
+            estimator.fit(x_train, y_fit)
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
         # Predict X at the dataset's NATIVE storage dtype too (same parity reason as the fit X above):
@@ -518,7 +758,18 @@ def run_model_node(
             x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"])
         else:
             x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"])
-        pred = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)
+        if controller_id in {
+            _PYTORCH_MODEL_CONTROLLER_ID,
+            _TENSORFLOW_MODEL_CONTROLLER_ID,
+        }:
+            raw_prediction = _predict_differentiable_model(
+                controller_id,
+                estimator,
+                x,
+            )
+        else:
+            raw_prediction = estimator.predict(x)
+        pred = np.asarray(raw_prediction, dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
 
@@ -594,11 +845,35 @@ def run_model_node(
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
-        model_store[artifact_handle] = {"estimator": estimator, "y_transform": y_transform}
-        artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
+        stored_estimator = _prediction_only_refit_estimator(
+            controller_id,
+            estimator,
+            loss_execution,
+        )
+        model_store[artifact_handle] = {
+            "estimator": stored_estimator,
+            "y_transform": y_transform,
+        }
+        artifact_kind = {
+            _PYTORCH_MODEL_CONTROLLER_ID: "pytorch_model",
+            _TENSORFLOW_MODEL_CONTROLLER_ID: "tensorflow_model",
+        }.get(controller_id, "sklearn_estimator")
+        artifacts.append({"id": artifact_id, "kind": artifact_kind, "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
-    return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
+    attestations = (
+        loss_execution.loss_attestations
+        if phase != "PREDICT" and loss_execution is not None
+        else []
+    )
+    return _build_result(
+        task,
+        predictions,
+        artifacts,
+        artifact_handles,
+        regression_targets,
+        attestations,
+    )
 
 
 def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[list[str], np.ndarray]:
@@ -779,6 +1054,7 @@ def run_node(
     edges: list[dict[str, Any]] | None = None,
     y_transform_node: dict[str, Any] | None = None,
     sample_metadata: dict[str, dict[str, Any]] | None = None,
+    local_implementations: Any = None,
 ) -> dict[str, Any]:
     """Dispatch a ``NodeTask`` by node kind.
 
@@ -798,5 +1074,14 @@ def run_node(
     if kind in ("model", "tuner"):
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             return run_meta_model_node(task, resolver, node_lookup, model_store)
-        return run_model_node(task, resolver, node_lookup, model_store, edges, y_transform_node, sample_metadata)
+        return run_model_node(
+            task,
+            resolver,
+            node_lookup,
+            model_store,
+            edges,
+            y_transform_node,
+            sample_metadata,
+            local_implementations,
+        )
     return _build_result(task, [], [], {})

@@ -8,6 +8,7 @@ concurrent access.  Every test uses ``tmp_path`` for isolation.
 from __future__ import annotations
 
 import gc
+import hashlib
 import json
 import threading
 import weakref
@@ -50,6 +51,40 @@ class _SummingModel:
 def _make_store(tmp_path: Path) -> WorkspaceStore:
     """Create a WorkspaceStore rooted at *tmp_path*."""
     return WorkspaceStore(tmp_path / "workspace")
+
+
+def test_load_artifact_routes_framework_native_format_to_artifact_loader(tmp_path, monkeypatch):
+    """Workspace-registered Keras payloads must not be deserialized as pickle."""
+    from nirs4all.pipeline.storage.artifacts import artifact_persistence
+
+    store = _make_store(tmp_path)
+    payload = b"keras-native-payload"
+    relative_path = "tf/model.keras"
+    artifact_path = store._artifacts_dir / relative_path  # noqa: SLF001
+    artifact_path.parent.mkdir(parents=True)
+    artifact_path.write_bytes(payload)
+    artifact_id = "tensorflow-model"
+    store.register_existing_artifact(
+        artifact_id=artifact_id,
+        path=relative_path,
+        content_hash=hashlib.sha256(payload).hexdigest(),
+        operator_class="keras.Sequential",
+        artifact_type="model",
+        format="tensorflow_keras",
+        size_bytes=len(payload),
+    )
+
+    expected = object()
+    calls: list[tuple[bytes, str]] = []
+
+    def fake_from_bytes(data: bytes, fmt: str):
+        calls.append((data, fmt))
+        return expected
+
+    monkeypatch.setattr(artifact_persistence, "from_bytes", fake_from_bytes)
+
+    assert store.load_artifact(artifact_id) is expected
+    assert calls == [(payload, "tensorflow_keras")]
 
 
 def _create_full_run(store: WorkspaceStore, *, dataset_name: str = "wheat") -> dict:

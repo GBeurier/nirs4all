@@ -80,7 +80,12 @@ jobs:
             grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-filtered.txt
             python -m pip install numpy -r requirements-test-filtered.txt
           else
-            python -m pip install numpy -r requirements-test.txt
+            # PyPI's Linux wheel now pulls CUDA/Triton dependencies even on the
+            # CPU runner. The official CPU wheel avoids that unstable runtime.
+            grep -v '^torch' requirements-test.txt > requirements-test-filtered.txt
+            python -m pip install numpy -r requirements-test-filtered.txt
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+              'torch==2.13.0+cpu'
           fi
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
@@ -100,7 +105,21 @@ jobs:
             # macOS: run serially to avoid fork() deadlocks
             python -m pytest -v --timeout=120 "${MARK[@]}" tests/unit/
           else
-            python -m pytest -v -n auto --dist worksteal --timeout=300 tests/unit/
+            # TensorFlow and PyTorch both claim process-global native state. Run
+            # each framework's explicit test files in a fresh interpreter; marker
+            # selection over tests/unit would still import every test module.
+            python -m pytest -v --timeout=300 \
+              -m torch \
+              tests/unit/operators/models/test_pytorch.py \
+              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
+            python -m pytest -v --timeout=300 \
+              -m tensorflow \
+              tests/unit/operators/models/test_tensorflow.py \
+              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
+            python -m pytest -v --timeout=300 \
+              -m jax tests/unit/operators/models/test_jax.py
+            python -m pytest -v -n auto --dist worksteal --timeout=300 \
+              -m "not torch and not tensorflow and not keras and not jax" tests/unit/
           fi
 
       - name: Run quick integration pytest
@@ -122,8 +141,16 @@ jobs:
               tests/integration/pipeline/test_merge_mixed.py \
               tests/integration/pipeline/test_merge_per_branch.py
 
+            # Keep TensorFlow persistence/replay tests in their own interpreter.
+            python -m pytest -v --timeout=300 \
+              -m tensorflow \
+              tests/integration/pipeline/test_classification_integration.py \
+              tests/integration/pipeline/test_finetune_integration.py \
+              tests/integration/pipeline/test_prediction_reuse_integration.py
+
             # Parallel remainder
             python -m pytest -v -n auto --dist worksteal --timeout=300 tests/integration/pipeline/ \
+              -m "not torch and not tensorflow and not keras and not jax" \
               --ignore=tests/integration/pipeline/test_merge_mixed.py \
               --ignore=tests/integration/pipeline/test_merge_per_branch.py
           fi

@@ -66,6 +66,20 @@ _CV_PARTITIONS = ("train", "val", "test")
 _MISSING = object()
 
 
+def _audit_node_results(
+    results: list[dict[str, Any]] | None,
+    results_by_variant: dict[Any, list[dict[str, Any]]] | None,
+) -> list[dict[str, Any]]:
+    if results is not None:
+        return results
+    if not results_by_variant:
+        return []
+    frames: list[dict[str, Any]] = []
+    for variant_frames in results_by_variant.values():
+        frames.extend(variant_frames)
+    return frames
+
+
 def _index_sample_blocks(results: list[dict[str, Any]] | None) -> dict[tuple[str, str, str | None], tuple[dict[str, Any], dict[str, Any] | None]]:
     """Index the node_results' per-sample prediction blocks for the direct-block row projection (2a-i).
 
@@ -601,6 +615,10 @@ def _scores_to_run_result(
     # in-memory metadata only, OFF by default (the writer fires solely when native results are enabled),
     # so a plain run is untouched.
     run_result._dagml_refit_artifacts = refit_artifacts or []  # noqa: SLF001
+    # Keep the native NodeResult frames as an audit trail for controller-level
+    # attestations such as process-local training losses. This is the same
+    # in-memory-only posture as the ScoreSet/refit artifact captures above.
+    run_result._dagml_node_results = _audit_node_results(results, results_by_variant)  # noqa: SLF001
     return run_result
 
 

@@ -273,9 +273,17 @@ def _deserialize_artifact(data: bytes, fmt: str) -> Any:
         import joblib
 
         return joblib.load(io.BytesIO(data))
-    import pickle
+    if fmt == "pickle":
+        import pickle
 
-    return pickle.loads(data)  # noqa: S301
+        return pickle.loads(data)  # noqa: S301
+
+    # ArtifactRegistry may register framework-native payloads directly in the
+    # workspace (for example ``tensorflow_keras``). Delegate those formats to
+    # the single format-aware loader instead of treating their bytes as pickle.
+    from nirs4all.pipeline.storage.artifacts.artifact_persistence import from_bytes
+
+    return from_bytes(data, fmt)
 
 
 def _format_to_ext(fmt: str) -> str:
