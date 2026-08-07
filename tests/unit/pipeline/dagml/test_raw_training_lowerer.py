@@ -32,6 +32,11 @@ def _tiny_torch_regressor() -> Any:
         def forward(self, features: Any) -> Any:
             return self.linear(features)
 
+    # dag-ml rebuilds local implementations by module-qualified class name.
+    # Publish this lazily-created class exactly as a module-level test fixture.
+    TinyTorchRegressor.__qualname__ = "TinyTorchRegressor"
+    TinyTorchRegressor.__module__ = __name__
+    globals()[TinyTorchRegressor.__name__] = TinyTorchRegressor
     return TinyTorchRegressor()
 
 
@@ -54,6 +59,9 @@ def _tiny_tensorflow_regressor() -> Any:
         def call(self, features: Any) -> Any:
             return self.dense(self.flatten(features))
 
+    TinyTensorFlowRegressor.__qualname__ = "TinyTensorFlowRegressor"
+    TinyTensorFlowRegressor.__module__ = __name__
+    globals()[TinyTensorFlowRegressor.__name__] = TinyTensorFlowRegressor
     return TinyTensorFlowRegressor()
 
 
