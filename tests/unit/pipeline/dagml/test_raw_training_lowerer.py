@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import contextlib
 from typing import Any
 
 import numpy as np
@@ -19,16 +18,12 @@ from nirs4all.pipeline.dagml.raw_training_lowerer import (
     raw_arrays_to_spectro_dataset,
 )
 
-with contextlib.suppress(ImportError):
+
+def _tiny_torch_regressor() -> Any:
+    """Build the native test model without initializing another runtime."""
     import torch
 
-with contextlib.suppress(ImportError):
-    import tensorflow as tf
-
-
-if "torch" in globals():
-
-    class _TinyTorchRegressor(torch.nn.Module):
+    class TinyTorchRegressor(torch.nn.Module):
         def __init__(self) -> None:
             super().__init__()
             self.linear = torch.nn.Linear(2, 1, bias=False)
@@ -37,11 +32,15 @@ if "torch" in globals():
         def forward(self, features: Any) -> Any:
             return self.linear(features)
 
+    return TinyTorchRegressor()
 
-if "tf" in globals():
+
+def _tiny_tensorflow_regressor() -> Any:
+    """Build the native test model without initializing another runtime."""
+    import tensorflow as tf
 
     @tf.keras.utils.register_keras_serializable(package="nirs4all_tests")
-    class _TinyTensorFlowRegressor(tf.keras.Model):
+    class TinyTensorFlowRegressor(tf.keras.Model):
         def __init__(self, **kwargs: Any) -> None:
             kwargs.setdefault("name", "tiny_tensorflow_regressor")
             super().__init__(**kwargs)
@@ -54,6 +53,8 @@ if "tf" in globals():
 
         def call(self, features: Any) -> Any:
             return self.dense(self.flatten(features))
+
+    return TinyTensorFlowRegressor()
 
 
 class _FakeTrainingResult:
@@ -185,8 +186,6 @@ def test_lower_raw_array_training_contracts_rejects_step_level_train_params_unti
 
 def test_model_controller_routing_uses_framework_mro_without_substring_false_positives() -> None:
     from nirs4all.pipeline.dagml_bridge import (
-        _PYTORCH_MODEL_CONTROLLER_ID,
-        _TENSORFLOW_MODEL_CONTROLLER_ID,
         _model_controller_id,
     )
 
@@ -196,30 +195,65 @@ def test_model_controller_routing_uses_framework_mro_without_substring_false_pos
     _SciKerasLike.__module__ = "scikeras.wrappers"
 
     assert _model_controller_id(_SciKerasLike()) is None
-    if "torch" in globals():
-        assert _model_controller_id(_TinyTorchRegressor()) == _PYTORCH_MODEL_CONTROLLER_ID
-    if "tf" in globals():
-        assert _model_controller_id(_TinyTensorFlowRegressor()) == _TENSORFLOW_MODEL_CONTROLLER_ID
 
 
-def test_differentiable_backend_seed_maps_wide_core_seed_deterministically() -> None:
+@pytest.mark.torch
+def test_model_controller_routing_accepts_pytorch_mro() -> None:
+    from nirs4all.pipeline.dagml_bridge import (
+        _PYTORCH_MODEL_CONTROLLER_ID,
+        _model_controller_id,
+    )
+
+    pytest.importorskip("torch")
+    assert _model_controller_id(_tiny_torch_regressor()) == _PYTORCH_MODEL_CONTROLLER_ID
+
+
+@pytest.mark.tensorflow
+def test_model_controller_routing_accepts_tensorflow_mro() -> None:
+    from nirs4all.pipeline.dagml_bridge import (
+        _TENSORFLOW_MODEL_CONTROLLER_ID,
+        _model_controller_id,
+    )
+
+    pytest.importorskip("tensorflow")
+    assert (
+        _model_controller_id(_tiny_tensorflow_regressor())
+        == _TENSORFLOW_MODEL_CONTROLLER_ID
+    )
+
+
+@pytest.mark.torch
+def test_pytorch_seed_maps_wide_core_seed_deterministically() -> None:
     from nirs4all.pipeline.dagml.node_runner import (
         _PYTORCH_MODEL_CONTROLLER_ID,
+        _seed_differentiable_backend,
+    )
+
+    torch = pytest.importorskip("torch")
+
+    seed = 2**63 + 17
+    _seed_differentiable_backend(_PYTORCH_MODEL_CONTROLLER_ID, seed)
+    first_torch = torch.rand(3)
+    _seed_differentiable_backend(_PYTORCH_MODEL_CONTROLLER_ID, seed)
+    assert torch.equal(first_torch, torch.rand(3))
+
+
+@pytest.mark.tensorflow
+def test_tensorflow_seed_maps_wide_core_seed_deterministically() -> None:
+    from nirs4all.pipeline.dagml.node_runner import (
         _TENSORFLOW_MODEL_CONTROLLER_ID,
         _seed_differentiable_backend,
     )
 
+    tf = pytest.importorskip("tensorflow")
+
     seed = 2**63 + 17
-    if "torch" in globals():
-        _seed_differentiable_backend(_PYTORCH_MODEL_CONTROLLER_ID, seed)
-        first_torch = torch.rand(3)
-        _seed_differentiable_backend(_PYTORCH_MODEL_CONTROLLER_ID, seed)
-        assert torch.equal(first_torch, torch.rand(3))
-    if "tf" in globals():
-        _seed_differentiable_backend(_TENSORFLOW_MODEL_CONTROLLER_ID, seed)
-        first_tensorflow = tf.random.uniform((3,))
-        _seed_differentiable_backend(_TENSORFLOW_MODEL_CONTROLLER_ID, seed)
-        np.testing.assert_array_equal(first_tensorflow.numpy(), tf.random.uniform((3,)).numpy())
+    _seed_differentiable_backend(_TENSORFLOW_MODEL_CONTROLLER_ID, seed)
+    first_tensorflow = tf.random.uniform((3,))
+    _seed_differentiable_backend(_TENSORFLOW_MODEL_CONTROLLER_ID, seed)
+    np.testing.assert_array_equal(
+        first_tensorflow.numpy(), tf.random.uniform((3,)).numpy()
+    )
 
 
 def test_node_runner_rejects_missing_registry_and_multiple_loss_requirements() -> None:
@@ -295,8 +329,7 @@ def test_raw_array_training_compiler_executes_native_training_when_supported() -
 @pytest.mark.xdist_group("torch")
 def test_raw_array_training_executes_local_torch_loss_and_attests_each_phase() -> None:
     _require_recent_dag_ml()
-    if "torch" not in globals():
-        pytest.skip("PyTorch not available")
+    torch = pytest.importorskip("torch")
     import dag_ml
 
     if not hasattr(dag_ml, "LocalImplementationRegistry"):
@@ -364,7 +397,7 @@ def test_raw_array_training_executes_local_torch_loss_and_attests_each_phase() -
         pipeline=[
             KFold(n_splits=2),
             {
-                "model": _TinyTorchRegressor(),
+                "model": _tiny_torch_regressor(),
                 "train_params": {
                     "epochs": 1,
                     "batch_size": 2,
@@ -414,8 +447,7 @@ def test_raw_array_training_executes_local_torch_loss_and_attests_each_phase() -
 @pytest.mark.xdist_group("tensorflow")
 def test_raw_array_training_executes_local_tensorflow_loss_and_detaches_refit_artifact() -> None:
     _require_recent_dag_ml()
-    if "tf" not in globals():
-        pytest.skip("TensorFlow not available")
+    tf = pytest.importorskip("tensorflow")
     import dag_ml
 
     if not hasattr(dag_ml, "LocalImplementationRegistry"):
@@ -469,7 +501,7 @@ def test_raw_array_training_executes_local_tensorflow_loss_and_detaches_refit_ar
         pipeline=[
             KFold(n_splits=2),
             {
-                "model": _TinyTensorFlowRegressor(),
+                "model": _tiny_tensorflow_regressor(),
                 "train_params": {
                     "epochs": 1,
                     "batch_size": 2,
