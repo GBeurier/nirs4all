@@ -211,6 +211,11 @@
       "case": "preprocessing_force_layout_2d",
       "shape": "preprocessing_keyword",
       "owner_lane": "L5"
+    },
+    {
+      "case": "refit_params_use_all_partitions",
+      "shape": "refit_params",
+      "owner_lane": "L5"
     }
   ],
   "num_predictions_divergence": [
@@ -357,8 +362,8 @@
     "registered": 95,
     "non_runnable": 0,
     "runnable": 95,
-    "fallback": 15,
-    "native": 80,
+    "fallback": 16,
+    "native": 79,
     "xfail_strict": 0,
     "skip": 0,
     "num_predictions_divergence": 2,
