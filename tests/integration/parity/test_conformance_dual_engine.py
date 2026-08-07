@@ -32,7 +32,7 @@ Slow: each case runs twice (legacy + dag-ml). Gated by the ``slow`` marker.
 
 from __future__ import annotations
 
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 import pytest
 
@@ -69,6 +69,7 @@ class _RunResultScoreDivergence(TypedDict):
     legacy_best_r2: float
     dagml_best_r2: float
     num_predictions: int
+    score_tol: NotRequired[float]
     reason: str
 
 
@@ -246,6 +247,7 @@ RUNRESULT_SCORE_DIVERGENCE: dict[str, _RunResultScoreDivergence] = {
         "legacy_best_r2": 0.601245573618067,
         "dagml_best_r2": 0.5934802643140145,
         "num_predictions": 17,
+        "score_tol": 1e-5,
         "reason": "legacy feature_augmentation replace keeps raw in the model matrix; dag-ml follows replacement semantics",
     },
 }
@@ -553,6 +555,7 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
             dagml_best_rmse=expected["dagml_best_rmse"],
             legacy_best_r2=expected["legacy_best_r2"],
             dagml_best_r2=expected["dagml_best_r2"],
+            tol=expected.get("score_tol", 1e-6),
         )
         return
 

@@ -206,6 +206,8 @@ def _validate_runresult_score_divergences(data: dict[str, Any]) -> None:
         row = actual[case_name]
         if any(row[key] != expected[key] for key in keys):
             raise AssertionError(f"runresult score divergence scalar drifted for {case_name}")
+        if row.get("score_tol") != expected.get("score_tol"):
+            raise AssertionError(f"runresult score divergence tolerance drifted for {case_name}")
 
 
 def _validate_ypred_overrides(data: dict[str, Any]) -> None:

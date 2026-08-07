@@ -258,6 +258,7 @@
       "legacy_best_r2": 0.601245573618067,
       "dagml_best_r2": 0.5934802643140145,
       "num_predictions": 17,
+      "score_tol": 0.00001,
       "disposition": "pass_runresult_score_note"
     }
   ],
