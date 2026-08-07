@@ -100,7 +100,10 @@ jobs:
             # macOS: run serially to avoid fork() deadlocks
             python -m pytest -v --timeout=120 "${MARK[@]}" tests/unit/
           else
-            python -m pytest -v -n auto --dist worksteal --timeout=300 tests/unit/
+            # ``loadgroup`` honors @pytest.mark.xdist_group. This keeps native
+            # deep-learning runtimes in one worker instead of concurrently
+            # initializing PyTorch/TensorFlow in separate workers.
+            python -m pytest -v -n auto --dist loadgroup --timeout=300 tests/unit/
           fi
 
       - name: Run quick integration pytest
