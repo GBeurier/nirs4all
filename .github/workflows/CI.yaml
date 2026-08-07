@@ -80,7 +80,12 @@ jobs:
             grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-filtered.txt
             python -m pip install numpy -r requirements-test-filtered.txt
           else
-            python -m pip install numpy -r requirements-test.txt
+            # PyPI's Linux wheel now pulls CUDA/Triton dependencies even on the
+            # CPU runner. The official CPU wheel avoids that unstable runtime.
+            grep -v '^torch' requirements-test.txt > requirements-test-filtered.txt
+            python -m pip install numpy -r requirements-test-filtered.txt
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+              'torch==2.13.0+cpu'
           fi
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
@@ -111,6 +116,8 @@ jobs:
               -m tensorflow \
               tests/unit/operators/models/test_tensorflow.py \
               tests/unit/pipeline/dagml/test_raw_training_lowerer.py
+            python -m pytest -v --timeout=300 \
+              -m jax tests/unit/operators/models/test_jax.py
             python -m pytest -v -n auto --dist worksteal --timeout=300 \
               -m "not torch and not tensorflow and not keras and not jax" tests/unit/
           fi
