@@ -100,10 +100,17 @@ jobs:
             # macOS: run serially to avoid fork() deadlocks
             python -m pytest -v --timeout=120 "${MARK[@]}" tests/unit/
           else
-            # Native DL runtimes are process-global and unsafe under concurrent
-            # xdist workers. Exercise them serially, then keep the remainder fast.
+            # TensorFlow and PyTorch both claim process-global native state. Run
+            # each framework's explicit test files in a fresh interpreter; marker
+            # selection over tests/unit would still import every test module.
             python -m pytest -v --timeout=300 \
-              -m "torch or tensorflow or keras or jax" tests/unit/
+              -m torch \
+              tests/unit/operators/models/test_pytorch.py \
+              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
+            python -m pytest -v --timeout=300 \
+              -m tensorflow \
+              tests/unit/operators/models/test_tensorflow.py \
+              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
             python -m pytest -v -n auto --dist worksteal --timeout=300 \
               -m "not torch and not tensorflow and not keras and not jax" tests/unit/
           fi
@@ -127,10 +134,12 @@ jobs:
               tests/integration/pipeline/test_merge_mixed.py \
               tests/integration/pipeline/test_merge_per_branch.py
 
-            # Native DL replays persist framework artifacts and must not share
-            # xdist workers with another initialized framework runtime.
+            # Keep TensorFlow persistence/replay tests in their own interpreter.
             python -m pytest -v --timeout=300 \
-              -m "torch or tensorflow or keras or jax" tests/integration/pipeline/
+              -m tensorflow \
+              tests/integration/pipeline/test_classification_integration.py \
+              tests/integration/pipeline/test_finetune_integration.py \
+              tests/integration/pipeline/test_prediction_reuse_integration.py
 
             # Parallel remainder
             python -m pytest -v -n auto --dist worksteal --timeout=300 tests/integration/pipeline/ \
