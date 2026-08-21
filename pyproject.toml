@@ -123,7 +123,7 @@ migration = ["duckdb>=1.0.0"]
 native = [
     "dag-ml>=0.3.1",
     "dag-ml-data>=0.2.9",
-    "nirs4all-core[methods]>=0.3.14",
+    "nirs4all-core[methods]>=0.3.15",
 ]
 
 # Transition-release workspace converter wrapper. The runtime detects legacy
