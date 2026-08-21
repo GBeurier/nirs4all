@@ -26,11 +26,11 @@ import warnings
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
-Engine = Literal["legacy", "dag-ml", "dual"]
+Engine = Literal["legacy", "dag-ml", "dual", "native"]
 
 DEFAULT_ENGINE: Engine = "legacy"
 ENGINE_ENV_VAR = "N4A_ENGINE"
-ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "dual")
+ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "dual", "native")
 
 
 class DualRunUnsupported(NotImplementedError):
@@ -69,7 +69,9 @@ def resolve_engine(engine: str | None = None) -> Engine:
 
     Returns:
         The validated engine name. ``"legacy"`` (the default), ``"dag-ml"`` and the narrow
-        ``"dual"`` oracle mode are dispatched by :func:`nirs4all.run`.
+        ``"dual"`` oracle mode are dispatched by :func:`nirs4all.run`. ``"native"`` is
+        currently reserved for the explicit Archive V2 PREDICT subset; other public
+        operations refuse it before execution.
 
     Raises:
         ValueError: If the name is not one of :data:`ENGINES`.
@@ -97,6 +99,6 @@ def require_legacy_engine(operation: str, engine: str | None = None) -> Engine:
             )
             return "legacy"
         raise NotImplementedError(
-            f"nirs4all.{operation} does not have a dag-ml execution path yet; use engine='legacy' for this transition release. nirs4all.run supports engine='dag-ml' with documented fallback boundaries."
+            f"nirs4all.{operation} does not have an execution path for engine={selected!r}; use engine='legacy' for this transition release. nirs4all.run supports engine='dag-ml' with documented fallback boundaries."
         )
     return selected

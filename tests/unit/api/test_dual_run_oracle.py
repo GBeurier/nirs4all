@@ -289,7 +289,7 @@ def test_dual_ledger_is_resolved_from_an_installed_wheel(tmp_path: Path) -> None
         text=True,
     )
     assert create_venv.returncode == 0, create_venv.stdout + create_venv.stderr
-    wheel_python = venv / "bin" / "python"
+    wheel_python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     install = subprocess.run(
         [str(wheel_python), "-m", "pip", "install", "--no-deps", str(wheel)],
         check=False,

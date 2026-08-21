@@ -280,6 +280,35 @@ def test_predict_and_predict_proba_use_native_replay_and_explicit_decoders() -> 
     assert client.replay_calls[1]["args"][1] == {"phase": "predict_proba"}
 
 
+def test_replay_cleanup_runs_after_success_and_native_failure() -> None:
+    client = _FakeNativeClient()
+    cleaned: list[str] = []
+
+    def compiler(*args: Any, **kwargs: Any) -> DagMLReplayExecution:
+        replay = _replay_execution(str(kwargs["mode"]))
+        return DagMLReplayExecution(**{**replay.__dict__, "cleanup": lambda: cleaned.append("done")})
+
+    estimator = DagMLPipelineEstimator(
+        pipeline=("model",),
+        selection_output_id="pred",
+        native_client=client,
+        training_compiler=lambda *args, **kwargs: _training_execution(),
+        prediction_compiler=compiler,
+        prediction_decoder=lambda outcome: outcome["rows"],
+    ).fit(np.ones((2, 2)), np.ones(2))
+
+    assert estimator.predict(np.ones((1, 2))).tolist() == [1.0, 2.0]
+    assert cleaned == ["done"]
+
+    def failing_replay(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        raise RuntimeError("native refusal")
+
+    client.replay_loaded_predictor_package = failing_replay  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="native refusal"):
+        estimator.predict(np.ones((1, 2)))
+    assert cleaned == ["done", "done"]
+
+
 def test_predict_with_identity_forwards_target_free_identity_to_compiler() -> None:
     client = _FakeNativeClient()
     frames: list[Any] = []

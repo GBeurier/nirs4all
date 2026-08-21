@@ -40,6 +40,12 @@ def test_dual_engine_resolves_for_run_oracle() -> None:
     assert resolve_engine("dual") == "dual"
 
 
+def test_native_engine_resolves_for_the_explicit_archive_predict_subset() -> None:
+    assert resolve_engine("native") == "native"
+    with pytest.raises(NotImplementedError, match="engine='native'"):
+        require_legacy_engine("retrain", "native")
+
+
 def test_non_run_helpers_refuse_dual_engine() -> None:
     with pytest.raises(DualRunUnsupported, match="only for nirs4all.run"):
         require_legacy_engine("predict", "dual")

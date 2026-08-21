@@ -98,7 +98,14 @@ pip install nirs4all[all]
 
 # All frameworks with GPU support
 pip install nirs4all[all-gpu]
+
+# Portable Archive V2 prediction through Core, DAG-ML and Methods
+pip install nirs4all[native]
 ```
+
+The `native` extra enables only the explicit `engine="native"` Archive V2
+prediction path. It does not change the default engine and it does not enable
+legacy fallbacks for native archives.
 
 ### Docker
 

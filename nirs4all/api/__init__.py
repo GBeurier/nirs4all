@@ -110,7 +110,7 @@ from .robustness import (
 from .run import run
 
 # Session (Phase 3 - full implementation)
-from .session import Session, load_session, session
+from .session import NativeArchiveSession, Session, load_native_archive_session, load_session, session
 from .tuning import (
     CONFORMAL_TUNING_SCORE_METRICS,
     FINETUNE_APPROACHES,
@@ -226,7 +226,9 @@ __all__ = [
     "retrain",
     # Session
     "Session",
+    "NativeArchiveSession",
     "session",
+    "load_native_archive_session",
     "load_session",
     # Synthetic data generation
     "generate",

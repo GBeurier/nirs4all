@@ -200,6 +200,35 @@ def test_replay_loaded_predictor_package_forwards_to_facade(monkeypatch: pytest.
     ]
 
 
+def test_replay_loaded_predictor_package_forwards_opt_in_artifact_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_replay_artifact"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def replay_loaded_predictor_package(*args: Any, **kwargs: Any) -> object:
+        calls.append((args, kwargs))
+        return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(module_name, replay_loaded_predictor_package=replay_loaded_predictor_package),
+    )
+    artifact_callback = lambda event: None  # noqa: E731
+    DagMLNativeClient(module_name).replay_loaded_predictor_package(
+        {"package": True},
+        {"phase": "PREDICT"},
+        {"envelope": True},
+        {},
+        lambda task: {"task": task},
+        outcome_id="replay-outcome",
+        run_id="replay-run",
+        artifact_callback=artifact_callback,
+    )
+    assert calls[0][1]["artifact_callback"] is artifact_callback
+
+
 def test_non_object_contract_manifest_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     module_name = "_n4a_fake_dag_ml_bad_manifest"
     monkeypatch.setitem(
