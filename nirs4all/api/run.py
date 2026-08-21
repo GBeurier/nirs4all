@@ -718,6 +718,9 @@ def run(
             no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
             typed error for every other shape or unavailable native capability. Override the default
             per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
+            ``engine='native'`` is reserved for explicit Archive V2 PREDICT replay and is refused
+            by ``run()`` until native Methods training is distributed as a public capability; it never
+            falls through to the legacy orchestrator.
             The dual subset requires exact built-in ``list``/``dict`` and exact NumPy arrays,
             ``KFold(shuffle=False)``, ``PLSRegression``, finite floating-point ``X`` and continuous
             regression ``y``,

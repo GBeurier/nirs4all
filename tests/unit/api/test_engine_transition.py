@@ -37,6 +37,15 @@ def test_run_native_refuses_before_constructing_a_legacy_runner(
         run([], {}, engine="native")
 
 
+def test_run_native_environment_selection_is_also_fail_closed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv("N4A_ENGINE", "native")
+
+    with pytest.raises(NotImplementedError, match="Archive V2.*PREDICT replay only"):
+        run([], {})
+
+
 @pytest.mark.parametrize(
     ("operation", "call"),
     [
