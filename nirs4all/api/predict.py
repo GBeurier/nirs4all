@@ -165,9 +165,10 @@ def predict(
             Default: 0
 
         **runner_kwargs: Additional PipelineRunner parameters.
-            Common options: plots_visible. ``engine`` is accepted here for the
-            transition release; only ``"legacy"`` is supported by this helper
-            until native prediction replay is implemented.
+            Common options: plots_visible. During the transition, the default
+            remains ``"legacy"``. ``engine="native"`` is the explicit,
+            fail-closed Archive V2 Methods subset: pass a ``.n4a`` archive and
+            ``data={"X": ..., "sample_ids": ...}``; it has no legacy fallback.
 
     Returns:
         PredictResult containing:
@@ -218,6 +219,21 @@ def predict(
         raise ValueError("'data' is required.")
 
     engine = runner_kwargs.pop("engine", None)
+
+    if engine == "native":
+        result = _predict_from_native_archive(
+            model=model,
+            data=data,
+            chain_id=chain_id,
+            all_predictions=all_predictions,
+            coverage=coverage,
+            session=session,
+        )
+        if save_to_workspace:
+            raise NotImplementedError(
+                "engine='native' Archive V2 prediction does not yet publish to the legacy workspace store"
+            )
+        return result
 
     if _is_calibrated_replayed_prediction_request(model, data):
         result = _predict_from_calibrated_replayed_arrays(
@@ -359,6 +375,66 @@ def _maybe_publish_predict_result(
     result.metadata["workspace_path"] = str(publish_path)
     result.metadata["workspace_prediction_published"] = True
     return result
+
+
+def _predict_from_native_archive(
+    *,
+    model: ModelSpec | None,
+    data: DataSpec,
+    chain_id: str | None,
+    all_predictions: bool,
+    coverage: float | list[float] | tuple[float, ...] | None,
+    session: Session | None,
+) -> PredictResult:
+    """Execute the narrow, portable Archive V2 Methods PREDICT route.
+
+    This route is explicit while R2 is being qualified.  It owns no legacy
+    runner and therefore refuses store/session requests, sidecars, implicit row
+    identities and unimplemented conformal selection before data execution.
+    """
+
+    if chain_id is not None or session is not None:
+        raise NotImplementedError(
+            "engine='native' predict accepts an Archive V2 model path, not a legacy chain or Session"
+        )
+    if not isinstance(model, (str, Path)):
+        raise TypeError("engine='native' predict requires a Core Archive V2 model path")
+    archive_path = Path(model)
+    if archive_path.suffix.lower() != ".n4a":
+        raise ValueError("engine='native' predict requires an Archive V2 .n4a path")
+    if coverage is not None:
+        raise NotImplementedError(
+            "engine='native' Archive V2 prediction does not yet expose conformal intervals"
+        )
+    if all_predictions:
+        raise NotImplementedError(
+            "engine='native' Archive V2 prediction exposes one selected final output"
+        )
+    if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
+        raise TypeError(
+            "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
+        )
+    from nirs4all.pipeline.dagml.native_archive_replay import (
+        predict_methods_archive_v2_raw,
+    )
+
+    values = predict_methods_archive_v2_raw(
+        archive_path,
+        data["X"],
+        sample_ids=data["sample_ids"],
+        groups=data.get("groups"),
+        metadata=data.get("metadata"),
+    )
+    return PredictResult(
+        y_pred=values,
+        metadata={
+            "engine": "native",
+            "archive_path": str(archive_path),
+            "sample_ids": list(data["sample_ids"]),
+        },
+        model_name="MethodsN4MM",
+        preprocessing_steps=[],
+    )
 
 
 def _resolve_publish_workspace_path(workspace_path: str | Path | None, session: Session | None) -> Path:

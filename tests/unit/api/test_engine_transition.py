@@ -41,6 +41,46 @@ def test_public_helpers_reject_dagml_until_native_paths_exist(operation: str, ca
         call()
 
 
+def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+
+    def native_predict(path, X, *, sample_ids, groups, metadata):  # noqa: ANN001
+        observed.update(
+            path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), groups=groups, metadata=metadata
+        )
+        return np.asarray([[2.0], [3.0]])
+
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw",
+        native_predict,
+    )
+
+    result = predict(
+        model="portable.n4a",
+        data={"X": np.asarray([[1.0], [2.0]]), "sample_ids": ["p1", "p2"]},
+        engine="native",
+    )
+
+    assert result.y_pred.tolist() == [[2.0], [3.0]]
+    assert result.metadata["engine"] == "native"
+    assert observed["sample_ids"] == ["p1", "p2"]
+
+
+@pytest.mark.parametrize(
+    ("model", "data", "kwargs", "message"),
+    [
+        ("portable.n4a", np.zeros((1, 2)), {}, "data={'X': matrix, 'sample_ids': explicit_ids}"),
+        ("portable.joblib", {"X": [[1.0]], "sample_ids": ["p1"]}, {}, "Archive V2 .n4a"),
+        ("portable.n4a", {"X": [[1.0]], "sample_ids": ["p1"]}, {"coverage": 0.9}, "conformal intervals"),
+    ],
+)
+def test_predict_native_archive_fails_closed_before_execution(model, data, kwargs, message) -> None:
+    with pytest.raises((TypeError, ValueError, NotImplementedError), match=message):
+        predict(model=model, data=data, engine="native", **kwargs)
+
+
 @pytest.mark.parametrize(
     "operation",
     [
