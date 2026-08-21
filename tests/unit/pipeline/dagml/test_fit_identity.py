@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import numpy as np
 import pytest
 
 from nirs4all.pipeline.dagml.fit_identity import (
+    feature_content_fingerprint,
     normalize_fit_identity,
     normalize_predict_identity,
 )
@@ -114,6 +117,16 @@ def test_predict_identity_is_target_free_and_binds_feature_content() -> None:
         require_explicit_sample_ids=True,
     )
     assert changed.data_content_fingerprint != frame.data_content_fingerprint
+
+
+def test_predict_feature_fingerprint_is_the_raw_lowerer_x_identity() -> None:
+    X = np.asarray([[1.0, 2.0], [3.0, 4.0]])
+    frame = normalize_predict_identity(X, sample_ids=["predict.1", "predict.2"])
+
+    assert frame.data_content_fingerprint == feature_content_fingerprint(X)
+    assert frame.data_content_fingerprint == hashlib.sha256(
+        b"X(2, 2)float64" + np.ascontiguousarray(X).tobytes()
+    ).hexdigest()
 
 
 def test_predict_identity_compatibility_ids_are_x_only_and_explicit_mode_fails_closed() -> None:
