@@ -145,6 +145,7 @@ class RawArrayMethodsReplayCompiler:
             artifact_handles={},
             op_callback=callbacks.op_callback,
             artifact_callback=callbacks.artifact_callback,
+            cleanup=callbacks.close,
             outcome_id=self.outcome_id,
             run_id=self.run_id,
         )

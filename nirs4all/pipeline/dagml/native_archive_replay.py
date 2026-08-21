@@ -14,7 +14,11 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import numpy as np
+
+from .fit_identity import normalize_predict_identity
 from .methods_replay import MethodsN4mmReplayCallbacks, MethodsPortableReplayError
+from .raw_replay_lowerer import RawArrayMethodsReplayCompiler, RawArrayMethodsReplayError
 
 if TYPE_CHECKING:
     from .resolver import MaterializationResolver
@@ -43,32 +47,7 @@ def replay_methods_archive_v2(
     Package bytes; Package/replay validation runs before a host data callback.
     """
 
-    try:
-        from nirs4all_core import read_portable_predictor_package_v2
-    except ImportError as error:  # pragma: no cover - depends on optional wheel
-        raise NativeArchiveReplayError(
-            "native Archive V2 replay requires nirs4all-core >= 0.3.14"
-        ) from error
-    try:
-        import dag_ml
-    except ImportError as error:  # pragma: no cover - depends on optional wheel
-        raise NativeArchiveReplayError(
-            "native Archive V2 replay requires dag-ml with portable artifact callbacks"
-        ) from error
-
-    package_bytes = read_portable_predictor_package_v2(str(archive_path))
-    if not isinstance(package_bytes, bytes):
-        raise NativeArchiveReplayError("Core Archive V2 reader did not return package bytes")
-    try:
-        package_json = package_bytes.decode("utf-8")
-        package = dag_ml.PortablePredictorPackage(package_json)
-        package_document = package.to_dict()
-    except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError) as error:
-        raise NativeArchiveReplayError(
-            "Core Archive V2 package member is not a validated DAG-ML Package V2"
-        ) from error
-    if package_document.get("schema_version") != 2:
-        raise NativeArchiveReplayError("Methods archive replay requires PortablePredictorPackage V2")
+    dag_ml, package, package_document = _load_methods_archive_package(archive_path)
     target_names_by_node = _target_names_by_node(package_document)
     callbacks = MethodsN4mmReplayCallbacks(
         resolver,
@@ -97,6 +76,116 @@ def replay_methods_archive_v2(
         callbacks.close()
 
 
+def predict_methods_archive_v2_raw(
+    archive_path: str | Path,
+    X: Any,
+    *,
+    sample_ids: Any,
+    groups: Any = None,
+    metadata: Any = None,
+    outcome_id: str = "outcome:nirs4all.archive_predict",
+    run_id: str = "run:nirs4all.archive_predict",
+) -> np.ndarray:
+    """Predict a fresh raw-array cohort from a Core Archive V2 Methods package.
+
+    This is the first public composition that creates a current cohort replay
+    request.  It requires explicit stable identities, signs the request through
+    DAG-ML and delegates N4MM import/prediction to ``pls4all``.  It never
+    invokes a legacy pipeline or fabricates target content.
+    """
+
+    dag_ml, package, _package_document = _load_methods_archive_package(archive_path)
+    identity = normalize_predict_identity(
+        X,
+        sample_ids=sample_ids,
+        groups=groups,
+        metadata=metadata,
+        require_explicit_sample_ids=True,
+    )
+    compiler = RawArrayMethodsReplayCompiler(
+        package,
+        outcome_id=outcome_id,
+        run_id=run_id,
+    )
+    try:
+        replay = compiler.compile_replay(
+            None, X, mode="predict", identity_frame=identity
+        )
+        outcome = dag_ml.replay_loaded_predictor_package(
+            package,
+            replay.request,
+            replay.data_envelopes,
+            replay.artifact_handles,
+            replay.op_callback,
+            outcome_id=replay.outcome_id,
+            run_id=replay.run_id,
+            artifact_callback=replay.artifact_callback,
+        )
+        return _decode_exact_raw_prediction(outcome, identity.sample_ids)
+    except (MethodsPortableReplayError, RawArrayMethodsReplayError) as error:
+        raise NativeArchiveReplayError(str(error)) from error
+    finally:
+        if "replay" in locals() and replay.cleanup is not None:
+            replay.cleanup()
+
+
+def _load_methods_archive_package(
+    archive_path: str | Path,
+) -> tuple[Any, Any, dict[str, Any]]:
+    """Load opaque V2 bytes through Core, then validate the DAG-ML package."""
+
+    try:
+        from nirs4all_core import read_portable_predictor_package_v2
+    except ImportError as error:  # pragma: no cover - depends on optional wheel
+        raise NativeArchiveReplayError(
+            "native Archive V2 replay requires nirs4all-core >= 0.3.14"
+        ) from error
+    try:
+        import dag_ml
+    except ImportError as error:  # pragma: no cover - depends on optional wheel
+        raise NativeArchiveReplayError(
+            "native Archive V2 replay requires dag-ml with portable artifact callbacks"
+        ) from error
+
+    package_bytes = read_portable_predictor_package_v2(str(archive_path))
+    if not isinstance(package_bytes, bytes):
+        raise NativeArchiveReplayError("Core Archive V2 reader did not return package bytes")
+    try:
+        package_json = package_bytes.decode("utf-8")
+        package = dag_ml.PortablePredictorPackage(package_json)
+        package_document = package.to_dict()
+    except (UnicodeDecodeError, ValueError, TypeError, json.JSONDecodeError) as error:
+        raise NativeArchiveReplayError(
+            "Core Archive V2 package member is not a validated DAG-ML Package V2"
+        ) from error
+    if package_document.get("schema_version") != 2:
+        raise NativeArchiveReplayError("Methods archive replay requires PortablePredictorPackage V2")
+    return dag_ml, package, package_document
+
+
+def _decode_exact_raw_prediction(outcome: Any, sample_ids: tuple[str, ...]) -> np.ndarray:
+    """Return one exact final prediction block for the requested cohort order."""
+
+    document = outcome.to_dict() if hasattr(outcome, "to_dict") else outcome
+    if not isinstance(document, dict):
+        raise NativeArchiveReplayError("DAG-ML replay did not return an outcome object")
+    outputs = document.get("outputs")
+    if not isinstance(outputs, list) or len(outputs) != 1 or not isinstance(outputs[0], dict):
+        raise NativeArchiveReplayError("raw Methods archive replay requires exactly one output")
+    blocks = outputs[0].get("predictions")
+    if not isinstance(blocks, list) or len(blocks) != 1 or not isinstance(blocks[0], dict):
+        raise NativeArchiveReplayError("raw Methods archive replay requires exactly one final prediction block")
+    block = blocks[0]
+    if block.get("sample_ids") != list(sample_ids):
+        raise NativeArchiveReplayError(
+            "DAG-ML replay prediction identities do not exactly match the current cohort"
+        )
+    values = np.asarray(block.get("values"), dtype=float)
+    if values.ndim != 2 or values.shape[0] != len(sample_ids) or not np.isfinite(values).all():
+        raise NativeArchiveReplayError("DAG-ML replay prediction values are not a finite aligned matrix")
+    return values
+
+
 def _target_names_by_node(package: dict[str, Any]) -> dict[str, list[str]]:
     """Derive one unambiguous target schema per executable Methods node."""
 
@@ -123,4 +212,8 @@ def _target_names_by_node(package: dict[str, Any]) -> dict[str, list[str]]:
     return targets
 
 
-__all__ = ["NativeArchiveReplayError", "replay_methods_archive_v2"]
+__all__ = [
+    "NativeArchiveReplayError",
+    "predict_methods_archive_v2_raw",
+    "replay_methods_archive_v2",
+]
