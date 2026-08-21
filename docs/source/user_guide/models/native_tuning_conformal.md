@@ -57,7 +57,7 @@ inspect without parsing private metadata.
 
 | Public syntax | Runtime effect | Published evidence | Fail-closed boundary |
 | --- | --- | --- | --- |
-| `run(engine="dag-ml")` | Selects the DAG-ML execution backend for the current run. | `RunResult` metadata and backend traces. | It is not an optimizer selector; `run(engine="dual")` is still reserved. |
+| `run(engine="dag-ml")` | Selects the DAG-ML execution backend for the current run. | `RunResult` metadata and backend traces. | It is not an optimizer selector; `run(engine="dual")` is only the narrow strict exact-array/KFold/PLS oracle, requires an integer seed plus no-output options, finite declared fold/CV scores, and refuses native-results configuration. Its legacy workspace is temporary; its current PLS report is explicitly orchestration-only (`python_sklearn_pls`), not native Methods execution. |
 | `run(tuning={...})` / `NativeTuning(...)` | Runs the fixed-topology native tuning subset over one estimator or a linear sklearn-like chain. | `RunResult.tuning_result`, `tuning_id`, `tuning_best_params`, `tuning_best_value`, and optional workspace `TuningResult`. | Branch/merge graphs, implicit splits, aliases, non-linear graphs, and unsupported datasets fail before execution. |
 | `run.tuning.space` | Defines the ordered candidate parameter contract. | `nirs4all.tuning.ordered_search_space`, `SearchSpaceParameter`, `ParameterPatch`, and `search_space_fingerprint`. | Values must stay TCV1 JSON-native and fingerprintable; Python objects, bytes, NaN/Infinity and duplicate canonical paths are rejected. |
 | `run.tuning.force_params` | Enqueues a caller-provided warm-start assignment as the first optimizer trial. | First `TrialResult.params`, decoded `best_params` when it wins, and the same `search_space_fingerprint`. | Keys must exist in `run.tuning.space`; categorical values use public decoded values, not backend labels. |
@@ -693,7 +693,7 @@ previous conformal result must be treated as stale.
 
 | Registry path | Lifecycle | Changes | Invalidates calibration | Summary |
 |---------------|-----------|---------|-------------------------|---------|
-| `run.engine` | `execution` | `execution_backend` | `if_predictor_changes` | Selects the pipeline execution backend; dual is reserved but not implemented, and this does not select the HPO algorithm. |
+| `run.engine` | `execution` | `execution_backend` | `if_predictor_changes` | Selects the pipeline execution backend; dual is a strict no-fallback oracle only for explicit array regression with KFold(shuffle=False) and PLSRegression, and this does not select the HPO algorithm. |
 | `run.tuning` | `search` | `candidate_fit, selection, final_predictor` | `always` | Fixed-topology full-DAG HPO argument. The public subset currently executes only `engine="dag-ml"` single-estimator array pipelines with explicit `score_data`; broader DAG shapes remain fail-closed. |
 | `run.tuning.engine` | `search` | `optimizer_algorithm` | `if_predictor_changes` | Optimizer selector inside full-DAG tuning; it is distinct from `run.engine` and currently executes only the single-estimator array subset. |
 | `run.tuning.space` | `search` | `parameter_patches, candidate_predictors, selection` | `always` | Fixed-topology parameter search space. The public subset supports value patches on a single estimator; structural axes and full pipeline recompilation remain planned. |

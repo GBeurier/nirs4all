@@ -36,6 +36,7 @@ from .config.context import (
     LoaderArtifactProvider,
     MapArtifactProvider,
 )
+from .engine import DualRunMismatchError, DualRunUnsupported
 from .explainer import Explainer
 from .keyword_registry import (
     KEYWORD_REGISTRY_SCHEMA_ID,
@@ -83,6 +84,8 @@ from .trace import (
 __all__ = [
     "PipelineConfigs",
     "PipelineRunner",
+    "DualRunUnsupported",
+    "DualRunMismatchError",
     "Predictor",
     "Explainer",
     "KEYWORD_REGISTRY_SCHEMA_ID",

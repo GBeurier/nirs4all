@@ -199,7 +199,7 @@ Changelog = "https://github.com/GBeurier/nirs4all/blob/main/CHANGELOG.md"
 include = ["nirs4all*"]
 
 [tool.setuptools.package-data]
-nirs4all = ["py.typed"]
+nirs4all = ["py.typed", "compatibility_ledger.json"]
 
 [tool.setuptools.dynamic]
 version = { attr = "nirs4all.__version__" }
