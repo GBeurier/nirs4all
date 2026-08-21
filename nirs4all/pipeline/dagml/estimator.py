@@ -55,6 +55,8 @@ class DagMLReplayExecution:
     op_callback: Any
     outcome_id: str
     run_id: str
+    artifact_callback: Any = None
+    cleanup: Any = None
     warnings: Any = ()
     diagnostics: Any = None
 
@@ -301,17 +303,22 @@ class DagMLPipelineEstimator(BaseEstimator):
             ),
         )
         replay = self._compile_replay(X, mode=mode, identity_frame=identity_frame)
-        return self._client().replay_loaded_predictor_package(
-            self.predictor_package_,
-            replay.request,
-            replay.data_envelopes,
-            replay.artifact_handles,
-            replay.op_callback,
-            outcome_id=replay.outcome_id,
-            run_id=replay.run_id,
-            warnings=replay.warnings,
-            diagnostics=replay.diagnostics,
-        )
+        try:
+            return self._client().replay_loaded_predictor_package(
+                self.predictor_package_,
+                replay.request,
+                replay.data_envelopes,
+                replay.artifact_handles,
+                replay.op_callback,
+                outcome_id=replay.outcome_id,
+                run_id=replay.run_id,
+                artifact_callback=replay.artifact_callback,
+                warnings=replay.warnings,
+                diagnostics=replay.diagnostics,
+            )
+        finally:
+            if replay.cleanup is not None:
+                replay.cleanup()
 
     def _compile_replay(
         self,

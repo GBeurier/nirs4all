@@ -116,6 +116,16 @@ explain = ["shap>=0.42.0", "matplotlib>=3.7.0"]
 # Legacy DuckDB workspace migration (only needed for pre-v0.9 workspaces)
 migration = ["duckdb>=1.0.0"]
 
+# Native portable Archive V2 PREDICT. This is deliberately opt-in while the
+# public default remains legacy: it installs Core's validated archive reader,
+# the official Methods binding, and the DAG-ML replay surface required by the
+# fail-closed ``engine=\"native\"`` API.
+native = [
+    "dag-ml>=0.3.1",
+    "dag-ml-data>=0.2.9",
+    "nirs4all-core[methods]>=0.3.15",
+]
+
 # Transition-release workspace converter wrapper. The runtime detects legacy
 # workspaces without this dependency; install this extra to run
 # ``nirs4all workspace convert`` from the library CLI.  The DuckDB/Parquet

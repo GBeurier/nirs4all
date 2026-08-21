@@ -718,6 +718,9 @@ def run(
             no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
             typed error for every other shape or unavailable native capability. Override the default
             per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
+            ``engine='native'`` is reserved for explicit Archive V2 PREDICT replay and is refused
+            by ``run()`` until native Methods training is distributed as a public capability; it never
+            falls through to the legacy orchestrator.
             The dual subset requires exact built-in ``list``/``dict`` and exact NumPy arrays,
             ``KFold(shuffle=False)``, ``PLSRegression``, finite floating-point ``X`` and continuous
             regression ``y``,
@@ -878,6 +881,13 @@ def run(
         raise ValueError("training_losses/local_implementations require engine='dag-ml'")
 
     selected_engine = resolve_engine(engine)
+    if selected_engine == "native":
+        raise NotImplementedError(
+            "nirs4all.run(engine='native') is not available yet: the native "
+            "Archive V2 surface currently supports explicit PREDICT replay only. "
+            "Use engine='dag-ml' for the current training backend or "
+            "engine='legacy' explicitly."
+        )
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
 
@@ -1123,7 +1133,11 @@ def run(
             legacy_result = _run_legacy(
                 pipeline_input=legacy_pipeline,
                 dataset_input=legacy_dataset,
-                local_runner_kwargs={"workspace_path": legacy_workspace},
+                # The dual leg is an internal comparison oracle.  It must not
+                # retain an open log handle in its temporary workspace: Windows
+                # refuses to remove such a directory after a mismatch (or after
+                # a successful comparison).  Logs are not part of dual output.
+                local_runner_kwargs={"workspace_path": legacy_workspace, "log_file": False},
             )
             legacy_seconds = time.perf_counter() - legacy_started
             report = _dual_comparison_report(
