@@ -28,6 +28,51 @@ class NativeArchiveReplayError(RuntimeError):
     """The native Archive V2 → Methods PREDICT boundary could not be executed."""
 
 
+def write_methods_archive_v2(
+    archive_path: str | Path,
+    *,
+    archive_id: str,
+    outcome: Any,
+    package: Any,
+) -> dict[str, str]:
+    """Persist one native Methods Package V2 as a Core Archive V2.
+
+    DAG-ML alone assembles the closed manifest and the six companion members;
+    Core alone validates and writes the ZIP.  This boundary deliberately does
+    not accept arbitrary members, retrofit host sidecars, or calculate member
+    hashes in nirs4all.
+    """
+
+    try:
+        import dag_ml
+    except ImportError as error:  # pragma: no cover - depends on optional wheel
+        raise NativeArchiveReplayError(
+            "native Archive V2 writing requires the DAG-ML Python facade"
+        ) from error
+    try:
+        from nirs4all_core import write_archive_v2_from_native_payloads
+    except ImportError as error:  # pragma: no cover - depends on optional wheel
+        raise NativeArchiveReplayError(
+            "native Archive V2 writing requires nirs4all-core >= 0.3.15"
+        ) from error
+    try:
+        manifest, members = dag_ml.build_archive_v2_native_portable_payloads(
+            archive_id, outcome, package
+        )
+        reference = write_archive_v2_from_native_payloads(
+            str(archive_path), manifest, members
+        )
+    except Exception as error:  # DAG-ML/Core expose distinct native error subclasses.
+        raise NativeArchiveReplayError(
+            "DAG-ML/Core refused the native Archive V2 write inputs"
+        ) from error
+    if not isinstance(reference, dict) or set(reference) != {"archive_id", "archive_sha256"}:
+        raise NativeArchiveReplayError("Core Archive V2 writer returned an invalid reference")
+    if reference["archive_id"] != archive_id:
+        raise NativeArchiveReplayError("Core Archive V2 writer returned a mismatched archive id")
+    return {"archive_id": str(reference["archive_id"]), "archive_sha256": str(reference["archive_sha256"])}
+
+
 def replay_methods_archive_v2(
     archive_path: str | Path,
     request: Any,
@@ -216,4 +261,5 @@ __all__ = [
     "NativeArchiveReplayError",
     "predict_methods_archive_v2_raw",
     "replay_methods_archive_v2",
+    "write_methods_archive_v2",
 ]
