@@ -5,7 +5,10 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from nirs4all.pipeline.dagml.fit_identity import normalize_fit_identity
+from nirs4all.pipeline.dagml.fit_identity import (
+    normalize_fit_identity,
+    normalize_predict_identity,
+)
 
 
 def test_explicit_sample_ids_groups_and_column_metadata_are_normalized() -> None:
@@ -87,3 +90,38 @@ def test_invalid_identity_inputs_fail_closed(kwargs: dict[str, object], match: s
 def test_x_y_length_mismatch_fails_closed() -> None:
     with pytest.raises(ValueError, match="same number of samples"):
         normalize_fit_identity(np.ones((3, 2)), np.ones(2))
+
+
+def test_predict_identity_is_target_free_and_binds_feature_content() -> None:
+    X = np.array([[1.0, 2.0], [3.0, 4.0]])
+    frame = normalize_predict_identity(
+        X,
+        sample_ids=["predict.1", "predict.2"],
+        groups=["batch-a", "batch-b"],
+        metadata={"instrument": ["i1", "i2"]},
+        require_explicit_sample_ids=True,
+    )
+
+    assert frame.sample_ids == ("predict.1", "predict.2")
+    assert frame.group_by_sample_id() == {"predict.1": "batch-a", "predict.2": "batch-b"}
+    assert frame.metadata_by_sample_id()["predict.2"] == {"instrument": "i2"}
+    assert len(frame.data_content_fingerprint) == 64
+    assert len(frame.fingerprint) == 64
+
+    changed = normalize_predict_identity(
+        np.array([[1.0, 2.0], [3.0, 4.5]]),
+        sample_ids=["predict.1", "predict.2"],
+        require_explicit_sample_ids=True,
+    )
+    assert changed.data_content_fingerprint != frame.data_content_fingerprint
+
+
+def test_predict_identity_compatibility_ids_are_x_only_and_explicit_mode_fails_closed() -> None:
+    X = np.array([[1.0], [2.0]])
+    first = normalize_predict_identity(X)
+    second = normalize_predict_identity(X.copy())
+    assert first.sample_ids == second.sample_ids
+    assert first.sample_ids[0].startswith("n4a.")
+
+    with pytest.raises(ValueError, match="predict requires explicit sample_ids"):
+        normalize_predict_identity(X, require_explicit_sample_ids=True)
