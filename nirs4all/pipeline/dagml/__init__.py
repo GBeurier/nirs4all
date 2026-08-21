@@ -19,6 +19,7 @@ __all__ = [
     "pipeline_objective",
     "pipeline_objective_compiler",
     "raw_training_lowerer",
+    "raw_replay_lowerer",
     "training_compiler",
     "training_contracts",
     "tuning_adapters",
