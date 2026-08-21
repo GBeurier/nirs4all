@@ -242,6 +242,11 @@ def predict(
             )
         return result
 
+    # The explicit native branch above consumes every NativeArchiveSession.
+    # Narrow the remaining legacy paths for both runtime safety and static
+    # checking; none may receive a portable native session.
+    assert not isinstance(session, NativeArchiveSession)
+
     if _is_calibrated_replayed_prediction_request(model, data):
         result = _predict_from_calibrated_replayed_arrays(
             model=model,
@@ -391,14 +396,15 @@ def _predict_from_native_archive(
     chain_id: str | None,
     all_predictions: bool,
     coverage: float | list[float] | tuple[float, ...] | None,
-    session: Session | None,
+    session: Session | NativeArchiveSession | None,
 ) -> PredictResult:
     """Execute the narrow, portable Archive V2 Methods PREDICT route.
 
     This route is explicit while R2 is being qualified.  It owns no legacy
-    runner and therefore refuses store/session requests, sidecars and implicit
-    row identities before data execution. Native split-conformal blocks already
-    materialized by DAG-ML are exposed as views; this path never recalibrates.
+    runner and accepts only a model path or a NativeArchiveSession, never a
+    store/legacy session, sidecar or implicit row identities. Native
+    split-conformal blocks already materialized by DAG-ML are exposed as views;
+    this path never recalibrates.
     """
 
     if chain_id is not None:
@@ -419,6 +425,8 @@ def _predict_from_native_archive(
         raise TypeError(
             "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
         )
+    metadata: dict[str, Any]
+    prediction_sample_ids: tuple[str, ...]
     if session is not None:
         session_result = session.predict(
             data["X"],
@@ -427,7 +435,7 @@ def _predict_from_native_archive(
             metadata=data.get("metadata"),
         )
         values = session_result.y_pred
-        sample_ids = tuple(session_result.metadata["sample_ids"])
+        prediction_sample_ids = tuple(session_result.metadata["sample_ids"])
         intervals = dict(session_result.intervals)
         metadata = dict(session_result.metadata)
         conformal_guarantee_status = metadata.get("conformal_guarantee_status")
@@ -449,13 +457,13 @@ def _predict_from_native_archive(
             metadata=data.get("metadata"),
         )
         values = native_prediction.values
-        sample_ids = native_prediction.sample_ids
+        prediction_sample_ids = native_prediction.sample_ids
         intervals = dict(native_prediction.intervals)
         conformal_guarantee_status = native_prediction.conformal_guarantee_status
         metadata = {
             "engine": "native",
             "archive_path": str(archive_path),
-            "sample_ids": list(sample_ids),
+            "sample_ids": list(prediction_sample_ids),
         }
     selected_coverages = _normalize_requested_coverages(coverage)
     if selected_coverages is not None:
