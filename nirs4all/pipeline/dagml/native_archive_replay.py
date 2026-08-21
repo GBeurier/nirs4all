@@ -10,7 +10,9 @@ consulted.
 from __future__ import annotations
 
 import json
+import math
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -26,6 +28,31 @@ if TYPE_CHECKING:
 
 class NativeArchiveReplayError(RuntimeError):
     """The native Archive V2 → Methods PREDICT boundary could not be executed."""
+
+
+@dataclass(frozen=True)
+class NativeArchiveConformalInterval:
+    """One finite native conformal interval view returned by DAG-ML replay.
+
+    The values are decoded from the exact interval block emitted by DAG-ML;
+    this adapter neither calibrates nor recomputes endpoint arithmetic.
+    """
+
+    coverage: float
+    lower: np.ndarray
+    upper: np.ndarray
+    qhat: float | np.ndarray
+    calibration_fingerprint: str
+
+
+@dataclass(frozen=True)
+class NativeArchivePrediction:
+    """One identity-aligned native Archive V2 PREDICT result."""
+
+    values: np.ndarray
+    sample_ids: tuple[str, ...]
+    intervals: dict[float, NativeArchiveConformalInterval]
+    conformal_guarantee_status: dict[str, Any] | None
 
 
 def write_methods_archive_v2(
@@ -139,7 +166,35 @@ def predict_methods_archive_v2_raw(
     invokes a legacy pipeline or fabricates target content.
     """
 
-    dag_ml, package, _package_document = _load_methods_archive_package(archive_path)
+    return predict_methods_archive_v2_raw_result(
+        archive_path,
+        X,
+        sample_ids=sample_ids,
+        groups=groups,
+        metadata=metadata,
+        outcome_id=outcome_id,
+        run_id=run_id,
+    ).values
+
+
+def predict_methods_archive_v2_raw_result(
+    archive_path: str | Path,
+    X: Any,
+    *,
+    sample_ids: Any,
+    groups: Any = None,
+    metadata: Any = None,
+    outcome_id: str = "outcome:nirs4all.archive_predict",
+    run_id: str = "run:nirs4all.archive_predict",
+) -> NativeArchivePrediction:
+    """Replay a native archive and retain its exact conformal result blocks.
+
+    This is the public result-bearing form of
+    :func:`predict_methods_archive_v2_raw`.  It exposes only interval blocks
+    already materialized and validated by DAG-ML; it never recalibrates.
+    """
+
+    dag_ml, package, package_document = _load_methods_archive_package(archive_path)
     identity = normalize_predict_identity(
         X,
         sample_ids=sample_ids,
@@ -166,7 +221,11 @@ def predict_methods_archive_v2_raw(
             run_id=replay.run_id,
             artifact_callback=replay.artifact_callback,
         )
-        return _decode_exact_raw_prediction(outcome, identity.sample_ids)
+        return _decode_exact_raw_prediction(
+            outcome,
+            identity.sample_ids,
+            package_document,
+        )
     except (MethodsPortableReplayError, RawArrayMethodsReplayError) as error:
         raise NativeArchiveReplayError(str(error)) from error
     finally:
@@ -208,8 +267,12 @@ def _load_methods_archive_package(
     return dag_ml, package, package_document
 
 
-def _decode_exact_raw_prediction(outcome: Any, sample_ids: tuple[str, ...]) -> np.ndarray:
-    """Return one exact final prediction block for the requested cohort order."""
+def _decode_exact_raw_prediction(
+    outcome: Any,
+    sample_ids: tuple[str, ...],
+    package: dict[str, Any],
+) -> NativeArchivePrediction:
+    """Decode one exact final block and any already-materialized intervals."""
 
     document = outcome.to_dict() if hasattr(outcome, "to_dict") else outcome
     if not isinstance(document, dict):
@@ -228,7 +291,176 @@ def _decode_exact_raw_prediction(outcome: Any, sample_ids: tuple[str, ...]) -> n
     values = np.asarray(block.get("values"), dtype=float)
     if values.ndim != 2 or values.shape[0] != len(sample_ids) or not np.isfinite(values).all():
         raise NativeArchiveReplayError("DAG-ML replay prediction values are not a finite aligned matrix")
-    return values
+    binding = outputs[0].get("binding")
+    binding_id = binding.get("binding_id") if isinstance(binding, dict) else None
+    intervals, guarantee_status = _decode_native_conformal_intervals(
+        document,
+        package,
+        sample_ids=sample_ids,
+        prediction_shape=values.shape,
+        binding_id=binding_id,
+    )
+    return NativeArchivePrediction(
+        values=values,
+        sample_ids=sample_ids,
+        intervals=intervals,
+        conformal_guarantee_status=guarantee_status,
+    )
+
+
+def _decode_native_conformal_intervals(
+    outcome: dict[str, Any],
+    package: dict[str, Any],
+    *,
+    sample_ids: tuple[str, ...],
+    prediction_shape: tuple[int, ...],
+    binding_id: Any,
+) -> tuple[dict[float, NativeArchiveConformalInterval], dict[str, Any] | None]:
+    """Project DAG-ML's exact finite interval blocks into public result views."""
+
+    calibration = package.get("conformal_calibration")
+    raw_blocks = outcome.get("conformal_intervals", [])
+    if calibration is None:
+        if raw_blocks not in (None, []):
+            raise NativeArchiveReplayError(
+                "DAG-ML emitted conformal intervals without portable calibration state"
+            )
+        return {}, None
+    if not isinstance(calibration, dict):
+        raise NativeArchiveReplayError("Package V2 conformal calibration is not an object")
+    if not isinstance(raw_blocks, list):
+        raise NativeArchiveReplayError("DAG-ML conformal intervals are not an array")
+    if not isinstance(binding_id, str) or not binding_id:
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal replay output has no selected binding identity"
+        )
+    matching = [
+        block
+        for block in raw_blocks
+        if isinstance(block, dict)
+        and block.get("binding_id") == binding_id
+        and block.get("sample_ids") == list(sample_ids)
+    ]
+    if len(matching) != 1 or len(raw_blocks) != 1:
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal intervals do not exactly cover the selected prediction block"
+        )
+    block = matching[0]
+    fingerprint = block.get("calibration_fingerprint")
+    if not isinstance(fingerprint, str) or fingerprint != calibration.get("calibration_fingerprint"):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal interval calibration fingerprint does not match Package V2"
+        )
+    if block.get("point_prediction_fingerprint") in (None, ""):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal interval has no point-prediction fingerprint"
+        )
+    radii = _conformal_radii_by_coverage(calibration, prediction_shape[1])
+    raw_intervals = block.get("intervals")
+    if not isinstance(raw_intervals, list) or not raw_intervals:
+        raise NativeArchiveReplayError("DAG-ML conformal interval block is empty")
+    intervals: dict[float, NativeArchiveConformalInterval] = {}
+    for raw_interval in raw_intervals:
+        if not isinstance(raw_interval, dict):
+            raise NativeArchiveReplayError("DAG-ML conformal interval entry is not an object")
+        coverage = raw_interval.get("coverage")
+        if not isinstance(coverage, (int, float)) or isinstance(coverage, bool) or not 0.0 < float(coverage) < 1.0:
+            raise NativeArchiveReplayError("DAG-ML conformal interval has an invalid coverage")
+        coverage = float(coverage)
+        if coverage in intervals or coverage not in radii:
+            raise NativeArchiveReplayError(
+                "DAG-ML conformal interval coverage does not exactly match Package V2 quantiles"
+            )
+        cells = raw_interval.get("cells")
+        if not isinstance(cells, list) or len(cells) != prediction_shape[0]:
+            raise NativeArchiveReplayError("DAG-ML conformal interval rows do not match predictions")
+        lower = np.empty(prediction_shape, dtype=float)
+        upper = np.empty(prediction_shape, dtype=float)
+        for row_index, row in enumerate(cells):
+            if not isinstance(row, list) or len(row) != prediction_shape[1]:
+                raise NativeArchiveReplayError("DAG-ML conformal interval cells are ragged")
+            for column_index, cell in enumerate(row):
+                if not isinstance(cell, dict):
+                    raise NativeArchiveReplayError("DAG-ML conformal interval cell is not an object")
+                if cell.get("status") == "unbounded":
+                    raise NativeArchiveReplayError(
+                        "native Archive V2 result cannot coerce an unbounded conformal interval into finite endpoints"
+                    )
+                if set(cell) != {"status", "lower", "upper"} or cell.get("status") != "finite":
+                    raise NativeArchiveReplayError("DAG-ML conformal interval cell is malformed")
+                lower_value, upper_value = cell.get("lower"), cell.get("upper")
+                if (
+                    not isinstance(lower_value, (int, float))
+                    or isinstance(lower_value, bool)
+                    or not isinstance(upper_value, (int, float))
+                    or isinstance(upper_value, bool)
+                    or not math.isfinite(float(lower_value))
+                    or not math.isfinite(float(upper_value))
+                    or float(lower_value) > float(upper_value)
+                ):
+                    raise NativeArchiveReplayError("DAG-ML conformal interval endpoints are invalid")
+                lower[row_index, column_index] = float(lower_value)
+                upper[row_index, column_index] = float(upper_value)
+        intervals[coverage] = NativeArchiveConformalInterval(
+            coverage=coverage,
+            lower=lower,
+            upper=upper,
+            qhat=radii[coverage],
+            calibration_fingerprint=fingerprint,
+        )
+    if set(intervals) != set(radii):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal interval coverages do not exactly close the Package V2 calibration"
+        )
+    status = {
+        "version": 2,
+        "status": "active",
+        "method": "split_absolute_residual",
+        "unit": "physical_sample",
+        "coverage": sorted(intervals),
+        "calibrated_coverages": sorted(intervals),
+        "multi_target": calibration.get("multi_target_policy"),
+        "calibration_fingerprint": fingerprint,
+        "source": "dag_ml_portable_predictor_package_v2",
+    }
+    return intervals, status
+
+
+def _conformal_radii_by_coverage(
+    calibration: dict[str, Any], target_count: int
+) -> dict[float, float | np.ndarray]:
+    """Read finite native radii directly from the persisted calibration."""
+
+    quantiles = calibration.get("quantiles")
+    policy = calibration.get("multi_target_policy")
+    if not isinstance(quantiles, list) or not quantiles:
+        raise NativeArchiveReplayError("Package V2 conformal calibration has no quantiles")
+    if policy not in {"marginal", "joint_max"}:
+        raise NativeArchiveReplayError("Package V2 conformal calibration has an unsupported policy")
+    radii_by_coverage: dict[float, float | np.ndarray] = {}
+    for quantile in quantiles:
+        if not isinstance(quantile, dict):
+            raise NativeArchiveReplayError("Package V2 conformal quantile is not an object")
+        coverage = quantile.get("coverage")
+        raw_radii = quantile.get("radii")
+        if not isinstance(coverage, (int, float)) or isinstance(coverage, bool) or not 0.0 < float(coverage) < 1.0:
+            raise NativeArchiveReplayError("Package V2 conformal quantile has an invalid coverage")
+        coverage = float(coverage)
+        expected_count = target_count if policy == "marginal" else 1
+        if coverage in radii_by_coverage or not isinstance(raw_radii, list) or len(raw_radii) != expected_count:
+            raise NativeArchiveReplayError("Package V2 conformal quantile radii do not match its policy")
+        values: list[float] = []
+        for radius in raw_radii:
+            if not isinstance(radius, dict) or set(radius) != {"status", "value"} or radius.get("status") != "finite":
+                raise NativeArchiveReplayError(
+                    "native Archive V2 result cannot coerce an unbounded conformal radius"
+                )
+            value = radius.get("value")
+            if not isinstance(value, (int, float)) or isinstance(value, bool) or not math.isfinite(float(value)) or float(value) < 0.0:
+                raise NativeArchiveReplayError("Package V2 conformal radius is invalid")
+            values.append(float(value))
+        radii_by_coverage[coverage] = values[0] if policy == "joint_max" else np.asarray(values)
+    return radii_by_coverage
 
 
 def _target_names_by_node(package: dict[str, Any]) -> dict[str, list[str]]:
@@ -258,8 +490,11 @@ def _target_names_by_node(package: dict[str, Any]) -> dict[str, list[str]]:
 
 
 __all__ = [
+    "NativeArchiveConformalInterval",
+    "NativeArchivePrediction",
     "NativeArchiveReplayError",
     "predict_methods_archive_v2_raw",
+    "predict_methods_archive_v2_raw_result",
     "replay_methods_archive_v2",
     "write_methods_archive_v2",
 ]

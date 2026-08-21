@@ -12,6 +12,7 @@ from nirs4all.pipeline.dagml.fit_identity import normalize_predict_identity
 from nirs4all.pipeline.dagml.native_archive_replay import (
     NativeArchiveReplayError,
     predict_methods_archive_v2_raw,
+    predict_methods_archive_v2_raw_result,
     write_methods_archive_v2,
 )
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
@@ -223,6 +224,108 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
     with pytest.raises(NativeArchiveReplayError, match="identities do not exactly match"):
         predict_methods_archive_v2_raw(
             "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"]
+        )
+
+
+def test_raw_archive_predict_projects_exact_native_conformal_intervals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _install_fake_runtime(monkeypatch)
+    package = _package()
+    package["conformal_calibration"] = {
+        "calibration_fingerprint": "f" * 64,
+        "multi_target_policy": "marginal",
+        "quantiles": [
+            {
+                "coverage": 0.9,
+                "radii": [{"status": "finite", "value": 0.5}],
+            }
+        ],
+    }
+
+    class _Package:
+        def __init__(self, raw: str) -> None:
+            self._document = json.loads(raw)
+
+        def to_dict(self) -> dict[str, object]:
+            return self._document
+
+    def replay(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        return {
+            "outputs": [
+                {
+                    "binding": {"binding_id": "binding:prediction"},
+                    "predictions": [
+                        {
+                            "sample_ids": ["sample.one", "sample.two"],
+                            "values": [[1.5], [2.5]],
+                        }
+                    ],
+                }
+            ],
+            "conformal_intervals": [
+                {
+                    "binding_id": "binding:prediction",
+                    "sample_ids": ["sample.one", "sample.two"],
+                    "calibration_fingerprint": "f" * 64,
+                    "point_prediction_fingerprint": "e" * 64,
+                    "intervals": [
+                        {
+                            "coverage": 0.9,
+                            "cells": [
+                                [{"status": "finite", "lower": 1.0, "upper": 2.0}],
+                                [{"status": "finite", "lower": 2.0, "upper": 3.0}],
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+    runtime.PortablePredictorPackage = _Package
+    runtime.replay_loaded_predictor_package = replay
+    monkeypatch.setitem(sys.modules, "dag_ml", runtime)
+    monkeypatch.setitem(
+        sys.modules,
+        "nirs4all_core",
+        types.SimpleNamespace(
+            read_portable_predictor_package_v2=lambda _path: json.dumps(package).encode()
+        ),
+    )
+
+    result = predict_methods_archive_v2_raw_result(
+        "portable.n4a",
+        np.asarray([[1.0], [2.0]]),
+        sample_ids=["sample.one", "sample.two"],
+    )
+
+    assert result.values.tolist() == [[1.5], [2.5]]
+    assert result.intervals[0.9].qhat == pytest.approx(np.asarray([0.5]))
+    np.testing.assert_allclose(result.intervals[0.9].lower, [[1.0], [2.0]])
+    np.testing.assert_allclose(result.intervals[0.9].upper, [[2.0], [3.0]])
+    assert result.conformal_guarantee_status == {
+        "version": 2,
+        "status": "active",
+        "method": "split_absolute_residual",
+        "unit": "physical_sample",
+        "coverage": [0.9],
+        "calibrated_coverages": [0.9],
+        "multi_target": "marginal",
+        "calibration_fingerprint": "f" * 64,
+        "source": "dag_ml_portable_predictor_package_v2",
+    }
+
+    def unbounded(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        payload = replay()
+        payload["conformal_intervals"][0]["intervals"][0]["cells"][0][0] = {"status": "unbounded"}
+        return payload
+
+    runtime.replay_loaded_predictor_package = unbounded
+    with pytest.raises(NativeArchiveReplayError, match="unbounded conformal interval"):
+        predict_methods_archive_v2_raw_result(
+            "portable.n4a",
+            np.asarray([[1.0], [2.0]]),
+            sample_ids=["sample.one", "sample.two"],
         )
 
 

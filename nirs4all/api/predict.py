@@ -389,8 +389,9 @@ def _predict_from_native_archive(
     """Execute the narrow, portable Archive V2 Methods PREDICT route.
 
     This route is explicit while R2 is being qualified.  It owns no legacy
-    runner and therefore refuses store/session requests, sidecars, implicit row
-    identities and unimplemented conformal selection before data execution.
+    runner and therefore refuses store/session requests, sidecars and implicit
+    row identities before data execution. Native split-conformal blocks already
+    materialized by DAG-ML are exposed as views; this path never recalibrates.
     """
 
     if chain_id is not None or session is not None:
@@ -402,10 +403,6 @@ def _predict_from_native_archive(
     archive_path = Path(model)
     if archive_path.suffix.lower() != ".n4a":
         raise ValueError("engine='native' predict requires an Archive V2 .n4a path")
-    if coverage is not None:
-        raise NotImplementedError(
-            "engine='native' Archive V2 prediction does not yet expose conformal intervals"
-        )
     if all_predictions:
         raise NotImplementedError(
             "engine='native' Archive V2 prediction exposes one selected final output"
@@ -415,26 +412,54 @@ def _predict_from_native_archive(
             "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
         )
     from nirs4all.pipeline.dagml.native_archive_replay import (
-        predict_methods_archive_v2_raw,
+        predict_methods_archive_v2_raw_result,
     )
 
-    values = predict_methods_archive_v2_raw(
+    native_prediction = predict_methods_archive_v2_raw_result(
         archive_path,
         data["X"],
         sample_ids=data["sample_ids"],
         groups=data.get("groups"),
         metadata=data.get("metadata"),
     )
+    intervals = dict(native_prediction.intervals)
+    selected_coverages = _normalize_requested_coverages(coverage)
+    if selected_coverages is not None:
+        intervals = _select_native_archive_intervals(intervals, selected_coverages)
+    metadata: dict[str, Any] = {
+        "engine": "native",
+        "archive_path": str(archive_path),
+        "sample_ids": list(native_prediction.sample_ids),
+    }
+    if native_prediction.conformal_guarantee_status is not None:
+        metadata["conformal_guarantee_status"] = dict(
+            native_prediction.conformal_guarantee_status
+        )
+        metadata["selected_interval_coverages"] = sorted(intervals)
     return PredictResult(
-        y_pred=values,
-        metadata={
-            "engine": "native",
-            "archive_path": str(archive_path),
-            "sample_ids": list(data["sample_ids"]),
-        },
+        y_pred=native_prediction.values,
+        metadata=metadata,
         model_name="MethodsN4MM",
         preprocessing_steps=[],
+        intervals=intervals,
     )
+
+
+def _select_native_archive_intervals(
+    intervals: Mapping[float, Any], selected_coverages: tuple[float, ...]
+) -> dict[float, Any]:
+    """Select already-materialized native intervals without recalibration."""
+
+    selected: dict[float, Any] = {}
+    for coverage in selected_coverages:
+        try:
+            selected[coverage] = intervals[coverage]
+        except KeyError as exc:
+            available = ", ".join(str(value) for value in sorted(intervals)) or "none"
+            raise ValueError(
+                f"coverage {coverage} was not materialized; available coverages: {available}"
+            ) from exc
+    return selected
 
 
 def _resolve_publish_workspace_path(workspace_path: str | Path | None, session: Session | None) -> Path:

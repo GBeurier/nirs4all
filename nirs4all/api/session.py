@@ -69,25 +69,34 @@ class NativeArchiveSession:
             raise RuntimeError("NativeArchiveSession is closed")
         from nirs4all.api.result import PredictResult
         from nirs4all.pipeline.dagml.native_archive_replay import (
-            predict_methods_archive_v2_raw,
+            predict_methods_archive_v2_raw_result,
         )
 
-        values = predict_methods_archive_v2_raw(
+        native_prediction = predict_methods_archive_v2_raw_result(
             self._archive_path,
             X,
             sample_ids=sample_ids,
             groups=groups,
             metadata=metadata,
         )
+        result_metadata: dict[str, Any] = {
+            "engine": "native",
+            "archive_path": str(self._archive_path),
+            "sample_ids": list(native_prediction.sample_ids),
+        }
+        if native_prediction.conformal_guarantee_status is not None:
+            result_metadata["conformal_guarantee_status"] = dict(
+                native_prediction.conformal_guarantee_status
+            )
+            result_metadata["selected_interval_coverages"] = sorted(
+                native_prediction.intervals
+            )
         return PredictResult(
-            y_pred=values,
-            metadata={
-                "engine": "native",
-                "archive_path": str(self._archive_path),
-                "sample_ids": list(sample_ids),
-            },
+            y_pred=native_prediction.values,
+            metadata=result_metadata,
             model_name="MethodsN4MM",
             preprocessing_steps=[],
+            intervals=dict(native_prediction.intervals),
         )
 
     def close(self) -> None:

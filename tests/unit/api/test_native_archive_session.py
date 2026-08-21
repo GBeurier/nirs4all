@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 
 from nirs4all.api.session import NativeArchiveSession, load_native_archive_session
+from nirs4all.pipeline.dagml.native_archive_replay import NativeArchivePrediction
 
 
 def test_native_archive_session_replays_explicit_ids_and_closes(
@@ -13,10 +14,15 @@ def test_native_archive_session_replays_explicit_ids_and_closes(
 
     def replay(path, X, *, sample_ids, groups, metadata):  # noqa: ANN001
         observed.update(path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), groups=groups, metadata=metadata)
-        return np.asarray([[4.0], [5.0]])
+        return NativeArchivePrediction(
+            values=np.asarray([[4.0], [5.0]]),
+            sample_ids=("p1", "p2"),
+            intervals={},
+            conformal_guarantee_status=None,
+        )
 
     monkeypatch.setattr(
-        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw",
+        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
         replay,
     )
     with load_native_archive_session("portable.n4a") as session:
