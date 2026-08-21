@@ -53,6 +53,39 @@ class DagMLFitIdentityFrame:
         return {sample_id: dict(row) for sample_id, row in zip(self.sample_ids, self.metadata_rows, strict=True) if row}
 
 
+@dataclass(frozen=True)
+class DagMLPredictIdentityFrame:
+    """Normalized identity and feature-content proof for one X-only replay.
+
+    PREDICT must not manufacture target data merely to reuse a training identity.
+    This frame therefore binds exactly the supplied feature rows, stable sample
+    ids and optional group/metadata columns, and deliberately has no target
+    fingerprint.
+    """
+
+    n_samples: int
+    sample_ids: tuple[str, ...]
+    groups: tuple[str | None, ...]
+    metadata_rows: tuple[dict[str, Any], ...]
+    explicit_sample_ids: bool
+    data_content_fingerprint: str
+    fingerprint: str
+
+    def metadata_by_sample_id(self) -> dict[str, dict[str, Any]]:
+        """Return row metadata keyed by the exact public sample id."""
+
+        return {sample_id: dict(row) for sample_id, row in zip(self.sample_ids, self.metadata_rows, strict=True) if row}
+
+    def group_by_sample_id(self) -> dict[str, str]:
+        """Return non-null groups keyed by the exact public sample id."""
+
+        return {
+            sample_id: group
+            for sample_id, group in zip(self.sample_ids, self.groups, strict=True)
+            if group is not None
+        }
+
+
 def normalize_fit_identity(
     X: Any,
     y: Any,
@@ -96,6 +129,49 @@ def normalize_fit_identity(
     )
 
 
+def normalize_predict_identity(
+    X: Any,
+    *,
+    sample_ids: Sequence[Any] | None = None,
+    groups: Sequence[Any] | None = None,
+    metadata: Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Any]] | None = None,
+    require_explicit_sample_ids: bool = False,
+) -> DagMLPredictIdentityFrame:
+    """Normalize an X-only PREDICT cohort without creating a target sentinel.
+
+    Compatibility sample ids are deterministic over features only.  Callers
+    serving persisted artifacts can require explicit ids, which is the only
+    mode suitable for relation-sensitive replay and presentation joins.
+    """
+
+    n_samples = _infer_x_n_samples(X)
+    explicit = sample_ids is not None
+    data_content_fingerprint = _content_fingerprint(X, None)
+    if sample_ids is None:
+        if require_explicit_sample_ids:
+            raise ValueError("native DAG-ML predict requires explicit sample_ids for this estimator")
+        normalized_sample_ids = _compat_sample_ids(X, None, n_samples)
+    else:
+        normalized_sample_ids = _normalize_sample_ids(sample_ids, n_samples)
+    normalized_groups = _normalize_groups(groups, n_samples)
+    metadata_rows = _normalize_metadata(metadata, n_samples)
+    fingerprint = _identity_fingerprint(
+        normalized_sample_ids,
+        normalized_groups,
+        metadata_rows,
+        explicit_sample_ids=explicit,
+    )
+    return DagMLPredictIdentityFrame(
+        n_samples=n_samples,
+        sample_ids=normalized_sample_ids,
+        groups=normalized_groups,
+        metadata_rows=metadata_rows,
+        explicit_sample_ids=explicit,
+        data_content_fingerprint=data_content_fingerprint,
+        fingerprint=fingerprint,
+    )
+
+
 def _infer_n_samples(X: Any, y: Any) -> int:
     x_shape = getattr(X, "shape", None)
     if x_shape is not None and len(x_shape) >= 1:
@@ -110,6 +186,14 @@ def _infer_n_samples(X: Any, y: Any) -> int:
         raise ValueError(f"X and y must have the same number of samples, got {n_samples} and {y_len}")
     if n_samples <= 0:
         raise ValueError("native DAG-ML fit requires at least one sample")
+    return n_samples
+
+
+def _infer_x_n_samples(X: Any) -> int:
+    x_shape = getattr(X, "shape", None)
+    n_samples = int(x_shape[0]) if x_shape is not None and len(x_shape) >= 1 else len(X)
+    if n_samples <= 0:
+        raise ValueError("native DAG-ML predict requires at least one sample")
     return n_samples
 
 
@@ -183,15 +267,18 @@ def _normalize_metadata_value(value: Any) -> Any:
     raise TypeError("metadata values must be JSON scalar values")
 
 
-def _compat_sample_ids(X: Any, y: Any, n_samples: int) -> tuple[str, ...]:
+def _compat_sample_ids(X: Any, y: Any | None, n_samples: int) -> tuple[str, ...]:
     digest = _content_fingerprint(X, y)
     return tuple(validate_data_id(f"n4a.{digest}.s{index}") for index in range(n_samples))
 
 
-def _content_fingerprint(X: Any, y: Any) -> str:
+def _content_fingerprint(X: Any, y: Any | None) -> str:
     hasher = hashlib.sha256()
     _update_array_hash(hasher, np.asarray(X), "X")
-    _update_array_hash(hasher, np.asarray(y), "y")
+    if y is None:
+        hasher.update(b"target:absent")
+    else:
+        _update_array_hash(hasher, np.asarray(y), "y")
     return hasher.hexdigest()
 
 
@@ -222,5 +309,7 @@ def _identity_fingerprint(
 
 __all__ = [
     "DagMLFitIdentityFrame",
+    "DagMLPredictIdentityFrame",
     "normalize_fit_identity",
+    "normalize_predict_identity",
 ]
