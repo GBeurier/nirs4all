@@ -762,6 +762,10 @@ class RunResult:
     _owns_runner: bool = field(default=True, repr=False)
     _workspace_path: Path | None = field(default=None, repr=False)
 
+    # Strict R1 dual-run diagnostics. This stays private until the oracle report has a stable
+    # public contract; it is populated only after legacy/native semantics agree.
+    _dual_run_report: dict[str, Any] | None = field(default=None, repr=False)
+
     # Lazy refit dependencies (set by the orchestrator when per-model
     # selections are available so that ``models`` returns lazy results)
     _per_model_selections: dict[str, PerModelSelection] | None = field(default=None, repr=False)

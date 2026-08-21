@@ -153,7 +153,7 @@ closed.
 
 The same token has two independent scopes:
 
-- `run(engine="legacy" | "dag-ml")` selects the **pipeline execution backend**;
+- `run(engine="legacy" | "dag-ml" | "dual")` selects the **pipeline execution backend**;
 - `finetune_params["engine"]` selects the **model-local HPO/generation
   driver**:
   - `"optuna"` or `"n4m"` request adaptive optimization;
@@ -165,9 +165,25 @@ used as an alias for `run.engine`. Likewise, `finetune_params["engine"] =
 "dag-ml"` does not switch the whole run to DAG-ML; it only declares that the
 model-local search space is deterministic and can be represented as native
 DAG-ML generators when the execution backend is already DAG-ML. The accepted
-value `run(engine="dual")` is a reserved side-by-side comparison mode and
-currently raises `NotImplementedError`; the registry therefore marks that
-backend as planned.
+value `run(engine="dual")` is a deliberately narrow, strict side-by-side
+oracle: it accepts only an explicit `(X, y)` NumPy regression array, a
+`KFold(shuffle=False)` splitter, and one `PLSRegression` model with the
+following exact options: `random_state` is a built-in `int`, `refit=True`, and
+`save_artifacts=False`, `save_charts=False`, and `plots_visible=False`. Its
+arrays must be exact `numpy.ndarray` instances with finite floating-point
+values; `y` is one-dimensional continuous regression data, never labels. It refuses subclasses,
+sessions, caches, projects, runner kwargs, `results_path`, and a truthy
+`N4A_NATIVE_RESULTS` setting before either leg can write output. It runs native
+first, never falls back to legacy, reads its score/prediction tolerances from
+the packaged compatibility ledger, and raises `DualRunUnsupported` when either
+leg cannot expose a winner, stable OOF sample predictions, and validation
+splits covering every declared input sample exactly once; `DualRunMismatchError`
+reports a concrete disagreement. The legacy leg is isolated in a temporary
+workspace and that workspace is removed on success, mismatch, or evidence
+refusal. This is **orchestration parity only**: the current PLS leg is marked
+in the private report as `model_runtime="python_sklearn_pls"` and
+`methods_native_execution=false`; it is not evidence of native Methods-model
+parity or a replacement for the parity suite.
 
 (canonical-aliases)=
 ### Canonical aliases

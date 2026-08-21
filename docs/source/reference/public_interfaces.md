@@ -206,7 +206,7 @@ if (run.status !== 0) process.exit(run.status);
 | `None` | Use the package default resolved by `resolve_engine(...)`. |
 | `"legacy"` | Use the in-process Python orchestrator. |
 | `"dag-ml"` | Request the dag-ml backend for covered shapes; catchable unsupported/unavailable cases warn and fall back to legacy. |
-| `"dual"` | Reserved; not implemented as a public side-by-side mode. |
+| `"dual"` | Strict no-fallback oracle for exact finite floating NumPy `X` and continuous regression `y`, exact `KFold(shuffle=False)`, and one exact `PLSRegression`; it requires built-in integer `random_state`, `refit=True`, all output flags false, no session/cache/project/runner kwargs/results path/native-results environment, a concrete winner/OOF splits, finite `cv_best_score`, and finite per-fold `val_score` plus declared validation RMSE. The legacy workspace is temporary and removed before return. Its report explicitly marks the current PLS route as `orchestration_parity_only` / `python_sklearn_pls`, not native Methods execution. It raises `DualRunUnsupported` or `DualRunMismatchError`. |
 
 The pipeline language is broader than current dag-ml native coverage. Requesting `engine="dag-ml"` is safe for user workflows because catchable unsupported shapes and unavailable dag-ml runtime dependencies warn and re-run on the legacy engine. A genuine dag-ml runtime/operator bug still propagates as an error.
 
