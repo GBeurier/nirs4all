@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 import hashlib
+import struct
 
 import numpy as np
 import pytest
 
 from nirs4all.pipeline.dagml.fit_identity import (
+    MATRIX_F64_LE_FINGERPRINT_PROFILE,
     feature_content_fingerprint,
     normalize_fit_identity,
     normalize_predict_identity,
@@ -124,9 +126,28 @@ def test_predict_feature_fingerprint_is_the_raw_lowerer_x_identity() -> None:
     frame = normalize_predict_identity(X, sample_ids=["predict.1", "predict.2"])
 
     assert frame.data_content_fingerprint == feature_content_fingerprint(X)
+    canonical = np.asarray(X, dtype=np.dtype("<f8"), order="C")
     assert frame.data_content_fingerprint == hashlib.sha256(
-        b"X(2, 2)float64" + np.ascontiguousarray(X).tobytes()
+        MATRIX_F64_LE_FINGERPRINT_PROFILE.encode("ascii")
+        + b"\0"
+        + struct.pack("<QQ", 2, 2)
+        + canonical.tobytes(order="C")
     ).hexdigest()
+
+
+def test_predict_feature_fingerprint_is_canonical_across_input_byte_order() -> None:
+    values = np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=">f8")
+    assert feature_content_fingerprint(values) == feature_content_fingerprint(
+        values.astype("<f8")
+    )
+
+
+@pytest.mark.parametrize("X", [np.asarray([1.0, 2.0]), np.asarray([[1.0, np.nan]])])
+def test_predict_feature_fingerprint_refuses_ambiguous_or_nonfinite_matrices(
+    X: np.ndarray,
+) -> None:
+    with pytest.raises(ValueError, match="feature-content identity requires"):
+        feature_content_fingerprint(X)
 
 
 def test_predict_identity_compatibility_ids_are_x_only_and_explicit_mode_fails_closed() -> None:
