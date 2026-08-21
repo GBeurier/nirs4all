@@ -53,7 +53,7 @@ def write_methods_archive_v2(
         from nirs4all_core import write_archive_v2_from_native_payloads
     except ImportError as error:  # pragma: no cover - depends on optional wheel
         raise NativeArchiveReplayError(
-            "native Archive V2 writing requires nirs4all-core >= 0.3.15"
+            "native Archive V2 writing requires an nirs4all-core wheel with the Archive V2 writer"
         ) from error
     try:
         manifest, members = dag_ml.build_archive_v2_native_portable_payloads(
