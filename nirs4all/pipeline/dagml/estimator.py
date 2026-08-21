@@ -55,6 +55,7 @@ class DagMLReplayExecution:
     op_callback: Any
     outcome_id: str
     run_id: str
+    artifact_callback: Any = None
     warnings: Any = ()
     diagnostics: Any = None
 
@@ -309,6 +310,7 @@ class DagMLPipelineEstimator(BaseEstimator):
             replay.op_callback,
             outcome_id=replay.outcome_id,
             run_id=replay.run_id,
+            artifact_callback=replay.artifact_callback,
             warnings=replay.warnings,
             diagnostics=replay.diagnostics,
         )

@@ -60,6 +60,7 @@ class _DagMLFacade(Protocol):
         *,
         outcome_id: str,
         run_id: str,
+        artifact_callback: Any = None,
         warnings: Any = (),
         diagnostics: Any = None,
     ) -> Any: ...
@@ -147,6 +148,7 @@ class DagMLNativeClient:
         *,
         outcome_id: str,
         run_id: str,
+        artifact_callback: Any = None,
         warnings: Any = (),
         diagnostics: Any = None,
     ) -> Any:
@@ -159,16 +161,21 @@ class DagMLNativeClient:
         """
 
         facade = self._require_callable("replay_loaded_predictor_package")
+        kwargs: dict[str, Any] = {
+            "outcome_id": outcome_id,
+            "run_id": run_id,
+            "warnings": warnings,
+            "diagnostics": diagnostics,
+        }
+        if artifact_callback is not None:
+            kwargs["artifact_callback"] = artifact_callback
         return facade.replay_loaded_predictor_package(
             package,
             request,
             data_envelopes,
             artifact_handles,
             op_callback,
-            outcome_id=outcome_id,
-            run_id=run_id,
-            warnings=warnings,
-            diagnostics=diagnostics,
+            **kwargs,
         )
 
     def _load_facade(self) -> _DagMLFacade:
