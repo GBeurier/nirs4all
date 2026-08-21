@@ -13,6 +13,7 @@ from __future__ import annotations
 import hashlib
 import json
 import math
+import struct
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
@@ -20,6 +21,18 @@ from typing import Any
 import numpy as np
 
 from .identity import validate_data_id
+
+# Public cross-runtime identity profile for the native Methods PREDICT path.
+#
+# The old raw-array hash included NumPy's dtype spelling and host byte order;
+# Rust IO cannot reproduce either property without carrying Python internals.
+# New native cohorts therefore use an unambiguous f64, little-endian preimage.
+# Existing packages retain their already-attested SHA-256 values; this profile
+# applies only when a new X-only cohort is materialized for native replay.
+MATRIX_F64_LE_FINGERPRINT_PROFILE = "n4a-matrix-f64-le.v1"
+_MATRIX_F64_LE_FINGERPRINT_PREFIX = (
+    MATRIX_F64_LE_FINGERPRINT_PROFILE.encode("ascii") + b"\0"
+)
 
 
 @dataclass(frozen=True)
@@ -281,8 +294,20 @@ def feature_content_fingerprint(X: Any) -> str:
     change the feature identity through a sentinel marker.
     """
 
+    matrix = np.asarray(X, dtype=np.dtype("<f8"), order="C")
+    if matrix.ndim != 2:
+        raise ValueError(
+            "native DAG-ML feature-content identity requires a rank-2 matrix"
+        )
+    if not np.isfinite(matrix).all():
+        raise ValueError(
+            "native DAG-ML feature-content identity requires finite feature values"
+        )
+    rows, cols = matrix.shape
     hasher = hashlib.sha256()
-    _update_array_hash(hasher, np.asarray(X), "X")
+    hasher.update(_MATRIX_F64_LE_FINGERPRINT_PREFIX)
+    hasher.update(struct.pack("<QQ", rows, cols))
+    hasher.update(matrix.tobytes(order="C"))
     return hasher.hexdigest()
 
 
