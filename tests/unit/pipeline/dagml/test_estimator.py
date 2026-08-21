@@ -240,10 +240,19 @@ def test_predict_and_predict_proba_use_native_replay_and_explicit_decoders() -> 
     client = _FakeNativeClient()
     replay_modes: list[str] = []
 
-    def replay_compiler(estimator: DagMLPipelineEstimator, X: Any, *, mode: str) -> DagMLReplayExecution:
+    def replay_compiler(
+        estimator: DagMLPipelineEstimator,
+        X: Any,
+        *,
+        mode: str,
+        identity_frame: Any,
+    ) -> DagMLReplayExecution:
         replay_modes.append(mode)
         assert estimator.predictor_package_ == {"package_id": "outcome-1-predictor"}
         assert np.asarray(X).shape == (2, 3)
+        assert len(identity_frame.sample_ids) == 2
+        assert all(sample_id.startswith("n4a.") for sample_id in identity_frame.sample_ids)
+        assert identity_frame.data_content_fingerprint
         return _replay_execution(mode)
 
     estimator = DagMLPipelineEstimator(
@@ -269,6 +278,78 @@ def test_predict_and_predict_proba_use_native_replay_and_explicit_decoders() -> 
         {"artifact": {"handle": 1}},
     )
     assert client.replay_calls[1]["args"][1] == {"phase": "predict_proba"}
+
+
+def test_predict_with_identity_forwards_target_free_identity_to_compiler() -> None:
+    client = _FakeNativeClient()
+    frames: list[Any] = []
+
+    def replay_compiler(
+        _estimator: DagMLPipelineEstimator,
+        X: Any,
+        *,
+        mode: str,
+        identity_frame: Any,
+    ) -> DagMLReplayExecution:
+        assert mode == "predict"
+        assert np.asarray(X).shape == (2, 3)
+        frames.append(identity_frame)
+        return _replay_execution(mode)
+
+    estimator = DagMLPipelineEstimator(
+        pipeline=("model",),
+        selection_output_id="pred",
+        native_client=client,
+        training_compiler=lambda *args, **kwargs: _training_execution(),
+        prediction_compiler=replay_compiler,
+        prediction_decoder=lambda outcome: outcome["rows"],
+    ).fit(np.ones((3, 3)), np.ones(3))
+
+    prediction = estimator.predict_with_identity(
+        np.arange(6, dtype=float).reshape(2, 3),
+        sample_ids=["predict-a", "predict-b"],
+        groups=["batch-1", "batch-1"],
+        metadata={"instrument": ["x", "x"]},
+    )
+
+    assert prediction.tolist() == [1.0, 2.0]
+    assert len(frames) == 1
+    assert frames[0].sample_ids == ("predict-a", "predict-b")
+    assert frames[0].groups == ("batch-1", "batch-1")
+    assert frames[0].metadata_by_sample_id() == {
+        "predict-a": {"instrument": "x"},
+        "predict-b": {"instrument": "x"},
+    }
+    assert frames[0].data_content_fingerprint
+
+
+def test_predict_requires_explicit_identity_when_estimator_requires_it() -> None:
+    client = _FakeNativeClient()
+
+    def replay_compiler(*args: Any, **kwargs: Any) -> DagMLReplayExecution:
+        return _replay_execution(str(kwargs["mode"]))
+
+    estimator = DagMLPipelineEstimator(
+        pipeline=("model",),
+        selection_output_id="pred",
+        native_client=client,
+        require_explicit_sample_ids=True,
+        training_compiler=lambda *args, **kwargs: _training_execution(),
+        prediction_compiler=replay_compiler,
+        prediction_decoder=lambda outcome: outcome["rows"],
+    ).fit(
+        np.ones((3, 3)),
+        np.ones(3),
+        sample_ids=["fit-a", "fit-b", "fit-c"],
+    )
+
+    with pytest.raises(ValueError, match="predict requires explicit sample_ids"):
+        estimator.predict(np.ones((2, 3)))
+
+    assert estimator.predict_with_identity(
+        np.ones((2, 3)),
+        sample_ids=["predict-a", "predict-b"],
+    ).tolist() == [1.0, 2.0]
 
 
 def test_predict_proba_never_fabricates_pseudo_probabilities() -> None:

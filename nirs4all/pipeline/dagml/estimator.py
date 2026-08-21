@@ -15,7 +15,12 @@ import numpy as np
 from sklearn.base import BaseEstimator
 from sklearn.utils.validation import check_is_fitted
 
-from .fit_identity import DagMLFitIdentityFrame, normalize_fit_identity
+from .fit_identity import (
+    DagMLFitIdentityFrame,
+    DagMLPredictIdentityFrame,
+    normalize_fit_identity,
+    normalize_predict_identity,
+)
 from .native_client import DagMLNativeClient, DagMLNativeCoverageError
 
 
@@ -79,6 +84,7 @@ class DagMLReplayCompiler(Protocol):
         X: Any,
         *,
         mode: str,
+        identity_frame: DagMLPredictIdentityFrame,
     ) -> DagMLReplayExecution: ...
 
 
@@ -180,7 +186,7 @@ class DagMLPipelineEstimator(BaseEstimator):
         """
 
         check_is_fitted(self, attributes=["training_result_", "output_binding_"])
-        replay_outcome = self._execute_replay(X, mode="predict")
+        replay_outcome = self._execute_replay_with_identity(X, mode="predict")
         if self.prediction_decoder is None:
             raise DagMLNativeCoverageError("DagMLPipelineEstimator.predict() requires a native prediction decoder; P1 does not synthesize Python predictions from replay JSON")
         return np.asarray(self.prediction_decoder(replay_outcome))
@@ -193,7 +199,7 @@ class DagMLPipelineEstimator(BaseEstimator):
         """
 
         check_is_fitted(self, attributes=["training_result_", "output_binding_"])
-        replay_outcome = self._execute_replay(X, mode="predict_proba")
+        replay_outcome = self._execute_replay_with_identity(X, mode="predict_proba")
         if self.probability_decoder is None:
             raise DagMLNativeCoverageError("DagMLPipelineEstimator.predict_proba() requires an explicit native probability decoder; pseudo-probabilities are forbidden")
         return np.asarray(self.probability_decoder(replay_outcome))
@@ -237,13 +243,64 @@ class DagMLPipelineEstimator(BaseEstimator):
             raise TypeError("training_compiler must return DagMLTrainingExecution")
         return execution
 
-    def _execute_replay(self, X: Any, *, mode: str) -> Any:
+    def predict_with_identity(
+        self,
+        X: Any,
+        *,
+        sample_ids: Any,
+        groups: Any = None,
+        metadata: Any = None,
+    ) -> np.ndarray:
+        """Predict through native replay with an explicit X-only identity frame.
+
+        Persisted or relation-sensitive packages should use this method rather
+        than sklearn's positional ``predict(X)`` surface: it gives the replay
+        compiler the exact row identities it must bind into the target-free
+        PREDICT envelope.  The method never accepts or creates targets.
+        """
+
+        check_is_fitted(self, attributes=["training_result_", "output_binding_"])
+        replay_outcome = self._execute_replay_with_identity(
+            X,
+            mode="predict",
+            sample_ids=sample_ids,
+            groups=groups,
+            metadata=metadata,
+            require_explicit_sample_ids=True,
+        )
+        if self.prediction_decoder is None:
+            raise DagMLNativeCoverageError(
+                "DagMLPipelineEstimator.predict_with_identity() requires a native prediction decoder; P1 does not synthesize Python predictions from replay JSON"
+            )
+        return np.asarray(self.prediction_decoder(replay_outcome))
+
+    def _execute_replay_with_identity(
+        self,
+        X: Any,
+        *,
+        mode: str,
+        sample_ids: Any = None,
+        groups: Any = None,
+        metadata: Any = None,
+        require_explicit_sample_ids: bool | None = None,
+    ) -> Any:
         if self.prediction_compiler is None:
             raise DagMLNativeCoverageError(f"DagMLPipelineEstimator.{mode}() requires the nirs4all→DAG-ML loaded-package replay compiler")
         if self.predictor_package_ is None:
             raise DagMLNativeCoverageError("DagMLPipelineEstimator has no portable predictor package to replay")
 
-        replay = self._compile_replay(X, mode=mode)
+        identity_frame = normalize_predict_identity(
+            X,
+            sample_ids=sample_ids,
+            groups=groups,
+            metadata=metadata,
+            require_explicit_sample_ids=(
+                self.require_explicit_sample_ids
+                if require_explicit_sample_ids is None
+                else require_explicit_sample_ids
+            ),
+        )
+        replay = self._compile_replay(X, mode=mode, identity_frame=identity_frame)
         return self._client().replay_loaded_predictor_package(
             self.predictor_package_,
             replay.request,
@@ -256,12 +313,23 @@ class DagMLPipelineEstimator(BaseEstimator):
             diagnostics=replay.diagnostics,
         )
 
-    def _compile_replay(self, X: Any, *, mode: str) -> DagMLReplayExecution:
+    def _compile_replay(
+        self,
+        X: Any,
+        *,
+        mode: str,
+        identity_frame: DagMLPredictIdentityFrame,
+    ) -> DagMLReplayExecution:
         compiler = self.prediction_compiler
         if hasattr(compiler, "compile_replay"):
-            replay = compiler.compile_replay(self, X, mode=mode)
+            replay = compiler.compile_replay(
+                self,
+                X,
+                mode=mode,
+                identity_frame=identity_frame,
+            )
         elif callable(compiler):
-            replay = compiler(self, X, mode=mode)
+            replay = compiler(self, X, mode=mode, identity_frame=identity_frame)
         else:
             raise TypeError("prediction_compiler must be callable or expose compile_replay()")
         if not isinstance(replay, DagMLReplayExecution):
@@ -300,6 +368,7 @@ class DagMLPipelineEstimator(BaseEstimator):
 __all__ = [
     "DagMLPipelineEstimator",
     "DagMLFitIdentityFrame",
+    "DagMLPredictIdentityFrame",
     "DagMLReplayCompiler",
     "DagMLReplayExecution",
     "DagMLTrainingCompiler",
