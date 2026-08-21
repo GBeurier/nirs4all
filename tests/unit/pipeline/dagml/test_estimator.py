@@ -190,6 +190,55 @@ def test_fit_forwards_compiled_training_contracts_and_sets_fitted_attrs() -> Non
     assert estimator.n_features_in_ == 4
 
 
+def test_fitted_native_estimator_exports_the_exact_native_outcome_and_package(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    client = _FakeNativeClient()
+    estimator = DagMLPipelineEstimator(
+        pipeline=("model",),
+        selection_output_id="pred",
+        native_client=client,
+        training_compiler=lambda *args, **kwargs: _training_execution(),
+    ).fit(np.ones((2, 2)), np.ones(2))
+    observed: dict[str, object] = {}
+
+    def write(path, *, archive_id, outcome, package):  # noqa: ANN001
+        observed.update(path=path, archive_id=archive_id, outcome=outcome, package=package)
+        return {"archive_id": archive_id, "archive_sha256": "a" * 64}
+
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.write_methods_archive_v2",
+        write,
+    )
+
+    reference = estimator.export_native_archive(
+        tmp_path / "native.n4a",
+        archive_id="archive:native.test",
+    )
+
+    assert reference == {"archive_id": "archive:native.test", "archive_sha256": "a" * 64}
+    assert observed == {
+        "path": tmp_path / "native.n4a",
+        "archive_id": "archive:native.test",
+        "outcome": client.training_result.outcome,
+        "package": {"package_id": "outcome-1-predictor"},
+    }
+
+
+def test_native_archive_export_requires_an_exportable_native_package() -> None:
+    estimator = DagMLPipelineEstimator(
+        pipeline=("model",),
+        selection_output_id="pred",
+        native_client=_FakeNativeClient(),
+        training_compiler=lambda *args, **kwargs: _training_execution(),
+    ).fit(np.ones((2, 2)), np.ones(2))
+    estimator.predictor_package_ = None
+
+    with pytest.raises(DagMLNativeCoverageError, match="portable predictor package"):
+        estimator.export_native_archive("native.n4a", archive_id="archive:native.test")
+
+
 def test_fit_can_require_explicit_sample_ids() -> None:
     estimator = DagMLPipelineEstimator(
         pipeline=("model",),
