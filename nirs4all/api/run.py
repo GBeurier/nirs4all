@@ -1133,7 +1133,11 @@ def run(
             legacy_result = _run_legacy(
                 pipeline_input=legacy_pipeline,
                 dataset_input=legacy_dataset,
-                local_runner_kwargs={"workspace_path": legacy_workspace},
+                # The dual leg is an internal comparison oracle.  It must not
+                # retain an open log handle in its temporary workspace: Windows
+                # refuses to remove such a directory after a mismatch (or after
+                # a successful comparison).  Logs are not part of dual output.
+                local_runner_kwargs={"workspace_path": legacy_workspace, "log_file": False},
             )
             legacy_seconds = time.perf_counter() - legacy_started
             report = _dual_comparison_report(
