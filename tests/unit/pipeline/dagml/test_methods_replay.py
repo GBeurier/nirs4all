@@ -9,6 +9,10 @@ from nirs4all.pipeline.dagml.methods_replay import (
     MethodsN4mmReplayCallbacks,
     MethodsPortableReplayError,
 )
+from nirs4all.pipeline.dagml.native_archive_replay import (
+    NativeArchiveReplayError,
+    _target_names_by_node,
+)
 
 
 class _Resolver:
@@ -135,5 +139,25 @@ def test_native_methods_callback_refuses_missing_or_wrong_n4mm_handle():
                     "artifact": {"kind": "joblib"},
                 },
                 "payload": [1],
+            }
+        )
+
+
+def test_archive_package_target_schema_requires_one_exact_schema_per_node():
+    assert _target_names_by_node(
+        {
+            "output_bindings": [
+                {"node_id": "model:methods", "target_names": ["protein"]},
+                {"node_id": "model:methods", "target_names": ["protein"]},
+            ]
+        }
+    ) == {"model:methods": ["protein"]}
+    with pytest.raises(NativeArchiveReplayError, match="incompatible target schemas"):
+        _target_names_by_node(
+            {
+                "output_bindings": [
+                    {"node_id": "model:methods", "target_names": ["protein"]},
+                    {"node_id": "model:methods", "target_names": ["moisture"]},
+                ]
             }
         )
