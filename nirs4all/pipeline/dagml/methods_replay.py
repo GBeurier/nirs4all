@@ -17,14 +17,22 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any, Protocol
 
 import numpy as np
 
 from .node_runner import _build_result, _train_predict_ids
 
-if TYPE_CHECKING:
-    from .resolver import MaterializationResolver
+
+class FeatureMaterializationResolver(Protocol):
+    """Minimal provider contract consumed by the Methods PREDICT callback."""
+
+    def resolve_features(
+        self,
+        sample_ids: list[str],
+        *,
+        include_augmented: bool,
+    ) -> dict[str, np.ndarray]: ...
 
 
 class MethodsPortableReplayError(RuntimeError):
@@ -55,7 +63,7 @@ class MethodsN4mmReplayCallbacks:
 
     def __init__(
         self,
-        resolver: MaterializationResolver,
+        resolver: FeatureMaterializationResolver,
         *,
         target_names_by_node: dict[str, list[str]],
         fallback: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
@@ -72,6 +80,7 @@ class MethodsN4mmReplayCallbacks:
                     "native Methods replay requires the published pls4all binding"
                 ) from error
             context_type, model_type = Context, Model
+        assert context_type is not None and model_type is not None
         self._resolver = resolver
         self._target_names_by_node = {
             node_id: list(target_names)
@@ -142,10 +151,10 @@ class MethodsN4mmReplayCallbacks:
                 "owner_controller": controller_id,
             }
         if operation == "release":
-            handle = event.get("handle")
-            if not isinstance(handle, dict) or not isinstance(handle.get("handle"), int):
+            release_handle = event.get("handle")
+            if not isinstance(release_handle, dict) or not isinstance(release_handle.get("handle"), int):
                 raise MethodsPortableReplayError("invalid DAG-ML native artifact release event")
-            hydrated = self._models.pop(handle["handle"], None)
+            hydrated = self._models.pop(release_handle["handle"], None)
             if hydrated is not None:
                 hydrated.close()
             return None

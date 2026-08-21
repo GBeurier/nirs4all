@@ -14,7 +14,7 @@ import importlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -72,7 +72,7 @@ class RawArrayMethodsReplayCompiler:
 
     def compile_replay(
         self,
-        estimator: DagMLPipelineEstimator,
+        estimator: DagMLPipelineEstimator | None,
         X: Any,
         *,
         mode: str,
@@ -213,8 +213,8 @@ def _requirements(bundle: Mapping[str, Any]) -> dict[str, dict[str, str]]:
         if key in requirements:
             raise RawArrayMethodsReplayError("Package V2 repeats a data requirement key")
         requirements[key] = {
-            "schema_fingerprint": schema,
-            "plan_fingerprint": plan,
+            "schema_fingerprint": cast(str, schema),
+            "plan_fingerprint": cast(str, plan),
         }
     return requirements
 

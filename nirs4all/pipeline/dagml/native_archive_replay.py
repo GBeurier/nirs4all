@@ -83,9 +83,12 @@ def write_methods_archive_v2(
             "native Archive V2 writing requires an nirs4all-core wheel with the Archive V2 writer"
         ) from error
     try:
-        manifest, members = dag_ml.build_archive_v2_native_portable_payloads(
-            archive_id, outcome, package
-        )
+        assemble = getattr(dag_ml, "build_archive_v2_native_portable_payloads", None)
+        if not callable(assemble):
+            raise NativeArchiveReplayError(
+                "installed DAG-ML lacks native Archive V2 payload assembly; upgrade DAG-ML"
+            )
+        manifest, members = assemble(archive_id, outcome, package)
         reference = write_archive_v2_from_native_payloads(
             str(archive_path), manifest, members
         )
@@ -141,7 +144,10 @@ def replay_methods_archive_v2(
             raise NativeArchiveReplayError(
                 "DAG-ML replay returned while native Methods handles were still retained"
             )
-        return outcome.to_dict()
+        document = outcome.to_dict()
+        if not isinstance(document, dict):
+            raise NativeArchiveReplayError("DAG-ML replay returned a non-object outcome")
+        return document
     except MethodsPortableReplayError as error:
         raise NativeArchiveReplayError(str(error)) from error
     finally:
