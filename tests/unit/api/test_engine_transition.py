@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib
+
 import numpy as np
 import pytest
 
 from nirs4all.api.explain import explain
 from nirs4all.api.predict import predict
 from nirs4all.api.retrain import retrain
+from nirs4all.api.run import run
 from nirs4all.pipeline.dagml.native_archive_replay import (
     NativeArchiveConformalInterval,
     NativeArchivePrediction,
@@ -17,6 +20,21 @@ from nirs4all.pipeline.engine import require_legacy_engine
 
 def test_require_legacy_engine_accepts_legacy() -> None:
     assert require_legacy_engine("predict", "legacy") == "legacy"
+
+
+def test_run_native_refuses_before_constructing_a_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A native training request must never silently execute the legacy path."""
+
+    def legacy_runner(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        raise AssertionError("run(engine='native') constructed a legacy PipelineRunner")
+
+    run_module = importlib.import_module("nirs4all.api.run")
+    monkeypatch.setattr(run_module, "PipelineRunner", legacy_runner)
+
+    with pytest.raises(NotImplementedError, match="Archive V2.*PREDICT replay only"):
+        run([], {}, engine="native")
 
 
 @pytest.mark.parametrize(

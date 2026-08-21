@@ -878,6 +878,13 @@ def run(
         raise ValueError("training_losses/local_implementations require engine='dag-ml'")
 
     selected_engine = resolve_engine(engine)
+    if selected_engine == "native":
+        raise NotImplementedError(
+            "nirs4all.run(engine='native') is not available yet: the native "
+            "Archive V2 surface currently supports explicit PREDICT replay only. "
+            "Use engine='dag-ml' for the current training backend or "
+            "engine='legacy' explicitly."
+        )
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
 
