@@ -12,6 +12,7 @@ from nirs4all.pipeline.dagml.fit_identity import normalize_predict_identity
 from nirs4all.pipeline.dagml.native_archive_replay import (
     NativeArchiveReplayError,
     predict_methods_archive_v2_raw,
+    write_methods_archive_v2,
 )
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
     RawArrayMethodsReplayCompiler,
@@ -223,3 +224,45 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
         predict_methods_archive_v2_raw(
             "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"]
         )
+
+
+def test_native_archive_writer_composes_dagml_and_core_without_rebuilding_members(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: list[object] = []
+
+    def assemble(archive_id: str, outcome: object, package: object) -> tuple[dict[str, object], dict[str, bytes]]:
+        observed.extend([archive_id, outcome, package])
+        return ({"schema_version": 2}, {"dagml/portable_predictor_package.json": b"package"})
+
+    def write(path: str, manifest: dict[str, object], members: dict[str, bytes]) -> dict[str, str]:
+        observed.extend([path, manifest, members])
+        return {"archive_id": "archive:methods", "archive_sha256": "e" * 64}
+
+    monkeypatch.setitem(
+        sys.modules,
+        "dag_ml",
+        types.SimpleNamespace(build_archive_v2_native_portable_payloads=assemble),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "nirs4all_core",
+        types.SimpleNamespace(write_archive_v2_from_native_payloads=write),
+    )
+
+    reference = write_methods_archive_v2(
+        "portable.n4a",
+        archive_id="archive:methods",
+        outcome={"outcome": "native"},
+        package={"package": "native"},
+    )
+
+    assert reference == {"archive_id": "archive:methods", "archive_sha256": "e" * 64}
+    assert observed == [
+        "archive:methods",
+        {"outcome": "native"},
+        {"package": "native"},
+        "portable.n4a",
+        {"schema_version": 2},
+        {"dagml/portable_predictor_package.json": b"package"},
+    ]
