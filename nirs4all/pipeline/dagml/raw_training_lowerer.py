@@ -26,7 +26,7 @@ from .envelope import build_envelope
 from .errors import _reject_multi_model
 from .estimator import DagMLPipelineEstimator, DagMLTrainingExecution
 from .finetune_lowering import lower_deterministic_finetune_params_to_generators, reject_native_training_param_overrides
-from .fit_identity import DagMLFitIdentityFrame
+from .fit_identity import DagMLFitIdentityFrame, feature_content_fingerprint
 from .folds import _build_folds
 from .identity import IdentityMap, SampleIdentity
 from .node_runner import run_node
@@ -139,7 +139,7 @@ def lower_raw_array_training_contracts(
     )
     dag_ml = _import_dagml(dagml_module)
     envelope["relation_fingerprint"] = _core_relation_fingerprint(envelope["coordinator_relations"], dag_ml)
-    envelope["data_content_fingerprint"] = _array_content_fingerprint("X", X)
+    envelope["data_content_fingerprint"] = feature_content_fingerprint(X)
     envelope["target_content_fingerprint"] = _array_content_fingerprint("y", y)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-raw-fit", n_splits=len(folds))
     manifests = controller_manifests()

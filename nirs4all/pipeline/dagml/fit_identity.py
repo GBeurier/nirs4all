@@ -146,7 +146,7 @@ def normalize_predict_identity(
 
     n_samples = _infer_x_n_samples(X)
     explicit = sample_ids is not None
-    data_content_fingerprint = _content_fingerprint(X, None)
+    data_content_fingerprint = feature_content_fingerprint(X)
     if sample_ids is None:
         if require_explicit_sample_ids:
             raise ValueError("native DAG-ML predict requires explicit sample_ids for this estimator")
@@ -268,16 +268,28 @@ def _normalize_metadata_value(value: Any) -> Any:
 
 
 def _compat_sample_ids(X: Any, y: Any | None, n_samples: int) -> tuple[str, ...]:
-    digest = _content_fingerprint(X, y)
+    digest = feature_content_fingerprint(X) if y is None else _content_fingerprint(X, y)
     return tuple(validate_data_id(f"n4a.{digest}.s{index}") for index in range(n_samples))
+
+
+def feature_content_fingerprint(X: Any) -> str:
+    """Return the native X-only content identity for an inference cohort.
+
+    This is deliberately the same byte-level identity used by the raw-array
+    DAG-ML lowering for its ``data_content_fingerprint``. Absence of a target
+    is represented only by the nullable replay target field; it must never
+    change the feature identity through a sentinel marker.
+    """
+
+    hasher = hashlib.sha256()
+    _update_array_hash(hasher, np.asarray(X), "X")
+    return hasher.hexdigest()
 
 
 def _content_fingerprint(X: Any, y: Any | None) -> str:
     hasher = hashlib.sha256()
     _update_array_hash(hasher, np.asarray(X), "X")
-    if y is None:
-        hasher.update(b"target:absent")
-    else:
+    if y is not None:
         _update_array_hash(hasher, np.asarray(y), "y")
     return hasher.hexdigest()
 
@@ -310,6 +322,7 @@ def _identity_fingerprint(
 __all__ = [
     "DagMLFitIdentityFrame",
     "DagMLPredictIdentityFrame",
+    "feature_content_fingerprint",
     "normalize_fit_identity",
     "normalize_predict_identity",
 ]
