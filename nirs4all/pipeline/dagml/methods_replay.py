@@ -89,6 +89,21 @@ class MethodsN4mmReplayCallbacks:
 
         return len(self._models)
 
+    def close(self) -> None:
+        """Release every remaining invocation-local import, idempotently."""
+
+        models, self._models = self._models, {}
+        failures: list[BaseException] = []
+        for hydrated in models.values():
+            try:
+                hydrated.close()
+            except BaseException as error:  # pragma: no cover - native cleanup failure
+                failures.append(error)
+        if failures:
+            raise MethodsPortableReplayError(
+                "failed to release one or more native Methods replay handles"
+            ) from failures[0]
+
     def artifact_callback(self, event: dict[str, Any]) -> dict[str, Any] | None:
         """Hydrate/release one raw N4MM payload on behalf of DAG-ML."""
 

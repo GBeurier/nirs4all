@@ -18,6 +18,7 @@ __all__ = [
     "fit_identity",
     "loss_runtime",
     "methods_replay",
+    "native_archive_replay",
     "native_client",
     "pipeline_objective",
     "pipeline_objective_compiler",
