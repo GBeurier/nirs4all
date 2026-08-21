@@ -13,6 +13,7 @@ __all__ = [
     "estimator",
     "finetune_lowering",
     "fit_identity",
+    "methods_replay",
     "native_client",
     "pipeline_objective",
     "pipeline_objective_compiler",
