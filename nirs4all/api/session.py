@@ -29,6 +29,87 @@ if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult, RunResult
     from nirs4all.pipeline import PipelineRunner
 
+
+class NativeArchiveSession:
+    """Reusable, fail-closed PREDICT session for one portable Archive V2.
+
+    This is not a compatibility wrapper around :class:`PipelineRunner`: every
+    call invokes the DAG-ML/Core/Methods portable replay route and releases its
+    invocation-local native handles before returning. Training, refitting and
+    explanation remain explicit future capabilities rather than legacy fallbacks.
+    """
+
+    def __init__(self, archive_path: str | Path) -> None:
+        self._archive_path = Path(archive_path)
+        self._closed = False
+
+    @property
+    def archive_path(self) -> Path:
+        """The immutable Archive V2 path used for every replay."""
+
+        return self._archive_path
+
+    @property
+    def closed(self) -> bool:
+        """Whether this session has been closed."""
+
+        return self._closed
+
+    def predict(
+        self,
+        X: Any,
+        *,
+        sample_ids: Any,
+        groups: Any = None,
+        metadata: Any = None,
+    ) -> "PredictResult":
+        """Predict an explicitly identified raw cohort through native replay."""
+
+        if self._closed:
+            raise RuntimeError("NativeArchiveSession is closed")
+        from nirs4all.api.result import PredictResult
+        from nirs4all.pipeline.dagml.native_archive_replay import (
+            predict_methods_archive_v2_raw,
+        )
+
+        values = predict_methods_archive_v2_raw(
+            self._archive_path,
+            X,
+            sample_ids=sample_ids,
+            groups=groups,
+            metadata=metadata,
+        )
+        return PredictResult(
+            y_pred=values,
+            metadata={
+                "engine": "native",
+                "archive_path": str(self._archive_path),
+                "sample_ids": list(sample_ids),
+            },
+            model_name="MethodsN4MM",
+            preprocessing_steps=[],
+        )
+
+    def close(self) -> None:
+        """Close the session; replay handles are already invocation-local."""
+
+        self._closed = True
+
+    def __enter__(self) -> "NativeArchiveSession":
+        if self._closed:
+            raise RuntimeError("NativeArchiveSession is closed")
+        return self
+
+    def __exit__(self, exc_type: Any, exc_value: Any, traceback: Any) -> None:
+        self.close()
+
+
+def load_native_archive_session(path: str | Path) -> NativeArchiveSession:
+    """Open a portable Archive V2 PREDICT session without a legacy runner."""
+
+    return NativeArchiveSession(path)
+
+
 class Session:
     """Execution session for resource reuse and stateful pipeline management.
 
