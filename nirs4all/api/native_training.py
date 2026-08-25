@@ -23,6 +23,8 @@ from nirs4all.pipeline.dagml.raw_replay_lowerer import (
 )
 from nirs4all.pipeline.dagml.raw_training_lowerer import RawArrayDagMLTrainingCompiler
 
+from .native_result import NativeMethodsRunResult
+
 
 def fit_native_pipeline(
     pipeline: list[Any],
@@ -120,6 +122,87 @@ def fit_native_pipeline(
     return estimator
 
 
+def run_native_methods(
+    pipeline: list[Any],
+    dataset: Mapping[str, Any],
+    *,
+    name: str = "",
+    session: Any = None,
+    save_artifacts: bool = True,
+    save_charts: bool = False,
+    plots_visible: bool = False,
+    random_state: int | None = None,
+    refit: bool | None = True,
+    cache: Any = None,
+    project: str | None = None,
+    report_naming: str = "nirs",
+    results_path: Any = None,
+    runner_kwargs: Mapping[str, Any] | None = None,
+) -> NativeMethodsRunResult:
+    """Run the verified public Methods training subset without a legacy runner.
+
+    The accepted dataset is exactly ``{X, y, sample_ids}`` with optional
+    ``groups`` and ``metadata``.  Charts, workspaces, sessions, cache, tuning,
+    and non-native refit policies remain explicit capability refusals rather
+    than becoming ignored legacy arguments.
+    """
+
+    if not isinstance(dataset, Mapping):
+        raise TypeError("engine='native' requires dataset={'X': matrix, 'y': targets, 'sample_ids': explicit_ids}")
+    unknown = set(dataset) - {"X", "y", "sample_ids", "groups", "metadata"}
+    if unknown:
+        raise ValueError(f"engine='native' dataset has unsupported keys: {sorted(unknown)}")
+    missing = {"X", "y", "sample_ids"} - set(dataset)
+    if missing:
+        raise ValueError(f"engine='native' dataset is missing required keys: {sorted(missing)}")
+    if session is not None:
+        raise NotImplementedError("engine='native' training sessions are not available yet; use the stateless native run subset")
+    if not save_artifacts:
+        raise ValueError("engine='native' requires save_artifacts=True to retain its portable N4MM artifact")
+    if save_charts:
+        raise NotImplementedError("engine='native' does not yet produce legacy charts; pass save_charts=False")
+    if plots_visible:
+        raise NotImplementedError("engine='native' does not yet produce interactive legacy plots")
+    if refit is not True:
+        raise NotImplementedError("engine='native' currently requires refit=True")
+    if cache is not None or project is not None or results_path is not None:
+        raise NotImplementedError("engine='native' does not yet support cache, project, or results_path")
+    if report_naming != "nirs":
+        raise NotImplementedError("engine='native' currently supports only report_naming='nirs'")
+    if runner_kwargs:
+        raise NotImplementedError(f"engine='native' does not accept legacy runner kwargs: {sorted(runner_kwargs)}")
+    if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
+        raise TypeError("engine='native' random_state must be an integer or None")
+
+    estimator = fit_native_pipeline(
+        pipeline,
+        dataset["X"],
+        dataset["y"],
+        sample_ids=dataset["sample_ids"],
+        groups=dataset.get("groups"),
+        metadata=dataset.get("metadata"),
+        seed=12345 if random_state is None else random_state,
+    )
+    return NativeMethodsRunResult.from_estimator(
+        estimator,
+        dataset_name=name or "native",
+        model_name=_native_model_name(pipeline),
+    )
+
+
+def _native_model_name(pipeline: list[Any]) -> str:
+    """Return a display name without changing native model selection semantics."""
+
+    if pipeline:
+        final = pipeline[-1]
+        if isinstance(final, Mapping) and set(final) == {"model"}:
+            final = final["model"]
+        name = getattr(final, "__name__", None) or type(final).__name__
+        if isinstance(name, str) and name:
+            return name
+    return "MethodsModel"
+
+
 def _decode_raw_methods_prediction(outcome: Any, identity_frame: Any) -> np.ndarray:
     """Decode a replay only after checking its exact current sample ordering."""
 
@@ -144,4 +227,4 @@ def _decode_raw_methods_prediction(outcome: Any, identity_frame: Any) -> np.ndar
     return cast(np.ndarray, values)
 
 
-__all__ = ["fit_native_pipeline"]
+__all__ = ["fit_native_pipeline", "run_native_methods"]

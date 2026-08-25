@@ -16,7 +16,9 @@ limited to the strict :func:`nirs4all.run` oracle subset; other public operation
 
 Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAULT_ENGINE`
 (``legacy``, interim). Pass ``engine="dag-ml"`` (or ``$N4A_ENGINE=dag-ml``) to run on the dag-ml
-backend. See ``dag-ml/docs/migration-nirs4all/``.
+    backend. ``engine="native"`` separately exposes the verified, fail-closed
+    Methods subset: raw-array PLS run/session/predict and Archive V2 replay.
+    See ``dag-ml/docs/migration-nirs4all/``.
 """
 
 from __future__ import annotations
@@ -69,9 +71,9 @@ def resolve_engine(engine: str | None = None) -> Engine:
 
     Returns:
         The validated engine name. ``"legacy"`` (the default), ``"dag-ml"`` and the narrow
-        ``"dual"`` oracle mode are dispatched by :func:`nirs4all.run`. ``"native"`` is
-        currently reserved for the explicit Archive V2 PREDICT subset; other public
-        operations refuse it before execution.
+        ``"dual"`` oracle mode are dispatched by :func:`nirs4all.run`. ``"native"`` is a
+        fail-closed Methods subset for raw-array training, sessions, prediction, and Archive V2
+        replay; unsupported operations refuse it before execution.
 
     Raises:
         ValueError: If the name is not one of :data:`ENGINES`.

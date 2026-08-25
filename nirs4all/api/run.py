@@ -34,10 +34,12 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, resolve_engine
 
+from .native_session import NativeMethodsSession
 from .result import RunResult
 from .session import Session
 
 if TYPE_CHECKING:
+    from .native_result import NativeMethodsRunResult
     from .tuning import TunedSingleEstimatorConformalResult
 
 # Type aliases for a single pipeline or dataset (not lists)
@@ -618,7 +620,7 @@ def run(
     dataset: DatasetSpec,
     *,
     name: str = "",
-    session: Session | None = None,
+    session: Session | NativeMethodsSession | None = None,
     # Common runner options (shortcuts for most-used parameters)
     verbose: int = 1,
     save_artifacts: bool = True,
@@ -637,7 +639,7 @@ def run(
     local_implementations: Any | None = None,
     # All other PipelineRunner options
     **runner_kwargs: Any,
-) -> "RunResult | TunedSingleEstimatorConformalResult":
+) -> "RunResult | NativeMethodsRunResult | TunedSingleEstimatorConformalResult":
     """Execute a training pipeline on a dataset.
 
     This is the primary entry point for training ML pipelines on NIRS data.
@@ -718,9 +720,12 @@ def run(
             no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
             typed error for every other shape or unavailable native capability. Override the default
             per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
-            ``engine='native'`` is reserved for explicit Archive V2 PREDICT replay and is refused
-            by ``run()`` until native Methods training is distributed as a public capability; it never
-            falls through to the legacy orchestrator.
+            ``engine='native'`` runs the verified portable Methods subset: a
+            raw ``{'X', 'y', 'sample_ids'}`` dataset, one supported linear
+            KFold/PLS pipeline, ``refit=True``, ``save_artifacts=True`` and
+            ``save_charts=False``. Unsupported workflow features are refused
+            before execution; this path never falls through to the legacy
+            orchestrator.
             The dual subset requires exact built-in ``list``/``dict`` and exact NumPy arrays,
             ``KFold(shuffle=False)``, ``PLSRegression``, finite floating-point ``X`` and continuous
             regression ``y``,
@@ -876,18 +881,60 @@ def run(
         - :func:`nirs4all.session`: Create execution session for resource reuse
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
-    custom_training_loss_requested = bool(training_losses) or local_implementations is not None
-    if custom_training_loss_requested and resolve_engine(engine) != "dag-ml":
-        raise ValueError("training_losses/local_implementations require engine='dag-ml'")
-
     selected_engine = resolve_engine(engine)
+    custom_training_loss_requested = bool(training_losses) or local_implementations is not None
+    if custom_training_loss_requested and selected_engine != "dag-ml":
+        raise ValueError("training_losses/local_implementations require engine='dag-ml'")
     if selected_engine == "native":
-        raise NotImplementedError(
-            "nirs4all.run(engine='native') is not available yet: the native "
-            "Archive V2 surface currently supports explicit PREDICT replay only. "
-            "Use engine='dag-ml' for the current training backend or "
-            "engine='legacy' explicitly."
+        if tuning is not None or calibration is not None:
+            raise NotImplementedError("engine='native' tuning and calibration are not available through run() yet")
+        if not isinstance(pipeline, list):
+            raise TypeError("engine='native' requires a list pipeline")
+        if not isinstance(dataset, Mapping):
+            raise TypeError("engine='native' requires an explicit mapping dataset")
+        if isinstance(refit, dict | list):
+            raise NotImplementedError("engine='native' currently requires refit=True")
+        from .native_training import run_native_methods
+
+        if session is not None:
+            if not isinstance(session, NativeMethodsSession):
+                raise TypeError("engine='native' requires a NativeMethodsSession, not a legacy Session")
+            if pipeline is not session.pipeline:
+                raise ValueError("engine='native' run() requires the session's exact pipeline object")
+            if (
+                save_artifacts is not True
+                or save_charts is not False
+                or plots_visible
+                or refit is not True
+                or cache is not None
+                or project is not None
+                or report_naming != "nirs"
+                or results_path is not None
+                or runner_kwargs
+            ):
+                raise NotImplementedError("engine='native' session run() accepts only the verified portable run options")
+            if random_state is not None and random_state != session.random_state:
+                raise ValueError("engine='native' run() random_state must match the NativeMethodsSession")
+            return session.run(dataset)
+
+        return run_native_methods(
+            pipeline,
+            dataset,
+            name=name,
+            session=session,
+            save_artifacts=save_artifacts,
+            save_charts=save_charts,
+            plots_visible=plots_visible,
+            random_state=random_state,
+            refit=refit,
+            cache=cache,
+            project=project,
+            report_naming=report_naming,
+            results_path=results_path,
+            runner_kwargs=runner_kwargs,
         )
+    if isinstance(session, NativeMethodsSession):
+        raise ValueError("NativeMethodsSession requires engine='native'; it never falls back to another engine")
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
 
