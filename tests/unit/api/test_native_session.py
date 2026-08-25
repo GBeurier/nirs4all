@@ -96,3 +96,18 @@ def test_native_run_delegates_to_the_matching_native_session(monkeypatch: pytest
             session=native,
             save_charts=False,
         )
+
+
+def test_native_predict_delegates_to_the_trained_native_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}])
+    result = _Result()
+    native._result = result  # noqa: SLF001
+
+    prediction = nirs4all.predict(
+        data={"X": np.asarray([[3.0], [4.0]]), "sample_ids": ["p1", "p2"]},
+        session=native,
+        engine="native",
+    )
+
+    assert prediction.y_pred.tolist() == [[4.0], [5.0]]
+    assert prediction.metadata == {"engine": "native", "sample_ids": ["p1", "p2"]}
