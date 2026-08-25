@@ -15,7 +15,11 @@ import numpy as np
 
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
 from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
-from nirs4all.pipeline.dagml.raw_replay_lowerer import RawArrayMethodsReplayCompiler
+from nirs4all.pipeline.dagml.raw_replay_lowerer import (
+    RawArrayMethodsReplayCompiler,
+    RawArrayMethodsReplayError,
+    validate_native_methods_package,
+)
 from nirs4all.pipeline.dagml.raw_training_lowerer import RawArrayDagMLTrainingCompiler
 
 
@@ -43,10 +47,13 @@ def fit_native_pipeline(
     ``sample_ids`` are mandatory because the resulting Package V2 and Archive
     V2 require stable identities for every later PREDICT cohort.
 
-    The returned fitted estimator retains the exact native ``TrainingResult``,
-    ``TrainingOutcome`` and Package V2.  Its :meth:`export_native_archive`
-    method writes the native Archive V2 directly; it never invokes the legacy
-    runner or fits the model a second time.
+    The installed DAG-ML runtime must produce a ``portable_required`` Methods
+    Package V2 with one durable N4MM refit artifact.  Host-sidecar/joblib
+    results are refused before this function returns: they cannot be replayed
+    or exported as a native archive.  A successful estimator retains the exact
+    native ``TrainingResult``, ``TrainingOutcome`` and Package V2.  Its
+    :meth:`export_native_archive` method writes Archive V2 directly; it never
+    invokes the legacy runner or fits the model a second time.
     """
 
     if not isinstance(pipeline, list):
@@ -89,6 +96,12 @@ def fit_native_pipeline(
     estimator.fit(X, y, sample_ids=sample_ids, groups=groups, metadata=metadata)
     if estimator.predictor_package_ is None:
         raise DagMLNativeCoverageError("native DAG-ML training did not return an exportable Package V2")
+    try:
+        validate_native_methods_package(estimator.predictor_package_)
+    except RawArrayMethodsReplayError as error:
+        raise DagMLNativeCoverageError(
+            "native DAG-ML training did not return a replayable portable Methods Package V2"
+        ) from error
     estimator.prediction_compiler = RawArrayMethodsReplayCompiler(
         estimator.predictor_package_,
         dagml_module=dagml_module,

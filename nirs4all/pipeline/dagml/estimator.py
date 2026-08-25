@@ -432,12 +432,32 @@ class DagMLPipelineEstimator(BaseEstimator):
     def _select_output_binding(self, outputs: list[dict[str, Any]]) -> dict[str, Any]:
         if self.selection_output_id is not None:
             for output in outputs:
-                if output.get("output_id") == self.selection_output_id:
+                if self._output_binding_id(output) == self.selection_output_id:
                     return output
             raise DagMLNativeCoverageError(f"native training output '{self.selection_output_id}' was not produced")
         if len(outputs) == 1:
             return outputs[0]
         raise DagMLNativeCoverageError("native training produced ambiguous outputs; set selection_output_id explicitly")
+
+    @staticmethod
+    def _output_binding_id(output: dict[str, Any]) -> str | None:
+        """Read the output id from both legacy and Package V2 result shapes.
+
+        The native 0.3.4 binding returns an output wrapper with its stable id
+        at ``binding.binding_id``.  Test doubles and older bindings used the
+        flattened ``output_id`` form.  They express the same selected output;
+        accepting both avoids silently choosing by position.
+        """
+
+        output_id = output.get("output_id")
+        if isinstance(output_id, str):
+            return output_id
+        binding = output.get("binding")
+        if isinstance(binding, dict):
+            binding_id = binding.get("binding_id")
+            if isinstance(binding_id, str):
+                return binding_id
+        return None
 
     def _export_predictor_package(self, training_result: Any, execution: DagMLTrainingExecution) -> Any:
         export_package = getattr(training_result, "export_portable_predictor_package", None)
