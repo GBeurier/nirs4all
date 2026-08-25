@@ -32,10 +32,7 @@ class NativeMethodsRunResult(RunResult):
             raise ValueError("native archive_id must be a non-empty string")
         super().__init__(
             predictions=projected.predictions,
-            per_dataset={
-                dataset_name: {**info, "engine": "native"}
-                for dataset_name, info in projected.per_dataset.items()
-            },
+            per_dataset={dataset_name: {**info, "engine": "native"} for dataset_name, info in projected.per_dataset.items()},
         )
         self._dagml_score_set = projected._dagml_score_set  # noqa: SLF001
         self._dagml_node_results = projected._dagml_node_results  # noqa: SLF001
@@ -82,6 +79,38 @@ class NativeMethodsRunResult(RunResult):
         """The exact Core-issued reference from the last successful export."""
 
         return None if self._native_archive_reference is None else dict(self._native_archive_reference)
+
+    @property
+    def native_methods_hpo_resume_state(self) -> dict[str, Any] | None:
+        """Return the attested native HPO checkpoint/evidence, when present.
+
+        The value is the exact DAG-ML durable state (including the opaque
+        N4MOPT checkpoint and completed terminal trial ledger), copied only at
+        the outer mapping boundary so callers cannot mutate the retained
+        training outcome.  Native public resume is intentionally not exposed
+        yet: accepting an arbitrary checkpoint here would bypass the package
+        binding and provenance validation owned by DAG-ML.
+        """
+
+        outcome = _outcome_document(self._native_estimator)
+        state = outcome.get("methods_hpo_resume_state")
+        if state is None:
+            return None
+        if not isinstance(state, Mapping):
+            raise DagMLNativeCoverageError("native Methods HPO state is not a structured mapping")
+        return dict(state)
+
+    @property
+    def native_selected_variant_id(self) -> str | None:
+        """Return the scheduler-selected native variant identity, if any."""
+
+        outcome = _outcome_document(self._native_estimator)
+        value = outcome.get("selected_variant_id")
+        if value is None:
+            return None
+        if not isinstance(value, str) or not value:
+            raise DagMLNativeCoverageError("native selected variant id is malformed")
+        return value
 
     def export(
         self,

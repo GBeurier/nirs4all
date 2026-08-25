@@ -153,9 +153,7 @@ def test_portable_methods_lowering_uses_only_the_native_controller_and_identity_
         "prediction_caches": "retain",
         "fitted_artifacts": "portable_required",
     }
-    assert [manifest["controller_id"] for manifest in prepared.request["controller_manifests"]] == [
-        "controller:methods.pls"
-    ]
+    assert [manifest["controller_id"] for manifest in prepared.request["controller_manifests"]] == ["controller:methods.pls"]
     node = prepared.request["graph"]["nodes"][0]
     assert node["metadata"]["controller_id"] == "controller:methods.pls"
     assert prepared.methods_inputs == {
@@ -168,6 +166,49 @@ def test_portable_methods_lowering_uses_only_the_native_controller_and_identity_
     }
 
 
+def test_portable_methods_hpo_is_bound_as_campaign_metadata_not_a_graph_tuner() -> None:
+    _require_recent_dag_ml()
+    X = np.arange(12, dtype=float).reshape(6, 2)
+    y = np.arange(6, dtype=float)
+    frame = normalize_fit_identity(X, y, sample_ids=[f"s{index}" for index in range(6)])
+    operation = {
+        "operation_id": "hpo:methods",
+        "study": {
+            "controller_id": "controller:methods.hpo",
+            "study_id": "study:nirs4all.native.pls",
+            "methods_abi": "n4m-abi-2.2",
+            "search_space": {"parameters": [{"kind": "int", "name": "n_components", "low": 1, "high": 3, "step": 1, "log": False}]},
+            "optimizer": {
+                "sampler": "random",
+                "pruner": "none",
+                "direction": "minimize",
+                "metric": "rmse",
+                "seed": 7,
+                "n_startup_trials": 0,
+                "max_resource": 0,
+                "reduction_factor": 0,
+            },
+        },
+        "trials": 2,
+        "parameter_paths": {"n_components": "n_components"},
+    }
+
+    contracts = lower_raw_array_training_contracts(
+        [KFold(n_splits=2), {"model": PLSRegression(n_components=1)}],
+        X,
+        y,
+        identity_frame=frame,
+        methods_library_path="/absolute/libn4m.so",
+        methods_hpo_operation=operation,
+    )
+    prepared = contracts.to_prepared()
+    descriptor = prepared.request["campaign"]["metadata"]["methods_hpo_operation"]
+
+    assert descriptor["target_node_id"] == "model:compat.0"
+    assert "target_node_id" not in operation
+    assert all(node["kind"] != "tuner" for node in prepared.request["graph"]["nodes"])
+
+
 def test_portable_methods_lowering_refuses_non_pls_or_transform_pipelines() -> None:
     _require_recent_dag_ml()
     X = np.arange(12, dtype=float).reshape(6, 2)
@@ -175,9 +216,7 @@ def test_portable_methods_lowering_refuses_non_pls_or_transform_pipelines() -> N
     frame = normalize_fit_identity(X, y, sample_ids=[f"s{index}" for index in range(6)])
 
     with pytest.raises(ValueError, match="PLSRegression only"):
-        lower_raw_array_training_contracts(
-            _pipeline(), X, y, identity_frame=frame, methods_library_path="/absolute/libn4m.so"
-        )
+        lower_raw_array_training_contracts(_pipeline(), X, y, identity_frame=frame, methods_library_path="/absolute/libn4m.so")
 
 
 def test_lower_raw_array_training_contracts_maps_deterministic_finetune_grid() -> None:
@@ -274,10 +313,7 @@ def test_model_controller_routing_accepts_tensorflow_mro() -> None:
     )
 
     pytest.importorskip("tensorflow")
-    assert (
-        _model_controller_id(_tiny_tensorflow_regressor())
-        == _TENSORFLOW_MODEL_CONTROLLER_ID
-    )
+    assert _model_controller_id(_tiny_tensorflow_regressor()) == _TENSORFLOW_MODEL_CONTROLLER_ID
 
 
 @pytest.mark.torch
@@ -309,9 +345,7 @@ def test_tensorflow_seed_maps_wide_core_seed_deterministically() -> None:
     _seed_differentiable_backend(_TENSORFLOW_MODEL_CONTROLLER_ID, seed)
     first_tensorflow = tf.random.uniform((3,))
     _seed_differentiable_backend(_TENSORFLOW_MODEL_CONTROLLER_ID, seed)
-    np.testing.assert_array_equal(
-        first_tensorflow.numpy(), tf.random.uniform((3,)).numpy()
-    )
+    np.testing.assert_array_equal(first_tensorflow.numpy(), tf.random.uniform((3,)).numpy())
 
 
 def test_node_runner_rejects_missing_registry_and_multiple_loss_requirements() -> None:
@@ -327,9 +361,7 @@ def test_node_runner_rejects_missing_registry_and_multiple_loss_requirements() -
     with pytest.raises(RuntimeError, match="process-local loss registry"):
         _bind_training_loss(task, _PYTORCH_MODEL_CONTROLLER_ID, None)
 
-    task["required_loss_attestations"].append(
-        {"phase": "FIT_CV", "loss_id": "other-loss@1"}
-    )
+    task["required_loss_attestations"].append({"phase": "FIT_CV", "loss_id": "other-loss@1"})
     with pytest.raises(NotImplementedError, match="one training loss per task"):
         _bind_training_loss(task, _PYTORCH_MODEL_CONTROLLER_ID, object())
 
@@ -484,21 +516,10 @@ def test_raw_array_training_executes_local_torch_loss_and_attests_each_phase() -
     assert {phase for phase, _, _, _ in bind_calls} == {"FIT_CV", "REFIT"}
     assert all(role_index == 0 for _, _, _, role_index in bind_calls)
     outcome = estimator.training_outcome_.to_dict()
-    model_lineage = [
-        record
-        for record in outcome["lineage"]
-        if record["node_id"] == "model:compat.0"
-        and record["phase"] in {"FIT_CV", "REFIT"}
-    ]
+    model_lineage = [record for record in outcome["lineage"] if record["node_id"] == "model:compat.0" and record["phase"] in {"FIT_CV", "REFIT"}]
     assert {record["phase"] for record in model_lineage} == {"FIT_CV", "REFIT"}
-    assert all(
-        [attestation["loss_id"] for attestation in record["loss_attestations"]]
-        == ["example.loss.nirs4all-torch-squared@1"]
-        for record in model_lineage
-    )
-    assert outcome["execution_bundle"]["refit_artifacts"][0][
-        "training_loss_fingerprint"
-    ]
+    assert all([attestation["loss_id"] for attestation in record["loss_attestations"]] == ["example.loss.nirs4all-torch-squared@1"] for record in model_lineage)
+    assert outcome["execution_bundle"]["refit_artifacts"][0]["training_loss_fingerprint"]
 
 
 @pytest.mark.tensorflow
@@ -595,18 +616,9 @@ def test_raw_array_training_executes_local_tensorflow_loss_and_detaches_refit_ar
     assert {phase for phase, _, _, _ in bind_calls} == {"FIT_CV", "REFIT"}
     assert all(role_index == 0 for _, _, _, role_index in bind_calls)
     outcome = estimator.training_outcome_.to_dict()
-    model_lineage = [
-        record
-        for record in outcome["lineage"]
-        if record["node_id"] == "model:compat.0"
-        and record["phase"] in {"FIT_CV", "REFIT"}
-    ]
+    model_lineage = [record for record in outcome["lineage"] if record["node_id"] == "model:compat.0" and record["phase"] in {"FIT_CV", "REFIT"}]
     assert {record["phase"] for record in model_lineage} == {"FIT_CV", "REFIT"}
-    assert all(
-        [attestation["loss_id"] for attestation in record["loss_attestations"]]
-        == ["example.loss.nirs4all-tensorflow-squared@1"]
-        for record in model_lineage
-    )
+    assert all([attestation["loss_id"] for attestation in record["loss_attestations"]] == ["example.loss.nirs4all-tensorflow-squared@1"] for record in model_lineage)
 
 
 def test_raw_array_training_compiler_executes_native_deterministic_finetune_when_supported() -> None:

@@ -191,7 +191,7 @@ def _legacy_fold_id(native_fold_id: str) -> str:
     webapp / ``PredictionAggregator`` that key on it) uses the bare zero-based index ``"0"`` / ``"1"`` /
     …. Any non-``foldN`` id (defensive) is returned unchanged.
     """
-    return native_fold_id[len("fold"):] if native_fold_id.startswith("fold") and native_fold_id[len("fold"):].isdigit() else native_fold_id
+    return native_fold_id[len("fold") :] if native_fold_id.startswith("fold") and native_fold_id[len("fold") :].isdigit() else native_fold_id
 
 
 def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_names: list[str], winner_config_name: str | None = None) -> dict[Any, str]:
@@ -215,13 +215,7 @@ def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_nam
     Returns ``{fold_variant_id: config_name}`` keyed by the variant's own (non-``None``) fold-level id —
     the avg's native ``None`` tag is not a key.
     """
-    cv_variant_ids = list(
-        dict.fromkeys(
-            report.get("variant_id")
-            for report in (scores or {}).get("reports", [])
-            if report["partition"] == "validation" and report.get("fold_id") != "avg"
-        )
-    )
+    cv_variant_ids = list(dict.fromkeys(report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "validation" and report.get("fold_id") != "avg"))
     if winner_config_name is not None and cv_variant_ids and winner_config_name in ordered_config_names:
         # Winner-first: pair cv_variant_ids[0] (the SELECTED variant, whose reports lead) with the
         # content-recovered winner name; the losers take the remaining names in expand order (winner removed
@@ -505,6 +499,13 @@ def _scores_to_run_result(
     # `variant:base` identity instead. Both are the same single-producer OOF evidence, so the lookup
     # below accepts the latter only when the former is absent.
     cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id != "avg"))
+    # Scheduler-owned Methods HPO deliberately persists only one terminal
+    # sample-level OOF-average report per candidate.  It does not invent
+    # fold-grain reports merely for the legacy compatibility table.  Preserve
+    # that exact evidence by projecting its average-only candidates directly;
+    # the normal fold path above remains authoritative whenever it exists.
+    if not cv_variant_ids:
+        cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id == "avg" and variant_id is not None))
     if final_variant_id is not _MISSING and final_variant_id in cv_variant_ids:
         cv_variant_ids = [final_variant_id] + [variant_id for variant_id in cv_variant_ids if variant_id != final_variant_id]
 
