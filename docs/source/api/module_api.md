@@ -27,6 +27,35 @@ with nirs4all.session(verbose=1) as s:
 
 ## Functions
 
+### nirs4all.fit_native_pipeline()
+
+Run the deliberately narrow, fully-native raw-array training lane. This is the
+portable alternative when the pipeline is one splitter plus one supported model
+and every training and prediction row has a stable identity.
+
+```python
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+
+estimator = nirs4all.fit_native_pipeline(
+    [KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+    X_train,
+    y_train,
+    sample_ids=["train-0", "train-1", "train-2"],
+)
+estimator.export_native_archive("model.n4a", archive_id="archive:demo.pls")
+prediction = estimator.predict_with_identity(
+    X_predict,
+    sample_ids=["predict-0", "predict-1"],
+)
+```
+
+The fit result retains the actual DAG-ML `TrainingResult`, `TrainingOutcome`,
+and Package V2. Export writes Archive V2 from those exact native objects; it
+does not invoke the compatibility `PipelineRunner` or refit. Unsupported
+pipeline shapes, implicit identities, non-finite arrays, absent native
+capabilities, and non-native probability decoding fail explicitly.
+
 ### nirs4all.run()
 
 Execute a training pipeline on a dataset.

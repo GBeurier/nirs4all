@@ -802,11 +802,18 @@ surface. It reports native training/replay capability and forwards already-built
 contracts to DAG-ML, but it deliberately does not parse pipeline keywords,
 materialize patches, run Optuna/n4m, or choose fallback behavior.
 
-The next internal seam is `nirs4all.pipeline.dagml.estimator.DagMLPipelineEstimator`.
-It is sklearn-cloneable and can call native training/replay when supplied with
-compiled DAG-ML contracts, but it is not exported as a public user API yet. In
-the current state, missing compilers or decoders raise typed coverage errors;
-`predict_proba()` never fabricates one-hot pseudo-probabilities.
+`nirs4all.fit_native_pipeline(...)` exposes the first public native training
+lane. It accepts only a raw finite `(X, y)` cohort, explicit stable
+`sample_ids`, and a linear list pipeline with one splitter and one supported
+model. It returns the sklearn-cloneable internal
+`nirs4all.pipeline.dagml.estimator.DagMLPipelineEstimator`, retaining the exact
+native `TrainingResult`, `TrainingOutcome`, and Package V2. Its
+`export_native_archive(...)` method writes Archive V2 directly from those
+objects: it does not construct a `PipelineRunner` or refit the model. Prediction
+requires explicit current sample ids and is decoded only after the native replay
+returns the exact same ordered ids. Unsupported syntax remains fail-closed;
+this narrow API is not a synonym for the broader compatibility `run(...)`
+surface. `predict_proba()` never fabricates one-hot pseudo-probabilities.
 
 The shared objective seam is
 `nirs4all.pipeline.dagml.pipeline_objective.PipelineObjective`. It evaluates one
@@ -1249,6 +1256,23 @@ and `dag_ml.sample_relation_set_fingerprint_json()`, this lowerer can execute
 the native `dag_ml.execute_training()` path for that minimal raw-array shape.
 The second helper is required so the Python-built data envelope uses the same
 relation fingerprint as `dag-ml-core`.
+
+The public wrapper is:
+
+```python
+estimator = nirs4all.fit_native_pipeline(
+    [KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+    X_train,
+    y_train,
+    sample_ids=train_ids,
+)
+estimator.export_native_archive("pls.n4a", archive_id="archive:demo.pls")
+prediction = estimator.predict_with_identity(X_predict, sample_ids=predict_ids)
+```
+
+`sample_ids` are required at fit and prediction time. The archive-writing step
+requires the installed Core/DAG-ML native archive capabilities; a missing
+capability is a typed native coverage error, not a legacy export fallback.
 
 For the same internal raw-array seam, the deterministic subset of
 `finetune_params` is lowerable natively by the same shared helper used by public

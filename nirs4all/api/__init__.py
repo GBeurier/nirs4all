@@ -73,6 +73,7 @@ from .explain import explain
 # Synthetic data generation
 from .generate import generate_namespace as generate
 from .native_archive_session import NativeArchiveSession, load_native_archive_session
+from .native_training import fit_native_pipeline
 from .predict import predict
 from .result import (
     ExplainResult,
@@ -168,6 +169,7 @@ from .tuning import (
 __all__ = [
     # Module-level API functions
     "run",
+    "fit_native_pipeline",
     "DualRunUnsupported",
     "DualRunMismatchError",
     "calibrate",
