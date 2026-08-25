@@ -139,6 +139,7 @@ from .api import (
     conformal_metrics,
     explain,
     export_calibrated_result,
+    fit_native_pipeline,
     generate,
     get_keyword_registry,
     get_keyword_registry_schema,
@@ -197,6 +198,7 @@ from .utils import (
 __all__ = [
     # Module-level API (primary interface)
     "run",
+    "fit_native_pipeline",
     "DualRunUnsupported",
     "DualRunMismatchError",
     "calibrate",
