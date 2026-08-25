@@ -69,6 +69,7 @@ class RawArrayMethodsReplayCompiler:
     request_id: str = "replay:nirs4all.raw_predict"
     dagml_module: str = "dag_ml"
     fallback: Any = None
+    methods_library_path: str | None = None
 
     def compile_replay(
         self,
@@ -131,23 +132,45 @@ class RawArrayMethodsReplayCompiler:
                 "installed dag_ml lacks native replay-request signing; upgrade DAG-ML"
             )
         request = signer(unsigned_request)
-        resolver = _ArrayReplayResolver(
-            dict(zip(identity_frame.sample_ids, values, strict=True))
-        )
-        callbacks = MethodsN4mmReplayCallbacks(
-            resolver,
-            target_names_by_node={binding["node_id"]: list(binding["target_names"])},
-            fallback=self.fallback,
-        )
+        methods_inputs = {
+            key: {
+                "sample_ids": list(identity_frame.sample_ids),
+                "x": values.tolist(),
+                "target_names": list(binding["target_names"]),
+            }
+            for key in requirements
+        }
+        if self.methods_library_path is None:
+            # Compatibility tests and pre-published bindings may still use the
+            # old explicit hydration callback.  The public fit path always
+            # supplies a library path and therefore never takes this branch.
+            resolver = _ArrayReplayResolver(
+                dict(zip(identity_frame.sample_ids, values, strict=True))
+            )
+            callbacks = MethodsN4mmReplayCallbacks(
+                resolver,
+                target_names_by_node={binding["node_id"]: list(binding["target_names"])},
+                fallback=self.fallback,
+            )
+            return DagMLReplayExecution(
+                request=request,
+                data_envelopes=envelopes,
+                artifact_handles={},
+                op_callback=callbacks.op_callback,
+                artifact_callback=callbacks.artifact_callback,
+                cleanup=callbacks.close,
+                outcome_id=self.outcome_id,
+                run_id=self.run_id,
+            )
         return DagMLReplayExecution(
             request=request,
             data_envelopes=envelopes,
             artifact_handles={},
-            op_callback=callbacks.op_callback,
-            artifact_callback=callbacks.artifact_callback,
-            cleanup=callbacks.close,
+            op_callback=None,
             outcome_id=self.outcome_id,
             run_id=self.run_id,
+            methods_inputs=methods_inputs,
+            methods_library_path=self.methods_library_path,
         )
 
 
@@ -179,20 +202,29 @@ def _require_native_methods_package(package: Mapping[str, Any]) -> None:
         for artifact_id, payload in raw.items()
         if isinstance(artifact_id, str) and isinstance(payload, (str, list, bytes, bytearray))
     }
+    # Package V2 serializes refit artifacts as records containing ``artifact``.
+    # Keep accepting the historical flattened test fixture while all public
+    # production paths use the nested record shape.
     methods = [
-        artifact
-        for artifact in artifacts
-        if isinstance(artifact, dict) and artifact.get("kind") == "n4m_model"
+        record
+        for record in artifacts
+        if isinstance(record, dict)
+        and _artifact_document(record).get("kind") == "n4m_model"
     ]
     if len(methods) != 1:
         raise RawArrayMethodsReplayError(
             "raw-array Methods replay requires exactly one n4m_model refit artifact"
         )
-    artifact_id = methods[0].get("artifact_id")
+    artifact_id = _artifact_document(methods[0]).get("id", methods[0].get("artifact_id"))
     if not isinstance(artifact_id, str) or artifact_id not in raw_ids:
         raise RawArrayMethodsReplayError(
             "Package V2 N4MM refit artifact has no matching durable raw payload"
         )
+
+
+def _artifact_document(record: Mapping[str, Any]) -> Mapping[str, Any]:
+    artifact = record.get("artifact")
+    return artifact if isinstance(artifact, Mapping) else record
 
 
 def _requirements(bundle: Mapping[str, Any]) -> dict[str, dict[str, str]]:

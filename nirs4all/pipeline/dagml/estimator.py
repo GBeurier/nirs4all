@@ -45,6 +45,11 @@ class DagMLTrainingExecution:
     bundle_id: str
     warnings: Any = ()
     diagnostics: Any = None
+    # The native Methods lane owns its numeric provider in dag-ml.  Keeping
+    # this optional prevents the generic host-callback execution route from
+    # gaining a second, implicit meaning.
+    methods_inputs: Any = None
+    methods_library_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -61,6 +66,8 @@ class DagMLReplayExecution:
     cleanup: Any = None
     warnings: Any = ()
     diagnostics: Any = None
+    methods_inputs: Any = None
+    methods_library_path: str | None = None
 
 
 class DagMLTrainingCompiler(Protocol):
@@ -159,18 +166,37 @@ class DagMLPipelineEstimator(BaseEstimator):
             identity_frame=identity_frame,
         )
         client = self._client()
-        training_result = client.execute_training(
-            execution.request,
-            execution.data_envelopes,
-            execution.relations,
-            execution.training_influence,
-            execution.op_callback,
-            outcome_id=execution.outcome_id,
-            run_id=execution.run_id,
-            bundle_id=execution.bundle_id,
-            warnings=execution.warnings,
-            diagnostics=execution.diagnostics,
-        )
+        if execution.methods_inputs is not None or execution.methods_library_path is not None:
+            if execution.methods_inputs is None or execution.methods_library_path is None:
+                raise DagMLNativeCoverageError(
+                    "native Methods training requires both methods inputs and an explicit libn4m path"
+                )
+            training_result = client.execute_methods_training(
+                execution.request,
+                execution.data_envelopes,
+                execution.relations,
+                execution.training_influence,
+                execution.methods_inputs,
+                methods_library_path=execution.methods_library_path,
+                outcome_id=execution.outcome_id,
+                run_id=execution.run_id,
+                bundle_id=execution.bundle_id,
+                warnings=execution.warnings,
+                diagnostics=execution.diagnostics,
+            )
+        else:
+            training_result = client.execute_training(
+                execution.request,
+                execution.data_envelopes,
+                execution.relations,
+                execution.training_influence,
+                execution.op_callback,
+                outcome_id=execution.outcome_id,
+                run_id=execution.run_id,
+                bundle_id=execution.bundle_id,
+                warnings=execution.warnings,
+                diagnostics=execution.diagnostics,
+            )
 
         self.training_result_ = training_result
         self.training_outcome_ = getattr(training_result, "outcome", None)
@@ -387,18 +413,35 @@ class DagMLPipelineEstimator(BaseEstimator):
         )
         replay = self._compile_replay(X, mode=mode, identity_frame=identity_frame)
         try:
-            outcome = self._client().replay_loaded_predictor_package(
-                self.predictor_package_,
-                replay.request,
-                replay.data_envelopes,
-                replay.artifact_handles,
-                replay.op_callback,
-                outcome_id=replay.outcome_id,
-                run_id=replay.run_id,
-                artifact_callback=replay.artifact_callback,
-                warnings=replay.warnings,
-                diagnostics=replay.diagnostics,
-            )
+            if replay.methods_inputs is not None or replay.methods_library_path is not None:
+                if replay.methods_inputs is None or replay.methods_library_path is None:
+                    raise DagMLNativeCoverageError(
+                        "native Methods replay requires inputs and an explicit libn4m path"
+                    )
+                outcome = self._client().replay_loaded_methods_predictor_package(
+                    self.predictor_package_,
+                    replay.request,
+                    replay.data_envelopes,
+                    replay.methods_inputs,
+                    methods_library_path=replay.methods_library_path,
+                    outcome_id=replay.outcome_id,
+                    run_id=replay.run_id,
+                    warnings=replay.warnings,
+                    diagnostics=replay.diagnostics,
+                )
+            else:
+                outcome = self._client().replay_loaded_predictor_package(
+                    self.predictor_package_,
+                    replay.request,
+                    replay.data_envelopes,
+                    replay.artifact_handles,
+                    replay.op_callback,
+                    outcome_id=replay.outcome_id,
+                    run_id=replay.run_id,
+                    artifact_callback=replay.artifact_callback,
+                    warnings=replay.warnings,
+                    diagnostics=replay.diagnostics,
+                )
         finally:
             if replay.cleanup is not None:
                 replay.cleanup()
@@ -455,6 +498,12 @@ class DagMLPipelineEstimator(BaseEstimator):
         if not callable(export_package):
             return None
         package_id = self.package_id or f"{execution.outcome_id}-predictor"
+        if execution.methods_inputs is not None:
+            return export_package(
+                package_id,
+                fitted_artifact_mode="portable_required",
+                artifact_load_mode="native_portable",
+            )
         return export_package(package_id)
 
     @staticmethod
