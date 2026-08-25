@@ -42,6 +42,7 @@ def fit_native_pipeline(
     training_losses: tuple[Mapping[str, Any], ...] = (),
     local_implementations: Any = None,
     methods_library_path: str | None = None,
+    methods_hpo_operation: Mapping[str, Any] | None = None,
     seed: int = 12345,
 ) -> DagMLPipelineEstimator:
     """Fit the supported raw-array pipeline entirely through DAG-ML.
@@ -100,6 +101,7 @@ def fit_native_pipeline(
             training_losses=training_losses,
             local_implementations=local_implementations,
             methods_library_path=resolved_methods_library_path,
+            methods_hpo_operation=methods_hpo_operation,
             seed=seed,
         ),
         require_explicit_sample_ids=True,
@@ -110,9 +112,7 @@ def fit_native_pipeline(
     try:
         validate_native_methods_package(estimator.predictor_package_)
     except RawArrayMethodsReplayError as error:
-        raise DagMLNativeCoverageError(
-            "native DAG-ML training did not return a replayable portable Methods Package V2"
-        ) from error
+        raise DagMLNativeCoverageError("native DAG-ML training did not return a replayable portable Methods Package V2") from error
     estimator.prediction_compiler = RawArrayMethodsReplayCompiler(
         estimator.predictor_package_,
         dagml_module=dagml_module,
@@ -138,6 +138,7 @@ def run_native_methods(
     report_naming: str = "nirs",
     results_path: Any = None,
     runner_kwargs: Mapping[str, Any] | None = None,
+    tuning: Any = None,
 ) -> NativeMethodsRunResult:
     """Run the verified public Methods training subset without a legacy runner.
 
@@ -145,6 +146,12 @@ def run_native_methods(
     ``groups`` and ``metadata``.  Charts, workspaces, sessions, cache, tuning,
     and non-native refit policies remain explicit capability refusals rather
     than becoming ignored legacy arguments.
+
+    ``tuning`` is deliberately a separate, strict native operation rather
+    than the older Python objective adapter.  Its only accepted V1 shape is
+    ``{"engine": "methods-hpo", "trials": N}`` with the fixed V1
+    random/no-pruner policy.  DAG-ML owns all trial execution, SELECT, native
+    incumbent attestation, and the single selected rerun/refit.
     """
 
     if not isinstance(dataset, Mapping):
@@ -173,21 +180,93 @@ def run_native_methods(
         raise NotImplementedError(f"engine='native' does not accept legacy runner kwargs: {sorted(runner_kwargs)}")
     if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
         raise TypeError("engine='native' random_state must be an integer or None")
-
-    estimator = fit_native_pipeline(
-        pipeline,
-        dataset["X"],
-        dataset["y"],
-        sample_ids=dataset["sample_ids"],
-        groups=dataset.get("groups"),
-        metadata=dataset.get("metadata"),
+    methods_hpo_operation = _native_methods_hpo_operation(
+        tuning,
         seed=12345 if random_state is None else random_state,
     )
+
+    fit_kwargs: dict[str, Any] = {
+        "sample_ids": dataset["sample_ids"],
+        "groups": dataset.get("groups"),
+        "metadata": dataset.get("metadata"),
+        "seed": 12345 if random_state is None else random_state,
+    }
+    if methods_hpo_operation is not None:
+        fit_kwargs["methods_hpo_operation"] = methods_hpo_operation
+    estimator = fit_native_pipeline(pipeline, dataset["X"], dataset["y"], **fit_kwargs)
     return NativeMethodsRunResult.from_estimator(
         estimator,
         dataset_name=name or "native",
         model_name=_native_model_name(pipeline),
     )
+
+
+_NATIVE_METHODS_HPO_SAMPLERS = frozenset({"random"})
+_NATIVE_METHODS_HPO_PRUNERS = frozenset({"none"})
+
+
+def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] | None:
+    """Parse the public, deliberately narrow Methods scheduler operation.
+
+    This parser does not accept generic nirs4all tuning settings such as
+    ``space``, ``score_data``, callbacks, or workspace resume fields: those
+    belong to the historical Python objective path.  The V1 native search
+    space is attested by DAG-ML and intentionally fixes PLS ``n_components``
+    to the portable 1..=3 integer domain.
+    """
+
+    if tuning is None:
+        return None
+    if not isinstance(tuning, Mapping):
+        raise TypeError("engine='native' tuning must be a mapping")
+    payload = dict(tuning)
+    allowed = {"engine", "trials", "sampler", "pruner"}
+    unknown = set(payload) - allowed
+    if unknown:
+        raise ValueError(f"engine='native' tuning has unsupported keys: {sorted(unknown)}")
+    if payload.get("engine") != "methods-hpo":
+        raise ValueError("engine='native' tuning requires engine='methods-hpo'")
+    trials = payload.get("trials")
+    if isinstance(trials, bool) or not isinstance(trials, int) or not 1 <= trials <= 64:
+        raise ValueError("engine='native' Methods HPO trials must be an integer in 1..64")
+    sampler = payload.get("sampler", "random")
+    pruner = payload.get("pruner", "none")
+    if sampler not in _NATIVE_METHODS_HPO_SAMPLERS:
+        raise ValueError(f"engine='native' Methods HPO sampler is unsupported: {sampler!r}")
+    if pruner not in _NATIVE_METHODS_HPO_PRUNERS:
+        raise ValueError(f"engine='native' Methods HPO pruner is unsupported: {pruner!r}")
+    return {
+        "operation_id": "hpo:methods",
+        "study": {
+            "controller_id": "controller:methods.hpo",
+            "study_id": "study:nirs4all.native.pls",
+            "methods_abi": "n4m-abi-2.2",
+            "search_space": {
+                "parameters": [
+                    {
+                        "kind": "int",
+                        "name": "n_components",
+                        "low": 1,
+                        "high": 3,
+                        "step": 1,
+                        "log": False,
+                    }
+                ]
+            },
+            "optimizer": {
+                "sampler": sampler,
+                "pruner": pruner,
+                "direction": "minimize",
+                "metric": "rmse",
+                "seed": seed,
+                "n_startup_trials": 0,
+                "max_resource": 0,
+                "reduction_factor": 0,
+            },
+        },
+        "trials": trials,
+        "parameter_paths": {"n_components": "n_components"},
+    }
 
 
 def _native_model_name(pipeline: list[Any]) -> str:

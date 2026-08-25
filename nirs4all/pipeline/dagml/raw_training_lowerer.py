@@ -56,6 +56,7 @@ class RawArrayDagMLTrainingCompiler:
     training_losses: tuple[Mapping[str, Any], ...] = ()
     local_implementations: Any = None
     methods_library_path: str | None = None
+    methods_hpo_operation: Mapping[str, Any] | None = None
 
     def compile_fit(
         self,
@@ -88,6 +89,7 @@ class RawArrayDagMLTrainingCompiler:
             training_losses=self.training_losses,
             local_implementations=self.local_implementations,
             methods_library_path=self.methods_library_path,
+            methods_hpo_operation=self.methods_hpo_operation,
         )
         compiler = DagMLTrainingRequestCompiler(
             contracts,
@@ -123,6 +125,7 @@ def lower_raw_array_training_contracts(
     training_losses: tuple[Mapping[str, Any], ...] = (),
     local_implementations: Any = None,
     methods_library_path: str | None = None,
+    methods_hpo_operation: Mapping[str, Any] | None = None,
 ) -> DagMLTrainingRequestContracts:
     """Lower a linear raw-array pipeline into executable DAG-ML contracts."""
 
@@ -154,11 +157,20 @@ def lower_raw_array_training_contracts(
         manifests = [_portable_methods_pls_manifest()]
     artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests)
     graph = artifact.graph.to_dict()
+    if portable_methods:
+        _mark_portable_methods_pls_graph(graph)
     campaign = artifact.campaign_template.to_dict()
+    output_requests = [_default_output_request(graph)]
+    if methods_hpo_operation is not None:
+        if not portable_methods:
+            raise ValueError("Methods HPO requires the portable Methods execution lane")
+        campaign.setdefault("metadata", {})["methods_hpo_operation"] = _bind_methods_hpo_target(
+            methods_hpo_operation,
+            output_requests[0]["node_id"],
+        )
     if campaign.get("root_seed") is None:
         campaign["root_seed"] = seed
     data_envelopes, data_identities = _data_contracts_from_campaign(campaign, envelope)
-    output_requests = [_default_output_request(graph)]
     request_spec = DagMLTrainingRequestSpec(
         request_id=request_id,
         plan_id=plan_id,
@@ -196,11 +208,7 @@ def lower_raw_array_training_contracts(
         run_id=run_id,
         bundle_id=bundle_id,
         diagnostics={"nirs4all_raw_array_samples": identity_frame.n_samples},
-        methods_inputs=(
-            _methods_inputs_from_arrays(X, y, identity_frame, next(iter(data_envelopes)))
-            if portable_methods
-            else None
-        ),
+        methods_inputs=(_methods_inputs_from_arrays(X, y, identity_frame, next(iter(data_envelopes))) if portable_methods else None),
         methods_library_path=methods_library_path,
     )
 
@@ -257,11 +265,7 @@ def _supported_linear_steps(pipeline: Any) -> tuple[list[Any], Any, dict[str, st
         context="native raw-array",
     )
     model_steps = [step for step in steps if isinstance(step, dict) and "model" in step]
-    allowed_keys = (
-        frozenset({"train_params"})
-        if len(model_steps) == 1 and _model_controller_id(model_steps[0]["model"]) is not None
-        else frozenset()
-    )
+    allowed_keys = frozenset({"train_params"}) if len(model_steps) == 1 and _model_controller_id(model_steps[0]["model"]) is not None else frozenset()
     reject_native_training_param_overrides(
         steps,
         context="native raw-array",
@@ -278,18 +282,11 @@ def _validate_portable_methods_pipeline(steps: list[Any]) -> None:
     """Refuse every raw fit shape the Methods PLS lane cannot represent exactly."""
 
     if len(steps) != 1 or not isinstance(steps[0], Mapping) or set(steps[0]) - {"model"}:
-        raise ValueError(
-            "portable Methods training currently supports exactly one PLSRegression model step after the splitter"
-        )
+        raise ValueError("portable Methods training currently supports exactly one PLSRegression model step after the splitter")
     model = steps[0].get("model")
     cls = model if isinstance(model, type) else type(model)
-    if (
-        getattr(cls, "__name__", None) != "PLSRegression"
-        or not str(getattr(cls, "__module__", "")).startswith("sklearn.cross_decomposition")
-    ):
-        raise ValueError(
-            "portable Methods training currently supports sklearn.cross_decomposition.PLSRegression only"
-        )
+    if getattr(cls, "__name__", None) != "PLSRegression" or not str(getattr(cls, "__module__", "")).startswith("sklearn.cross_decomposition"):
+        raise ValueError("portable Methods training currently supports sklearn.cross_decomposition.PLSRegression only")
     components = getattr(model, "n_components", None)
     if not isinstance(components, int) or isinstance(components, bool) or components < 1:
         raise ValueError("portable Methods PLS requires a positive integer n_components")
@@ -320,9 +317,7 @@ def _portable_methods_pls_manifest() -> dict[str, Any]:
         "operator_kind": "model",
         "priority": 100,
         "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
-        "input_ports": [
-            {"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}
-        ],
+        "input_ports": [{"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}],
         "output_ports": [
             {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
             {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
@@ -341,6 +336,42 @@ def _portable_methods_pls_manifest() -> dict[str, Any]:
         "rng_policy": "uses_core_seed",
         "artifact_policy": "serializable",
     }
+
+
+def _mark_portable_methods_pls_graph(graph: Mapping[str, Any]) -> None:
+    """Make the model's executable operator the native portable ``pls`` one.
+
+    Controller metadata alone is insufficient for Methods HPO: its scheduler
+    validates both the controller and the target's transparent operator
+    declaration.  This edit happens before request signing, so it remains
+    attested provenance rather than a post-selection execution rewrite.
+    """
+
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        raise ValueError("portable Methods graph must contain a node list")
+    models = [node for node in nodes if isinstance(node, dict) and node.get("kind") == "model"]
+    if len(models) != 1:
+        raise ValueError("portable Methods graph must contain exactly one model node")
+    models[0]["operator"] = "pls"
+
+
+def _bind_methods_hpo_target(operation: Mapping[str, Any], target_node_id: str) -> dict[str, Any]:
+    """Attach the only graph-derived field of a native Methods HPO operation.
+
+    The tuner is a scheduler operation, not a graph node.  Keeping the target
+    binding here means the public native API never asks callers to guess an
+    internal node identifier, while DAG-ML still signs and validates the full
+    descriptor before it creates a native optimizer session.
+    """
+
+    if not isinstance(operation, Mapping):
+        raise TypeError("methods_hpo_operation must be a mapping")
+    bound = copy.deepcopy(dict(operation))
+    if "target_node_id" in bound:
+        raise ValueError("methods_hpo_operation must not supply target_node_id")
+    bound["target_node_id"] = target_node_id
+    return bound
 
 
 def _methods_inputs_from_arrays(

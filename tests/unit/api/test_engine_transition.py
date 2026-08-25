@@ -108,6 +108,118 @@ def test_run_native_environment_selection_is_also_fail_closed_for_unsupported_re
         run([], {})
 
 
+def test_run_native_routes_strict_methods_hpo_through_the_native_compiler(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public HPO lane is scheduler metadata, never a Python objective."""
+
+    class Estimator:
+        training_outcome_ = {
+            "outcome_fingerprint": "b" * 64,
+            "selected_variant_id": "hpo:trial:0",
+            "methods_hpo_resume_state": {"schema_version": 1, "checkpoint": {"format": "N4MOPT"}},
+            "score_set": {
+                "schema_version": 2,
+                "selection_metric": "rmse",
+                "reports": [
+                    {
+                        "producer_node": "model:methods",
+                        "producer_port": "oof",
+                        "partition": "validation",
+                        "fold_id": "avg",
+                        "level": "sample",
+                        "metrics": {"rmse": 0.25},
+                        "row_count": 2,
+                        "target_names": ["y"],
+                        "target_width": 1,
+                        "variant_id": "hpo:trial:0",
+                    }
+                ],
+            },
+        }
+
+    observed: dict[str, object] = {}
+
+    def native_fit(*_args, **kwargs):  # noqa: ANN002, ANN003
+        observed.update(kwargs)
+        return Estimator()
+
+    monkeypatch.setattr("nirs4all.api.native_training.fit_native_pipeline", native_fit)
+    result = run(
+        [{"split": "stub"}, {"model": "stub"}],
+        {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["s1", "s2"]},
+        engine="native",
+        save_charts=False,
+        random_state=17,
+        tuning={"engine": "methods-hpo", "trials": 3},
+    )
+
+    assert isinstance(result, NativeMethodsRunResult)
+    assert result.native_selected_variant_id == "hpo:trial:0"
+    assert result.native_methods_hpo_resume_state == {"schema_version": 1, "checkpoint": {"format": "N4MOPT"}}
+    operation = observed["methods_hpo_operation"]
+    assert operation == {
+        "operation_id": "hpo:methods",
+        "study": {
+            "controller_id": "controller:methods.hpo",
+            "study_id": "study:nirs4all.native.pls",
+            "methods_abi": "n4m-abi-2.2",
+            "search_space": {
+                "parameters": [
+                    {
+                        "kind": "int",
+                        "name": "n_components",
+                        "low": 1,
+                        "high": 3,
+                        "step": 1,
+                        "log": False,
+                    }
+                ]
+            },
+            "optimizer": {
+                "sampler": "random",
+                "pruner": "none",
+                "direction": "minimize",
+                "metric": "rmse",
+                "seed": 17,
+                "n_startup_trials": 0,
+                "max_resource": 0,
+                "reduction_factor": 0,
+            },
+        },
+        "trials": 3,
+        "parameter_paths": {"n_components": "n_components"},
+    }
+
+
+@pytest.mark.parametrize(
+    "tuning, message",
+    [
+        ({"trials": 2}, "requires engine='methods-hpo'"),
+        ({"engine": "methods-hpo", "trials": 0}, "integer in 1..64"),
+        ({"engine": "methods-hpo", "trials": 2, "score_data": {}}, "unsupported keys"),
+        ({"engine": "methods-hpo", "trials": 2, "sampler": "tpe"}, "sampler is unsupported"),
+    ],
+)
+def test_run_native_refuses_generic_or_partial_tuning_before_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    tuning: dict[str, object],
+    message: str,
+) -> None:
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.fit_native_pipeline",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("native execution was reached")),
+    )
+    with pytest.raises(ValueError, match=message):
+        run(
+            [{"split": "stub"}, {"model": "stub"}],
+            {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["s1", "s2"]},
+            engine="native",
+            save_charts=False,
+            tuning=tuning,
+        )
+
+
 @pytest.mark.parametrize(
     ("pipeline", "dataset", "kwargs", "message"),
     [
@@ -164,9 +276,7 @@ def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner
     observed: dict[str, object] = {}
 
     def native_predict(path, X, *, sample_ids, methods_library_path, groups, metadata):  # noqa: ANN001
-        observed.update(
-            path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), methods_library_path=methods_library_path, groups=groups, metadata=metadata
-        )
+        observed.update(path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), methods_library_path=methods_library_path, groups=groups, metadata=metadata)
         return NativeArchivePrediction(
             values=np.asarray([[2.0], [3.0]]),
             sample_ids=("p1", "p2"),
@@ -241,9 +351,7 @@ def test_predict_native_archive_selects_dagml_materialized_conformal_intervals(
         ("portable.n4a", {"X": [[1.0]], "sample_ids": ["p1"]}, {"coverage": 0.9}, "not materialized"),
     ],
 )
-def test_predict_native_archive_fails_closed_before_execution(
-    monkeypatch: pytest.MonkeyPatch, model, data, kwargs, message
-) -> None:
+def test_predict_native_archive_fails_closed_before_execution(monkeypatch: pytest.MonkeyPatch, model, data, kwargs, message) -> None:
     if kwargs.get("coverage") is not None:
         monkeypatch.setattr(
             "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
