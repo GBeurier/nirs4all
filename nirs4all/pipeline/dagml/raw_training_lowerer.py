@@ -19,7 +19,7 @@ from typing import Any, cast
 import numpy as np
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.dagml_bridge import _model_controller_id, controller_manifests
+from nirs4all.pipeline.dagml_bridge import _model_controller_id, _model_data_requirements, controller_manifests
 
 from .cli_runner import assemble_cv_refit_dsl
 from .envelope import build_envelope
@@ -55,6 +55,7 @@ class RawArrayDagMLTrainingCompiler:
     dagml_module: str = "dag_ml"
     training_losses: tuple[Mapping[str, Any], ...] = ()
     local_implementations: Any = None
+    methods_library_path: str | None = None
 
     def compile_fit(
         self,
@@ -86,6 +87,7 @@ class RawArrayDagMLTrainingCompiler:
             dagml_module=self.dagml_module,
             training_losses=self.training_losses,
             local_implementations=self.local_implementations,
+            methods_library_path=self.methods_library_path,
         )
         compiler = DagMLTrainingRequestCompiler(
             contracts,
@@ -120,10 +122,14 @@ def lower_raw_array_training_contracts(
     dagml_module: str = "dag_ml",
     training_losses: tuple[Mapping[str, Any], ...] = (),
     local_implementations: Any = None,
+    methods_library_path: str | None = None,
 ) -> DagMLTrainingRequestContracts:
     """Lower a linear raw-array pipeline into executable DAG-ML contracts."""
 
     steps, splitter, finetune_overrides = _supported_linear_steps(pipeline)
+    portable_methods = methods_library_path is not None
+    if portable_methods:
+        _validate_portable_methods_pipeline(steps)
     selection_metric = finetune_overrides.get("selection_metric", selection_metric)
     selection_objective = finetune_overrides.get("selection_objective", selection_objective)
     dataset = raw_arrays_to_spectro_dataset(X, y, identity_frame=identity_frame)
@@ -143,6 +149,9 @@ def lower_raw_array_training_contracts(
     envelope["target_content_fingerprint"] = _array_content_fingerprint("y", y)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-raw-fit", n_splits=len(folds))
     manifests = controller_manifests()
+    if portable_methods:
+        _lower_portable_methods_pls_dsl(dsl)
+        manifests = [_portable_methods_pls_manifest()]
     artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests)
     graph = artifact.graph.to_dict()
     campaign = artifact.campaign_template.to_dict()
@@ -166,6 +175,8 @@ def lower_raw_array_training_contracts(
         selection_required_metric_level="sample",
         selection_evaluation_scope="oof",
         cv_artifacts="discard",
+        prediction_caches="retain",
+        fitted_artifacts="portable_required" if portable_methods else "allow_host_sidecar",
     )
     training_influence = _training_influence_manifest(
         graph,
@@ -180,11 +191,17 @@ def lower_raw_array_training_contracts(
         data_envelopes=data_envelopes,
         relations=copy.deepcopy(envelope["coordinator_relations"]),
         training_influence=training_influence,
-        op_callback=_op_callback(dataset, identity, graph, local_implementations),
+        op_callback=None if portable_methods else _op_callback(dataset, identity, graph, local_implementations),
         outcome_id=outcome_id,
         run_id=run_id,
         bundle_id=bundle_id,
         diagnostics={"nirs4all_raw_array_samples": identity_frame.n_samples},
+        methods_inputs=(
+            _methods_inputs_from_arrays(X, y, identity_frame, next(iter(data_envelopes)))
+            if portable_methods
+            else None
+        ),
+        methods_library_path=methods_library_path,
     )
 
 
@@ -255,6 +272,99 @@ def _supported_linear_steps(pipeline: Any) -> tuple[list[Any], Any, dict[str, st
     _reject_multi_model(steps)
     _assert_supported_operators(steps)
     return steps, splitter, finetune_overrides
+
+
+def _validate_portable_methods_pipeline(steps: list[Any]) -> None:
+    """Refuse every raw fit shape the Methods PLS lane cannot represent exactly."""
+
+    if len(steps) != 1 or not isinstance(steps[0], Mapping) or set(steps[0]) - {"model"}:
+        raise ValueError(
+            "portable Methods training currently supports exactly one PLSRegression model step after the splitter"
+        )
+    model = steps[0].get("model")
+    cls = model if isinstance(model, type) else type(model)
+    if (
+        getattr(cls, "__name__", None) != "PLSRegression"
+        or not str(getattr(cls, "__module__", "")).startswith("sklearn.cross_decomposition")
+    ):
+        raise ValueError(
+            "portable Methods training currently supports sklearn.cross_decomposition.PLSRegression only"
+        )
+    components = getattr(model, "n_components", None)
+    if not isinstance(components, int) or isinstance(components, bool) or components < 1:
+        raise ValueError("portable Methods PLS requires a positive integer n_components")
+
+
+def _lower_portable_methods_pls_dsl(dsl: dict[str, Any]) -> None:
+    """Bind the single model node to the typed Methods controller, never Python."""
+
+    pipeline = dsl.get("pipeline")
+    if not isinstance(pipeline, list) or len(pipeline) != 1 or not isinstance(pipeline[0], dict):
+        raise ValueError("portable Methods DSL must contain exactly one model step")
+    step = pipeline[0]
+    params = step.get("params")
+    if not isinstance(params, Mapping) or not isinstance(params.get("n_components"), int):
+        raise ValueError("portable Methods DSL requires integer PLS n_components")
+    # `model` stays a transparent declaration for graph provenance; the
+    # controller id is explicit and scheduler-owned, so no Python import or
+    # sklearn callback can become executable at runtime.
+    step["metadata"] = {"controller_id": "controller:methods.pls"}
+
+
+def _portable_methods_pls_manifest() -> dict[str, Any]:
+    """The public controller declaration matching DAG-ML's Methods PLS runtime."""
+
+    return {
+        "controller_id": "controller:methods.pls",
+        "controller_version": "n4m-abi-2.2",
+        "operator_kind": "model",
+        "priority": 100,
+        "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+        "input_ports": [
+            {"name": "x", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"}
+        ],
+        "output_ports": [
+            {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
+            {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+        ],
+        "data_requirements": _model_data_requirements(),
+        "capabilities": [
+            "deterministic",
+            "thread_safe",
+            "process_safe",
+            "emits_predictions",
+            "emits_artifacts",
+            "stateful",
+        ],
+        "operator_selectors": [{"refs": ["sklearn.cross_decomposition._pls.PLSRegression"]}],
+        "fit_scope": "fold_train",
+        "rng_policy": "uses_core_seed",
+        "artifact_policy": "serializable",
+    }
+
+
+def _methods_inputs_from_arrays(
+    X: Any,
+    y: Any,
+    identity_frame: DagMLFitIdentityFrame,
+    binding_key: str,
+) -> dict[str, Any]:
+    """Create the host-owned full numeric input keyed by the one model binding."""
+
+    features = np.asarray(X, dtype=float)
+    targets = np.asarray(y, dtype=float)
+    if targets.ndim == 1:
+        targets = targets.reshape(-1, 1)
+    if targets.ndim != 2 or targets.shape[1] != 1:
+        raise ValueError("portable Methods PLS currently supports exactly one numeric target")
+    return {
+        binding_key: {
+            "sample_ids": list(identity_frame.sample_ids),
+            "x": features.tolist(),
+            "y": targets.tolist(),
+            "target_names": ["y"],
+        }
+    }
 
 
 def _data_contracts_from_campaign(
