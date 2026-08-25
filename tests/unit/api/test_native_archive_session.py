@@ -13,8 +13,8 @@ def test_native_archive_session_replays_explicit_ids_and_closes(
 ) -> None:
     observed: dict[str, object] = {}
 
-    def replay(path, X, *, sample_ids, groups, metadata):  # noqa: ANN001
-        observed.update(path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), groups=groups, metadata=metadata)
+    def replay(path, X, *, sample_ids, methods_library_path, groups, metadata):  # noqa: ANN001
+        observed.update(path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), methods_library_path=methods_library_path, groups=groups, metadata=metadata)
         return NativeArchivePrediction(
             values=np.asarray([[4.0], [5.0]]),
             sample_ids=("p1", "p2"),
@@ -26,7 +26,7 @@ def test_native_archive_session_replays_explicit_ids_and_closes(
         "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
         replay,
     )
-    with load_native_archive_session("portable.n4a") as session:
+    with load_native_archive_session("portable.n4a", methods_library_path="/native/libn4m.so") as session:
         assert isinstance(session, NativeArchiveSession)
         result = session.predict(
             np.asarray([[1.0], [2.0]]),
@@ -37,6 +37,7 @@ def test_native_archive_session_replays_explicit_ids_and_closes(
         assert result.metadata["engine"] == "native"
     assert session.closed
     assert observed["sample_ids"] == ["p1", "p2"]
+    assert observed["methods_library_path"] == "/native/libn4m.so"
     with pytest.raises(RuntimeError, match="closed"):
         session.predict(np.asarray([[1.0]]), sample_ids=["p3"])
 
@@ -66,7 +67,7 @@ def test_predict_uses_native_archive_session_without_model_or_legacy_runner(
 ) -> None:
     observed: dict[str, object] = {}
 
-    def replay(path, X, *, sample_ids, groups, metadata):  # noqa: ANN001
+    def replay(path, X, *, sample_ids, methods_library_path, groups, metadata):  # noqa: ANN001
         observed.update(path=str(path), X=np.asarray(X), sample_ids=list(sample_ids))
         return NativeArchivePrediction(
             values=np.asarray([[7.0], [8.0]]),
@@ -79,7 +80,9 @@ def test_predict_uses_native_archive_session_without_model_or_legacy_runner(
         "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
         replay,
     )
-    native_session = load_native_archive_session("portable.n4a")
+    native_session = load_native_archive_session(
+        "portable.n4a", methods_library_path="/native/libn4m.so"
+    )
 
     result = predict(
         data={"X": np.asarray([[1.0], [2.0]]), "sample_ids": ["p1", "p2"]},
