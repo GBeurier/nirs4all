@@ -103,26 +103,16 @@ def _resolve_dual_tolerances() -> dict[str, dict[str, Any]]:
             and band["enforced_at"].endswith(enforcement_suffix)
         ]
         if len(matches) != 1:
-            raise DualRunUnsupported(
-                f"engine='dual' could not resolve one default cross_impl_pipeline/{metric_class} tolerance from the compatibility ledger"
-            )
+            raise DualRunUnsupported(f"engine='dual' could not resolve one default cross_impl_pipeline/{metric_class} tolerance from the compatibility ledger")
         band = matches[0]
         abs_tol = band.get("abs_tol")
         rel_tol = band.get("rel_tol")
-        if (
-            not isinstance(band.get("band_id"), str)
-            or type(abs_tol) not in (int, float)
-            or type(rel_tol) not in (int, float)
-        ):
-            raise DualRunUnsupported(
-                f"engine='dual' found an invalid cross_impl_pipeline/{metric_class} tolerance in the compatibility ledger"
-            )
+        if not isinstance(band.get("band_id"), str) or type(abs_tol) not in (int, float) or type(rel_tol) not in (int, float):
+            raise DualRunUnsupported(f"engine='dual' found an invalid cross_impl_pipeline/{metric_class} tolerance in the compatibility ledger")
         absolute = cast(int | float, abs_tol)
         relative = cast(int | float, rel_tol)
         if absolute < 0 or relative < 0:
-            raise DualRunUnsupported(
-                f"engine='dual' found an invalid cross_impl_pipeline/{metric_class} tolerance in the compatibility ledger"
-            )
+            raise DualRunUnsupported(f"engine='dual' found an invalid cross_impl_pipeline/{metric_class} tolerance in the compatibility ledger")
         resolved[metric_class] = {
             "band_id": band["band_id"],
             "numeric_path": band["numeric_path"],
@@ -201,13 +191,9 @@ def _dual_semantic_observation(
     if not splits or not y_pred_by_sample:
         raise DualRunUnsupported(f"engine='dual' {leg} leg did not expose concrete OOF predictions and validation splits")
     if expected_folds is not None and len(splits) != expected_folds:
-        raise DualRunUnsupported(
-            f"engine='dual' {leg} leg exposed {len(splits)} validation splits, expected {expected_folds} from the declared KFold"
-        )
+        raise DualRunUnsupported(f"engine='dual' {leg} leg exposed {len(splits)} validation splits, expected {expected_folds} from the declared KFold")
     if expected_sample_count is not None and set(y_pred_by_sample) != set(range(expected_sample_count)):
-        raise DualRunUnsupported(
-            f"engine='dual' {leg} leg OOF sample IDs do not exactly cover 0..{expected_sample_count - 1}"
-        )
+        raise DualRunUnsupported(f"engine='dual' {leg} leg OOF sample IDs do not exactly cover 0..{expected_sample_count - 1}")
     return {
         "winner": best["config_name"],
         "splits": splits,
@@ -254,12 +240,7 @@ def _require_dual_supported_request(
     X, y = dataset
     if X.ndim != 2 or y.ndim != 1 or X.shape[0] != y.shape[0] or X.shape[0] == 0 or X.shape[1] == 0:
         raise DualRunUnsupported("engine='dual' requires a non-empty X.shape == (n_samples, n_features) and y.shape == (n_samples,)")
-    if (
-        not np.issubdtype(X.dtype, np.floating)
-        or not np.issubdtype(y.dtype, np.floating)
-        or not np.all(np.isfinite(X))
-        or not np.all(np.isfinite(y))
-    ):
+    if not np.issubdtype(X.dtype, np.floating) or not np.issubdtype(y.dtype, np.floating) or not np.all(np.isfinite(X)) or not np.all(np.isfinite(y)):
         raise DualRunUnsupported("engine='dual' requires finite floating-point X and y for its regression-only oracle")
     if type_of_target(y) != "continuous":
         raise DualRunUnsupported("engine='dual' requires a continuous regression target, not classification labels")
@@ -299,11 +280,7 @@ def _dual_comparison_report(
     prediction_tolerance = resolved_tolerances.get("prediction")
     if not isinstance(score_tolerance, Mapping) or not isinstance(prediction_tolerance, Mapping):
         raise DualRunUnsupported("engine='dual' has no resolved score and prediction tolerances")
-    if any(
-        type(tolerance.get(key)) not in (int, float)
-        for tolerance in (score_tolerance, prediction_tolerance)
-        for key in ("absolute", "relative")
-    ):
+    if any(type(tolerance.get(key)) not in (int, float) for tolerance in (score_tolerance, prediction_tolerance) for key in ("absolute", "relative")):
         raise DualRunUnsupported("engine='dual' has invalid resolved numeric tolerances")
 
     legacy_observation = _dual_semantic_observation(
@@ -725,7 +702,12 @@ def run(
             KFold/PLS pipeline, ``refit=True``, ``save_artifacts=True`` and
             ``save_charts=False``. Unsupported workflow features are refused
             before execution; this path never falls through to the legacy
-            orchestrator.
+            orchestrator.  Its optional strict HPO V1 operation is
+            ``tuning={'engine': 'methods-hpo', 'trials': N}``; it is executed
+            by DAG-ML's native Methods scheduler, not by the older Python
+            objective adapter.  The V1 search space is the attested integer
+            PLS ``n_components`` domain 1..3, and its checkpoint/evidence is
+            available on ``NativeMethodsRunResult`` after a successful run.
             The dual subset requires exact built-in ``list``/``dict`` and exact NumPy arrays,
             ``KFold(shuffle=False)``, ``PLSRegression``, finite floating-point ``X`` and continuous
             regression ``y``,
@@ -748,7 +730,10 @@ def run(
             dataset loaders, arbitrary structural model selection and legacy
             execution remain fail-closed. Deterministic model-local
             ``finetune_params`` grids are still the native path for the older
-            graph-generation subset.
+            graph-generation subset. With ``engine='native'``, only the
+            separate strict ``methods-hpo`` shape documented above is
+            accepted; generic ``space``, ``score_data``, callbacks and
+            workspace-resume fields are refused before execution.
 
         calibration: Optional top-level conformal calibration payload for the
             currently supported native tuning subset. This is equivalent to
@@ -886,8 +871,8 @@ def run(
     if custom_training_loss_requested and selected_engine != "dag-ml":
         raise ValueError("training_losses/local_implementations require engine='dag-ml'")
     if selected_engine == "native":
-        if tuning is not None or calibration is not None:
-            raise NotImplementedError("engine='native' tuning and calibration are not available through run() yet")
+        if calibration is not None:
+            raise NotImplementedError("engine='native' conformal calibration is not available through run() yet")
         if not isinstance(pipeline, list):
             raise TypeError("engine='native' requires a list pipeline")
         if not isinstance(dataset, Mapping):
@@ -897,6 +882,8 @@ def run(
         from .native_training import run_native_methods
 
         if session is not None:
+            if tuning is not None:
+                raise NotImplementedError("engine='native' Methods HPO is stateless; do not combine tuning with a NativeMethodsSession")
             if not isinstance(session, NativeMethodsSession):
                 raise TypeError("engine='native' requires a NativeMethodsSession, not a legacy Session")
             if pipeline is not session.pipeline:
@@ -932,6 +919,7 @@ def run(
             report_naming=report_naming,
             results_path=results_path,
             runner_kwargs=runner_kwargs,
+            tuning=tuning,
         )
     if isinstance(session, NativeMethodsSession):
         raise ValueError("NativeMethodsSession requires engine='native'; it never falls back to another engine")
@@ -952,9 +940,7 @@ def run(
     if tuning is not None:
         if custom_training_loss_requested:
             raise NotImplementedError(
-                "run(tuning=...) does not yet thread DAG-ML process-local training losses; "
-                "use a concrete engine='dag-ml' pipeline until the native tuning adapter binds "
-                "training_losses and local_implementations."
+                "run(tuning=...) does not yet thread DAG-ML process-local training losses; use a concrete engine='dag-ml' pipeline until the native tuning adapter binds training_losses and local_implementations."
             )
         tuning = _coerce_public_tuning_payload(tuning)
         if selected_engine == "dag-ml":
