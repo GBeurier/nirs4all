@@ -140,9 +140,21 @@ with nirs4all.session(
     result = native.run(dataset)
 ```
 
-Archive-based retraining, transfer/finetuning, calibration, generic
-branching/stacking and explanation remain explicit capability refusals; none is
-redirected to the legacy backend.
+An in-memory native session can also full-refit its already attested selected
+Methods variant on a new explicitly identified cohort:
+
+```python
+with nirs4all.session(pipeline, engine="native") as native:
+    native.run(dataset)
+    refitted = native.retrain(
+        {"X": X_next, "y": y_next, "sample_ids": ["next-0", "next-1"]}
+    )
+```
+
+This is not transfer learning or finetuning: it preserves only the selected
+portable PLS recipe and its attested patch. Archive-based retraining,
+transfer/finetuning, calibration, generic branching/stacking and explanation
+remain explicit capability refusals; none is redirected to the legacy backend.
 
 **Example - Single pipeline:**
 
