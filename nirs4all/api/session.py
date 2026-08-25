@@ -39,8 +39,14 @@ class NativeArchiveSession:
     explanation remain explicit future capabilities rather than legacy fallbacks.
     """
 
-    def __init__(self, archive_path: str | Path) -> None:
+    def __init__(
+        self,
+        archive_path: str | Path,
+        *,
+        methods_library_path: str | Path | None = None,
+    ) -> None:
         self._archive_path = Path(archive_path)
+        self._methods_library_path = methods_library_path
         self._closed = False
 
     @property
@@ -76,6 +82,7 @@ class NativeArchiveSession:
             self._archive_path,
             X,
             sample_ids=sample_ids,
+            methods_library_path=self._methods_library_path,
             groups=groups,
             metadata=metadata,
         )
@@ -113,10 +120,18 @@ class NativeArchiveSession:
         self.close()
 
 
-def load_native_archive_session(path: str | Path) -> NativeArchiveSession:
-    """Open a portable Archive V2 PREDICT session without a legacy runner."""
+def load_native_archive_session(
+    path: str | Path,
+    *,
+    methods_library_path: str | Path | None = None,
+) -> NativeArchiveSession:
+    """Open a portable Archive V2 PREDICT session without a legacy runner.
 
-    return NativeArchiveSession(path)
+    ``methods_library_path`` identifies the compatible native Methods shared
+    library used for invocation-local N4MM hydration.
+    """
+
+    return NativeArchiveSession(path, methods_library_path=methods_library_path)
 
 
 class Session:
@@ -508,6 +523,7 @@ def load_session(
     path: str | Path,
     *,
     engine: str = "legacy",
+    methods_library_path: str | Path | None = None,
 ) -> Session | NativeArchiveSession:
     """Load a prediction session from a saved bundle or portable archive.
 
@@ -517,6 +533,8 @@ def load_session(
             session. ``"native"`` opens the fail-closed Core Archive V2
             Methods replay session; it never constructs a ``PipelineRunner``
             or falls back to the legacy loader.
+        methods_library_path: Required path to ``libn4m`` for an
+            ``engine="native"`` Archive V2 Methods session.
 
     Returns:
         A session ready for prediction. The concrete type is
@@ -536,7 +554,7 @@ def load_session(
     if engine == "native":
         if path.suffix.lower() != ".n4a":
             raise ValueError("engine='native' load_session requires a Core Archive V2 .n4a path")
-        return load_native_archive_session(path)
+        return load_native_archive_session(path, methods_library_path=methods_library_path)
     if engine != "legacy":
         from nirs4all.pipeline.engine import require_legacy_engine
 

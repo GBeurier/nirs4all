@@ -78,6 +78,7 @@ def predict(
     save_to_workspace: bool = False,
     workspace_metadata: Mapping[str, Any] | None = None,
     workspace_result_metadata: Mapping[str, Any] | None = None,
+    methods_library_path: str | Path | None = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Make predictions with a trained model on new data.
@@ -163,6 +164,10 @@ def predict(
             ``engine="native"``.  Native sessions never construct a legacy
             runner.
 
+        methods_library_path: Required path to the compatible ``libn4m`` for
+            ``engine="native"`` Archive V2 Methods prediction. It is never
+            used to select a legacy execution path.
+
         verbose: Verbosity level (0=quiet, 1=info, 2=debug).
             Default: 0
 
@@ -235,6 +240,7 @@ def predict(
             all_predictions=all_predictions,
             coverage=coverage,
             session=session,
+            methods_library_path=methods_library_path,
         )
         if save_to_workspace:
             raise NotImplementedError(
@@ -397,6 +403,7 @@ def _predict_from_native_archive(
     all_predictions: bool,
     coverage: float | list[float] | tuple[float, ...] | None,
     session: Session | NativeArchiveSession | None,
+    methods_library_path: str | Path | None,
 ) -> PredictResult:
     """Execute the narrow, portable Archive V2 Methods PREDICT route.
 
@@ -455,6 +462,7 @@ def _predict_from_native_archive(
             sample_ids=data["sample_ids"],
             groups=data.get("groups"),
             metadata=data.get("metadata"),
+            methods_library_path=methods_library_path,
         )
         values = native_prediction.values
         prediction_sample_ids = native_prediction.sample_ids
