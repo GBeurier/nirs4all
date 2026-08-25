@@ -14,6 +14,7 @@ from typing import Any, cast
 import numpy as np
 
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
+from nirs4all.pipeline.dagml.methods_runtime import resolve_methods_library_path
 from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
     RawArrayMethodsReplayCompiler,
@@ -54,7 +55,10 @@ def fit_native_pipeline(
     or exported as a native archive.  A successful estimator retains the exact
     native ``TrainingResult``, ``TrainingOutcome`` and Package V2.  Its
     :meth:`export_native_archive` method writes Archive V2 directly; it never
-    invokes the legacy runner or fits the model a second time.
+    invokes the legacy runner or fits the model a second time.  With
+    ``nirs4all[native]``, the bundled ``nirs4all-methods`` runtime is discovered
+    automatically; ``methods_library_path`` remains an explicit deployment
+    override.
     """
 
     if not isinstance(pipeline, list):
@@ -73,10 +77,13 @@ def fit_native_pipeline(
         raise ValueError("fit_native_pipeline requires 2-D X and 1-D or 2-D y")
     if features.shape[0] == 0 or features.shape[0] != targets.shape[0]:
         raise ValueError("fit_native_pipeline requires aligned non-empty X and y")
+    if len(sample_ids) != features.shape[0]:
+        raise ValueError("fit_native_pipeline requires sample_ids length to match X")
     if not np.issubdtype(features.dtype, np.number) or not np.issubdtype(targets.dtype, np.number):
         raise TypeError("fit_native_pipeline requires numeric X and y")
     if not np.isfinite(features).all() or not np.isfinite(targets).all():
         raise ValueError("fit_native_pipeline requires finite X and y")
+    resolved_methods_library_path = resolve_methods_library_path(methods_library_path)
 
     estimator = DagMLPipelineEstimator(
         pipeline=pipeline,
@@ -90,7 +97,7 @@ def fit_native_pipeline(
             dagml_module=dagml_module,
             training_losses=training_losses,
             local_implementations=local_implementations,
-            methods_library_path=methods_library_path,
+            methods_library_path=resolved_methods_library_path,
             seed=seed,
         ),
         require_explicit_sample_ids=True,
@@ -107,7 +114,7 @@ def fit_native_pipeline(
     estimator.prediction_compiler = RawArrayMethodsReplayCompiler(
         estimator.predictor_package_,
         dagml_module=dagml_module,
-        methods_library_path=methods_library_path,
+        methods_library_path=resolved_methods_library_path,
     )
     estimator.prediction_identity_decoder = _decode_raw_methods_prediction
     return estimator

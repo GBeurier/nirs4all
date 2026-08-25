@@ -13,6 +13,15 @@ from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
 from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
 
 
+@pytest.fixture
+def native_library(tmp_path) -> str:
+    """A path-shaped runtime is sufficient for client-boundary unit tests."""
+
+    library = tmp_path / "libn4m.so"
+    library.write_bytes(b"native")
+    return str(library)
+
+
 class _TrainingResult:
     outcome = {"native": True}
     outputs = [
@@ -61,7 +70,7 @@ class _Client:
 
 
 def test_fit_native_pipeline_is_a_public_strict_native_composition(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, native_library: str
 ) -> None:
     captured: dict[str, Any] = {}
 
@@ -91,6 +100,7 @@ def test_fit_native_pipeline_is_a_public_strict_native_composition(
         np.asarray([1.0, 2.0]),
         sample_ids=["fit-a", "fit-b"],
         native_client=client,
+        methods_library_path=native_library,
     )
 
     assert isinstance(estimator, DagMLPipelineEstimator)
@@ -127,7 +137,7 @@ def test_fit_native_pipeline_refuses_unportable_inputs_before_training(
 
 
 def test_fit_native_pipeline_surfaces_missing_package_as_native_coverage_error(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, native_library: str
 ) -> None:
     class NoPackage(_TrainingResult):
         def export_portable_predictor_package(self, package_id: str) -> None:
@@ -159,11 +169,12 @@ def test_fit_native_pipeline_surfaces_missing_package_as_native_coverage_error(
             np.asarray([1.0]),
             sample_ids=["fit-a"],
             native_client=NoPackageClient(),
+            methods_library_path=native_library,
         )
 
 
 def test_fit_native_pipeline_refuses_host_sidecar_package_before_returning(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, native_library: str
 ) -> None:
     class HostSidecar(_TrainingResult):
         def export_portable_predictor_package(self, package_id: str) -> dict[str, Any]:
@@ -194,11 +205,12 @@ def test_fit_native_pipeline_refuses_host_sidecar_package_before_returning(
             np.asarray([1.0]),
             sample_ids=["fit-a"],
             native_client=HostSidecarClient(),
+            methods_library_path=native_library,
         )
 
 
 def test_fit_native_pipeline_predicts_only_through_identified_native_replay(
-    monkeypatch: pytest.MonkeyPatch,
+    monkeypatch: pytest.MonkeyPatch, native_library: str
 ) -> None:
     def compile_fit(self, estimator, X, y, **kwargs):  # noqa: ANN001
         _ = (self, estimator, X, y, kwargs)
@@ -243,6 +255,7 @@ def test_fit_native_pipeline_predicts_only_through_identified_native_replay(
         np.asarray([1.0]),
         sample_ids=["fit-a"],
         native_client=_Client(),
+        methods_library_path=native_library,
     )
 
     prediction = estimator.predict_with_identity(
