@@ -14,7 +14,7 @@ from typing import Any, cast
 import numpy as np
 
 from .estimator import DagMLReplayExecution
-from .fit_identity import DagMLPredictIdentityFrame, normalize_predict_identity
+from .fit_identity import DagMLCalibrationIdentityFrame, normalize_calibration_identity
 from .raw_replay_lowerer import (
     RawArrayMethodsReplayCompiler,
     RawArrayMethodsReplayError,
@@ -56,10 +56,10 @@ def compile_methods_conformal_calibration_replay(
 ) -> NativeConformalCalibrationReplay:
     """Compile a finite, explicitly identified calibration cohort.
 
-    The replay itself remains PREDICT, so the Methods provider never gets a
-    target sentinel.  The exact same stable sample ids occur in the point
-    prediction request and in ``truth``; DAG-ML rejects any non-identical join
-    when calibration is attached.
+    The replay itself remains PREDICT, so the Methods provider never receives
+    targets as execution inputs.  Its envelope nevertheless carries the
+    measured-target fingerprint required by DAG-ML, and the same stable sample
+    ids occur in the point prediction request and in ``truth``.
     """
 
     if sample_ids is None:
@@ -88,8 +88,9 @@ def compile_methods_conformal_calibration_replay(
         )
 
     try:
-        identity_frame = normalize_predict_identity(
+        identity_frame = normalize_calibration_identity(
             values,
+            y,
             sample_ids=sample_ids,
             groups=groups,
             metadata=metadata,
@@ -135,7 +136,7 @@ def compile_methods_conformal_calibration_replay(
 
 def _calibration_relations(
     execution: DagMLReplayExecution,
-    identity_frame: DagMLPredictIdentityFrame,
+    identity_frame: DagMLCalibrationIdentityFrame,
 ) -> dict[str, Any]:
     """Extract the one relation authority shared by every replay envelope."""
 

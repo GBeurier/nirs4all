@@ -9,6 +9,7 @@ import types
 import numpy as np
 import pytest
 
+from nirs4all.pipeline.dagml.fit_identity import target_content_fingerprint
 from nirs4all.pipeline.dagml.native_conformal_calibration import (
     NativeConformalCalibrationError,
     compile_methods_conformal_calibration_replay,
@@ -79,6 +80,10 @@ def test_native_calibration_replay_preserves_exact_truth_and_identities(
     }
     assert replay.execution.request["phase"] == "PREDICT"
     assert replay.execution.request["request_fingerprint"] == "d" * 64
+    assert {
+        envelope["target_content_fingerprint"]
+        for envelope in replay.execution.data_envelopes.values()
+    } == {target_content_fingerprint(np.asarray([1.5, 2.5]))}
     assert replay.calibration_relations["records"] == [
         {
             "observation_id": "calibration.one",
