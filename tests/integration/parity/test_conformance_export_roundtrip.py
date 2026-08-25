@@ -37,6 +37,7 @@ import nirs4all
 from nirs4all.api.result import RunResult
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline.dagml.errors import DagMlExportRefusal
 
 from . import _conformance_helpers as H
 from ._datasets import dataset_path
@@ -117,12 +118,13 @@ def test_dagml_n4a_export_rejects_workspace_selectors_before_legacy_refit(
     assert result._dagml_legacy_result is None  # noqa: SLF001
 
 
-def test_dagml_n4a_export_without_workspace_or_spec_is_catchable(tmp_path: Path) -> None:
-    """A dag-ml result with no export spec raises ``NotImplementedError``, not a legacy misuse error."""
+def test_dagml_n4a_export_without_workspace_or_spec_refuses_native_export() -> None:
+    """A dag-ml result without native export material has a stable, non-legacy refusal."""
     result = _minimal_dagml_result()
 
-    with pytest.raises(NotImplementedError, match="engine='dag-ml'.*no workspace artifacts"):
-        result.export(tmp_path / "model.n4a", source={"prediction_id": "p0"})
+    error = result._no_workspace_export_error()  # noqa: SLF001
+    assert isinstance(error, DagMlExportRefusal)
+    assert "no replayable native artifacts" in str(error)
 
 
 @pytest.mark.parametrize("case_name", _EXACT_CASES)

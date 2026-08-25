@@ -137,8 +137,8 @@ Returned by `nirs4all.run()` and `nirs4all.retrain()`.
 | `filter(**kwargs)` | list[dict] | Filter predictions by criteria |
 | `get_datasets()` | list[str] | Unique dataset names |
 | `get_models()` | list[str] | Unique model names |
-| `export(output_path, format="n4a", source=None, chain_id=None)` | Path | Export model to bundle |
-| `export_model(output_path, source=None, format=None, fold=None)` | Path | Export model artifact only |
+| `export(output_path, format="n4a", source=None, chain_id=None, *, compatibility=None)` | Path | Export a legacy-workspace bundle; DAG-ML refuses by default rather than re-training, and accepts only `compatibility="legacy-refit"` as an explicit transitional opt-in |
+| `export_model(output_path, source=None, format=None, fold=None, *, compatibility=None)` | Path | Export a captured DAG-ML native model artifact when available; otherwise refuses unless the explicit `legacy-refit` compatibility opt-in is used |
 | `summary()` | str | Multi-line summary string |
 | `validate(...)` | dict | Check for common issues |
 

@@ -74,6 +74,22 @@ class DagMlUnavailable(RuntimeError):
     """
 
 
+class DagMlExportRefusal(RuntimeError):
+    """A completed native run cannot satisfy a requested export capability.
+
+    This error deliberately is not a ``DagMlUnsupported``: export occurs after
+    training, beyond ``run()``'s compatibility fallback boundary.  Re-running
+    the pipeline through the legacy engine is available only through the
+    explicit ``compatibility=\"legacy-refit\"`` export opt-in.
+    """
+
+    def __init__(self, operation: str, reason: str, *, mitigation: str) -> None:
+        self.operation = operation
+        self.reason = reason
+        self.mitigation = mitigation
+        super().__init__(f"engine='dag-ml' {operation} cannot proceed: {reason}. {mitigation}")
+
+
 def _cli_child_error(stdout: str) -> str:
     """The child adapter's actual error line(s) from a dag-ml-cli failure, for an informative message.
 
