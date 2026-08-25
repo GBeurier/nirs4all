@@ -37,11 +37,14 @@ and every training and prediction row has a stable identity.
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 
+methods_library = "/opt/nirs4all/lib/libn4m.so"
+
 estimator = nirs4all.fit_native_pipeline(
     [KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
     X_train,
     y_train,
     sample_ids=["train-0", "train-1", "train-2"],
+    methods_library_path=methods_library,
 )
 estimator.export_native_archive("model.n4a", archive_id="archive:demo.pls")
 prediction = estimator.predict_with_identity(
@@ -55,6 +58,8 @@ and Package V2. Export writes Archive V2 from those exact native objects; it
 does not invoke the compatibility `PipelineRunner` or refit. Unsupported
 pipeline shapes, implicit identities, non-finite arrays, absent native
 capabilities, and non-native probability decoding fail explicitly.
+``methods_library_path`` is explicit on purpose: the portable route never
+discovers or substitutes a Python backend.
 
 ### nirs4all.run()
 
