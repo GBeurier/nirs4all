@@ -66,6 +66,10 @@ runner options and retained sessions are refused before native execution. An
 archive-to-retrain recipe is a separate portable contract and is not inferred
 from prediction-only archive metadata.
 
+A trained ``NativeMethodsSession`` exposes the same full-refit operation as
+``native_session.retrain({"X": X_new, "y": y_new, "sample_ids": new_ids})``;
+it replaces the in-memory session result only after the native refit succeeds.
+
 ### Transfer Mode
 
 Reuse preprocessing artifacts (scalers, SNV, etc.) while training a new model:

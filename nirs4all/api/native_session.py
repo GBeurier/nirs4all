@@ -96,6 +96,35 @@ class NativeMethodsSession:
         )
         return self._result
 
+    def retrain(self, dataset: Mapping[str, Any]) -> NativeMethodsRunResult:
+        """Full-refit the attested selected Methods variant on one new cohort.
+
+        This delegates to the public native retrain contract, which preserves
+        only the selected portable PLS recipe and its attested patch. Transfer
+        learning and finetuning are intentionally not session capabilities.
+        """
+
+        self._require_open()
+        from .retrain import retrain
+
+        result = retrain(
+            self.result,
+            # ``retrain`` exposes the public ``DataSpec`` union, whose
+            # mapping branch is deliberately a concrete ``dict``.  Sessions
+            # accept any read-only mapping at their boundary, so materialize
+            # it here rather than narrowing the session contract.
+            dict(dataset),
+            mode="full",
+            name=self._name,
+            save_artifacts=True,
+            verbose=0,
+            engine="native",
+        )
+        if not isinstance(result, NativeMethodsRunResult):  # pragma: no cover - defensive contract assertion
+            raise RuntimeError("native session retrain did not return a NativeMethodsRunResult")
+        self._result = result
+        return result
+
     def predict(
         self,
         X: Any,
