@@ -87,7 +87,6 @@ def test_predict_uses_native_archive_session_without_model_or_legacy_runner(
     result = predict(
         data={"X": np.asarray([[1.0], [2.0]]), "sample_ids": ["p1", "p2"]},
         session=native_session,
-        engine="native",
     )
 
     assert result.y_pred.tolist() == [[7.0], [8.0]]
@@ -96,11 +95,12 @@ def test_predict_uses_native_archive_session_without_model_or_legacy_runner(
     assert observed["sample_ids"] == ["p1", "p2"]
 
 
-def test_predict_native_session_requires_explicit_native_engine() -> None:
-    with pytest.raises(ValueError, match="requires engine='native'"):
+def test_predict_native_session_refuses_explicit_non_native_engine() -> None:
+    with pytest.raises(ValueError, match="explicit non-native engine"):
         predict(
             data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]},
             session=load_native_archive_session("portable.n4a"),
+            engine="legacy",
         )
 
 
