@@ -101,8 +101,8 @@ jobs:
             MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
           fi
 
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # macOS: run serially to avoid fork() deadlocks
+          if [ "$RUNNER_OS" == "macOS" ] || [ "$RUNNER_OS" == "Windows" ]; then
+            # macOS and Windows: run serially to avoid xdist worker deadlocks.
             python -m pytest -v --timeout=120 "${MARK[@]}" tests/unit/
           else
             # TensorFlow and PyTorch both claim process-global native state. Run
@@ -132,8 +132,8 @@ jobs:
             MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
           fi
 
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # macOS: run serially to avoid fork() deadlocks
+          if [ "$RUNNER_OS" == "macOS" ] || [ "$RUNNER_OS" == "Windows" ]; then
+            # macOS and Windows: run serially to avoid xdist worker deadlocks.
             python -m pytest -v --timeout=120 "${MARK[@]}" tests/integration/pipeline/
           else
             # Serial subset with known write-contention under heavy xdist load
