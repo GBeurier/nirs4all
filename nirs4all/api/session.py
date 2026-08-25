@@ -20,12 +20,15 @@ Two usage patterns:
     >>> session.save("model.n4a")
 """
 
+from __future__ import annotations
+
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 if TYPE_CHECKING:
+    from nirs4all.api.native_session import NativeMethodsSession
     from nirs4all.api.result import PredictResult, RunResult
     from nirs4all.pipeline import PipelineRunner
 
@@ -68,7 +71,7 @@ class NativeArchiveSession:
         sample_ids: Any,
         groups: Any = None,
         metadata: Any = None,
-    ) -> "PredictResult":
+    ) -> PredictResult:
         """Predict an explicitly identified raw cohort through native replay."""
 
         if self._closed:
@@ -111,7 +114,7 @@ class NativeArchiveSession:
 
         self._closed = True
 
-    def __enter__(self) -> "NativeArchiveSession":
+    def __enter__(self) -> NativeArchiveSession:
         if self._closed:
             raise RuntimeError("NativeArchiveSession is closed")
         return self
@@ -220,7 +223,7 @@ class Session:
         return self._last_result is not None or self._bundle_path is not None
 
     @property
-    def runner(self) -> "PipelineRunner":
+    def runner(self) -> PipelineRunner:
         """Get or create the shared PipelineRunner instance.
 
         The runner is created lazily on first access.
@@ -255,7 +258,7 @@ class Session:
         *,
         plots_visible: bool = False,
         **kwargs: Any
-    ) -> "RunResult":
+    ) -> RunResult:
         """Train the session's pipeline on a dataset.
 
         Args:
@@ -336,7 +339,7 @@ class Session:
         self,
         dataset: str | Path | Any,
         **kwargs: Any
-    ) -> "PredictResult":
+    ) -> PredictResult:
         """Make predictions using the trained pipeline.
 
         Args:
@@ -406,7 +409,7 @@ class Session:
         dataset: str | Path | Any,
         mode: str = "full",
         **kwargs: Any
-    ) -> "RunResult":
+    ) -> RunResult:
         """Retrain the pipeline on new data.
 
         Args:
@@ -505,7 +508,7 @@ class Session:
                 pass
         self._runner = None
 
-    def __enter__(self) -> "Session":
+    def __enter__(self) -> Session:
         """Enter the session context."""
         return self
 
@@ -590,7 +593,7 @@ def session(
     pipeline: list[Any] | None = None,
     name: str = "",
     **kwargs: Any
-) -> Generator[Session, None, None]:
+) -> Generator[Session | NativeMethodsSession, None, None]:
     """Create an execution session context manager.
 
     This is a convenience function that creates a Session and yields it
@@ -620,14 +623,26 @@ def session(
         ...     result = s.run("sample_data/regression")
         ...     print(f"Best score: {result.best_score:.4f}")
     """
-    s = Session(pipeline=pipeline, name=name, **kwargs)
+    engine = kwargs.pop("engine", "legacy")
+    if engine == "native":
+        from nirs4all.api.native_session import NativeMethodsSession
+
+        if pipeline is None:
+            raise ValueError("engine='native' session requires an explicit portable pipeline")
+        s = NativeMethodsSession(pipeline, name=name, **kwargs)
+    else:
+        if engine != "legacy":
+            from nirs4all.pipeline.engine import require_legacy_engine
+
+            require_legacy_engine("session", engine)
+        s = Session(pipeline=pipeline, name=name, **kwargs)
     try:
         yield s
     finally:
         s.close()
 
 
-def _relation_metadata_from_session_prediction(predictions: Any, runner: "PipelineRunner") -> dict[str, Any]:
+def _relation_metadata_from_session_prediction(predictions: Any, runner: PipelineRunner) -> dict[str, Any]:
     metadata: dict[str, Any] = {}
     if hasattr(predictions, "filter_predictions"):
         try:
