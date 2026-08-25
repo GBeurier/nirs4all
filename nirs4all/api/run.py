@@ -34,6 +34,7 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, resolve_engine
 
+from .native_session import NativeMethodsSession
 from .result import RunResult
 from .session import Session
 
@@ -619,7 +620,7 @@ def run(
     dataset: DatasetSpec,
     *,
     name: str = "",
-    session: Session | None = None,
+    session: Session | NativeMethodsSession | None = None,
     # Common runner options (shortcuts for most-used parameters)
     verbose: int = 1,
     save_artifacts: bool = True,
@@ -893,7 +894,6 @@ def run(
             raise TypeError("engine='native' requires an explicit mapping dataset")
         if isinstance(refit, dict | list):
             raise NotImplementedError("engine='native' currently requires refit=True")
-        from .native_session import NativeMethodsSession
         from .native_training import run_native_methods
 
         if session is not None:
