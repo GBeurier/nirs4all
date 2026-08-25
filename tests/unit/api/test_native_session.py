@@ -64,3 +64,35 @@ def test_native_session_refuses_missing_pipeline_and_legacy_runner_kwargs() -> N
     with pytest.raises(TypeError, match="unexpected keyword"):
         with session([], engine="native", workspace_path="legacy"):
             pass
+
+
+def test_native_run_delegates_to_the_matching_native_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    pipeline = [{"split": "stub"}, {"model": "stub"}]
+    native = NativeMethodsSession(pipeline, random_state=7)
+    result = _Result()
+    observed: list[object] = []
+
+    def native_run(dataset):  # noqa: ANN001
+        observed.append(dataset)
+        return result
+
+    monkeypatch.setattr(native, "run", native_run)
+
+    assert nirs4all.run(
+        pipeline,
+        {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]},
+        engine="native",
+        session=native,
+        save_charts=False,
+        random_state=7,
+    ) is result
+    assert observed == [{"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}]
+
+    with pytest.raises(ValueError, match="exact pipeline"):
+        nirs4all.run(
+            list(pipeline),
+            {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]},
+            engine="native",
+            session=native,
+            save_charts=False,
+        )

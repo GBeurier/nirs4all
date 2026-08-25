@@ -46,6 +46,18 @@ class NativeMethodsSession:
         return self._closed
 
     @property
+    def pipeline(self) -> list[Any]:
+        """The exact portable pipeline object owned by this session."""
+
+        return self._pipeline
+
+    @property
+    def random_state(self) -> int | None:
+        """The deterministic seed configured for every session training run."""
+
+        return self._random_state
+
+    @property
     def is_trained(self) -> bool:
         """Whether this session owns a fitted native result."""
 

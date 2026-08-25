@@ -887,7 +887,29 @@ def run(
     if selected_engine == "native":
         if tuning is not None or calibration is not None:
             raise NotImplementedError("engine='native' tuning and calibration are not available through run() yet")
+        from .native_session import NativeMethodsSession
         from .native_training import run_native_methods
+
+        if session is not None:
+            if not isinstance(session, NativeMethodsSession):
+                raise TypeError("engine='native' requires a NativeMethodsSession, not a legacy Session")
+            if pipeline is not session.pipeline:
+                raise ValueError("engine='native' run() requires the session's exact pipeline object")
+            if (
+                save_artifacts is not True
+                or save_charts is not False
+                or plots_visible
+                or refit is not True
+                or cache is not None
+                or project is not None
+                or report_naming != "nirs"
+                or results_path is not None
+                or runner_kwargs
+            ):
+                raise NotImplementedError("engine='native' session run() accepts only the verified portable run options")
+            if random_state is not None and random_state != session.random_state:
+                raise ValueError("engine='native' run() random_state must match the NativeMethodsSession")
+            return session.run(dataset)
 
         return run_native_methods(
             pipeline,
