@@ -25,6 +25,8 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, Union, overload
 
 import numpy as np
 
+from nirs4all.pipeline.engine import require_legacy_engine
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -43,6 +45,7 @@ def generate(
     train_ratio: float = ...,
     as_dataset: Literal[True] = ...,
     name: str = ...,
+    engine: str | None = ...,
     **kwargs: Any,
 ) -> SpectroDataset: ...
 
@@ -58,6 +61,7 @@ def generate(
     train_ratio: float = ...,
     as_dataset: Literal[False],
     name: str = ...,
+    engine: str | None = ...,
     **kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]: ...
 
@@ -72,6 +76,7 @@ def generate(
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_nirs",
+    engine: str | None = None,
     **kwargs: Any,
 ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
@@ -96,6 +101,9 @@ def generate(
         train_ratio: Proportion of samples for training partition.
         as_dataset: If True, returns SpectroDataset. If False, returns (X, y) tuple.
         name: Dataset name.
+        engine: Execution engine selector. Synthetic generation has no native
+            implementation in the current capability ledger, so any explicit
+            non-legacy engine is refused before constructing a dataset.
         **kwargs: Additional arguments passed to SyntheticDatasetBuilder.
 
     Returns:
@@ -125,6 +133,8 @@ def generate(
         generate.classification: Convenience function for classification datasets.
         generate.builder: Access the full builder API.
     """
+    require_legacy_engine("generate", engine)
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
