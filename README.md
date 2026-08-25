@@ -105,8 +105,9 @@ pip install nirs4all[native]
 
 The `native` extra enables the explicit, fail-closed `engine="native"` Methods
 subset: raw-array PLS training with explicit sample IDs, stateful native
-sessions, Archive V2 export/load, and replay. It does not change the default
-engine, fit a legacy runner, or silently fall back for a native request.
+sessions, strict Methods HPO, Archive V2 export/load, and replay. It does not
+change the default engine, fit a legacy runner, or silently fall back for a
+native request.
 
 ### Docker
 
