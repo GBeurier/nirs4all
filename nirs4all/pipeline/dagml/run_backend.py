@@ -424,9 +424,9 @@ def run_via_dagml(
         # the legacy store" property.
         if native_results_enabled(results_path):
             # Record the written run dir on the RunResult so a NATIVE export_model (P3 Slice 2c-ii) can
-            # locate the captured fitted REFIT artifact(s) + rehydrate them directly — retiring the P1c
-            # legacy-refit bridge for the single-model case (the bridge stays the fallback when no native
-            # dir exists or the run captured ≠1 loadable artifact).
+            # locate the captured fitted REFIT artifact(s) + rehydrate them directly. Unsupported native
+            # export shapes refuse at the public boundary unless callers explicitly opt into legacy-refit
+            # compatibility.
             result._dagml_results_dir = write_native_results(result, result._dagml_score_set, results_path)  # noqa: SLF001
         return result
     finally:
@@ -435,10 +435,11 @@ def run_via_dagml(
 
 
 def _attach_export_spec(result: RunResult, pipeline: Any, dataset: Any, name: str, random_state: int | None) -> None:
-    """FREEZE the run inputs on the dag-ml RunResult so .n4a export can re-fit the SAME run on legacy (P1c).
+    """Freeze inputs solely for an explicit ``compatibility=\"legacy-refit\"`` export request.
 
-    The dag-ml backend has no workspace/artifacts to bundle, so ``RunResult.export()`` re-runs this exact
-    pipeline through the legacy engine on demand. The replay inputs are FROZEN here, at run time, so a later
+    The dag-ml backend has no legacy workspace/artifacts. The default export path therefore refuses rather
+    than re-training. The compatibility path uses these frozen inputs only after an explicit caller opt-in,
+    so a later
     mutation of the live ``pipeline`` / in-memory ``dataset`` (arrays, SpectroDataset) cannot make the
     export represent a different run than the one scored:
 
