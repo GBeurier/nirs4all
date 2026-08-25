@@ -127,8 +127,10 @@ def load_native_archive_session(
 ) -> NativeArchiveSession:
     """Open a portable Archive V2 PREDICT session without a legacy runner.
 
-    ``methods_library_path`` identifies the compatible native Methods shared
-    library used for invocation-local N4MM hydration.
+    With ``nirs4all[native]``, the compatible Methods shared library is
+    discovered from the installed ``nirs4all-methods`` wheel for each
+    invocation. ``methods_library_path`` remains an explicit deployment
+    override for invocation-local N4MM hydration.
     """
 
     return NativeArchiveSession(path, methods_library_path=methods_library_path)
@@ -533,8 +535,9 @@ def load_session(
             session. ``"native"`` opens the fail-closed Core Archive V2
             Methods replay session; it never constructs a ``PipelineRunner``
             or falls back to the legacy loader.
-        methods_library_path: Required path to ``libn4m`` for an
-            ``engine="native"`` Archive V2 Methods session.
+        methods_library_path: Optional explicit path to ``libn4m`` for an
+            ``engine="native"`` Archive V2 Methods session. When omitted,
+            the bundled ``nirs4all-methods`` runtime is used.
 
     Returns:
         A session ready for prediction. The concrete type is

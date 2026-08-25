@@ -20,6 +20,8 @@ import numpy as np
 
 from .fit_identity import normalize_predict_identity
 from .methods_replay import MethodsN4mmReplayCallbacks, MethodsPortableReplayError
+from .methods_runtime import resolve_methods_library_path
+from .native_client import DagMLNativeCoverageError
 from .raw_replay_lowerer import RawArrayMethodsReplayCompiler, RawArrayMethodsReplayError
 
 if TYPE_CHECKING:
@@ -203,15 +205,12 @@ def predict_methods_archive_v2_raw_result(
     already materialized and validated by DAG-ML; it never recalibrates.
     """
 
-    if methods_library_path is None:
+    try:
+        library_path = resolve_methods_library_path(methods_library_path)
+    except (DagMLNativeCoverageError, OSError, TypeError, ValueError, RuntimeError) as error:
         raise NativeArchiveReplayError(
-            "native Archive V2 Methods replay requires an explicit methods_library_path"
-        )
-    library_path = str(methods_library_path)
-    if not library_path:
-        raise NativeArchiveReplayError(
-            "native Archive V2 Methods replay requires a non-empty methods_library_path"
-        )
+            "native Archive V2 Methods replay could not resolve a compatible Methods runtime"
+        ) from error
 
     dag_ml, package, package_document = _load_methods_archive_package(archive_path)
     identity = normalize_predict_identity(

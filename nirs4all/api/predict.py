@@ -164,9 +164,10 @@ def predict(
             ``engine="native"``.  Native sessions never construct a legacy
             runner.
 
-        methods_library_path: Required path to the compatible ``libn4m`` for
-            ``engine="native"`` Archive V2 Methods prediction. It is never
-            used to select a legacy execution path.
+        methods_library_path: Optional explicit path to the compatible
+            ``libn4m`` for ``engine="native"`` Archive V2 Methods prediction.
+            When omitted, the bundled ``nirs4all-methods`` runtime is used. It
+            is never used to select a legacy execution path.
 
         verbose: Verbosity level (0=quiet, 1=info, 2=debug).
             Default: 0

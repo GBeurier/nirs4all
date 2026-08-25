@@ -155,6 +155,10 @@ def test_raw_replay_resolver_refuses_unknown_or_duplicated_ids(
 def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.resolve_methods_library_path",
+        lambda path: str(path),
+    )
     runtime = _install_fake_runtime(monkeypatch)
     package_json = json.dumps(_package())
 
@@ -215,18 +219,56 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
         )
 
 
-def test_raw_archive_predict_refuses_an_implicit_methods_library() -> None:
-    with pytest.raises(NativeArchiveReplayError, match="explicit methods_library_path"):
-        predict_methods_archive_v2_raw(
-            "portable.n4a",
-            np.asarray([[1.0]]),
-            sample_ids=["sample.one"],
-        )
+def test_raw_archive_predict_resolves_the_bundled_methods_library(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _install_fake_runtime(monkeypatch)
+    package_json = json.dumps(_package())
+
+    class _Package:
+        def __init__(self, raw: str) -> None:
+            self._document = json.loads(raw)
+
+        def to_dict(self) -> dict[str, object]:
+            return self._document
+
+    runtime.PortablePredictorPackage = _Package
+    runtime.replay_loaded_methods_predictor_package = lambda *_args, **_kwargs: {
+        "outputs": [
+            {
+                "predictions": [
+                    {"sample_ids": ["sample.one"], "values": [[1.5]]}
+                ]
+            }
+        ]
+    }
+    monkeypatch.setitem(sys.modules, "dag_ml", runtime)
+    monkeypatch.setitem(
+        sys.modules,
+        "nirs4all_core",
+        types.SimpleNamespace(
+            read_portable_predictor_package_v2=lambda _path: package_json.encode()
+        ),
+    )
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.resolve_methods_library_path",
+        lambda _path=None: "/wheel/libn4m.so",
+    )
+
+    values = predict_methods_archive_v2_raw(
+        "portable.n4a", np.asarray([[1.0]]), sample_ids=["sample.one"]
+    )
+
+    assert values.tolist() == [[1.5]]
 
 
 def test_raw_archive_predict_projects_exact_native_conformal_intervals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.resolve_methods_library_path",
+        lambda path: str(path),
+    )
     runtime = _install_fake_runtime(monkeypatch)
     package = _package()
     package["conformal_calibration"] = {
