@@ -140,10 +140,14 @@ with nirs4all.load_session(
     )
 ```
 
-This R2 migration surface supports portable **PREDICT** replay only.  Training,
-retraining and explanation remain separate capabilities and are never routed to
-the legacy runner implicitly. The native Methods shared library is explicit for
-each session; a missing library path is refused rather than replaced by Python.
+This persisted R2 surface supports portable **PREDICT** replay only. An
+*in-memory* ``NativeMethodsSession`` may full-refit its already selected,
+attested Methods recipe on a new cohort via ``native.retrain(...)`` before it is
+saved. A loaded ``NativeArchiveSession`` deliberately cannot retrain:
+archive-based retraining, transfer/finetuning and explanation remain explicit
+capability refusals and are never routed to the legacy runner implicitly. The
+native Methods shared library is explicit for each session; a missing library
+path is refused rather than replaced by Python.
 
 ## Session Features
 
