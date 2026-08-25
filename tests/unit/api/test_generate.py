@@ -19,6 +19,21 @@ class TestGenerateFunction:
         assert isinstance(dataset, SpectroDataset)
         assert dataset.num_samples == 100
 
+    @pytest.mark.parametrize("engine", ["native", "dag-ml", "dual"])
+    def test_non_legacy_engine_is_refused_before_constructing_a_dataset(self, monkeypatch: pytest.MonkeyPatch, engine: str):
+        """Generation has no native capability yet and must not run implicitly."""
+        import nirs4all
+        import nirs4all.synthesis
+
+        monkeypatch.setattr(
+            nirs4all.synthesis,
+            "SyntheticDatasetBuilder",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("generator was constructed")),
+        )
+
+        with pytest.raises((NotImplementedError, ValueError), match="nirs4all.generate|dual"):
+            nirs4all.generate(n_samples=1, engine=engine)
+
     def test_generate_as_arrays(self):
         """Test generation returning arrays."""
         import nirs4all
