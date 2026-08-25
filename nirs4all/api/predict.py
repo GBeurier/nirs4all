@@ -161,9 +161,9 @@ def predict(
             ``result.metadata`` when publishing the workspace prediction row.
 
         session: Optional legacy :class:`Session` for runner reuse, or an
-            explicitly loaded :class:`NativeArchiveSession` with
-            ``engine="native"``.  Native sessions never construct a legacy
-            runner.
+            explicitly loaded :class:`NativeArchiveSession`. A native session
+            selects native replay by its concrete type; it never constructs a
+            legacy runner. Passing any explicit non-native engine is refused.
 
         methods_library_path: Optional explicit path to the compatible
             ``libn4m`` for ``engine="native"`` Archive V2 Methods prediction.
@@ -221,10 +221,16 @@ def predict(
     """
     engine = runner_kwargs.pop("engine", None)
 
-    if isinstance(session, (NativeArchiveSession, NativeMethodsSession)) and engine != "native":
-        raise ValueError(
-            "a native Methods session requires engine='native'; it never falls back to legacy prediction"
-        )
+    if isinstance(session, (NativeArchiveSession, NativeMethodsSession)):
+        if engine is None:
+            # The session itself is an unambiguous, already-selected native
+            # capability. Do not route it through the process default or an
+            # environment override: neither may construct a legacy runner.
+            engine = "native"
+        elif engine != "native":
+            raise ValueError(
+                "a native Methods session selects native prediction; an explicit non-native engine is refused"
+            )
 
     # ---- Validate mutually exclusive arguments ----
     if model is not None and chain_id is not None:
