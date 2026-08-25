@@ -58,8 +58,10 @@ and Package V2. Export writes Archive V2 from those exact native objects; it
 does not invoke the compatibility `PipelineRunner` or refit. Unsupported
 pipeline shapes, implicit identities, non-finite arrays, absent native
 capabilities, and non-native probability decoding fail explicitly.
-``methods_library_path`` is explicit on purpose: the portable route never
-discovers or substitutes a Python backend.
+``methods_library_path`` is an explicit deployment override. With
+``nirs4all[native]``, the compatible library from the installed
+``nirs4all-methods`` wheel is discovered automatically; the route never
+substitutes a Python backend.
 
 ### nirs4all.run()
 
