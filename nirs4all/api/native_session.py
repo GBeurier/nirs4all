@@ -28,14 +28,18 @@ class NativeMethodsSession:
         *,
         name: str = "",
         random_state: int | None = None,
+        tuning: Mapping[str, Any] | None = None,
     ) -> None:
         if not isinstance(pipeline, list):
             raise TypeError("engine='native' session requires a list pipeline")
         if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
             raise TypeError("engine='native' session random_state must be an integer or None")
+        if tuning is not None and not isinstance(tuning, Mapping):
+            raise TypeError("engine='native' session tuning must be a mapping")
         self._pipeline = pipeline
         self._name = name
         self._random_state = random_state
+        self._tuning = None if tuning is None else dict(tuning)
         self._result: NativeMethodsRunResult | None = None
         self._closed = False
 
@@ -56,6 +60,12 @@ class NativeMethodsSession:
         """The deterministic seed configured for every session training run."""
 
         return self._random_state
+
+    @property
+    def tuning(self) -> dict[str, Any] | None:
+        """Return the session's immutable-at-boundary native tuning request."""
+
+        return None if self._tuning is None else dict(self._tuning)
 
     @property
     def is_trained(self) -> bool:
@@ -82,6 +92,7 @@ class NativeMethodsSession:
             name=self._name,
             save_charts=False,
             random_state=self._random_state,
+            tuning=self._tuning,
         )
         return self._result
 

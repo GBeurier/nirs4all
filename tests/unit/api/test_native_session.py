@@ -52,6 +52,7 @@ def test_native_session_runs_predicts_saves_and_closes_without_legacy_runner(mon
         "name": "native",
         "save_charts": False,
         "random_state": 7,
+        "tuning": None,
     }
     with pytest.raises(RuntimeError, match="closed"):
         native.run({"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]})
@@ -64,6 +65,29 @@ def test_native_session_refuses_missing_pipeline_and_legacy_runner_kwargs() -> N
     with pytest.raises(TypeError, match="unexpected keyword"):
         with session([], engine="native", workspace_path="legacy"):
             pass
+    with pytest.raises(TypeError, match="tuning must be a mapping"):
+        NativeMethodsSession([], tuning=["methods-hpo"])  # type: ignore[arg-type]
+
+
+def test_native_session_binds_the_strict_methods_hpo_operation_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stateful native training forwards only the explicit HPO request."""
+
+    result = _Result()
+    observed: dict[str, object] = {}
+    tuning = {"engine": "methods-hpo", "trials": 3}
+
+    def native_run(_pipeline, _dataset, **kwargs):  # noqa: ANN001
+        observed.update(kwargs)
+        return result
+
+    monkeypatch.setattr("nirs4all.api.native_session.run_native_methods", native_run)
+    native = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}], tuning=tuning)
+
+    assert native.tuning == tuning
+    tuning["trials"] = 99
+    assert native.tuning == {"engine": "methods-hpo", "trials": 3}
+    assert native.run({"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}) is result
+    assert observed["tuning"] == {"engine": "methods-hpo", "trials": 3}
 
 
 def test_native_run_delegates_to_the_matching_native_session(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -78,14 +102,17 @@ def test_native_run_delegates_to_the_matching_native_session(monkeypatch: pytest
 
     monkeypatch.setattr(native, "run", native_run)
 
-    assert nirs4all.run(
-        pipeline,
-        {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]},
-        engine="native",
-        session=native,
-        save_charts=False,
-        random_state=7,
-    ) is result
+    assert (
+        nirs4all.run(
+            pipeline,
+            {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]},
+            engine="native",
+            session=native,
+            save_charts=False,
+            random_state=7,
+        )
+        is result
+    )
     assert observed == [{"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}]
 
     with pytest.raises(ValueError, match="exact pipeline"):

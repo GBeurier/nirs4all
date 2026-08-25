@@ -126,9 +126,23 @@ with nirs4all.session(pipeline, engine="native") as native:
     result.export("model.n4a")
 ```
 
-Tuning, calibration, generic branching/stacking, retraining and explanation
-remain explicit capability refusals on this route; none is redirected to the
-legacy backend.
+The only native tuning request is
+``{"engine": "methods-hpo", "trials": N}``: it uses the DAG-ML Methods
+controller with the attested V1 PLS ``n_components`` search space, random
+sampling and no pruner. A session can bind that same request once:
+
+```python
+with nirs4all.session(
+    pipeline,
+    engine="native",
+    tuning={"engine": "methods-hpo", "trials": 8},
+) as native:
+    result = native.run(dataset)
+```
+
+Archive-based retraining, transfer/finetuning, calibration, generic
+branching/stacking and explanation remain explicit capability refusals; none is
+redirected to the legacy backend.
 
 **Example - Single pipeline:**
 
