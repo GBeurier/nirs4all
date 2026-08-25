@@ -108,6 +108,7 @@ from .api import (
     FinetunePruner,
     FinetuneSampler,
     NativeArchiveSession,
+    NativeMethodsRunResult,
     NativeTuning,
     Nirs4AllCalibrationNotImplementedError,
     OrderedSearchSpaceSpec,
@@ -199,6 +200,7 @@ __all__ = [
     # Module-level API (primary interface)
     "run",
     "fit_native_pipeline",
+    "NativeMethodsRunResult",
     "DualRunUnsupported",
     "DualRunMismatchError",
     "calibrate",

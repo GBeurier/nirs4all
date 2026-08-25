@@ -38,6 +38,7 @@ from .result import RunResult
 from .session import Session
 
 if TYPE_CHECKING:
+    from .native_result import NativeMethodsRunResult
     from .tuning import TunedSingleEstimatorConformalResult
 
 # Type aliases for a single pipeline or dataset (not lists)
@@ -637,7 +638,7 @@ def run(
     local_implementations: Any | None = None,
     # All other PipelineRunner options
     **runner_kwargs: Any,
-) -> "RunResult | TunedSingleEstimatorConformalResult":
+) -> "RunResult | NativeMethodsRunResult | TunedSingleEstimatorConformalResult":
     """Execute a training pipeline on a dataset.
 
     This is the primary entry point for training ML pipelines on NIRS data.
@@ -718,9 +719,12 @@ def run(
             no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
             typed error for every other shape or unavailable native capability. Override the default
             per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
-            ``engine='native'`` is reserved for explicit Archive V2 PREDICT replay and is refused
-            by ``run()`` until native Methods training is distributed as a public capability; it never
-            falls through to the legacy orchestrator.
+            ``engine='native'`` runs the verified portable Methods subset: a
+            raw ``{'X', 'y', 'sample_ids'}`` dataset, one supported linear
+            KFold/PLS pipeline, ``refit=True``, ``save_artifacts=True`` and
+            ``save_charts=False``. Unsupported workflow features are refused
+            before execution; this path never falls through to the legacy
+            orchestrator.
             The dual subset requires exact built-in ``list``/``dict`` and exact NumPy arrays,
             ``KFold(shuffle=False)``, ``PLSRegression``, finite floating-point ``X`` and continuous
             regression ``y``,
@@ -876,17 +880,30 @@ def run(
         - :func:`nirs4all.session`: Create execution session for resource reuse
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
-    custom_training_loss_requested = bool(training_losses) or local_implementations is not None
-    if custom_training_loss_requested and resolve_engine(engine) != "dag-ml":
-        raise ValueError("training_losses/local_implementations require engine='dag-ml'")
-
     selected_engine = resolve_engine(engine)
+    custom_training_loss_requested = bool(training_losses) or local_implementations is not None
+    if custom_training_loss_requested and selected_engine != "dag-ml":
+        raise ValueError("training_losses/local_implementations require engine='dag-ml'")
     if selected_engine == "native":
-        raise NotImplementedError(
-            "nirs4all.run(engine='native') is not available yet: the native "
-            "Archive V2 surface currently supports explicit PREDICT replay only. "
-            "Use engine='dag-ml' for the current training backend or "
-            "engine='legacy' explicitly."
+        if tuning is not None or calibration is not None:
+            raise NotImplementedError("engine='native' tuning and calibration are not available through run() yet")
+        from .native_training import run_native_methods
+
+        return run_native_methods(
+            pipeline,
+            dataset,
+            name=name,
+            session=session,
+            save_artifacts=save_artifacts,
+            save_charts=save_charts,
+            plots_visible=plots_visible,
+            random_state=random_state,
+            refit=refit,
+            cache=cache,
+            project=project,
+            report_naming=report_naming,
+            results_path=results_path,
+            runner_kwargs=runner_kwargs,
         )
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")

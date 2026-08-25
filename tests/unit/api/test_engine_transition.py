@@ -7,7 +7,9 @@ import importlib
 import numpy as np
 import pytest
 
+import nirs4all
 from nirs4all.api.explain import explain
+from nirs4all.api.native_result import NativeMethodsRunResult
 from nirs4all.api.predict import predict
 from nirs4all.api.retrain import retrain
 from nirs4all.api.run import run
@@ -22,10 +24,10 @@ def test_require_legacy_engine_accepts_legacy() -> None:
     assert require_legacy_engine("predict", "legacy") == "legacy"
 
 
-def test_run_native_refuses_before_constructing_a_legacy_runner(
+def test_run_native_executes_the_methods_subset_without_constructing_a_legacy_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """A native training request must never silently execute the legacy path."""
+    """The public native lane never constructs ``PipelineRunner``."""
 
     def legacy_runner(*_args, **_kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("run(engine='native') constructed a legacy PipelineRunner")
@@ -33,16 +35,76 @@ def test_run_native_refuses_before_constructing_a_legacy_runner(
     run_module = importlib.import_module("nirs4all.api.run")
     monkeypatch.setattr(run_module, "PipelineRunner", legacy_runner)
 
-    with pytest.raises(NotImplementedError, match="Archive V2.*PREDICT replay only"):
-        run([], {}, engine="native")
+    class Estimator:
+        training_outcome_ = {
+            "outcome_fingerprint": "a" * 64,
+            "score_set": {
+                "schema_version": 2,
+                "selection_metric": "rmse",
+                "reports": [
+                    {
+                        "producer_node": "model:methods",
+                        "producer_port": "oof",
+                        "partition": "validation",
+                        "fold_id": "fold0",
+                        "level": "sample",
+                        "metrics": {"rmse": 0.5},
+                        "row_count": 2,
+                        "target_names": ["y"],
+                        "target_width": 1,
+                        "variant_id": "variant:base",
+                    },
+                    {
+                        "producer_node": "model:methods",
+                        "producer_port": "oof",
+                        "partition": "validation",
+                        "fold_id": "avg",
+                        "level": "sample",
+                        "metrics": {"rmse": 0.5},
+                        "row_count": 2,
+                        "target_names": ["y"],
+                        "target_width": 1,
+                        "variant_id": "variant:base",
+                    },
+                ],
+            },
+        }
+
+        def export_native_archive(self, *_args, **_kwargs):  # noqa: ANN001
+            raise AssertionError("training must not export during run")
+
+    observed: dict[str, object] = {}
+
+    def native_fit(pipeline, X, y, **kwargs):  # noqa: ANN001
+        observed.update(pipeline=pipeline, X=np.asarray(X), y=np.asarray(y), kwargs=kwargs)
+        return Estimator()
+
+    monkeypatch.setattr("nirs4all.api.native_training.fit_native_pipeline", native_fit)
+
+    result = run(
+        [{"split": "stub"}, {"model": "stub"}],
+        {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["s1", "s2"]},
+        engine="native",
+        save_charts=False,
+    )
+
+    assert isinstance(result, NativeMethodsRunResult)
+    assert nirs4all.NativeMethodsRunResult is NativeMethodsRunResult
+    assert result.cv_best_score == pytest.approx(0.5)
+    assert observed["kwargs"] == {
+        "sample_ids": ["s1", "s2"],
+        "groups": None,
+        "metadata": None,
+        "seed": 12345,
+    }
 
 
-def test_run_native_environment_selection_is_also_fail_closed(
+def test_run_native_environment_selection_is_also_fail_closed_for_unsupported_requests(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setenv("N4A_ENGINE", "native")
 
-    with pytest.raises(NotImplementedError, match="Archive V2.*PREDICT replay only"):
+    with pytest.raises(ValueError, match="missing required keys"):
         run([], {})
 
 
