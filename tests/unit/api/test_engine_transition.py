@@ -315,13 +315,20 @@ def test_retrain_native_refits_the_attested_selected_methods_variant_without_leg
         "y": np.asarray([1.0, 2.0, 3.0, 4.0]),
         "sample_ids": ["next-0", "next-1", "next-2", "next-3"],
     }
-    assert retrain(source, dataset, engine="native", name="next") is expected
+    assert retrain(source, dataset, name="next") is expected
     rebuilt_model = observed["pipeline"][1]["model"]
     assert rebuilt_model is not model
     assert rebuilt_model.n_components == 2
     assert model.n_components == 1
     assert observed["dataset"] is dataset
     assert observed["kwargs"] == {"name": "next", "save_charts": False, "random_state": None}
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
+def test_retrain_native_source_refuses_explicit_non_native_engine(engine: str) -> None:
+    source = object.__new__(NativeMethodsRunResult)
+    with pytest.raises(ValueError, match="explicit non-native engine"):
+        retrain(source, {"X": [], "y": [], "sample_ids": []}, engine=engine)
 
 
 @pytest.mark.parametrize(
