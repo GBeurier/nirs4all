@@ -117,6 +117,28 @@ print(f"Ready for prediction: {loaded_session.is_trained}")  # True
 predictions = loaded_session.predict(X_new)
 ```
 
+### Native Archive V2 prediction sessions
+
+For a portable Methods Archive V2, choose the native path explicitly.  It
+does not construct a `PipelineRunner`, invoke the legacy bundle loader, or
+fall back to Python execution.  Every prediction cohort must carry stable
+sample ids:
+
+```python
+import nirs4all
+
+with nirs4all.load_session("exports/methods_model.n4a", engine="native") as native:
+    prediction = nirs4all.predict(
+        data={"X": X_new, "sample_ids": sample_ids},
+        session=native,
+        engine="native",
+    )
+```
+
+This R2 migration surface supports portable **PREDICT** replay only.  Training,
+retraining and explanation remain separate capabilities and are never routed to
+the legacy runner implicitly.
+
 ## Session Features
 
 ### Stateful Pipeline Management
