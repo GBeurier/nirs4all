@@ -6,6 +6,8 @@ import importlib
 
 import numpy as np
 import pytest
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
 
 import nirs4all
 from nirs4all.api.explain import explain
@@ -268,6 +270,68 @@ def test_run_native_rejects_broad_legacy_shapes_before_native_execution(
 def test_public_helpers_reject_dagml_until_native_paths_exist(operation: str, call) -> None:
     with pytest.raises(NotImplementedError, match=rf"nirs4all\.{operation}.*dag-ml"):
         call()
+
+
+def test_retrain_native_refits_the_attested_selected_methods_variant_without_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Native full retrain keeps the selected HPO patch and never builds a runner."""
+
+    model = PLSRegression(n_components=1)
+
+    class Estimator:
+        pipeline = [KFold(n_splits=2), {"model": model}]
+        training_outcome_ = {
+            "parameter_patches": [
+                {
+                    "schema_version": 1,
+                    "node_id": "model:compat.0",
+                    "namespace": "operator",
+                    "path": ["n_components"],
+                    "value": 2,
+                }
+            ]
+        }
+
+    source = object.__new__(NativeMethodsRunResult)
+    source._native_estimator = Estimator()  # noqa: SLF001
+    observed: dict[str, object] = {}
+    expected = object()
+
+    def native_retrain(pipeline, dataset, **kwargs):  # noqa: ANN001
+        observed.update(pipeline=pipeline, dataset=dataset, kwargs=kwargs)
+        return expected
+
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    monkeypatch.setattr(retrain_module, "run_native_methods", native_retrain)
+    monkeypatch.setattr(
+        retrain_module,
+        "PipelineRunner",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("native retrain constructed PipelineRunner")),
+    )
+
+    dataset = {
+        "X": np.asarray([[1.0], [2.0], [3.0], [4.0]]),
+        "y": np.asarray([1.0, 2.0, 3.0, 4.0]),
+        "sample_ids": ["next-0", "next-1", "next-2", "next-3"],
+    }
+    assert retrain(source, dataset, engine="native", name="next") is expected
+    rebuilt_model = observed["pipeline"][1]["model"]
+    assert rebuilt_model is not model
+    assert rebuilt_model.n_components == 2
+    assert model.n_components == 1
+    assert observed["dataset"] is dataset
+    assert observed["kwargs"] == {"name": "next", "save_charts": False, "random_state": None}
+
+
+@pytest.mark.parametrize(
+    ("mode", "message"),
+    [("transfer", "only mode='full'"), ("finetune", "only mode='full'")],
+)
+def test_retrain_native_refuses_unqualified_modes_before_execution(mode: str, message: str) -> None:
+    source = object.__new__(NativeMethodsRunResult)
+    with pytest.raises(NotImplementedError, match=message):
+        retrain(source, {"X": [], "y": [], "sample_ids": []}, engine="native", mode=mode)
 
 
 def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner(
