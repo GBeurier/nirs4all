@@ -164,6 +164,19 @@ def _package_document(package: Any) -> dict[str, Any]:
     return package
 
 
+def validate_native_methods_package(package: Any) -> dict[str, Any]:
+    """Return a package only when it carries replayable Methods evidence.
+
+    Training callers use this at their public boundary so a host-sidecar result
+    cannot masquerade as a native raw pipeline and fail only during prediction
+    or Archive V2 export.
+    """
+
+    document = _package_document(package)
+    _require_native_methods_package(document)
+    return document
+
+
 def _require_native_methods_package(package: Mapping[str, Any]) -> None:
     if package.get("schema_version") != 2:
         raise RawArrayMethodsReplayError("raw-array Methods replay requires Package V2")
@@ -285,4 +298,8 @@ def _object(container: Mapping[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
-__all__ = ["RawArrayMethodsReplayCompiler", "RawArrayMethodsReplayError"]
+__all__ = [
+    "RawArrayMethodsReplayCompiler",
+    "RawArrayMethodsReplayError",
+    "validate_native_methods_package",
+]
