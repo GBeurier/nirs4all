@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import importlib
+
 import numpy as np
 import pytest
 
 import nirs4all
+from nirs4all.api.native_result import NativeMethodsRunResult
 from nirs4all.api.native_session import NativeMethodsSession
 from nirs4all.api.session import session
 
@@ -138,6 +141,36 @@ def test_native_predict_delegates_to_the_trained_native_session(monkeypatch: pyt
 
     assert prediction.y_pred.tolist() == [[4.0], [5.0]]
     assert prediction.metadata == {"engine": "native", "sample_ids": ["p1", "p2"]}
+
+
+def test_native_session_retrains_only_through_the_strict_native_full_refit(monkeypatch: pytest.MonkeyPatch) -> None:
+    source = object.__new__(NativeMethodsRunResult)
+    retrained = object.__new__(NativeMethodsRunResult)
+    native = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}], name="native")
+    native._result = source  # noqa: SLF001
+    observed: dict[str, object] = {}
+
+    def native_retrain(source_arg, data, **kwargs):  # noqa: ANN001
+        observed.update(source=source_arg, data=data, kwargs=kwargs)
+        return retrained
+
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    monkeypatch.setattr(retrain_module, "retrain", native_retrain)
+    dataset = {"X": [[3.0]], "y": [3.0], "sample_ids": ["s3"]}
+
+    assert native.retrain(dataset) is retrained
+    assert native.result is retrained
+    assert observed == {
+        "source": source,
+        "data": dataset,
+        "kwargs": {
+            "mode": "full",
+            "name": "native",
+            "save_artifacts": True,
+            "verbose": 0,
+            "engine": "native",
+        },
+    }
 
 
 @pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
