@@ -60,7 +60,8 @@ The public Python API runs that contract directly. The CLI currently validates a
 | `nirs4all.explain(...)` | Generate SHAP explanations | Model/bundle + data | `ExplainResult` |
 | `nirs4all.retrain(...)` | Retrain from an existing result or bundle | Source + new data | `RunResult` |
 | `nirs4all.session(...)` | Share runner/workspace resources across calls | Optional pipeline and runner kwargs | `Session` |
-| `nirs4all.load_session(...)` | Load an exported `.n4a` bundle for prediction | Bundle path | `Session` |
+| `nirs4all.load_session(..., engine="legacy")` | Load an exported legacy `.n4a` bundle for prediction | Bundle path | `Session` |
+| `nirs4all.load_session(..., engine="native")` | Open a portable Archive V2 Methods PREDICT session without a legacy fallback | Archive path | `NativeArchiveSession` |
 | `nirs4all.generate(...)` | Generate synthetic NIRS data | Synthetic parameters | `SpectroDataset` or arrays |
 | `result.export(...)` | Export a trained pipeline bundle | Output path | `.n4a` path |
 

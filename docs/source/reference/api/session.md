@@ -77,18 +77,26 @@ with nirs4all.session(pipeline=my_pipeline, name="Demo", verbose=1) as sess:
    :no-index:
 ```
 
-Load a session from a saved `.n4a` bundle file.
+Load a legacy bundle session or an explicit portable Archive V2 prediction
+session.
 
 **Signature:**
 ```python
-nirs4all.load_session(path: Union[str, Path]) -> Session
+nirs4all.load_session(
+    path: Union[str, Path], *, engine: str = "legacy"
+) -> Union[Session, NativeArchiveSession]
 ```
 
 **Parameters:**
 - `path` (str|Path): Path to the `.n4a` bundle file to load
+- `engine`: `"legacy"` (default) preserves the existing `BundleLoader` session.
+  `"native"` opens a fail-closed Core Archive V2 Methods PREDICT session and
+  accepts no legacy fallback.
 
 **Returns:**
-- Session object ready for prediction, with status set to `"trained"`
+- `Session` for `engine="legacy"`, ready for legacy prediction.
+- `NativeArchiveSession` for `engine="native"`, ready for identity-bound
+  native PREDICT replay.
 
 **Raises:**
 - `FileNotFoundError`: If the bundle file does not exist
@@ -108,9 +116,22 @@ print(f"Is trained: {session.is_trained}")  # True
 predictions = session.predict(X_new)
 ```
 
+**Native Archive V2 example:**
+```python
+native = nirs4all.load_session("exports/methods_model.n4a", engine="native")
+prediction = nirs4all.predict(
+    data={"X": X_new, "sample_ids": sample_ids},
+    session=native,
+    engine="native",
+)
+native.close()
+```
+
 **Notes:**
-- The loaded session maintains a reference to the bundle file for predictions
-- The session can predict, retrain, or be saved to a new location
+- A legacy `Session` maintains a reference to its bundle and can use the
+  legacy prediction, retraining, and save APIs.
+- `NativeArchiveSession` is deliberately PREDICT-only: it owns no legacy
+  runner and cannot be repurposed for retraining or export.
 - The original bundle file is not modified by the loaded session
 
 ## Session Methods

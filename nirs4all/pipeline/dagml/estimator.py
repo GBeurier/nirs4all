@@ -9,6 +9,7 @@ replay once the nirs4all→DAG-ML contract compiler is supplied.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Protocol
 
 import numpy as np
@@ -275,6 +276,48 @@ class DagMLPipelineEstimator(BaseEstimator):
                 "DagMLPipelineEstimator.predict_with_identity() requires a native prediction decoder; P1 does not synthesize Python predictions from replay JSON"
             )
         return np.asarray(self.prediction_decoder(replay_outcome))
+
+    def export_native_archive(
+        self,
+        archive_path: str | Path,
+        *,
+        archive_id: str,
+    ) -> dict[str, str]:
+        """Write this fitted native predictor as a portable Archive V2.
+
+        The archive consists solely of the exact native ``TrainingOutcome``
+        and Package V2 emitted by DAG-ML.  Assembly remains owned by DAG-ML
+        and ZIP persistence by Core; this method neither serializes a Python
+        estimator nor retrains through :class:`PipelineRunner`.
+
+        Args:
+            archive_path: New ``.n4a`` Archive V2 destination.
+            archive_id: Explicit stable archive identity for the closed
+                DAG-ML/Core archive contract.
+
+        Returns:
+            The Core-issued archive id and SHA-256 reference.
+
+        Raises:
+            DagMLNativeCoverageError: If fit did not retain an exportable
+                portable predictor package.
+        """
+
+        check_is_fitted(self, attributes=["training_outcome_", "predictor_package_"])
+        if not isinstance(archive_id, str) or not archive_id.strip():
+            raise ValueError("archive_id must be a non-empty string")
+        if self.predictor_package_ is None:
+            raise DagMLNativeCoverageError(
+                "native training did not retain a portable predictor package for Archive V2 export"
+            )
+        from .native_archive_replay import write_methods_archive_v2
+
+        return write_methods_archive_v2(
+            archive_path,
+            archive_id=archive_id,
+            outcome=self.training_outcome_,
+            package=self.predictor_package_,
+        )
 
     def _execute_replay_with_identity(
         self,

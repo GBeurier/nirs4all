@@ -504,14 +504,23 @@ class Session:
             status = "active" if self._runner is not None else "idle"
             return f"Session({status}, kwargs={list(self._runner_kwargs.keys())})"
 
-def load_session(path: str | Path) -> Session:
-    """Load a session from a saved bundle file.
+def load_session(
+    path: str | Path,
+    *,
+    engine: str = "legacy",
+) -> Session | NativeArchiveSession:
+    """Load a prediction session from a saved bundle or portable archive.
 
     Args:
-        path: Path to .n4a bundle file.
+        path: Path to a ``.n4a`` bundle or archive file.
+        engine: ``"legacy"`` (default) retains the existing BundleLoader
+            session. ``"native"`` opens the fail-closed Core Archive V2
+            Methods replay session; it never constructs a ``PipelineRunner``
+            or falls back to the legacy loader.
 
     Returns:
-        Session ready for prediction.
+        A session ready for prediction. The concrete type is
+        :class:`NativeArchiveSession` for ``engine="native"``.
 
     Example:
         >>> session = nirs4all.load_session("exports/model.n4a")
@@ -523,6 +532,16 @@ def load_session(path: str | Path) -> Session:
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Bundle not found: {path}")
+
+    if engine == "native":
+        if path.suffix.lower() != ".n4a":
+            raise ValueError("engine='native' load_session requires a Core Archive V2 .n4a path")
+        return load_native_archive_session(path)
+    if engine != "legacy":
+        from nirs4all.pipeline.engine import require_legacy_engine
+
+        require_legacy_engine("load_session", engine)
+        raise AssertionError("require_legacy_engine unexpectedly accepted a non-legacy engine")
 
     # Load the bundle to get pipeline info
     loader = BundleLoader(path)
