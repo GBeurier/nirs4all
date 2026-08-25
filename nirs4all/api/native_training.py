@@ -16,6 +16,10 @@ import numpy as np
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
 from nirs4all.pipeline.dagml.methods_runtime import resolve_methods_library_path
 from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
+from nirs4all.pipeline.dagml.native_conformal_calibration import (
+    NativeConformalCalibrationError,
+    compile_methods_conformal_calibration_replay,
+)
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
     RawArrayMethodsReplayCompiler,
     RawArrayMethodsReplayError,
@@ -139,6 +143,7 @@ def run_native_methods(
     results_path: Any = None,
     runner_kwargs: Mapping[str, Any] | None = None,
     tuning: Any = None,
+    calibration: Any = None,
 ) -> NativeMethodsRunResult:
     """Run the verified public Methods training subset without a legacy runner.
 
@@ -184,6 +189,7 @@ def run_native_methods(
         tuning,
         seed=12345 if random_state is None else random_state,
     )
+    calibration_operation = _native_conformal_calibration_operation(calibration)
 
     fit_kwargs: dict[str, Any] = {
         "sample_ids": dataset["sample_ids"],
@@ -194,6 +200,8 @@ def run_native_methods(
     if methods_hpo_operation is not None:
         fit_kwargs["methods_hpo_operation"] = methods_hpo_operation
     estimator = fit_native_pipeline(pipeline, dataset["X"], dataset["y"], **fit_kwargs)
+    if calibration_operation is not None:
+        _attach_native_conformal_calibration(estimator, calibration_operation)
     return NativeMethodsRunResult.from_estimator(
         estimator,
         dataset_name=name or "native",
@@ -203,6 +211,137 @@ def run_native_methods(
 
 _NATIVE_METHODS_HPO_SAMPLERS = frozenset({"random"})
 _NATIVE_METHODS_HPO_PRUNERS = frozenset({"none"})
+_NATIVE_CONFORMAL_POLICIES = frozenset({"marginal", "joint_max"})
+_NATIVE_CONFORMAL_SMALL_SAMPLE_POLICIES = frozenset({"error", "unbounded"})
+
+
+def _native_conformal_calibration_operation(calibration: Any) -> dict[str, Any] | None:
+    """Parse the explicit raw-array conformal cohort accepted by native run.
+
+    This does not accept the broad legacy/tuning calibration aliases.  The
+    caller supplies the actual calibration measurements and stable sample
+    identities; the native DAG-ML coordinator derives every fingerprint,
+    residual and quantile from the resulting PREDICT replay.
+    """
+
+    if calibration is None:
+        return None
+    if not isinstance(calibration, Mapping):
+        raise TypeError("engine='native' calibration must be a mapping")
+    payload = dict(calibration)
+    allowed = {
+        "X",
+        "y",
+        "sample_ids",
+        "groups",
+        "metadata",
+        "coverages",
+        "multi_target_policy",
+        "small_sample_policy",
+    }
+    unknown = set(payload) - allowed
+    if unknown:
+        raise ValueError(f"engine='native' calibration has unsupported keys: {sorted(unknown)}")
+    missing = {"X", "y", "sample_ids", "coverages"} - set(payload)
+    if missing:
+        raise ValueError(f"engine='native' calibration is missing required keys: {sorted(missing)}")
+    coverages = payload["coverages"]
+    if isinstance(coverages, (str, bytes)) or not isinstance(coverages, Sequence):
+        raise TypeError("engine='native' calibration coverages must be a non-empty sequence")
+    normalized_coverages: list[float] = []
+    for coverage in coverages:
+        if isinstance(coverage, bool) or not isinstance(coverage, int | float):
+            raise TypeError("engine='native' calibration coverages must be finite numbers")
+        numeric_coverage = float(coverage)
+        if not np.isfinite(numeric_coverage) or not 0.0 < numeric_coverage < 1.0:
+            raise ValueError("engine='native' calibration coverages must lie strictly between zero and one")
+        normalized_coverages.append(numeric_coverage)
+    if not normalized_coverages or len(set(normalized_coverages)) != len(normalized_coverages):
+        raise ValueError("engine='native' calibration coverages must be non-empty and unique")
+    multi_target_policy = payload.get("multi_target_policy", "marginal")
+    if multi_target_policy not in _NATIVE_CONFORMAL_POLICIES:
+        raise ValueError(f"engine='native' calibration multi_target_policy is unsupported: {multi_target_policy!r}")
+    small_sample_policy = payload.get("small_sample_policy", "error")
+    if small_sample_policy not in _NATIVE_CONFORMAL_SMALL_SAMPLE_POLICIES:
+        raise ValueError(f"engine='native' calibration small_sample_policy is unsupported: {small_sample_policy!r}")
+    return {
+        "X": payload["X"],
+        "y": payload["y"],
+        "sample_ids": payload["sample_ids"],
+        "groups": payload.get("groups"),
+        "metadata": payload.get("metadata"),
+        "coverages": normalized_coverages,
+        "multi_target_policy": multi_target_policy,
+        "small_sample_policy": small_sample_policy,
+    }
+
+
+def _attach_native_conformal_calibration(
+    estimator: DagMLPipelineEstimator,
+    calibration: Mapping[str, Any],
+) -> None:
+    """Attach a native calibration replay and refresh the portable package.
+
+    The replay is compiled from the package emitted by the just-completed fit.
+    Its target-free PREDICT result and separately identity-bound truth cross
+    the Python boundary unchanged.  Only DAG-ML may derive calibration
+    provenance, residuals or interval quantiles.
+    """
+
+    package = estimator.predictor_package_
+    training_result = getattr(estimator, "training_result_", None)
+    if package is None or training_result is None:
+        raise DagMLNativeCoverageError("native conformal calibration requires a fitted portable Methods Package V2")
+    try:
+        replay = compile_methods_conformal_calibration_replay(
+            package,
+            calibration["X"],
+            calibration["y"],
+            sample_ids=calibration["sample_ids"],
+            groups=calibration.get("groups"),
+            metadata=calibration.get("metadata"),
+            methods_library_path=getattr(getattr(estimator, "prediction_compiler", None), "methods_library_path", None),
+            dagml_module=estimator.dagml_module,
+        )
+    except (KeyError, NativeConformalCalibrationError, TypeError, ValueError) as error:
+        raise DagMLNativeCoverageError("native conformal calibration cohort is not replayable") from error
+    replay_outcome = estimator.execute_compiled_replay(replay.execution)
+    attach = getattr(training_result, "attach_conformal_calibration", None)
+    export = getattr(training_result, "export_portable_predictor_package", None)
+    if not callable(attach) or not callable(export):
+        raise DagMLNativeCoverageError("installed DAG-ML lacks native conformal calibration attachment")
+    attach(
+        replay_outcome,
+        binding_id=replay.binding_id,
+        calibration_relations=replay.calibration_relations,
+        truth=replay.truth,
+        coverages=calibration["coverages"],
+        multi_target_policy=calibration["multi_target_policy"],
+        small_sample_policy=calibration["small_sample_policy"],
+    )
+    package_id = _portable_package_id(package)
+    estimator.training_outcome_ = getattr(training_result, "outcome", None)
+    estimator.predictor_package_ = export(
+        package_id,
+        fitted_artifact_mode="portable_required",
+        artifact_load_mode="native_portable",
+    )
+    try:
+        validate_native_methods_package(estimator.predictor_package_)
+    except RawArrayMethodsReplayError as error:
+        raise DagMLNativeCoverageError("native conformal calibration did not re-export a portable Methods Package V2") from error
+
+
+def _portable_package_id(package: Any) -> str:
+    """Read the durable Package V2 id without fabricating an export identity."""
+
+    document = package.to_dict() if hasattr(package, "to_dict") else package
+    if not isinstance(document, Mapping):
+        raise DagMLNativeCoverageError("native conformal calibration package is not a structured contract")
+    package_id = document.get("package_id")
+    if not isinstance(package_id, str) or not package_id:
+        raise DagMLNativeCoverageError("native conformal calibration package has no stable package_id")
+    return package_id
 
 
 def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] | None:

@@ -112,6 +112,24 @@ class NativeMethodsRunResult(RunResult):
             raise DagMLNativeCoverageError("native selected variant id is malformed")
         return value
 
+    @property
+    def native_conformal_calibration(self) -> dict[str, Any] | None:
+        """Return the DAG-ML-attested conformal state, when calibration ran.
+
+        The mapping is the native contract emitted after the exact calibration
+        replay was attached.  No Python interval state is reconstructed here;
+        Archive V2 and native PREDICT remain the authoritative persistence and
+        materialization paths.
+        """
+
+        outcome = _outcome_document(self._native_estimator)
+        calibration = outcome.get("conformal_calibration")
+        if calibration is None:
+            return None
+        if not isinstance(calibration, Mapping):
+            raise DagMLNativeCoverageError("native conformal calibration is not a structured mapping")
+        return dict(calibration)
+
     def export(
         self,
         output_path: str | Path,
