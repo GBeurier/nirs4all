@@ -101,9 +101,25 @@ jobs:
             MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
           fi
 
-          if [ "$RUNNER_OS" == "macOS" ] || [ "$RUNNER_OS" == "Windows" ]; then
-            # macOS and Windows: run serially to avoid xdist worker deadlocks.
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            # macOS: run serially to avoid fork() deadlocks.
             python -m pytest -v --timeout=120 "${MARK[@]}" tests/unit/
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            # Keep native-framework tests out of xdist, then use a bounded
+            # loadfile schedule.  ``worksteal -n auto`` deadlocks Windows
+            # workers, while a fully serial suite exceeds the job budget.
+            python -m pytest -v --timeout=300 \
+              -m torch \
+              tests/unit/operators/models/test_pytorch.py \
+              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
+            python -m pytest -v --timeout=300 \
+              -m tensorflow \
+              tests/unit/operators/models/test_tensorflow.py \
+              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
+            python -m pytest -v --timeout=300 \
+              -m jax tests/unit/operators/models/test_jax.py
+            python -m pytest -v -n 2 --dist loadfile --timeout=300 \
+              -m "not torch and not tensorflow and not keras and not jax" tests/unit/
           else
             # TensorFlow and PyTorch both claim process-global native state. Run
             # each framework's explicit test files in a fresh interpreter; marker
@@ -132,9 +148,25 @@ jobs:
             MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
           fi
 
-          if [ "$RUNNER_OS" == "macOS" ] || [ "$RUNNER_OS" == "Windows" ]; then
-            # macOS and Windows: run serially to avoid xdist worker deadlocks.
+          if [ "$RUNNER_OS" == "macOS" ]; then
+            # macOS: run serially to avoid fork() deadlocks.
             python -m pytest -v --timeout=120 "${MARK[@]}" tests/integration/pipeline/
+          elif [ "$RUNNER_OS" == "Windows" ]; then
+            # The merge fixtures and TensorFlow replay own process-global or
+            # write-contended state.  Exercise them serially, then bound the
+            # portable remainder to two loadfile workers.
+            python -m pytest -v --timeout=300 \
+              tests/integration/pipeline/test_merge_mixed.py \
+              tests/integration/pipeline/test_merge_per_branch.py
+            python -m pytest -v --timeout=300 \
+              -m tensorflow \
+              tests/integration/pipeline/test_classification_integration.py \
+              tests/integration/pipeline/test_finetune_integration.py \
+              tests/integration/pipeline/test_prediction_reuse_integration.py
+            python -m pytest -v -n 2 --dist loadfile --timeout=300 tests/integration/pipeline/ \
+              -m "not torch and not tensorflow and not keras and not jax" \
+              --ignore=tests/integration/pipeline/test_merge_mixed.py \
+              --ignore=tests/integration/pipeline/test_merge_per_branch.py
           else
             # Serial subset with known write-contention under heavy xdist load
             python -m pytest -v --timeout=300 \
