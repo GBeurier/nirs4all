@@ -38,6 +38,7 @@ def fit_native_pipeline(
     native_client: Any = None,
     training_losses: tuple[Mapping[str, Any], ...] = (),
     local_implementations: Any = None,
+    methods_library_path: str | None = None,
     seed: int = 12345,
 ) -> DagMLPipelineEstimator:
     """Fit the supported raw-array pipeline entirely through DAG-ML.
@@ -89,6 +90,7 @@ def fit_native_pipeline(
             dagml_module=dagml_module,
             training_losses=training_losses,
             local_implementations=local_implementations,
+            methods_library_path=methods_library_path,
             seed=seed,
         ),
         require_explicit_sample_ids=True,
@@ -105,6 +107,7 @@ def fit_native_pipeline(
     estimator.prediction_compiler = RawArrayMethodsReplayCompiler(
         estimator.predictor_package_,
         dagml_module=dagml_module,
+        methods_library_path=methods_library_path,
     )
     estimator.prediction_identity_decoder = _decode_raw_methods_prediction
     return estimator

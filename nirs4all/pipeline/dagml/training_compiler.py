@@ -37,12 +37,14 @@ class DagMLPreparedTrainingContracts:
     data_envelopes: Mapping[str, Any]
     relations: Any
     training_influence: Any
-    op_callback: Callable[[Any], Any]
+    op_callback: Callable[[Any], Any] | None
     outcome_id: str
     run_id: str
     bundle_id: str
     warnings: Sequence[str] = ()
     diagnostics: Mapping[str, Any] | None = None
+    methods_inputs: Mapping[str, Any] | None = None
+    methods_library_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -53,12 +55,14 @@ class DagMLTrainingRequestContracts:
     data_envelopes: Mapping[str, Any]
     relations: Any
     training_influence: Any
-    op_callback: Callable[[Any], Any]
+    op_callback: Callable[[Any], Any] | None
     outcome_id: str
     run_id: str
     bundle_id: str
     warnings: Sequence[str] = ()
     diagnostics: Mapping[str, Any] | None = None
+    methods_inputs: Mapping[str, Any] | None = None
+    methods_library_path: str | None = None
 
     def to_prepared(self) -> DagMLPreparedTrainingContracts:
         """Assemble the signed request and return prepared execution contracts."""
@@ -74,6 +78,8 @@ class DagMLTrainingRequestContracts:
             bundle_id=self.bundle_id,
             warnings=self.warnings,
             diagnostics=self.diagnostics,
+            methods_inputs=self.methods_inputs,
+            methods_library_path=self.methods_library_path,
         )
 
 
@@ -213,6 +219,8 @@ def compile_prepared_training_contracts(
         bundle_id=contracts.bundle_id,
         warnings=warnings,
         diagnostics=diagnostics,
+        methods_inputs=(dict(contracts.methods_inputs) if contracts.methods_inputs is not None else None),
+        methods_library_path=contracts.methods_library_path,
     )
 
 
@@ -224,7 +232,13 @@ def _validate_prepared_contracts(contracts: DagMLPreparedTrainingContracts) -> N
     for key in contracts.data_envelopes:
         if not isinstance(key, str) or not key:
             raise ValueError("data_envelopes keys must be non-empty strings")
-    if not callable(contracts.op_callback):
+    uses_methods = contracts.methods_inputs is not None or contracts.methods_library_path is not None
+    if uses_methods:
+        if contracts.methods_inputs is None or not isinstance(contracts.methods_library_path, str) or not contracts.methods_library_path:
+            raise ValueError("Methods contracts require inputs and an explicit libn4m path")
+        if contracts.op_callback is not None:
+            raise ValueError("Methods contracts forbid a Python operator callback")
+    elif not callable(contracts.op_callback):
         raise TypeError("op_callback must be callable")
     _require_non_empty_text("outcome_id", contracts.outcome_id)
     _require_non_empty_text("run_id", contracts.run_id)

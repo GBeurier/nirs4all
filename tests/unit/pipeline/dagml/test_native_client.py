@@ -145,6 +145,57 @@ def test_execute_training_forwards_to_facade_without_contract_reimplementation(
     ]
 
 
+def test_execute_methods_training_forwards_without_a_python_operator_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_methods_training"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    sentinel = object()
+
+    def execute_methods_training(*args: Any, **kwargs: Any) -> object:
+        calls.append((args, kwargs))
+        return sentinel
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(module_name, execute_methods_training=execute_methods_training),
+    )
+
+    result = DagMLNativeClient(module_name).execute_methods_training(
+        {"request": True},
+        {"model:base.x": {"envelope": True}},
+        {"relations": True},
+        {"influence": True},
+        {"model:base.x": {"x": [[1.0]], "y": [[2.0]]}},
+        methods_library_path="/absolute/libn4m.so",
+        outcome_id="outcome-1",
+        run_id="run-1",
+        bundle_id="bundle-1",
+    )
+
+    assert result is sentinel
+    assert calls == [
+        (
+            (
+                {"request": True},
+                {"model:base.x": {"envelope": True}},
+                {"relations": True},
+                {"influence": True},
+                {"model:base.x": {"x": [[1.0]], "y": [[2.0]]}},
+            ),
+            {
+                "methods_library_path": "/absolute/libn4m.so",
+                "outcome_id": "outcome-1",
+                "run_id": "run-1",
+                "bundle_id": "bundle-1",
+                "warnings": (),
+                "diagnostics": None,
+            },
+        )
+    ]
+
+
 def test_replay_loaded_predictor_package_forwards_to_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     module_name = "_n4a_fake_dag_ml_replay"
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []

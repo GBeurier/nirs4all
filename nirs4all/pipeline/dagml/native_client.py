@@ -50,6 +50,22 @@ class _DagMLFacade(Protocol):
         diagnostics: Any = None,
     ) -> Any: ...
 
+    def execute_methods_training(
+        self,
+        request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any: ...
+
     def replay_loaded_predictor_package(
         self,
         package: Any,
@@ -61,6 +77,20 @@ class _DagMLFacade(Protocol):
         outcome_id: str,
         run_id: str,
         artifact_callback: Any = None,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any: ...
+
+    def replay_loaded_methods_predictor_package(
+        self,
+        package: Any,
+        request: Any,
+        data_envelopes: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
         warnings: Any = (),
         diagnostics: Any = None,
     ) -> Any: ...
@@ -138,6 +168,43 @@ class DagMLNativeClient:
             diagnostics=diagnostics,
         )
 
+    def execute_methods_training(
+        self,
+        request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any:
+        """Execute the no-callback portable Methods PLS lane.
+
+        This intentionally has a distinct facade method: routing a Methods
+        model through ``execute_training`` would install a Python callback and
+        silently turn a supposedly portable model into a host sidecar.
+        """
+
+        facade = self._require_callable("execute_methods_training")
+        return facade.execute_methods_training(
+            request,
+            data_envelopes,
+            relations,
+            training_influence,
+            methods_inputs,
+            methods_library_path=methods_library_path,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            bundle_id=bundle_id,
+            warnings=warnings,
+            diagnostics=diagnostics,
+        )
+
     def replay_loaded_predictor_package(
         self,
         package: Any,
@@ -176,6 +243,34 @@ class DagMLNativeClient:
             artifact_handles,
             op_callback,
             **kwargs,
+        )
+
+    def replay_loaded_methods_predictor_package(
+        self,
+        package: Any,
+        request: Any,
+        data_envelopes: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any:
+        """Replay a native Methods package without callback or sidecar adapters."""
+
+        facade = self._require_callable("replay_loaded_methods_predictor_package")
+        return facade.replay_loaded_methods_predictor_package(
+            package,
+            request,
+            data_envelopes,
+            methods_inputs,
+            methods_library_path=methods_library_path,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            warnings=warnings,
+            diagnostics=diagnostics,
         )
 
     def _load_facade(self) -> _DagMLFacade:
