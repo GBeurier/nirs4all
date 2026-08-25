@@ -64,6 +64,64 @@ class BundleFormat(StrEnum):
     def __str__(self) -> str:
         return self.value
 
+
+def write_single_model_bundle(
+    model: Any,
+    output_path: str | Path,
+    *,
+    model_label: str = "model",
+    pipeline_uid: str = "",
+    preprocessing_chain: str = "",
+    provenance: dict[str, Any] | None = None,
+    compress: bool = True,
+) -> Path:
+    """Write a self-contained ``.n4a`` bundle from one predict-capable model.
+
+    This is intentionally separate from :class:`BundleGenerator`: it writes no
+    workspace, resolver, trace, or legacy artifact.  It is the native export
+    boundary for a dag-ml REFIT artifact whose ``predict`` method already
+    applies the complete forward pass and any target inverse transformation.
+    """
+    import io
+
+    import joblib
+
+    output_path = Path(output_path)
+    if output_path.suffix.lower() != ".n4a":
+        output_path = output_path.with_suffix(".n4a")
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+
+    safe_label = "".join(char if char.isalnum() else "_" for char in model_label).strip("_") or "model"
+    import nirs4all
+
+    manifest: dict[str, Any] = {
+        "bundle_format_version": BUNDLE_FORMAT_VERSION,
+        "nirs4all_version": getattr(nirs4all, "__version__", "unknown"),
+        "created_at": datetime.now(UTC).isoformat(),
+        "pipeline_uid": pipeline_uid,
+        "source_type": "single_model",
+        "model_step_index": 1,
+        "fold_strategy": "single",
+        "preprocessing_chain": preprocessing_chain,
+    }
+    if provenance:
+        manifest.update(provenance)
+
+    pipeline_config = {
+        "steps": [{"model": {"class": model_label}}],
+        "model_step_index": 1,
+    }
+    compression = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
+    with zipfile.ZipFile(output_path, "w", compression=compression) as bundle:
+        bundle.writestr("manifest.json", json.dumps(manifest, indent=2))
+        bundle.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
+        artifact = io.BytesIO()
+        joblib.dump(model, artifact)
+        bundle.writestr(f"artifacts/step_1_foldfinal_{safe_label}.joblib", artifact.getvalue())
+
+    return output_path
+
+
 class BundleGenerator:
     """Generate standalone prediction bundles from trained pipelines.
 

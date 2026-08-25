@@ -46,6 +46,7 @@ Design Principles:
 from nirs4all.pipeline.bundle.generator import (
     BundleFormat,
     BundleGenerator,
+    write_single_model_bundle,
 )
 from nirs4all.pipeline.bundle.loader import (
     BundleLoader,
@@ -57,4 +58,5 @@ __all__ = [
     "BundleFormat",
     "BundleLoader",
     "BundleMetadata",
+    "write_single_model_bundle",
 ]

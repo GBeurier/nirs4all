@@ -1555,6 +1555,9 @@ class RunResult:
                     "the dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export(path) (no source/chain_id)."
                 )
+            native = self._dagml_native_export_bundle(output_path, format)
+            if native is not None:
+                return native
             if legacy_refit_compatibility:
                 delegate = self._dagml_export_delegate()
                 if delegate is None:
@@ -1567,7 +1570,6 @@ class RunResult:
 
         if legacy_refit_compatibility:
             raise ValueError("compatibility='legacy-refit' is only valid for engine='dag-ml' results")
-
         # Store-based export path
         if chain_id is not None:
             with self._open_store_for_export() as store:
@@ -1664,6 +1666,50 @@ class RunResult:
 
         joblib.dump(model, output_path, compress=3)
         return output_path
+
+    def _dagml_native_export_bundle(self, output_path: str | Path, format: str) -> Path | None:
+        """Build a native ``.n4a`` from one captured dag-ml REFIT artifact.
+
+        ``None`` means this narrow representation is inapplicable; callers keep
+        their existing transition behaviour.  A successful return never calls
+        the legacy runner or re-fits the pipeline.
+        """
+        if self._dagml_results_dir is None or format != "n4a":
+            return None
+
+        from nirs4all.pipeline.dagml.native_results import read_native_results
+
+        try:
+            native = read_native_results(self._dagml_results_dir)
+            artifacts = native["artifacts"]
+        except Exception as error:  # native storage is untrusted at this boundary
+            logger.debug("native dag-ml .n4a export unavailable: %s", error)
+            return None
+        if len(artifacts) != 1:
+            return None
+
+        artifact = artifacts[0]
+        model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+        native_manifest = native["manifest"]
+        model_names = native_manifest.get("model_names") or []
+        model_label = str(model_names[0]) if model_names else type(artifact["estimator"]).__name__
+        provenance = {
+            "source_type": "dagml_native",
+            "export_path": "dagml_native",
+            "dagml_run_id": native_manifest.get("run_id"),
+            "dagml_plan_id": native_manifest.get("plan_id"),
+            "dagml_bundle_id": native_manifest.get("bundle_id"),
+            "dagml_selected_variant": native_manifest.get("selected_variant"),
+        }
+        from nirs4all.pipeline.bundle import write_single_model_bundle
+
+        return write_single_model_bundle(
+            model,
+            output_path,
+            model_label=model_label,
+            pipeline_uid=str(native_manifest.get("run_id") or ""),
+            provenance=provenance,
+        )
 
     def export_model(
         self,
