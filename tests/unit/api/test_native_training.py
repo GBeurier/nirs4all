@@ -24,7 +24,16 @@ class _TrainingResult:
     ]
 
     def export_portable_predictor_package(self, package_id: str) -> dict[str, Any]:
-        return {"schema_version": 2, "package_id": package_id}
+        return {
+            "schema_version": 2,
+            "package_id": package_id,
+            "execution_bundle": {
+                "raw_artifact_payloads": {"artifact:model": [1, 2, 3]},
+                "refit_artifacts": [
+                    {"artifact_id": "artifact:model", "kind": "n4m_model"}
+                ],
+            },
+        }
 
 
 class _Client:
@@ -92,10 +101,9 @@ def test_fit_native_pipeline_is_a_public_strict_native_composition(
         {"records": []},
         {"entries": []},
     )
-    assert estimator.predictor_package_ == {
-        "schema_version": 2,
-        "package_id": "outcome:native-predictor",
-    }
+    assert estimator.predictor_package_ == _TrainingResult().export_portable_predictor_package(
+        "outcome:native-predictor"
+    )
     assert estimator.prediction_compiler is not None
     assert estimator.prediction_identity_decoder is not None
     assert nirs4all.fit_native_pipeline is fit_native_pipeline
@@ -151,6 +159,41 @@ def test_fit_native_pipeline_surfaces_missing_package_as_native_coverage_error(
             np.asarray([1.0]),
             sample_ids=["fit-a"],
             native_client=NoPackageClient(),
+        )
+
+
+def test_fit_native_pipeline_refuses_host_sidecar_package_before_returning(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class HostSidecar(_TrainingResult):
+        def export_portable_predictor_package(self, package_id: str) -> dict[str, Any]:
+            return {"schema_version": 2, "package_id": package_id, "execution_bundle": {}}
+
+    class HostSidecarClient(_Client):
+        def execute_training(self, *args: Any, **kwargs: Any) -> HostSidecar:
+            _ = (args, kwargs)
+            return HostSidecar()
+
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.RawArrayDagMLTrainingCompiler.compile_fit",
+        lambda *_args, **_kwargs: __import__("nirs4all.pipeline.dagml.estimator", fromlist=["DagMLTrainingExecution"]).DagMLTrainingExecution(
+            request={},
+            data_envelopes={},
+            relations={},
+            training_influence={},
+            op_callback=lambda task: task,
+            outcome_id="o",
+            run_id="r",
+            bundle_id="b",
+        ),
+    )
+    with pytest.raises(DagMLNativeCoverageError, match="replayable portable Methods"):
+        fit_native_pipeline(
+            [{"split": "stub"}, {"model": "stub"}],
+            np.asarray([[1.0]]),
+            np.asarray([1.0]),
+            sample_ids=["fit-a"],
+            native_client=HostSidecarClient(),
         )
 
 

@@ -273,6 +273,24 @@ def test_fit_refuses_ambiguous_outputs_without_selection_output_id() -> None:
         estimator.fit(np.ones((2, 2)), np.ones(2))
 
 
+def test_fit_selects_package_v2_nested_output_binding() -> None:
+    class PackageV2Result(_FakeTrainingResult):
+        def __init__(self) -> None:
+            super().__init__()
+            self.outputs = [{"binding": {"binding_id": "pred"}}]
+
+    client = _FakeNativeClient()
+    client.training_result = PackageV2Result()
+    estimator = DagMLPipelineEstimator(
+        pipeline=("model",),
+        selection_output_id="pred",
+        native_client=client,
+        training_compiler=lambda *args, **kwargs: _training_execution(),
+    ).fit(np.ones((2, 2)), np.ones(2))
+
+    assert estimator.output_binding_ == {"binding": {"binding_id": "pred"}}
+
+
 def test_predict_requires_replay_compiler_after_fit() -> None:
     estimator = DagMLPipelineEstimator(
         pipeline=("model",),
