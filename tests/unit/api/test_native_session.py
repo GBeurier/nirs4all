@@ -173,6 +173,43 @@ def test_native_session_retrains_only_through_the_strict_native_full_refit(monke
     }
 
 
+def test_native_hpo_session_refits_the_result_selected_by_its_own_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A session keeps its attested HPO result as the sole native refit source."""
+
+    selected = object.__new__(NativeMethodsRunResult)
+    refitted = object.__new__(NativeMethodsRunResult)
+    tuning = {"engine": "methods-hpo", "trials": 2}
+    native = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}], tuning=tuning)
+    observed: dict[str, object] = {}
+
+    def native_run(_pipeline, _dataset, **kwargs):  # noqa: ANN001
+        observed["tuning"] = kwargs["tuning"]
+        return selected
+
+    def native_retrain(source_arg, _data, **kwargs):  # noqa: ANN001
+        observed["source"] = source_arg
+        observed["retrain_kwargs"] = kwargs
+        return refitted
+
+    monkeypatch.setattr("nirs4all.api.native_session.run_native_methods", native_run)
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    monkeypatch.setattr(retrain_module, "retrain", native_retrain)
+
+    dataset = {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}
+    assert native.run(dataset) is selected
+    assert native.retrain(dataset) is refitted
+    assert native.result is refitted
+    assert observed["tuning"] == tuning
+    assert observed["source"] is selected
+    assert observed["retrain_kwargs"] == {
+        "mode": "full",
+        "name": "",
+        "save_artifacts": True,
+        "verbose": 0,
+        "engine": "native",
+    }
+
+
 @pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
 def test_native_session_never_falls_back_to_another_run_engine(engine: str) -> None:
     pipeline = [{"split": "stub"}, {"model": "stub"}]
