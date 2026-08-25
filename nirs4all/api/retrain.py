@@ -15,6 +15,8 @@ Example:
     >>> print(f"New RMSE: {result.best_rmse:.4f}")
 """
 
+import copy
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TypeAlias
 
@@ -25,25 +27,29 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine
 
+from .native_result import NativeMethodsRunResult
+from .native_training import run_native_methods
 from .result import RunResult
 from .session import Session
 
 # Type aliases for clarity
 SourceSpec: TypeAlias = (
-    dict[str, Any]               # Prediction dict from previous run
-    | str                          # Path to bundle (.n4a) or config
-    | Path                          # Path to bundle or config
+    NativeMethodsRunResult  # Native in-memory Methods result
+    | dict[str, Any]  # Prediction dict from previous run
+    | str  # Path to bundle (.n4a) or config
+    | Path  # Path to bundle or config
 )
 
 DataSpec: TypeAlias = (
-    str                          # Path to data folder
-    | Path                         # Path to data folder
-    | np.ndarray                   # X array
-    | tuple[np.ndarray, ...]       # (X,) or (X, y)
-    | dict[str, Any]               # Dict with X, y keys
-    | SpectroDataset               # Direct SpectroDataset instance
-    | DatasetConfigs                # Backward compat
+    str  # Path to data folder
+    | Path  # Path to data folder
+    | np.ndarray  # X array
+    | tuple[np.ndarray, ...]  # (X,) or (X, y)
+    | dict[str, Any]  # Dict with X, y keys
+    | SpectroDataset  # Direct SpectroDataset instance
+    | DatasetConfigs  # Backward compat
 )
+
 
 def retrain(
     source: SourceSpec,
@@ -56,7 +62,7 @@ def retrain(
     session: Session | None = None,
     verbose: int = 1,
     save_artifacts: bool = True,
-    **kwargs: Any
+    **kwargs: Any,
 ) -> RunResult:
     """Retrain a pipeline on new data.
 
@@ -72,7 +78,8 @@ def retrain(
         data: New dataset to train on. Can be:
             - Path to data folder: ``"new_data/"``
             - Numpy arrays: ``(X, y)``
-            - Dict: ``{"X": X, "y": y}``
+            - Dict: ``{"X": X, "y": y}``; the native path additionally
+              requires explicit ``sample_ids``.
             - SpectroDataset instance
 
         mode: Retrain mode. Options:
@@ -102,9 +109,11 @@ def retrain(
             - learning_rate: Learning rate for fine-tuning
             - freeze_layers: List of layers to freeze during fine-tuning
             - step_modes: Per-step mode overrides (advanced)
-            - engine: Backend selector for the transition release. Only
-              ``"legacy"`` is supported by this helper until native retraining
-              is implemented.
+            - engine: ``"native"`` enables the strict in-memory Methods full
+              retrain subset. It requires a ``NativeMethodsRunResult`` source,
+              a raw ``{"X", "y", "sample_ids"}`` dataset and preserves the
+              attested selected PLS variant. Archive sources, transfer and
+              finetune remain explicit refusals; all other modes use legacy.
 
     Returns:
         RunResult containing:
@@ -176,6 +185,19 @@ def retrain(
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
 
     engine = kwargs.pop("engine", None)
+    if engine == "native":
+        return _retrain_native_methods_full(
+            source,
+            data,
+            mode=mode,
+            name=name,
+            new_model=new_model,
+            epochs=epochs,
+            session=session,
+            verbose=verbose,
+            save_artifacts=save_artifacts,
+            extra_kwargs=kwargs,
+        )
     require_legacy_engine("retrain", engine)
 
     # Use session runner if provided, otherwise create new
@@ -186,16 +208,7 @@ def retrain(
     data_arg = str(data) if isinstance(data, Path) else data
 
     # Call the runner's retrain method
-    predictions, per_dataset = runner.retrain(
-        source=source_arg,
-        dataset=data_arg,
-        mode=mode,
-        dataset_name=name,
-        new_model=new_model,
-        epochs=epochs,
-        verbose=verbose,
-        **kwargs
-    )
+    predictions, per_dataset = runner.retrain(source=source_arg, dataset=data_arg, mode=mode, dataset_name=name, new_model=new_model, epochs=epochs, verbose=verbose, **kwargs)
 
     return RunResult(
         predictions=predictions,
@@ -203,3 +216,88 @@ def retrain(
         _runner=runner,
         _owns_runner=session is None,
     )
+
+
+def _retrain_native_methods_full(
+    source: SourceSpec,
+    data: DataSpec,
+    *,
+    mode: str,
+    name: str,
+    new_model: Any | None,
+    epochs: int | None,
+    session: Session | None,
+    verbose: int,
+    save_artifacts: bool,
+    extra_kwargs: Mapping[str, Any],
+) -> NativeMethodsRunResult:
+    """Refit one selected in-memory Methods variant without legacy orchestration.
+
+    This is intentionally the first native retrain capability, not a silent
+    reinterpretation of every historical retrain mode. A durable Archive V2
+    source, transfer learning and finetuning need their own capability and
+    lineage contracts, so they are refused before data reaches the runtime.
+    """
+
+    if mode != "full":
+        raise NotImplementedError("engine='native' retrain currently supports only mode='full'")
+    if not isinstance(source, NativeMethodsRunResult):
+        raise TypeError("engine='native' retrain requires an in-memory NativeMethodsRunResult source")
+    if not isinstance(data, Mapping):
+        raise TypeError("engine='native' retrain requires data={'X', 'y', 'sample_ids'}")
+    if new_model is not None or epochs is not None:
+        raise NotImplementedError("engine='native' full retrain does not accept new_model or epochs")
+    if session is not None:
+        raise NotImplementedError("engine='native' retrain is stateless; do not pass a session")
+    if not save_artifacts:
+        raise ValueError("engine='native' retrain requires save_artifacts=True")
+    if verbose not in (0, 1, 2):
+        raise ValueError("engine='native' retrain verbose must be 0, 1, or 2")
+    if extra_kwargs:
+        raise NotImplementedError(f"engine='native' retrain does not accept legacy kwargs: {sorted(extra_kwargs)}")
+
+    return run_native_methods(
+        _selected_native_methods_pipeline(source),
+        data,
+        name=name,
+        save_charts=False,
+        random_state=None,
+    )
+
+
+def _selected_native_methods_pipeline(source: NativeMethodsRunResult) -> list[Any]:
+    """Clone the source recipe and apply its attested selected PLS patch only."""
+
+    original = getattr(source.native_estimator, "pipeline", None)
+    if not isinstance(original, list):
+        raise ValueError("native retrain source does not retain a portable list pipeline")
+    pipeline = copy.deepcopy(original)
+    models = [step["model"] for step in pipeline if isinstance(step, Mapping) and set(step) == {"model"}]
+    if len(models) != 1:
+        raise ValueError("native retrain source does not retain exactly one portable Methods model")
+
+    outcome = getattr(source.native_estimator, "training_outcome_", None)
+    document = outcome.to_dict() if hasattr(outcome, "to_dict") else outcome
+    if not isinstance(document, Mapping):
+        raise ValueError("native retrain source does not retain a structured native outcome")
+    patches = document.get("parameter_patches", [])
+    if not isinstance(patches, list):
+        raise ValueError("native retrain source parameter patches are malformed")
+    saw_components_patch = False
+    for patch in patches:
+        if not isinstance(patch, Mapping):
+            raise ValueError("native retrain source parameter patch is malformed")
+        if (
+            patch.get("schema_version") != 1
+            or patch.get("node_id") != "model:compat.0"
+            or patch.get("namespace") != "operator"
+            or patch.get("path") != ["n_components"]
+            or isinstance(patch.get("value"), bool)
+            or not isinstance(patch.get("value"), int)
+            or patch["value"] < 1
+            or saw_components_patch
+        ):
+            raise ValueError("native retrain source carries an unsupported selected parameter patch")
+        models[0].n_components = patch["value"]
+        saw_components_patch = True
+    return pipeline
