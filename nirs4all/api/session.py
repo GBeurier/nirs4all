@@ -624,6 +624,7 @@ def session(
         ...     print(f"Best score: {result.best_score:.4f}")
     """
     engine = kwargs.pop("engine", "legacy")
+    s: Session | NativeMethodsSession
     if engine == "native":
         from nirs4all.api.native_session import NativeMethodsSession
 

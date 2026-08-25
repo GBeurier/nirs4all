@@ -117,8 +117,9 @@ class NativeMethodsRunResult(RunResult):
 
 def _outcome_document(estimator: DagMLPipelineEstimator) -> Mapping[str, Any]:
     outcome = getattr(estimator, "training_outcome_", None)
-    if hasattr(outcome, "to_dict"):
-        outcome = outcome.to_dict()
+    to_dict = getattr(outcome, "to_dict", None)
+    if callable(to_dict):
+        outcome = to_dict()
     if not isinstance(outcome, Mapping):
         raise DagMLNativeCoverageError("native Methods training did not return a structured outcome")
     return outcome

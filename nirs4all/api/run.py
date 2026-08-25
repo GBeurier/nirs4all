@@ -887,6 +887,12 @@ def run(
     if selected_engine == "native":
         if tuning is not None or calibration is not None:
             raise NotImplementedError("engine='native' tuning and calibration are not available through run() yet")
+        if not isinstance(pipeline, list):
+            raise TypeError("engine='native' requires a list pipeline")
+        if not isinstance(dataset, Mapping):
+            raise TypeError("engine='native' requires an explicit mapping dataset")
+        if isinstance(refit, dict | list):
+            raise NotImplementedError("engine='native' currently requires refit=True")
         from .native_session import NativeMethodsSession
         from .native_training import run_native_methods
 

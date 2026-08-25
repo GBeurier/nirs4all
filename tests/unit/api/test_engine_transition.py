@@ -109,6 +109,30 @@ def test_run_native_environment_selection_is_also_fail_closed_for_unsupported_re
 
 
 @pytest.mark.parametrize(
+    ("pipeline", "dataset", "kwargs", "message"),
+    [
+        ({"model": "stub"}, {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}, {}, "list pipeline"),
+        ([], (np.asarray([[1.0]]), np.asarray([1.0])), {}, "explicit mapping dataset"),
+        ([], {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}, {"refit": {"mode": "full"}}, "requires refit=True"),
+    ],
+)
+def test_run_native_rejects_broad_legacy_shapes_before_native_execution(
+    monkeypatch: pytest.MonkeyPatch,
+    pipeline,
+    dataset,
+    kwargs,
+    message,
+) -> None:
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.run_native_methods",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("native execution was reached")),
+    )
+
+    with pytest.raises((TypeError, NotImplementedError), match=message):
+        run(pipeline, dataset, engine="native", save_charts=False, **kwargs)
+
+
+@pytest.mark.parametrize(
     ("operation", "call"),
     [
         (
