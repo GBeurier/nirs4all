@@ -34,6 +34,8 @@ class NativeMethodsSession:
             raise TypeError("engine='native' session requires a list pipeline")
         if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
             raise TypeError("engine='native' session random_state must be an integer or None")
+        if tuning is not None and not isinstance(tuning, Mapping):
+            raise TypeError("engine='native' session tuning must be a mapping")
         self._pipeline = pipeline
         self._name = name
         self._random_state = random_state

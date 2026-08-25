@@ -65,6 +65,8 @@ def test_native_session_refuses_missing_pipeline_and_legacy_runner_kwargs() -> N
     with pytest.raises(TypeError, match="unexpected keyword"):
         with session([], engine="native", workspace_path="legacy"):
             pass
+    with pytest.raises(TypeError, match="tuning must be a mapping"):
+        NativeMethodsSession([], tuning=["methods-hpo"])  # type: ignore[arg-type]
 
 
 def test_native_session_binds_the_strict_methods_hpo_operation_once(monkeypatch: pytest.MonkeyPatch) -> None:
