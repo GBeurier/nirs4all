@@ -219,8 +219,8 @@ def test_run_native_attaches_identity_bound_conformal_calibration_without_legacy
         "calibration_relations": {"records": [{"sample_id": "cal-1"}, {"sample_id": "cal-2"}]},
         "truth": {"sample_ids": ["cal-1", "cal-2"], "values": [[1.5], [2.5]]},
         "coverages": [0.8, 0.95],
-        "multi_target_policy": "marginal",
-        "small_sample_policy": "error",
+        "multi_target_policy": '"marginal"',
+        "small_sample_policy": '"error"',
     }
     assert estimator.predictor_package_ == {"package_id": "package:native", "schema_version": 2, "reexported": True}
     assert result.native_conformal_calibration == {"schema_version": 2, "binding_id": "binding:prediction"}
