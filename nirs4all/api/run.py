@@ -933,6 +933,8 @@ def run(
             results_path=results_path,
             runner_kwargs=runner_kwargs,
         )
+    if isinstance(session, NativeMethodsSession):
+        raise ValueError("NativeMethodsSession requires engine='native'; it never falls back to another engine")
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
 

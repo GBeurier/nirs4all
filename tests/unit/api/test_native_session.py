@@ -111,3 +111,17 @@ def test_native_predict_delegates_to_the_trained_native_session(monkeypatch: pyt
 
     assert prediction.y_pred.tolist() == [[4.0], [5.0]]
     assert prediction.metadata == {"engine": "native", "sample_ids": ["p1", "p2"]}
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
+def test_native_session_never_falls_back_to_another_run_engine(engine: str) -> None:
+    pipeline = [{"split": "stub"}, {"model": "stub"}]
+    native = NativeMethodsSession(pipeline)
+
+    with pytest.raises(ValueError, match="requires engine='native'"):
+        nirs4all.run(
+            pipeline,
+            {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]},
+            engine=engine,
+            session=native,
+        )
