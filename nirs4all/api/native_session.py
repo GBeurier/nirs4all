@@ -109,7 +109,11 @@ class NativeMethodsSession:
 
         result = retrain(
             self.result,
-            dataset,
+            # ``retrain`` exposes the public ``DataSpec`` union, whose
+            # mapping branch is deliberately a concrete ``dict``.  Sessions
+            # accept any read-only mapping at their boundary, so materialize
+            # it here rather than narrowing the session contract.
+            dict(dataset),
             mode="full",
             name=self._name,
             save_artifacts=True,
