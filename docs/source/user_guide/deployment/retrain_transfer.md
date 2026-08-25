@@ -42,6 +42,30 @@ new_result = nirs4all.retrain("model.n4a", new_data, mode="full")
 print(f"Retrained RMSE: {new_result.best_rmse:.4f}")
 ```
 
+### Verified native Methods full retrain
+
+The explicit ``engine="native"`` route has a narrower, portable contract. It
+accepts only an in-memory ``NativeMethodsRunResult`` obtained from native
+Methods training and a raw mapping containing finite ``X``, ``y`` and stable
+``sample_ids``. When its source carries a selected Methods HPO variant, the
+attested ``n_components`` patch is applied to a copied PLS recipe before the
+new full refit:
+
+```python
+retrained = nirs4all.retrain(
+    source=methods_result,
+    data={"X": X_new, "y": y_new, "sample_ids": new_ids},
+    mode="full",
+    engine="native",
+)
+```
+
+This path never creates a ``PipelineRunner`` or uses a Python HPO objective.
+Archive V2 sources, transfer mode, finetuning, replacing the model, legacy
+runner options and retained sessions are refused before native execution. An
+archive-to-retrain recipe is a separate portable contract and is not inferred
+from prediction-only archive metadata.
+
 ### Transfer Mode
 
 Reuse preprocessing artifacts (scalers, SNV, etc.) while training a new model:
