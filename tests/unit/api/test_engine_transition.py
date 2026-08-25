@@ -77,9 +77,9 @@ def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner
 ) -> None:
     observed: dict[str, object] = {}
 
-    def native_predict(path, X, *, sample_ids, groups, metadata):  # noqa: ANN001
+    def native_predict(path, X, *, sample_ids, methods_library_path, groups, metadata):  # noqa: ANN001
         observed.update(
-            path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), groups=groups, metadata=metadata
+            path=str(path), X=np.asarray(X), sample_ids=list(sample_ids), methods_library_path=methods_library_path, groups=groups, metadata=metadata
         )
         return NativeArchivePrediction(
             values=np.asarray([[2.0], [3.0]]),

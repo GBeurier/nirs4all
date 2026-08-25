@@ -6,6 +6,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 from sklearn.neighbors import KNeighborsRegressor
 
@@ -128,6 +129,55 @@ def test_lower_raw_array_training_contracts_builds_request_envelopes_and_influen
     assert envelope["target_content_fingerprint"] == request["data_identities"][0]["target_content_fingerprint"]
     assert {row["observation_id"] for row in contracts.relations["records"]} == {f"s{index}" for index in range(5)}
     assert {entry["kind"] for entry in contracts.training_influence["entries"]} == {"model_fit", "hpo_selection"}
+
+
+def test_portable_methods_lowering_uses_only_the_native_controller_and_identity_keyed_rows() -> None:
+    _require_recent_dag_ml()
+    X = np.arange(12, dtype=float).reshape(6, 2)
+    y = np.arange(6, dtype=float)
+    frame = normalize_fit_identity(X, y, sample_ids=[f"s{index}" for index in range(6)])
+
+    contracts = lower_raw_array_training_contracts(
+        [KFold(n_splits=2), {"model": PLSRegression(n_components=1)}],
+        X,
+        y,
+        identity_frame=frame,
+        methods_library_path="/absolute/libn4m.so",
+    )
+    prepared = contracts.to_prepared()
+
+    assert contracts.op_callback is None
+    assert prepared.methods_library_path == "/absolute/libn4m.so"
+    assert prepared.request["options"]["artifacts"] == {
+        "cv_artifacts": "discard",
+        "prediction_caches": "retain",
+        "fitted_artifacts": "portable_required",
+    }
+    assert [manifest["controller_id"] for manifest in prepared.request["controller_manifests"]] == [
+        "controller:methods.pls"
+    ]
+    node = prepared.request["graph"]["nodes"][0]
+    assert node["metadata"]["controller_id"] == "controller:methods.pls"
+    assert prepared.methods_inputs == {
+        "model:compat.0.x": {
+            "sample_ids": [f"s{index}" for index in range(6)],
+            "x": X.tolist(),
+            "y": y.reshape(-1, 1).tolist(),
+            "target_names": ["y"],
+        }
+    }
+
+
+def test_portable_methods_lowering_refuses_non_pls_or_transform_pipelines() -> None:
+    _require_recent_dag_ml()
+    X = np.arange(12, dtype=float).reshape(6, 2)
+    y = np.arange(6, dtype=float)
+    frame = normalize_fit_identity(X, y, sample_ids=[f"s{index}" for index in range(6)])
+
+    with pytest.raises(ValueError, match="PLSRegression only"):
+        lower_raw_array_training_contracts(
+            _pipeline(), X, y, identity_frame=frame, methods_library_path="/absolute/libn4m.so"
+        )
 
 
 def test_lower_raw_array_training_contracts_maps_deterministic_finetune_grid() -> None:
