@@ -169,25 +169,13 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
         package: _Package,
         request: dict[str, object],
         envelopes: dict[str, object],
-        handles: dict[str, object],
-        op_callback: object,
+        methods_inputs: dict[str, object],
         *,
+        methods_library_path: str,
         outcome_id: str,
         run_id: str,
-        artifact_callback: object,
     ) -> dict[str, object]:
-        _ = (package, request, envelopes, handles, op_callback, outcome_id, run_id)
-        handle = artifact_callback(
-            {
-                "operation": "hydrate",
-                "request": {
-                    "artifact": {"kind": "n4m_model"},
-                    "controller_id": "methods.pls",
-                },
-                "payload": [1, 2, 3],
-            }
-        )
-        artifact_callback({"operation": "release", "handle": handle})
+        _ = (package, request, envelopes, methods_inputs, methods_library_path, outcome_id, run_id)
         return {
             "outputs": [
                 {
@@ -202,7 +190,7 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
         }
 
     runtime.PortablePredictorPackage = _Package
-    runtime.replay_loaded_predictor_package = replay
+    runtime.replay_loaded_methods_predictor_package = replay
     monkeypatch.setitem(sys.modules, "dag_ml", runtime)
     monkeypatch.setitem(
         sys.modules,
@@ -211,7 +199,7 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
     )
 
     values = predict_methods_archive_v2_raw(
-        "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"]
+        "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"], methods_library_path="/native/libn4m.so"
     )
 
     assert values.tolist() == [[1.5], [2.5]]
@@ -220,10 +208,19 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
     def mismatched_replay(*args: object, **kwargs: object) -> dict[str, object]:
         return {"outputs": [{"predictions": [{"sample_ids": ["sample.two"], "values": [[1.0]]}]}]}
 
-    runtime.replay_loaded_predictor_package = mismatched_replay
+    runtime.replay_loaded_methods_predictor_package = mismatched_replay
     with pytest.raises(NativeArchiveReplayError, match="identities do not exactly match"):
         predict_methods_archive_v2_raw(
-            "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"]
+            "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"], methods_library_path="/native/libn4m.so"
+        )
+
+
+def test_raw_archive_predict_refuses_an_implicit_methods_library() -> None:
+    with pytest.raises(NativeArchiveReplayError, match="explicit methods_library_path"):
+        predict_methods_archive_v2_raw(
+            "portable.n4a",
+            np.asarray([[1.0]]),
+            sample_ids=["sample.one"],
         )
 
 
@@ -283,7 +280,7 @@ def test_raw_archive_predict_projects_exact_native_conformal_intervals(
         }
 
     runtime.PortablePredictorPackage = _Package
-    runtime.replay_loaded_predictor_package = replay
+    runtime.replay_loaded_methods_predictor_package = replay
     monkeypatch.setitem(sys.modules, "dag_ml", runtime)
     monkeypatch.setitem(
         sys.modules,
@@ -297,6 +294,7 @@ def test_raw_archive_predict_projects_exact_native_conformal_intervals(
         "portable.n4a",
         np.asarray([[1.0], [2.0]]),
         sample_ids=["sample.one", "sample.two"],
+        methods_library_path="/native/libn4m.so",
     )
 
     assert result.values.tolist() == [[1.5], [2.5]]
@@ -320,12 +318,13 @@ def test_raw_archive_predict_projects_exact_native_conformal_intervals(
         payload["conformal_intervals"][0]["intervals"][0]["cells"][0][0] = {"status": "unbounded"}
         return payload
 
-    runtime.replay_loaded_predictor_package = unbounded
+    runtime.replay_loaded_methods_predictor_package = unbounded
     with pytest.raises(NativeArchiveReplayError, match="unbounded conformal interval"):
         predict_methods_archive_v2_raw_result(
             "portable.n4a",
             np.asarray([[1.0], [2.0]]),
             sample_ids=["sample.one", "sample.two"],
+            methods_library_path="/native/libn4m.so",
         )
 
 

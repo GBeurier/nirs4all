@@ -127,7 +127,12 @@ sample ids:
 ```python
 import nirs4all
 
-with nirs4all.load_session("exports/methods_model.n4a", engine="native") as native:
+methods_library = "/opt/nirs4all/lib/libn4m.so"
+with nirs4all.load_session(
+    "exports/methods_model.n4a",
+    engine="native",
+    methods_library_path=methods_library,
+) as native:
     prediction = nirs4all.predict(
         data={"X": X_new, "sample_ids": sample_ids},
         session=native,
@@ -137,7 +142,8 @@ with nirs4all.load_session("exports/methods_model.n4a", engine="native") as nati
 
 This R2 migration surface supports portable **PREDICT** replay only.  Training,
 retraining and explanation remain separate capabilities and are never routed to
-the legacy runner implicitly.
+the legacy runner implicitly. The native Methods shared library is explicit for
+each session; a missing library path is refused rather than replaced by Python.
 
 ## Session Features
 

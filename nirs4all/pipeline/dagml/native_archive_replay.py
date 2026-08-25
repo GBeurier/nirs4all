@@ -159,6 +159,7 @@ def predict_methods_archive_v2_raw(
     X: Any,
     *,
     sample_ids: Any,
+    methods_library_path: str | Path | None = None,
     groups: Any = None,
     metadata: Any = None,
     outcome_id: str = "outcome:nirs4all.archive_predict",
@@ -176,6 +177,7 @@ def predict_methods_archive_v2_raw(
         archive_path,
         X,
         sample_ids=sample_ids,
+        methods_library_path=methods_library_path,
         groups=groups,
         metadata=metadata,
         outcome_id=outcome_id,
@@ -188,6 +190,7 @@ def predict_methods_archive_v2_raw_result(
     X: Any,
     *,
     sample_ids: Any,
+    methods_library_path: str | Path | None = None,
     groups: Any = None,
     metadata: Any = None,
     outcome_id: str = "outcome:nirs4all.archive_predict",
@@ -199,6 +202,16 @@ def predict_methods_archive_v2_raw_result(
     :func:`predict_methods_archive_v2_raw`.  It exposes only interval blocks
     already materialized and validated by DAG-ML; it never recalibrates.
     """
+
+    if methods_library_path is None:
+        raise NativeArchiveReplayError(
+            "native Archive V2 Methods replay requires an explicit methods_library_path"
+        )
+    library_path = str(methods_library_path)
+    if not library_path:
+        raise NativeArchiveReplayError(
+            "native Archive V2 Methods replay requires a non-empty methods_library_path"
+        )
 
     dag_ml, package, package_document = _load_methods_archive_package(archive_path)
     identity = normalize_predict_identity(
@@ -212,20 +225,20 @@ def predict_methods_archive_v2_raw_result(
         package,
         outcome_id=outcome_id,
         run_id=run_id,
+        methods_library_path=library_path,
     )
     try:
         replay = compiler.compile_replay(
             None, X, mode="predict", identity_frame=identity
         )
-        outcome = dag_ml.replay_loaded_predictor_package(
+        outcome = dag_ml.replay_loaded_methods_predictor_package(
             package,
             replay.request,
             replay.data_envelopes,
-            replay.artifact_handles,
-            replay.op_callback,
+            replay.methods_inputs,
+            methods_library_path=library_path,
             outcome_id=replay.outcome_id,
             run_id=replay.run_id,
-            artifact_callback=replay.artifact_callback,
         )
         return _decode_exact_raw_prediction(
             outcome,
@@ -234,9 +247,6 @@ def predict_methods_archive_v2_raw_result(
         )
     except (MethodsPortableReplayError, RawArrayMethodsReplayError) as error:
         raise NativeArchiveReplayError(str(error)) from error
-    finally:
-        if "replay" in locals() and replay.cleanup is not None:
-            replay.cleanup()
 
 
 def _load_methods_archive_package(

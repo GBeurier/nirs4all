@@ -118,7 +118,11 @@ predictions = session.predict(X_new)
 
 **Native Archive V2 example:**
 ```python
-native = nirs4all.load_session("exports/methods_model.n4a", engine="native")
+native = nirs4all.load_session(
+    "exports/methods_model.n4a",
+    engine="native",
+    methods_library_path="/opt/nirs4all/lib/libn4m.so",
+)
 prediction = nirs4all.predict(
     data={"X": X_new, "sample_ids": sample_ids},
     session=native,
