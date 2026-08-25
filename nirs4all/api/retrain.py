@@ -199,6 +199,8 @@ def retrain(
             extra_kwargs=kwargs,
         )
     require_legacy_engine("retrain", engine)
+    if isinstance(source, NativeMethodsRunResult):
+        raise TypeError("a NativeMethodsRunResult source requires engine='native'")
 
     # Use session runner if provided, otherwise create new
     runner = session.runner if session is not None else PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
@@ -277,7 +279,10 @@ def _selected_native_methods_pipeline(source: NativeMethodsRunResult) -> list[An
         raise ValueError("native retrain source does not retain exactly one portable Methods model")
 
     outcome = getattr(source.native_estimator, "training_outcome_", None)
-    document = outcome.to_dict() if hasattr(outcome, "to_dict") else outcome
+    if outcome is None:
+        raise ValueError("native retrain source does not retain a structured native outcome")
+    outcome_to_dict = getattr(outcome, "to_dict", None)
+    document = outcome_to_dict() if callable(outcome_to_dict) else outcome
     if not isinstance(document, Mapping):
         raise ValueError("native retrain source does not retain a structured native outcome")
     patches = document.get("parameter_patches", [])
