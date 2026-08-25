@@ -498,10 +498,12 @@ def _scores_to_run_result(
     cv_partitions = _CV_PARTITIONS if run_has_test else ("train", "val")
 
     # Order the CV variants WINNER-first (the variant owning the refit `(final, None)`; its cross-fold
-    # avg is the native `None`-tagged row), then the losers in the order dag-ml emitted them. A single
-    # (non-sweep) pipeline has exactly one CV variant — `variant:base`, which is also the winner — so the
-    # loop runs once and reproduces the pre-#55 winner-only shape. The winner's avg key is the `None`
-    # variant_id; each loser's avg key is its own variant_id.
+    # avg is normally the native `None`-tagged row), then the losers in the order dag-ml emitted them. A
+    # single (non-sweep) pipeline has exactly one CV variant — `variant:base`, which is also the winner —
+    # so the loop runs once and reproduces the pre-#55 winner-only shape. The generic DAG-ML route tags
+    # the winner's avg with `None`; the portable Methods controller keeps the sole concrete
+    # `variant:base` identity instead. Both are the same single-producer OOF evidence, so the lookup
+    # below accepts the latter only when the former is absent.
     cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id != "avg"))
     if final_variant_id is not _MISSING and final_variant_id in cv_variant_ids:
         cv_variant_ids = [final_variant_id] + [variant_id for variant_id in cv_variant_ids if variant_id != final_variant_id]
@@ -520,13 +522,16 @@ def _scores_to_run_result(
         fold_keys = [fold_id for (other_variant_id, partition, fold_id) in by_key if other_variant_id == variant_id and partition == "validation" and fold_id != "avg"]
         # The cross-fold OOF average for THIS variant. dag-ml emits the avg with `variant_id = None` for
         # the SOLE producer (a single concrete pipeline or a merge node) and for the SWEEP WINNER; a sweep
-        # LOSER's avg carries its own variant_id. So the `None`-tagged avg belongs to the winner, or to the
-        # lone variant when there is only one. A single-fold splitter (KennardStone/SPXY, n_splits=1) emits
-        # NO "avg" — just the one validation fold — so there is no ensemble block (the legacy 5-row
+        # LOSER's avg carries its own variant_id. The portable Methods controller retains `variant:base`
+        # for its sole producer instead of rewriting it to `None`, so we accept that exact fallback only
+        # when there is no `None` row. A single-fold splitter (KennardStone/SPXY, n_splits=1) emits NO
+        # "avg" — just the one validation fold — so there is no ensemble block (the legacy 5-row
         # single-split shape) and the lone fold's OOF is the CV score.
         avg_variant_id = None if (is_winner or len(cv_variant_ids) == 1) else variant_id
-        has_avg = by_key.get((avg_variant_id, "validation", "avg")) is not None
         avg = by_key.get((avg_variant_id, "validation", "avg"))
+        if avg is None and avg_variant_id is None:
+            avg = by_key.get((variant_id, "validation", "avg"))
+        has_avg = avg is not None
         if avg is None and len(fold_keys) == 1:
             avg = by_key[(variant_id, "validation", fold_keys[0])]
 
