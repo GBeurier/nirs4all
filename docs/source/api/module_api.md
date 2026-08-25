@@ -58,8 +58,10 @@ and Package V2. Export writes Archive V2 from those exact native objects; it
 does not invoke the compatibility `PipelineRunner` or refit. Unsupported
 pipeline shapes, implicit identities, non-finite arrays, absent native
 capabilities, and non-native probability decoding fail explicitly.
-``methods_library_path`` is explicit on purpose: the portable route never
-discovers or substitutes a Python backend.
+``methods_library_path`` is an explicit deployment override. With
+``nirs4all[native]``, the compatible library from the installed
+``nirs4all-methods`` wheel is discovered automatically; the route never
+substitutes a Python backend.
 
 ### nirs4all.run()
 
@@ -96,6 +98,37 @@ result = nirs4all.run(
 | `random_state` | `int` | Random seed for reproducibility |
 
 **Returns:** `RunResult` containing predictions and convenience accessors.
+
+#### Verified native Methods subset
+
+``engine="native"`` is currently a deliberately narrow, fail-closed route. It
+accepts a list containing one CV splitter and one supported Methods model, and
+a mapping with finite ``X``/``y`` arrays plus explicit stable ``sample_ids``.
+It returns ``NativeMethodsRunResult`` without creating a legacy
+``PipelineRunner``. Native sessions own the exact pipeline object and can be
+used with both ``run(..., session=session)`` and ``predict(..., session=session)``.
+
+```python
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+import nirs4all
+
+pipeline = [KFold(n_splits=2), {"model": PLSRegression(n_components=1)}]
+dataset = {"X": X_train, "y": y_train, "sample_ids": ["train-0", "train-1"]}
+
+with nirs4all.session(pipeline, engine="native") as native:
+    result = nirs4all.run(pipeline, dataset, engine="native", session=native, save_charts=False)
+    prediction = nirs4all.predict(
+        data={"X": X_predict, "sample_ids": ["predict-0", "predict-1"]},
+        session=native,
+        engine="native",
+    )
+    result.export("model.n4a")
+```
+
+Tuning, calibration, generic branching/stacking, retraining and explanation
+remain explicit capability refusals on this route; none is redirected to the
+legacy backend.
 
 **Example - Single pipeline:**
 

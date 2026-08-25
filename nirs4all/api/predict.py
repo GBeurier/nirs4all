@@ -43,6 +43,7 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine
 
+from .native_session import NativeMethodsSession
 from .result import PredictResult
 from .session import NativeArchiveSession, Session
 
@@ -72,7 +73,7 @@ def predict(
     workspace_path: str | Path | None = None,
     name: str = "prediction_dataset",
     all_predictions: bool = False,
-    session: Session | NativeArchiveSession | None = None,
+    session: Session | NativeArchiveSession | NativeMethodsSession | None = None,
     verbose: int = 0,
     coverage: float | list[float] | tuple[float, ...] | None = None,
     save_to_workspace: bool = False,
@@ -220,15 +221,15 @@ def predict(
     """
     engine = runner_kwargs.pop("engine", None)
 
-    if isinstance(session, NativeArchiveSession) and engine != "native":
+    if isinstance(session, (NativeArchiveSession, NativeMethodsSession)) and engine != "native":
         raise ValueError(
-            "NativeArchiveSession requires engine='native'; it never falls back to legacy prediction"
+            "a native Methods session requires engine='native'; it never falls back to legacy prediction"
         )
 
     # ---- Validate mutually exclusive arguments ----
     if model is not None and chain_id is not None:
         raise ValueError("Provide either 'model' or 'chain_id', not both.")
-    if model is None and chain_id is None and not isinstance(session, NativeArchiveSession):
+    if model is None and chain_id is None and not isinstance(session, (NativeArchiveSession, NativeMethodsSession)):
         raise ValueError("Provide either 'model' or 'chain_id'.")
     if data is None:
         raise ValueError("'data' is required.")
@@ -252,7 +253,7 @@ def predict(
     # The explicit native branch above consumes every NativeArchiveSession.
     # Narrow the remaining legacy paths for both runtime safety and static
     # checking; none may receive a portable native session.
-    assert not isinstance(session, NativeArchiveSession)
+    assert not isinstance(session, (NativeArchiveSession, NativeMethodsSession))
 
     if _is_calibrated_replayed_prediction_request(model, data):
         result = _predict_from_calibrated_replayed_arrays(
@@ -403,7 +404,7 @@ def _predict_from_native_archive(
     chain_id: str | None,
     all_predictions: bool,
     coverage: float | list[float] | tuple[float, ...] | None,
-    session: Session | NativeArchiveSession | None,
+    session: Session | NativeArchiveSession | NativeMethodsSession | None,
     methods_library_path: str | Path | None,
 ) -> PredictResult:
     """Execute the narrow, portable Archive V2 Methods PREDICT route.
@@ -419,9 +420,9 @@ def _predict_from_native_archive(
         raise NotImplementedError(
             "engine='native' predict accepts an Archive V2 model path or NativeArchiveSession, not a legacy chain"
         )
-    if session is not None and not isinstance(session, NativeArchiveSession):
+    if session is not None and not isinstance(session, (NativeArchiveSession, NativeMethodsSession)):
         raise NotImplementedError(
-            "engine='native' predict accepts a NativeArchiveSession, not a legacy Session"
+            "engine='native' predict accepts a native Methods session, not a legacy Session"
         )
     if session is not None and model is not None:
         raise ValueError("engine='native' predict accepts either model or NativeArchiveSession, not both")

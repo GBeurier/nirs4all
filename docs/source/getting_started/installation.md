@@ -51,13 +51,14 @@ pip install nirs4all[jax]
 # With all ML frameworks (CPU versions)
 pip install nirs4all[all]
 
-# With portable Archive V2 prediction through Core, DAG-ML and Methods
+# With verified native Methods training, sessions and Archive V2 replay
 pip install nirs4all[native]
 ```
 
-The `native` extra enables the explicit `engine="native"` Archive V2 PREDICT
-route. It does not alter the default engine and does not fall back to legacy
-execution for a native archive.
+The `native` extra enables the explicit, fail-closed `engine="native"` Methods
+subset: raw-array PLS training with explicit sample IDs, stateful sessions,
+Archive V2 export/load, and replay. It does not alter the default engine and
+does not fall back to legacy execution for a native request.
 
 ### GPU Support (TensorFlow)
 
