@@ -2283,6 +2283,10 @@ def test_plain_preprocessing_keyword_lowers_as_the_equivalent_x_transform() -> N
     with pytest.raises(NotImplementedError, match="preprocessing policy"):
         _step_to_dsl({"preprocessing": StandardScaler(), "fit_on_all": True})
 
+    assert _step_to_dsl({"preprocessing": StandardScaler(), "force_layout": "2d"}) == dsl
+    with pytest.raises(NotImplementedError, match="preprocessing policy"):
+        _step_to_dsl({"preprocessing": StandardScaler(), "force_layout": "3d"})
+
 
 def test_concat_transform_3d_shapes_fail_loud() -> None:
     """The processing-AXIS shapes raise NotImplementedError naming the data-plane (#29/#31), never silent.
