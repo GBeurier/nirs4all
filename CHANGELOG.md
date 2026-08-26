@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.2] — 2026-08-26
+
+### Fixed
+
+- Use the official CPU-only PyTorch wheel on Linux CI runners. The PyPI CUDA/Triton
+  wheel could crash during eager optimizer creation although nirs4all does not
+  request compilation.
+- Preserve process-local differentiable training parameters and route local losses
+  through the native DAG-ML training phases.
+
+---
+
 ## [0.12.1] — 2026-08-26
 
 ### Fixed
