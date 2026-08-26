@@ -208,3 +208,51 @@ def test_fit_native_pipeline_predicts_only_through_identified_native_replay(
     )
 
     assert prediction.tolist() == [[3.5]]
+
+
+def test_fit_native_pipeline_exports_the_captured_package_without_legacy_refit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    def compile_fit(self, estimator, X, y, **kwargs):  # noqa: ANN001
+        _ = (self, estimator, X, y, kwargs)
+        from nirs4all.pipeline.dagml.estimator import DagMLTrainingExecution
+
+        return DagMLTrainingExecution(
+            request={},
+            data_envelopes={},
+            relations={},
+            training_influence={},
+            op_callback=lambda task: task,
+            outcome_id="o",
+            run_id="r",
+            bundle_id="b",
+        )
+
+    captured: dict[str, Any] = {}
+
+    def write_archive(path, *, archive_id, outcome, package):  # noqa: ANN001
+        captured.update(path=path, archive_id=archive_id, outcome=outcome, package=package)
+        return {"archive_id": archive_id, "archive_sha256": "f" * 64}
+
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.RawArrayDagMLTrainingCompiler.compile_fit",
+        compile_fit,
+    )
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.write_methods_archive_v2",
+        write_archive,
+    )
+    estimator = fit_native_pipeline(
+        [{"split": "stub"}, {"model": "stub"}],
+        np.asarray([[1.0]]),
+        np.asarray([1.0]),
+        sample_ids=["fit-a"],
+        native_client=_Client(),
+    )
+
+    reference = estimator.export_native_archive(tmp_path / "portable.n4a", archive_id="archive:native")
+
+    assert reference == {"archive_id": "archive:native", "archive_sha256": "f" * 64}
+    assert captured["archive_id"] == "archive:native"
+    assert captured["outcome"] == {"native": True}
+    assert captured["package"] == {"schema_version": 2, "package_id": "o-predictor"}

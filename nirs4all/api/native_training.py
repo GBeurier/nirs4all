@@ -55,6 +55,11 @@ def fit_native_pipeline(
         raise ValueError("fit_native_pipeline requires explicit sample_ids")
     if not isinstance(dagml_module, str) or not dagml_module:
         raise ValueError("dagml_module must be a non-empty string")
+    if training_losses or local_implementations is not None:
+        raise DagMLNativeCoverageError(
+            "fit_native_pipeline does not yet lower local training losses or implementations; "
+            "use the explicit DAG-ML contract API for that capability"
+        )
 
     # Fail before assembling the bridge when a caller passed an obviously
     # non-portable matrix.  The lowerer repeats contract-level checks and
@@ -80,8 +85,6 @@ def fit_native_pipeline(
             selection_metric=selection_metric,
             selection_objective=selection_objective,
             dagml_module=dagml_module,
-            training_losses=training_losses,
-            local_implementations=local_implementations,
             seed=seed,
         ),
         require_explicit_sample_ids=True,
