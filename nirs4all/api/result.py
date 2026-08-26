@@ -1486,6 +1486,7 @@ class RunResult:
         format: str = "n4a",
         source: dict[str, Any] | None = None,
         chain_id: str | None = None,
+        allow_legacy_refit: bool | None = None,
     ) -> Path:
         """Export a model to bundle.
 
@@ -1512,6 +1513,10 @@ class RunResult:
         ``source`` / ``chain_id`` are not supported for a dag-ml run (they reference its non-existent
         workspace); the run's best model is exported. P3 will capture the fitted model natively.
 
+        Pass ``allow_legacy_refit=False`` to require a native export. The transitional P1c bridge is
+        then refused before it can create a legacy workspace or refit the pipeline. ``None`` preserves
+        the R1 compatibility default; ``True`` explicitly permits the documented bridge.
+
         Args:
             output_path: Path for the exported bundle file.
             format: Export format ('n4a' or 'n4a.py').
@@ -1519,6 +1524,8 @@ class RunResult:
             chain_id: Chain identifier for store-based export.
                 When provided, ``source`` is ignored and the chain is
                 exported directly from the workspace store.
+            allow_legacy_refit: Whether a DAG-ML result may use the transitional legacy-refit export
+                bridge. ``False`` is the R2 qualification mode and never instantiates the legacy runner.
 
         Returns:
             Path to the exported bundle file.
@@ -1528,6 +1535,9 @@ class RunResult:
             ValueError: If no predictions available and source not provided.
             NotImplementedError: For a dag-ml run, if ``source``/``chain_id`` is given.
         """
+        if allow_legacy_refit is not None and not isinstance(allow_legacy_refit, bool):
+            raise TypeError("allow_legacy_refit must be True, False, or None")
+
         # dag-ml export bridge (P1c): the dag-ml backend has no workspace, so delegate to a legacy re-run of
         # the same pipeline (materialized on demand, cached). FAIL-FAST FIRST: an EXPLICIT non-default
         # ``source`` / ``chain_id`` references the (non-existent) dag-ml workspace, so it cannot be honored
@@ -1541,6 +1551,11 @@ class RunResult:
                     "engine='dag-ml' export does not support an explicit source=/chain_id= (they reference "
                     "the dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export(path) (no source/chain_id)."
+                )
+            if allow_legacy_refit is False:
+                raise NotImplementedError(
+                    "engine='dag-ml' strict export requires a native Package/Archive artifact; "
+                    "the transitional legacy-refit bridge is disabled"
                 )
             delegate = self._dagml_export_delegate()
             assert delegate is not None  # spec present ⇒ delegate materializes
@@ -1643,7 +1658,14 @@ class RunResult:
         joblib.dump(model, output_path, compress=3)
         return output_path
 
-    def export_model(self, output_path: str | Path, source: dict[str, Any] | None = None, format: str | None = None, fold: int | None = None) -> Path:
+    def export_model(
+        self,
+        output_path: str | Path,
+        source: dict[str, Any] | None = None,
+        format: str | None = None,
+        fold: int | None = None,
+        allow_legacy_refit: bool | None = None,
+    ) -> Path:
         """Export only the model artifact (lightweight).
 
         Unlike export() which creates a full bundle, this exports just the model.
@@ -1677,6 +1699,9 @@ class RunResult:
         Raises:
             RuntimeError: If no workspace path available.
         """
+        if allow_legacy_refit is not None and not isinstance(allow_legacy_refit, bool):
+            raise TypeError("allow_legacy_refit must be True, False, or None")
+
         # dag-ml export bridge (P1c): same as export() — FAIL-FAST on an explicit ``source`` BEFORE
         # materializing the delegate (no wasted refit / no spurious stochastic warning), using the cheap
         # spec flag (not the delegate, which would trigger the refit). ``fold`` is FORWARDED (it selects a
@@ -1699,6 +1724,11 @@ class RunResult:
                 native = self._dagml_native_export_model(output_path, format)
                 if native is not None:
                     return native
+            if allow_legacy_refit is False:
+                raise NotImplementedError(
+                    "engine='dag-ml' strict export_model requires a captured native refit artifact; "
+                    "the transitional legacy-refit bridge is disabled"
+                )
             delegate = self._dagml_export_delegate()
             assert delegate is not None  # spec present ⇒ delegate materializes
             return delegate.export_model(output_path, format=format, fold=fold)

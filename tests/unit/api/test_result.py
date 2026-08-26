@@ -292,6 +292,16 @@ class TestRunResult:
         with pytest.raises(ValueError, match="No predictions available"):
             result.export("output/model.n4a")
 
+    def test_dagml_export_strict_mode_refuses_legacy_refit_before_workspace_creation(self, mock_predictions):
+        """R2 qualification must not materialize the P1c legacy export bridge."""
+        result = RunResult(predictions=mock_predictions, per_dataset={})
+        result._dagml_export_spec = {"pipeline": object(), "dataset": object()}
+
+        with pytest.raises(NotImplementedError, match="strict export requires a native Package/Archive"):
+            result.export("output/model.n4a", allow_legacy_refit=False)
+
+        assert result._dagml_legacy_result is None
+
     def test_export_model(self, run_result, mock_runner, mock_predictions):
         """Test export_model() delegates to runner.export_model()."""
         mock_predictions.top.return_value = [{"id": "best"}]
@@ -299,6 +309,16 @@ class TestRunResult:
 
         mock_runner.export_model.assert_called_with(source={"id": "best"}, output_path="output/model.joblib", format=None, fold=None)
         assert path == Path("/tmp/exports/model.joblib")
+
+    def test_dagml_export_model_strict_mode_refuses_legacy_refit_without_native_artifact(self, mock_predictions):
+        """A DAG-ML score-only result cannot pass strict export_model by falling back."""
+        result = RunResult(predictions=mock_predictions, per_dataset={})
+        result._dagml_export_spec = {"pipeline": object(), "dataset": object()}
+
+        with pytest.raises(NotImplementedError, match="strict export_model requires a captured native refit"):
+            result.export_model("output/model.joblib", allow_legacy_refit=False)
+
+        assert result._dagml_legacy_result is None
 
     def test_summary(self, run_result, mock_predictions):
         """Test summary() returns formatted string."""
