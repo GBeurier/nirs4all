@@ -73,6 +73,7 @@ from .explain import explain
 # Synthetic data generation
 from .generate import generate_namespace as generate
 from .native_archive_session import NativeArchiveSession, load_native_archive_session
+from .native_methods_session import NativeMethodsSession
 from .native_result import NativeMethodsRunResult
 from .native_training import fit_native_pipeline, run_native_methods
 from .predict import predict
@@ -194,6 +195,7 @@ __all__ = [
     "tune_single_estimator",
     "predict",
     "NativeArchiveSession",
+    "NativeMethodsSession",
     "load_native_archive_session",
     "NativeMethodsRunResult",
     "run_native_methods",
