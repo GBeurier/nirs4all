@@ -616,6 +616,25 @@ def _native_param_variant_model_params(pipeline: Any, name: str) -> list[dict[st
         return []
 
 
+def _training_loss_generation_kind(pipeline: list[Any]) -> str:
+    """Classify generators while ignoring validated differentiable fit metadata.
+
+    ``train_params`` remains a Python-route marker in the general classifier:
+    generic controllers cannot be trusted to preserve it.  The public native
+    dispatcher invokes this helper only after it has confirmed the one
+    controller contract that explicitly consumes these parameters.
+    """
+
+    return _generation_kind(
+        [
+            {key: value for key, value in step.items() if key != "train_params"}
+            if isinstance(step, dict)
+            else step
+            for step in pipeline
+        ]
+    )
+
+
 def _dispatch_run(
     pipeline: Any,
     spectro: Any,
@@ -704,6 +723,16 @@ def _dispatch_run(
     detected_source_concat = _detect_source_concat_merge(list(pipeline), spectro.features_sources())
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
+    # ``train_params`` is concrete execution metadata for the one registered
+    # differentiable controller, not a generator.  The general generator
+    # classifier deliberately treats it as an operator-route marker because
+    # most controllers cannot honour fit kwargs.  Here it has already passed
+    # the controller-specific allow-list above, so use a view without that
+    # metadata solely to decide whether a *real* generator is being combined
+    # with a process-local loss.  Keep the original pipeline for lowering so
+    # FIT_CV and REFIT still receive the parameters.
+    loss_routing_generation_kind = _training_loss_generation_kind(list(pipeline))
+
     if _has_finetune_params(list(pipeline)):
         raise NotImplementedError("engine='dag-ml' did not lower finetune_params before native dispatch; this is an internal routing bug, not a supported execution path.")
     if _has_stateful_concat_transform(list(pipeline)):
@@ -722,7 +751,7 @@ def _dispatch_run(
         or detected_source_concat is not None
         or augmentation_steps
         or _is_repetition_dataset(spectro)
-        or _generation_kind(list(pipeline)) != "none"
+        or loss_routing_generation_kind != "none"
         or any(_is_exclude_step(step) for step in pipeline)
     ):
         raise DagMlUnsupported(
