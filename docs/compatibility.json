@@ -198,11 +198,6 @@
       "owner_lane": "L5"
     },
     {
-      "case": "preprocessing_fit_on_all",
-      "shape": "preprocessing_keyword",
-      "owner_lane": "L5"
-    },
-    {
       "case": "refit_params_use_all_partitions",
       "shape": "refit_params",
       "owner_lane": "L5"
@@ -353,8 +348,8 @@
     "registered": 95,
     "non_runnable": 0,
     "runnable": 95,
-    "fallback": 14,
-    "native": 81,
+    "fallback": 13,
+    "native": 82,
     "xfail_strict": 0,
     "skip": 0,
     "num_predictions_divergence": 2,
