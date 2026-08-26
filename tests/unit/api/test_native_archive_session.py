@@ -7,6 +7,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+import nirs4all
 from nirs4all.api.native_archive_session import load_native_archive_session
 
 
@@ -33,10 +34,16 @@ def test_native_archive_session_validates_on_open_replays_without_legacy_runner(
 
     session = load_native_archive_session(archive)
     result = session.predict(np.asarray([[1.0], [2.0]]), sample_ids=["p1", "p2"])
+    public_result = nirs4all.predict(
+        data={"X": np.asarray([[1.0], [2.0]]), "sample_ids": ["p1", "p2"]},
+        engine="native",
+        session=session,
+    )
 
     assert observed["validated"] == archive
     assert observed["sample_ids"] == ["p1", "p2"]
     assert result.y_pred.tolist() == [[2.0], [3.0]]
+    assert public_result.y_pred.tolist() == [[2.0], [3.0]]
     assert result.metadata["engine"] == "native"
     session.close()
     with pytest.raises(RuntimeError, match="closed"):

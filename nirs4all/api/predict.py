@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import numpy as np
 
@@ -43,6 +43,7 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine
 
+from .native_archive_session import NativeArchiveSession
 from .result import PredictResult
 from .session import Session
 
@@ -72,7 +73,7 @@ def predict(
     workspace_path: str | Path | None = None,
     name: str = "prediction_dataset",
     all_predictions: bool = False,
-    session: Session | None = None,
+    session: Session | NativeArchiveSession | None = None,
     verbose: int = 0,
     coverage: float | list[float] | tuple[float, ...] | None = None,
     save_to_workspace: bool = False,
@@ -210,15 +211,17 @@ def predict(
         - :func:`nirs4all.explain`: Generate SHAP explanations
         - :class:`nirs4all.api.result.PredictResult`: Result class
     """
+    engine = runner_kwargs.pop("engine", None)
+
     # ---- Validate mutually exclusive arguments ----
     if model is not None and chain_id is not None:
         raise ValueError("Provide either 'model' or 'chain_id', not both.")
-    if model is None and chain_id is None:
+    if model is None and chain_id is None and not (
+        engine == "native" and isinstance(session, NativeArchiveSession)
+    ):
         raise ValueError("Provide either 'model' or 'chain_id'.")
     if data is None:
         raise ValueError("'data' is required.")
-
-    engine = runner_kwargs.pop("engine", None)
 
     if engine == "native":
         result = _predict_from_native_archive(
@@ -343,7 +346,7 @@ def _maybe_publish_predict_result(
     name: str,
     save_to_workspace: bool,
     workspace_path: str | Path | None,
-    session: Session | None,
+    session: Session | NativeArchiveSession | None,
     workspace_metadata: Mapping[str, Any] | None,
     workspace_result_metadata: Mapping[str, Any] | None,
     chain_id: str | None = None,
@@ -394,13 +397,21 @@ def _predict_from_native_archive(
     projected only by DAG-ML and is never recomputed in this API layer.
     """
 
-    if chain_id is not None or session is not None:
-        raise NotImplementedError(
-            "engine='native' predict accepts an Archive V2 model path, not a legacy chain or Session"
-        )
-    if not isinstance(model, (str, Path)):
-        raise TypeError("engine='native' predict requires a Core Archive V2 model path")
-    archive_path = Path(model)
+    native_session = session if isinstance(session, NativeArchiveSession) else None
+    if native_session is not None:
+        if model is not None or chain_id is not None:
+            raise ValueError(
+                "engine='native' accepts either a NativeArchiveSession or an Archive V2 model path, not both"
+            )
+        archive_path = native_session.archive_path
+    else:
+        if chain_id is not None or session is not None:
+            raise NotImplementedError(
+                "engine='native' predict accepts an Archive V2 model path or NativeArchiveSession, not a legacy chain or Session"
+            )
+        if not isinstance(model, (str, Path)):
+            raise TypeError("engine='native' predict requires a Core Archive V2 model path")
+        archive_path = Path(model)
     if archive_path.suffix.lower() != ".n4a":
         raise ValueError("engine='native' predict requires an Archive V2 .n4a path")
     if all_predictions:
@@ -412,17 +423,26 @@ def _predict_from_native_archive(
             "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
         )
     if coverage is None:
-        from nirs4all.pipeline.dagml.native_archive_replay import (
-            predict_methods_archive_v2_raw,
-        )
+        if native_session is not None:
+            session_prediction = native_session.predict(
+                data["X"],
+                sample_ids=data["sample_ids"],
+                groups=data.get("groups"),
+                metadata=data.get("metadata"),
+            )
+            values = session_prediction.y_pred
+        else:
+            from nirs4all.pipeline.dagml.native_archive_replay import (
+                predict_methods_archive_v2_raw,
+            )
 
-        values = predict_methods_archive_v2_raw(
-            archive_path,
-            data["X"],
-            sample_ids=data["sample_ids"],
-            groups=data.get("groups"),
-            metadata=data.get("metadata"),
-        )
+            values = predict_methods_archive_v2_raw(
+                archive_path,
+                data["X"],
+                sample_ids=data["sample_ids"],
+                groups=data.get("groups"),
+                metadata=data.get("metadata"),
+            )
         metadata_result: dict[str, Any] = {}
         intervals: dict[float, Any] = {}
     else:
@@ -859,13 +879,13 @@ def _extract_X(data: DataSpec) -> np.ndarray:
         TypeError: If data format is not supported for chain replay.
     """
     if isinstance(data, np.ndarray):
-        return data
+        return cast(np.ndarray, np.asarray(data))
     if isinstance(data, tuple):
-        return np.asarray(data[0])
+        return cast(np.ndarray, np.asarray(data[0]))
     if isinstance(data, dict):
         if "X" in data:
-            return np.asarray(data["X"])
+            return cast(np.ndarray, np.asarray(data["X"]))
         raise TypeError("Dict data must contain an 'X' key for chain replay.")
     if isinstance(data, SpectroDataset):
-        return np.asarray(data.x({}))
+        return cast(np.ndarray, np.asarray(data.x({})))
     raise TypeError(f"Unsupported data type for chain replay: {type(data).__name__}. Pass a numpy array, tuple, dict with 'X' key, or SpectroDataset.")
