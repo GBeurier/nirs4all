@@ -889,13 +889,14 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> tuple[list[
     return body, aggregate
 
 
-def _detect_by_source_distinct_preproc_concat(pipeline: list[Any], n_sources: int) -> tuple[dict[str, list[Any]], list[Any]] | None:
-    """Detect per-source by_source preprocessing + concat features + one downstream model.
+def _detect_by_source_distinct_preproc_concat(pipeline: list[Any], n_sources: int) -> tuple[dict[str, list[Any]] | list[Any], list[Any]] | None:
+    """Detect by-source preprocessing + concat features + one downstream model.
 
     Admits ONLY the target feature-concat shape:
 
     * a multi-source dataset (``n_sources >= 2``);
-    * one by_source branch whose ``steps`` body is a DICT of per-source preprocessing lists;
+    * one by_source branch whose ``steps`` body is either a shared preprocessing LIST or a DICT of
+      per-source preprocessing lists;
     * no model/y_processing inside any per-source body;
     * one ``{"merge": "concat"}`` followed immediately by one downstream model step;
     * no other top-level step except the splitter.
@@ -923,6 +924,13 @@ def _detect_by_source_distinct_preproc_concat(pipeline: list[Any], n_sources: in
     if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
         return None
     body = criterion.get("steps")
+    if isinstance(body, list):
+        if not body or any(
+            isinstance(substep, dict) and ("model" in substep or "y_processing" in substep)
+            for substep in body
+        ):
+            return None
+        return body, [model_step]
     if not isinstance(body, dict) or len(body) != n_sources or not all(isinstance(key, str) for key in body):
         return None
 
