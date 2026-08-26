@@ -28,6 +28,17 @@ class NativeArchiveReplayError(RuntimeError):
     """The native Archive V2 → Methods PREDICT boundary could not be executed."""
 
 
+def validate_methods_archive_v2(archive_path: str | Path) -> None:
+    """Validate a Core Archive V2 and its DAG-ML Package V2 without replaying.
+
+    This intentionally performs no Methods hydration.  It is used by the
+    public native session constructor so a successfully opened session has
+    already crossed the Core/DAG-ML schema and integrity boundary.
+    """
+
+    _load_methods_archive_package(archive_path)
+
+
 def write_methods_archive_v2(
     archive_path: str | Path,
     *,
@@ -261,5 +272,6 @@ __all__ = [
     "NativeArchiveReplayError",
     "predict_methods_archive_v2_raw",
     "replay_methods_archive_v2",
+    "validate_methods_archive_v2",
     "write_methods_archive_v2",
 ]

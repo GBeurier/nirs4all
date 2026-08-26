@@ -72,6 +72,7 @@ from .explain import explain
 
 # Synthetic data generation
 from .generate import generate_namespace as generate
+from .native_archive_session import NativeArchiveSession, load_native_archive_session
 from .predict import predict
 from .result import (
     ExplainResult,
@@ -189,6 +190,8 @@ __all__ = [
     "save_workspace_tuning_result",
     "tune_single_estimator",
     "predict",
+    "NativeArchiveSession",
+    "load_native_archive_session",
     "CONFORMAL_CALIBRATION_METHODS",
     "CONFORMAL_CALIBRATION_UNITS",
     "CONFORMAL_EXECUTABLE_MULTI_TARGET_POLICIES",
