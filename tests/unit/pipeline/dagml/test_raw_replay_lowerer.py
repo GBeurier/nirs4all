@@ -154,8 +154,11 @@ def test_raw_replay_resolver_refuses_unknown_or_duplicated_ids(
 def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    import nirs4all.pipeline.dagml.native_archive_replay as archive_replay
+
     runtime = _install_fake_runtime(monkeypatch)
     package_json = json.dumps(_package())
+    monkeypatch.setattr(archive_replay, "resolve_methods_library_path", lambda: "/opt/libn4m.so")
 
     class _Package:
         def __init__(self, raw: str) -> None:
@@ -164,29 +167,21 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
         def to_dict(self) -> dict[str, object]:
             return self._document
 
-    def replay(
+    def replay_methods(
         package: _Package,
         request: dict[str, object],
         envelopes: dict[str, object],
-        handles: dict[str, object],
-        op_callback: object,
+        methods_inputs: dict[str, object],
         *,
+        methods_library_path: str,
         outcome_id: str,
         run_id: str,
-        artifact_callback: object,
+        warnings: object,
+        diagnostics: object,
     ) -> dict[str, object]:
-        _ = (package, request, envelopes, handles, op_callback, outcome_id, run_id)
-        handle = artifact_callback(
-            {
-                "operation": "hydrate",
-                "request": {
-                    "artifact": {"kind": "n4m_model"},
-                    "controller_id": "methods.pls",
-                },
-                "payload": [1, 2, 3],
-            }
-        )
-        artifact_callback({"operation": "release", "handle": handle})
+        _ = (package, request, envelopes, outcome_id, run_id, warnings, diagnostics)
+        assert methods_library_path == "/opt/libn4m.so"
+        assert methods_inputs["model:base.x"]["sample_ids"] == ["sample.one", "sample.two"]
         return {
             "outputs": [
                 {
@@ -198,10 +193,10 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
                     ]
                 }
             ]
-        }
+    }
 
     runtime.PortablePredictorPackage = _Package
-    runtime.replay_loaded_predictor_package = replay
+    runtime.replay_loaded_methods_predictor_package = replay_methods
     monkeypatch.setitem(sys.modules, "dag_ml", runtime)
     monkeypatch.setitem(
         sys.modules,
@@ -219,7 +214,7 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
     def mismatched_replay(*args: object, **kwargs: object) -> dict[str, object]:
         return {"outputs": [{"predictions": [{"sample_ids": ["sample.two"], "values": [[1.0]]}]}]}
 
-    runtime.replay_loaded_predictor_package = mismatched_replay
+    runtime.replay_loaded_methods_predictor_package = mismatched_replay
     with pytest.raises(NativeArchiveReplayError, match="identities do not exactly match"):
         predict_methods_archive_v2_raw(
             "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"]

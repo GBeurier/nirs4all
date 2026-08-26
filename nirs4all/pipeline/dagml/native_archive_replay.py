@@ -19,6 +19,7 @@ import numpy as np
 
 from .fit_identity import normalize_predict_identity
 from .methods_replay import MethodsN4mmReplayCallbacks, MethodsPortableReplayError
+from .methods_runtime import resolve_methods_library_path
 from .raw_replay_lowerer import RawArrayMethodsReplayCompiler, RawArrayMethodsReplayError
 
 if TYPE_CHECKING:
@@ -169,21 +170,13 @@ def predict_methods_archive_v2_raw(
         package,
         outcome_id=outcome_id,
         run_id=run_id,
+        methods_library_path=resolve_methods_library_path(),
     )
     try:
         replay = compiler.compile_replay(
             None, X, mode="predict", identity_frame=identity
         )
-        outcome = dag_ml.replay_loaded_predictor_package(
-            package,
-            replay.request,
-            replay.data_envelopes,
-            replay.artifact_handles,
-            replay.op_callback,
-            outcome_id=replay.outcome_id,
-            run_id=replay.run_id,
-            artifact_callback=replay.artifact_callback,
-        )
+        outcome = _execute_compiled_methods_replay(dag_ml, package, replay)
         return _decode_exact_raw_prediction(outcome, identity.sample_ids)
     except (MethodsPortableReplayError, RawArrayMethodsReplayError) as error:
         raise NativeArchiveReplayError(str(error)) from error
@@ -222,19 +215,11 @@ def project_methods_archive_v2_conformal_presentation(
         package,
         outcome_id=outcome_id,
         run_id=run_id,
+        methods_library_path=resolve_methods_library_path(),
     )
     try:
         replay = compiler.compile_replay(None, X, mode="predict", identity_frame=identity)
-        outcome = dag_ml.replay_loaded_predictor_package(
-            package,
-            replay.request,
-            replay.data_envelopes,
-            replay.artifact_handles,
-            replay.op_callback,
-            outcome_id=replay.outcome_id,
-            run_id=replay.run_id,
-            artifact_callback=replay.artifact_callback,
-        )
+        outcome = _execute_compiled_methods_replay(dag_ml, package, replay)
         projector = getattr(dag_ml, "build_conformal_presentation_v1", None)
         if not callable(projector):
             raise NativeArchiveReplayError(
@@ -253,6 +238,38 @@ def project_methods_archive_v2_conformal_presentation(
     finally:
         if "replay" in locals() and replay.cleanup is not None:
             replay.cleanup()
+
+
+def _execute_compiled_methods_replay(dag_ml: Any, package: Any, replay: Any) -> Any:
+    """Execute a raw Methods replay through the no-callback DAG-ML entry point.
+
+    The raw compiler carries a library path and a full current cohort precisely
+    so DAG-ML can materialize its own data view. Passing that contract through
+    the generic callback path loses the cohort identities and can only work by
+    importing a Python-side N4MM decoder. Public Archive V2 replay must instead
+    use the registered native controller directly.
+    """
+
+    if replay.methods_inputs is None or replay.methods_library_path is None:
+        raise NativeArchiveReplayError(
+            "raw Methods Archive V2 replay requires a current native input cohort and libn4m path"
+        )
+    execute = getattr(dag_ml, "replay_loaded_methods_predictor_package", None)
+    if not callable(execute):
+        raise NativeArchiveReplayError(
+            "installed DAG-ML lacks no-callback Methods package replay; upgrade DAG-ML"
+        )
+    return execute(
+        package,
+        replay.request,
+        replay.data_envelopes,
+        replay.methods_inputs,
+        methods_library_path=replay.methods_library_path,
+        outcome_id=replay.outcome_id,
+        run_id=replay.run_id,
+        warnings=replay.warnings,
+        diagnostics=replay.diagnostics,
+    )
 
 
 def _load_methods_archive_package(

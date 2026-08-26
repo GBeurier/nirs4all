@@ -93,7 +93,8 @@ dependencies = [
     # dag-ml execution core — hard dependency, not an extra, so the native backend
     # is selectable out of the box via engine="dag-ml" or N4A_ENGINE=dag-ml. The
     # public Python line remains legacy-default until the explicit ADR-17 drop.
-    "dag-ml>=0.3.5",
+    # 0.3.11 adds the no-callback Methods Package V2 replay entry point.
+    "dag-ml>=0.3.11",
     "dag-ml-data>=0.2.8",
 ]
 
@@ -126,6 +127,8 @@ native = [
     "nirs4all-core[methods]>=0.3.15",
     # ABI 2.2 carries the optimizer symbols required by DAG-ML Methods training.
     "nirs4all-methods>=1.0.10",
+    # Archive V2 replay imports N4MM through this separately published binding.
+    "pls4all>=1.0.9",
 ]
 
 # Transition-release workspace converter wrapper. The runtime detects legacy
