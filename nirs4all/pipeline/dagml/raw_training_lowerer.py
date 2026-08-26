@@ -19,7 +19,7 @@ from typing import Any, cast
 import numpy as np
 
 from nirs4all.data.dataset import SpectroDataset
-from nirs4all.pipeline.dagml_bridge import _model_controller_id, _model_data_requirements, controller_manifests
+from nirs4all.pipeline.dagml_bridge import _model_data_requirements, controller_manifests
 
 from .cli_runner import assemble_cv_refit_dsl
 from .envelope import build_envelope
@@ -94,14 +94,17 @@ class RawArrayDagMLTrainingCompiler:
             additional_diagnostics={"nirs4all_lowerer": "raw_array_p3_r1b"},
             dagml_module=self.dagml_module,
         )
-        return compiler.compile_fit(
-            estimator,
-            X,
-            y,
-            sample_ids=identity_frame.sample_ids,
-            groups=identity_frame.groups,
-            metadata=identity_frame.metadata_by_sample_id(),
-            identity_frame=identity_frame,
+        return cast(
+            DagMLTrainingExecution,
+            compiler.compile_fit(
+                estimator,
+                X,
+                y,
+                sample_ids=identity_frame.sample_ids,
+                groups=identity_frame.groups,
+                metadata=identity_frame.metadata_by_sample_id(),
+                identity_frame=identity_frame,
+            ),
         )
 
 
@@ -166,7 +169,6 @@ def lower_raw_array_training_contracts(
         campaign=campaign,
         controller_manifests=manifests,
         data_identities=data_identities,
-        training_losses=training_losses,
         selection_metric=selection_metric,
         selection_objective=selection_objective,
         output_requests=output_requests,
@@ -257,15 +259,9 @@ def _supported_linear_steps(pipeline: Any) -> tuple[list[Any], Any, dict[str, st
         context="native raw-array",
     )
     model_steps = [step for step in steps if isinstance(step, dict) and "model" in step]
-    allowed_keys = (
-        frozenset({"train_params"})
-        if len(model_steps) == 1 and _model_controller_id(model_steps[0]["model"]) is not None
-        else frozenset()
-    )
     reject_native_training_param_overrides(
         steps,
         context="native raw-array",
-        allowed_keys=allowed_keys,
     )
     if splitter is None:
         raise ValueError("RawArrayDagMLTrainingCompiler requires a splitter step")
@@ -502,6 +498,11 @@ def _op_callback(
     graph: Mapping[str, Any],
     local_implementations: Any,
 ) -> Any:
+    if local_implementations is not None:
+        raise NotImplementedError(
+            "native raw-array host callbacks do not support local implementations; "
+            "use the explicit DAG-ML contract API"
+        )
     resolver = MaterializationResolver(dataset, identity)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = graph.get("edges", [])
@@ -515,7 +516,6 @@ def _op_callback(
         edges,
         y_transform_node,
         None,
-        local_implementations,
     )
 
 

@@ -187,6 +187,19 @@ def _package_document(package: Any) -> dict[str, Any]:
     return package
 
 
+def validate_native_methods_package(package: Any) -> dict[str, Any]:
+    """Return a Package V2 only when its durable replay evidence is Methods-native.
+
+    The public training boundary calls this before returning an estimator so a
+    host-sidecar artifact cannot later masquerade as portable N4MM during
+    archive export or prediction.
+    """
+
+    document = _package_document(package)
+    _require_native_methods_package(document)
+    return document
+
+
 def _require_native_methods_package(package: Mapping[str, Any]) -> None:
     if package.get("schema_version") != 2:
         raise RawArrayMethodsReplayError("raw-array Methods replay requires Package V2")
@@ -241,6 +254,10 @@ def _requirements(bundle: Mapping[str, Any]) -> dict[str, dict[str, str]]:
         plan = requirement.get("plan_fingerprint")
         if not all(isinstance(value, str) and value for value in (node_id, input_name, schema, plan)):
             raise RawArrayMethodsReplayError("Package V2 data requirement lacks stable fingerprints")
+        # ``all`` does not narrow the Any values read from a JSON mapping for
+        # static checkers; the runtime guard above is the canonical contract.
+        assert isinstance(schema, str)
+        assert isinstance(plan, str)
         key = f"{node_id}.{input_name}"
         if key in requirements:
             raise RawArrayMethodsReplayError("Package V2 repeats a data requirement key")
@@ -317,4 +334,8 @@ def _object(container: Mapping[str, Any], name: str) -> dict[str, Any]:
     return value
 
 
-__all__ = ["RawArrayMethodsReplayCompiler", "RawArrayMethodsReplayError"]
+__all__ = [
+    "RawArrayMethodsReplayCompiler",
+    "RawArrayMethodsReplayError",
+    "validate_native_methods_package",
+]
