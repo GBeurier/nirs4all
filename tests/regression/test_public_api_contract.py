@@ -58,25 +58,26 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "nirs4all.data.config.DatasetConfigs | list[str | pathlib.Path | numpy.ndarray | "
         "tuple[numpy.ndarray, ...] | dict[str, typing.Any] | "
         "nirs4all.data.dataset.SpectroDataset | nirs4all.data.config.DatasetConfigs], *, "
-        "name: str = '', session: nirs4all.api.session.Session | None = None, "
+        "name: str = '', session: nirs4all.api.session.Session | nirs4all.api.native_session.NativeMethodsSession | None = None, "
         "verbose: int = 1, save_artifacts: bool = True, save_charts: bool = True, "
         "plots_visible: bool = False, random_state: int | None = None, "
         "refit: bool | dict[str, typing.Any] | list[dict[str, typing.Any]] | None = True, "
         "cache: typing.Any | None = None, project: str | None = None, "
         "report_naming: str = 'nirs', engine: str | None = None, "
         "tuning: typing.Any | None = None, calibration: typing.Any | None = None, "
-        "results_path: str | pathlib.Path | None = None, **runner_kwargs: Any) -> "
-        "'RunResult | TunedSingleEstimatorConformalResult'"
+        "results_path: str | pathlib.Path | None = None, training_losses: tuple[collections.abc.Mapping[str, typing.Any], ...] = (), "
+        "local_implementations: typing.Any | None = None, **runner_kwargs: Any) -> "
+        "'RunResult | NativeMethodsRunResult | TunedSingleEstimatorConformalResult'"
     ),
     "predict": (
         "(model: 'ModelSpec | None' = None, data: 'DataSpec | None' = None, *, "
         "chain_id: 'str | None' = None, workspace_path: 'str | Path | None' = None, "
         "name: 'str' = 'prediction_dataset', all_predictions: 'bool' = False, "
-        "session: 'Session | None' = None, verbose: 'int' = 0, "
+        "session: 'Session | NativeArchiveSession | NativeMethodsSession | None' = None, verbose: 'int' = 0, "
         "coverage: 'float | list[float] | tuple[float, ...] | None' = None, "
         "save_to_workspace: 'bool' = False, workspace_metadata: 'Mapping[str, Any] | None' = None, "
         "workspace_result_metadata: 'Mapping[str, Any] | None' = None, "
-        "**runner_kwargs: 'Any') -> 'PredictResult'"
+        "methods_library_path: 'str | Path | None' = None, **runner_kwargs: 'Any') -> 'PredictResult'"
     ),
     "explain": (
         "(model: dict[str, typing.Any] | str | pathlib.Path, "
@@ -89,7 +90,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "nirs4all.api.result.ExplainResult"
     ),
     "retrain": (
-        "(source: dict[str, typing.Any] | str | pathlib.Path, "
+        "(source: nirs4all.api.native_result.NativeMethodsRunResult | dict[str, typing.Any] | str | pathlib.Path, "
         "data: str | pathlib.Path | numpy.ndarray | tuple[numpy.ndarray, ...] | "
         "dict[str, typing.Any] | nirs4all.data.dataset.SpectroDataset | "
         "nirs4all.data.config.DatasetConfigs, *, mode: str = 'full', "
@@ -98,15 +99,15 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "session: nirs4all.api.session.Session | None = None, verbose: int = 1, "
         "save_artifacts: bool = True, **kwargs: Any) -> nirs4all.api.result.RunResult"
     ),
-    "session": ("(pipeline: list[typing.Any] | None = None, name: str = '', **kwargs: Any) -> collections.abc.Generator[nirs4all.api.session.Session, None, None]"),
-    "load_session": ("(path: str | pathlib.Path) -> nirs4all.api.session.Session"),
+    "session": ("(pipeline: 'list[Any] | None' = None, name: 'str' = '', **kwargs: 'Any') -> 'Generator[Session | NativeMethodsSession, None, None]'"),
+    "load_session": ("(path: 'str | Path', *, engine: 'str' = 'legacy', methods_library_path: 'str | Path | None' = None) -> 'Session | NativeArchiveSession'"),
     "generate": (
         "(n_samples: 'int' = 1000, *, random_state: 'int | None' = None, "
         "complexity: \"Literal['simple', 'realistic', 'complex']\" = 'simple', "
         "wavelength_range: 'tuple[float, float] | None' = None, "
         "components: 'list[str] | None' = None, "
         "target_range: 'tuple[float, float] | None' = None, train_ratio: 'float' = 0.8, "
-        "as_dataset: 'bool' = True, name: 'str' = 'synthetic_nirs', **kwargs: 'Any') -> "
+        "as_dataset: 'bool' = True, name: 'str' = 'synthetic_nirs', engine: 'str | None' = None, **kwargs: 'Any') -> "
         "'SpectroDataset | tuple[np.ndarray, np.ndarray]'"
     ),
     "tune_single_estimator": (
@@ -298,6 +299,8 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "ConformalMetricSet",
     "ConformalMultiTarget",
     "ConformalUnit",
+    "DualRunMismatchError",
+    "DualRunUnsupported",
     "ExplainResult",
     "FINETUNE_APPROACHES",
     "FINETUNE_DAGML_APPROACHES",
@@ -319,6 +322,9 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "FinetuneEvalMode",
     "FinetunePruner",
     "FinetuneSampler",
+    "NativeArchiveSession",
+    "NativeMethodsRunResult",
+    "NativeMethodsSession",
     "NativeTuning",
     "Nirs4AllCalibrationNotImplementedError",
     "OrderedSearchSpaceSpec",
@@ -367,6 +373,7 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "conformal_metrics",
     "explain",
     "export_calibrated_result",
+    "fit_native_pipeline",
     "framework",
     "generate",
     "generate_run_id",
@@ -381,6 +388,7 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "keyword_registry_json",
     "keyword_registry_schema_json",
     "load_calibrated_result",
+    "load_native_archive_session",
     "load_session",
     "load_workspace_calibrated_predict_result",
     "load_workspace_calibrated_result",
@@ -418,6 +426,8 @@ EXPECTED_API_ALL: list[str] = [
     "ConformalMetricSet",
     "ConformalMultiTarget",
     "ConformalUnit",
+    "DualRunMismatchError",
+    "DualRunUnsupported",
     "ExplainResult",
     "FINETUNE_APPROACHES",
     "FINETUNE_DAGML_APPROACHES",
@@ -441,6 +451,9 @@ EXPECTED_API_ALL: list[str] = [
     "FinetuneSampler",
     "LazyModelRefitResult",
     "ModelRefitResult",
+    "NativeArchiveSession",
+    "NativeMethodsRunResult",
+    "NativeMethodsSession",
     "NativeTuning",
     "Nirs4AllCalibrationNotImplementedError",
     "OrderedSearchSpaceSpec",
@@ -484,6 +497,7 @@ EXPECTED_API_ALL: list[str] = [
     "conformal_metrics",
     "explain",
     "export_calibrated_result",
+    "fit_native_pipeline",
     "generate",
     "get_keyword_registry",
     "get_keyword_registry_schema",
@@ -494,6 +508,7 @@ EXPECTED_API_ALL: list[str] = [
     "keyword_registry_json",
     "keyword_registry_schema_json",
     "load_calibrated_result",
+    "load_native_archive_session",
     "load_session",
     "load_workspace_calibrated_predict_result",
     "load_workspace_calibrated_result",
