@@ -24,7 +24,6 @@ Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAU
 from __future__ import annotations
 
 import os
-import warnings
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
@@ -90,17 +89,16 @@ def require_legacy_engine(operation: str, engine: str | None = None) -> Engine:
     if selected != "legacy":
         if selected == "dual":
             raise DualRunUnsupported(f"nirs4all.{operation} does not support engine='dual'; the strict dual oracle is implemented only for nirs4all.run on its documented subset.")
-        env_requested = (os.environ.get(ENGINE_ENV_VAR) or "").strip().lower()
-        if engine is None and env_requested == "dag-ml":
-            warnings.warn(
-                f"{ENGINE_ENV_VAR}=dag-ml is ignored for nirs4all.{operation} in this transition "
-                "release because this helper does not have a dag-ml execution path yet; using "
-                "engine='legacy'. Pass engine='dag-ml' explicitly to fail fast.",
-                RuntimeWarning,
-                stacklevel=2,
+        if selected == "dag-ml":
+            raise NotImplementedError(
+                f"nirs4all.{operation} does not have a dag-ml execution path yet; it does not "
+                "have an execution path under dag-ml. Use "
+                "engine='legacy' for this transition release. nirs4all.run supports "
+                "engine='dag-ml' with documented fallback boundaries."
             )
-            return "legacy"
         raise NotImplementedError(
-            f"nirs4all.{operation} does not have an execution path for engine={selected!r}; use engine='legacy' for this transition release. nirs4all.run supports engine='dag-ml' with documented fallback boundaries."
+            f"nirs4all.{operation} does not have an execution path for engine='{selected}' yet; use "
+            "engine='legacy' for this transition release. nirs4all.run supports "
+            "engine='dag-ml' with documented fallback boundaries."
         )
     return selected
