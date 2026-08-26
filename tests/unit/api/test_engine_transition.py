@@ -419,35 +419,18 @@ def test_public_helpers_reject_dagml_until_native_paths_exist(operation: str, ca
 def test_retrain_native_refits_the_attested_selected_methods_variant_without_legacy_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Native full retrain keeps the selected HPO patch and never builds a runner."""
-
-    model = PLSRegression(n_components=1)
-
-    class Estimator:
-        pipeline = [KFold(n_splits=2), {"model": model}]
-        training_outcome_ = {
-            "parameter_patches": [
-                {
-                    "schema_version": 1,
-                    "node_id": "model:compat.0",
-                    "namespace": "operator",
-                    "path": ["n_components"],
-                    "value": 2,
-                }
-            ]
-        }
+    """Native retrain delegates to the V3 full-refit operation, never CV."""
 
     source = object.__new__(NativeMethodsRunResult)
-    source._native_estimator = Estimator()  # noqa: SLF001
     observed: dict[str, object] = {}
     expected = object()
 
-    def native_retrain(pipeline, dataset, **kwargs):  # noqa: ANN001
-        observed.update(pipeline=pipeline, dataset=dataset, kwargs=kwargs)
+    def native_refit(source_arg, dataset, **kwargs):  # noqa: ANN001
+        observed.update(source=source_arg, dataset=dataset, kwargs=kwargs)
         return expected
 
     retrain_module = importlib.import_module("nirs4all.api.retrain")
-    monkeypatch.setattr(retrain_module, "run_native_methods", native_retrain)
+    monkeypatch.setattr(retrain_module, "refit_native_methods", native_refit)
     monkeypatch.setattr(
         retrain_module,
         "PipelineRunner",
@@ -460,12 +443,9 @@ def test_retrain_native_refits_the_attested_selected_methods_variant_without_leg
         "sample_ids": ["next-0", "next-1", "next-2", "next-3"],
     }
     assert retrain(source, dataset, name="next") is expected
-    rebuilt_model = observed["pipeline"][1]["model"]
-    assert rebuilt_model is not model
-    assert rebuilt_model.n_components == 2
-    assert model.n_components == 1
+    assert observed["source"] is source
     assert observed["dataset"] is dataset
-    assert observed["kwargs"] == {"name": "next", "save_charts": False, "random_state": None}
+    assert observed["kwargs"] == {"name": "next"}
 
 
 @pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])

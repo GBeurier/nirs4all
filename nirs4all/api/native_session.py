@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 
+from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
 from .native_training import run_native_methods
 from .result import PredictResult
@@ -40,7 +41,7 @@ class NativeMethodsSession:
         self._name = name
         self._random_state = random_state
         self._tuning = None if tuning is None else dict(tuning)
-        self._result: NativeMethodsRunResult | None = None
+        self._result: NativeMethodsRunResult | NativeMethodsRefitResult | None = None
         self._closed = False
 
     @property
@@ -74,7 +75,7 @@ class NativeMethodsSession:
         return self._result is not None and not self._closed
 
     @property
-    def result(self) -> NativeMethodsRunResult:
+    def result(self) -> NativeMethodsRunResult | NativeMethodsRefitResult:
         """The fitted native run result, or raise before training."""
 
         if not self.is_trained:
@@ -96,7 +97,7 @@ class NativeMethodsSession:
         )
         return self._result
 
-    def retrain(self, dataset: Mapping[str, Any]) -> NativeMethodsRunResult:
+    def retrain(self, dataset: Mapping[str, Any]) -> NativeMethodsRefitResult:
         """Full-refit the attested selected Methods variant on one new cohort.
 
         This delegates to the public native retrain contract, which preserves
@@ -120,8 +121,8 @@ class NativeMethodsSession:
             verbose=0,
             engine="native",
         )
-        if not isinstance(result, NativeMethodsRunResult):  # pragma: no cover - defensive contract assertion
-            raise RuntimeError("native session retrain did not return a NativeMethodsRunResult")
+        if not isinstance(result, NativeMethodsRefitResult):  # pragma: no cover - defensive contract assertion
+            raise RuntimeError("native session retrain did not return a NativeMethodsRefitResult")
         self._result = result
         return result
 
@@ -136,8 +137,11 @@ class NativeMethodsSession:
         """Replay the fitted native package for one explicitly identified cohort."""
 
         self._require_open()
+        result = self.result
+        if isinstance(result, NativeMethodsRefitResult):
+            return result.predict(X, sample_ids=sample_ids, groups=groups, metadata=metadata)
         values = np.asarray(
-            self.result.native_estimator.predict_with_identity(
+            result.native_estimator.predict_with_identity(
                 X,
                 sample_ids=sample_ids,
                 groups=groups,
