@@ -13,6 +13,7 @@ from nirs4all.pipeline.dagml.native_archive_replay import (
     NativeArchiveReplayError,
     predict_methods_archive_v2_raw,
     predict_methods_archive_v2_raw_result,
+    project_methods_archive_v2_conformal_presentation,
     write_methods_archive_v2,
 )
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
@@ -391,6 +392,91 @@ def test_raw_archive_predict_projects_exact_native_conformal_intervals(
             sample_ids=["sample.one", "sample.two"],
             methods_library_path="/native/libn4m.so",
         )
+
+
+def test_raw_archive_projects_dagml_owned_scalar_conformal_presentation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The adapter transports the owner projection without interval arithmetic."""
+
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.resolve_methods_library_path",
+        lambda path: str(path),
+    )
+    runtime = _install_fake_runtime(monkeypatch)
+    package = _package()
+    package["package_fingerprint"] = "a" * 64
+    package["conformal_calibration"] = {"calibration_fingerprint": "b" * 64}
+
+    class _Package:
+        def __init__(self, raw: str) -> None:
+            self._document = json.loads(raw)
+
+        def to_dict(self) -> dict[str, object]:
+            return self._document
+
+    outcome = {
+        "outcome_fingerprint": "c" * 64,
+        "outputs": [
+            {
+                "binding": {"binding_id": "binding:prediction"},
+                "predictions": [
+                    {
+                        "sample_ids": ["sample.one", "sample.two"],
+                        "values": [[1.5], [2.5]],
+                    }
+                ],
+            }
+        ],
+    }
+    observed: dict[str, object] = {}
+
+    def project(native_package, request, replay_outcome):  # noqa: ANN001
+        observed.update(package=native_package, request=request, outcome=replay_outcome)
+        return {
+            "schema_version": 1,
+            "package_fingerprint": "a" * 64,
+            "replay_outcome_fingerprint": "c" * 64,
+            "binding_id": "binding:prediction",
+            "target_name": "y",
+            "sample_ids": ["sample.one", "sample.two"],
+            "point_predictions": [1.5, 2.5],
+            "intervals": [
+                {
+                    "coverage": 0.9,
+                    "lower": [1.0, 2.0],
+                    "upper": [2.0, 3.0],
+                    "qhat": 0.5,
+                }
+            ],
+            "calibration_fingerprint": "b" * 64,
+            "presentation_fingerprint": "d" * 64,
+        }
+
+    runtime.PortablePredictorPackage = _Package
+    runtime.replay_loaded_methods_predictor_package = lambda *_args, **_kwargs: outcome
+    runtime.build_conformal_presentation_v1 = project
+    monkeypatch.setitem(sys.modules, "dag_ml", runtime)
+    monkeypatch.setitem(
+        sys.modules,
+        "nirs4all_core",
+        types.SimpleNamespace(
+            read_portable_predictor_package_v2=lambda _path: json.dumps(package).encode()
+        ),
+    )
+
+    presentation = project_methods_archive_v2_conformal_presentation(
+        "portable.n4a",
+        np.asarray([[1.0], [2.0]]),
+        sample_ids=["sample.one", "sample.two"],
+        methods_library_path="/native/libn4m.so",
+    )
+
+    assert presentation["sample_ids"] == ["sample.one", "sample.two"]
+    assert presentation["point_predictions"] == [1.5, 2.5]
+    assert observed["package"].to_dict() == package
+    assert observed["outcome"] is outcome
+    assert observed["request"]["phase"] == "PREDICT"
 
 
 def test_native_archive_writer_composes_dagml_and_core_without_rebuilding_members(
