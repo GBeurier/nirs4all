@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.5] — 2026-08-26
+
+### Fixed
+
+- Reconcile the published compatibility coverage meter with the authoritative
+  native/fallback allowlist used by the release gate.
+
+---
+
 ## [0.12.4] — 2026-08-26
 
 ### Added
