@@ -866,6 +866,9 @@ def run(
         - :func:`nirs4all.session`: Create execution session for resource reuse
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
+    if allow_legacy_fallback is not None and not isinstance(allow_legacy_fallback, bool):
+        raise TypeError("allow_legacy_fallback must be True, False, or None")
+
     selected_engine = resolve_engine(engine)
     custom_training_loss_requested = bool(training_losses) or local_implementations is not None
     if custom_training_loss_requested and selected_engine != "dag-ml":
@@ -1246,7 +1249,7 @@ def run(
                 local_implementations=local_implementations,
             )
         except DagMlUnavailable as e:
-            if custom_training_loss_requested:
+            if custom_training_loss_requested or allow_legacy_fallback is False:
                 raise
             warnings.warn(
                 f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
@@ -1254,7 +1257,7 @@ def run(
             )
             return _run_legacy()
         except (DagMlUnsupported, NotImplementedError) as e:
-            if custom_training_loss_requested:
+            if custom_training_loss_requested or allow_legacy_fallback is False:
                 raise
             warnings.warn(
                 f"engine='dag-ml' does not support this pipeline shape ({e}); falling back to the legacy engine",
