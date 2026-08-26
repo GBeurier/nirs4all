@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 import nirs4all
+from nirs4all.api.native_refit_result import NativeMethodsRefitResult
 from nirs4all.api.native_result import NativeMethodsRunResult
 from nirs4all.api.native_session import NativeMethodsSession
 from nirs4all.api.session import Session, session
@@ -163,7 +164,7 @@ def test_native_predict_delegates_to_the_trained_native_session(monkeypatch: pyt
 
 def test_native_session_retrains_only_through_the_strict_native_full_refit(monkeypatch: pytest.MonkeyPatch) -> None:
     source = object.__new__(NativeMethodsRunResult)
-    retrained = object.__new__(NativeMethodsRunResult)
+    retrained = object.__new__(NativeMethodsRefitResult)
     native = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}], name="native")
     native._result = source  # noqa: SLF001
     observed: dict[str, object] = {}
@@ -195,7 +196,7 @@ def test_native_hpo_session_refits_the_result_selected_by_its_own_run(monkeypatc
     """A session keeps its attested HPO result as the sole native refit source."""
 
     selected = object.__new__(NativeMethodsRunResult)
-    refitted = object.__new__(NativeMethodsRunResult)
+    refitted = object.__new__(NativeMethodsRefitResult)
     tuning = {"engine": "methods-hpo", "trials": 2}
     native = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}], tuning=tuning)
     observed: dict[str, object] = {}

@@ -34,7 +34,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypeAlias
+from typing import Any, TypeAlias, cast
 
 import numpy as np
 
@@ -43,13 +43,15 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine
 
+from .native_refit_result import NativeMethodsRefitResult
 from .native_session import NativeMethodsSession
 from .result import PredictResult
 from .session import NativeArchiveSession, Session
 
 # Type aliases for clarity
 ModelSpec: TypeAlias = (
-    dict[str, Any]  # Prediction dict from previous run
+    NativeMethodsRefitResult  # Detached native full-refit result
+    | dict[str, Any]  # Prediction dict from previous run
     | str  # Path to bundle (.n4a) or config
     | Path  # Path to bundle or config
 )
@@ -228,7 +230,9 @@ def predict(
     """
     engine = runner_kwargs.pop("engine", None)
 
-    if isinstance(session, (NativeArchiveSession, NativeMethodsSession)):
+    if isinstance(session, (NativeArchiveSession, NativeMethodsSession)) or isinstance(
+        model, NativeMethodsRefitResult
+    ):
         if engine is None:
             # The session itself is an unambiguous, already-selected native
             # capability. Do not route it through the process default or an
@@ -236,7 +240,7 @@ def predict(
             engine = "native"
         elif engine != "native":
             raise ValueError(
-                "a native Methods session selects native prediction; an explicit non-native engine is refused"
+                "a native Methods result or session selects native prediction; an explicit non-native engine is refused"
             )
 
     # ---- Validate mutually exclusive arguments ----
@@ -263,6 +267,9 @@ def predict(
                 "engine='native' Archive V2 prediction does not yet publish to the legacy workspace store"
             )
         return result
+
+    if isinstance(model, NativeMethodsRefitResult):
+        raise AssertionError("native V3 result escaped its required native prediction route")
 
     # The explicit native branch above consumes every NativeArchiveSession.
     # Narrow the remaining legacy paths for both runtime safety and static
@@ -467,13 +474,24 @@ def _predict_from_native_archive(
         )
     if session is not None and model is not None:
         raise ValueError("engine='native' predict accepts either model or NativeArchiveSession, not both")
-    if all_predictions:
-        raise NotImplementedError(
-            "engine='native' Archive V2 prediction exposes one selected final output"
-        )
     if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
         raise TypeError(
             "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
+        )
+    if isinstance(model, NativeMethodsRefitResult):
+        if all_predictions or coverage is not None:
+            raise NotImplementedError(
+                "engine='native' Package V3 prediction exposes one selected point output without conformal sidecars"
+            )
+        return model.predict(
+            data["X"],
+            sample_ids=data["sample_ids"],
+            groups=data.get("groups"),
+            metadata=data.get("metadata"),
+        )
+    if all_predictions:
+        raise NotImplementedError(
+            "engine='native' Archive V2 prediction exposes one selected final output"
         )
     metadata: dict[str, Any]
     prediction_sample_ids: tuple[str, ...]
@@ -844,7 +862,7 @@ def _predict_from_model(
 
     try:
         # Convert Path to str for compatibility with type hints
-        model_arg = str(model) if isinstance(model, Path) else model
+        model_arg = cast(dict[str, Any] | str, str(model) if isinstance(model, Path) else model)
         data_arg = str(data) if isinstance(data, Path) else data
 
         # Call the runner's predict method

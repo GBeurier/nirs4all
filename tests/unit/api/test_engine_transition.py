@@ -445,42 +445,22 @@ def test_public_helpers_reject_dagml_until_native_paths_exist(operation: str, ca
 def test_retrain_native_refits_the_attested_selected_methods_variant_without_legacy_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """Native full retrain keeps the selected HPO patch and never builds a runner."""
-
-    model = PLSRegression(n_components=1)
+    """Native full retrain delegates one V3 operation without a legacy runner."""
 
     class Estimator:
-        pipeline = [KFold(n_splits=2), {"model": model}]
-        training_outcome_ = {
-            "outcome_fingerprint": "a" * 64,
-            "training_request_fingerprint": "b" * 64,
-            "effective_plan_fingerprint": "c" * 64,
-            "selected_variant_id": "variant:base",
-            "selected_variant_fingerprint": "d" * 64,
-            "refit": {"status": "completed"},
-            "diagnostics": {"nirs4all_native_seed": 17},
-            "parameter_patches": [
-                {
-                    "schema_version": 1,
-                    "node_id": "model:compat.0",
-                    "namespace": "operator",
-                    "path": ["n_components"],
-                    "value": 2,
-                }
-            ]
-        }
+        pass
 
     source = object.__new__(NativeMethodsRunResult)
     source._native_estimator = Estimator()  # noqa: SLF001
     observed: dict[str, object] = {}
     expected = object()
 
-    def native_retrain(pipeline, dataset, **kwargs):  # noqa: ANN001
-        observed.update(pipeline=pipeline, dataset=dataset, kwargs=kwargs)
+    def native_retrain(source_arg, dataset, *, name):  # noqa: ANN001
+        observed.update(source=source_arg, dataset=dataset, name=name)
         return expected
 
     retrain_module = importlib.import_module("nirs4all.api.retrain")
-    monkeypatch.setattr(retrain_module, "run_native_methods", native_retrain)
+    monkeypatch.setattr(retrain_module, "refit_native_methods", native_retrain)
     monkeypatch.setattr(
         retrain_module,
         "PipelineRunner",
@@ -493,76 +473,11 @@ def test_retrain_native_refits_the_attested_selected_methods_variant_without_leg
         "sample_ids": ["next-0", "next-1", "next-2", "next-3"],
     }
     assert retrain(source, dataset, name="next") is expected
-    rebuilt_model = observed["pipeline"][1]["model"]
-    assert rebuilt_model is not model
-    assert rebuilt_model.n_components == 2
-    assert model.n_components == 1
+    assert observed["source"] is source
     assert observed["dataset"] is dataset
-    assert observed["kwargs"] == {
-        "name": "next",
-        "save_charts": False,
-        "random_state": 17,
-        "retrain_lineage": NativeRetrainLineage(
-            source_outcome_fingerprint="a" * 64,
-            source_training_request_fingerprint="b" * 64,
-            source_effective_plan_fingerprint="c" * 64,
-            source_selected_variant_id="variant:base",
-            source_selected_variant_fingerprint="d" * 64,
-            source_seed=17,
-        ),
-    }
+    assert observed["name"] == "next"
 
 
-def test_native_retrain_refuses_a_source_without_persisted_parent_evidence() -> None:
-    """Older or synthetic outcomes cannot be treated as retrain-capable."""
-
-    class Estimator:
-        pipeline = [KFold(n_splits=2), {"model": PLSRegression(n_components=1)}]
-        training_outcome_ = {
-            "parameter_patches": [],
-            "refit": {"status": "completed"},
-            "diagnostics": {},
-        }
-
-    source = object.__new__(NativeMethodsRunResult)
-    source._native_estimator = Estimator()  # noqa: SLF001
-    with pytest.raises(ValueError, match="attested native seed"):
-        retrain(
-            source,
-            {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["p0", "p1"]},
-            engine="native",
-        )
-
-
-def test_native_result_exposes_only_strict_persisted_retrain_lineage() -> None:
-    class Estimator:
-        training_outcome_ = {
-            "diagnostics": {
-                "nirs4all_native_retrain_lineage": {
-                    "schema_version": 1,
-                    "operation": "full_refit",
-                    "source_outcome_fingerprint": "a" * 64,
-                    "source_training_request_fingerprint": "b" * 64,
-                    "source_effective_plan_fingerprint": "c" * 64,
-                    "source_selected_variant_id": "variant:base",
-                    "source_selected_variant_fingerprint": "d" * 64,
-                    "source_seed": 17,
-                }
-            }
-        }
-
-    result = object.__new__(NativeMethodsRunResult)
-    result._native_estimator = Estimator()  # noqa: SLF001
-    assert result.native_retrain_lineage == {
-        "schema_version": 1,
-        "operation": "full_refit",
-        "source_outcome_fingerprint": "a" * 64,
-        "source_training_request_fingerprint": "b" * 64,
-        "source_effective_plan_fingerprint": "c" * 64,
-        "source_selected_variant_id": "variant:base",
-        "source_selected_variant_fingerprint": "d" * 64,
-        "source_seed": 17,
-    }
 
 
 @pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
@@ -610,6 +525,44 @@ def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner
     assert result.y_pred.tolist() == [[2.0], [3.0]]
     assert result.metadata["engine"] == "native"
     assert observed["sample_ids"] == ["p1", "p2"]
+
+
+def test_predict_native_refit_result_is_direct_and_never_constructs_a_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A detached V3 child is a native model, not a bundle-loader surrogate."""
+
+    from nirs4all.api.native_refit_result import NativeMethodsRefitResult
+
+    result = object.__new__(NativeMethodsRefitResult)
+    observed: dict[str, object] = {}
+
+    def native_predict(X, *, sample_ids, groups=None, metadata=None):  # noqa: ANN001
+        observed.update(X=np.asarray(X), sample_ids=list(sample_ids), groups=groups, metadata=metadata)
+        return type(
+            "Prediction",
+            (),
+            {
+                "y_pred": np.asarray([[3.0]]),
+                "metadata": {"engine": "native", "sample_ids": ["p1"]},
+                "intervals": {},
+            },
+        )()
+
+    monkeypatch.setattr(result, "predict", native_predict)
+    predict_module = importlib.import_module("nirs4all.api.predict")
+    monkeypatch.setattr(
+        predict_module,
+        "PipelineRunner",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy runner constructed")),
+    )
+    prediction = predict(
+        model=result,
+        data={"X": np.asarray([[2.0]]), "sample_ids": ["p1"]},
+        engine="native",
+    )
+    assert prediction.y_pred.tolist() == [[3.0]]
+    assert observed["sample_ids"] == ["p1"]
 
 
 def test_predict_native_archive_accepts_raw_matrix_with_explicit_keyword_identities(

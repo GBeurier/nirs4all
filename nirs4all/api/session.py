@@ -34,7 +34,7 @@ if TYPE_CHECKING:
 
 
 class NativeArchiveSession:
-    """Reusable, fail-closed PREDICT session for one portable Archive V2.
+    """Reusable, fail-closed PREDICT session for one portable Archive V2/V3.
 
     This is not a compatibility wrapper around :class:`PipelineRunner`: every
     call invokes the DAG-ML/Core/Methods portable replay route and releases its
@@ -50,6 +50,7 @@ class NativeArchiveSession:
     ) -> None:
         self._archive_path = Path(archive_path)
         self._methods_library_path = methods_library_path
+        self._refit_result: Any | None = None
         self._closed = False
 
     @property
@@ -64,6 +65,12 @@ class NativeArchiveSession:
 
         return self._closed
 
+    @property
+    def archive_schema_version(self) -> int:
+        """The Core archive generation selected during fail-closed opening."""
+
+        return 3 if self._refit_result is not None else 2
+
     def predict(
         self,
         X: Any,
@@ -76,6 +83,16 @@ class NativeArchiveSession:
 
         if self._closed:
             raise RuntimeError("NativeArchiveSession is closed")
+        if self._refit_result is not None:
+            return cast(
+                "PredictResult",
+                self._refit_result.predict(
+                    X,
+                    sample_ids=sample_ids,
+                    groups=groups,
+                    metadata=metadata,
+                ),
+            )
         from nirs4all.api.result import PredictResult
         from nirs4all.pipeline.dagml.native_archive_replay import (
             predict_methods_archive_v2_raw_result,
@@ -132,7 +149,7 @@ def load_native_archive_session(
     *,
     methods_library_path: str | Path | None = None,
 ) -> NativeArchiveSession:
-    """Open a validated portable Archive V2 PREDICT session without a legacy runner.
+    """Open a validated portable Archive V2/V3 PREDICT session without a legacy runner.
 
     With ``nirs4all[native]``, the compatible Methods shared library is
     discovered from the installed ``nirs4all-methods`` wheel for each
@@ -146,8 +163,22 @@ def load_native_archive_session(
     archive_path = Path(path)
     from nirs4all.pipeline.dagml.native_archive_replay import validate_methods_archive_v2
 
-    validate_methods_archive_v2(archive_path)
-    return NativeArchiveSession(archive_path, methods_library_path=methods_library_path)
+    session = NativeArchiveSession(archive_path, methods_library_path=methods_library_path)
+    try:
+        validate_methods_archive_v2(archive_path)
+    except Exception as v2_error:
+        from .native_refit_result import NativeMethodsRefitResult
+
+        try:
+            session._refit_result = NativeMethodsRefitResult.load_archive(
+                archive_path,
+                methods_library_path=(
+                    str(methods_library_path) if methods_library_path is not None else None
+                ),
+            )
+        except Exception:
+            raise v2_error from None
+    return session
 
 
 class Session:
@@ -583,7 +614,7 @@ def load_session(
             Methods replay session; it never constructs a ``PipelineRunner``
             or falls back to the legacy loader.
         methods_library_path: Optional explicit path to ``libn4m`` for an
-            ``engine="native"`` Archive V2 Methods session. When omitted,
+    ``engine="native"`` Archive V2/V3 Methods session. When omitted,
             the bundled ``nirs4all-methods`` runtime is used.
 
     Returns:
@@ -603,7 +634,7 @@ def load_session(
 
     if engine == "native":
         if path.suffix.lower() != ".n4a":
-            raise ValueError("engine='native' load_session requires a Core Archive V2 .n4a path")
+            raise ValueError("engine='native' load_session requires a Core Archive V2/V3 .n4a path")
         return load_native_archive_session(path, methods_library_path=methods_library_path)
     if engine != "legacy":
         from nirs4all.pipeline.engine import require_legacy_engine

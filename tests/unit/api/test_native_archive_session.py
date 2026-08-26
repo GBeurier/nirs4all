@@ -142,6 +142,40 @@ def test_load_native_archive_session_refuses_a_bad_package_before_prediction(
         load_native_archive_session("invalid.n4a")
 
 
+def test_load_native_archive_session_dispatches_v3_without_a_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A V2 refusal may select only the strict V3 Core/DAG-ML reader."""
+
+    class V3Result:
+        def predict(self, X, *, sample_ids, groups=None, metadata=None):  # noqa: ANN001
+            assert np.asarray(X).tolist() == [[1.0]]
+            assert sample_ids == ["p1"]
+            return type(
+                "Prediction",
+                (),
+                {
+                    "y_pred": np.asarray([[9.0]]),
+                    "metadata": {"engine": "native", "sample_ids": ["p1"]},
+                    "intervals": {},
+                },
+            )()
+
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.validate_methods_archive_v2",
+        lambda _path: (_ for _ in ()).throw(NativeArchiveReplayError("not V2")),
+    )
+    monkeypatch.setattr(
+        "nirs4all.api.native_refit_result.NativeMethodsRefitResult.load_archive",
+        lambda path, **kwargs: V3Result(),
+    )
+
+    loaded = load_native_archive_session("portable-v3.n4a", methods_library_path="/native/libn4m.so")
+    assert loaded.archive_schema_version == 3
+    result = loaded.predict(np.asarray([[1.0]]), sample_ids=["p1"])
+    assert result.y_pred.tolist() == [[9.0]]
+
+
 def test_predict_native_session_refuses_explicit_non_native_engine(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

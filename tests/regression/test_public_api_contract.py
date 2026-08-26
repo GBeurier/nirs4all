@@ -63,7 +63,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "plots_visible: bool = False, random_state: int | None = None, "
         "refit: bool | dict[str, typing.Any] | list[dict[str, typing.Any]] | None = True, "
         "cache: typing.Any | None = None, project: str | None = None, "
-        "report_naming: str = 'nirs', engine: str | None = None, "
+        "report_naming: str = 'nirs', engine: str | None = None, allow_legacy_fallback: bool | None = None, "
         "tuning: typing.Any | None = None, calibration: typing.Any | None = None, "
         "results_path: str | pathlib.Path | None = None, training_losses: tuple[collections.abc.Mapping[str, typing.Any], ...] = (), "
         "local_implementations: typing.Any | None = None, **runner_kwargs: Any) -> "
@@ -77,7 +77,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "coverage: 'float | list[float] | tuple[float, ...] | None' = None, "
         "save_to_workspace: 'bool' = False, workspace_metadata: 'Mapping[str, Any] | None' = None, "
         "workspace_result_metadata: 'Mapping[str, Any] | None' = None, "
-        "methods_library_path: 'str | Path | None' = None, **runner_kwargs: 'Any') -> 'PredictResult'"
+        "methods_library_path: 'str | Path | None' = None, sample_ids: 'Any' = None, **runner_kwargs: 'Any') -> 'PredictResult'"
     ),
     "explain": (
         "(model: dict[str, typing.Any] | str | pathlib.Path, "
@@ -97,7 +97,8 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "name: str = 'retrain_dataset', new_model: typing.Any | None = None, "
         "epochs: int | None = None, "
         "session: nirs4all.api.session.Session | None = None, verbose: int = 1, "
-        "save_artifacts: bool = True, **kwargs: Any) -> nirs4all.api.result.RunResult"
+        "save_artifacts: bool = True, **kwargs: Any) -> nirs4all.api.result.RunResult | "
+        "nirs4all.api.native_refit_result.NativeMethodsRefitResult"
     ),
     "session": ("(pipeline: 'list[Any] | None' = None, name: 'str' = '', **kwargs: 'Any') -> 'Generator[Session | NativeMethodsSession, None, None]'"),
     "load_session": ("(path: 'str | Path', *, engine: 'str' = 'legacy', methods_library_path: 'str | Path | None' = None) -> 'Session | NativeArchiveSession'"),
@@ -323,6 +324,7 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "FinetunePruner",
     "FinetuneSampler",
     "NativeArchiveSession",
+    "NativeMethodsRefitResult",
     "NativeMethodsRunResult",
     "NativeMethodsSession",
     "NativeTuning",
@@ -452,6 +454,7 @@ EXPECTED_API_ALL: list[str] = [
     "LazyModelRefitResult",
     "ModelRefitResult",
     "NativeArchiveSession",
+    "NativeMethodsRefitResult",
     "NativeMethodsRunResult",
     "NativeMethodsSession",
     "NativeTuning",

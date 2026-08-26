@@ -8,6 +8,7 @@ re-running that workflow through :class:`PipelineRunner` during export.
 
 from __future__ import annotations
 
+import importlib
 import json
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
@@ -26,8 +27,12 @@ from nirs4all.pipeline.dagml.raw_replay_lowerer import (
     RawArrayMethodsReplayError,
     validate_native_methods_package,
 )
-from nirs4all.pipeline.dagml.raw_training_lowerer import RawArrayDagMLTrainingCompiler
+from nirs4all.pipeline.dagml.raw_training_lowerer import (
+    RawArrayDagMLTrainingCompiler,
+    lower_raw_array_training_contracts,
+)
 
+from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
 from .native_retrain_lineage import (
     DIAGNOSTIC_KEY as RETRAIN_LINEAGE_DIAGNOSTIC_KEY,
@@ -230,6 +235,128 @@ def run_native_methods(
         dataset_name=name or "native",
         model_name=_native_model_name(pipeline),
     )
+
+
+def refit_native_methods(
+    source: NativeMethodsRunResult,
+    dataset: Mapping[str, Any],
+    *,
+    name: str = "",
+) -> NativeMethodsRefitResult:
+    """Create one fresh native V3 REFIT child from a V2 parent package.
+
+    Only the selected, attested plan travels from the parent.  This code lowers
+    a new explicitly identified target cohort; it does not re-enter CV or
+    SELECT and never calls the legacy runner.
+    """
+
+    if not isinstance(source, NativeMethodsRunResult):
+        raise TypeError("native Methods full refit requires a NativeMethodsRunResult source")
+    if not isinstance(dataset, Mapping):
+        raise TypeError("native Methods full refit requires dataset={'X', 'y', 'sample_ids'}")
+    unknown = set(dataset) - {"X", "y", "sample_ids", "groups", "metadata"}
+    if unknown:
+        raise ValueError(f"native Methods full refit dataset has unsupported keys: {sorted(unknown)}")
+    missing = {"X", "y", "sample_ids"} - set(dataset)
+    if missing:
+        raise ValueError(f"native Methods full refit dataset is missing required keys: {sorted(missing)}")
+
+    estimator = source.native_estimator
+    source_package = getattr(estimator, "predictor_package_", None)
+    source_execution = getattr(estimator, "native_training_execution_", None)
+    pipeline = getattr(estimator, "pipeline", None)
+    if source_package is None or source_execution is None or not isinstance(pipeline, list):
+        raise DagMLNativeCoverageError(
+            "native Methods source does not retain the V2 package and signed training contracts required for full refit"
+        )
+    methods_library_path = getattr(source_execution, "methods_library_path", None)
+    if not isinstance(methods_library_path, str) or not methods_library_path:
+        raise DagMLNativeCoverageError(
+            "native Methods source does not retain its explicit libn4m path for full refit"
+        )
+    dagml_module = getattr(estimator, "dagml_module", "dag_ml")
+    if not isinstance(dagml_module, str) or not dagml_module:
+        raise DagMLNativeCoverageError("native Methods source has no DAG-ML module identity")
+
+    features = np.asarray(dataset["X"])
+    targets = np.asarray(dataset["y"])
+    if features.ndim != 2 or targets.ndim not in (1, 2):
+        raise ValueError("native Methods full refit requires 2-D X and 1-D or 2-D y")
+    if features.shape[0] == 0 or features.shape[0] != targets.shape[0]:
+        raise ValueError("native Methods full refit requires aligned non-empty X and y")
+    if not np.issubdtype(features.dtype, np.number) or not np.issubdtype(targets.dtype, np.number):
+        raise TypeError("native Methods full refit requires numeric X and y")
+    if not np.isfinite(features).all() or not np.isfinite(targets).all():
+        raise ValueError("native Methods full refit requires finite X and y")
+
+    from nirs4all.pipeline.dagml.fit_identity import normalize_fit_identity
+
+    identity_frame = normalize_fit_identity(
+        features,
+        targets,
+        sample_ids=dataset["sample_ids"],
+        groups=dataset.get("groups"),
+        metadata=dataset.get("metadata"),
+        require_explicit_sample_ids=True,
+    )
+    target_contracts = lower_raw_array_training_contracts(
+        pipeline,
+        features,
+        targets,
+        identity_frame=identity_frame,
+        request_id="training:nirs4all.native_full_refit",
+        plan_id="plan:nirs4all.native_full_refit",
+        outcome_id="outcome:nirs4all.native_full_refit",
+        run_id="run:nirs4all.native_full_refit",
+        bundle_id="bundle:nirs4all.native_full_refit",
+        dagml_module=dagml_module,
+        methods_library_path=methods_library_path,
+    ).to_prepared()
+    if target_contracts.methods_inputs is None:
+        raise RuntimeError("native Methods target lowering omitted Methods numeric inputs")
+    request_document = _contract_document(target_contracts.request, "training request")
+    dag_ml = importlib.import_module(dagml_module)
+    signer = getattr(dag_ml, "sign_training_request", None)
+    if not callable(signer):
+        raise DagMLNativeCoverageError(
+            "installed DAG-ML lacks native training-request signing required for full refit"
+        )
+    target_request = signer(dict(request_document))
+    signed_request = _contract_document(target_request, "signed training request")
+    fingerprint = signed_request.get("request_fingerprint")
+    if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+        raise RuntimeError("native Methods target lowering did not produce a signed request")
+    suffix = fingerprint[:16]
+    package = estimator.native_runtime_client().execute_methods_portable_full_refit(
+        source_package,
+        target_request,
+        target_contracts.data_envelopes,
+        target_contracts.relations,
+        target_contracts.training_influence,
+        target_contracts.methods_inputs,
+        methods_library_path=methods_library_path,
+        recipe_id=f"recipe:nirs4all.full_refit.{suffix}",
+        package_id=f"package:nirs4all.full_refit.{suffix}",
+        outcome_id=f"outcome:nirs4all.full_refit.{suffix}",
+        run_id=f"run:nirs4all.full_refit.{suffix}",
+        bundle_id=f"bundle:nirs4all.full_refit.{suffix}",
+    )
+    _ = name  # Reserved for Archive/UI presentation, never passed to legacy code.
+    return NativeMethodsRefitResult(
+        package,
+        methods_library_path=methods_library_path,
+        dagml_module=dagml_module,
+        decoder=_decode_raw_methods_prediction,
+    )
+
+
+def _contract_document(contract: Any, label: str) -> Mapping[str, Any]:
+    """Return a mapping from one strict DAG-ML contract object."""
+
+    document = contract.to_dict() if hasattr(contract, "to_dict") else contract
+    if not isinstance(document, Mapping):
+        raise RuntimeError(f"native Methods target lowering did not produce a {label} object")
+    return document
 
 
 _NATIVE_METHODS_HPO_SAMPLERS = frozenset({"random", "tpe"})

@@ -203,6 +203,7 @@ _CAPABILITY_ORDER = {
             "consumes_oof_predictions",
             "emits_artifacts",
             "stateful",
+            "supports_portable_full_refit",
             "emits_relation",
             "uses_core_rng",
             "shape_changing",

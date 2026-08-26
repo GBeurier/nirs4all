@@ -99,13 +99,14 @@ pip install nirs4all[all]
 # All frameworks with GPU support
 pip install nirs4all[all-gpu]
 
-# Verified native Methods training, session and Archive V2 replay
+# Verified native Methods training, full refit, and Archive V2/V3 replay
 pip install nirs4all[native]
 ```
 
 The `native` extra enables the explicit, fail-closed `engine="native"` Methods
 subset: raw-array PLS training with explicit sample IDs, stateful native
-sessions, strict Methods HPO, Archive V2 export/load, and replay. It does not
+sessions, strict Methods HPO, Archive V2 export/load, target-bound Archive V3
+full-refit export/load, and replay. It does not
 change the default engine, fit a legacy runner, or silently fall back for a
 native request.
 
