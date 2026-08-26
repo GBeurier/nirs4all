@@ -1012,6 +1012,22 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             if generators:
                 dsl_step["generators"] = generators
             return dsl_step
+        if "preprocessing" in step:
+            # ``{"preprocessing": transformer}`` is the legacy spelling of a
+            # top-level X transform.  With no companion policy it has exactly
+            # the same fold-local fit/transform semantics as the bare operator
+            # form already lowered below.  Do not silently erase policy keys:
+            # ``fit_on_all`` changes the fit universe and ``force_layout``
+            # changes the data-plane contract, neither of which the native
+            # runtime can reproduce yet.
+            unsupported = sorted(set(step) - {"preprocessing"})
+            if unsupported:
+                raise NotImplementedError(
+                    "dag-ml bridge does not lower preprocessing policy key(s) "
+                    f"{unsupported}; only the plain {{'preprocessing': transform}} spelling is native"
+                )
+            op = step["preprocessing"]
+            return {"class": _qualname(op), "params": _json_safe_params(op)}
         if "y_processing" in step:
             op = step["y_processing"]
             return {"y_processing": {"class": _qualname(op), "params": _json_safe_params(op)}}
