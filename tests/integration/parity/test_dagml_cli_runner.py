@@ -2280,12 +2280,26 @@ def test_plain_preprocessing_keyword_lowers_as_the_equivalent_x_transform() -> N
         "params": {"copy": True, "with_mean": True, "with_std": True},
     }
 
-    with pytest.raises(NotImplementedError, match="preprocessing policy"):
+    with pytest.raises(NotImplementedError, match="data-dependent fit state"):
         _step_to_dsl({"preprocessing": StandardScaler(), "fit_on_all": True})
 
     assert _step_to_dsl({"preprocessing": StandardScaler(), "force_layout": "2d"}) == dsl
     with pytest.raises(NotImplementedError, match="preprocessing policy"):
         _step_to_dsl({"preprocessing": StandardScaler(), "force_layout": "3d"})
+
+
+def test_fit_on_all_lowers_only_for_provably_stateless_preprocessing() -> None:
+    """A full-universe fit is equivalent to fold-local fitting only without learned state."""
+    from sklearn.preprocessing import StandardScaler
+
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    dsl = _step_to_dsl({"preprocessing": StandardNormalVariate(), "fit_on_all": True})
+    assert dsl["class"] == "nirs4all.operators.transforms.scalers.StandardNormalVariate"
+
+    with pytest.raises(NotImplementedError, match="data-dependent fit state"):
+        _step_to_dsl({"preprocessing": StandardScaler(), "fit_on_all": True})
 
 
 def test_concat_transform_3d_shapes_fail_loud() -> None:

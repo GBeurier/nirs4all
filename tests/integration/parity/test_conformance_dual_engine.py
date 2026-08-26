@@ -394,9 +394,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # by-source separation / per-source models / source-concat multi-source shapes.
     "multi_source_by_source_branch_shared_preproc",
     "multi_source_per_source_models_stacking",
-    # `fit_on_all` changes the fit universe.  The explicit spelling and the
-    # legacy no-op `force_layout='2d'` form lower as their bare transform.
-    "preprocessing_fit_on_all",
 })
 
 
