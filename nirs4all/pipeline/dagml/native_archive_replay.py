@@ -22,7 +22,11 @@ from .fit_identity import normalize_predict_identity
 from .methods_replay import MethodsN4mmReplayCallbacks, MethodsPortableReplayError
 from .methods_runtime import resolve_methods_library_path
 from .native_client import DagMLNativeCoverageError
-from .raw_replay_lowerer import RawArrayMethodsReplayCompiler, RawArrayMethodsReplayError
+from .raw_replay_lowerer import (
+    RawArrayMethodsReplayCompiler,
+    RawArrayMethodsReplayError,
+    validate_native_methods_package,
+)
 
 if TYPE_CHECKING:
     from .resolver import MaterializationResolver
@@ -103,6 +107,25 @@ def write_methods_archive_v2(
     if reference["archive_id"] != archive_id:
         raise NativeArchiveReplayError("Core Archive V2 writer returned a mismatched archive id")
     return {"archive_id": str(reference["archive_id"]), "archive_sha256": str(reference["archive_sha256"])}
+
+
+def validate_methods_archive_v2(archive_path: str | Path) -> None:
+    """Preflight one Archive V2 without loading a Methods runtime or any cohort.
+
+    Core owns archive/container integrity and returns only the opaque Package
+    member.  DAG-ML then validates the Package V2 contract; this adapter adds
+    the public raw-Methods closure check.  Keeping that sequence at session
+    open time ensures malformed archives fail before callers provide feature
+    rows or native N4MM hydration is attempted.
+    """
+
+    _dag_ml, package, _package_document = _load_methods_archive_package(archive_path)
+    try:
+        validate_native_methods_package(package)
+    except RawArrayMethodsReplayError as error:
+        raise NativeArchiveReplayError(
+            "Core Archive V2 does not contain a replayable portable Methods package"
+        ) from error
 
 
 def replay_methods_archive_v2(
@@ -230,15 +253,20 @@ def predict_methods_archive_v2_raw_result(
         replay = compiler.compile_replay(
             None, X, mode="predict", identity_frame=identity
         )
-        outcome = dag_ml.replay_loaded_methods_predictor_package(
-            package,
-            replay.request,
-            replay.data_envelopes,
-            replay.methods_inputs,
-            methods_library_path=library_path,
-            outcome_id=replay.outcome_id,
-            run_id=replay.run_id,
-        )
+        try:
+            outcome = dag_ml.replay_loaded_methods_predictor_package(
+                package,
+                replay.request,
+                replay.data_envelopes,
+                replay.methods_inputs,
+                methods_library_path=library_path,
+                outcome_id=replay.outcome_id,
+                run_id=replay.run_id,
+            )
+        except Exception as error:
+            raise NativeArchiveReplayError(
+                "DAG-ML Methods Archive V2 replay was refused"
+            ) from error
         return _decode_exact_raw_prediction(
             outcome,
             identity.sample_ids,
@@ -266,7 +294,12 @@ def _load_methods_archive_package(
             "native Archive V2 replay requires dag-ml with portable artifact callbacks"
         ) from error
 
-    package_bytes = read_portable_predictor_package_v2(str(archive_path))
+    try:
+        package_bytes = read_portable_predictor_package_v2(str(archive_path))
+    except Exception as error:
+        raise NativeArchiveReplayError(
+            "Core Archive V2 rejected the portable predictor package"
+        ) from error
     if not isinstance(package_bytes, bytes):
         raise NativeArchiveReplayError("Core Archive V2 reader did not return package bytes")
     try:
@@ -508,6 +541,7 @@ __all__ = [
     "NativeArchiveConformalInterval",
     "NativeArchivePrediction",
     "NativeArchiveReplayError",
+    "validate_methods_archive_v2",
     "predict_methods_archive_v2_raw",
     "predict_methods_archive_v2_raw_result",
     "replay_methods_archive_v2",

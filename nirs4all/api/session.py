@@ -128,15 +128,22 @@ def load_native_archive_session(
     *,
     methods_library_path: str | Path | None = None,
 ) -> NativeArchiveSession:
-    """Open a portable Archive V2 PREDICT session without a legacy runner.
+    """Open a validated portable Archive V2 PREDICT session without a legacy runner.
 
     With ``nirs4all[native]``, the compatible Methods shared library is
     discovered from the installed ``nirs4all-methods`` wheel for each
     invocation. ``methods_library_path`` remains an explicit deployment
-    override for invocation-local N4MM hydration.
+    override for invocation-local N4MM hydration.  Opening the session first
+    validates the Core container and DAG-ML Package V2, but deliberately does
+    not load an N4MM model or consume caller data; native model hydration stays
+    invocation-local to :meth:`NativeArchiveSession.predict`.
     """
 
-    return NativeArchiveSession(path, methods_library_path=methods_library_path)
+    archive_path = Path(path)
+    from nirs4all.pipeline.dagml.native_archive_replay import validate_methods_archive_v2
+
+    validate_methods_archive_v2(archive_path)
+    return NativeArchiveSession(archive_path, methods_library_path=methods_library_path)
 
 
 class Session:

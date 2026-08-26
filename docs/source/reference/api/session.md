@@ -91,7 +91,9 @@ nirs4all.load_session(
 - `path` (str|Path): Path to the `.n4a` bundle file to load
 - `engine`: `"legacy"` (default) preserves the existing `BundleLoader` session.
   `"native"` opens a fail-closed Core Archive V2 Methods PREDICT session and
-  accepts no legacy fallback.
+  accepts no legacy fallback. Opening a native session validates the Core
+  container and DAG-ML Package V2 before prediction data or an N4MM runtime is
+  touched.
 
 **Returns:**
 - `Session` for `engine="legacy"`, ready for legacy prediction.
@@ -136,6 +138,9 @@ native.close()
   legacy prediction, retraining, and save APIs.
 - `NativeArchiveSession` is deliberately PREDICT-only: it owns no legacy
   runner and cannot be repurposed for retraining or export.
+- Native open is a structural preflight, not model hydration: the Methods
+  shared library and its N4MM handle are resolved invocation-by-invocation at
+  `predict(...)`, then released before it returns.
 - The original bundle file is not modified by the loaded session
 
 ## Session Methods
