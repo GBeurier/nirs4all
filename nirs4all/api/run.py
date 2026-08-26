@@ -631,6 +631,7 @@ def run(
     project: str | None = None,
     report_naming: str = "nirs",
     engine: str | None = None,
+    allow_legacy_fallback: bool | None = None,
     tuning: Any | None = None,
     calibration: Any | None = None,
     results_path: str | Path | None = None,
@@ -728,6 +729,13 @@ def run(
             and are not comparison evidence. The legacy leg uses a temporary workspace removed before
             return. The current PLS report is marked orchestration-only / ``python_sklearn_pls`` rather
             than native Methods execution.
+
+        allow_legacy_fallback: Transitional policy for ``engine="dag-ml"``. ``None`` preserves the
+            R1 compatibility default and allows the documented legacy fallback. Pass ``False`` to
+            qualify or operate a strict native path: a missing backend or unsupported DAG-ML shape is
+            raised to the caller and no legacy runner is constructed. ``True`` explicitly retains the
+            R1 compatibility fallback. The R2 default can therefore flip without changing the call
+            shape or hiding fallback behaviour.
 
         tuning: Typed native tuning specification for the currently supported
             DAG-ML subset. With ``engine="dag-ml"``, this supports explicit
@@ -864,6 +872,8 @@ def run(
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
 
+    if allow_legacy_fallback is not None and not isinstance(allow_legacy_fallback, bool):
+        raise TypeError("allow_legacy_fallback must be True, False, or None")
     selected_engine = resolve_engine(engine)
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
@@ -1236,12 +1246,16 @@ def run(
                 results_path=results_path,
             )
         except DagMlUnavailable as e:
+            if allow_legacy_fallback is False:
+                raise
             warnings.warn(
                 f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
                 stacklevel=2,
             )
             return _run_legacy()
         except (DagMlUnsupported, NotImplementedError) as e:
+            if allow_legacy_fallback is False:
+                raise
             warnings.warn(
                 f"engine='dag-ml' does not support this pipeline shape ({e}); falling back to the legacy engine",
                 stacklevel=2,

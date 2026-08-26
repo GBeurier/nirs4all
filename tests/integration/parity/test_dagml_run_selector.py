@@ -143,6 +143,46 @@ def test_dagml_run_falls_back_to_legacy_when_backend_unavailable(monkeypatch: py
     assert any("dag-ml backend is not available" in str(w.message) for w in caught)
 
 
+def test_dagml_run_strict_mode_refuses_unavailable_backend_without_legacy_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R2 qualification mode propagates a backend refusal before legacy work starts."""
+    import nirs4all.pipeline.dagml.run_backend as run_backend
+    from nirs4all.pipeline.dagml.errors import DagMlUnavailable
+
+    def _unavailable(_cli: str) -> None:
+        raise DagMlUnavailable("simulated: strict native backend unavailable")
+
+    monkeypatch.setattr(run_backend, "preflight_dagml_backend", _unavailable)
+    with pytest.raises(DagMlUnavailable, match="strict native backend unavailable"):
+        nirs4all.run(
+            [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+            dataset_path("regression"),
+            engine="dag-ml",
+            allow_legacy_fallback=False,
+        )
+
+
+def test_dagml_run_strict_mode_refuses_unsupported_shape_without_legacy_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A declared coverage boundary is not downgraded to a legacy run in strict mode."""
+    import nirs4all.pipeline.dagml.run_backend as run_backend
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+
+    def _unsupported(*_args: object, **_kwargs: object) -> RunResult:
+        raise DagMlUnsupported("simulated: strict native shape unsupported")
+
+    monkeypatch.setattr(run_backend, "run_via_dagml", _unsupported)
+    with pytest.raises(DagMlUnsupported, match="strict native shape unsupported"):
+        nirs4all.run(
+            [{"model": PLSRegression(n_components=2)}],
+            dataset_path("regression"),
+            engine="dag-ml",
+            allow_legacy_fallback=False,
+        )
+
+
 @pytest.mark.parametrize(
     "option",
     [
