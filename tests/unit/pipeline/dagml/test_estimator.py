@@ -203,6 +203,32 @@ def test_fit_can_require_explicit_sample_ids() -> None:
     assert not hasattr(estimator, "fit_identity_frame_")
 
 
+def test_fit_selects_the_current_v2_nested_output_binding() -> None:
+    class V2OutputResult(_FakeTrainingResult):
+        def __init__(self) -> None:
+            super().__init__()
+            self.outputs = [
+                {
+                    "schema_version": 2,
+                    "binding": {"binding_id": "pred", "node_id": "model", "port_name": "prediction"},
+                    "predictions": [],
+                }
+            ]
+
+    client = _FakeNativeClient()
+    client.training_result = V2OutputResult()
+    estimator = DagMLPipelineEstimator(
+        pipeline=("model",),
+        selection_output_id="pred",
+        native_client=client,
+        training_compiler=lambda *_args, **_kwargs: _training_execution(),
+    )
+
+    estimator.fit(np.ones((2, 1)), np.asarray([1.0, 2.0]))
+
+    assert estimator.output_binding_["binding"]["binding_id"] == "pred"
+
+
 def test_fit_refuses_ambiguous_outputs_without_selection_output_id() -> None:
     class MultiOutputResult(_FakeTrainingResult):
         def __init__(self) -> None:

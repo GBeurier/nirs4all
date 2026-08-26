@@ -8,6 +8,7 @@ replay once the nirs4all→DAG-ML contract compiler is supplied.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -432,7 +433,17 @@ class DagMLPipelineEstimator(BaseEstimator):
     def _select_output_binding(self, outputs: list[dict[str, Any]]) -> dict[str, Any]:
         if self.selection_output_id is not None:
             for output in outputs:
-                if output.get("output_id") == self.selection_output_id:
+                # TrainingResult outputs use the stable V2 envelope
+                # ``{"binding": {"binding_id": ...}, "predictions": ...}``,
+                # while older facades exposed the binding fields directly.
+                # Accept both representations but never select by position.
+                binding = output.get("binding")
+                binding_id = (
+                    binding.get("binding_id")
+                    if isinstance(binding, Mapping)
+                    else output.get("output_id")
+                )
+                if binding_id == self.selection_output_id:
                     return output
             raise DagMLNativeCoverageError(f"native training output '{self.selection_output_id}' was not produced")
         if len(outputs) == 1:
