@@ -13,6 +13,7 @@ from nirs4all.pipeline.dagml.native_archive_replay import (
     NativeArchiveReplayError,
     predict_methods_archive_v2_raw,
     predict_methods_archive_v2_raw_result,
+    project_methods_archive_v2_conformal_presentation,
     write_methods_archive_v2,
 )
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
@@ -434,6 +435,102 @@ def test_raw_archive_predict_projects_exact_native_conformal_intervals(
     runtime.replay_loaded_methods_predictor_package = unbounded
     with pytest.raises(NativeArchiveReplayError, match="unbounded conformal interval"):
         predict_methods_archive_v2_raw_result(
+            "portable.n4a",
+            np.asarray([[1.0], [2.0]]),
+            sample_ids=["sample.one", "sample.two"],
+            methods_library_path="/native/libn4m.so",
+        )
+
+
+def test_raw_archive_conformal_presentation_is_dagml_owned_and_identity_bound(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.resolve_methods_library_path",
+        lambda path: str(path),
+    )
+    runtime = _install_fake_runtime(monkeypatch)
+    package = _package()
+    package["package_fingerprint"] = "p" * 64
+    package["conformal_calibration"] = {"calibration_fingerprint": "f" * 64}
+
+    class _Package:
+        def __init__(self, raw: str) -> None:
+            self._document = json.loads(raw)
+
+        def to_dict(self) -> dict[str, object]:
+            return self._document
+
+    def replay(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        return {
+            "outcome_fingerprint": "o" * 64,
+            "outputs": [
+                {
+                    "binding": {"binding_id": "binding:prediction"},
+                    "predictions": [
+                        {
+                            "sample_ids": ["sample.one", "sample.two"],
+                            "values": [[1.5], [2.5]],
+                        }
+                    ],
+                }
+            ],
+        }
+
+    def project(package_value, request, outcome):  # noqa: ANN001
+        assert isinstance(package_value, _Package)
+        assert request is not None
+        assert outcome["outcome_fingerprint"] == "o" * 64
+        return {
+            "schema_version": 1,
+            "package_fingerprint": "p" * 64,
+            "replay_outcome_fingerprint": "o" * 64,
+            "binding_id": "binding:prediction",
+            "target_name": "y",
+            "sample_ids": ["sample.one", "sample.two"],
+            "point_predictions": [1.5, 2.5],
+            "intervals": [
+                {
+                    "coverage": 0.9,
+                    "lower": [1.0, 2.0],
+                    "upper": [2.0, 3.0],
+                    "qhat": 0.5,
+                }
+            ],
+            "calibration_fingerprint": "f" * 64,
+            "presentation_fingerprint": "d" * 64,
+        }
+
+    runtime.PortablePredictorPackage = _Package
+    runtime.replay_loaded_methods_predictor_package = replay
+    runtime.build_conformal_presentation_v1 = project
+    monkeypatch.setitem(sys.modules, "dag_ml", runtime)
+    monkeypatch.setitem(
+        sys.modules,
+        "nirs4all_core",
+        types.SimpleNamespace(
+            read_portable_predictor_package_v2=lambda _path: json.dumps(package).encode()
+        ),
+    )
+
+    presentation = project_methods_archive_v2_conformal_presentation(
+        "portable.n4a",
+        np.asarray([[1.0], [2.0]]),
+        sample_ids=["sample.one", "sample.two"],
+        methods_library_path="/native/libn4m.so",
+    )
+
+    assert presentation["sample_ids"] == ["sample.one", "sample.two"]
+    assert presentation["point_predictions"] == [1.5, 2.5]
+
+    def project_bad_identity(*_args, **_kwargs):  # noqa: ANN002, ANN003
+        payload = project(*_args, **_kwargs)
+        payload["sample_ids"] = ["sample.two", "sample.one"]
+        return payload
+
+    runtime.build_conformal_presentation_v1 = project_bad_identity
+    with pytest.raises(NativeArchiveReplayError, match="identities do not match"):
+        project_methods_archive_v2_conformal_presentation(
             "portable.n4a",
             np.asarray([[1.0], [2.0]]),
             sample_ids=["sample.one", "sample.two"],

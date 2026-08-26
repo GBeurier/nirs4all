@@ -57,6 +57,18 @@ class NativeArchivePrediction:
     conformal_guarantee_status: dict[str, Any] | None
 
 
+@dataclass(frozen=True)
+class _NativeArchiveReplayExecution:
+    """One completed native archive replay retained for strict projections."""
+
+    dag_ml: Any
+    package: Any
+    package_document: dict[str, Any]
+    sample_ids: tuple[str, ...]
+    request: Any
+    outcome: Any
+
+
 def write_methods_archive_v2(
     archive_path: str | Path,
     *,
@@ -205,13 +217,95 @@ def predict_methods_archive_v2_raw_result(
     already materialized and validated by DAG-ML; it never recalibrates.
     """
 
+    execution = _execute_methods_archive_v2_raw_replay(
+        archive_path,
+        X,
+        sample_ids=sample_ids,
+        methods_library_path=methods_library_path,
+        groups=groups,
+        metadata=metadata,
+        outcome_id=outcome_id,
+        run_id=run_id,
+    )
+    return _decode_exact_raw_prediction(
+        execution.outcome,
+        execution.sample_ids,
+        execution.package_document,
+    )
+
+
+def project_methods_archive_v2_conformal_presentation(
+    archive_path: str | Path,
+    X: Any,
+    *,
+    sample_ids: Any,
+    methods_library_path: str | Path | None = None,
+    groups: Any = None,
+    metadata: Any = None,
+    outcome_id: str = "outcome:nirs4all.archive_conformal_presentation",
+    run_id: str = "run:nirs4all.archive_conformal_presentation",
+) -> dict[str, Any]:
+    """Return DAG-ML's exact scalar conformal presentation projection.
+
+    The archive is validated by Core, the current cohort replayed by Methods,
+    and the projection built by DAG-ML from the resulting Package V2, signed
+    request and replay.  This adapter deliberately does not calculate or
+    reshape conformal bounds; multi-target packages are refused by DAG-ML.
+    """
+
+    execution = _execute_methods_archive_v2_raw_replay(
+        archive_path,
+        X,
+        sample_ids=sample_ids,
+        methods_library_path=methods_library_path,
+        groups=groups,
+        metadata=metadata,
+        outcome_id=outcome_id,
+        run_id=run_id,
+    )
+    project = getattr(execution.dag_ml, "build_conformal_presentation_v1", None)
+    if not callable(project):
+        raise NativeArchiveReplayError(
+            "installed DAG-ML lacks the native Conformal Presentation V1 projector"
+        )
+    try:
+        presentation = project(
+            execution.package,
+            execution.request,
+            execution.outcome,
+        )
+    except Exception as error:  # Native DAG-ML errors retain their own category.
+        raise NativeArchiveReplayError(
+            "DAG-ML refused the native conformal presentation closure"
+        ) from error
+    _validate_conformal_presentation_transport(
+        presentation,
+        execution.outcome,
+        execution.sample_ids,
+        execution.package_document,
+    )
+    return presentation
+
+
+def _execute_methods_archive_v2_raw_replay(
+    archive_path: str | Path,
+    X: Any,
+    *,
+    sample_ids: Any,
+    methods_library_path: str | Path | None,
+    groups: Any,
+    metadata: Any,
+    outcome_id: str,
+    run_id: str,
+) -> _NativeArchiveReplayExecution:
+    """Execute exactly one portable Methods PREDICT replay for an archive."""
+
     try:
         library_path = resolve_methods_library_path(methods_library_path)
     except (DagMLNativeCoverageError, OSError, TypeError, ValueError, RuntimeError) as error:
         raise NativeArchiveReplayError(
             "native Archive V2 Methods replay could not resolve a compatible Methods runtime"
         ) from error
-
     dag_ml, package, package_document = _load_methods_archive_package(archive_path)
     identity = normalize_predict_identity(
         X,
@@ -239,13 +333,16 @@ def predict_methods_archive_v2_raw_result(
             outcome_id=replay.outcome_id,
             run_id=replay.run_id,
         )
-        return _decode_exact_raw_prediction(
-            outcome,
-            identity.sample_ids,
-            package_document,
-        )
     except (MethodsPortableReplayError, RawArrayMethodsReplayError) as error:
         raise NativeArchiveReplayError(str(error)) from error
+    return _NativeArchiveReplayExecution(
+        dag_ml=dag_ml,
+        package=package,
+        package_document=package_document,
+        sample_ids=identity.sample_ids,
+        request=replay.request,
+        outcome=outcome,
+    )
 
 
 def _load_methods_archive_package(
@@ -321,6 +418,83 @@ def _decode_exact_raw_prediction(
         intervals=intervals,
         conformal_guarantee_status=guarantee_status,
     )
+
+
+def _validate_conformal_presentation_transport(
+    presentation: Any,
+    outcome: Any,
+    sample_ids: tuple[str, ...],
+    package: dict[str, Any],
+) -> None:
+    """Check transport identity only; DAG-ML remains the interval authority."""
+
+    if not isinstance(presentation, dict):
+        raise NativeArchiveReplayError("DAG-ML conformal presentation is not an object")
+    required = {
+        "schema_version",
+        "package_fingerprint",
+        "replay_outcome_fingerprint",
+        "binding_id",
+        "target_name",
+        "sample_ids",
+        "point_predictions",
+        "intervals",
+        "calibration_fingerprint",
+        "presentation_fingerprint",
+    }
+    if set(presentation) != required or presentation.get("schema_version") != 1:
+        raise NativeArchiveReplayError("DAG-ML conformal presentation has an unsupported shape")
+    if presentation["sample_ids"] != list(sample_ids):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal presentation identities do not match the current cohort"
+        )
+    calibration = package.get("conformal_calibration")
+    if not isinstance(calibration, dict):
+        raise NativeArchiveReplayError(
+            "DAG-ML produced a conformal presentation without Package V2 calibration"
+        )
+    if (
+        presentation["package_fingerprint"] != package.get("package_fingerprint")
+        or presentation["calibration_fingerprint"]
+        != calibration.get("calibration_fingerprint")
+    ):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal presentation provenance does not match Package V2"
+        )
+    document = outcome.to_dict() if hasattr(outcome, "to_dict") else outcome
+    if not isinstance(document, dict):
+        raise NativeArchiveReplayError("DAG-ML replay did not return an outcome object")
+    if presentation["replay_outcome_fingerprint"] != document.get("outcome_fingerprint"):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal presentation provenance does not match replay"
+        )
+    outputs = document.get("outputs")
+    if not isinstance(outputs, list) or len(outputs) != 1 or not isinstance(outputs[0], dict):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal presentation requires exactly one replay output"
+        )
+    binding = outputs[0].get("binding")
+    blocks = outputs[0].get("predictions")
+    if (
+        not isinstance(binding, dict)
+        or presentation["binding_id"] != binding.get("binding_id")
+        or not isinstance(blocks, list)
+        or len(blocks) != 1
+        or not isinstance(blocks[0], dict)
+        or blocks[0].get("sample_ids") != list(sample_ids)
+    ):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal presentation does not close its selected point block"
+        )
+    values = blocks[0].get("values")
+    if (
+        not isinstance(values, list)
+        or any(not isinstance(row, list) or len(row) != 1 for row in values)
+        or presentation["point_predictions"] != [row[0] for row in values]
+    ):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal presentation points are not the exact replay values"
+        )
 
 
 def _decode_native_conformal_intervals(
@@ -510,6 +684,7 @@ __all__ = [
     "NativeArchiveReplayError",
     "predict_methods_archive_v2_raw",
     "predict_methods_archive_v2_raw_result",
+    "project_methods_archive_v2_conformal_presentation",
     "replay_methods_archive_v2",
     "write_methods_archive_v2",
 ]
