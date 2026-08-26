@@ -12,6 +12,13 @@ import pytest
         ("generate", {}),
         ("regression", {}),
         ("classification", {}),
+        ("builder", {}),
+        ("multi_source", {}),
+        ("to_folder", {"path": "must-not-be-opened"}),
+        ("to_csv", {"path": "must-not-be-opened.csv"}),
+        ("product", {"template": "must-not-be-resolved"}),
+        ("category", {"templates": []}),
+        ("from_template", {"template": np.zeros((1, 1))}),
     ],
 )
 @pytest.mark.parametrize("engine", ["native", "dag-ml", "dual"])

@@ -382,6 +382,8 @@ def builder(
     n_samples: int = 1000,
     random_state: int | None = None,
     name: str = "synthetic_nirs",
+    *,
+    engine: str | None = None,
 ) -> SyntheticDatasetBuilder:
     """
     Create a SyntheticDatasetBuilder for fine-grained control.
@@ -393,6 +395,8 @@ def builder(
         n_samples: Number of samples to generate.
         random_state: Random seed for reproducibility.
         name: Dataset name.
+        engine: Backend selector. Non-legacy engines are refused before a
+            builder is created.
 
     Returns:
         SyntheticDatasetBuilder instance for method chaining.
@@ -418,6 +422,8 @@ def builder(
         ...     .build()
         ... )
     """
+    require_legacy_engine("generate.builder", engine)
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     return SyntheticDatasetBuilder(
@@ -435,6 +441,7 @@ def multi_source(
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "multi_source_synthetic",
+    engine: str | None = None,
 ) -> Any:
     """
     Generate a synthetic multi-source NIRS dataset.
@@ -456,6 +463,8 @@ def multi_source(
         train_ratio: Proportion of samples for training partition.
         as_dataset: If True, returns SpectroDataset. If False, returns (X, y).
         name: Dataset name.
+        engine: Backend selector. Non-legacy engines are refused before source
+            generation starts.
 
     Returns:
         If as_dataset=True: SpectroDataset with multiple sources.
@@ -483,6 +492,8 @@ def multi_source(
         ...     ]
         ... )
     """
+    require_legacy_engine("generate.multi_source", engine)
+
     from nirs4all.synthesis import generate_multi_source as _generate_multi_source
 
     if sources is None:
@@ -513,6 +524,7 @@ def to_folder(
     wavelength_range: tuple[float, float] | None = None,
     components: list[str] | None = None,
     target_range: tuple[float, float] | None = None,
+    engine: str | None = None,
 ) -> Path:
     """
     Generate synthetic data and export to a folder.
@@ -530,6 +542,8 @@ def to_folder(
         wavelength_range: Optional (start, end) wavelengths.
         components: Optional list of component names.
         target_range: Optional (min, max) for target scaling.
+        engine: Backend selector. Non-legacy engines are refused before any
+            output path is opened.
 
     Returns:
         Path to created folder.
@@ -543,6 +557,8 @@ def to_folder(
         ...     random_state=42
         ... )
     """
+    require_legacy_engine("generate.to_folder", engine)
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -575,6 +591,7 @@ def to_csv(
     complexity: Literal["simple", "realistic", "complex"] = "simple",
     wavelength_range: tuple[float, float] | None = None,
     target_range: tuple[float, float] | None = None,
+    engine: str | None = None,
 ) -> Path:
     """
     Generate synthetic data and export to a single CSV file.
@@ -586,6 +603,8 @@ def to_csv(
         complexity: Complexity level.
         wavelength_range: Optional (start, end) wavelengths.
         target_range: Optional (min, max) for target scaling.
+        engine: Backend selector. Non-legacy engines are refused before any
+            output path is opened.
 
     Returns:
         Path to created file.
@@ -594,6 +613,8 @@ def to_csv(
         >>> import nirs4all
         >>> path = nirs4all.generate.to_csv("data.csv", n_samples=500)
     """
+    require_legacy_engine("generate.to_csv", engine)
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -625,6 +646,7 @@ def product(
     complexity: Literal["simple", "realistic", "complex"] = "realistic",
     train_ratio: float = 0.8,
     target_range: tuple[float, float] | None = None,
+    engine: str | None = None,
 ) -> SpectroDataset:
     """
     Generate synthetic NIRS dataset from a product template.
@@ -647,6 +669,8 @@ def product(
         complexity: Spectral complexity level.
         train_ratio: Proportion of samples for training partition.
         target_range: Optional (min, max) to scale target values.
+        engine: Backend selector. Non-legacy engines are refused before a
+            product generator is constructed.
 
     Returns:
         SpectroDataset with train/test partitions.
@@ -677,6 +701,8 @@ def product(
         generate.category: Generate from multiple product templates.
         list_product_templates: List available templates.
     """
+    require_legacy_engine("generate.product", engine)
+
     from nirs4all.synthesis import ProductGenerator
 
     # Build wavelength kwargs
@@ -718,6 +744,7 @@ def category(
     complexity: Literal["simple", "realistic", "complex"] = "realistic",
     train_ratio: float = 0.8,
     shuffle: bool = True,
+    engine: str | None = None,
 ) -> SpectroDataset:
     """
     Generate synthetic NIRS dataset from multiple product templates.
@@ -738,6 +765,8 @@ def category(
         complexity: Spectral complexity level.
         train_ratio: Proportion of samples for training partition.
         shuffle: Whether to shuffle samples across templates.
+        engine: Backend selector. Non-legacy engines are refused before a
+            category generator is constructed.
 
     Returns:
         SpectroDataset combining samples from all templates.
@@ -763,6 +792,8 @@ def category(
     See Also:
         generate.product: Generate from a single product template.
     """
+    require_legacy_engine("generate.category", engine)
+
     from nirs4all.synthesis import CategoryGenerator
 
     # Build wavelength kwargs
@@ -792,6 +823,7 @@ def from_template(
     random_state: int | None = ...,
     wavelengths: np.ndarray | None = ...,
     as_dataset: Literal[True] = ...,
+    engine: str | None = ...,
 ) -> SpectroDataset: ...
 
 @overload
@@ -802,6 +834,7 @@ def from_template(
     random_state: int | None = ...,
     wavelengths: np.ndarray | None = ...,
     as_dataset: Literal[False],
+    engine: str | None = ...,
 ) -> tuple[np.ndarray, np.ndarray]: ...
 
 def from_template(
@@ -811,6 +844,7 @@ def from_template(
     random_state: int | None = None,
     wavelengths: np.ndarray | None = None,
     as_dataset: bool = True,
+    engine: str | None = None,
 ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate synthetic data mimicking a real dataset template.
@@ -827,6 +861,8 @@ def from_template(
         random_state: Random seed for reproducibility.
         wavelengths: Wavelength grid (required if template is array).
         as_dataset: If True, returns SpectroDataset. If False, returns (X, y).
+        engine: Backend selector. Non-legacy engines are refused before reading
+            a template or constructing a builder.
 
     Returns:
         Synthetic dataset or arrays with properties similar to template.
@@ -847,6 +883,8 @@ def from_template(
         ...     wavelengths=wavelengths
         ... )
     """
+    require_legacy_engine("generate.from_template", engine)
+
     from nirs4all.synthesis import RealDataFitter, SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -897,6 +935,7 @@ class _GenerateNamespace:
             train_ratio: float = ...,
             as_dataset: Literal[True] = ...,
             name: str = ...,
+            engine: str | None = ...,
             **kwargs: Any,
         ) -> SpectroDataset: ...
 
@@ -913,6 +952,7 @@ class _GenerateNamespace:
             train_ratio: float = ...,
             as_dataset: Literal[False],
             name: str = ...,
+            engine: str | None = ...,
             **kwargs: Any,
         ) -> tuple[np.ndarray, np.ndarray]: ...
 
@@ -928,6 +968,7 @@ class _GenerateNamespace:
             train_ratio: float = 0.8,
             as_dataset: bool = True,
             name: str = "synthetic_nirs",
+            engine: str | None = None,
             **kwargs: Any,
         ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]: ...
     else:
