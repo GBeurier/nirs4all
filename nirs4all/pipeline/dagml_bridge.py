@@ -1017,10 +1017,17 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             # top-level X transform.  With no companion policy it has exactly
             # the same fold-local fit/transform semantics as the bare operator
             # form already lowered below.  Do not silently erase policy keys:
-            # ``fit_on_all`` changes the fit universe and ``force_layout``
-            # changes the data-plane contract, neither of which the native
-            # runtime can reproduce yet.
-            unsupported = sorted(set(step) - {"preprocessing"})
+            # ``fit_on_all`` changes the fit universe and cannot be erased.
+            # The legacy transformer controller does not consume
+            # ``force_layout`` itself: it always obtains its per-source arrays
+            # in its established 3D representation.  Its documented ``2d``
+            # spelling is therefore a no-op for this transform role and can
+            # lower to the same native X node.  Keep every other companion key
+            # fail-closed rather than guessing at future data-plane semantics.
+            supported = {"preprocessing"}
+            if step.get("force_layout") == "2d":
+                supported.add("force_layout")
+            unsupported = sorted(set(step) - supported)
             if unsupported:
                 raise NotImplementedError(
                     "dag-ml bridge does not lower preprocessing policy key(s) "
