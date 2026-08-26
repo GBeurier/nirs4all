@@ -404,7 +404,7 @@ def _scores_to_run_result(
         row_config_name: str,
         row_model_name: str,
         refit_context: str | None = None,
-        arrays: tuple[list[int], np.ndarray, np.ndarray] | None = None,
+        arrays: tuple[list[int], list[str], np.ndarray, np.ndarray] | None = None,
     ) -> None:
         """Emit one legacy row for a (role, partition) with its full train/val/test ``scores`` dict.
 
@@ -414,7 +414,7 @@ def _scores_to_run_result(
         verbatim — no metric is perturbed — so every reported value (and every accessor that reads it)
         is the true native score.
 
-        ``arrays`` (``(sample_indices, y_true, y_pred)``) FILLS the per-sample prediction buffer for the
+        ``arrays`` (``(sample_indices, sample_ids, y_true, y_pred)``) FILLS the per-sample prediction buffer for the
         strict direct-block rows (2a-i): the per-fold ``val`` rows, the refit ``(final, train)`` row, and
         the refit ``(final, test)`` row; the ``avg``/``w_avg`` validation rows carry the native OOF average
         (2a-iii item A). It is ``None`` (empty arrays, score-only) for the per-fold train rows and any
@@ -435,8 +435,12 @@ def _scores_to_run_result(
             score_dict[part] = block
             kwargs[f"{part}_score"] = block.get(metric)
         if arrays is not None:
-            sample_indices, y_true, y_pred = arrays
+            sample_indices, sample_ids, y_true, y_pred = arrays
             kwargs["sample_indices"] = sample_indices
+            # Native wire IDs are authoritative; positional indices are not.
+            # Preserve them in the legacy-shaped buffer for native archive
+            # persistence and later conformal presentation attachment.
+            kwargs["metadata"] = {"physical_sample_id": sample_ids}
             kwargs["y_true"] = y_true
             kwargs["y_pred"] = y_pred
         predictions.add_prediction(
@@ -452,8 +456,12 @@ def _scores_to_run_result(
             **kwargs,
         )
 
-    def _row_arrays(variant_id: Any, partition: str, fold_id: str | None) -> tuple[list[int], np.ndarray, np.ndarray] | None:
-        """``(sample_indices, y_true, y_pred)`` for one VARIANT's direct sample block, BY SAMPLE ID (2a-i/ii).
+    def _row_arrays(
+        variant_id: Any,
+        partition: str,
+        fold_id: str | None,
+    ) -> tuple[list[int], list[str], np.ndarray, np.ndarray] | None:
+        """``(sample_indices, sample_ids, y_true, y_pred)`` for one direct block, BY SAMPLE ID (2a-i/ii).
 
         Looks up the ``(partition, fold_id)`` prediction block + its paired y_true block from
         ``variant_id``'s OWN frames (never another variant's — no cross-variant y_pred leakage), maps each
@@ -475,7 +483,7 @@ def _scores_to_run_result(
             return None
         y_true = np.asarray(target["values"], dtype=float)
         y_true = y_true.ravel() if y_true.ndim == 2 and y_true.shape[1] == 1 else y_true
-        return sample_indices, y_true, y_pred
+        return sample_indices, list(block["sample_ids"]), y_true, y_pred
 
     # The refit-train / held-out test blocks are looked up PER-VARIANT below (`(variant_id, final/test,
     # None)`), NOT once globally — a LOSER must NOT borrow the winner's test/train under its own
