@@ -29,6 +29,13 @@ from nirs4all.pipeline.dagml.raw_replay_lowerer import (
 from nirs4all.pipeline.dagml.raw_training_lowerer import RawArrayDagMLTrainingCompiler
 
 from .native_result import NativeMethodsRunResult
+from .native_retrain_lineage import (
+    DIAGNOSTIC_KEY as RETRAIN_LINEAGE_DIAGNOSTIC_KEY,
+)
+from .native_retrain_lineage import (
+    SEED_DIAGNOSTIC_KEY,
+    NativeRetrainLineage,
+)
 
 
 def fit_native_pipeline(
@@ -49,6 +56,7 @@ def fit_native_pipeline(
     methods_library_path: str | None = None,
     methods_hpo_operation: Mapping[str, Any] | None = None,
     seed: int = 12345,
+    retrain_lineage: NativeRetrainLineage | None = None,
 ) -> DagMLPipelineEstimator:
     """Fit the supported raw-array pipeline entirely through DAG-ML.
 
@@ -91,8 +99,15 @@ def fit_native_pipeline(
         raise TypeError("fit_native_pipeline requires numeric X and y")
     if not np.isfinite(features).all() or not np.isfinite(targets).all():
         raise ValueError("fit_native_pipeline requires finite X and y")
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise TypeError("fit_native_pipeline requires a non-negative integer seed")
+    if retrain_lineage is not None and not isinstance(retrain_lineage, NativeRetrainLineage):
+        raise TypeError("fit_native_pipeline retrain lineage must be internally attested")
     resolved_methods_library_path = resolve_methods_library_path(methods_library_path)
 
+    diagnostics: dict[str, Any] = {SEED_DIAGNOSTIC_KEY: seed}
+    if retrain_lineage is not None:
+        diagnostics[RETRAIN_LINEAGE_DIAGNOSTIC_KEY] = retrain_lineage.to_dict()
     estimator = DagMLPipelineEstimator(
         pipeline=pipeline,
         selection_output_id="output:prediction",
@@ -108,6 +123,7 @@ def fit_native_pipeline(
             methods_library_path=resolved_methods_library_path,
             methods_hpo_operation=methods_hpo_operation,
             seed=seed,
+            additional_diagnostics=diagnostics,
         ),
         require_explicit_sample_ids=True,
     )
@@ -145,6 +161,7 @@ def run_native_methods(
     runner_kwargs: Mapping[str, Any] | None = None,
     tuning: Any = None,
     calibration: Any = None,
+    retrain_lineage: NativeRetrainLineage | None = None,
 ) -> NativeMethodsRunResult:
     """Run the verified public Methods training subset without a legacy runner.
 
@@ -187,6 +204,8 @@ def run_native_methods(
         raise NotImplementedError(f"engine='native' does not accept legacy runner kwargs: {sorted(runner_kwargs)}")
     if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
         raise TypeError("engine='native' random_state must be an integer or None")
+    if retrain_lineage is not None and not isinstance(retrain_lineage, NativeRetrainLineage):
+        raise TypeError("engine='native' retrain lineage must be internally attested")
     methods_hpo_operation = _native_methods_hpo_operation(
         tuning,
         seed=12345 if random_state is None else random_state,
@@ -201,6 +220,8 @@ def run_native_methods(
     }
     if methods_hpo_operation is not None:
         fit_kwargs["methods_hpo_operation"] = methods_hpo_operation
+    if retrain_lineage is not None:
+        fit_kwargs["retrain_lineage"] = retrain_lineage
     estimator = fit_native_pipeline(pipeline, dataset["X"], dataset["y"], **fit_kwargs)
     if calibration_operation is not None:
         _attach_native_conformal_calibration(estimator, calibration_operation)
