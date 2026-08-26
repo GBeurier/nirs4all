@@ -134,7 +134,8 @@ with nirs4all.load_session(
     methods_library_path=methods_library,
 ) as native:
     prediction = nirs4all.predict(
-        data={"X": X_new, "sample_ids": sample_ids},
+        data=X_new,
+        sample_ids=sample_ids,
         session=native,
         engine="native",
     )

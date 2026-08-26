@@ -540,6 +540,49 @@ def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner
     assert observed["sample_ids"] == ["p1", "p2"]
 
 
+def test_predict_native_archive_accepts_raw_matrix_with_explicit_keyword_identities(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The native public boundary must not require a synthetic mapping wrapper."""
+
+    observed: dict[str, object] = {}
+
+    def native_predict(path, X, *, sample_ids, methods_library_path, groups, metadata):  # noqa: ANN001
+        observed.update(path=str(path), X=np.asarray(X), sample_ids=list(sample_ids))
+        return NativeArchivePrediction(
+            values=np.asarray([[2.0], [3.0]]),
+            sample_ids=("p1", "p2"),
+            intervals={},
+            conformal_guarantee_status=None,
+        )
+
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
+        native_predict,
+    )
+
+    result = predict(
+        model="portable.n4a",
+        data=np.asarray([[1.0], [2.0]]),
+        sample_ids=["p1", "p2"],
+        engine="native",
+    )
+
+    assert result.y_pred.tolist() == [[2.0], [3.0]]
+    assert observed["path"] == "portable.n4a"
+    assert observed["sample_ids"] == ["p1", "p2"]
+
+
+def test_predict_native_archive_refuses_two_identity_sources_before_replay() -> None:
+    with pytest.raises(ValueError, match="either in data or as an explicit keyword"):
+        predict(
+            model="portable.n4a",
+            data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]},
+            sample_ids=["p1"],
+            engine="native",
+        )
+
+
 def test_predict_native_archive_selects_dagml_materialized_conformal_intervals(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
