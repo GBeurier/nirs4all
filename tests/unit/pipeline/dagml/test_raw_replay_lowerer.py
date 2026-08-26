@@ -406,7 +406,16 @@ def test_raw_archive_projects_dagml_owned_scalar_conformal_presentation(
     runtime = _install_fake_runtime(monkeypatch)
     package = _package()
     package["package_fingerprint"] = "a" * 64
-    package["conformal_calibration"] = {"calibration_fingerprint": "b" * 64}
+    package["conformal_calibration"] = {
+        "calibration_fingerprint": "b" * 64,
+        "multi_target_policy": "marginal",
+        "quantiles": [
+            {
+                "coverage": 0.9,
+                "radii": [{"status": "finite", "value": 0.5}],
+            }
+        ],
+    }
 
     class _Package:
         def __init__(self, raw: str) -> None:
@@ -424,6 +433,23 @@ def test_raw_archive_projects_dagml_owned_scalar_conformal_presentation(
                     {
                         "sample_ids": ["sample.one", "sample.two"],
                         "values": [[1.5], [2.5]],
+                    }
+                ],
+            }
+        ],
+        "conformal_intervals": [
+            {
+                "binding_id": "binding:prediction",
+                "sample_ids": ["sample.one", "sample.two"],
+                "calibration_fingerprint": "b" * 64,
+                "point_prediction_fingerprint": "e" * 64,
+                "intervals": [
+                    {
+                        "coverage": 0.9,
+                        "cells": [
+                            [{"status": "finite", "lower": 1.0, "upper": 2.0}],
+                            [{"status": "finite", "lower": 2.0, "upper": 3.0}],
+                        ],
                     }
                 ],
             }
@@ -464,6 +490,15 @@ def test_raw_archive_projects_dagml_owned_scalar_conformal_presentation(
             read_portable_predictor_package_v2=lambda _path: json.dumps(package).encode()
         ),
     )
+
+    prediction = predict_methods_archive_v2_raw_result(
+        "portable.n4a",
+        np.asarray([[1.0], [2.0]]),
+        sample_ids=["sample.one", "sample.two"],
+        methods_library_path="/native/libn4m.so",
+    )
+    assert prediction.conformal_presentation is not None
+    assert prediction.conformal_presentation["point_predictions"] == [1.5, 2.5]
 
     presentation = project_methods_archive_v2_conformal_presentation(
         "portable.n4a",

@@ -516,6 +516,10 @@ def _predict_from_native_archive(
             "archive_path": str(archive_path),
             "sample_ids": list(prediction_sample_ids),
         }
+        if native_prediction.conformal_presentation is not None:
+            metadata["conformal_presentation"] = dict(
+                native_prediction.conformal_presentation
+            )
     selected_coverages = _normalize_requested_coverages(coverage)
     if selected_coverages is not None:
         intervals = _select_native_archive_intervals(intervals, selected_coverages)

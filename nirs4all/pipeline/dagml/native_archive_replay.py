@@ -59,6 +59,7 @@ class NativeArchivePrediction:
     sample_ids: tuple[str, ...]
     intervals: dict[float, NativeArchiveConformalInterval]
     conformal_guarantee_status: dict[str, Any] | None
+    conformal_presentation: dict[str, Any] | None = None
 
 
 def write_methods_archive_v2(
@@ -268,10 +269,25 @@ def predict_methods_archive_v2_raw_result(
             raise NativeArchiveReplayError(
                 "DAG-ML Methods Archive V2 replay was refused"
             ) from error
-        return _decode_exact_raw_prediction(
+        raw_prediction = _decode_exact_raw_prediction(
             outcome,
             identity.sample_ids,
             package_document,
+        )
+        presentation = _project_conformal_presentation_if_scalar(
+            dag_ml,
+            package,
+            replay.request,
+            outcome,
+            package_document=package_document,
+            sample_ids=identity.sample_ids,
+        )
+        return NativeArchivePrediction(
+            values=raw_prediction.values,
+            sample_ids=raw_prediction.sample_ids,
+            intervals=raw_prediction.intervals,
+            conformal_guarantee_status=raw_prediction.conformal_guarantee_status,
+            conformal_presentation=presentation,
         )
     except (MethodsPortableReplayError, RawArrayMethodsReplayError) as error:
         raise NativeArchiveReplayError(str(error)) from error
@@ -340,19 +356,19 @@ def project_methods_archive_v2_conformal_presentation(
             raise NativeArchiveReplayError(
                 "DAG-ML Methods Archive V2 conformal replay was refused"
             ) from error
-        projector = getattr(dag_ml, "build_conformal_presentation_v1", None)
-        if not callable(projector):
-            raise NativeArchiveReplayError(
-                "installed DAG-ML lacks the native conformal presentation projector; upgrade DAG-ML"
-            )
-        presentation = projector(package, replay.request, outcome)
-        _validate_conformal_presentation_transport(
-            presentation,
+        presentation = _project_conformal_presentation_if_scalar(
+            dag_ml,
+            package,
+            replay.request,
+            outcome,
             package_document=package_document,
-            outcome=outcome,
             sample_ids=identity.sample_ids,
         )
-        return dict(presentation)
+        if presentation is None:
+            raise NativeArchiveReplayError(
+                "native conformal presentation requires a scalar calibrated output and a DAG-ML presentation projector"
+            )
+        return presentation
     except (MethodsPortableReplayError, RawArrayMethodsReplayError) as error:
         raise NativeArchiveReplayError(str(error)) from error
     finally:
@@ -551,6 +567,50 @@ def _validate_conformal_presentation_transport(
                 for value in (point, lower_value, upper_value)
             ) or float(lower_value) > float(point) or float(point) > float(upper_value):
                 raise NativeArchiveReplayError("DAG-ML conformal presentation interval does not contain its point")
+
+
+def _project_conformal_presentation_if_scalar(
+    dag_ml: Any,
+    package: Any,
+    request: Any,
+    outcome: Any,
+    *,
+    package_document: dict[str, Any],
+    sample_ids: tuple[str, ...],
+) -> dict[str, Any] | None:
+    """Ask the DAG-ML owner for a presentation only when its V1 scope applies."""
+
+    if package_document.get("conformal_calibration") is None:
+        return None
+    document = outcome.to_dict() if hasattr(outcome, "to_dict") else outcome
+    outputs = document.get("outputs") if isinstance(document, dict) else None
+    if (
+        not isinstance(outputs, list)
+        or len(outputs) != 1
+        or not isinstance(outputs[0], dict)
+        or not isinstance(outputs[0].get("predictions"), list)
+        or len(outputs[0]["predictions"]) != 1
+        or not isinstance(outputs[0]["predictions"][0], dict)
+    ):
+        raise NativeArchiveReplayError(
+            "DAG-ML conformal presentation requires one selected replay prediction block"
+        )
+    values = outputs[0]["predictions"][0].get("values")
+    if not isinstance(values, list) or any(
+        not isinstance(row, list) or len(row) != 1 for row in values
+    ):
+        return None
+    projector = getattr(dag_ml, "build_conformal_presentation_v1", None)
+    if not callable(projector):
+        return None
+    presentation = projector(package, request, outcome)
+    _validate_conformal_presentation_transport(
+        presentation,
+        package_document=package_document,
+        outcome=outcome,
+        sample_ids=sample_ids,
+    )
+    return dict(presentation)
 
 
 def _decode_native_conformal_intervals(
