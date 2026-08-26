@@ -16,7 +16,8 @@ limited to the strict :func:`nirs4all.run` oracle subset; other public operation
 
 Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAULT_ENGINE`
 (``legacy``, interim). Pass ``engine="dag-ml"`` (or ``$N4A_ENGINE=dag-ml``) to run on the dag-ml
-backend. See ``dag-ml/docs/migration-nirs4all/``.
+backend, or ``engine="native"`` for the explicitly documented raw Methods training lane. See
+``dag-ml/docs/migration-nirs4all/``.
 """
 
 from __future__ import annotations
@@ -26,11 +27,11 @@ import warnings
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
-Engine = Literal["legacy", "dag-ml", "dual"]
+Engine = Literal["legacy", "dag-ml", "native", "dual"]
 
 DEFAULT_ENGINE: Engine = "legacy"
 ENGINE_ENV_VAR = "N4A_ENGINE"
-ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "dual")
+ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "native", "dual")
 
 
 class DualRunUnsupported(NotImplementedError):
@@ -69,7 +70,8 @@ def resolve_engine(engine: str | None = None) -> Engine:
 
     Returns:
         The validated engine name. ``"legacy"`` (the default), ``"dag-ml"`` and the narrow
-        ``"dual"`` oracle mode are dispatched by :func:`nirs4all.run`.
+        ``"native"`` strict Methods mode and ``"dual"`` oracle mode are
+        dispatched by :func:`nirs4all.run`.
 
     Raises:
         ValueError: If the name is not one of :data:`ENGINES`.

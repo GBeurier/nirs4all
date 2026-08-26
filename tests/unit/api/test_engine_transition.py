@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib
+
 import numpy as np
 import pytest
 
 from nirs4all.api.explain import explain
 from nirs4all.api.predict import predict
 from nirs4all.api.retrain import retrain
+from nirs4all.api.run import run
 from nirs4all.pipeline.engine import require_legacy_engine
 
 
@@ -66,6 +69,67 @@ def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner
     assert result.y_pred.tolist() == [[2.0], [3.0]]
     assert result.metadata["engine"] == "native"
     assert observed["sample_ids"] == ["p1", "p2"]
+
+
+def test_run_native_dispatches_to_the_strict_methods_lane_without_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, object] = {}
+    sentinel = object()
+
+    def native_run(pipeline, dataset, **kwargs):  # noqa: ANN001
+        observed.update(pipeline=pipeline, dataset=dataset, kwargs=kwargs)
+        return sentinel
+
+    monkeypatch.setattr("nirs4all.api.native_training.run_native_methods", native_run)
+    run_module = importlib.import_module("nirs4all.api.run")
+    monkeypatch.setattr(
+        run_module,
+        "PipelineRunner",
+        lambda *_args, **_kwargs: pytest.fail("engine='native' must not construct PipelineRunner"),
+    )
+
+    result = run(
+        [{"split": "stub"}, {"model": "stub"}],
+        {"X": np.asarray([[1.0]]), "y": np.asarray([2.0]), "sample_ids": ["fit-a"]},
+        engine="native",
+        save_charts=False,
+    )
+
+    assert result is sentinel
+    dataset = observed["dataset"]
+    assert isinstance(dataset, dict)
+    assert np.array_equal(dataset["X"], np.asarray([[1.0]]))
+    assert np.array_equal(dataset["y"], np.asarray([2.0]))
+    assert dataset["sample_ids"] == ["fit-a"]
+    assert observed["kwargs"] == {
+        "name": "",
+        "verbose": 1,
+        "save_artifacts": True,
+        "save_charts": False,
+        "plots_visible": False,
+        "random_state": None,
+        "refit": True,
+        "cache": None,
+        "project": None,
+        "report_naming": "nirs",
+        "results_path": None,
+        "session": None,
+        "runner_kwargs": {},
+    }
+
+
+@pytest.mark.parametrize("keyword", ["tuning", "calibration"])
+def test_run_native_refuses_tuning_and_calibration_before_native_execution(
+    monkeypatch: pytest.MonkeyPatch, keyword: str
+) -> None:
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.run_native_methods",
+        lambda *_args, **_kwargs: pytest.fail("native training must not start"),
+    )
+    kwargs = {keyword: {"placeholder": True}}
+    with pytest.raises(NotImplementedError, match="strict raw Methods training subset"):
+        run([], {"X": [[1.0]], "y": [1.0], "sample_ids": ["fit-a"]}, engine="native", **kwargs)
 
 
 @pytest.mark.parametrize(

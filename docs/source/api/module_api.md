@@ -60,6 +60,23 @@ capabilities, and non-native probability decoding fail explicitly.
 
 Execute a training pipeline on a dataset.
 
+For the already-qualified raw Methods subset, pass `engine="native"` with a
+linear list pipeline and an explicit identity-bound mapping. This path returns
+`NativeMethodsRunResult` and exports the captured Package V2/N4MM to Archive
+V2 without creating a `PipelineRunner` or refitting. It deliberately rejects
+legacy workspace/session/cache/chart options and tuning/calibration; the broad
+compatibility surface continues to use its selected transition engine.
+
+```python
+result = nirs4all.run(
+    [KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+    {"X": X_train, "y": y_train, "sample_ids": training_ids},
+    engine="native",
+    save_charts=False,
+)
+result.export("model.n4a")
+```
+
 ```python
 result = nirs4all.run(
     pipeline,           # Pipeline definition (list, dict, path, or list of pipelines)

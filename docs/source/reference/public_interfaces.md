@@ -16,6 +16,7 @@ The public Python API runs that contract directly. The CLI currently validates a
 | Function/class | Purpose | Typical input | Typical output |
 | --- | --- | --- | --- |
 | `nirs4all.run(...)` | Train/evaluate one or many pipelines on one or many datasets | Pipeline spec + dataset spec | `RunResult` |
+| `nirs4all.run(..., engine="native")` | Execute the strict portable Methods raw-array lane, retaining its actual Package V2/N4MM evidence | List pipeline + exactly `{X, y, sample_ids}` (optional groups/metadata), `save_charts=False` | `NativeMethodsRunResult`, exportable directly to Archive V2 |
 | `nirs4all.fit_native_pipeline(...)` | Train the supported raw-array/single-splitter/single-model lane through DAG-ML and retain Package V2 | List pipeline + finite `X`, `y`, explicit sample ids | Fitted `DagMLPipelineEstimator`, with direct Archive V2 export |
 | `nirs4all.predict(...)` | Predict from a stored chain or exported bundle | `chain_id` or model bundle + data | `PredictResult` |
 | `nirs4all.calibrate(...)` | Fit split-conformal intervals from explicit calibration evidence | Replayed calibration predictions or selected calibration cohort + prediction ids | `CalibratedRunResult` or `PredictResult` |

@@ -73,7 +73,8 @@ from .explain import explain
 # Synthetic data generation
 from .generate import generate_namespace as generate
 from .native_archive_session import NativeArchiveSession, load_native_archive_session
-from .native_training import fit_native_pipeline
+from .native_result import NativeMethodsRunResult
+from .native_training import fit_native_pipeline, run_native_methods
 from .predict import predict
 from .result import (
     ExplainResult,
@@ -194,6 +195,8 @@ __all__ = [
     "predict",
     "NativeArchiveSession",
     "load_native_archive_session",
+    "NativeMethodsRunResult",
+    "run_native_methods",
     "CONFORMAL_CALIBRATION_METHODS",
     "CONFORMAL_CALIBRATION_UNITS",
     "CONFORMAL_EXECUTABLE_MULTI_TARGET_POLICIES",

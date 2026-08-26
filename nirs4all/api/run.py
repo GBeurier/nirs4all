@@ -866,6 +866,11 @@ def run(
     selected_engine = resolve_engine(engine)
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
+    if selected_engine == "native" and (tuning is not None or calibration is not None):
+        raise NotImplementedError(
+            "engine='native' currently supports the strict raw Methods training subset only; "
+            "use engine='dag-ml' for tuning or conformal calibration"
+        )
 
     if calibration is not None:
         if tuning is None:
@@ -892,6 +897,27 @@ def run(
 
         tuning_spec = parse_tuning_spec(_tuning_spec_payload(tuning))
         raise DagMLTuningNotImplementedError(tuning_spec)
+
+    if selected_engine == "native":
+        from .native_training import run_native_methods
+
+        return run_native_methods(
+            pipeline,
+            dataset,
+            name=name,
+            verbose=verbose,
+            save_artifacts=save_artifacts,
+            save_charts=save_charts,
+            plots_visible=plots_visible,
+            random_state=random_state,
+            refit=refit,
+            cache=cache,
+            project=project,
+            report_naming=report_naming,
+            results_path=results_path,
+            session=session,
+            runner_kwargs=runner_kwargs,
+        )
 
     def _run_legacy(
         *,

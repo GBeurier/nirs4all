@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 
 import nirs4all
-from nirs4all.api.native_training import fit_native_pipeline
+from nirs4all.api.native_training import fit_native_pipeline, run_native_methods
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
 from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
 
@@ -256,3 +256,24 @@ def test_fit_native_pipeline_exports_the_captured_package_without_legacy_refit(
     assert captured["archive_id"] == "archive:native"
     assert captured["outcome"] == {"native": True}
     assert captured["package"] == {"schema_version": 2, "package_id": "o-predictor"}
+
+
+def test_run_native_methods_refuses_legacy_workspace_options_before_training(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.fit_native_pipeline",
+        lambda *_args, **_kwargs: pytest.fail("unsupported request must not train"),
+    )
+    with pytest.raises(NotImplementedError, match="progress verbosity"):
+        run_native_methods(
+            [],
+            {"X": [[1.0]], "y": [1.0], "sample_ids": ["fit-a"]},
+            verbose=0,
+        )
+    with pytest.raises(NotImplementedError, match="t.*legacy charts"):
+        run_native_methods(
+            [],
+            {"X": [[1.0]], "y": [1.0], "sample_ids": ["fit-a"]},
+            save_charts=True,
+        )
