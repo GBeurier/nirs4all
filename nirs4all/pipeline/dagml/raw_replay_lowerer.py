@@ -19,7 +19,7 @@ from typing import Any, cast
 import numpy as np
 
 from .estimator import DagMLPipelineEstimator, DagMLReplayExecution
-from .fit_identity import DagMLPredictIdentityFrame
+from .fit_identity import DagMLCalibrationIdentityFrame, DagMLPredictIdentityFrame
 from .methods_replay import MethodsN4mmReplayCallbacks
 
 
@@ -56,11 +56,13 @@ class _ArrayReplayResolver:
 
 @dataclass(frozen=True)
 class RawArrayMethodsReplayCompiler:
-    """Compile a target-free PREDICT cohort for one native Methods Package V2.
+    """Compile a PREDICT cohort for one native Methods Package V2.
 
     The class is intentionally single-output and raw-Matrix-only.  More general
     data plans need a separate, explicitly attested materializer rather than a
-    permissive fallback here.
+    permissive fallback here.  Ordinary PREDICT cohorts carry no target proof;
+    a typed calibration frame may carry an independently measured-target proof
+    while still keeping those values out of provider execution inputs.
     """
 
     package: Any
@@ -77,7 +79,7 @@ class RawArrayMethodsReplayCompiler:
         X: Any,
         *,
         mode: str,
-        identity_frame: DagMLPredictIdentityFrame,
+        identity_frame: DagMLPredictIdentityFrame | DagMLCalibrationIdentityFrame,
     ) -> DagMLReplayExecution:
         """Return native replay inputs for the current, target-free cohort."""
 
@@ -112,7 +114,7 @@ class RawArrayMethodsReplayCompiler:
                 "plan_fingerprint": requirement["plan_fingerprint"],
                 "relation_fingerprint": relation_fingerprint,
                 "data_content_fingerprint": identity_frame.data_content_fingerprint,
-                "target_content_fingerprint": None,
+                "target_content_fingerprint": getattr(identity_frame, "target_content_fingerprint", None),
                 "coordinator_relations": relations,
             }
             for key, requirement in requirements.items()
@@ -288,7 +290,9 @@ def _source_outcome_fingerprint(package: Mapping[str, Any]) -> str:
     return fingerprint
 
 
-def _current_relations(identity_frame: DagMLPredictIdentityFrame) -> dict[str, Any]:
+def _current_relations(
+    identity_frame: DagMLPredictIdentityFrame | DagMLCalibrationIdentityFrame,
+) -> dict[str, Any]:
     records: list[dict[str, Any]] = []
     for sample_id, group, metadata in zip(
         identity_frame.sample_ids,

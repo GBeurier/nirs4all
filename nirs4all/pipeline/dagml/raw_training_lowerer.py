@@ -10,7 +10,6 @@ Unsupported syntax fails before native execution.
 from __future__ import annotations
 
 import copy
-import hashlib
 import json
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -26,7 +25,7 @@ from .envelope import build_envelope
 from .errors import _reject_multi_model
 from .estimator import DagMLPipelineEstimator, DagMLTrainingExecution
 from .finetune_lowering import lower_deterministic_finetune_params_to_generators, reject_native_training_param_overrides
-from .fit_identity import DagMLFitIdentityFrame, feature_content_fingerprint
+from .fit_identity import DagMLFitIdentityFrame, feature_content_fingerprint, target_content_fingerprint
 from .folds import _build_folds
 from .identity import IdentityMap, SampleIdentity
 from .node_runner import run_node
@@ -149,7 +148,7 @@ def lower_raw_array_training_contracts(
     dag_ml = _import_dagml(dagml_module)
     envelope["relation_fingerprint"] = _core_relation_fingerprint(envelope["coordinator_relations"], dag_ml)
     envelope["data_content_fingerprint"] = feature_content_fingerprint(X)
-    envelope["target_content_fingerprint"] = _array_content_fingerprint("y", y)
+    envelope["target_content_fingerprint"] = target_content_fingerprint(y)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-raw-fit", n_splits=len(folds))
     manifests = controller_manifests()
     if portable_methods:
@@ -473,16 +472,6 @@ def _training_influence_manifest(
     }
     manifest["manifest_fingerprint"] = tcv1_fingerprint_without(manifest, "manifest_fingerprint")
     return manifest
-
-
-def _array_content_fingerprint(label: str, value: Any) -> str:
-    array = np.ascontiguousarray(np.asarray(value))
-    hasher = hashlib.sha256()
-    hasher.update(label.encode("utf-8"))
-    hasher.update(str(array.shape).encode("utf-8"))
-    hasher.update(str(array.dtype).encode("utf-8"))
-    hasher.update(array.tobytes())
-    return hasher.hexdigest()
 
 
 def _core_relation_fingerprint(relations: Mapping[str, Any], dag_ml: Any) -> str:

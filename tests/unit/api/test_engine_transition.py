@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import importlib
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -108,6 +109,149 @@ def test_run_native_environment_selection_is_also_fail_closed_for_unsupported_re
 
     with pytest.raises(ValueError, match="missing required keys"):
         run([], {})
+
+
+def test_run_native_attaches_identity_bound_conformal_calibration_without_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The public native lane transports one attested replay to DAG-ML."""
+
+    outcome = {
+        "outcome_fingerprint": "c" * 64,
+        "score_set": {
+            "schema_version": 2,
+            "selection_metric": "rmse",
+            "reports": [
+                {
+                    "producer_node": "model:methods",
+                    "producer_port": "oof",
+                    "partition": "validation",
+                    "fold_id": "avg",
+                    "level": "sample",
+                    "metrics": {"rmse": 0.25},
+                    "row_count": 2,
+                    "target_names": ["y"],
+                    "target_width": 1,
+                    "variant_id": "variant:base",
+                }
+            ],
+        },
+    }
+    attached: dict[str, object] = {}
+    replay_outcome = {"replay": "native-attested"}
+
+    class TrainingResult:
+        @property
+        def outcome(self):  # noqa: ANN201
+            return outcome
+
+        def attach_conformal_calibration(self, replay, **kwargs):  # noqa: ANN001
+            assert replay is replay_outcome
+            attached.update(kwargs)
+            outcome["conformal_calibration"] = {"schema_version": 2, "binding_id": kwargs["binding_id"]}
+            return outcome["conformal_calibration"]
+
+        def export_portable_predictor_package(self, package_id, **kwargs):  # noqa: ANN001
+            assert package_id == "package:native"
+            assert kwargs == {"fitted_artifact_mode": "portable_required", "artifact_load_mode": "native_portable"}
+            return {"package_id": package_id, "schema_version": 2, "reexported": True}
+
+    class Estimator:
+        dagml_module = "fake_dag_ml"
+        predictor_package_ = {"package_id": "package:native", "schema_version": 2}
+        prediction_compiler = SimpleNamespace(methods_library_path="/native/libn4m.so")
+
+        def __init__(self) -> None:
+            self.training_result_ = TrainingResult()
+            self.training_outcome_ = outcome
+
+        def execute_compiled_replay(self, execution):  # noqa: ANN001
+            assert execution == "compiled-calibration-replay"
+            return replay_outcome
+
+    estimator = Estimator()
+    compile_observed: dict[str, object] = {}
+
+    def compile_calibration(package, X, y, **kwargs):  # noqa: ANN001
+        assert package is estimator.predictor_package_
+        compile_observed.update(X=np.asarray(X), y=np.asarray(y), kwargs=kwargs)
+        return SimpleNamespace(
+            execution="compiled-calibration-replay",
+            binding_id="binding:prediction",
+            calibration_relations={"records": [{"sample_id": "cal-1"}, {"sample_id": "cal-2"}]},
+            truth={"sample_ids": ["cal-1", "cal-2"], "values": [[1.5], [2.5]]},
+        )
+
+    monkeypatch.setattr("nirs4all.api.native_training.fit_native_pipeline", lambda *_args, **_kwargs: estimator)
+    monkeypatch.setattr("nirs4all.api.native_training.compile_methods_conformal_calibration_replay", compile_calibration)
+    monkeypatch.setattr("nirs4all.api.native_training.validate_native_methods_package", lambda package: package)
+    monkeypatch.setattr(
+        importlib.import_module("nirs4all.api.run"),
+        "PipelineRunner",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("native calibration constructed a legacy runner")),
+    )
+
+    result = run(
+        [{"split": "stub"}, {"model": "stub"}],
+        {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["train-1", "train-2"]},
+        engine="native",
+        save_charts=False,
+        calibration={
+            "X": np.asarray([[3.0], [4.0]]),
+            "y": np.asarray([1.5, 2.5]),
+            "sample_ids": ["cal-1", "cal-2"],
+            "coverages": [0.8, 0.95],
+        },
+    )
+
+    assert isinstance(result, NativeMethodsRunResult)
+    assert np.array_equal(compile_observed["X"], np.asarray([[3.0], [4.0]]))
+    assert np.array_equal(compile_observed["y"], np.asarray([1.5, 2.5]))
+    assert compile_observed["kwargs"] == {
+        "sample_ids": ["cal-1", "cal-2"],
+        "groups": None,
+        "metadata": None,
+        "methods_library_path": "/native/libn4m.so",
+        "dagml_module": "fake_dag_ml",
+    }
+    assert attached == {
+        "binding_id": "binding:prediction",
+        "calibration_relations": {"records": [{"sample_id": "cal-1"}, {"sample_id": "cal-2"}]},
+        "truth": {"sample_ids": ["cal-1", "cal-2"], "values": [[1.5], [2.5]]},
+        "coverages": [0.8, 0.95],
+        "multi_target_policy": '"marginal"',
+        "small_sample_policy": '"error"',
+    }
+    assert estimator.predictor_package_ == {"package_id": "package:native", "schema_version": 2, "reexported": True}
+    assert result.native_conformal_calibration == {"schema_version": 2, "binding_id": "binding:prediction"}
+
+
+@pytest.mark.parametrize(
+    ("calibration", "message"),
+    [
+        ({}, "missing required keys"),
+        ({"X": [], "y": [], "sample_ids": [], "coverages": [0.9, 0.9]}, "non-empty and unique"),
+        ({"X": [], "y": [], "sample_ids": [], "coverages": [1.0]}, "strictly between zero and one"),
+        ({"X": [], "y": [], "sample_ids": [], "coverages": [0.9], "legacy": True}, "unsupported keys"),
+    ],
+)
+def test_run_native_refuses_ambiguous_conformal_calibration_before_fit(
+    monkeypatch: pytest.MonkeyPatch,
+    calibration: dict[str, object],
+    message: str,
+) -> None:
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.fit_native_pipeline",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("native fit was reached")),
+    )
+    with pytest.raises((TypeError, ValueError), match=message):
+        run(
+            [{"split": "stub"}, {"model": "stub"}],
+            {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["train-1", "train-2"]},
+            engine="native",
+            save_charts=False,
+            calibration=calibration,
+        )
 
 
 def test_run_native_routes_strict_methods_hpo_through_the_native_compiler(

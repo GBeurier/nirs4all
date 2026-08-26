@@ -871,8 +871,6 @@ def run(
     if custom_training_loss_requested and selected_engine != "dag-ml":
         raise ValueError("training_losses/local_implementations require engine='dag-ml'")
     if selected_engine == "native":
-        if calibration is not None:
-            raise NotImplementedError("engine='native' conformal calibration is not available through run() yet")
         if not isinstance(pipeline, list):
             raise TypeError("engine='native' requires a list pipeline")
         if not isinstance(dataset, Mapping):
@@ -884,6 +882,8 @@ def run(
         if session is not None:
             if tuning is not None:
                 raise NotImplementedError("engine='native' Methods HPO is stateless; do not combine tuning with a NativeMethodsSession")
+            if calibration is not None:
+                raise NotImplementedError("engine='native' conformal calibration is stateless; do not combine it with a NativeMethodsSession")
             if not isinstance(session, NativeMethodsSession):
                 raise TypeError("engine='native' requires a NativeMethodsSession, not a legacy Session")
             if pipeline is not session.pipeline:
@@ -920,6 +920,7 @@ def run(
             results_path=results_path,
             runner_kwargs=runner_kwargs,
             tuning=tuning,
+            calibration=calibration,
         )
     if isinstance(session, NativeMethodsSession):
         raise ValueError("NativeMethodsSession requires engine='native'; it never falls back to another engine")
