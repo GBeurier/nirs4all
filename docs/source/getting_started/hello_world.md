@@ -242,6 +242,38 @@ N4A_ENGINE=dag-ml python train.py
 
 If the dag-ml backend is unavailable, or the requested pipeline shape is outside current dag-ml coverage, NIRS4ALL warns and falls back to the legacy engine for catchable unsupported cases.
 
+### Require a native result during migration qualification
+
+During a native migration or a release qualification, make the fallback policy
+explicit. `allow_legacy_fallback=False` turns an unavailable or unsupported
+DAG-ML request into an error before a legacy workspace is created:
+
+```python
+result = nirs4all.run(
+    pipeline="pipeline.yaml",
+    dataset="dataset.yaml",
+    engine="dag-ml",
+    allow_legacy_fallback=False,
+    random_state=42,
+)
+```
+
+This is a qualification switch, not the package default. The default remains
+compatible with existing workflows while native coverage is expanded. A generic
+`RunResult` that does not retain a native Package/Archive artifact also cannot
+be exported through the old refit bridge in strict mode:
+
+```python
+result.export(
+    "exports/qualified-result.n4a",
+    allow_legacy_refit=False,
+)
+```
+
+For a currently supported end-to-end portable workflow, use the strict Methods
+lane documented in {doc}`/api/module_api`; it retains the native Package and
+N4MM evidence needed for Archive V2/V3 export.
+
 ## Next Clicks
 
 - {doc}`/reference/nodes/index` lists every pipeline node keyword and where to use it.
