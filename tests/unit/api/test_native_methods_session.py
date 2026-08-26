@@ -69,3 +69,63 @@ def test_native_methods_session_refuses_invalid_state() -> None:
     session = NativeMethodsSession([])
     with pytest.raises(ValueError, match="must be trained"):
         _ = session.result
+
+
+def test_native_session_factory_routes_without_a_legacy_runner() -> None:
+    with nirs4all.session(["split", "model"], name="portable", engine="native", random_state=9) as native:
+        assert isinstance(native, NativeMethodsSession)
+        assert native.pipeline == ["split", "model"]
+        assert native.random_state == 9
+        assert not native.closed
+    assert native.closed
+
+
+def test_native_session_factory_refuses_legacy_options() -> None:
+    with pytest.raises(ValueError, match="requires a list pipeline"):
+        with nirs4all.session(engine="native"):
+            pass
+    with pytest.raises(NotImplementedError, match="workspace options"):
+        with nirs4all.session(["model"], engine="native", workspace_path="legacy"):
+            pass
+
+
+def test_native_load_session_uses_archive_loader_only(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    import importlib
+
+    session_module = importlib.import_module("nirs4all.api.session")
+    archive = tmp_path / "portable.n4a"
+    archive.write_bytes(b"native archive")
+    expected = object()
+    monkeypatch.setattr(
+        "nirs4all.api.native_archive_session.load_native_archive_session",
+        lambda path: expected,
+    )
+    monkeypatch.setattr(
+        "nirs4all.pipeline.bundle.BundleLoader",
+        lambda *_args, **_kwargs: pytest.fail("native load_session must not use BundleLoader"),
+    )
+
+    assert session_module.load_session(archive, engine="native") is expected
+
+
+def test_run_routes_a_native_session_without_calling_legacy_training(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = NativeMethodsSession(["split", "model"], name="portable", random_state=3)
+    expected = object()
+    observed: list[dict[str, Any]] = []
+
+    def native_run(dataset: Any) -> object:
+        observed.append(dataset)
+        return expected
+
+    monkeypatch.setattr(native, "run", native_run)
+    result = nirs4all.run(
+        native.pipeline,
+        {"X": [[1.0]], "y": [2.0], "sample_ids": ["fit-a"]},
+        engine="native",
+        session=native,
+        random_state=3,
+        save_charts=False,
+    )
+
+    assert result is expected
+    assert observed == [{"X": [[1.0]], "y": [2.0], "sample_ids": ["fit-a"]}]

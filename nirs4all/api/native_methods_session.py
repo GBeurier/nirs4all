@@ -40,6 +40,12 @@ class NativeMethodsSession:
         return self._pipeline
 
     @property
+    def name(self) -> str:
+        """The immutable public name for the portable training run."""
+
+        return self._name
+
+    @property
     def random_state(self) -> int | None:
         """The seed used by the session's native training run."""
 

@@ -34,6 +34,7 @@ from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, resolve_engine
 
+from .native_methods_session import NativeMethodsSession
 from .result import RunResult
 from .session import Session
 
@@ -618,7 +619,7 @@ def run(
     dataset: DatasetSpec,
     *,
     name: str = "",
-    session: Session | None = None,
+    session: Session | NativeMethodsSession | None = None,
     # Common runner options (shortcuts for most-used parameters)
     verbose: int = 1,
     save_artifacts: bool = True,
@@ -899,6 +900,36 @@ def run(
         raise DagMLTuningNotImplementedError(tuning_spec)
 
     if selected_engine == "native":
+        if session is not None:
+            if not isinstance(session, NativeMethodsSession):
+                raise TypeError("engine='native' requires a NativeMethodsSession created with session(engine='native')")
+            if pipeline is not session.pipeline:
+                raise ValueError("engine='native' session must be run with its exact session pipeline object")
+            if not isinstance(dataset, Mapping):
+                raise TypeError(
+                    "engine='native' sessions require dataset={'X': matrix, 'y': targets, 'sample_ids': explicit_ids}"
+                )
+            if name and name != session.name:
+                raise ValueError("engine='native' session name is fixed when the session is created")
+            if random_state is not None and random_state != session.random_state:
+                raise ValueError("engine='native' session random_state is fixed when the session is created")
+            if (
+                verbose != 1
+                or not save_artifacts
+                or save_charts
+                or plots_visible
+                or refit is not True
+                or cache is not None
+                or project is not None
+                or report_naming != "nirs"
+                or results_path is not None
+                or runner_kwargs
+            ):
+                raise NotImplementedError(
+                    "engine='native' sessions support only the strict portable Methods defaults; "
+                    "configure random_state when creating the session"
+                )
+            return session.run(dataset)
         from .native_training import run_native_methods
 
         return run_native_methods(
@@ -918,6 +949,9 @@ def run(
             session=session,
             runner_kwargs=runner_kwargs,
         )
+
+    if isinstance(session, NativeMethodsSession):
+        raise TypeError("NativeMethodsSession can be used only with engine='native'")
 
     def _run_legacy(
         *,

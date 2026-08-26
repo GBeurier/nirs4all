@@ -58,7 +58,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "nirs4all.data.config.DatasetConfigs | list[str | pathlib.Path | numpy.ndarray | "
         "tuple[numpy.ndarray, ...] | dict[str, typing.Any] | "
         "nirs4all.data.dataset.SpectroDataset | nirs4all.data.config.DatasetConfigs], *, "
-        "name: str = '', session: nirs4all.api.session.Session | None = None, "
+        "name: str = '', session: nirs4all.api.session.Session | nirs4all.api.native_methods_session.NativeMethodsSession | None = None, "
         "verbose: int = 1, save_artifacts: bool = True, save_charts: bool = True, "
         "plots_visible: bool = False, random_state: int | None = None, "
         "refit: bool | dict[str, typing.Any] | list[dict[str, typing.Any]] | None = True, "
@@ -98,8 +98,11 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "session: nirs4all.api.session.Session | None = None, verbose: int = 1, "
         "save_artifacts: bool = True, **kwargs: Any) -> nirs4all.api.result.RunResult"
     ),
-    "session": ("(pipeline: list[typing.Any] | None = None, name: str = '', **kwargs: Any) -> collections.abc.Generator[nirs4all.api.session.Session, None, None]"),
-    "load_session": ("(path: str | pathlib.Path) -> nirs4all.api.session.Session"),
+    "session": (
+        "(pipeline: list[typing.Any] | None = None, name: str = '', *, engine: str | None = None, "
+        "**kwargs: Any) -> 'Generator[Session | NativeMethodsSession, None, None]'"
+    ),
+    "load_session": ("(path: str | pathlib.Path, *, engine: str | None = None) -> 'Session | NativeArchiveSession'"),
     "generate": (
         "(n_samples: 'int' = 1000, *, random_state: 'int | None' = None, "
         "complexity: \"Literal['simple', 'realistic', 'complex']\" = 'simple', "

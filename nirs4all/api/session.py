@@ -26,6 +26,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
 if TYPE_CHECKING:
+    from nirs4all.api.native_archive_session import NativeArchiveSession
+    from nirs4all.api.native_methods_session import NativeMethodsSession
     from nirs4all.api.result import PredictResult, RunResult
     from nirs4all.pipeline import PipelineRunner
 
@@ -380,7 +382,7 @@ class Session:
                 "Call session.run(dataset) first."
             )
 
-        return self._last_result.export(path)
+        return Path(self._last_result.export(path))
 
     def close(self) -> None:
         """Clean up session resources.
@@ -414,7 +416,7 @@ class Session:
             status = "active" if self._runner is not None else "idle"
             return f"Session({status}, kwargs={list(self._runner_kwargs.keys())})"
 
-def load_session(path: str | Path) -> Session:
+def load_session(path: str | Path, *, engine: str | None = None) -> "Session | NativeArchiveSession":
     """Load a session from a saved bundle file.
 
     Args:
@@ -427,7 +429,19 @@ def load_session(path: str | Path) -> Session:
         >>> session = nirs4all.load_session("exports/model.n4a")
         >>> predictions = session.predict(new_data)
     """
-    from nirs4all.api.result import RunResult
+    from nirs4all.pipeline.engine import resolve_engine
+
+    selected_engine = resolve_engine(engine)
+    if selected_engine == "native":
+        from .native_archive_session import load_native_archive_session
+
+        return load_native_archive_session(path)
+    if selected_engine != "legacy":
+        raise NotImplementedError(
+            f"load_session(engine={selected_engine!r}) is not implemented; use engine='native' "
+            "for a portable Archive V2 PREDICT session or engine='legacy' for a legacy bundle"
+        )
+
     from nirs4all.pipeline.bundle import BundleLoader
 
     path = Path(path)
@@ -459,8 +473,10 @@ def load_session(path: str | Path) -> Session:
 def session(
     pipeline: list[Any] | None = None,
     name: str = "",
+    *,
+    engine: str | None = None,
     **kwargs: Any
-) -> Generator[Session, None, None]:
+) -> "Generator[Session | NativeMethodsSession, None, None]":
     """Create an execution session context manager.
 
     This is a convenience function that creates a Session and yields it
@@ -469,7 +485,11 @@ def session(
     Args:
         pipeline: Optional pipeline definition for stateful mode.
         name: Name for the session/pipeline.
-        **kwargs: Arguments passed to Session (and ultimately PipelineRunner).
+        engine: ``"legacy"`` (default) retains the existing PipelineRunner
+            session. ``"native"`` creates a strict portable Methods session;
+            it requires a list pipeline and accepts only ``random_state``.
+        **kwargs: Arguments passed to Session (and ultimately PipelineRunner)
+            for the legacy engine.
             Common options:
             - verbose (int): Verbosity level (0-3). Default: 1
             - save_artifacts (bool): Save model artifacts. Default: True
@@ -490,6 +510,32 @@ def session(
         ...     result = s.run("sample_data/regression")
         ...     print(f"Best score: {result.best_score:.4f}")
     """
+    from nirs4all.pipeline.engine import resolve_engine
+
+    selected_engine = resolve_engine(engine)
+    if selected_engine == "native":
+        if pipeline is None:
+            raise ValueError("session(engine='native') requires a list pipeline")
+        unsupported = set(kwargs) - {"random_state"}
+        if unsupported:
+            raise NotImplementedError(
+                "session(engine='native') accepts only random_state; legacy workspace options are unsupported: "
+                f"{sorted(unsupported)}"
+            )
+        from .native_methods_session import NativeMethodsSession
+
+        native_session = NativeMethodsSession(pipeline, name=name, random_state=kwargs.get("random_state"))
+        try:
+            yield native_session
+        finally:
+            native_session.close()
+        return
+    if selected_engine != "legacy":
+        raise NotImplementedError(
+            f"session(engine={selected_engine!r}) is not implemented; use engine='native' "
+            "for the portable Methods subset or engine='legacy'"
+        )
+
     s = Session(pipeline=pipeline, name=name, **kwargs)
     try:
         yield s
