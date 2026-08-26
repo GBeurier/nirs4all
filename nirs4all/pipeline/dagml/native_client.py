@@ -95,6 +95,37 @@ class _DagMLFacade(Protocol):
         diagnostics: Any = None,
     ) -> Any: ...
 
+    def execute_methods_portable_full_refit(
+        self,
+        source_package: Any,
+        target_request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        recipe_id: str,
+        package_id: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+    ) -> Any: ...
+
+    def replay_loaded_methods_portable_refit_package_v3(
+        self,
+        package: Any,
+        request: Any,
+        data_envelopes: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any: ...
+
 
 @dataclass(frozen=True)
 class DagMLNativeCapabilities:
@@ -117,6 +148,12 @@ class DagMLNativeClient:
     def __init__(self, module_name: str = "dag_ml") -> None:
         self._module_name = module_name
         self._facade: _DagMLFacade | None = None
+
+    @property
+    def module_name(self) -> str:
+        """The explicit DAG-ML Python module selected for this client."""
+
+        return self._module_name
 
     def capabilities(self) -> DagMLNativeCapabilities:
         """Return the installed native training/replay capability snapshot."""
@@ -262,6 +299,74 @@ class DagMLNativeClient:
 
         facade = self._require_callable("replay_loaded_methods_predictor_package")
         return facade.replay_loaded_methods_predictor_package(
+            package,
+            request,
+            data_envelopes,
+            methods_inputs,
+            methods_library_path=methods_library_path,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            warnings=warnings,
+            diagnostics=diagnostics,
+        )
+
+    def execute_methods_portable_full_refit(
+        self,
+        source_package: Any,
+        target_request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        recipe_id: str,
+        package_id: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+    ) -> Any:
+        """Execute exactly one fresh Methods REFIT and return its V3 child.
+
+        This seam forwards already-attested target contracts unchanged.  It
+        never derives a recipe, rebuilds a plan, or re-enters native CV/SELECT.
+        """
+
+        facade = self._require_callable("execute_methods_portable_full_refit")
+        return facade.execute_methods_portable_full_refit(
+            source_package,
+            target_request,
+            data_envelopes,
+            relations,
+            training_influence,
+            methods_inputs,
+            methods_library_path=methods_library_path,
+            recipe_id=recipe_id,
+            package_id=package_id,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            bundle_id=bundle_id,
+        )
+
+    def replay_loaded_methods_portable_refit_package_v3(
+        self,
+        package: Any,
+        request: Any,
+        data_envelopes: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any:
+        """Replay one detached Package V3 child without a sidecar callback."""
+
+        facade = self._require_callable(
+            "replay_loaded_methods_portable_refit_package_v3"
+        )
+        return facade.replay_loaded_methods_portable_refit_package_v3(
             package,
             request,
             data_envelopes,

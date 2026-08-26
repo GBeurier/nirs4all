@@ -77,6 +77,37 @@ result = nirs4all.run(
 result.export("model.n4a")
 ```
 
+### Native full refit and Archive V3
+
+An in-memory `NativeMethodsRunResult` can produce exactly one fresh full-refit
+child on a new, explicitly identified training cohort. The parent Package V2
+remains the authority for the selected plan; the child Package V3 records only
+the new REFIT evidence and artifact. It never re-enters CV or SELECT, and it
+does not manufacture a score from the new cohort.
+
+```python
+child = nirs4all.retrain(
+    result,
+    {"X": X_target, "y": y_target, "sample_ids": target_ids},
+    mode="full",
+    engine="native",
+)
+child.export("refit.n4a")  # Core Archive V3
+
+with nirs4all.load_session("refit.n4a", engine="native") as loaded:
+    prediction = nirs4all.predict(
+        data={"X": X_predict, "sample_ids": prediction_ids},
+        engine="native",
+        session=loaded,
+    )
+```
+
+The first native retrain capability is deliberately narrow: it requires the
+in-memory attested parent and `mode="full"`. Archive-parent retrain, transfer,
+fine-tuning, host-sidecars and implicit sample identities fail before native
+data execution. Archive V3 supports PREDICT only; unlike calibrated Package V2,
+it has no conformal presentation state.
+
 ```python
 result = nirs4all.run(
     pipeline,           # Pipeline definition (list, dict, path, or list of pipelines)

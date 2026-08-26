@@ -196,6 +196,120 @@ def test_execute_methods_training_forwards_without_a_python_operator_callback(
     ]
 
 
+def test_execute_methods_portable_full_refit_forwards_closed_target_contracts(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_methods_full_refit"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    sentinel = object()
+
+    def execute_methods_portable_full_refit(*args: Any, **kwargs: Any) -> object:
+        calls.append((args, kwargs))
+        return sentinel
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(
+            module_name,
+            execute_methods_portable_full_refit=execute_methods_portable_full_refit,
+        ),
+    )
+
+    source_package = {"schema_version": 2}
+    target_request = {"request_fingerprint": "a" * 64}
+    result = DagMLNativeClient(module_name).execute_methods_portable_full_refit(
+        source_package,
+        target_request,
+        {"model:base.x": {"envelope": True}},
+        {"relations": True},
+        {"influence": True},
+        {"model:base.x": {"x": [[1.0]], "y": [[2.0]]}},
+        methods_library_path="/absolute/libn4m.so",
+        recipe_id="recipe:target",
+        package_id="package:target",
+        outcome_id="outcome:target",
+        run_id="run:target",
+        bundle_id="bundle:target",
+    )
+
+    assert result is sentinel
+    assert calls == [
+        (
+            (
+                source_package,
+                target_request,
+                {"model:base.x": {"envelope": True}},
+                {"relations": True},
+                {"influence": True},
+                {"model:base.x": {"x": [[1.0]], "y": [[2.0]]}},
+            ),
+            {
+                "methods_library_path": "/absolute/libn4m.so",
+                "recipe_id": "recipe:target",
+                "package_id": "package:target",
+                "outcome_id": "outcome:target",
+                "run_id": "run:target",
+                "bundle_id": "bundle:target",
+            },
+        )
+    ]
+
+
+def test_replay_loaded_methods_portable_refit_package_v3_forwards_without_sidecar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_methods_refit_replay"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    sentinel = object()
+
+    def replay_loaded_methods_portable_refit_package_v3(*args: Any, **kwargs: Any) -> object:
+        calls.append((args, kwargs))
+        return sentinel
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(
+            module_name,
+            replay_loaded_methods_portable_refit_package_v3=replay_loaded_methods_portable_refit_package_v3,
+        ),
+    )
+
+    package = {"schema_version": 3}
+    request = {"phase": "PREDICT"}
+    result = DagMLNativeClient(module_name).replay_loaded_methods_portable_refit_package_v3(
+        package,
+        request,
+        {"model:base.x": {"envelope": True}},
+        {"model:base.x": {"x": [[1.0]]}},
+        methods_library_path="/absolute/libn4m.so",
+        outcome_id="outcome:replay",
+        run_id="run:replay",
+        warnings=["native"],
+        diagnostics={"source": "test"},
+    )
+
+    assert result is sentinel
+    assert calls == [
+        (
+            (
+                package,
+                request,
+                {"model:base.x": {"envelope": True}},
+                {"model:base.x": {"x": [[1.0]]}},
+            ),
+            {
+                "methods_library_path": "/absolute/libn4m.so",
+                "outcome_id": "outcome:replay",
+                "run_id": "run:replay",
+                "warnings": ["native"],
+                "diagnostics": {"source": "test"},
+            },
+        )
+    ]
+
+
 def test_replay_loaded_predictor_package_forwards_to_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     module_name = "_n4a_fake_dag_ml_replay"
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []

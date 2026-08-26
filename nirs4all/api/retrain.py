@@ -2,7 +2,9 @@
 Module-level retrain() function for nirs4all.
 
 This module provides a simple interface for retraining nirs4all pipelines
-on new data. It wraps PipelineRunner.retrain() with ergonomic defaults.
+on new data. The compatibility route wraps ``PipelineRunner.retrain()``, while
+an attested native Methods parent selects the strict Package V3 full-refit
+operation instead.
 
 Example:
     >>> import nirs4all
@@ -15,6 +17,7 @@ Example:
     >>> print(f"New RMSE: {result.best_rmse:.4f}")
 """
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TypeAlias
 
@@ -25,12 +28,16 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine
 
+from .native_refit_result import NativeMethodsRefitResult
+from .native_result import NativeMethodsRunResult
+from .native_training import refit_native_methods
 from .result import RunResult
 from .session import Session
 
 # Type aliases for clarity
 SourceSpec: TypeAlias = (
-    dict[str, Any]               # Prediction dict from previous run
+    NativeMethodsRunResult        # Native in-memory Methods parent result
+    | dict[str, Any]               # Prediction dict from previous run
     | str                          # Path to bundle (.n4a) or config
     | Path                          # Path to bundle or config
 )
@@ -56,8 +63,8 @@ def retrain(
     session: Session | None = None,
     verbose: int = 1,
     save_artifacts: bool = True,
-    **kwargs: Any
-) -> RunResult:
+    **kwargs: Any,
+) -> RunResult | NativeMethodsRefitResult:
     """Retrain a pipeline on new data.
 
     This function enables retraining trained pipelines with various modes,
@@ -65,6 +72,8 @@ def retrain(
 
     Args:
         source: Pipeline source to retrain from. Can be:
+            - ``NativeMethodsRunResult`` from ``run(..., engine="native")``;
+              this selects strict native full refit automatically
             - Prediction dict from ``result.best`` or ``result.top()``
             - Path to exported bundle: ``"exports/model.n4a"``
             - Path to pipeline config directory
@@ -102,12 +111,18 @@ def retrain(
             - learning_rate: Learning rate for fine-tuning
             - freeze_layers: List of layers to freeze during fine-tuning
             - step_modes: Per-step mode overrides (advanced)
-            - engine: Backend selector for the transition release. Only
-              ``"legacy"`` is supported by this helper until native retraining
-              is implemented.
+            - engine: Backend selector for the transition release. ``"native"``
+              is accepted only for an in-memory ``NativeMethodsRunResult`` and
+              ``mode="full"``; transfer, finetune and archive-parent refits
+              remain explicit preflight refusals.
 
     Returns:
-        RunResult containing:
+        ``RunResult`` for the compatibility route, or
+        ``NativeMethodsRefitResult`` for the target-bound native V3 child.
+        The V3 child deliberately has no synthetic CV score set; it offers
+        identity-bound PREDICT and Archive V3 export.
+
+        ``RunResult`` contains:
             - predictions: Predictions from the retrained pipeline
             - per_dataset: Per-dataset execution details
             - best: Best prediction entry
@@ -165,6 +180,22 @@ def retrain(
         ... )
         >>> result.export("exports/retrained_model.n4a")
 
+        Native full refit from an attested in-memory parent:
+
+        >>> parent = nirs4all.run(
+        ...     pipeline,
+        ...     {"X": X_train, "y": y_train, "sample_ids": train_ids},
+        ...     engine="native",
+        ...     save_charts=False,
+        ... )
+        >>> child = nirs4all.retrain(
+        ...     parent,
+        ...     {"X": X_target, "y": y_target, "sample_ids": target_ids},
+        ...     mode="full",
+        ...     engine="native",
+        ... )
+        >>> child.export("exports/refit.n4a")
+
     See Also:
         - :func:`nirs4all.run`: Train a pipeline from scratch
         - :func:`nirs4all.predict`: Make predictions
@@ -176,7 +207,31 @@ def retrain(
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
 
     engine = kwargs.pop("engine", None)
+    if isinstance(source, NativeMethodsRunResult):
+        if engine is None:
+            # An already-attested native parent cannot fall through a default
+            # engine selector into the historical runner.
+            engine = "native"
+        elif engine != "native":
+            raise ValueError(
+                "a NativeMethodsRunResult selects native retrain; an explicit non-native engine is refused"
+            )
+    if engine == "native":
+        return _retrain_native_methods_full(
+            source,
+            data,
+            mode=mode,
+            name=name,
+            new_model=new_model,
+            epochs=epochs,
+            session=session,
+            verbose=verbose,
+            save_artifacts=save_artifacts,
+            extra_kwargs=kwargs,
+        )
     require_legacy_engine("retrain", engine)
+    if isinstance(source, NativeMethodsRunResult):
+        raise RuntimeError("native retrain source escaped native routing")
 
     # Use session runner if provided, otherwise create new
     runner = session.runner if session is not None else PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
@@ -203,3 +258,42 @@ def retrain(
         _runner=runner,
         _owns_runner=session is None,
     )
+def _retrain_native_methods_full(
+    source: SourceSpec,
+    data: DataSpec,
+    *,
+    mode: str,
+    name: str,
+    new_model: Any | None,
+    epochs: int | None,
+    session: Session | None,
+    verbose: int,
+    save_artifacts: bool,
+    extra_kwargs: Mapping[str, Any],
+) -> NativeMethodsRefitResult:
+    """Refit one selected in-memory Methods variant without legacy orchestration.
+
+    This is intentionally the first native retrain capability, not a silent
+    reinterpretation of every historical retrain mode. A durable Archive V2
+    source, transfer learning and finetuning need their own capability and
+    lineage contracts, so they are refused before data reaches the runtime.
+    """
+
+    if mode != "full":
+        raise NotImplementedError("engine='native' retrain currently supports only mode='full'")
+    if not isinstance(source, NativeMethodsRunResult):
+        raise TypeError("engine='native' retrain requires an in-memory NativeMethodsRunResult source")
+    if not isinstance(data, Mapping):
+        raise TypeError("engine='native' retrain requires data={'X', 'y', 'sample_ids'}")
+    if new_model is not None or epochs is not None:
+        raise NotImplementedError("engine='native' full retrain does not accept new_model or epochs")
+    if session is not None:
+        raise NotImplementedError("engine='native' retrain is stateless; do not pass a session")
+    if not save_artifacts:
+        raise ValueError("engine='native' retrain requires save_artifacts=True")
+    if verbose not in (0, 1, 2):
+        raise ValueError("engine='native' retrain verbose must be 0, 1, or 2")
+    if extra_kwargs:
+        raise NotImplementedError(f"engine='native' retrain does not accept legacy kwargs: {sorted(extra_kwargs)}")
+
+    return refit_native_methods(source, data, name=name)

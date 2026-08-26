@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ import pytest
 
 import nirs4all
 from nirs4all.api.native_methods_session import NativeMethodsSession
+from nirs4all.api.native_refit_result import NativeMethodsRefitResult
 
 
 class _Estimator:
@@ -69,6 +71,41 @@ def test_native_methods_session_refuses_invalid_state() -> None:
     session = NativeMethodsSession([])
     with pytest.raises(ValueError, match="must be trained"):
         _ = session.result
+
+
+def test_native_methods_session_retrain_uses_the_strict_native_route(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A session child is target-bound V3, never a legacy re-execution."""
+
+    session = NativeMethodsSession(["split", "model"], name="portable")
+    source = _Result()
+    child = object.__new__(NativeMethodsRefitResult)
+    observed: dict[str, Any] = {}
+
+    def native_retrain(source_result: Any, dataset: Any, **kwargs: Any) -> NativeMethodsRefitResult:
+        observed.update(source=source_result, dataset=dataset, kwargs=kwargs)
+        return child
+
+    session._result = source  # type: ignore[assignment]
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    monkeypatch.setattr(retrain_module, "retrain", native_retrain)
+
+    result = session.retrain({"X": [[1.0]], "y": [2.0], "sample_ids": ["target-a"]})
+
+    assert result is child
+    assert session.result is child
+    assert observed == {
+        "source": source,
+        "dataset": {"X": [[1.0]], "y": [2.0], "sample_ids": ["target-a"]},
+        "kwargs": {
+            "mode": "full",
+            "name": "portable",
+            "save_artifacts": True,
+            "verbose": 0,
+            "engine": "native",
+        },
+    }
 
 
 def test_native_session_factory_routes_without_a_legacy_runner() -> None:

@@ -74,6 +74,7 @@ from .explain import explain
 from .generate import generate_namespace as generate
 from .native_archive_session import NativeArchiveSession, load_native_archive_session
 from .native_methods_session import NativeMethodsSession
+from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
 from .native_training import fit_native_pipeline, run_native_methods
 from .predict import predict
@@ -172,6 +173,9 @@ __all__ = [
     # Module-level API functions
     "run",
     "fit_native_pipeline",
+    "NativeMethodsRunResult",
+    "NativeMethodsRefitResult",
+    "NativeMethodsSession",
     "DualRunUnsupported",
     "DualRunMismatchError",
     "calibrate",

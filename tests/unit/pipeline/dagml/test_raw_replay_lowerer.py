@@ -15,6 +15,7 @@ from nirs4all.pipeline.dagml.native_archive_replay import (
     write_methods_archive_v2,
 )
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
+    RawArrayMethodsPortableRefitReplayCompiler,
     RawArrayMethodsReplayCompiler,
     RawArrayMethodsReplayError,
 )
@@ -60,6 +61,42 @@ def _package() -> dict[str, object]:
                 "target_names": ["y"],
             }
         ],
+    }
+
+
+def _refit_package_v3() -> dict[str, object]:
+    return {
+        "schema_version": 3,
+        "outcome": {
+            "outcome_fingerprint": "e" * 64,
+            "effective_plan": {
+                "node_plans": {
+                    "model:base": {
+                        "data_bindings": [
+                            {
+                                "node_id": "model:base",
+                                "input_name": "x",
+                                "schema_fingerprint": "b" * 64,
+                                "plan_fingerprint": "c" * 64,
+                            }
+                        ]
+                    }
+                }
+            },
+            "output_bindings": [
+                {
+                    "binding_id": "binding:prediction",
+                    "node_id": "model:base",
+                    "target_names": ["y"],
+                }
+            ],
+            "execution_bundle": {
+                "raw_artifact_payloads": {"artifact:model": [1, 2, 3]},
+                "refit_artifacts": [
+                    {"artifact": {"id": "artifact:model", "kind": "n4m_model"}}
+                ],
+            },
+        },
     }
 
 
@@ -131,6 +168,40 @@ def test_raw_replay_compiler_refuses_implicit_identities_and_missing_n4mm(
         RawArrayMethodsReplayCompiler(
             invalid, dagml_module="dag_ml_raw_replay_test"
         ).compile_replay(None, X, mode="predict", identity_frame=explicit)  # type: ignore[arg-type]
+
+
+def test_raw_refit_v3_replay_compiler_uses_child_outcome_without_sidecar(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = _install_fake_runtime(monkeypatch)
+    X = np.asarray([[1.0, 2.0], [3.0, 4.0]])
+    identity = normalize_predict_identity(X, sample_ids=["sample.one", "sample.two"])
+    replay = RawArrayMethodsPortableRefitReplayCompiler(
+        _refit_package_v3(),
+        dagml_module="dag_ml_raw_replay_test",
+        methods_library_path="/native/libn4m.so",
+    ).compile_replay(None, X, mode="predict", identity_frame=identity)  # type: ignore[arg-type]
+
+    assert runtime.last_request["source_outcome_fingerprint"] == "e" * 64
+    assert runtime.last_request["data_envelope_keys"] == ["model:base.x"]
+    assert replay.op_callback is None
+    assert replay.artifact_handles == {}
+    assert replay.methods_inputs == {
+        "model:base.x": {
+            "sample_ids": ["sample.one", "sample.two"],
+            "x": [[1.0, 2.0], [3.0, 4.0]],
+            "target_names": ["y"],
+        }
+    }
+
+    invalid = _refit_package_v3()
+    invalid["outcome"]["execution_bundle"]["raw_artifact_payloads"] = {}  # type: ignore[index]
+    with pytest.raises(RawArrayMethodsReplayError, match="no durable raw Methods artifacts"):
+        RawArrayMethodsPortableRefitReplayCompiler(
+            invalid,
+            dagml_module="dag_ml_raw_replay_test",
+            methods_library_path="/native/libn4m.so",
+        ).compile_replay(None, X, mode="predict", identity_frame=identity)  # type: ignore[arg-type]
 
 
 def test_raw_replay_resolver_refuses_unknown_or_duplicated_ids(

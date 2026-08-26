@@ -169,7 +169,7 @@ def predict(
         **runner_kwargs: Additional PipelineRunner parameters.
             Common options: plots_visible. During the transition, the default
             remains ``"legacy"``. ``engine="native"`` is the explicit,
-            fail-closed Archive V2 Methods subset: pass a ``.n4a`` archive and
+            fail-closed Archive V2/V3 Methods subset: pass a ``.n4a`` archive and
             ``data={"X": ..., "sample_ids": ...}``; it has no legacy fallback.
 
     Returns:
@@ -390,7 +390,7 @@ def _predict_from_native_archive(
     coverage: float | list[float] | tuple[float, ...] | None,
     session: Session | None,
 ) -> PredictResult:
-    """Execute the narrow, portable Archive V2 Methods PREDICT route.
+    """Execute the narrow, portable Archive V2/V3 Methods PREDICT route.
 
     This route is explicit while R2 is being qualified.  It owns no legacy
     runner and therefore refuses store/session requests, sidecars and implicit
@@ -403,7 +403,7 @@ def _predict_from_native_archive(
     if methods_session is not None:
         if model is not None or chain_id is not None:
             raise ValueError(
-                "engine='native' accepts either a NativeMethodsSession or an Archive V2 model path, not both"
+                "engine='native' accepts either a NativeMethodsSession or a portable archive model path, not both"
             )
         if coverage is not None:
             raise NotImplementedError(
@@ -437,22 +437,22 @@ def _predict_from_native_archive(
     if archive_session is not None:
         if model is not None or chain_id is not None:
             raise ValueError(
-                "engine='native' accepts either a NativeArchiveSession or an Archive V2 model path, not both"
+                "engine='native' accepts either a NativeArchiveSession or a portable archive model path, not both"
             )
         archive_path = archive_session.archive_path
     else:
         if chain_id is not None or session is not None:
             raise NotImplementedError(
-                "engine='native' predict accepts an Archive V2 model path or NativeArchiveSession, not a legacy chain or Session"
+                "engine='native' predict accepts a portable archive model path or NativeArchiveSession, not a legacy chain or Session"
             )
         if not isinstance(model, (str, Path)):
-            raise TypeError("engine='native' predict requires a Core Archive V2 model path")
+            raise TypeError("engine='native' predict requires a Core portable archive model path")
         archive_path = Path(model)
     if archive_path.suffix.lower() != ".n4a":
-        raise ValueError("engine='native' predict requires an Archive V2 .n4a path")
+        raise ValueError("engine='native' predict requires a portable .n4a path")
     if all_predictions:
         raise NotImplementedError(
-            "engine='native' Archive V2 prediction exposes one selected final output"
+            "engine='native' portable archive prediction exposes one selected final output"
         )
     if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
         raise TypeError(
@@ -472,16 +472,39 @@ def _predict_from_native_archive(
                 predict_methods_archive_v2_raw,
             )
 
-            values = predict_methods_archive_v2_raw(
-                archive_path,
-                data["X"],
-                sample_ids=data["sample_ids"],
-                groups=data.get("groups"),
-                metadata=data.get("metadata"),
-            )
+            try:
+                values = predict_methods_archive_v2_raw(
+                    archive_path,
+                    data["X"],
+                    sample_ids=data["sample_ids"],
+                    groups=data.get("groups"),
+                    metadata=data.get("metadata"),
+                )
+            except Exception as v2_error:
+                # Package V3 is a target-bound child archive.  Ask the public
+                # archive session to dispatch it through Core/DAG-ML rather
+                # than duplicating Archive V3 parsing in this API layer.
+                from .native_archive_session import load_native_archive_session
+
+                try:
+                    v3_session = load_native_archive_session(archive_path)
+                except Exception:
+                    raise v2_error from None
+                if v3_session.archive_schema_version != 3:
+                    raise v2_error
+                values = v3_session.predict(
+                    data["X"],
+                    sample_ids=data["sample_ids"],
+                    groups=data.get("groups"),
+                    metadata=data.get("metadata"),
+                ).y_pred
         metadata_result: dict[str, Any] = {}
         intervals: dict[float, Any] = {}
     else:
+        if archive_session is not None and archive_session.archive_schema_version == 3:
+            raise NotImplementedError(
+                "engine='native' Archive V3 full-refit packages do not carry conformal presentation state"
+            )
         from nirs4all.pipeline.dagml.native_archive_replay import (
             project_methods_archive_v2_conformal_presentation,
         )

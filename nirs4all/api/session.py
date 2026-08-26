@@ -439,7 +439,7 @@ def load_session(path: str | Path, *, engine: str | None = None) -> "Session | N
     if selected_engine != "legacy":
         raise NotImplementedError(
             f"load_session(engine={selected_engine!r}) is not implemented; use engine='native' "
-            "for a portable Archive V2 PREDICT session or engine='legacy' for a legacy bundle"
+            "for a portable Archive V2/V3 PREDICT session or engine='legacy' for a legacy bundle"
         )
 
     from nirs4all.pipeline.bundle import BundleLoader

@@ -8,6 +8,7 @@ from typing import Any
 
 import numpy as np
 
+from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
 from .native_training import run_native_methods
 from .result import PredictResult
@@ -30,7 +31,7 @@ class NativeMethodsSession:
         self._pipeline = pipeline
         self._name = name
         self._random_state = random_state
-        self._result: NativeMethodsRunResult | None = None
+        self._result: NativeMethodsRunResult | NativeMethodsRefitResult | None = None
         self._closed = False
 
     @property
@@ -64,7 +65,7 @@ class NativeMethodsSession:
         return self._result is not None and not self._closed
 
     @property
-    def result(self) -> NativeMethodsRunResult:
+    def result(self) -> NativeMethodsRunResult | NativeMethodsRefitResult:
         """The fitted native result, refusing access before training."""
 
         self._require_open()
@@ -85,6 +86,31 @@ class NativeMethodsSession:
         )
         return self._result
 
+    def retrain(self, dataset: Mapping[str, Any]) -> NativeMethodsRefitResult:
+        """Create one target-bound Package V3 child without legacy execution.
+
+        The parent remains an in-memory, attested Package V2 result.  A
+        refitted V3 child deliberately cannot be used as a surrogate legacy
+        session or for transfer/finetuning.
+        """
+
+        self._require_open()
+        from .retrain import retrain
+
+        result = retrain(
+            self.result,
+            dict(dataset),
+            mode="full",
+            name=self._name,
+            save_artifacts=True,
+            verbose=0,
+            engine="native",
+        )
+        if not isinstance(result, NativeMethodsRefitResult):  # pragma: no cover - contract guard
+            raise RuntimeError("native session retrain did not return a NativeMethodsRefitResult")
+        self._result = result
+        return result
+
     def predict(
         self,
         X: Any,
@@ -96,8 +122,11 @@ class NativeMethodsSession:
         """Replay the fitted package for one explicitly identified cohort."""
 
         self._require_open()
+        result = self.result
+        if isinstance(result, NativeMethodsRefitResult):
+            return result.predict(X, sample_ids=sample_ids, groups=groups, metadata=metadata)
         values = np.asarray(
-            self.result.native_estimator.predict_with_identity(
+            result.native_estimator.predict_with_identity(
                 X,
                 sample_ids=sample_ids,
                 groups=groups,

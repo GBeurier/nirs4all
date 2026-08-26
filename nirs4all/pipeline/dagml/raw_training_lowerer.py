@@ -331,6 +331,7 @@ def _portable_methods_pls_manifest() -> dict[str, Any]:
             "emits_predictions",
             "emits_artifacts",
             "stateful",
+            "supports_portable_full_refit",
         ],
         "operator_selectors": [{"refs": ["sklearn.cross_decomposition._pls.PLSRegression"]}],
         "fit_scope": "fold_train",
