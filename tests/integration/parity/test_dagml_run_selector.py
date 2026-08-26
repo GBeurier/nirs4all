@@ -67,10 +67,11 @@ def test_run_dispatches_to_dagml_engine_native() -> None:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         result = nirs4all.run(
-            [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
-            dataset_path("regression"),
-            engine="dag-ml",
-        )
+        [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+        dataset_path("regression"),
+        engine="dag-ml",
+        allow_legacy_fallback=False,
+    )
     assert isinstance(result, RunResult)
     assert result.num_predictions > 0
     assert not any(_FALLBACK_WARNING in str(w.message) for w in caught)
