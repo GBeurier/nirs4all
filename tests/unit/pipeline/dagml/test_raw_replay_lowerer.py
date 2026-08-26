@@ -218,6 +218,29 @@ def test_raw_archive_predict_composes_core_dagml_and_methods_without_legacy(
             "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"], methods_library_path="/native/libn4m.so"
         )
 
+    def refused_replay(*_args: object, **_kwargs: object) -> dict[str, object]:
+        raise RuntimeError("native provider rejected the current cohort")
+
+    runtime.replay_loaded_methods_predictor_package = refused_replay
+    with pytest.raises(NativeArchiveReplayError, match="DAG-ML Methods Archive V2 replay was refused"):
+        predict_methods_archive_v2_raw(
+            "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"], methods_library_path="/native/libn4m.so"
+        )
+
+    monkeypatch.setitem(
+        sys.modules,
+        "nirs4all_core",
+        types.SimpleNamespace(
+            read_portable_predictor_package_v2=lambda _path: (_ for _ in ()).throw(
+                RuntimeError("corrupt archive")
+            )
+        ),
+    )
+    with pytest.raises(NativeArchiveReplayError, match="Core Archive V2 rejected"):
+        predict_methods_archive_v2_raw(
+            "portable.n4a", np.asarray([[1.0], [2.0]]), sample_ids=["sample.one", "sample.two"], methods_library_path="/native/libn4m.so"
+        )
+
 
 def test_raw_archive_predict_resolves_the_bundled_methods_library(
     monkeypatch: pytest.MonkeyPatch,
