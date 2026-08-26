@@ -91,16 +91,25 @@ jobs:
               --cov=nirs4all --cov-append --cov-report=xml \
               tests/
           else
-            # Serial subset with known write-contention under heavy xdist load
+            # Serial subsets with known write-contention or unsafe native
+            # runtime initialisation under heavy xdist load.  In particular,
+            # PyTorch/DAG-ML loss tests crash CPython 3.13 workers when three
+            # torch runtimes are initialised concurrently on Linux.
             python -m pytest -v \
               tests/integration/pipeline/test_merge_mixed.py \
               tests/integration/pipeline/test_merge_per_branch.py \
+              tests/unit/operators/models/test_pytorch.py \
+              tests/unit/pipeline/dagml/test_raw_training_lowerer.py \
+              tests/integration/parity/test_dagml_run_selector.py \
               --cov=nirs4all --cov-append
 
             # Parallel remainder
             python -m pytest -v -n auto --dist worksteal tests/ \
               --ignore=tests/integration/pipeline/test_merge_mixed.py \
               --ignore=tests/integration/pipeline/test_merge_per_branch.py \
+              --ignore=tests/unit/operators/models/test_pytorch.py \
+              --ignore=tests/unit/pipeline/dagml/test_raw_training_lowerer.py \
+              --ignore=tests/integration/parity/test_dagml_run_selector.py \
               --cov=nirs4all --cov-append --cov-report=xml
           fi
 
