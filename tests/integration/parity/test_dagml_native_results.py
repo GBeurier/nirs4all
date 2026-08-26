@@ -19,6 +19,7 @@ import json
 import os
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -30,12 +31,14 @@ import nirs4all
 from nirs4all.api.result import RunResult
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.data.predictions import Predictions
 from nirs4all.operators.transforms.scalers import StandardNormalVariate as SNV
 from nirs4all.pipeline.dagml.native_results import (
     MANIFEST_SCHEMA_VERSION,
     _score_set_hash,
     native_results_enabled,
     read_native_results,
+    write_native_results,
 )
 from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
@@ -77,6 +80,67 @@ def test_native_results_gate_env(monkeypatch: pytest.MonkeyPatch, value: str, ex
 # ---------------------------------------------------------------------------
 # (a) ROUND-TRIP — single pipeline.
 # ---------------------------------------------------------------------------
+
+
+def test_native_results_round_trip_preserves_explicit_physical_sample_ids(tmp_path: Path) -> None:
+    """A native archive keeps exact wire identities, never just row positions."""
+    predictions = Predictions()
+    predictions.add_prediction(
+        dataset_name="identity-fixture",
+        config_name="pls",
+        model_name="PLSRegression",
+        partition="test",
+        fold_id="final",
+        sample_indices=[10, 3],
+        metadata={"physical_sample_id": ["sample:ten", "sample:three"]},
+        y_true=np.asarray([1.0, 2.0]),
+        y_pred=np.asarray([1.1, 1.9]),
+        metric="rmse",
+        task_type="regression",
+    )
+    result = SimpleNamespace(predictions=predictions, _dagml_refit_artifacts=[], best={})
+    run_dir = write_native_results(result, {"reports": []}, tmp_path)
+
+    round_tripped = read_native_results(run_dir)["predictions"].filter_predictions(
+        partition="test",
+        fold_id="final",
+    )
+    assert len(round_tripped) == 1
+    assert round_tripped[0]["sample_indices"] == [10, 3]
+    assert round_tripped[0]["metadata"]["physical_sample_id"] == ["sample:ten", "sample:three"]
+
+
+def test_native_results_reader_does_not_invent_ids_for_legacy_projection(tmp_path: Path) -> None:
+    """The additive column leaves old directories readable but identity-less."""
+    predictions = Predictions()
+    predictions.add_prediction(
+        dataset_name="identity-fixture",
+        config_name="pls",
+        model_name="PLSRegression",
+        partition="test",
+        fold_id="final",
+        sample_indices=[1],
+        metadata={"physical_sample_id": ["sample:one"]},
+        y_true=np.asarray([1.0]),
+        y_pred=np.asarray([1.1]),
+        metric="rmse",
+        task_type="regression",
+    )
+    result = SimpleNamespace(predictions=predictions, _dagml_refit_artifacts=[], best={})
+    run_dir = write_native_results(result, {"reports": []}, tmp_path)
+
+    parquet_path = run_dir / "predictions.parquet"
+    import polars as pl
+
+    frame = pl.read_parquet(parquet_path).drop("sample_ids")
+    frame.write_parquet(parquet_path)
+
+    round_tripped = read_native_results(run_dir)["predictions"].filter_predictions(
+        partition="test",
+        fold_id="final",
+    )
+    assert len(round_tripped) == 1
+    assert "physical_sample_id" not in round_tripped[0]["metadata"]
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
@@ -121,13 +185,16 @@ def test_native_results_round_trip_single(tmp_path: Path) -> None:
     assert read["score_set"] == raw_score_set
     assert read["predictions"].num_predictions == result.num_predictions
 
-    # The fold-0 val direct-block row round-trips y_pred / y_true / sample_indices == the RunResult.
+    # The fold-0 val direct-block row round-trips y_pred / y_true / sample_indices and the exact
+    # physical identities == the RunResult.
     rt_val = read["predictions"].filter_predictions(partition="val", fold_id="0")
     og_val = result.predictions.filter_predictions(partition="val", fold_id="0")
     assert len(rt_val) == 1 and len(og_val) == 1
     assert np.allclose(np.asarray(rt_val[0]["y_pred"]).ravel(), np.asarray(og_val[0]["y_pred"]).ravel())
     assert np.allclose(np.asarray(rt_val[0]["y_true"]).ravel(), np.asarray(og_val[0]["y_true"]).ravel())
     assert sorted(rt_val[0]["sample_indices"]) == sorted(int(i) for i in og_val[0]["sample_indices"])
+    assert rt_val[0]["metadata"]["physical_sample_id"] == og_val[0]["metadata"]["physical_sample_id"]
+    assert all(isinstance(sample_id, str) for sample_id in rt_val[0]["metadata"]["physical_sample_id"])
 
     # The final-test direct-block row round-trips too.
     rt_test = read["predictions"].filter_predictions(partition="test", fold_id="final")
@@ -141,8 +208,12 @@ def test_native_results_reader_detects_tampering(tmp_path: Path) -> None:
     """The reader VALIDATES the ScoreSet against the manifest hash — an edited score_set.json raises."""
     results_root = tmp_path / "results"
     run_via_dagml(
-        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}], dataset_path("regression"),
-        workdir=tmp_path / "work", dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}],
+        dataset_path("regression"),
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        results_path=str(results_root),
     )
     run_dir = sorted(results_root.iterdir())[0]
     score_set = json.loads((run_dir / "score_set.json").read_text())
@@ -164,8 +235,11 @@ def test_native_results_off_writes_nothing(tmp_path: Path, monkeypatch: pytest.M
     monkeypatch.chdir(tmp_path)
     before = set(os.listdir(tmp_path))
     result = run_via_dagml(
-        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}], dataset_path("regression"),
-        workdir=tmp_path / "work", dagml_cli=str(_DAGML_CLI), venv_python=sys.executable,
+        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}],
+        dataset_path("regression"),
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
     )
     after = set(os.listdir(tmp_path))
     assert after - before <= {"work"}, "only the explicit workdir may appear; no native results dir"
@@ -179,7 +253,9 @@ def test_public_run_off_is_identical(monkeypatch: pytest.MonkeyPatch, tmp_path: 
     monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
     monkeypatch.chdir(tmp_path)
     result = nirs4all.run(
-        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}], dataset_path("regression"), engine="dag-ml",
+        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}],
+        dataset_path("regression"),
+        engine="dag-ml",
     )
     assert isinstance(result, RunResult)
     assert result.num_predictions > 0
@@ -192,8 +268,10 @@ def test_public_run_results_path_writes(monkeypatch: pytest.MonkeyPatch, tmp_pat
     monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
     results_root = tmp_path / "results"
     result = nirs4all.run(
-        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}], dataset_path("regression"),
-        engine="dag-ml", results_path=str(results_root),
+        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}],
+        dataset_path("regression"),
+        engine="dag-ml",
+        results_path=str(results_root),
     )
     assert isinstance(result, RunResult) and result.num_predictions > 0
     run_dirs = sorted(results_root.iterdir())
@@ -212,8 +290,13 @@ def test_legacy_engine_ignores_results_path(monkeypatch: pytest.MonkeyPatch, tmp
     monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
     results_root = tmp_path / "results"
     result = nirs4all.run(
-        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}], dataset_path("regression"),
-        engine="legacy", results_path=str(results_root), save_artifacts=False, save_charts=False, verbose=0,
+        [SNV(), KFold(n_splits=_N_SPLITS), {"model": PLSRegression(n_components=5)}],
+        dataset_path("regression"),
+        engine="legacy",
+        results_path=str(results_root),
+        save_artifacts=False,
+        save_charts=False,
+        verbose=0,
     )
     assert isinstance(result, RunResult)
     assert not results_root.exists(), "the legacy path must not write native results"
@@ -230,8 +313,12 @@ def test_native_results_sweep_per_variant(tmp_path: Path) -> None:
     results_root = tmp_path / "results"
     pipeline = [{"_or_": [SNV(), MinMaxScaler()]}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
-        pipeline, dataset_path("regression"), workdir=tmp_path / "work",
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        pipeline,
+        dataset_path("regression"),
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        results_path=str(results_root),
     )
     run_dir = sorted(results_root.iterdir())[0]
     read = read_native_results(run_dir)
@@ -288,8 +375,12 @@ def test_native_results_multi_target_round_trips_shape(tmp_path: Path) -> None:
     dataset = _multi_target_dataset(3)
     pipeline = [KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
-        pipeline, dataset, workdir=tmp_path / "work",
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        pipeline,
+        dataset,
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        results_path=str(results_root),
     )
     run_dir = sorted(results_root.iterdir())[0]
 
@@ -331,8 +422,12 @@ def test_native_results_model_artifact_round_trip(tmp_path: Path) -> None:
     results_root = tmp_path / "results"
     pipeline = [SNV(), {"y_processing": MinMaxScaler()}, KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
-        pipeline, dataset_path("regression"), workdir=tmp_path / "work",
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        pipeline,
+        dataset_path("regression"),
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        results_path=str(results_root),
     )
 
     # The RunResult carries the captured fitted REFIT estimator(s) — at least the single model node's.
@@ -370,8 +465,11 @@ def test_native_results_model_artifact_tamper_raises_before_load(tmp_path: Path)
     results_root = tmp_path / "results"
     run_via_dagml(
         [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
-        dataset_path("regression"), workdir=tmp_path / "work",
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        dataset_path("regression"),
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        results_path=str(results_root),
     )
     run_dir = sorted(results_root.iterdir())[0]
     manifest = json.loads((run_dir / "manifest.json").read_text())
@@ -392,8 +490,11 @@ def test_native_results_subprocess_has_no_model_artifacts(tmp_path: Path, monkey
     results_root = tmp_path / "results"
     result = run_via_dagml(
         [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
-        dataset_path("regression"), workdir=tmp_path / "work",
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        dataset_path("regression"),
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        results_path=str(results_root),
     )
     assert result._dagml_refit_artifacts == [], "the subprocess mechanism captures no fitted estimators"  # noqa: SLF001
     run_dir = sorted(results_root.iterdir())[0]
@@ -481,8 +582,11 @@ def test_native_results_reader_refuses_unknown_backend(tmp_path: Path) -> None:
     results_root = tmp_path / "results"
     run_via_dagml(
         [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
-        dataset_path("regression"), workdir=tmp_path / "work",
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        dataset_path("regression"),
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        results_path=str(results_root),
     )
     run_dir = sorted(results_root.iterdir())[0]
     manifest_path = run_dir / "manifest.json"
@@ -503,8 +607,11 @@ def test_native_results_reader_refuses_non_portable_uri(tmp_path: Path, evil_uri
     results_root = tmp_path / "results"
     run_via_dagml(
         [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}],
-        dataset_path("regression"), workdir=tmp_path / "work",
-        dagml_cli=str(_DAGML_CLI), venv_python=sys.executable, results_path=str(results_root),
+        dataset_path("regression"),
+        workdir=tmp_path / "work",
+        dagml_cli=str(_DAGML_CLI),
+        venv_python=sys.executable,
+        results_path=str(results_root),
     )
     run_dir = sorted(results_root.iterdir())[0]
     manifest_path = run_dir / "manifest.json"
