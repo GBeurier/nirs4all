@@ -210,7 +210,7 @@ def _assert_supported_operators(steps: list[Any]) -> None:
                 # lowered as a normal X transform.  Policy-bearing variants
                 # remain a bridge boundary and must not bypass this routability
                 # check on their way to a native execution.
-                if set(operator) == {"preprocessing"}:
+                if set(operator) in ({"preprocessing"}, {"preprocessing", "force_layout"}) and operator.get("force_layout", "2d") == "2d":
                     _check_x_operator(operator["preprocessing"])
                 continue
             if "concat_transform" in operator or "feature_augmentation" in operator:
