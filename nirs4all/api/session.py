@@ -25,7 +25,7 @@ from __future__ import annotations
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 if TYPE_CHECKING:
     from nirs4all.api.native_session import NativeMethodsSession
@@ -170,6 +170,33 @@ class Session:
         >>> session.save("exports/my_model.n4a")
     """
 
+    def __new__(
+        cls,
+        pipeline: list[Any] | None = None,
+        name: str = "",
+        **runner_kwargs: Any,
+    ) -> Session:
+        """Select the session implementation before a legacy runner exists.
+
+        ``session(..., engine="native")`` has always constructed the native
+        session directly.  The public :class:`Session` constructor must obey
+        the same contract: accepting the selector and then retaining it as a
+        legacy ``PipelineRunner`` keyword would silently defeat the explicit
+        native request.
+        """
+
+        engine = runner_kwargs.get("engine", "legacy")
+        if cls is Session and engine == "native":
+            if pipeline is None:
+                raise ValueError("engine='native' session requires an explicit portable pipeline")
+            from nirs4all.api.native_session import NativeMethodsSession
+
+            native_kwargs = {
+                key: value for key, value in runner_kwargs.items() if key != "engine"
+            }
+            return cast(Session, NativeMethodsSession(pipeline, name=name, **native_kwargs))
+        return super().__new__(cls)
+
     def __init__(
         self,
         pipeline: list[Any] | None = None,
@@ -186,6 +213,12 @@ class Session:
                 Common options: verbose, save_artifacts, workspace_path,
                 random_state, plots_visible, etc.
         """
+        engine = runner_kwargs.pop("engine", "legacy")
+        if engine != "legacy":
+            from nirs4all.pipeline.engine import require_legacy_engine
+
+            require_legacy_engine("Session", engine)
+
         self._pipeline = pipeline
         self._name = name or "Session"
         self._runner_kwargs = runner_kwargs
@@ -490,7 +523,7 @@ class Session:
                 "Call session.run(dataset) first."
             )
 
-        return self._last_result.export(path)
+        return Path(self._last_result.export(path))
 
     def close(self) -> None:
         """Clean up session resources.
