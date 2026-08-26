@@ -310,7 +310,11 @@ def test_run_rejects_process_local_losses_on_native_tuning_bypass() -> None:
         )
 
 
-def test_dagml_run_falls_back_to_legacy_when_backend_unavailable(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("fallback_policy", [None, True], ids=["default", "explicit"])
+def test_dagml_run_falls_back_to_legacy_when_backend_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+    fallback_policy: bool | None,
+) -> None:
     """An explicit ``engine="dag-ml"`` run() transparently falls back to the LEGACY engine WITH A
     WARNING when the dag-ml backend is unavailable — simulated by the preflight raising
     DagMlUnavailable. The result is a valid legacy RunResult, never an exception. (dag-ml is selected
@@ -329,10 +333,14 @@ def test_dagml_run_falls_back_to_legacy_when_backend_unavailable(monkeypatch: py
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
+        kwargs = {}
+        if fallback_policy is not None:
+            kwargs["allow_legacy_fallback"] = fallback_policy
         result = nirs4all.run(
             [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
             dataset_path("regression"),
             engine="dag-ml",
+            **kwargs,
         )
     assert isinstance(result, RunResult)
     assert result.num_predictions > 0
@@ -376,6 +384,17 @@ def test_dagml_run_strict_mode_refuses_unsupported_shape_without_legacy_fallback
             dataset_path("regression"),
             engine="dag-ml",
             allow_legacy_fallback=False,
+        )
+
+
+def test_dagml_run_rejects_non_boolean_fallback_policy_before_dispatch() -> None:
+    """The migration switch is closed rather than truthiness-coerced."""
+    with pytest.raises(TypeError, match="allow_legacy_fallback must be True, False, or None"):
+        nirs4all.run(
+            [{"model": PLSRegression(n_components=2)}],
+            dataset_path("regression"),
+            engine="dag-ml",
+            allow_legacy_fallback="legacy",  # type: ignore[arg-type]
         )
 
 
