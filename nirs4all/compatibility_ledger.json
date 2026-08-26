@@ -183,11 +183,6 @@
       "owner_lane": "L5"
     },
     {
-      "case": "multi_source_by_source_branch_shared_preproc",
-      "shape": "multi_source",
-      "owner_lane": "L5"
-    },
-    {
       "case": "multi_source_per_source_models_stacking",
       "shape": "multi_source",
       "owner_lane": "L5"

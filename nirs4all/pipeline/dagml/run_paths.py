@@ -1550,7 +1550,7 @@ def _repeat_by_source_merge_projection(result: RunResult, n_sources: int) -> Run
 
 def _run_by_source_distinct_preproc_concat(
     pipeline: list[Any],
-    source_steps: dict[str, list[Any]],
+    source_steps: dict[str, list[Any]] | list[Any],
     downstream_body: list[Any],
     n_sources: int,
     spectro: Any,
@@ -1564,12 +1564,13 @@ def _run_by_source_distinct_preproc_concat(
     config_name: str = "",
     random_state: int | None = None,
 ) -> RunResult:
-    """Run by_source DICT preprocessing + concat + downstream model as one native model node.
+    """Run by-source preprocessing + concat + downstream model as one native model node.
 
-    Each source's transform chain is cloned and fit on that source's fold-train block, the
-    transformed blocks are hstacked in ``source_layout.source_order``, and the downstream
-    model is fit on that concatenated matrix. Validation/test use the fitted per-source
-    chains, so preprocessing is fold-local and never fit on early-fused concat.
+    A dict carries one transform chain per source.  A list is the legacy shared-body spelling and is
+    expanded only after the envelope supplies its authoritative ``source_layout.source_order``.  In both
+    cases each chain is cloned and fit on that source's fold-train block, then the transformed blocks are
+    hstacked before the downstream model is fit.  Validation/test use those fitted chains, so no
+    preprocessing is fit on an early-fused matrix.
     """
     import dag_ml
 
@@ -1592,6 +1593,20 @@ def _run_by_source_distinct_preproc_concat(
     folds = _build_folds(splitter, spectro, pool, set())
     envelope = build_envelope(spectro, identity, sample_ints=pool)
     source_layout = (envelope.get("plan") or {}).get("source_layout")
+    if isinstance(source_steps, list):
+        if not isinstance(source_layout, dict) or not isinstance(source_layout.get("source_order"), list):
+            raise DagMlUnsupported(
+                "by_source shared preprocessing requires envelope plan.source_layout.source_order"
+            )
+        source_steps = {
+            source_name: list(source_steps)
+            for source_name in source_layout["source_order"]
+            if isinstance(source_name, str)
+        }
+        if len(source_steps) != n_sources:
+            raise DagMlUnsupported(
+                "by_source shared preprocessing source layout does not contain one unique name per source"
+            )
     source_preprocessing = _source_preprocessing_metadata(source_steps, source_layout)
     if len(source_preprocessing["sources"]) != n_sources:
         raise DagMlUnsupported(

@@ -390,7 +390,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # rather than ignore the override or emulate the legacy leakage-prone shape.
     "refit_params_use_all_partitions",
     # by-source separation / per-source models / source-concat multi-source shapes.
-    "multi_source_by_source_branch_shared_preproc",
     "multi_source_per_source_models_stacking",
 })
 

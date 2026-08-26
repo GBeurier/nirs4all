@@ -3933,7 +3933,24 @@ def test_by_source_branch_detection() -> None:
     assert set(source_steps) == {"source_0", "source_1", "source_2"}
     assert downstream == [{"model": distinct_concat[-1]["model"]}]
     assert _detect_by_source_branch(distinct_concat, n_sources=3) is None
-    assert _detect_by_source_distinct_preproc_concat([splitter, {"branch": {"by_source": True, "steps": [StandardNormalVariate()]}}, {"merge": "concat"}, {"model": PLSRegression()}], n_sources=3) is None
+
+    # The shared LIST spelling carries one preprocessing chain per source.  It reaches the same
+    # source-layout-aware native materializer as the explicit dict form; the runner expands the list only
+    # after reading the envelope's attested source order.
+    shared_concat = [
+        splitter,
+        {"branch": {"by_source": True, "steps": [StandardNormalVariate()]}},
+        {"merge": "concat"},
+        {"model": PLSRegression()},
+    ]
+    shared_detected = _detect_by_source_distinct_preproc_concat(shared_concat, n_sources=3)
+    assert shared_detected is not None
+    shared_steps, downstream = shared_detected
+    assert shared_steps == [shared_concat[1]["branch"]["steps"][0]]
+    assert downstream == [{"model": shared_concat[-1]["model"]}]
+    # A model belongs after the feature concat.  Allowing it inside the shared body would change the
+    # branch topology, so it must remain a fail-loud boundary.
+    assert _detect_by_source_distinct_preproc_concat([splitter, {"branch": {"by_source": True, "steps": [{"model": PLSRegression()}]}}, {"merge": "concat"}, {"model": PLSRegression()}], n_sources=3) is None
     assert _detect_by_source_distinct_preproc_concat([splitter, {"branch": {"by_source": True, "steps": {"source_0": [StandardNormalVariate()]}}}, {"merge": "concat"}, {"model": PLSRegression()}], n_sources=3) is None
 
 

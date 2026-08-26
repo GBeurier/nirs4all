@@ -157,7 +157,7 @@ while the Python oracle materializes `concat_transform` before CV.
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (12)
+### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (11)
 
 Shapes the dag-ml host bridge does **not serialize yet**, so `engine="dag-ml"`
 transparently re-runs legacy. These make **no parity claim** — they are pinned by
@@ -177,7 +177,7 @@ Source: `test_conformance_dual_engine.py:310-337`.
 | classification repetition + vote aggregation | `aggregation_classification_vote` |
 | legacy Optuna finetuning | `generator_finetune_params_optuna` |
 | stateful `concat_transform` pre-CV materialization | `concat_transform_pca_svd_plsr` |
-| by-source / per-source multi-source | `multi_source_by_source_branch_shared_preproc`, `multi_source_per_source_models_stacking` |
+| by-source / per-source multi-source | `multi_source_per_source_models_stacking` |
 
 **`EXPECTED_FALLBACK == ∅` is the `LOCK-DROP` D1 gate, owned by L5 — not a
 `LOCK-PYREF` gate.**
@@ -261,8 +261,8 @@ gate.
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
 | Non-runnable (`skip_reason` set) | **0** | no fixture/unknown/legacy-bug skips in the registry |
 | Runnable | **95** | 95 − 0 |
-| → fall back to legacy (`EXPECTED_FALLBACK`) | **12** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **83** | full parity asserted or parity-note pinned |
+| → fall back to legacy (`EXPECTED_FALLBACK`) | **11** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
+| → run native on dag-ml | **84** | full parity asserted or parity-note pinned |
 | Strict-xfail (documented divergence) | **0** | `KNOWN_DIVERGENCES` is empty; no `legacy_bug` rows in the current registry |
 | `pytest.skip` (fixture) | **0** | fixture skips retired |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
@@ -272,7 +272,7 @@ gate.
 > **Correction to prior counts:** the current machine-readable ledger and live
 > registry have no `legacy_bug`, `unknown_semantics`, or fixture skip rows. The
 > verified meter is **0** non-runnable / **95** runnable. `EXPECTED_FALLBACK` is
-> now **12** because the remaining shapes retain native-incompatible semantics:
+> now **11** because the remaining shapes retain native-incompatible semantics:
 > native, `finetune_params` is an explicit coverage boundary, and stateful
 > `concat_transform` now falls back until dag-ml preserves the Python oracle's
 > pre-CV materialization semantics.
