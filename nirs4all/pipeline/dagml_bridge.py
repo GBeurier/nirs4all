@@ -1016,8 +1016,11 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             # ``{"preprocessing": transformer}`` is the legacy spelling of a
             # top-level X transform.  With no companion policy it has exactly
             # the same fold-local fit/transform semantics as the bare operator
-            # form already lowered below.  Do not silently erase policy keys:
-            # ``fit_on_all`` changes the fit universe and cannot be erased.
+            # form already lowered below.  ``fit_on_all`` changes the fit
+            # universe for a learned transform and cannot be erased.  A
+            # transform proved stateless is the narrow exception: fitting it
+            # on every row or per-fold has exactly the same result.  The proof
+            # is shared with the augmentation leakage guard and fails closed.
             # The legacy transformer controller does not consume
             # ``force_layout`` itself: it always obtains its per-source arrays
             # in its established 3D representation.  Its documented ``2d``
@@ -1027,6 +1030,19 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
             supported = {"preprocessing"}
             if step.get("force_layout") == "2d":
                 supported.add("force_layout")
+            if "fit_on_all" in step:
+                fit_on_all = step["fit_on_all"]
+                if fit_on_all is False:
+                    supported.add("fit_on_all")
+                elif fit_on_all is True:
+                    from nirs4all.pipeline.dagml.run_paths import _operator_is_stateless
+
+                    if _operator_is_stateless(step["preprocessing"]):
+                        supported.add("fit_on_all")
+                    else:
+                        raise NotImplementedError(
+                            "dag-ml bridge cannot lower fit_on_all for a transform with data-dependent fit state"
+                        )
             unsupported = sorted(set(step) - supported)
             if unsupported:
                 raise NotImplementedError(
