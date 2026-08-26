@@ -44,7 +44,13 @@ jobs:
             grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-win.txt
             python -m pip install numpy -r requirements-test-win.txt
           else
-            python -m pip install numpy -r requirements-test.txt
+            # PyPI's Linux wheel pulls CUDA/Triton dependencies even on a CPU
+            # runner. Install the official CPU wheel so eager Torch tests do
+            # not initialize the unsupported Triton runtime.
+            grep -v '^torch' requirements-test.txt > requirements-test-linux.txt
+            python -m pip install numpy -r requirements-test-linux.txt
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+              'torch==2.13.0+cpu'
           fi
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
