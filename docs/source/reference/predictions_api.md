@@ -36,9 +36,11 @@ Main prediction paths:
   route validates the archive through Core, validates and replays its Package V2
   through DAG-ML, and imports the N4MM only for the request. It requires explicit
   stable string sample IDs and never creates a legacy `PipelineRunner` or falls
-  back to the legacy engine. It currently exposes one selected final output;
-  workspace publication and conformal interval selection remain unavailable on
-  this route.
+  back to the legacy engine. It exposes one selected final output. When a
+  Package V2 contains an attached native conformal calibration, `coverage=`
+  selects only pre-materialized DAG-ML intervals and preserves the signed
+  presentation in result metadata; it never recalibrates. Workspace publication
+  remains unavailable on this route.
 
 `coverage` accepts one finite coverage or a non-empty list of finite, unique coverages that were materialized during calibration. It selects existing intervals and updates `conformal_guarantee_status`; it does not fit a new calibrator. With a conformal sidecar, `all_predictions=True` remains fail-closed until every returned prediction entry can carry calibrated identity mapping. If a model bundle contains an invalid `conformal/` sidecar, prediction fails validation instead of falling back to an uncalibrated path. A structurally complete sidecar whose `calibrated_result.json` has non-empty predictions but no canonical physical `sample_ids` is also rejected before the raw model prediction runs.
 

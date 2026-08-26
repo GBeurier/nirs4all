@@ -389,8 +389,9 @@ def _predict_from_native_archive(
     """Execute the narrow, portable Archive V2 Methods PREDICT route.
 
     This route is explicit while R2 is being qualified.  It owns no legacy
-    runner and therefore refuses store/session requests, sidecars, implicit row
-    identities and unimplemented conformal selection before data execution.
+    runner and therefore refuses store/session requests, sidecars and implicit
+    row identities before data execution.  An attached conformal calibration is
+    projected only by DAG-ML and is never recomputed in this API layer.
     """
 
     if chain_id is not None or session is not None:
