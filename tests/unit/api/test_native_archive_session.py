@@ -31,6 +31,11 @@ def test_native_archive_session_replays_explicit_ids_and_closes(
             sample_ids=("p1", "p2"),
             intervals={},
             conformal_guarantee_status=None,
+            conformal_presentation={
+                "schema_version": 1,
+                "sample_ids": ["p1", "p2"],
+                "point_predictions": [4.0, 5.0],
+            },
         )
 
     monkeypatch.setattr(
@@ -46,6 +51,7 @@ def test_native_archive_session_replays_explicit_ids_and_closes(
         )
         assert result.y_pred.tolist() == [[4.0], [5.0]]
         assert result.metadata["engine"] == "native"
+        assert result.metadata["conformal_presentation"]["sample_ids"] == ["p1", "p2"]
     assert session.closed
     assert observed["sample_ids"] == ["p1", "p2"]
     assert observed["methods_library_path"] == "/native/libn4m.so"

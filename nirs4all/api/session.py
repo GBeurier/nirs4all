@@ -101,6 +101,10 @@ class NativeArchiveSession:
             result_metadata["selected_interval_coverages"] = sorted(
                 native_prediction.intervals
             )
+        if native_prediction.conformal_presentation is not None:
+            result_metadata["conformal_presentation"] = dict(
+                native_prediction.conformal_presentation
+            )
         return PredictResult(
             y_pred=native_prediction.values,
             metadata=result_metadata,
