@@ -34,6 +34,22 @@ def test_bundled_methods_runtime_is_resolved_from_official_python_package(
     assert resolve_methods_library_path() == str(library.resolve())
 
 
+def test_bundled_methods_runtime_accepts_a_newer_additive_abi_minor(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The released 1.0.13 wheel carries ABI 2.3, compatible with 2.2."""
+
+    library = tmp_path / "libn4m.so"
+    library.write_bytes(b"native")
+    module = SimpleNamespace(library_path=lambda: str(library), abi_version=lambda: (2, 3, 0))
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.methods_runtime.importlib.import_module",
+        lambda name: module if name == "n4m" else None,
+    )
+
+    assert resolve_methods_library_path() == str(library.resolve())
+
+
 def test_bundled_methods_runtime_refuses_the_pre_optimizer_abi(
     monkeypatch: pytest.MonkeyPatch, tmp_path
 ) -> None:
