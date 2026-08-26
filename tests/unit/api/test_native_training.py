@@ -8,6 +8,7 @@ import numpy as np
 import pytest
 
 import nirs4all
+from nirs4all.api.native_retrain_lineage import NativeRetrainLineage
 from nirs4all.api.native_training import fit_native_pipeline
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
 from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
@@ -105,6 +106,7 @@ def test_fit_native_pipeline_is_a_public_strict_native_composition(
 
     assert isinstance(estimator, DagMLPipelineEstimator)
     assert captured["kwargs"]["sample_ids"] == ("fit-a", "fit-b")
+    assert estimator.training_compiler.additional_diagnostics == {"nirs4all_native_seed": 12345}
     assert client.calls[0][0][:4] == (
         {"request": "native"},
         {"model.x": {}},
@@ -117,6 +119,54 @@ def test_fit_native_pipeline_is_a_public_strict_native_composition(
     assert estimator.prediction_compiler is not None
     assert estimator.prediction_identity_decoder is not None
     assert nirs4all.fit_native_pipeline is fit_native_pipeline
+
+
+def test_fit_native_pipeline_seals_internal_retrain_lineage_into_compiler_diagnostics(
+    monkeypatch: pytest.MonkeyPatch, native_library: str
+) -> None:
+    """The signed training compiler receives parent provenance before fit."""
+
+    def compile_fit(self, _estimator, _X, _y, **_kwargs):  # noqa: ANN001
+        from nirs4all.pipeline.dagml.estimator import DagMLTrainingExecution
+
+        return DagMLTrainingExecution(
+            request={},
+            data_envelopes={},
+            relations={},
+            training_influence={},
+            op_callback=lambda task: task,
+            outcome_id="o",
+            run_id="r",
+            bundle_id="b",
+        )
+
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.RawArrayDagMLTrainingCompiler.compile_fit",
+        compile_fit,
+    )
+    lineage = NativeRetrainLineage(
+        source_outcome_fingerprint="a" * 64,
+        source_training_request_fingerprint="b" * 64,
+        source_effective_plan_fingerprint="c" * 64,
+        source_selected_variant_id="variant:base",
+        source_selected_variant_fingerprint="d" * 64,
+        source_seed=17,
+    )
+    estimator = fit_native_pipeline(
+        [{"split": "stub"}, {"model": "stub"}],
+        np.asarray([[1.0], [2.0]]),
+        np.asarray([1.0, 2.0]),
+        sample_ids=["fit-a", "fit-b"],
+        native_client=_Client(),
+        methods_library_path=native_library,
+        seed=31,
+        retrain_lineage=lineage,
+    )
+
+    assert estimator.training_compiler.additional_diagnostics == {
+        "nirs4all_native_seed": 31,
+        "nirs4all_native_retrain_lineage": lineage.to_dict(),
+    }
 
 
 @pytest.mark.parametrize(
