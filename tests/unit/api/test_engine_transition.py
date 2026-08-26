@@ -13,6 +13,7 @@ from sklearn.model_selection import KFold
 import nirs4all
 from nirs4all.api.explain import explain
 from nirs4all.api.native_result import NativeMethodsRunResult
+from nirs4all.api.native_retrain_lineage import NativeRetrainLineage
 from nirs4all.api.predict import predict
 from nirs4all.api.retrain import retrain
 from nirs4all.api.run import run
@@ -451,6 +452,13 @@ def test_retrain_native_refits_the_attested_selected_methods_variant_without_leg
     class Estimator:
         pipeline = [KFold(n_splits=2), {"model": model}]
         training_outcome_ = {
+            "outcome_fingerprint": "a" * 64,
+            "training_request_fingerprint": "b" * 64,
+            "effective_plan_fingerprint": "c" * 64,
+            "selected_variant_id": "variant:base",
+            "selected_variant_fingerprint": "d" * 64,
+            "refit": {"status": "completed"},
+            "diagnostics": {"nirs4all_native_seed": 17},
             "parameter_patches": [
                 {
                     "schema_version": 1,
@@ -490,7 +498,71 @@ def test_retrain_native_refits_the_attested_selected_methods_variant_without_leg
     assert rebuilt_model.n_components == 2
     assert model.n_components == 1
     assert observed["dataset"] is dataset
-    assert observed["kwargs"] == {"name": "next", "save_charts": False, "random_state": None}
+    assert observed["kwargs"] == {
+        "name": "next",
+        "save_charts": False,
+        "random_state": 17,
+        "retrain_lineage": NativeRetrainLineage(
+            source_outcome_fingerprint="a" * 64,
+            source_training_request_fingerprint="b" * 64,
+            source_effective_plan_fingerprint="c" * 64,
+            source_selected_variant_id="variant:base",
+            source_selected_variant_fingerprint="d" * 64,
+            source_seed=17,
+        ),
+    }
+
+
+def test_native_retrain_refuses_a_source_without_persisted_parent_evidence() -> None:
+    """Older or synthetic outcomes cannot be treated as retrain-capable."""
+
+    class Estimator:
+        pipeline = [KFold(n_splits=2), {"model": PLSRegression(n_components=1)}]
+        training_outcome_ = {
+            "parameter_patches": [],
+            "refit": {"status": "completed"},
+            "diagnostics": {},
+        }
+
+    source = object.__new__(NativeMethodsRunResult)
+    source._native_estimator = Estimator()  # noqa: SLF001
+    with pytest.raises(ValueError, match="attested native seed"):
+        retrain(
+            source,
+            {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["p0", "p1"]},
+            engine="native",
+        )
+
+
+def test_native_result_exposes_only_strict_persisted_retrain_lineage() -> None:
+    class Estimator:
+        training_outcome_ = {
+            "diagnostics": {
+                "nirs4all_native_retrain_lineage": {
+                    "schema_version": 1,
+                    "operation": "full_refit",
+                    "source_outcome_fingerprint": "a" * 64,
+                    "source_training_request_fingerprint": "b" * 64,
+                    "source_effective_plan_fingerprint": "c" * 64,
+                    "source_selected_variant_id": "variant:base",
+                    "source_selected_variant_fingerprint": "d" * 64,
+                    "source_seed": 17,
+                }
+            }
+        }
+
+    result = object.__new__(NativeMethodsRunResult)
+    result._native_estimator = Estimator()  # noqa: SLF001
+    assert result.native_retrain_lineage == {
+        "schema_version": 1,
+        "operation": "full_refit",
+        "source_outcome_fingerprint": "a" * 64,
+        "source_training_request_fingerprint": "b" * 64,
+        "source_effective_plan_fingerprint": "c" * 64,
+        "source_selected_variant_id": "variant:base",
+        "source_selected_variant_fingerprint": "d" * 64,
+        "source_seed": 17,
+    }
 
 
 @pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])

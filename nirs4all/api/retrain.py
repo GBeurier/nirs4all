@@ -28,6 +28,7 @@ from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine
 
 from .native_result import NativeMethodsRunResult
+from .native_retrain_lineage import NativeRetrainLineage
 from .native_training import run_native_methods
 from .result import RunResult
 from .session import Session
@@ -268,17 +269,19 @@ def _retrain_native_methods_full(
     if extra_kwargs:
         raise NotImplementedError(f"engine='native' retrain does not accept legacy kwargs: {sorted(extra_kwargs)}")
 
+    pipeline, lineage = _selected_native_methods_recipe(source)
     return run_native_methods(
-        _selected_native_methods_pipeline(source),
+        pipeline,
         data,
         name=name,
         save_charts=False,
-        random_state=None,
+        random_state=lineage.source_seed,
+        retrain_lineage=lineage,
     )
 
 
-def _selected_native_methods_pipeline(source: NativeMethodsRunResult) -> list[Any]:
-    """Clone the source recipe and apply its attested selected PLS patch only."""
+def _selected_native_methods_recipe(source: NativeMethodsRunResult) -> tuple[list[Any], NativeRetrainLineage]:
+    """Clone one attested selected recipe and its durable parent evidence."""
 
     original = getattr(source.native_estimator, "pipeline", None)
     if not isinstance(original, list):
@@ -295,6 +298,7 @@ def _selected_native_methods_pipeline(source: NativeMethodsRunResult) -> list[An
     document = outcome_to_dict() if callable(outcome_to_dict) else outcome
     if not isinstance(document, Mapping):
         raise ValueError("native retrain source does not retain a structured native outcome")
+    lineage = NativeRetrainLineage.from_source_outcome(document)
     patches = document.get("parameter_patches", [])
     if not isinstance(patches, list):
         raise ValueError("native retrain source parameter patches are malformed")
@@ -315,4 +319,4 @@ def _selected_native_methods_pipeline(source: NativeMethodsRunResult) -> list[An
             raise ValueError("native retrain source carries an unsupported selected parameter patch")
         models[0].n_components = patch["value"]
         saw_components_patch = True
-    return pipeline
+    return pipeline, lineage

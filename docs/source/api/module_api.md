@@ -154,7 +154,10 @@ with nirs4all.session(pipeline, engine="native") as native:
 ```
 
 This is not transfer learning or finetuning: it preserves only the selected
-portable PLS recipe and its attested patch. Archive-based retraining,
+portable PLS recipe and its attested patch. Each supported full retrain writes
+the source outcome, request, plan, selected variant and seed into the signed
+outcome diagnostics of the new result; exporting that result preserves this
+parent-child lineage in the new native archive. Archive-based retraining,
 transfer/finetuning, calibration, generic branching/stacking and explanation
 remain explicit capability refusals; none is redirected to the legacy backend.
 
