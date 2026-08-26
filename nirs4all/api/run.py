@@ -609,6 +609,7 @@ def run(
     project: str | None = None,
     report_naming: str = "nirs",
     engine: str | None = None,
+    allow_legacy_fallback: bool | None = None,
     tuning: Any | None = None,
     calibration: Any | None = None,
     results_path: str | Path | None = None,
@@ -697,6 +698,10 @@ def run(
             no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
             typed error for every other shape or unavailable native capability. Override the default
             per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
+        allow_legacy_fallback: Transitional policy for ``engine="dag-ml"``.
+            ``None`` preserves the catchable compatibility fallback. ``False``
+            refuses unavailable or unsupported DAG-ML requests before the
+            legacy engine is constructed; ``True`` explicitly permits it.
             ``engine='native'`` runs the verified portable Methods subset: a
             raw ``{'X', 'y', 'sample_ids'}`` dataset, one supported linear
             KFold/PLS pipeline, ``refit=True``, ``save_artifacts=True`` and

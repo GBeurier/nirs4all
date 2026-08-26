@@ -260,15 +260,16 @@ result = nirs4all.run(
 
 This is a qualification switch, not the package default. The default remains
 compatible with existing workflows while native coverage is expanded. A generic
-`RunResult` that does not retain a native Package/Archive artifact also cannot
-be exported through the old refit bridge in strict mode:
+`RunResult` that does not retain a native Package/Archive artifact also refuses
+the old refit bridge by default:
 
 ```python
-result.export(
-    "exports/qualified-result.n4a",
-    allow_legacy_refit=False,
-)
+result.export("exports/qualified-result.n4a")
 ```
+
+If compatibility with the historic `.n4a` writer is deliberately required,
+`compatibility="legacy-refit"` opts into that documented, best-effort refit.
+It is not a native export and must not be used as migration evidence.
 
 For a currently supported end-to-end portable workflow, use the strict Methods
 lane documented in {doc}`/api/module_api`; it retains the native Package and
