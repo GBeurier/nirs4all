@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.1] — 2026-08-26
+
+### Fixed
+
+- Native Methods ABI checks now accept compatible additive runtime minors, and
+  native portable replay requires DAG-ML 0.3.9 so target-free PREDICT preserves
+  validated conformal intervals from the source training evidence.
+
+---
+
 ## [0.12.0] — 2026-08-07
 
 ### ⚙️ Changed
