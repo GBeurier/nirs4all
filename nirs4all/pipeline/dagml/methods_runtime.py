@@ -60,7 +60,11 @@ def _require_optimizer_abi(module: Any) -> None:
         raise DagMLNativeCoverageError(
             "installed n4m runtime could not report its ABI; upgrade nirs4all-methods"
         ) from error
-    if len(abi) != 3 or abi[0:2] != (2, 2):
+    # The native HPO/portable-replay surface was introduced in ABI 2.2.
+    # Methods ABI minor versions are additive, so a newer 2.x wheel remains
+    # compatible with the 2.2 symbols DAG-ML calls.  Requiring an exact minor
+    # version would reject a valid upgraded wheel before it can execute.
+    if len(abi) != 3 or abi[0] != 2 or abi[1] < 2:
         raise DagMLNativeCoverageError(
             "installed n4m runtime ABI is incompatible with native DAG-ML Methods execution; "
             "install nirs4all-methods>=1.0.10 or provide a compatible explicit "
