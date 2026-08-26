@@ -2268,6 +2268,22 @@ def test_concat_transform_bridge_lowers_to_feature_concat() -> None:
     assert [op["class"] for op in ops] == ["sklearn.preprocessing._data.StandardScaler", "sklearn.preprocessing._data.MinMaxScaler"]
 
 
+def test_plain_preprocessing_keyword_lowers_as_the_equivalent_x_transform() -> None:
+    """The legacy explicit spelling is native only when it carries no policy."""
+    from sklearn.preprocessing import StandardScaler
+
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    dsl = _step_to_dsl({"preprocessing": StandardScaler()})
+    assert dsl == {
+        "class": "sklearn.preprocessing._data.StandardScaler",
+        "params": {"copy": True, "with_mean": True, "with_std": True},
+    }
+
+    with pytest.raises(NotImplementedError, match="preprocessing policy"):
+        _step_to_dsl({"preprocessing": StandardScaler(), "fit_on_all": True})
+
+
 def test_concat_transform_3d_shapes_fail_loud() -> None:
     """The processing-AXIS shapes raise NotImplementedError naming the data-plane (#29/#31), never silent.
 
