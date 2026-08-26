@@ -245,8 +245,8 @@ def _reject_unsupported_run_options(*, refit: Any, project: str | None, session:
 def preflight_dagml_backend(cli: str) -> None:
     """Raise :class:`DagMlUnavailable` when NEITHER dag-ml execution mechanism is installed.
 
-    The narrow availability gate the ADR-17 cutover added: ``dag-ml`` is now the default engine + a
-    hard dependency, but a wheel install could still be MISSING the native backend (no compiled
+    The narrow availability gate for the explicitly selected ``dag-ml`` engine. It is a hard
+    dependency, but a wheel install could still be MISSING the native backend (no compiled
     in-process extension AND no sibling ``dag-ml-cli`` binary). This probe mirrors the router cascade
     (:func:`~nirs4all.pipeline.dagml.in_process_runner.run_cv_refit_bundle_router`):
 

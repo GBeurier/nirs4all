@@ -99,6 +99,8 @@ from .api import (
     ConformalMetricSet,
     ConformalMultiTarget,
     ConformalUnit,
+    DualRunMismatchError,
+    DualRunUnsupported,
     ExplainResult,
     FinetuneApproach,
     FinetuneEngine,
@@ -193,6 +195,8 @@ from .utils import (
 __all__ = [
     # Module-level API (primary interface)
     "run",
+    "DualRunUnsupported",
+    "DualRunMismatchError",
     "calibrate",
     "conformal_metrics",
     "attach_calibrated_result_to_bundle",

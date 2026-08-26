@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nirs4all.pipeline.engine import DEFAULT_ENGINE, ENGINE_ENV_VAR, resolve_engine
+from nirs4all.pipeline.engine import DEFAULT_ENGINE, ENGINE_ENV_VAR, DualRunUnsupported, require_legacy_engine, resolve_engine
 
 
 def test_defaults_to_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -36,10 +36,13 @@ def test_dagml_engine_resolves() -> None:
     assert resolve_engine("  DAG-ML  ") == "dag-ml"
 
 
-def test_dual_engine_refused() -> None:
-    # Side-by-side comparison mode is still unimplemented.
-    with pytest.raises(NotImplementedError):
-        resolve_engine("dual")
+def test_dual_engine_resolves_for_run_oracle() -> None:
+    assert resolve_engine("dual") == "dual"
+
+
+def test_non_run_helpers_refuse_dual_engine() -> None:
+    with pytest.raises(DualRunUnsupported, match="only for nirs4all.run"):
+        require_legacy_engine("predict", "dual")
 
 
 def test_unknown_engine_rejected() -> None:

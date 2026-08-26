@@ -20,8 +20,9 @@ the envelope. That validator enforces a clean OOF **partition** (each sample val
 exactly once): ``KFold`` satisfies it; ``ShuffleSplit`` does not (a known OOF-semantics gap
 flagged for the execution/mechanism phase).
 
-``dag_ml_data`` is a CORE dependency since the ADR-17 cutover; imports are still guarded so a
-broken wheel missing the native backend surfaces a clear error rather than a raw ImportError.
+``dag_ml_data`` is a core dependency for the explicitly selected native path; imports are
+still guarded so a broken wheel missing the native backend surfaces a clear error rather than
+a raw ImportError.
 Scope: single-source / no-repetition baseline.
 """
 

@@ -3,7 +3,8 @@
 **schema_version:** 1
 **owner:** `nirs4all compatibility ledger`
 **consumer_of:** `dag-ml/docs/contracts/parity_oracle.v1.json` (`dag-ml.nirs4all.parity_oracle.v1`)
-**machine-readable companion:** `docs/compatibility.json`
+**packaged runtime authority:** `nirs4all/compatibility_ledger.json`
+**documentation companion:** `docs/compatibility.json` (byte-identical to the packaged resource)
 **last reconciled:** 2026-07-06 against `nirs4all 95e81280202488a0b7f9504a0b1baffde65a38f4` / `dag-ml f58d7bf`
 **lock:** `LOCK-PYREF` (`DEC-PYREF-001`, `DEC-PYREF-002` accepted)
 
@@ -76,12 +77,13 @@ the `kernel_pls` band, not the cross-engine default.
   export reproducing its own final-(test) y_pred (`native_export_reproduce`), and
   (b) the no-preprocessing `baseline_vertical_slice` case whose author pinned
   `metric_tolerances` tight (`per_case_tight`).
-- **`1e-3` applies to the cross-implementation pipeline path** — the legacy↔dag-ml
-  RunResult parity the dual-engine oracle enforces. sklearn-PLS and Rust-PLS are
-  *different implementations*; their measured divergence (~`1e-4`..`6e-4`) is float
-  noise, not a correctness gap, so `1e-9` here would spuriously fail every PLS
-  case. `cross_impl_score` (`:60`) governs scores; `cross_impl_ypred` (`:65`)
-  governs per-sample y_pred.
+- **`1e-3` applies to the cross-implementation pipeline path** — the Rust-PLS ↔
+  sklearn-PLS parity harness records their measured divergence (~`1e-4`..`6e-4`)
+  as float noise, not a correctness gap. `cross_impl_score` (`:60`) governs
+  scores; `cross_impl_ypred` (`:65`) governs per-sample y_pred. The narrow public
+  `run(engine="dual")` PLS route currently marks itself
+  `orchestration_parity_only` / `python_sklearn_pls`; it may load these ledger
+  bands but must not be read as live Rust/Methods parity evidence.
 - **`5e-3` (`cross_impl_ypred_firstderiv`)** is a *guarded* relaxation for 6
   cases (§C.3) whose winning pipeline carries FirstDerivative preprocessing that
   amplifies the same PLS Rust-vs-sklearn noise to ~`3.45e-3`. It is only valid

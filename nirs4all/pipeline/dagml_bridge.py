@@ -16,8 +16,9 @@ Scope (deliberately narrow for the spike):
   multi-source — these raise ``NotImplementedError`` naming the offending step, to
   be filled in against ``dag-ml/docs/design/DSL_NIRS4ALL_PARITY.md``.
 
-dag-ml is a CORE dependency since the ADR-17 cutover (the default engine); the import is
-still guarded so this module imports cleanly even if a broken wheel lacks the native backend.
+dag-ml is a core dependency so the explicitly selected native engine is installable without
+an extra; the public default remains legacy until the ADR-17 drop gate. The import is still
+guarded so this module imports cleanly even if a broken wheel lacks the native backend.
 This is **compile-only** (DSL lowering); execution via host controllers is a
 later migration phase.
 """

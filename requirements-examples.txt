@@ -48,6 +48,6 @@ ikpls>=1.1.0
 pyopls>=20.0
 trendfitter>=0.0.6
 
-# dag-ml execution core — the DEFAULT engine since the ADR-17 cutover (a hard dependency).
+# dag-ml execution core — hard dependency for the explicitly selected native engine.
 dag-ml>=0.2.7
 dag-ml-data>=0.2.8
