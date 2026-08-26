@@ -129,3 +129,22 @@ def test_run_routes_a_native_session_without_calling_legacy_training(monkeypatch
 
     assert result is expected
     assert observed == [{"X": [[1.0]], "y": [2.0], "sample_ids": ["fit-a"]}]
+
+
+def test_predict_routes_a_trained_native_session_without_an_archive(monkeypatch: pytest.MonkeyPatch) -> None:
+    native = NativeMethodsSession(["split", "model"])
+    native._result = _Result()  # type: ignore[assignment]
+
+    result = nirs4all.predict(
+        data={"X": [[1.0], [2.0]], "sample_ids": ["predict-a", "predict-b"]},
+        engine="native",
+        session=native,
+    )
+
+    assert result.y_pred.tolist() == [[3.0], [4.0]]
+    assert result.metadata == {
+        "engine": "native",
+        "session_kind": "NativeMethodsSession",
+        "sample_ids": ["predict-a", "predict-b"],
+    }
+    assert native.result.native_estimator.calls[0]["sample_ids"] == ["predict-a", "predict-b"]

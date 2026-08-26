@@ -44,6 +44,7 @@ from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine
 
 from .native_archive_session import NativeArchiveSession
+from .native_methods_session import NativeMethodsSession
 from .result import PredictResult
 from .session import Session
 
@@ -73,7 +74,7 @@ def predict(
     workspace_path: str | Path | None = None,
     name: str = "prediction_dataset",
     all_predictions: bool = False,
-    session: Session | NativeArchiveSession | None = None,
+    session: Session | NativeArchiveSession | NativeMethodsSession | None = None,
     verbose: int = 0,
     coverage: float | list[float] | tuple[float, ...] | None = None,
     save_to_workspace: bool = False,
@@ -217,7 +218,7 @@ def predict(
     if model is not None and chain_id is not None:
         raise ValueError("Provide either 'model' or 'chain_id', not both.")
     if model is None and chain_id is None and not (
-        engine == "native" and isinstance(session, NativeArchiveSession)
+        engine == "native" and isinstance(session, (NativeArchiveSession, NativeMethodsSession))
     ):
         raise ValueError("Provide either 'model' or 'chain_id'.")
     if data is None:
@@ -346,7 +347,7 @@ def _maybe_publish_predict_result(
     name: str,
     save_to_workspace: bool,
     workspace_path: str | Path | None,
-    session: Session | NativeArchiveSession | None,
+    session: Session | NativeArchiveSession | NativeMethodsSession | None,
     workspace_metadata: Mapping[str, Any] | None,
     workspace_result_metadata: Mapping[str, Any] | None,
     chain_id: str | None = None,
@@ -397,13 +398,48 @@ def _predict_from_native_archive(
     projected only by DAG-ML and is never recomputed in this API layer.
     """
 
-    native_session = session if isinstance(session, NativeArchiveSession) else None
-    if native_session is not None:
+    archive_session = session if isinstance(session, NativeArchiveSession) else None
+    methods_session = session if isinstance(session, NativeMethodsSession) else None
+    if methods_session is not None:
+        if model is not None or chain_id is not None:
+            raise ValueError(
+                "engine='native' accepts either a NativeMethodsSession or an Archive V2 model path, not both"
+            )
+        if coverage is not None:
+            raise NotImplementedError(
+                "engine='native' trained sessions do not carry conformal state; export and use a calibrated Archive V2"
+            )
+        if all_predictions:
+            raise NotImplementedError(
+                "engine='native' Methods sessions expose one selected final output"
+            )
+        if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
+            raise TypeError(
+                "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
+            )
+        session_prediction = methods_session.predict(
+            data["X"],
+            sample_ids=data["sample_ids"],
+            groups=data.get("groups"),
+            metadata=data.get("metadata"),
+        )
+        return PredictResult(
+            y_pred=session_prediction.y_pred,
+            metadata={
+                "engine": "native",
+                "session_kind": "NativeMethodsSession",
+                "sample_ids": list(data["sample_ids"]),
+            },
+            model_name="MethodsN4MM",
+            preprocessing_steps=[],
+        )
+
+    if archive_session is not None:
         if model is not None or chain_id is not None:
             raise ValueError(
                 "engine='native' accepts either a NativeArchiveSession or an Archive V2 model path, not both"
             )
-        archive_path = native_session.archive_path
+        archive_path = archive_session.archive_path
     else:
         if chain_id is not None or session is not None:
             raise NotImplementedError(
@@ -423,8 +459,8 @@ def _predict_from_native_archive(
             "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
         )
     if coverage is None:
-        if native_session is not None:
-            session_prediction = native_session.predict(
+        if archive_session is not None:
+            session_prediction = archive_session.predict(
                 data["X"],
                 sample_ids=data["sample_ids"],
                 groups=data.get("groups"),
