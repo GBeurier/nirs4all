@@ -359,10 +359,8 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 # dag-ml gains native coverage for one of these, it leaves the allowlist (the test
 # then demands native parity). Measured at scope time; see the probe in the PR.
 EXPECTED_FALLBACK: frozenset[str] = frozenset({
-    # branch (duplication) + merge → multi-model; dag-ml bridge spike does not yet
-    # serialize the branch/merge step keywords, so the whole shape falls back.
+    # Branch forms whose merge semantics remain outside the native lowering.
     "branch_dup_three_way_merge_predictions",
-    "branch_dup_two_way_merge_features",
     "branch_dup_named_with_metamodel",
     "branch_dup_merge_all",
     # by-tag/by-filter separation branches use the same branch/merge keywords and

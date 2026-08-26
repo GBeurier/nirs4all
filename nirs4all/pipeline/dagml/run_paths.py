@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
+from sklearn.base import BaseEstimator, TransformerMixin
 
 from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
@@ -28,6 +29,67 @@ from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _frames_by_variant, _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
 from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _legacy_skips_refit, _model_name, _split_pipeline, _supported_body_steps
+
+
+class DuplicationBranchMergeTransformer(TransformerMixin, BaseEstimator):
+    """Fold-local sklearn transformer for legacy duplication ``merge="features"``."""
+
+    def __init__(self, branches: list[dict[str, Any]], merge_mode: str = "features") -> None:
+        self.branches = branches
+        self.merge_mode = merge_mode
+
+    def get_params(self, deep: bool = True) -> dict[str, Any]:  # noqa: ARG002 - sklearn signature
+        return {"branches": self.branches, "merge_mode": self.merge_mode}
+
+    def set_params(self, **params: Any) -> DuplicationBranchMergeTransformer:
+        for key, value in params.items():
+            setattr(self, key, value)
+        return self
+
+    def fit(self, X: Any, y: Any = None) -> DuplicationBranchMergeTransformer:
+        if self.merge_mode != "features":
+            raise ValueError(f"unsupported duplication branch merge mode {self.merge_mode!r}")
+        self._fitted_branches = [self._fit_branch(np.asarray(X), y, branch) for branch in self.branches]
+        return self
+
+    def fit_transform(self, X: Any, y: Any = None, **fit_params: Any) -> np.ndarray:  # noqa: ARG002
+        return self.fit(X, y).transform(X)
+
+    def transform(self, X: Any) -> np.ndarray:
+        X_arr = np.asarray(X)
+        return np.concatenate(
+            [self._transform_branch_features(X_arr, fitted["transforms"]) for fitted in self._fitted_branches],
+            axis=1,
+        )
+
+    @staticmethod
+    def _as_2d(values: Any) -> np.ndarray:
+        arr = np.asarray(values)
+        return arr.reshape(arr.shape[0], -1) if arr.ndim > 1 else arr.reshape(-1, 1)
+
+    @staticmethod
+    def _instantiate(spec: dict[str, Any]) -> Any:
+        from nirs4all.pipeline.dagml.operator_routing import route_operator
+
+        return route_operator(spec["kind"], spec["class"], spec.get("params") or {})
+
+    def _fit_branch(self, X: np.ndarray, y: Any, branch: dict[str, Any]) -> dict[str, Any]:
+        transforms: list[Any] = []
+        current = X
+        for spec in branch["steps"]:
+            if spec["kind"] != "transform":
+                raise ValueError(f"unsupported branch feature merge step kind {spec['kind']!r}")
+            operator = self._instantiate(spec)
+            operator.fit(current, y)
+            current = np.asarray(operator.transform(current))
+            transforms.append(operator)
+        return {"transforms": transforms}
+
+    def _transform_branch_features(self, X: np.ndarray, transforms: list[Any]) -> np.ndarray:
+        current = X
+        for transform in transforms:
+            current = np.asarray(transform.transform(current))
+        return self._as_2d(current)
 
 
 def _native_param_winner_config_name(
@@ -1291,6 +1353,72 @@ def _canonical_branch(branch_body: list[Any], branch_index: int) -> dict[str, An
     }
 
 
+def _branch_merge_transformer_step(branches: list[list[Any]], merge_mode: str) -> DuplicationBranchMergeTransformer:
+    """Build the importable fold-local transformer used for duplication feature merge."""
+    from nirs4all.pipeline.dagml_bridge import _json_safe_params, _qualname
+
+    if merge_mode != "features":
+        raise DagMlUnsupported(
+            "engine='dag-ml' supports duplication branch merge only for merge='features' in this slice"
+        )
+
+    lowered_branches: list[dict[str, Any]] = []
+    for branch in branches:
+        lowered_steps: list[dict[str, Any]] = []
+        for step in _supported_body_steps([part for part in branch if not hasattr(part, "split")]):
+            if isinstance(step, dict) and "model" in step:
+                raise DagMlUnsupported(
+                    "engine='dag-ml' supports duplication merge=features only for feature-only branch bodies"
+                )
+            if isinstance(step, dict):
+                raise DagMlUnsupported(
+                    "engine='dag-ml' supports duplication merge=features only for plain branch transform steps; "
+                    f"structured branch step dictionaries such as {sorted(step)} stay on the legacy path"
+                )
+            lowered_steps.append(
+                {"kind": "transform", "class": _qualname(step), "params": _json_safe_params(step)}
+            )
+        lowered_branches.append({"steps": lowered_steps})
+    return DuplicationBranchMergeTransformer(branches=lowered_branches, merge_mode=merge_mode)
+
+
+def _run_duplication_branch_feature_merge(
+    pipeline: list[Any],
+    branches: list[list[Any]],
+    merge_mode: str,
+    spectro: Any,
+    dataset_arg: str,
+    cli: str,
+    venv_python: str,
+    run_dir: Path,
+    metric: str,
+    task_type: str,
+    dataset_pickle: str | None,
+    config_name: str,
+    random_state: int | None,
+) -> RunResult:
+    """Run a legacy duplication feature merge with fold-local branch preprocessing."""
+    splitter = next((step for step in pipeline if hasattr(step, "split")), None)
+    model_step = next((step for step in pipeline if isinstance(step, dict) and "model" in step), None)
+    if splitter is None or model_step is None:
+        raise DagMlUnsupported(
+            "engine='dag-ml' requires a cross-validator and downstream model for duplication merge=features"
+        )
+    return _run_concrete(
+        [splitter, _branch_merge_transformer_step(branches, merge_mode), model_step],
+        spectro,
+        dataset_arg,
+        cli,
+        venv_python,
+        run_dir / "downstream",
+        metric,
+        task_type,
+        dataset_pickle=dataset_pickle,
+        config_name=config_name,
+        random_state=random_state,
+    )
+
+
 def _canonical_source_branch(branch_body: list[Any], source_index: int) -> dict[str, Any]:
     """Lower the shared by_source body to a canonical branch BOUND to one source (S4).
 
@@ -1619,6 +1747,23 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
     not per-class probability rows, so a probability-mean fusion has no proba blocks to average — it
     fails loud rather than averaging class labels (which is not what ``proba_mean`` means).
     """
+    if aggregate == "features":
+        return _run_duplication_branch_feature_merge(
+            pipeline,
+            branches,
+            aggregate,
+            spectro,
+            dataset_arg,
+            cli,
+            venv_python,
+            run_dir,
+            metric,
+            task_type,
+            dataset_pickle,
+            config_name,
+            random_state,
+        )
+
     import dag_ml
 
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
