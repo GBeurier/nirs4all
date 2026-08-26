@@ -99,6 +99,41 @@ class DagMLPredictIdentityFrame:
         }
 
 
+@dataclass(frozen=True)
+class DagMLCalibrationIdentityFrame:
+    """Explicit PREDICT identities plus an attested measured-target proof.
+
+    Calibration is evaluated through a PREDICT replay so a Methods provider
+    does not receive targets as execution inputs.  Unlike ordinary inference,
+    its replay provenance must still bind the separately supplied measured
+    truth.  The target fingerprint has the same raw-array profile as native
+    training and is never synthesized from a sentinel.
+    """
+
+    n_samples: int
+    sample_ids: tuple[str, ...]
+    groups: tuple[str | None, ...]
+    metadata_rows: tuple[dict[str, Any], ...]
+    explicit_sample_ids: bool
+    data_content_fingerprint: str
+    target_content_fingerprint: str
+    fingerprint: str
+
+    def metadata_by_sample_id(self) -> dict[str, dict[str, Any]]:
+        """Return row metadata keyed by the exact public sample id."""
+
+        return {sample_id: dict(row) for sample_id, row in zip(self.sample_ids, self.metadata_rows, strict=True) if row}
+
+    def group_by_sample_id(self) -> dict[str, str]:
+        """Return non-null groups keyed by the exact public sample id."""
+
+        return {
+            sample_id: group
+            for sample_id, group in zip(self.sample_ids, self.groups, strict=True)
+            if group is not None
+        }
+
+
 def normalize_fit_identity(
     X: Any,
     y: Any,
@@ -182,6 +217,41 @@ def normalize_predict_identity(
         explicit_sample_ids=explicit,
         data_content_fingerprint=data_content_fingerprint,
         fingerprint=fingerprint,
+    )
+
+
+def normalize_calibration_identity(
+    X: Any,
+    y: Any,
+    *,
+    sample_ids: Sequence[Any] | None = None,
+    groups: Sequence[Any] | None = None,
+    metadata: Mapping[str, Sequence[Any]] | Sequence[Mapping[str, Any]] | None = None,
+    require_explicit_sample_ids: bool = False,
+) -> DagMLCalibrationIdentityFrame:
+    """Bind a measured calibration cohort without changing PREDICT inputs."""
+
+    predict = normalize_predict_identity(
+        X,
+        sample_ids=sample_ids,
+        groups=groups,
+        metadata=metadata,
+        require_explicit_sample_ids=require_explicit_sample_ids,
+    )
+    targets = np.ascontiguousarray(np.asarray(y))
+    if targets.ndim not in (1, 2) or targets.shape[0] != predict.n_samples:
+        raise ValueError("native DAG-ML calibration identity requires row-aligned one- or two-dimensional y")
+    if not np.issubdtype(targets.dtype, np.number) or not np.isfinite(targets).all():
+        raise ValueError("native DAG-ML calibration identity requires finite numeric y")
+    return DagMLCalibrationIdentityFrame(
+        n_samples=predict.n_samples,
+        sample_ids=predict.sample_ids,
+        groups=predict.groups,
+        metadata_rows=predict.metadata_rows,
+        explicit_sample_ids=predict.explicit_sample_ids,
+        data_content_fingerprint=predict.data_content_fingerprint,
+        target_content_fingerprint=target_content_fingerprint(y),
+        fingerprint=predict.fingerprint,
     )
 
 
@@ -311,6 +381,18 @@ def feature_content_fingerprint(X: Any) -> str:
     return hasher.hexdigest()
 
 
+def target_content_fingerprint(y: Any) -> str:
+    """Return the exact raw-array target proof used by native training."""
+
+    array = np.ascontiguousarray(np.asarray(y))
+    hasher = hashlib.sha256()
+    hasher.update(b"y")
+    hasher.update(str(array.shape).encode("utf-8"))
+    hasher.update(str(array.dtype).encode("utf-8"))
+    hasher.update(array.tobytes())
+    return hasher.hexdigest()
+
+
 def _content_fingerprint(X: Any, y: Any | None) -> str:
     hasher = hashlib.sha256()
     _update_array_hash(hasher, np.asarray(X), "X")
@@ -346,8 +428,11 @@ def _identity_fingerprint(
 
 __all__ = [
     "DagMLFitIdentityFrame",
+    "DagMLCalibrationIdentityFrame",
     "DagMLPredictIdentityFrame",
     "feature_content_fingerprint",
+    "normalize_calibration_identity",
     "normalize_fit_identity",
     "normalize_predict_identity",
+    "target_content_fingerprint",
 ]
