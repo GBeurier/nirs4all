@@ -154,10 +154,11 @@ def run_native_methods(
     than becoming ignored legacy arguments.
 
     ``tuning`` is deliberately a separate, strict native operation rather
-    than the older Python objective adapter.  Its only accepted V1 shape is
-    ``{"engine": "methods-hpo", "trials": N}`` with the fixed V1
-    random/no-pruner policy.  DAG-ML owns all trial execution, SELECT, native
-    incumbent attestation, and the single selected rerun/refit.
+    than the older Python objective adapter.  Its V1 shape is
+    ``{"engine": "methods-hpo", "trials": N}``, optionally selecting the
+    attested ``random``/``tpe`` sampler and ``none``/``median`` pruner.  DAG-ML
+    owns all trial execution, SELECT, native incumbent attestation, and the
+    single selected rerun/refit.
     """
 
     if not isinstance(dataset, Mapping):
@@ -210,8 +211,8 @@ def run_native_methods(
     )
 
 
-_NATIVE_METHODS_HPO_SAMPLERS = frozenset({"random"})
-_NATIVE_METHODS_HPO_PRUNERS = frozenset({"none"})
+_NATIVE_METHODS_HPO_SAMPLERS = frozenset({"random", "tpe"})
+_NATIVE_METHODS_HPO_PRUNERS = frozenset({"none", "median"})
 _NATIVE_CONFORMAL_POLICIES = frozenset({"marginal", "joint_max"})
 _NATIVE_CONFORMAL_SMALL_SAMPLE_POLICIES = frozenset({"error", "unbounded"})
 
@@ -354,7 +355,10 @@ def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] |
     ``space``, ``score_data``, callbacks, or workspace resume fields: those
     belong to the historical Python objective path.  The V1 native search
     space is attested by DAG-ML and intentionally fixes PLS ``n_components``
-    to the portable 1..=3 integer domain.
+    to the portable 1..=3 integer domain.  TPE and the Median pruner remain
+    controller-owned: the public payload cannot provide an objective,
+    intermediate scores, callbacks, or optimiser-specific knobs.  A two-trial
+    startup budget is fixed whenever either needs historical observations.
     """
 
     if tuning is None:
@@ -377,6 +381,7 @@ def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] |
         raise ValueError(f"engine='native' Methods HPO sampler is unsupported: {sampler!r}")
     if pruner not in _NATIVE_METHODS_HPO_PRUNERS:
         raise ValueError(f"engine='native' Methods HPO pruner is unsupported: {pruner!r}")
+    n_startup_trials = 2 if sampler == "tpe" or pruner == "median" else 0
     return {
         "operation_id": "hpo:methods",
         "study": {
@@ -401,7 +406,7 @@ def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] |
                 "direction": "minimize",
                 "metric": "rmse",
                 "seed": seed,
-                "n_startup_trials": 0,
+                "n_startup_trials": n_startup_trials,
                 "max_resource": 0,
                 "reduction_factor": 0,
             },

@@ -708,11 +708,13 @@ def run(
             ``save_charts=False``. Unsupported workflow features are refused
             before execution; this path never falls through to the legacy
             orchestrator.  Its optional strict HPO V1 operation is
-            ``tuning={'engine': 'methods-hpo', 'trials': N}``; it is executed
-            by DAG-ML's native Methods scheduler, not by the older Python
-            objective adapter.  The V1 search space is the attested integer
-            PLS ``n_components`` domain 1..3, and its checkpoint/evidence is
-            available on ``NativeMethodsRunResult`` after a successful run.
+            ``tuning={'engine': 'methods-hpo', 'trials': N}``, optionally
+            with ``sampler='random'|'tpe'`` and
+            ``pruner='none'|'median'``; it is executed by DAG-ML's native
+            Methods scheduler, not by the older Python objective adapter.
+            The V1 search space is the attested integer PLS ``n_components``
+            domain 1..3, and its checkpoint/evidence is available on
+            ``NativeMethodsRunResult`` after a successful run.
             The dual subset requires exact built-in ``list``/``dict`` and exact NumPy arrays,
             ``KFold(shuffle=False)``, ``PLSRegression``, finite floating-point ``X`` and continuous
             regression ``y``,

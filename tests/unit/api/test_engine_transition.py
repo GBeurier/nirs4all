@@ -344,7 +344,8 @@ def test_run_native_routes_strict_methods_hpo_through_the_native_compiler(
         ({"trials": 2}, "requires engine='methods-hpo'"),
         ({"engine": "methods-hpo", "trials": 0}, "integer in 1..64"),
         ({"engine": "methods-hpo", "trials": 2, "score_data": {}}, "unsupported keys"),
-        ({"engine": "methods-hpo", "trials": 2, "sampler": "tpe"}, "sampler is unsupported"),
+        ({"engine": "methods-hpo", "trials": 2, "sampler": "sobol"}, "sampler is unsupported"),
+        ({"engine": "methods-hpo", "trials": 2, "pruner": "asha"}, "pruner is unsupported"),
     ],
 )
 def test_run_native_refuses_generic_or_partial_tuning_before_execution(
@@ -364,6 +365,30 @@ def test_run_native_refuses_generic_or_partial_tuning_before_execution(
             save_charts=False,
             tuning=tuning,
         )
+
+
+def test_native_tpe_median_hpo_descriptor_is_closed_and_attested() -> None:
+    """TPE/Median is native scheduler configuration, never a Python objective."""
+
+    from nirs4all.api.native_training import _native_methods_hpo_operation
+
+    operation = _native_methods_hpo_operation(
+        {"engine": "methods-hpo", "trials": 4, "sampler": "tpe", "pruner": "median"},
+        seed=51,
+    )
+
+    assert operation is not None
+    assert operation["trials"] == 4
+    assert operation["study"]["optimizer"] == {
+        "sampler": "tpe",
+        "pruner": "median",
+        "direction": "minimize",
+        "metric": "rmse",
+        "seed": 51,
+        "n_startup_trials": 2,
+        "max_resource": 0,
+        "reduction_factor": 0,
+    }
 
 
 @pytest.mark.parametrize(
