@@ -178,7 +178,6 @@ Source: `test_conformance_dual_engine.py:310-337`.
 | legacy Optuna finetuning | `generator_finetune_params_optuna` |
 | stateful `concat_transform` pre-CV materialization | `concat_transform_pca_svd_plsr` |
 | by-source / per-source multi-source | `multi_source_by_source_branch_shared_preproc`, `multi_source_per_source_models_stacking` |
-| `preprocessing` fit-universe override | `preprocessing_fit_on_all` |
 
 **`EXPECTED_FALLBACK == ∅` is the `LOCK-DROP` D1 gate, owned by L5 — not a
 `LOCK-PYREF` gate.**
