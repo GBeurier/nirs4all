@@ -212,20 +212,33 @@ if (run.status !== 0) process.exit(run.status);
 
 The pipeline language is broader than current dag-ml native coverage. Requesting `engine="dag-ml"` is safe for user workflows because catchable unsupported shapes and unavailable dag-ml runtime dependencies warn and re-run on the legacy engine. A genuine dag-ml runtime/operator bug still propagates as an error.
 
+For migration qualification, set `allow_legacy_fallback=False`. In that mode a
+catchable unavailable or unsupported DAG-ML request is returned to the caller
+as an error before any legacy execution starts:
+
 ```python
 result = nirs4all.run(
     pipeline="pipeline.yaml",
     dataset="dataset.yaml",
     engine="dag-ml",
+    allow_legacy_fallback=False,
     random_state=42,
 )
 ```
+
+The same distinction applies to generic result export. It refuses a DAG-ML
+score-only result unless native portable Package/Archive evidence is available.
+The historic refit bridge is an explicit compatibility opt-in:
+`result.export(..., compatibility="legacy-refit")`. It is best-effort rather
+than native evidence, and neither switch changes the default engine; together
+they provide an auditable no-fallback path while native coverage is being
+qualified.
 
 Environment switches:
 
 | Variable | Effect |
 | --- | --- |
-| `N4A_ENGINE=dag-ml` | Request dag-ml for calls that do not pass `engine=` explicitly. |
+| `N4A_ENGINE=dag-ml` | Request dag-ml for `nirs4all.run` calls that do not pass `engine=` explicitly. A public helper with no DAG-ML path refuses this selection rather than silently using legacy. |
 | `N4A_NATIVE_RESULTS=/path/to/results` | For dag-ml runs, request native result output. |
 
 ## CLI Commands

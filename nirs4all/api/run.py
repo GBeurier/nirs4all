@@ -609,6 +609,7 @@ def run(
     project: str | None = None,
     report_naming: str = "nirs",
     engine: str | None = None,
+    allow_legacy_fallback: bool | None = None,
     tuning: Any | None = None,
     calibration: Any | None = None,
     results_path: str | Path | None = None,
@@ -697,6 +698,10 @@ def run(
             no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
             typed error for every other shape or unavailable native capability. Override the default
             per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
+        allow_legacy_fallback: Transitional policy for ``engine="dag-ml"``.
+            ``None`` preserves the catchable compatibility fallback. ``False``
+            refuses unavailable or unsupported DAG-ML requests before the
+            legacy engine is constructed; ``True`` explicitly permits it.
             ``engine='native'`` runs the verified portable Methods subset: a
             raw ``{'X', 'y', 'sample_ids'}`` dataset, one supported linear
             KFold/PLS pipeline, ``refit=True``, ``save_artifacts=True`` and
@@ -866,6 +871,9 @@ def run(
         - :func:`nirs4all.session`: Create execution session for resource reuse
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
+    if allow_legacy_fallback is not None and not isinstance(allow_legacy_fallback, bool):
+        raise TypeError("allow_legacy_fallback must be True, False, or None")
+
     selected_engine = resolve_engine(engine)
     custom_training_loss_requested = bool(training_losses) or local_implementations is not None
     if custom_training_loss_requested and selected_engine != "dag-ml":
@@ -1246,7 +1254,7 @@ def run(
                 local_implementations=local_implementations,
             )
         except DagMlUnavailable as e:
-            if custom_training_loss_requested:
+            if custom_training_loss_requested or allow_legacy_fallback is False:
                 raise
             warnings.warn(
                 f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
@@ -1254,7 +1262,7 @@ def run(
             )
             return _run_legacy()
         except (DagMlUnsupported, NotImplementedError) as e:
-            if custom_training_loss_requested:
+            if custom_training_loss_requested or allow_legacy_fallback is False:
                 raise
             warnings.warn(
                 f"engine='dag-ml' does not support this pipeline shape ({e}); falling back to the legacy engine",

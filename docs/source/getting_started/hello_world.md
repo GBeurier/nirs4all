@@ -11,9 +11,13 @@ This is the shortest useful NIRS4ALL workflow. A dataset is described in YAML or
 | Run training from YAML/JSON | Yes | No native `run` command yet | Via Python bridge/wrapper | Via Python bridge/wrapper | Via process/runtime wrapper |
 | Use native operators as objects | Yes | No | Through Python bridge | Through Python bridge | No native object API in this repo |
 | Export `.n4a` bundle | Yes | Workspace/artifact tooling only | Via Python bridge/wrapper | Via Python bridge/wrapper | Via process/runtime wrapper |
-| Select `dag-ml` engine | `engine="dag-ml"` or `N4A_ENGINE=dag-ml` | Environment only for wrapped Python run | Same wrapped call | Same wrapped call | Same wrapped call |
+| Select `dag-ml` training engine | `run(..., engine="dag-ml")` or `N4A_ENGINE=dag-ml` | Environment only for wrapped Python `run` | Same wrapped call | Same wrapped call | Same wrapped call |
 
 The portable part is the configuration pair below. Language wrappers should keep those files unchanged.
+
+`N4A_ENGINE=dag-ml` selects the training backend for `nirs4all.run`. Public
+helpers that do not yet provide a DAG-ML execution path refuse the environment
+selection instead of silently switching themselves back to the legacy engine.
 
 ## 1. Describe the Dataset
 
@@ -241,6 +245,39 @@ N4A_ENGINE=dag-ml python train.py
 ```
 
 If the dag-ml backend is unavailable, or the requested pipeline shape is outside current dag-ml coverage, NIRS4ALL warns and falls back to the legacy engine for catchable unsupported cases.
+
+### Require a native result during migration qualification
+
+During a native migration or a release qualification, make the fallback policy
+explicit. `allow_legacy_fallback=False` turns an unavailable or unsupported
+DAG-ML request into an error before a legacy workspace is created:
+
+```python
+result = nirs4all.run(
+    pipeline="pipeline.yaml",
+    dataset="dataset.yaml",
+    engine="dag-ml",
+    allow_legacy_fallback=False,
+    random_state=42,
+)
+```
+
+This is a qualification switch, not the package default. The default remains
+compatible with existing workflows while native coverage is expanded. A generic
+`RunResult` that does not retain a native Package/Archive artifact also refuses
+the old refit bridge by default:
+
+```python
+result.export("exports/qualified-result.n4a")
+```
+
+If compatibility with the historic `.n4a` writer is deliberately required,
+`compatibility="legacy-refit"` opts into that documented, best-effort refit.
+It is not a native export and must not be used as migration evidence.
+
+For a currently supported end-to-end portable workflow, use the strict Methods
+lane documented in {doc}`/api/module_api`; it retains the native Package and
+N4MM evidence needed for Archive V2/V3 export.
 
 ## Next Clicks
 
