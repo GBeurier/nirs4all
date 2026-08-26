@@ -12,7 +12,7 @@ from __future__ import annotations
 import copy
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, cast
 
 import numpy as np
@@ -56,6 +56,7 @@ class RawArrayDagMLTrainingCompiler:
     local_implementations: Any = None
     methods_library_path: str | None = None
     methods_hpo_operation: Mapping[str, Any] | None = None
+    additional_diagnostics: Mapping[str, Any] = field(default_factory=dict)
 
     def compile_fit(
         self,
@@ -92,7 +93,10 @@ class RawArrayDagMLTrainingCompiler:
         )
         compiler = DagMLTrainingRequestCompiler(
             contracts,
-            additional_diagnostics={"nirs4all_lowerer": "raw_array_p3_r1b"},
+            additional_diagnostics={
+                "nirs4all_lowerer": "raw_array_p3_r1b",
+                **dict(self.additional_diagnostics),
+            },
             dagml_module=self.dagml_module,
         )
         return compiler.compile_fit(

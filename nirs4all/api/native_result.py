@@ -17,6 +17,9 @@ from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
 from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
 from nirs4all.pipeline.dagml.result import _scores_to_run_result
 
+from .native_retrain_lineage import DIAGNOSTIC_KEY as RETRAIN_LINEAGE_DIAGNOSTIC_KEY
+from .native_retrain_lineage import NativeRetrainLineage
+
 
 class NativeMethodsRunResult(RunResult):
     """A ``RunResult`` backed only by a fitted portable Methods estimator.
@@ -129,6 +132,24 @@ class NativeMethodsRunResult(RunResult):
         if not isinstance(calibration, Mapping):
             raise DagMLNativeCoverageError("native conformal calibration is not a structured mapping")
         return dict(calibration)
+
+    @property
+    def native_retrain_lineage(self) -> dict[str, Any] | None:
+        """Return strict, durable parent evidence for a native full retrain."""
+
+        outcome = _outcome_document(self._native_estimator)
+        diagnostics = outcome.get("diagnostics")
+        if not isinstance(diagnostics, Mapping):
+            raise DagMLNativeCoverageError("native Methods outcome diagnostics are not a structured mapping")
+        lineage = diagnostics.get(RETRAIN_LINEAGE_DIAGNOSTIC_KEY)
+        if lineage is None:
+            return None
+        if not isinstance(lineage, Mapping):
+            raise DagMLNativeCoverageError("native Methods retrain lineage is not a structured mapping")
+        try:
+            return NativeRetrainLineage.from_mapping(lineage).to_dict()
+        except ValueError as error:
+            raise DagMLNativeCoverageError("native Methods retrain lineage is malformed") from error
 
     def export(
         self,
