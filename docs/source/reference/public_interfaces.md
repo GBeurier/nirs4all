@@ -59,10 +59,10 @@ The public Python API runs that contract directly. The CLI currently validates a
 | `nirs4all.get_tuning_space_schema()` | Return the JSON Schema for `inspect_tuning_space(...)` artifacts | None | JSON Schema dict |
 | `nirs4all.tuning_space_schema_json(...)` | Serialize the ordered tuning-space JSON Schema deterministically | Optional JSON indentation | Schema JSON text |
 | `nirs4all.explain(...)` | Generate SHAP explanations | Model/bundle + data | `ExplainResult` |
-| `nirs4all.retrain(...)` | Retrain from an existing result or bundle | Source + new data | `RunResult` |
+| `nirs4all.retrain(..., engine="native")` | Run one fresh target-cohort full refit from an attested in-memory `NativeMethodsRunResult`; CV/SELECT do not repeat | Parent result + exactly `{X, y, sample_ids}` | `NativeMethodsRefitResult`, exportable as target-bound Archive V3; transfer, finetune and archive-parent refit refuse before execution |
 | `nirs4all.session(...)` | Share runner/workspace resources across calls | Optional pipeline and runner kwargs | `Session` |
 | `nirs4all.load_session(..., engine="legacy")` | Load an exported legacy `.n4a` bundle for prediction | Bundle path | `Session` |
-| `nirs4all.load_session(..., engine="native")` | Open a portable Archive V2 Methods PREDICT session without a legacy fallback | Archive path | `NativeArchiveSession` |
+| `nirs4all.load_session(..., engine="native")` | Open a portable Archive V2 or V3 Methods PREDICT session without a legacy fallback | Archive path | `NativeArchiveSession` |
 | `nirs4all.generate(...)` | Generate synthetic NIRS data | Synthetic parameters | `SpectroDataset` or arrays |
 | `result.export(...)` | Export a trained pipeline bundle | Output path | `.n4a` path |
 
@@ -251,9 +251,9 @@ should branch on it rather than inferring support from the broader legacy API.
 | Lifecycle operation | Native status | Exact boundary |
 | --- | --- | --- |
 | `run(..., engine="native")` | Supported subset | Explicit raw mapping `{"X", "y", "sample_ids"}`, portable Methods pipeline, native refit, and no legacy workspace/cache/project/result path. Unsupported shapes stop before a legacy run. |
-| `session(pipeline, engine="native")` | Supported subset | Returns `NativeMethodsSession`: native train, identity-bound prediction, Archive V2 export, close, and selected full refit. It does not create a `PipelineRunner`. |
-| `predict(..., engine="native")` | Supported subset | Requires an explicitly identified cohort. It accepts a trained `NativeMethodsSession` or validated Methods Archive V2 and rehydrates the N4MM for that invocation only. |
-| `load_session(path, engine="native")` | Supported, PREDICT-only | Validates Core Archive V2 and Package V2 before data/model hydration, then returns `NativeArchiveSession`. It has no train, retrain, save, or legacy fallback capability. |
+| `session(pipeline, engine="native")` | Supported subset | Returns `NativeMethodsSession`: native train, identity-bound prediction, Archive V2 export, close, and one selected full refit that returns a V3 child. It does not create a `PipelineRunner`. |
+| `predict(..., engine="native")` | Supported subset | Requires an explicitly identified cohort. It accepts a trained `NativeMethodsSession`, a V3 refit result, or a validated Methods Archive V2/V3 session and rehydrates the N4MM for that invocation only. |
+| `load_session(path, engine="native")` | Supported, PREDICT-only | Validates Core Archive V2/Package V2 or Archive V3/Package V3 before data/model hydration, then returns `NativeArchiveSession`. It has no train, retrain, save, or legacy fallback capability. |
 | `retrain(source, data, mode="full", engine="native")` | Supported subset | Source must be an in-memory `NativeMethodsRunResult` with a completed selected refit and attested seed. The selected PLS variant is copied exactly and the child outcome persists signed parent lineage. |
 | Native transfer / finetune retrain | Refused | `mode="transfer"`, `mode="finetune"`, archive sources, replacement models, epochs, and legacy retrain kwargs are rejected before native execution. A future plugin must declare its own artifact and lineage contract. |
 | `explain(..., engine="native")` | Refused | SHAP is a host plugin today. The request is rejected at engine preflight; it is never rerouted to legacy implicitly. |

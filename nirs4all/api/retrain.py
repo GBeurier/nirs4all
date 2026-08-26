@@ -15,7 +15,6 @@ Example:
     >>> print(f"New RMSE: {result.best_rmse:.4f}")
 """
 
-import copy
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TypeAlias
@@ -27,9 +26,9 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine
 
+from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
-from .native_retrain_lineage import NativeRetrainLineage
-from .native_training import run_native_methods
+from .native_training import refit_native_methods
 from .result import RunResult
 from .session import Session
 
@@ -64,7 +63,7 @@ def retrain(
     verbose: int = 1,
     save_artifacts: bool = True,
     **kwargs: Any,
-) -> RunResult:
+) -> RunResult | NativeMethodsRefitResult:
     """Retrain a pipeline on new data.
 
     This function enables retraining trained pipelines with various modes,
@@ -243,7 +242,7 @@ def _retrain_native_methods_full(
     verbose: int,
     save_artifacts: bool,
     extra_kwargs: Mapping[str, Any],
-) -> NativeMethodsRunResult:
+) -> NativeMethodsRefitResult:
     """Refit one selected in-memory Methods variant without legacy orchestration.
 
     This is intentionally the first native retrain capability, not a silent
@@ -269,54 +268,4 @@ def _retrain_native_methods_full(
     if extra_kwargs:
         raise NotImplementedError(f"engine='native' retrain does not accept legacy kwargs: {sorted(extra_kwargs)}")
 
-    pipeline, lineage = _selected_native_methods_recipe(source)
-    return run_native_methods(
-        pipeline,
-        data,
-        name=name,
-        save_charts=False,
-        random_state=lineage.source_seed,
-        retrain_lineage=lineage,
-    )
-
-
-def _selected_native_methods_recipe(source: NativeMethodsRunResult) -> tuple[list[Any], NativeRetrainLineage]:
-    """Clone one attested selected recipe and its durable parent evidence."""
-
-    original = getattr(source.native_estimator, "pipeline", None)
-    if not isinstance(original, list):
-        raise ValueError("native retrain source does not retain a portable list pipeline")
-    pipeline = copy.deepcopy(original)
-    models = [step["model"] for step in pipeline if isinstance(step, Mapping) and set(step) == {"model"}]
-    if len(models) != 1:
-        raise ValueError("native retrain source does not retain exactly one portable Methods model")
-
-    outcome = getattr(source.native_estimator, "training_outcome_", None)
-    if outcome is None:
-        raise ValueError("native retrain source does not retain a structured native outcome")
-    outcome_to_dict = getattr(outcome, "to_dict", None)
-    document = outcome_to_dict() if callable(outcome_to_dict) else outcome
-    if not isinstance(document, Mapping):
-        raise ValueError("native retrain source does not retain a structured native outcome")
-    lineage = NativeRetrainLineage.from_source_outcome(document)
-    patches = document.get("parameter_patches", [])
-    if not isinstance(patches, list):
-        raise ValueError("native retrain source parameter patches are malformed")
-    saw_components_patch = False
-    for patch in patches:
-        if not isinstance(patch, Mapping):
-            raise ValueError("native retrain source parameter patch is malformed")
-        if (
-            patch.get("schema_version") != 1
-            or patch.get("node_id") != "model:compat.0"
-            or patch.get("namespace") != "operator"
-            or patch.get("path") != ["n_components"]
-            or isinstance(patch.get("value"), bool)
-            or not isinstance(patch.get("value"), int)
-            or patch["value"] < 1
-            or saw_components_patch
-        ):
-            raise ValueError("native retrain source carries an unsupported selected parameter patch")
-        models[0].n_components = patch["value"]
-        saw_components_patch = True
-    return pipeline, lineage
+    return refit_native_methods(source, data, name=name)

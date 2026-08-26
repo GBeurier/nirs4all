@@ -117,9 +117,9 @@ print(f"Ready for prediction: {loaded_session.is_trained}")  # True
 predictions = loaded_session.predict(X_new)
 ```
 
-### Native Archive V2 prediction sessions
+### Native Archive V2/V3 prediction sessions
 
-For a portable Methods Archive V2, choose the native path explicitly.  It
+For a portable Methods Archive V2 or target-bound Archive V3, choose the native path explicitly.  It
 does not construct a `PipelineRunner`, invoke the legacy bundle loader, or
 fall back to Python execution.  Every prediction cohort must carry stable
 sample ids:

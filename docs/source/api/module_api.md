@@ -63,6 +63,37 @@ capabilities, and non-native probability decoding fail explicitly.
 ``nirs4all-methods`` wheel is discovered automatically; the route never
 substitutes a Python backend.
 
+### Native full refit and Archive V3
+
+An in-memory `NativeMethodsRunResult` can produce one fresh full-refit child on
+a new, explicitly identified training cohort. The parent Package V2 remains the
+authority for the selected plan; the child Package V3 records only fresh REFIT
+evidence and its artifact. It never re-enters CV or SELECT and never invents a
+score for the new cohort.
+
+```python
+child = nirs4all.retrain(
+    result,
+    {"X": X_target, "y": y_target, "sample_ids": target_ids},
+    mode="full",
+    engine="native",
+)
+child.export("refit.n4a")  # Core Archive V3
+
+with nirs4all.load_session("refit.n4a", engine="native") as loaded:
+    prediction = nirs4all.predict(
+        data={"X": X_predict, "sample_ids": prediction_ids},
+        engine="native",
+        session=loaded,
+    )
+```
+
+This first retrain capability is intentionally narrow: it needs the in-memory,
+attested parent and `mode="full"`. Archive-parent retrain, transfer,
+fine-tuning, host-sidecars and implicit sample identities fail before native
+data execution. Archive V3 supports PREDICT only and carries no conformal
+presentation state.
+
 ### nirs4all.run()
 
 Execute a training pipeline on a dataset.

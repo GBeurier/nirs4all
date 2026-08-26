@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
+from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
 from .native_training import run_native_methods
 from .result import PredictResult
@@ -40,7 +41,7 @@ class NativeMethodsSession:
         self._name = name
         self._random_state = random_state
         self._tuning = None if tuning is None else dict(tuning)
-        self._result: NativeMethodsRunResult | None = None
+        self._result: NativeMethodsRunResult | NativeMethodsRefitResult | None = None
         self._closed = False
 
     @property
@@ -74,7 +75,7 @@ class NativeMethodsSession:
         return self._result is not None and not self._closed
 
     @property
-    def result(self) -> NativeMethodsRunResult:
+    def result(self) -> NativeMethodsRunResult | NativeMethodsRefitResult:
         """The fitted native run result, or raise before training."""
 
         if not self.is_trained:
@@ -96,7 +97,7 @@ class NativeMethodsSession:
         )
         return self._result
 
-    def retrain(self, dataset: Mapping[str, Any]) -> NativeMethodsRunResult:
+    def retrain(self, dataset: Mapping[str, Any]) -> NativeMethodsRefitResult:
         """Full-refit the attested selected Methods variant on one new cohort.
 
         This delegates to the public native retrain contract, which preserves
@@ -107,8 +108,13 @@ class NativeMethodsSession:
         self._require_open()
         from .retrain import retrain
 
+        parent = self.result
+        if not isinstance(parent, NativeMethodsRunResult):
+            raise NotImplementedError(
+                "a native Package V3 refit child cannot be retrained again"
+            )
         result = retrain(
-            self.result,
+            parent,
             # ``retrain`` exposes the public ``DataSpec`` union, whose
             # mapping branch is deliberately a concrete ``dict``.  Sessions
             # accept any read-only mapping at their boundary, so materialize
@@ -120,8 +126,8 @@ class NativeMethodsSession:
             verbose=0,
             engine="native",
         )
-        if not isinstance(result, NativeMethodsRunResult):  # pragma: no cover - defensive contract assertion
-            raise RuntimeError("native session retrain did not return a NativeMethodsRunResult")
+        if not isinstance(result, NativeMethodsRefitResult):  # pragma: no cover - defensive contract assertion
+            raise RuntimeError("native session retrain did not return a NativeMethodsRefitResult")
         self._result = result
         return result
 
@@ -136,8 +142,11 @@ class NativeMethodsSession:
         """Replay the fitted native package for one explicitly identified cohort."""
 
         self._require_open()
+        result = self.result
+        if isinstance(result, NativeMethodsRefitResult):
+            return result.predict(X, sample_ids=sample_ids, groups=groups, metadata=metadata)
         values = np.asarray(
-            self.result.native_estimator.predict_with_identity(
+            result.native_estimator.predict_with_identity(
                 X,
                 sample_ids=sample_ids,
                 groups=groups,
@@ -152,7 +161,7 @@ class NativeMethodsSession:
         )
 
     def save(self, path: str | Path) -> Path:
-        """Persist the fitted package as Core Archive V2 without refitting."""
+        """Persist the current native result as its Core Archive V2 or V3."""
 
         self._require_open()
         return self.result.export(path)

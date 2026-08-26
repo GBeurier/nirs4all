@@ -196,6 +196,63 @@ def test_execute_methods_training_forwards_without_a_python_operator_callback(
     ]
 
 
+def test_portable_full_refit_and_v3_replay_forward_without_python_sidecars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_methods_v3"
+    calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+    package = {"schema_version": 2}
+    child = {"schema_version": 3}
+
+    def refit(*args: Any, **kwargs: Any) -> object:
+        calls.append(("refit", args, kwargs))
+        return child
+
+    def replay(*args: Any, **kwargs: Any) -> object:
+        calls.append(("replay", args, kwargs))
+        return {"outcome": "v3"}
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(
+            module_name,
+            execute_methods_portable_full_refit=refit,
+            replay_loaded_methods_portable_refit_package_v3=replay,
+        ),
+    )
+    client = DagMLNativeClient(module_name)
+    assert client.module_name == module_name
+    assert client.execute_methods_portable_full_refit(
+        package,
+        {"request": "target"},
+        {"model.x": {"envelope": True}},
+        {"relations": True},
+        {"influence": True},
+        {"model.x": {"x": [[1.0]], "y": [[2.0]]}},
+        methods_library_path="/absolute/libn4m.so",
+        recipe_id="recipe:target",
+        package_id="package:target",
+        outcome_id="outcome:target",
+        run_id="run:target",
+        bundle_id="bundle:target",
+    ) is child
+    assert client.replay_loaded_methods_portable_refit_package_v3(
+        child,
+        {"phase": "PREDICT"},
+        {"model.x": {"envelope": True}},
+        {"model.x": {"x": [[1.0]]}},
+        methods_library_path="/absolute/libn4m.so",
+        outcome_id="outcome:replay",
+        run_id="run:replay",
+    ) == {"outcome": "v3"}
+    assert [name for name, _args, _kwargs in calls] == ["refit", "replay"]
+    assert calls[0][1][0] is package
+    assert calls[0][2]["recipe_id"] == "recipe:target"
+    assert calls[1][1][0] is child
+    assert calls[1][2]["methods_library_path"] == "/absolute/libn4m.so"
+
+
 def test_replay_loaded_predictor_package_forwards_to_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     module_name = "_n4a_fake_dag_ml_replay"
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []

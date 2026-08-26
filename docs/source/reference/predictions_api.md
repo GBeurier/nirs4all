@@ -31,6 +31,14 @@ Main prediction paths:
 - **Model-based**: pass `model` (bundle path, prediction dict, or config path).
 - **Calibrated replayed-array**: pass a `CalibratedRunResult` or conformal result archive as `model`, plus `data={"y_pred": ..., "sample_ids": ...}`.
 - **Attached conformal model bundle**: pass a model `.n4a` bundle carrying a conformal sidecar and `coverage=...`; nirs4all replays the model prediction first, then selects already-materialized intervals.
+- **Native Archive V2/V3 / Methods**: pass `engine="native"`, a Core portable
+  `.n4a` path or `NativeArchiveSession`, and explicit
+  `data={"X": X, "sample_ids": ids}`. Core validates the container and DAG-ML
+  validates/replays Package V2 or target-bound Package V3; N4MM is imported
+  only for that request. The route never creates a legacy `PipelineRunner` or
+  falls back. Package V2 can carry native conformal intervals; Package V3 is a
+  fresh full-refit child and deliberately carries neither them nor a parent CV
+  score set. Workspace publication is unavailable on this route.
 
 `coverage` accepts one finite coverage or a non-empty list of finite, unique coverages that were materialized during calibration. It selects existing intervals and updates `conformal_guarantee_status`; it does not fit a new calibrator. With a conformal sidecar, `all_predictions=True` remains fail-closed until every returned prediction entry can carry calibrated identity mapping. If a model bundle contains an invalid `conformal/` sidecar, prediction fails validation instead of falling back to an uncalibrated path. A structurally complete sidecar whose `calibrated_result.json` has non-empty predictions but no canonical physical `sample_ids` is also rejected before the raw model prediction runs.
 

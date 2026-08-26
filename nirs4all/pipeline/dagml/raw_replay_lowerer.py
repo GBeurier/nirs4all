@@ -176,6 +176,109 @@ class RawArrayMethodsReplayCompiler:
         )
 
 
+@dataclass(frozen=True)
+class RawArrayMethodsPortableRefitReplayCompiler:
+    """Compile an identity-bound PREDICT request for one Package V3 child.
+
+    Package V3 is deliberately not coerced into the V2 predictor shape: it
+    carries a fresh full-refit outcome and Core validates it through its
+    dedicated replay entry point.  This lowerer derives only current-cohort
+    envelopes and numeric provider inputs; it never interprets N4MM bytes.
+    """
+
+    package: Any
+    outcome_id: str = "outcome:nirs4all.raw_refit_predict"
+    run_id: str = "run:nirs4all.raw_refit_predict"
+    request_id: str = "replay:nirs4all.raw_refit_predict"
+    dagml_module: str = "dag_ml"
+    methods_library_path: str | None = None
+
+    def compile_replay(
+        self,
+        _estimator: DagMLPipelineEstimator | None,
+        X: Any,
+        *,
+        mode: str,
+        identity_frame: DagMLPredictIdentityFrame,
+    ) -> DagMLReplayExecution:
+        """Return PREDICT-only native V3 replay inputs for the current cohort."""
+
+        if mode != "predict":
+            raise RawArrayMethodsReplayError(
+                "raw-array Methods Package V3 replay supports PREDICT only"
+            )
+        if self.methods_library_path is None:
+            raise RawArrayMethodsReplayError(
+                "raw-array Methods Package V3 replay requires an explicit libn4m path"
+            )
+        if not identity_frame.explicit_sample_ids:
+            raise RawArrayMethodsReplayError(
+                "raw-array Methods Package V3 replay requires explicit current sample_ids"
+            )
+        values = np.ascontiguousarray(np.asarray(X, dtype=float))
+        if values.ndim != 2 or values.shape[0] != identity_frame.n_samples:
+            raise RawArrayMethodsReplayError(
+                "current X must be a two-dimensional matrix aligned with sample_ids"
+            )
+        if not np.isfinite(values).all():
+            raise RawArrayMethodsReplayError("current X contains a non-finite value")
+
+        package = validate_native_methods_refit_package_v3(self.package)
+        outcome = _object(package, "outcome")
+        plan = _object(outcome, "effective_plan")
+        binding = _single_refit_v3_output_binding(outcome)
+        requirements = _refit_v3_requirements(plan)
+        relations = _current_relations(identity_frame)
+        dag_ml = importlib.import_module(self.dagml_module)
+        relation_fingerprint = _relation_fingerprint(dag_ml, relations)
+        envelopes = {
+            key: {
+                "schema_version": 1,
+                "schema_fingerprint": requirement["schema_fingerprint"],
+                "plan_fingerprint": requirement["plan_fingerprint"],
+                "relation_fingerprint": relation_fingerprint,
+                "data_content_fingerprint": identity_frame.data_content_fingerprint,
+                "target_content_fingerprint": None,
+                "coordinator_relations": relations,
+            }
+            for key, requirement in requirements.items()
+        }
+        signer = getattr(dag_ml, "sign_training_replay_request", None)
+        if not callable(signer):
+            raise RawArrayMethodsReplayError(
+                "installed dag_ml lacks native replay-request signing; upgrade DAG-ML"
+            )
+        request = signer(
+            {
+                "schema_version": 1,
+                "request_id": self.request_id,
+                "source_outcome_fingerprint": _refit_v3_outcome_fingerprint(outcome),
+                "phase": "PREDICT",
+                "data_envelope_keys": sorted(envelopes),
+                "output_binding_ids": [binding["binding_id"]],
+                "request_fingerprint": "0" * 64,
+            }
+        )
+        methods_inputs = {
+            key: {
+                "sample_ids": list(identity_frame.sample_ids),
+                "x": values.tolist(),
+                "target_names": list(binding["target_names"]),
+            }
+            for key in requirements
+        }
+        return DagMLReplayExecution(
+            request=request,
+            data_envelopes=envelopes,
+            artifact_handles={},
+            op_callback=None,
+            outcome_id=self.outcome_id,
+            run_id=self.run_id,
+            methods_inputs=methods_inputs,
+            methods_library_path=self.methods_library_path,
+        )
+
+
 def _package_document(package: Any) -> dict[str, Any]:
     if hasattr(package, "to_dict") and callable(package.to_dict):
         package = package.to_dict()
@@ -199,6 +302,43 @@ def validate_native_methods_package(package: Any) -> dict[str, Any]:
 
     document = _package_document(package)
     _require_native_methods_package(document)
+    return document
+
+
+def validate_native_methods_refit_package_v3(package: Any) -> dict[str, Any]:
+    """Return a Package V3 only after its native raw-refit shape is present.
+
+    DAG-ML remains the TCV1 authority.  This Python boundary merely validates
+    the narrowly required shape for lowering current, explicitly identified
+    arrays and refuses V2 or host-sidecar substitution before replay.
+    """
+
+    document = _package_document(package)
+    if document.get("schema_version") != 3:
+        raise RawArrayMethodsReplayError("raw-array Methods refit replay requires Package V3")
+    outcome = _object(document, "outcome")
+    bundle = _object(outcome, "execution_bundle")
+    raw = bundle.get("raw_artifact_payloads")
+    records = bundle.get("refit_artifacts")
+    if not isinstance(raw, dict) or not raw:
+        raise RawArrayMethodsReplayError("Package V3 has no durable raw Methods artifacts")
+    if not isinstance(records, list) or len(records) != 1:
+        raise RawArrayMethodsReplayError(
+            "raw-array Methods Package V3 requires exactly one refit artifact"
+        )
+    artifact = _artifact_document(records[0]) if isinstance(records[0], Mapping) else {}
+    artifact_id = artifact.get("id")
+    if (
+        artifact.get("kind") != "n4m_model"
+        or not isinstance(artifact_id, str)
+        or artifact_id not in raw
+    ):
+        raise RawArrayMethodsReplayError(
+            "Package V3 N4MM refit artifact has no matching durable raw payload"
+        )
+    _single_refit_v3_output_binding(outcome)
+    _refit_v3_requirements(_object(outcome, "effective_plan"))
+    _refit_v3_outcome_fingerprint(outcome)
     return document
 
 
@@ -282,11 +422,75 @@ def _single_output_binding(package: Mapping[str, Any]) -> dict[str, Any]:
     return binding
 
 
+def _single_refit_v3_output_binding(outcome: Mapping[str, Any]) -> dict[str, Any]:
+    bindings = outcome.get("output_bindings")
+    if not isinstance(bindings, list) or len(bindings) != 1 or not isinstance(bindings[0], dict):
+        raise RawArrayMethodsReplayError(
+            "Package V3 requires exactly one output binding for raw Methods replay"
+        )
+    binding = bindings[0]
+    for field in ("binding_id", "node_id"):
+        if not isinstance(binding.get(field), str) or not binding[field]:
+            raise RawArrayMethodsReplayError(f"Package V3 output binding lacks {field}")
+    targets = binding.get("target_names")
+    if not isinstance(targets, list) or not targets or not all(
+        isinstance(name, str) and name for name in targets
+    ):
+        raise RawArrayMethodsReplayError("Package V3 output binding lacks target_names")
+    return binding
+
+
+def _refit_v3_requirements(plan: Mapping[str, Any]) -> dict[str, dict[str, str]]:
+    node_plans = plan.get("node_plans")
+    if not isinstance(node_plans, dict) or not node_plans:
+        raise RawArrayMethodsReplayError("Package V3 effective plan has no node plans")
+    requirements: dict[str, dict[str, str]] = {}
+    for node in node_plans.values():
+        if not isinstance(node, Mapping):
+            raise RawArrayMethodsReplayError("Package V3 node plan is not an object")
+        bindings = node.get("data_bindings")
+        if not isinstance(bindings, list):
+            raise RawArrayMethodsReplayError("Package V3 node plan lacks data bindings")
+        for binding in bindings:
+            if not isinstance(binding, Mapping):
+                raise RawArrayMethodsReplayError("Package V3 data binding is not an object")
+            node_id = binding.get("node_id")
+            input_name = binding.get("input_name")
+            schema = binding.get("schema_fingerprint")
+            plan_fingerprint = binding.get("plan_fingerprint")
+            if not all(
+                isinstance(value, str) and value
+                for value in (node_id, input_name, schema, plan_fingerprint)
+            ):
+                raise RawArrayMethodsReplayError(
+                    "Package V3 data binding lacks stable fingerprints"
+                )
+            assert isinstance(schema, str)
+            assert isinstance(plan_fingerprint, str)
+            key = f"{node_id}.{input_name}"
+            if key in requirements:
+                raise RawArrayMethodsReplayError("Package V3 repeats a data requirement key")
+            requirements[key] = {
+                "schema_fingerprint": schema,
+                "plan_fingerprint": plan_fingerprint,
+            }
+    if not requirements:
+        raise RawArrayMethodsReplayError("Package V3 has no data requirements")
+    return requirements
+
+
 def _source_outcome_fingerprint(package: Mapping[str, Any]) -> str:
     outcome = _object(package, "training_outcome")
     fingerprint = outcome.get("outcome_fingerprint")
     if not isinstance(fingerprint, str) or len(fingerprint) != 64:
         raise RawArrayMethodsReplayError("Package V2 training outcome lacks its fingerprint")
+    return fingerprint
+
+
+def _refit_v3_outcome_fingerprint(outcome: Mapping[str, Any]) -> str:
+    fingerprint = outcome.get("outcome_fingerprint")
+    if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+        raise RawArrayMethodsReplayError("Package V3 outcome lacks its fingerprint")
     return fingerprint
 
 
@@ -336,6 +540,8 @@ def _object(container: Mapping[str, Any], name: str) -> dict[str, Any]:
 
 __all__ = [
     "RawArrayMethodsReplayCompiler",
+    "RawArrayMethodsPortableRefitReplayCompiler",
     "RawArrayMethodsReplayError",
     "validate_native_methods_package",
+    "validate_native_methods_refit_package_v3",
 ]

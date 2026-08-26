@@ -77,7 +77,7 @@ with nirs4all.session(pipeline=my_pipeline, name="Demo", verbose=1) as sess:
    :no-index:
 ```
 
-Load a legacy bundle session or an explicit portable Archive V2 prediction
+Load a legacy bundle session or an explicit portable Archive V2/V3 prediction
 session.
 
 **Signature:**
@@ -90,9 +90,9 @@ nirs4all.load_session(
 **Parameters:**
 - `path` (str|Path): Path to the `.n4a` bundle file to load
 - `engine`: `"legacy"` (default) preserves the existing `BundleLoader` session.
-  `"native"` opens a fail-closed Core Archive V2 Methods PREDICT session and
+  `"native"` opens a fail-closed Core Archive V2/V3 Methods PREDICT session and
   accepts no legacy fallback. Opening a native session validates the Core
-  container and DAG-ML Package V2 before prediction data or an N4MM runtime is
+  container and DAG-ML Package V2 or V3 before prediction data or an N4MM runtime is
   touched.
 
 **Returns:**
@@ -118,7 +118,7 @@ print(f"Is trained: {session.is_trained}")  # True
 predictions = session.predict(X_new)
 ```
 
-**Native Archive V2 example:**
+**Native Archive V2/V3 example:**
 ```python
 native = nirs4all.load_session(
     "exports/methods_model.n4a",

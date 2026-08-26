@@ -198,6 +198,10 @@ class DagMLPipelineEstimator(BaseEstimator):
             )
 
         self.training_result_ = training_result
+        # Retain the exact signed contracts that produced this attached native
+        # result.  Full refit may use them only as parent provenance evidence;
+        # it must never rebuild a recipe from Python or re-enter CV/SELECT.
+        self.native_training_execution_ = execution
         self.training_outcome_ = getattr(training_result, "outcome", None)
         self.outputs_ = list(getattr(training_result, "outputs", []) or [])
         self.output_binding_ = self._select_output_binding(self.outputs_)
@@ -517,6 +521,11 @@ class DagMLPipelineEstimator(BaseEstimator):
 
     def _client(self) -> Any:
         return self.native_client if self.native_client is not None else DagMLNativeClient(self.dagml_module)
+
+    def native_runtime_client(self) -> DagMLNativeClient:
+        """Return the client selected for this attached native result."""
+
+        return cast(DagMLNativeClient, self._client())
 
     def _select_output_binding(self, outputs: list[dict[str, Any]]) -> dict[str, Any]:
         if self.selection_output_id is not None:
