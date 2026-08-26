@@ -422,7 +422,7 @@ If you use NIRS4ALL in your research, please cite:
   author = {Gregory Beurier and Denis Cornet and Lauriane Rouan},
   title = {NIRS4ALL: Open spectroscopy for everyone},
   url = {https://github.com/GBeurier/nirs4all},
-  version = {0.12.3},
+  version = {0.12.4},
   year = {2026},
 }
 ```
