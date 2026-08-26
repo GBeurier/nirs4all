@@ -126,16 +126,18 @@ with nirs4all.session(pipeline, engine="native") as native:
     result.export("model.n4a")
 ```
 
-The only native tuning request is
-``{"engine": "methods-hpo", "trials": N}``: it uses the DAG-ML Methods
-controller with the attested V1 PLS ``n_components`` search space, random
-sampling and no pruner. A session can bind that same request once:
+The native tuning request is ``{"engine": "methods-hpo", "trials": N}``.
+It may additionally select ``sampler="random"|"tpe"`` and
+``pruner="none"|"median"``. It uses the DAG-ML Methods controller with the
+attested V1 PLS ``n_components`` search space; no Python objective, callback,
+intermediate score or optimizer-specific setting can be injected. A session
+can bind that same request once:
 
 ```python
 with nirs4all.session(
     pipeline,
     engine="native",
-    tuning={"engine": "methods-hpo", "trials": 8},
+    tuning={"engine": "methods-hpo", "trials": 8, "sampler": "tpe", "pruner": "median"},
 ) as native:
     result = native.run(dataset)
 ```
