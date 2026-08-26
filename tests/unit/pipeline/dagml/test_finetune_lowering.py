@@ -14,6 +14,19 @@ from nirs4all.pipeline.dagml.detect import _generation_kind
 from nirs4all.pipeline.dagml.finetune_lowering import (
     lower_deterministic_finetune_params_to_generators,
 )
+from nirs4all.pipeline.dagml.run_backend import _training_loss_generation_kind
+
+
+def test_local_loss_routing_treats_allowed_train_params_as_concrete_metadata() -> None:
+    """A differentiable controller's fixed fit arguments are not a generator."""
+
+    pipeline = [
+        KFold(n_splits=2),
+        {"model": PLSRegression(), "train_params": {"epochs": 1}},
+    ]
+
+    assert _generation_kind(pipeline) == "operator"
+    assert _training_loss_generation_kind(pipeline) == "none"
 
 
 def test_deterministic_finetune_plain_grid_lowers_to_step_grid() -> None:
