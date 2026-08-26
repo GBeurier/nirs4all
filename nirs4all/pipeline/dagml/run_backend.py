@@ -31,6 +31,7 @@ import numpy as np
 
 from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
+from nirs4all.pipeline.dagml_bridge import _model_controller_id
 
 from .dataset import _dataset_inputs, _materialize_dataset
 from .detect import (
@@ -649,7 +650,21 @@ def _dispatch_run(
     from nirs4all.core import detect_task_type
 
     pipeline, finetune_overrides = _lower_public_finetune_params(pipeline)
-    reject_native_training_param_overrides(list(pipeline), context="engine='dag-ml'")
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    # A dedicated differentiable-model controller receives ``train_params`` in
+    # the portable node metadata and consumes them in both FIT_CV and REFIT.
+    # Generic controllers have no such contract, so retain the fail-closed
+    # rejection rather than silently dropping fit arguments.
+    allowed_training_param_keys = (
+        frozenset({"train_params"})
+        if len(model_steps) == 1 and _model_controller_id(model_steps[0]["model"]) is not None
+        else frozenset()
+    )
+    reject_native_training_param_overrides(
+        list(pipeline),
+        context="engine='dag-ml'",
+        allowed_keys=allowed_training_param_keys,
+    )
     config_name = _derive_config_name(pipeline, name)
     # The ordered legacy per-variant config names for a SWEEP (empty for a single concrete pipeline). The
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
