@@ -11,9 +11,13 @@ This is the shortest useful NIRS4ALL workflow. A dataset is described in YAML or
 | Run training from YAML/JSON | Yes | No native `run` command yet | Via Python bridge/wrapper | Via Python bridge/wrapper | Via process/runtime wrapper |
 | Use native operators as objects | Yes | No | Through Python bridge | Through Python bridge | No native object API in this repo |
 | Export `.n4a` bundle | Yes | Workspace/artifact tooling only | Via Python bridge/wrapper | Via Python bridge/wrapper | Via process/runtime wrapper |
-| Select `dag-ml` engine | `engine="dag-ml"` or `N4A_ENGINE=dag-ml` | Environment only for wrapped Python run | Same wrapped call | Same wrapped call | Same wrapped call |
+| Select `dag-ml` training engine | `run(..., engine="dag-ml")` or `N4A_ENGINE=dag-ml` | Environment only for wrapped Python `run` | Same wrapped call | Same wrapped call | Same wrapped call |
 
 The portable part is the configuration pair below. Language wrappers should keep those files unchanged.
+
+`N4A_ENGINE=dag-ml` selects the training backend for `nirs4all.run`. Public
+helpers that do not yet provide a DAG-ML execution path refuse the environment
+selection instead of silently switching themselves back to the legacy engine.
 
 ## 1. Describe the Dataset
 

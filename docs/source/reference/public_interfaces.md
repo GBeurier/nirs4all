@@ -238,7 +238,7 @@ Environment switches:
 
 | Variable | Effect |
 | --- | --- |
-| `N4A_ENGINE=dag-ml` | Request dag-ml for calls that do not pass `engine=` explicitly. |
+| `N4A_ENGINE=dag-ml` | Request dag-ml for `nirs4all.run` calls that do not pass `engine=` explicitly. A public helper with no DAG-ML path refuses this selection rather than silently using legacy. |
 | `N4A_NATIVE_RESULTS=/path/to/results` | For dag-ml runs, request native result output. |
 
 ## CLI Commands
