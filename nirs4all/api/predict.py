@@ -80,6 +80,7 @@ def predict(
     workspace_metadata: Mapping[str, Any] | None = None,
     workspace_result_metadata: Mapping[str, Any] | None = None,
     methods_library_path: str | Path | None = None,
+    sample_ids: Any = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Make predictions with a trained model on new data.
@@ -170,6 +171,12 @@ def predict(
             When omitted, the bundled ``nirs4all-methods`` runtime is used. It
             is never used to select a legacy execution path.
 
+        sample_ids: Explicit stable identities for a raw matrix passed to the
+            native Archive V2 path. This is equivalent to
+            ``data={"X": X, "sample_ids": ids}``; it is required when native
+            ``data`` is not already a mapping. A mapping carries its own
+            identities and must not receive a second identity source.
+
         verbose: Verbosity level (0=quiet, 1=info, 2=debug).
             Default: 0
 
@@ -241,6 +248,7 @@ def predict(
         raise ValueError("'data' is required.")
 
     if engine == "native":
+        data = _native_data_with_explicit_sample_ids(data, sample_ids)
         result = _predict_from_native_archive(
             model=model,
             data=data,
@@ -260,6 +268,12 @@ def predict(
     # Narrow the remaining legacy paths for both runtime safety and static
     # checking; none may receive a portable native session.
     assert not isinstance(session, (NativeArchiveSession, NativeMethodsSession))
+
+    # Before this argument became first-class for the explicit native path it
+    # was accepted through ``**runner_kwargs`` by legacy callers. Preserve that
+    # behavior outside native replay instead of silently dropping it.
+    if sample_ids is not None:
+        runner_kwargs["sample_ids"] = sample_ids
 
     if _is_calibrated_replayed_prediction_request(model, data):
         result = _predict_from_calibrated_replayed_arrays(
@@ -401,6 +415,27 @@ def _maybe_publish_predict_result(
     result.metadata["workspace_path"] = str(publish_path)
     result.metadata["workspace_prediction_published"] = True
     return result
+
+
+def _native_data_with_explicit_sample_ids(data: DataSpec, sample_ids: Any) -> DataSpec:
+    """Build the one native current-cohort mapping without inventing identity.
+
+    Native Archive V2 replay accepts only an exact X/identity cohort.  The
+    public keyword form is intentionally a convenience at the boundary, not a
+    second identity source or a fallback to positional row numbers.
+    """
+
+    if sample_ids is None:
+        return data
+    if isinstance(data, Mapping):
+        if "sample_ids" in data:
+            raise ValueError(
+                "engine='native' predict receives sample_ids either in data or as an explicit keyword, not both"
+            )
+        normalized = dict(data)
+        normalized["sample_ids"] = sample_ids
+        return normalized
+    return {"X": data, "sample_ids": sample_ids}
 
 
 def _predict_from_native_archive(
