@@ -90,7 +90,7 @@ def require_legacy_engine(operation: str, engine: str | None = None) -> Engine:
         if selected == "dual":
             raise DualRunUnsupported(f"nirs4all.{operation} does not support engine='dual'; the strict dual oracle is implemented only for nirs4all.run on its documented subset.")
         raise NotImplementedError(
-            f"nirs4all.{operation} does not have a {selected} execution path yet; use "
+            f"nirs4all.{operation} does not have an execution path for engine='{selected}' yet; use "
             "engine='legacy' for this transition release. nirs4all.run supports "
             "engine='dag-ml' with documented fallback boundaries."
         )
