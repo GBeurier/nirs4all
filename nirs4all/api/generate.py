@@ -21,13 +21,14 @@ Example:
 from __future__ import annotations
 
 import contextlib
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union, overload
 
 import numpy as np
 
-if TYPE_CHECKING:
-    from pathlib import Path
+from nirs4all.pipeline.engine import require_legacy_engine
 
+if TYPE_CHECKING:
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
@@ -43,6 +44,7 @@ def generate(
     train_ratio: float = ...,
     as_dataset: Literal[True] = ...,
     name: str = ...,
+    engine: str | None = ...,
     **kwargs: Any,
 ) -> SpectroDataset: ...
 
@@ -58,6 +60,7 @@ def generate(
     train_ratio: float = ...,
     as_dataset: Literal[False],
     name: str = ...,
+    engine: str | None = ...,
     **kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]: ...
 
@@ -72,6 +75,7 @@ def generate(
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_nirs",
+    engine: str | None = None,
     **kwargs: Any,
 ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
@@ -96,6 +100,9 @@ def generate(
         train_ratio: Proportion of samples for training partition.
         as_dataset: If True, returns SpectroDataset. If False, returns (X, y) tuple.
         name: Dataset name.
+        engine: Backend selector. Synthetic-data generation has no native
+            Methods implementation in this release, so every non-legacy
+            engine is refused before a builder or dataset is allocated.
         **kwargs: Additional arguments passed to SyntheticDatasetBuilder.
 
     Returns:
@@ -125,6 +132,8 @@ def generate(
         generate.classification: Convenience function for classification datasets.
         generate.builder: Access the full builder API.
     """
+    require_legacy_engine("generate", engine)
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -173,6 +182,7 @@ def regression(
     train_ratio: float = ...,
     as_dataset: Literal[True] = ...,
     name: str = ...,
+    engine: str | None = ...,
 ) -> SpectroDataset: ...
 
 @overload
@@ -187,6 +197,7 @@ def regression(
     train_ratio: float = ...,
     as_dataset: Literal[False],
     name: str = ...,
+    engine: str | None = ...,
 ) -> tuple[np.ndarray, np.ndarray]: ...
 
 def regression(
@@ -200,6 +211,7 @@ def regression(
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_regression",
+    engine: str | None = None,
 ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate a synthetic NIRS dataset for regression tasks.
@@ -218,6 +230,8 @@ def regression(
         train_ratio: Proportion of samples for training partition.
         as_dataset: If True, returns SpectroDataset. If False, returns (X, y).
         name: Dataset name.
+        engine: Backend selector. Native generation is not implemented and is
+            refused before allocating a builder or synthetic data.
 
     Returns:
         If as_dataset=True: SpectroDataset ready for pipeline use.
@@ -237,6 +251,8 @@ def regression(
         ...     random_state=42
         ... )
     """
+    require_legacy_engine("generate.regression", engine)
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -271,6 +287,7 @@ def classification(
     train_ratio: float = ...,
     as_dataset: Literal[True] = ...,
     name: str = ...,
+    engine: str | None = ...,
 ) -> SpectroDataset: ...
 
 @overload
@@ -285,6 +302,7 @@ def classification(
     train_ratio: float = ...,
     as_dataset: Literal[False],
     name: str = ...,
+    engine: str | None = ...,
 ) -> tuple[np.ndarray, np.ndarray]: ...
 
 def classification(
@@ -298,6 +316,7 @@ def classification(
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_classification",
+    engine: str | None = None,
 ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate a synthetic NIRS dataset for classification tasks.
@@ -317,6 +336,8 @@ def classification(
         train_ratio: Proportion of samples for training partition.
         as_dataset: If True, returns SpectroDataset. If False, returns (X, y).
         name: Dataset name.
+        engine: Backend selector. Native generation is not implemented and is
+            refused before allocating a builder or synthetic data.
 
     Returns:
         If as_dataset=True: SpectroDataset ready for pipeline use.
@@ -336,6 +357,8 @@ def classification(
         ...     random_state=42
         ... )
     """
+    require_legacy_engine("generate.classification", engine)
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -542,7 +565,7 @@ def to_folder(
     # Configure partitions
     builder.with_partitions(train_ratio=train_ratio)
 
-    return builder.export(path, format=format)
+    return Path(builder.export(path, format=format))
 
 def to_csv(
     path: str | Path,
@@ -588,7 +611,7 @@ def to_csv(
     if target_range is not None:
         builder.with_targets(range=target_range)
 
-    return builder.export_to_csv(path)
+    return Path(builder.export_to_csv(path))
 
 def product(
     template: str,

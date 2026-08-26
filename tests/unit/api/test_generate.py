@@ -6,6 +6,36 @@ import numpy as np
 import pytest
 
 
+@pytest.mark.parametrize(
+    ("generator", "kwargs"),
+    [
+        ("generate", {}),
+        ("regression", {}),
+        ("classification", {}),
+    ],
+)
+@pytest.mark.parametrize("engine", ["native", "dag-ml", "dual"])
+def test_nonlegacy_generation_is_refused_before_builder_allocation(
+    monkeypatch: pytest.MonkeyPatch,
+    generator: str,
+    kwargs: dict[str, object],
+    engine: str,
+) -> None:
+    """Synthetic generation cannot silently become a legacy fallback."""
+
+    import nirs4all
+    import nirs4all.synthesis as synthesis
+
+    monkeypatch.setattr(
+        synthesis,
+        "SyntheticDatasetBuilder",
+        lambda *_args, **_kwargs: pytest.fail("non-legacy generation allocated a builder"),
+    )
+    operation = nirs4all.generate if generator == "generate" else getattr(nirs4all.generate, generator)
+    with pytest.raises(NotImplementedError):
+        operation(n_samples=1, engine=engine, **kwargs)
+
+
 class TestGenerateFunction:
     """Tests for the main generate() function."""
 

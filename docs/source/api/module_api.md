@@ -108,6 +108,20 @@ fine-tuning, host-sidecars and implicit sample identities fail before native
 data execution. Archive V3 supports PREDICT only; unlike calibrated Package V2,
 it has no conformal presentation state.
 
+### Synthetic generation capability
+
+Synthetic spectrum generation is not part of the portable Methods runtime in
+this release. It remains available through the legacy synthesis plugin, while
+an explicit native, DAG-ML, or dual selection refuses before a synthetic
+builder is created:
+
+```python
+import nirs4all
+
+nirs4all.generate(n_samples=100, engine="legacy")
+# nirs4all.generate(n_samples=100, engine="native") -> NotImplementedError
+```
+
 ```python
 result = nirs4all.run(
     pipeline,           # Pipeline definition (list, dict, path, or list of pipelines)
