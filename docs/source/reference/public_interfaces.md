@@ -226,12 +226,13 @@ result = nirs4all.run(
 )
 ```
 
-The same distinction applies to generic result export. The default bridge can
-still perform a legacy refit for compatibility, while
-`result.export(..., allow_legacy_refit=False)` refuses unless the result already
-has the native portable Package/Archive evidence required for export. Neither
-switch changes the default engine; they provide an auditable no-fallback path
-while native coverage is being qualified.
+The same distinction applies to generic result export. It refuses a DAG-ML
+score-only result unless native portable Package/Archive evidence is available.
+The historic refit bridge is an explicit compatibility opt-in:
+`result.export(..., compatibility="legacy-refit")`. It is best-effort rather
+than native evidence, and neither switch changes the default engine; together
+they provide an auditable no-fallback path while native coverage is being
+qualified.
 
 Environment switches:
 
