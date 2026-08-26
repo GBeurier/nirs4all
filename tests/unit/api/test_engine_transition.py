@@ -73,12 +73,47 @@ def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner
     [
         ("portable.n4a", np.zeros((1, 2)), {}, "data={'X': matrix, 'sample_ids': explicit_ids}"),
         ("portable.joblib", {"X": [[1.0]], "sample_ids": ["p1"]}, {}, "Archive V2 .n4a"),
-        ("portable.n4a", {"X": [[1.0]], "sample_ids": ["p1"]}, {"coverage": 0.9}, "conformal intervals"),
     ],
 )
 def test_predict_native_archive_fails_closed_before_execution(model, data, kwargs, message) -> None:
     with pytest.raises((TypeError, ValueError, NotImplementedError), match=message):
         predict(model=model, data=data, engine="native", **kwargs)
+
+
+def test_predict_native_archive_projects_only_materialized_conformal_intervals(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    presentation = {
+        "schema_version": 1,
+        "package_fingerprint": "a" * 64,
+        "replay_outcome_fingerprint": "b" * 64,
+        "binding_id": "binding:pls",
+        "target_name": "moisture",
+        "sample_ids": ["p1", "p2"],
+        "point_predictions": [2.0, 3.0],
+        "intervals": [
+            {"coverage": 0.8, "lower": [1.0, 2.0], "upper": [3.0, 4.0], "qhat": 1.0},
+            {"coverage": 0.9, "lower": [0.5, 1.5], "upper": [3.5, 4.5], "qhat": 1.5},
+        ],
+        "calibration_fingerprint": "c" * 64,
+        "presentation_fingerprint": "d" * 64,
+    }
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.project_methods_archive_v2_conformal_presentation",
+        lambda *_args, **_kwargs: presentation,
+    )
+
+    result = predict(
+        model="portable.n4a",
+        data={"X": np.asarray([[1.0], [2.0]]), "sample_ids": ["p1", "p2"]},
+        engine="native",
+        coverage=0.9,
+    )
+
+    assert result.y_pred.tolist() == [[2.0], [3.0]]
+    assert sorted(result.intervals) == [0.9]
+    assert result.metadata["conformal_presentation"] is presentation
+    assert result.metadata["selected_interval_coverages"] == [0.9]
 
 
 @pytest.mark.parametrize(

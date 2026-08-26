@@ -402,10 +402,6 @@ def _predict_from_native_archive(
     archive_path = Path(model)
     if archive_path.suffix.lower() != ".n4a":
         raise ValueError("engine='native' predict requires an Archive V2 .n4a path")
-    if coverage is not None:
-        raise NotImplementedError(
-            "engine='native' Archive V2 prediction does not yet expose conformal intervals"
-        )
     if all_predictions:
         raise NotImplementedError(
             "engine='native' Archive V2 prediction exposes one selected final output"
@@ -414,26 +410,66 @@ def _predict_from_native_archive(
         raise TypeError(
             "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
         )
-    from nirs4all.pipeline.dagml.native_archive_replay import (
-        predict_methods_archive_v2_raw,
-    )
+    if coverage is None:
+        from nirs4all.pipeline.dagml.native_archive_replay import (
+            predict_methods_archive_v2_raw,
+        )
 
-    values = predict_methods_archive_v2_raw(
-        archive_path,
-        data["X"],
-        sample_ids=data["sample_ids"],
-        groups=data.get("groups"),
-        metadata=data.get("metadata"),
-    )
+        values = predict_methods_archive_v2_raw(
+            archive_path,
+            data["X"],
+            sample_ids=data["sample_ids"],
+            groups=data.get("groups"),
+            metadata=data.get("metadata"),
+        )
+        metadata_result: dict[str, Any] = {}
+        intervals: dict[float, Any] = {}
+    else:
+        from nirs4all.pipeline.dagml.native_archive_replay import (
+            project_methods_archive_v2_conformal_presentation,
+        )
+
+        presentation = project_methods_archive_v2_conformal_presentation(
+            archive_path,
+            data["X"],
+            sample_ids=data["sample_ids"],
+            groups=data.get("groups"),
+            metadata=data.get("metadata"),
+        )
+        selected_coverages = _normalize_requested_coverages(coverage)
+        assert selected_coverages is not None
+        all_intervals = presentation["intervals"]
+        intervals = {
+            float(interval["coverage"]): interval
+            for interval in all_intervals
+            if float(interval["coverage"]) in selected_coverages
+        }
+        if set(intervals) != set(selected_coverages):
+            raise ValueError(
+                "requested native conformal coverage was not materialized in this archive"
+            )
+        values = np.asarray(presentation["point_predictions"], dtype=float).reshape(-1, 1)
+        metadata_result = {
+            "conformal_presentation": presentation,
+            "selected_interval_coverages": list(selected_coverages),
+            "conformal_guarantee_status": {
+                "status": "active",
+                "source": "dag_ml_conformal_presentation_v1",
+                "calibration_fingerprint": presentation["calibration_fingerprint"],
+                "coverage": list(selected_coverages),
+            },
+        }
     return PredictResult(
         y_pred=values,
         metadata={
             "engine": "native",
             "archive_path": str(archive_path),
             "sample_ids": list(data["sample_ids"]),
+            **metadata_result,
         },
         model_name="MethodsN4MM",
         preprocessing_steps=[],
+        intervals=intervals,
     )
 
 
