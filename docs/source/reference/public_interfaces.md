@@ -241,6 +241,29 @@ Environment switches:
 | `N4A_ENGINE=dag-ml` | Request dag-ml for `nirs4all.run` calls that do not pass `engine=` explicitly. A public helper with no DAG-ML path refuses this selection rather than silently using legacy. |
 | `N4A_NATIVE_RESULTS=/path/to/results` | For dag-ml runs, request native result output. |
 
+## Native lifecycle capability matrix
+
+`engine="native"` is a separate, fail-closed Methods lane. It is not an
+alias for `engine="dag-ml"`, and it never silently instantiates a legacy
+`PipelineRunner`. The table below is the executable R2 boundary; callers
+should branch on it rather than inferring support from the broader legacy API.
+
+| Lifecycle operation | Native status | Exact boundary |
+| --- | --- | --- |
+| `run(..., engine="native")` | Supported subset | Explicit raw mapping `{"X", "y", "sample_ids"}`, portable Methods pipeline, native refit, and no legacy workspace/cache/project/result path. Unsupported shapes stop before a legacy run. |
+| `session(pipeline, engine="native")` | Supported subset | Returns `NativeMethodsSession`: native train, identity-bound prediction, Archive V2 export, close, and selected full refit. It does not create a `PipelineRunner`. |
+| `predict(..., engine="native")` | Supported subset | Requires an explicitly identified cohort. It accepts a trained `NativeMethodsSession` or validated Methods Archive V2 and rehydrates the N4MM for that invocation only. |
+| `load_session(path, engine="native")` | Supported, PREDICT-only | Validates Core Archive V2 and Package V2 before data/model hydration, then returns `NativeArchiveSession`. It has no train, retrain, save, or legacy fallback capability. |
+| `retrain(source, data, mode="full", engine="native")` | Supported subset | Source must be an in-memory `NativeMethodsRunResult` with a completed selected refit and attested seed. The selected PLS variant is copied exactly and the child outcome persists signed parent lineage. |
+| Native transfer / finetune retrain | Refused | `mode="transfer"`, `mode="finetune"`, archive sources, replacement models, epochs, and legacy retrain kwargs are rejected before native execution. A future plugin must declare its own artifact and lineage contract. |
+| `explain(..., engine="native")` | Refused | SHAP is a host plugin today. The request is rejected at engine preflight; it is never rerouted to legacy implicitly. |
+| `generate(..., engine="native")` | Refused | Synthetic-data generation has no native Methods implementation. The explicit engine is rejected before a builder or dataset is constructed. |
+
+The default remains unchanged during R2: it is not evidence that every legacy
+operation is native. Select the native lane explicitly when qualification is
+required, and use the typed refusal as the integration signal for an
+unsupported capability.
+
 ## CLI Commands
 
 Use `nirs4all <group> <command> --help` for exact options.
