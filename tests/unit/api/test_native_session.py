@@ -10,7 +10,7 @@ import pytest
 import nirs4all
 from nirs4all.api.native_result import NativeMethodsRunResult
 from nirs4all.api.native_session import NativeMethodsSession
-from nirs4all.api.session import session
+from nirs4all.api.session import Session, session
 
 
 class _Result:
@@ -70,6 +70,24 @@ def test_native_session_refuses_missing_pipeline_and_legacy_runner_kwargs() -> N
             pass
     with pytest.raises(TypeError, match="tuning must be a mapping"):
         NativeMethodsSession([], tuning=["methods-hpo"])  # type: ignore[arg-type]
+
+
+def test_public_session_constructor_selects_native_or_refuses_before_legacy_runner() -> None:
+    pipeline = [{"split": "stub"}, {"model": "stub"}]
+
+    native = Session(pipeline, engine="native", name="native", random_state=7)
+    assert isinstance(native, NativeMethodsSession)
+    assert native.pipeline is pipeline
+    assert native.random_state == 7
+
+    legacy = Session(pipeline, engine="legacy")
+    assert isinstance(legacy, Session)
+    assert "engine" not in legacy._runner_kwargs  # noqa: SLF001
+
+    with pytest.raises(NotImplementedError, match="does not have an execution path"):
+        Session(pipeline, engine="dag-ml")
+    with pytest.raises(ValueError, match="explicit portable pipeline"):
+        Session(engine="native")
 
 
 def test_native_session_binds_the_strict_methods_hpo_operation_once(monkeypatch: pytest.MonkeyPatch) -> None:
