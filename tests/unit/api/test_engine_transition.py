@@ -589,8 +589,8 @@ def test_predict_native_archive_fails_closed_before_execution(monkeypatch: pytes
         "retrain",
     ],
 )
-def test_public_helpers_ignore_dagml_env_with_warning(monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
+def test_public_helpers_refuse_dagml_env_without_legacy_fallback(monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
     monkeypatch.setenv("N4A_ENGINE", "dag-ml")
 
-    with pytest.warns(RuntimeWarning, match=rf"N4A_ENGINE=dag-ml.*nirs4all\.{operation}.*legacy"):
-        assert require_legacy_engine(operation) == "legacy"
+    with pytest.raises(NotImplementedError, match=rf"nirs4all\.{operation} does not have a dag-ml execution path"):
+        require_legacy_engine(operation)
