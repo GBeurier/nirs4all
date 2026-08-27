@@ -244,7 +244,11 @@ Or set it for the process:
 N4A_ENGINE=dag-ml python train.py
 ```
 
-If the dag-ml backend is unavailable, or the requested pipeline shape is outside current dag-ml coverage, NIRS4ALL warns and falls back to the legacy engine for catchable unsupported cases.
+If the dag-ml backend is unavailable, or the requested pipeline shape is outside
+current dag-ml coverage, the request fails closed before a legacy workspace is
+created. A compatibility rollback is available only when the caller explicitly
+sets `allow_legacy_fallback=True`; it emits a structured warning and a
+process-local fallback metric.
 
 ### Require a native result during migration qualification
 

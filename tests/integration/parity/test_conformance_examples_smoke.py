@@ -1,10 +1,12 @@
-"""CONFORMANCE: the canonical user examples run on BOTH engines.
+"""CONFORMANCE: canonical user examples either run or fail closed by engine.
 
 The shipped ``examples/user/`` tutorials are the public-facing proof that
-``nirs4all.run`` works end to end. This pins that the four canonical examples
-exit cleanly on the legacy engine AND the dag-ml engine — the engine selector is
-honored via ``$N4A_ENGINE`` (precedence: explicit arg > env > default), so a
-plain example script picks up the engine under test without code changes.
+``nirs4all.run`` works end to end. All four examples exit cleanly on the legacy
+engine. The dag-ml engine runs the currently portable hello-world example and
+refuses the three broader legacy tutorials before a legacy fallback can occur.
+The engine selector is honored via ``$N4A_ENGINE`` (precedence: explicit arg >
+env > default), so a plain example script picks up the engine under test without
+code changes.
 
 Each example is run as a SUBPROCESS (the scripts parse argv at import and import
 matplotlib), with ``cwd=examples/`` (the scripts use dataset paths relative to
@@ -38,6 +40,14 @@ _EXAMPLES = (
     "user/01_getting_started/U03_basic_classification.py",
     "user/03_preprocessing/U01_preprocessing_basics.py",
 )
+
+# These tutorials intentionally exercise pipeline shapes outside the current
+# portable DAG-ML subset (multiple model nodes, classification/ShuffleSplit, or
+# ShuffleSplit preprocessing). They must refuse in strict mode; a future native
+# lowering moves an entry out of this set and turns the expected refusal into a
+# test failure until the tutorial's portable contract is updated deliberately.
+_DAGML_STRICT_REFUSALS = frozenset(_EXAMPLES[1:])
+_LEGACY_FALLBACK_MARKER = "falling back to the legacy engine"
 
 # Optional-dependency import errors that should SKIP rather than fail.
 _OPTIONAL_DEP_MARKERS = (
@@ -75,11 +85,17 @@ def test_example_runs_on_engine(example: str, engine: str) -> None:
         timeout=600,
     )
 
+    combined = proc.stderr + proc.stdout
     if proc.returncode != 0:
-        combined = proc.stderr + proc.stdout
         if any(marker in combined for marker in _OPTIONAL_DEP_MARKERS):
             pytest.skip(f"{example} on engine={engine}: optional dependency not installed")
+        if engine == "dag-ml" and example in _DAGML_STRICT_REFUSALS:
+            assert "DagMlUnsupported" in combined
+            assert _LEGACY_FALLBACK_MARKER not in combined
+            return
         pytest.fail(
             f"{example} on engine={engine} exited {proc.returncode}:\n"
             f"--- stderr tail ---\n{proc.stderr[-2000:]}"
         )
+    if engine == "dag-ml" and example in _DAGML_STRICT_REFUSALS:
+        pytest.fail(f"{example} unexpectedly gained dag-ml coverage; update its portable contract")

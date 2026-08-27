@@ -11,6 +11,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.7] — 2026-08-27
+
+### Fixed
+
+- Align the published DAG-ML coverage ledger with native classification vote
+  aggregation, and make unsupported tutorial pipelines assert their strict,
+  no-fallback boundary.
+
+---
+
 ## [0.12.6] — 2026-08-27
 
 ### Fixed
