@@ -630,6 +630,7 @@ def run(
     project: str | None = None,
     report_naming: str = "nirs",
     engine: str | None = None,
+    allow_legacy_fallback: bool = True,
     tuning: Any | None = None,
     calibration: Any | None = None,
     results_path: str | Path | None = None,
@@ -727,6 +728,10 @@ def run(
             and are not comparison evidence. The legacy leg uses a temporary workspace removed before
             return. The current PLS report is marked orchestration-only / ``python_sklearn_pls`` rather
             than native Methods execution.
+        allow_legacy_fallback: When ``engine="dag-ml"`` cannot represent the request or its
+            backend is unavailable, ``True`` preserves the historical warning-and-legacy behavior.
+            Set ``False`` to fail closed instead; no legacy runner is then constructed after a native
+            coverage or availability refusal.
 
         tuning: Typed native tuning specification for the currently supported
             DAG-ML subset. With ``engine="dag-ml"``, this supports explicit
@@ -1143,6 +1148,9 @@ def run(
         from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
+        if not isinstance(allow_legacy_fallback, bool):
+            raise TypeError("allow_legacy_fallback must be a bool")
+
         try:
             # Forward EVERY run() kwarg that affects the dag-ml run so engine='dag-ml' honors the same
             # options as legacy (P1b). Two regimes:
@@ -1176,12 +1184,16 @@ def run(
                 results_path=results_path,
             )
         except DagMlUnavailable as e:
+            if not allow_legacy_fallback:
+                raise
             warnings.warn(
                 f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
                 stacklevel=2,
             )
             return _run_legacy()
         except (DagMlUnsupported, NotImplementedError) as e:
+            if not allow_legacy_fallback:
+                raise
             warnings.warn(
                 f"engine='dag-ml' does not support this pipeline shape ({e}); falling back to the legacy engine",
                 stacklevel=2,
