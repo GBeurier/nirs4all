@@ -64,8 +64,11 @@ def fit_native_pipeline(
 ) -> DagMLPipelineEstimator:
     """Fit the supported raw-array pipeline entirely through DAG-ML.
 
-    This is an intentionally narrow native API: a linear list pipeline with
-    one splitter and one supported model, finite 2-D ``X``, and finite targets.
+    This is an intentionally narrow native API: either one KFold/PLS model or
+    an exact nested-OOF stack of two-or-more PLS branches followed by default
+    sklearn ``Ridge(alpha=...)``.  The Ridge features are scheduler-owned OOF
+    predictions; the raw matrix is retained only for identity/target
+    attestation.  Inputs remain finite 2-D ``X`` with finite targets.
     ``sample_ids`` are mandatory because the resulting Package V2 and Archive
     V2 require stable identities for every later PREDICT cohort.
 

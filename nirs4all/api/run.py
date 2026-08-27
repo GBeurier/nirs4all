@@ -708,8 +708,9 @@ def run(
             requests before the legacy engine is constructed. ``True`` is the
             sole opt-in that permits a warning-bearing legacy rollback.
             ``engine='native'`` runs the verified portable Methods subset: a
-            raw ``{'X', 'y', 'sample_ids'}`` dataset, one supported linear
-            KFold/PLS pipeline, ``refit=True``, ``save_artifacts=True`` and
+            raw ``{'X', 'y', 'sample_ids'}`` dataset and either one supported
+            KFold/PLS pipeline or the closed nested-OOF PLS-branch → Ridge
+            stack, ``refit=True``, ``save_artifacts=True`` and
             ``save_charts=False``. Unsupported workflow features are refused
             before execution; this path never falls through to the legacy
             orchestrator.  Its optional strict HPO V1 operation is
