@@ -29,10 +29,12 @@ def test_require_legacy_engine_accepts_legacy() -> None:
     assert require_legacy_engine("predict", "legacy") == "legacy"
 
 
+@pytest.mark.parametrize("engine", [None, "native"], ids=["default", "explicit-native"])
 def test_run_native_executes_the_methods_subset_without_constructing_a_legacy_runner(
     monkeypatch: pytest.MonkeyPatch,
+    engine: str | None,
 ) -> None:
-    """The public native lane never constructs ``PipelineRunner``."""
+    """The default and explicit native lanes never construct ``PipelineRunner``."""
 
     def legacy_runner(*_args, **_kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("run(engine='native') constructed a legacy PipelineRunner")
@@ -89,7 +91,7 @@ def test_run_native_executes_the_methods_subset_without_constructing_a_legacy_ru
     result = run(
         [{"split": "stub"}, {"model": "stub"}],
         {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["s1", "s2"]},
-        engine="native",
+        engine=engine,
         save_charts=False,
     )
 

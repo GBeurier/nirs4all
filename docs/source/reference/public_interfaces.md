@@ -262,10 +262,9 @@ should branch on it rather than inferring support from the broader legacy API.
 | `explain(..., engine="native")` | Refused | SHAP is a host plugin today. A native result or session is rejected at preflight even when no engine argument is supplied; it is never rerouted to legacy implicitly. |
 | `generate(..., engine="native")` | Refused | Synthetic-data generation has no native Methods implementation. The explicit engine is rejected before a builder or dataset is constructed. |
 
-The default remains unchanged during R2: it is not evidence that every legacy
-operation is native. Select the native lane explicitly when qualification is
-required, and use the typed refusal as the integration signal for an
-unsupported capability.
+Native is the R2 default.  The capability table remains authoritative: an
+unsupported operation emits its typed refusal before legacy orchestration.
+Use ``engine="legacy"`` only for an explicit rollback or diagnostic run.
 
 ## CLI Commands
 

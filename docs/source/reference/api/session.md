@@ -89,7 +89,9 @@ nirs4all.load_session(
 
 **Parameters:**
 - `path` (str|Path): Path to the `.n4a` bundle file to load
-- `engine`: `"legacy"` (default) preserves the existing `BundleLoader` session.
+- `engine`: `"native"` is the default and opens a validated portable archive
+  session for supported Methods artifacts. `"legacy"` explicitly preserves the
+  existing `BundleLoader` rollback session.
   `"native"` opens a fail-closed Core Archive V2/V3 Methods PREDICT session and
   accepts no legacy fallback. Opening a native session validates the Core
   container and DAG-ML Package V2 or V3 before prediction data or an N4MM runtime is

@@ -16,7 +16,7 @@ The same YAML/JSON contract is the stable user surface across Python and languag
 | R | Portable wrapper pattern | Yes | Through `reticulate` or a binding wrapper | Calls the Python runtime today | Calls the Python runtime today | {doc}`getting_started/hello_world` |
 | Julia | Portable wrapper pattern | Yes | Through `PythonCall` or a binding wrapper | Calls the Python runtime today | Calls the Python runtime today | {doc}`getting_started/hello_world` |
 | JavaScript/TypeScript | Portable process/runtime wrapper pattern | Yes | No native JS API in this repo | Calls a Python/runtime process today | Calls a Python/runtime process today | {doc}`getting_started/hello_world` |
-| dag-ml runtime | Selectable from Python | Yes, for covered shapes | No Python object construction | `engine="dag-ml"` strict by default; legacy rollback is explicit-only | Native result artifacts export directly when supported; legacy refit is explicit-only | {doc}`reference/public_interfaces` |
+| native Methods runtime | Default from Python | Yes, for its covered portable shapes | No Python object construction | Unsupported shapes refuse before legacy; `engine="legacy"` is explicit-only | Native result artifacts export directly when supported; legacy refit is explicit-only | {doc}`reference/public_interfaces` |
 
 :::{note}
 The language-independent contract is the pair of config files. Native R, Julia, or JavaScript package APIs can wrap that contract without changing user pipelines.

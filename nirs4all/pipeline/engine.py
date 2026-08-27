@@ -1,29 +1,17 @@
-"""Execution-engine selector for the nirs4all core (interim legacy-default posture).
+"""Execution-engine selector for the R2 native-default boundary.
 
-Seam for the **nirs4all-core → dag-ml** migration. The default production engine is **legacy**: the
-public-maintained nirs4all stays pure-Python by default, so :func:`nirs4all.run` runs through the
-in-process *legacy* orchestrator (:class:`~nirs4all.pipeline.PipelineRunner`) unless another engine is
-selected. The dag-ml backend (:mod:`nirs4all.pipeline.dagml.run_backend`) — which runs the pipeline
-natively (Rust) and returns a ``RunResult`` of dag-ml's native scores — stays
-**fully selectable** via
-``engine="dag-ml"`` or ``$N4A_ENGINE=dag-ml``; the whole dag-ml integration (in-process path, native
-generator coverage, conformance pack, hard dependency) is intact and runnable out of the box.
+The ordinary public call now selects the verified native Methods lane.  A
+shape outside that portable capability fails before legacy orchestration or
+data consumption.  ``engine="legacy"`` remains an explicit, user-visible
+rollback and diagnostic path; it is never chosen implicitly.
 
-An unavailable or unsupported dag-ml request is fail-closed by default.  A
-legacy rerun is an explicit R2 rollback action through
-``run(..., engine="dag-ml", allow_legacy_fallback=True)``; it is never an
-implicit substitute for a claimed native execution.
+``engine="dag-ml"`` retains its broader transition integration and its
+separately explicit ``allow_legacy_fallback=True`` diagnostic option.  The
+side-by-side ``"dual"`` oracle remains limited to its documented
+:func:`nirs4all.run` subset.
 
-This is the interim posture: the maintainer keeps the public Python version as the default until the
-planned global refactoring lands; at that point the legacy-DROP cutover flips the default back to
-dag-ml (the ADR-17 end state). The side-by-side comparison mode (``"dual"``) is intentionally
-limited to the strict :func:`nirs4all.run` oracle subset; other public operations reject it.
-
-Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAULT_ENGINE`
-(``legacy``, interim). Pass ``engine="dag-ml"`` (or ``$N4A_ENGINE=dag-ml``) to run on the dag-ml
-    backend. ``engine="native"`` separately exposes the verified, fail-closed
-    Methods subset: raw-array PLS run/session/predict and Archive V2 replay.
-    See ``dag-ml/docs/migration-nirs4all/``.
+Selection precedence is explicit argument > ``$N4A_ENGINE`` >
+:data:`DEFAULT_ENGINE` (``native``).
 """
 
 from __future__ import annotations
@@ -36,7 +24,7 @@ from typing import Any, Literal, cast
 
 Engine = Literal["legacy", "dag-ml", "dual", "native"]
 
-DEFAULT_ENGINE: Engine = "legacy"
+DEFAULT_ENGINE: Engine = "native"
 ENGINE_ENV_VAR = "N4A_ENGINE"
 ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "dual", "native")
 
@@ -131,19 +119,18 @@ class DualRunMismatchError(RuntimeError):
 
 
 def resolve_engine(engine: str | None = None) -> Engine:
-    """Resolve the requested execution engine, defaulting to ``legacy`` (interim, pre-refactoring).
+    """Resolve the requested execution engine, defaulting to ``native``.
 
-    The default is the pure-Python ``legacy`` orchestrator: the public-maintained nirs4all stays
-    pure-Python by default until the planned global refactoring lands (then the legacy-DROP cutover
-    flips the default back to ``dag-ml``). The dag-ml backend stays fully selectable here via
-    ``engine="dag-ml"`` or ``$N4A_ENGINE=dag-ml``.
+    Native is intentionally fail-closed: unsupported public operations must
+    report their capability boundary, rather than instantiate the legacy
+    runner.  ``legacy`` stays available only when requested explicitly.
 
     Args:
         engine: Explicit engine name. When ``None``, falls back to the
             ``$N4A_ENGINE`` environment variable, then :data:`DEFAULT_ENGINE`.
 
     Returns:
-        The validated engine name. ``"legacy"`` (the default), ``"dag-ml"`` and the narrow
+        The validated engine name. ``"native"`` (the default), ``"legacy"``, ``"dag-ml"`` and the narrow
         ``"dual"`` oracle mode are dispatched by :func:`nirs4all.run`. ``"native"`` is a
         fail-closed Methods subset for raw-array training, sessions, prediction, and Archive V2
         replay; unsupported operations refuse it before execution.
