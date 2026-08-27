@@ -101,6 +101,7 @@ class RawArrayMethodsReplayCompiler:
 
         package = _package_document(self.package)
         _require_native_methods_package(package)
+        method_artifact_ids = _native_methods_refit_artifact_ids(package)
         bundle = _object(package, "execution_bundle")
         requirements = _requirements(bundle)
         binding = _single_output_binding(package)
@@ -146,6 +147,10 @@ class RawArrayMethodsReplayCompiler:
             # Compatibility tests and pre-published bindings may still use the
             # old explicit hydration callback.  The public fit path always
             # supplies a library path and therefore never takes this branch.
+            if len(method_artifact_ids) != 1:
+                raise RawArrayMethodsReplayError(
+                    "portable multi-model Methods replay requires an explicit libn4m path"
+                )
             resolver = _ArrayReplayResolver(
                 dict(zip(identity_frame.sample_ids, values, strict=True))
             )
@@ -357,24 +362,46 @@ def _require_native_methods_package(package: Mapping[str, Any]) -> None:
         for artifact_id, payload in raw.items()
         if isinstance(artifact_id, str) and isinstance(payload, (str, list, bytes, bytearray))
     }
-    # Package V2 serializes refit artifacts as records containing ``artifact``.
-    # Keep accepting the historical flattened test fixture while all public
-    # production paths use the nested record shape.
-    methods = [
-        record
-        for record in artifacts
-        if isinstance(record, dict)
-        and _artifact_document(record).get("kind") == "n4m_model"
-    ]
-    if len(methods) != 1:
+    artifact_ids = _native_methods_refit_artifact_ids(package)
+    if not set(artifact_ids).issubset(raw_ids):
         raise RawArrayMethodsReplayError(
-            "raw-array Methods replay requires exactly one n4m_model refit artifact"
+            "Package V2 N4MM refit artifacts must each have a matching durable raw payload"
         )
-    artifact_id = _artifact_document(methods[0]).get("id", methods[0].get("artifact_id"))
-    if not isinstance(artifact_id, str) or artifact_id not in raw_ids:
-        raise RawArrayMethodsReplayError(
-            "Package V2 N4MM refit artifact has no matching durable raw payload"
-        )
+
+
+def _native_methods_refit_artifact_ids(package: Mapping[str, Any]) -> list[str]:
+    """Return the complete portable Methods refit set, refusing mixed backends.
+
+    A linear PLS package has one N4MM.  A native stacking graph has one per
+    PLS branch plus the Ridge meta-model, and replay must hydrate the complete
+    graph rather than selecting an arbitrary artifact.  Host sidecars remain
+    a hard refusal at this public raw-array boundary.
+    """
+
+    bundle = _object(package, "execution_bundle")
+    artifacts = bundle.get("refit_artifacts")
+    if not isinstance(artifacts, list) or not artifacts:
+        raise RawArrayMethodsReplayError("Package V2 has no refit artifact list")
+    artifact_ids: list[str] = []
+    for record in artifacts:
+        if not isinstance(record, Mapping):
+            raise RawArrayMethodsReplayError("Package V2 refit artifact is not an object")
+        artifact = _artifact_document(record)
+        artifact_id = artifact.get("id", record.get("artifact_id"))
+        backend = artifact.get("backend")
+        if (
+            artifact.get("kind") != "n4m_model"
+            or not isinstance(artifact_id, str)
+            or not artifact_id
+            or (backend is not None and backend != "raw")
+        ):
+            raise RawArrayMethodsReplayError(
+                "raw-array Methods replay requires only raw n4m_model refit artifacts"
+            )
+        artifact_ids.append(artifact_id)
+    if len(artifact_ids) != len(set(artifact_ids)):
+        raise RawArrayMethodsReplayError("Package V2 repeats a Methods refit artifact id")
+    return artifact_ids
 
 
 def _artifact_document(record: Mapping[str, Any]) -> Mapping[str, Any]:

@@ -19,6 +19,7 @@ from nirs4all.pipeline.dagml.native_archive_replay import (
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
     RawArrayMethodsReplayCompiler,
     RawArrayMethodsReplayError,
+    validate_native_methods_package,
 )
 
 
@@ -63,6 +64,23 @@ def _package() -> dict[str, object]:
             }
         ],
     }
+
+
+def _stack_package() -> dict[str, object]:
+    """A portable graph with two N4MM refit nodes, as emitted by stacking."""
+
+    package = _package()
+    bundle = package["execution_bundle"]
+    assert isinstance(bundle, dict)
+    bundle["raw_artifact_payloads"] = {
+        "artifact:pls": [1, 2, 3],
+        "artifact:ridge": [4, 5, 6],
+    }
+    bundle["refit_artifacts"] = [
+        {"artifact": {"id": "artifact:pls", "kind": "n4m_model", "backend": "raw"}},
+        {"artifact": {"id": "artifact:ridge", "kind": "n4m_model", "backend": "raw"}},
+    ]
+    return package
 
 
 def _install_fake_runtime(monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamespace:
@@ -133,6 +151,31 @@ def test_raw_replay_compiler_refuses_implicit_identities_and_missing_n4mm(
         RawArrayMethodsReplayCompiler(
             invalid, dagml_module="dag_ml_raw_replay_test"
         ).compile_replay(None, X, mode="predict", identity_frame=explicit)  # type: ignore[arg-type]
+
+
+def test_raw_replay_accepts_complete_native_stack_and_refuses_python_callback_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stack needs every N4MM; the legacy callback cannot fake its OOF features."""
+
+    _install_fake_runtime(monkeypatch)
+    X = np.asarray([[1.0], [2.0]])
+    identity = normalize_predict_identity(X, sample_ids=["sample.one", "sample.two"])
+    package = _stack_package()
+
+    assert validate_native_methods_package(package) is package
+    with pytest.raises(RawArrayMethodsReplayError, match="multi-model Methods replay requires an explicit libn4m path"):
+        RawArrayMethodsReplayCompiler(
+            package, dagml_module="dag_ml_raw_replay_test"
+        ).compile_replay(None, X, mode="predict", identity_frame=identity)  # type: ignore[arg-type]
+
+    replay = RawArrayMethodsReplayCompiler(
+        package,
+        dagml_module="dag_ml_raw_replay_test",
+        methods_library_path="/absolute/libn4m.so",
+    ).compile_replay(None, X, mode="predict", identity_frame=identity)  # type: ignore[arg-type]
+    assert replay.op_callback is None
+    assert replay.methods_inputs is not None
 
 
 def test_raw_replay_resolver_refuses_unknown_or_duplicated_ids(
