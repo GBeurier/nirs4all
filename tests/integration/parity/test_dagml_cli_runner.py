@@ -3138,8 +3138,8 @@ def test_duplication_branch_unsupported_merge_fails_loud() -> None:
 def test_stacking_branch_detection() -> None:
     """The stacking detector consumes ONLY the duplication-branch + predictions-merge + meta-model shape.
 
-    `_detect_stacking_branch` returns `(branches, meta_learner)` for `{"branch": [[A], [B], …]}` (each
-    sub-pipeline with a model) + `{"merge": "predictions"}` + a downstream `{"model": M}` whose M is a
+    `_detect_stacking_branch` returns `(branches, meta_learner)` for a list or named duplication branch
+    (each sub-pipeline with a model) + `{"merge": "predictions"}` + a downstream `{"model": M}` whose M is a
     handled meta-learner (a default `MetaModel` wrapper → its wrapped sklearn model, or a plain sklearn
     estimator). Everything else (no/mis-ordered model, a fusion/concat/per-branch merge, a MetaModel
     carrying unhandled options, a top-level step beside the branch) returns None so the loud #10 path
@@ -3158,6 +3158,19 @@ def test_stacking_branch_detection() -> None:
     assert plain is not None
     branches, meta_learner = plain
     assert len(branches) == 2 and isinstance(meta_learner, Ridge) and meta_learner.alpha == 0.7
+
+    # Named duplication is the same full-view operation as the list spelling. Its insertion order is
+    # carried into the meta-feature columns, so it must be preserved rather than sorted by branch name.
+    named_branch = {
+        "branch": {
+            "ridge_second": [{"model": Ridge(alpha=1.0)}],
+            "pls_first": [{"model": PLSRegression(n_components=5)}],
+        }
+    }
+    named = _detect_stacking_branch([splitter, named_branch, {"merge": "predictions"}, {"model": Ridge(alpha=0.6)}])
+    assert named is not None
+    assert isinstance(named[0][0][0]["model"], Ridge)
+    assert isinstance(named[0][1][0]["model"], PLSRegression)
 
     # Handled: a MetaModel wrapper → its wrapped sklearn model (with its params).
     wrapped = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(alpha=0.3))}])
@@ -3222,7 +3235,14 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
     n_splits, n_comp, base_alpha, meta_alpha = 3, 5, 1.0, 1.0
     pipeline = [
         KFold(n_splits=n_splits, shuffle=True, random_state=42),
-        {"branch": [[{"model": PLSRegression(n_components=n_comp)}], [{"model": Ridge(alpha=base_alpha)}]]},
+        {
+            "branch": {
+                # Named duplication must preserve this insertion order as the PLS/Ridge meta-feature
+                # column order used by the explicit reference oracle below.
+                "pls": [{"model": PLSRegression(n_components=n_comp)}],
+                "ridge": [{"model": Ridge(alpha=base_alpha)}],
+            }
+        },
         {"merge": "predictions"},
         {"model": Ridge(alpha=meta_alpha)},
     ]
