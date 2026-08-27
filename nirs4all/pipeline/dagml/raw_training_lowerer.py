@@ -24,7 +24,7 @@ from nirs4all.pipeline.dagml_bridge import _model_controller_id, _model_data_req
 
 from .cli_runner import assemble_cv_refit_dsl, data_bindings_for_nodes, split_invocation_for
 from .detect import _detect_stacking_branch
-from .envelope import build_envelope
+from .envelope import build_envelope, build_fold_set
 from .errors import _reject_multi_model
 from .estimator import DagMLPipelineEstimator, DagMLTrainingExecution
 from .finetune_lowering import lower_deterministic_finetune_params_to_generators, reject_native_training_param_overrides
@@ -148,6 +148,8 @@ def lower_raw_array_training_contracts(
     identity = identity_from_fit_frame(identity_frame)
     pool = dataset.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, dataset, pool, excluded=set())
+    if portable_methods_stacking is not None:
+        _require_partitioned_outer_stacking(identity, folds)
     envelope = build_envelope(
         dataset,
         identity,
@@ -391,6 +393,19 @@ def _portable_methods_stacking(steps: list[Any]) -> _PortableMethodsStacking | N
             "other solver/intercept/copy policies are not silently lowered"
         )
     return _PortableMethodsStacking(branches=tuple(components), ridge_lambda=float(alpha))
+
+
+def _require_partitioned_outer_stacking(
+    identity: IdentityMap, folds: list[tuple[list[int], list[int]]]
+) -> None:
+    """Require exactly one outer OOF row per sample before lowering a stack."""
+
+    fold_set = build_fold_set(identity, folds, set_id="folds.raw_methods.stacking.outer")
+    if fold_set.get("partition_mode") == "resampled":
+        raise ValueError(
+            "portable Methods nested stacking requires an outer CV partition with exactly one validation "
+            "prediction per sample; repeated or ShuffleSplit CV is not portable"
+        )
 
 
 def _portable_methods_stacking_dsl(
