@@ -57,7 +57,7 @@ Synthetic Data Generation:
 See examples/ for more usage examples.
 """
 
-__version__ = "0.12.8"
+__version__ = "0.12.9"
 
 # Module-level API (primary interface) - Phase 2
 from .api import (
