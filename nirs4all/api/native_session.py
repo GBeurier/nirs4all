@@ -30,6 +30,7 @@ class NativeMethodsSession:
         name: str = "",
         random_state: int | None = None,
         tuning: Mapping[str, Any] | None = None,
+        calibration: Mapping[str, Any] | None = None,
     ) -> None:
         if not isinstance(pipeline, list):
             raise TypeError("engine='native' session requires a list pipeline")
@@ -37,10 +38,13 @@ class NativeMethodsSession:
             raise TypeError("engine='native' session random_state must be an integer or None")
         if tuning is not None and not isinstance(tuning, Mapping):
             raise TypeError("engine='native' session tuning must be a mapping")
+        if calibration is not None and not isinstance(calibration, Mapping):
+            raise TypeError("engine='native' session calibration must be a mapping")
         self._pipeline = pipeline
         self._name = name
         self._random_state = random_state
         self._tuning = None if tuning is None else dict(tuning)
+        self._calibration = None if calibration is None else dict(calibration)
         self._result: NativeMethodsRunResult | NativeMethodsRefitResult | None = None
         self._closed = False
 
@@ -69,6 +73,12 @@ class NativeMethodsSession:
         return None if self._tuning is None else dict(self._tuning)
 
     @property
+    def calibration(self) -> dict[str, Any] | None:
+        """Return the explicit identity-bound conformal calibration request."""
+
+        return None if self._calibration is None else dict(self._calibration)
+
+    @property
     def is_trained(self) -> bool:
         """Whether this session owns a fitted native result."""
 
@@ -94,6 +104,7 @@ class NativeMethodsSession:
             save_charts=False,
             random_state=self._random_state,
             tuning=self._tuning,
+            calibration=self._calibration,
         )
         return self._result
 

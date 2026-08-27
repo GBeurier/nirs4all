@@ -57,6 +57,7 @@ def test_native_session_runs_predicts_saves_and_closes_without_legacy_runner(mon
         "save_charts": False,
         "random_state": 7,
         "tuning": None,
+        "calibration": None,
     }
     with pytest.raises(RuntimeError, match="closed"):
         native.run({"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]})
@@ -71,6 +72,8 @@ def test_native_session_refuses_missing_pipeline_and_legacy_runner_kwargs() -> N
             pass
     with pytest.raises(TypeError, match="tuning must be a mapping"):
         NativeMethodsSession([], tuning=["methods-hpo"])  # type: ignore[arg-type]
+    with pytest.raises(TypeError, match="calibration must be a mapping"):
+        NativeMethodsSession([], calibration=["conformal"])  # type: ignore[arg-type]
 
 
 def test_public_session_constructor_selects_native_or_refuses_before_legacy_runner() -> None:
@@ -124,6 +127,37 @@ def test_native_session_binds_the_strict_methods_hpo_operation_once(monkeypatch:
     assert native.tuning == {"engine": "methods-hpo", "trials": 3}
     assert native.run({"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}) is result
     assert observed["tuning"] == {"engine": "methods-hpo", "trials": 3}
+
+
+def test_native_session_binds_the_explicit_conformal_calibration_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Stateful native training retains the caller's calibration request boundary."""
+
+    result = _Result()
+    observed: dict[str, object] = {}
+    calibration = {
+        "X": [[1.0]],
+        "y": [1.0],
+        "sample_ids": ["cal-1"],
+        "coverages": [0.9],
+    }
+
+    def native_run(_pipeline, _dataset, **kwargs):  # noqa: ANN001
+        observed.update(kwargs)
+        return result
+
+    monkeypatch.setattr("nirs4all.api.native_session.run_native_methods", native_run)
+    native = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}], calibration=calibration)
+
+    assert native.calibration == calibration
+    calibration["coverages"] = [0.8]
+    assert native.calibration == {
+        "X": [[1.0]],
+        "y": [1.0],
+        "sample_ids": ["cal-1"],
+        "coverages": [0.9],
+    }
+    assert native.run({"X": [[2.0]], "y": [2.0], "sample_ids": ["s1"]}) is result
+    assert observed["calibration"] == native.calibration
 
 
 def test_native_run_delegates_to_the_matching_native_session(monkeypatch: pytest.MonkeyPatch) -> None:
