@@ -32,7 +32,12 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, resolve_engine
+from nirs4all.pipeline.engine import (
+    DualRunMismatchError,
+    DualRunUnsupported,
+    record_legacy_fallback,
+    resolve_engine,
+)
 
 from .native_session import NativeMethodsSession
 from .result import RunResult
@@ -1265,18 +1270,12 @@ def run(
         except DagMlUnavailable as e:
             if custom_training_loss_requested or allow_legacy_fallback is not True:
                 raise
-            warnings.warn(
-                f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
-                stacklevel=2,
-            )
+            warnings.warn(record_legacy_fallback(reason="backend_unavailable", detail=str(e)), stacklevel=2)
             return _run_legacy()
         except (DagMlUnsupported, NotImplementedError) as e:
             if custom_training_loss_requested or allow_legacy_fallback is not True:
                 raise
-            warnings.warn(
-                f"engine='dag-ml' does not support this pipeline shape ({e}); falling back to the legacy engine",
-                stacklevel=2,
-            )
+            warnings.warn(record_legacy_fallback(reason="unsupported_shape", detail=str(e)), stacklevel=2)
             return _run_legacy()
 
     return _run_legacy()

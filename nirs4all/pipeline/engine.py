@@ -29,7 +29,9 @@ Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAU
 from __future__ import annotations
 
 import os
+from collections import Counter
 from collections.abc import Mapping
+from threading import Lock
 from typing import Any, Literal, cast
 
 Engine = Literal["legacy", "dag-ml", "dual", "native"]
@@ -37,6 +39,73 @@ Engine = Literal["legacy", "dag-ml", "dual", "native"]
 DEFAULT_ENGINE: Engine = "legacy"
 ENGINE_ENV_VAR = "N4A_ENGINE"
 ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "dual", "native")
+
+LegacyFallbackReason = Literal["backend_unavailable", "unsupported_shape"]
+
+
+class LegacyFallbackWarning(RuntimeWarning):
+    """Structured evidence that an explicit native-to-legacy rollback occurred.
+
+    This warning can only be emitted for ``engine="dag-ml"`` when the caller
+    supplied ``allow_legacy_fallback=True``.  It deliberately carries no input
+    data or pipeline representation: diagnostics must remain safe to collect
+    without disclosing scientific data.
+    """
+
+    engine: Literal["dag-ml"] = "dag-ml"
+
+    def __init__(self, *, reason: LegacyFallbackReason, detail: str) -> None:
+        self.reason = reason
+        self.detail = detail
+        if reason == "backend_unavailable":
+            message = f"the dag-ml backend is not available ({detail}); falling back to the legacy engine"
+        else:
+            message = f"engine='dag-ml' does not support this pipeline shape ({detail}); falling back to the legacy engine"
+        super().__init__(message)
+
+    def as_dict(self) -> dict[str, str]:
+        """Return the safe, structured diagnostic payload for this rollback.
+
+        ``detail`` is deliberately omitted: backend exception text may include
+        user-supplied configuration.  Callers that display the warning already
+        receive that text through the ordinary warning channel.
+        """
+
+        return {"engine": self.engine, "reason": self.reason}
+
+
+_legacy_fallback_counts: Counter[LegacyFallbackReason] = Counter()
+_legacy_fallback_lock = Lock()
+
+
+def record_legacy_fallback(*, reason: LegacyFallbackReason, detail: str) -> LegacyFallbackWarning:
+    """Record one caller-authorized rollback and return its warning payload.
+
+    This intentionally has no persistence or telemetry side effect.  Product
+    callers decide whether to inspect :func:`legacy_fallback_metrics`; the
+    counter merely makes the opt-in rollback observable in the current process.
+    """
+
+    with _legacy_fallback_lock:
+        _legacy_fallback_counts[reason] += 1
+    return LegacyFallbackWarning(reason=reason, detail=detail)
+
+
+def legacy_fallback_metrics() -> dict[str, int]:
+    """Return process-local counts for explicit legacy rollback events.
+
+    The returned mapping is a snapshot with a stable ``total`` plus one count
+    per declared rollback reason.  No run that failed closed contributes here.
+    """
+
+    with _legacy_fallback_lock:
+        unavailable = _legacy_fallback_counts["backend_unavailable"]
+        unsupported = _legacy_fallback_counts["unsupported_shape"]
+    return {
+        "total": unavailable + unsupported,
+        "backend_unavailable": unavailable,
+        "unsupported_shape": unsupported,
+    }
 
 
 class DualRunUnsupported(NotImplementedError):
