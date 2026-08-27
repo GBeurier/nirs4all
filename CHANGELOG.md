@@ -11,6 +11,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.9] — 2026-08-27
+
+### Fixed
+
+- Require DAG-ML 0.3.18 so native stacking uses its attested nested-OOF
+  scheduler rather than an unsupported execution path.
+- Make the conformance-example subprocess reader explicitly UTF-8 on Windows,
+  and update the frozen retrain public signature for its native refit result.
+
+---
+
 ## [0.12.8] — 2026-08-27
 
 ### Fixed
