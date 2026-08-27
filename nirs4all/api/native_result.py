@@ -103,6 +103,33 @@ class NativeMethodsRunResult(RunResult):
             raise DagMLNativeCoverageError("native Methods HPO state is not a structured mapping")
         return dict(state)
 
+    def hpo_resume_package_json(self) -> str:
+        """Return the complete signed package required to resume native HPO.
+
+        The package — not a free checkpoint or a Python trial list — is the
+        portable resume carrier.  Passing its exact JSON back as
+        ``tuning={"engine": "methods-hpo", ..., "resume_package_json": ...}``
+        lets DAG-ML validate the checkpoint, terminal ledger, plan, fold set,
+        identities, influence and SELECT binding before it requests another
+        native trial.  Results without a Methods HPO state cannot be used as a
+        resume parent.
+        """
+
+        if self.native_methods_hpo_resume_state is None:
+            raise ValueError("native result has no Methods HPO resume state")
+        package = getattr(self._native_estimator, "predictor_package_", None)
+        serializer = getattr(package, "json", None)
+        if not callable(serializer):
+            raise DagMLNativeCoverageError(
+                "native Methods HPO result does not retain a strict portable package serializer"
+            )
+        package_json = serializer()
+        if not isinstance(package_json, str) or not package_json:
+            raise DagMLNativeCoverageError(
+                "native Methods HPO package serializer returned an invalid payload"
+            )
+        return package_json
+
     @property
     def native_selected_variant_id(self) -> str | None:
         """Return the scheduler-selected native variant identity, if any."""

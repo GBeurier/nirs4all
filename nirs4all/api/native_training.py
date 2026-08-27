@@ -177,9 +177,12 @@ def run_native_methods(
     ``tuning`` is deliberately a separate, strict native operation rather
     than the older Python objective adapter.  Its V1 shape is
     ``{"engine": "methods-hpo", "trials": N}``, optionally selecting the
-    attested ``random``/``tpe`` sampler and ``none``/``median`` pruner.  DAG-ML
-    owns all trial execution, SELECT, native incumbent attestation, and the
-    single selected rerun/refit.
+    attested ``random``/``tpe`` sampler and ``none``/``median`` pruner.  A
+    later call may add ``resume_package_json`` obtained from
+    :meth:`NativeMethodsRunResult.hpo_resume_package_json`; it is the complete
+    signed package, never a caller-provided checkpoint.  DAG-ML owns all trial
+    execution, resume validation, SELECT, native incumbent attestation, and
+    the single selected rerun/refit.
     """
 
     if not isinstance(dataset, Mapping):
@@ -513,7 +516,7 @@ def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] |
     if not isinstance(tuning, Mapping):
         raise TypeError("engine='native' tuning must be a mapping")
     payload = dict(tuning)
-    allowed = {"engine", "trials", "sampler", "pruner"}
+    allowed = {"engine", "trials", "sampler", "pruner", "resume_package_json"}
     unknown = set(payload) - allowed
     if unknown:
         raise ValueError(f"engine='native' tuning has unsupported keys: {sorted(unknown)}")
@@ -528,8 +531,15 @@ def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] |
         raise ValueError(f"engine='native' Methods HPO sampler is unsupported: {sampler!r}")
     if pruner not in _NATIVE_METHODS_HPO_PRUNERS:
         raise ValueError(f"engine='native' Methods HPO pruner is unsupported: {pruner!r}")
+    resume_package_json = payload.get("resume_package_json")
+    if resume_package_json is not None and (
+        not isinstance(resume_package_json, str) or not resume_package_json.strip()
+    ):
+        raise TypeError(
+            "engine='native' Methods HPO resume_package_json must be a non-empty portable package JSON string"
+        )
     n_startup_trials = 2 if sampler == "tpe" or pruner == "median" else 0
-    return {
+    operation = {
         "operation_id": "hpo:methods",
         "study": {
             "controller_id": "controller:methods.hpo",
@@ -561,6 +571,12 @@ def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] |
         "trials": trials,
         "parameter_paths": {"n_components": "n_components"},
     }
+    if resume_package_json is not None:
+        # The complete package is the only resume carrier accepted by DAG-ML.
+        # It contains the opaque N4MOPT checkpoint together with the attested
+        # terminal ledger; Python never decodes, synthesizes, or merges either.
+        operation["resume_package_json"] = resume_package_json
+    return operation
 
 
 def _native_model_name(pipeline: list[Any]) -> str:
