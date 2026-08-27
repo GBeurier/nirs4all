@@ -24,7 +24,7 @@ import numpy as np
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
-from nirs4all.pipeline.engine import require_legacy_engine
+from nirs4all.pipeline.engine import require_legacy_engine, resolve_engine
 
 from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
@@ -191,12 +191,16 @@ def retrain(
         if engine is None:
             # The source is an already-attested native capability. It must not
             # be routed through an environment/default legacy selector.
-            engine = "native"
-        elif engine != "native":
+            selected_engine = "native"
+        else:
+            selected_engine = resolve_engine(engine)
+        if selected_engine != "native":
             raise ValueError(
                 "a NativeMethodsRunResult selects native retrain; an explicit non-native engine is refused"
             )
-    if engine == "native":
+    else:
+        selected_engine = resolve_engine(engine)
+    if selected_engine == "native":
         return _retrain_native_methods_full(
             source,
             data,
@@ -209,7 +213,7 @@ def retrain(
             save_artifacts=save_artifacts,
             extra_kwargs=kwargs,
         )
-    require_legacy_engine("retrain", engine)
+    require_legacy_engine("retrain", selected_engine)
     if isinstance(source, NativeMethodsRunResult):
         raise RuntimeError("native retrain source escaped native routing")
     # Use session runner if provided, otherwise create new

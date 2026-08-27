@@ -256,8 +256,10 @@ def preflight_dagml_backend(cli: str) -> None:
     * the ``dag-ml-cli`` binary exists at ``cli`` (Mechanism A, the subprocess fallback).
 
     Either one available → return (the run proceeds). NEITHER → raise :class:`DagMlUnavailable`, the
-    ONE catchable signal ``run()`` turns into a transparent legacy fallback WITH A WARNING. It is the
-    ONLY place that "backend not installed" is decided — deliberately a narrow up-front probe, NOT a
+    ONE catchable signal ``run()`` propagates by default and turns into a
+    warning-bearing legacy rollback only when callers pass
+    ``allow_legacy_fallback=True``. It is the ONLY place that "backend not
+    installed" is decided — deliberately a narrow up-front probe, NOT a
     blanket ``except ImportError/FileNotFoundError`` around the run, so a genuine dag-ml bug raised
     DURING execution propagates untouched instead of being swallowed into a silent legacy fallback.
     """
@@ -800,12 +802,6 @@ def _dispatch_run(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
-        if is_classification and getattr(spectro, "aggregate_method", None) == "vote":
-            raise NotImplementedError(
-                "engine='dag-ml' does not yet support classification repetition datasets with "
-                "sample-level vote aggregation; the final-test surface would be scored at the "
-                "repetition row grain instead of the legacy sample-vote grain (backlog #21)."
-            )
         if (
             augmentation_steps
             or detected is not None

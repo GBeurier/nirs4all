@@ -378,7 +378,28 @@ def _scores_to_run_result(
     # Key on (variant_id, partition, fold_id): native generation surfaces every variant's reports and
     # ScoreSet.validate guarantees this triple (per producer) is unique, so distinct variants never
     # collide (the pre-#55 (partition, fold_id) key let later variants overwrite earlier ones).
-    by_key = {(report.get("variant_id"), report["partition"], report.get("fold_id")): {name: float(value) for name, value in report["metrics"].items()} for report in reports}
+    # A node may retain the raw row-grain score alongside an aggregate score for
+    # the same terminal block.  The compatibility table intentionally keeps
+    # row-grain validation/OOF evidence (legacy selection semantics), while a
+    # held-out/refit terminal block must expose the native physical-sample
+    # reducer — notably repetition-group classification vote.  Select that
+    # level explicitly instead of relying on report emission order.
+    def _report_priority(report: dict[str, Any]) -> int:
+        level = report.get("level")
+        terminal = report.get("partition") in {"test", "final"}
+        if terminal:
+            return 2 if level in {"group", "target"} else 1
+        return 2 if level == "sample" else 1
+
+    by_key: dict[tuple[Any, str, str | None], dict[str, float]] = {}
+    priorities: dict[tuple[Any, str, str | None], int] = {}
+    for report in reports:
+        key = (report.get("variant_id"), report["partition"], report.get("fold_id"))
+        priority = _report_priority(report)
+        if priority < priorities.get(key, -1):
+            continue
+        priorities[key] = priority
+        by_key[key] = {name: float(value) for name, value in report["metrics"].items()}
 
     predictions = Predictions()
 
@@ -528,7 +549,14 @@ def _scores_to_run_result(
         variant_model_name = variant_model_names.get(variant_id, model_name) if variant_model_names is not None else model_name
 
         # The native validation folds for THIS variant, in dag-ml's emitted order (foldN, excluding avg).
-        fold_keys = [fold_id for (other_variant_id, partition, fold_id) in by_key if other_variant_id == variant_id and partition == "validation" and fold_id != "avg"]
+        fold_keys = [
+            fold_id
+            for (other_variant_id, partition, fold_id) in by_key
+            if other_variant_id == variant_id
+            and partition == "validation"
+            and fold_id is not None
+            and fold_id != "avg"
+        ]
         # The cross-fold OOF average for THIS variant. dag-ml emits the avg with `variant_id = None` for
         # the SOLE producer (a single concrete pipeline or a merge node) and for the SWEEP WINNER; a sweep
         # LOSER's avg carries its own variant_id. The portable Methods controller retains `variant:base`

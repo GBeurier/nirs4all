@@ -23,14 +23,17 @@ import numpy as np
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
-from nirs4all.pipeline.engine import require_legacy_engine
+from nirs4all.pipeline.engine import require_legacy_engine, resolve_engine
 
+from .native_refit_result import NativeMethodsRefitResult
+from .native_result import NativeMethodsRunResult
+from .native_session import NativeMethodsSession
 from .result import ExplainResult
-from .session import Session
+from .session import NativeArchiveSession, Session
 
 # Type aliases for clarity
 ModelSpec: TypeAlias = (
-    dict[str, Any]               # Prediction dict from previous run
+    dict[str, Any]  # Prediction dict from previous run
     | str                          # Path to bundle (.n4a) or config
     | Path                          # Path to bundle or config
 )
@@ -167,6 +170,17 @@ def explain(
         - :class:`nirs4all.api.result.ExplainResult`: Result class
     """
     engine = shap_params.pop("engine", None)
+    if isinstance(model, (NativeMethodsRunResult, NativeMethodsRefitResult)) or isinstance(
+        session, (NativeArchiveSession, NativeMethodsSession)
+    ):
+        if engine is not None and resolve_engine(engine) != "native":
+            raise ValueError(
+                "a native Methods result or session selects native explanation; an explicit non-native engine is refused"
+            )
+        raise NotImplementedError(
+            "nirs4all.explain requires an explicitly installed native or host explanation plugin for Methods artifacts; "
+            "it refuses before constructing a legacy PipelineRunner"
+        )
     require_legacy_engine("explain", engine)
 
     # Build SHAP params dict

@@ -15,7 +15,9 @@ import numpy as np
 import pytest
 
 from nirs4all.data.config import DatasetConfigs
+from nirs4all.pipeline.dagml import envelope as envelope_module
 from nirs4all.pipeline.dagml.envelope import build_envelope, build_fold_set, sample_relations
+from nirs4all.pipeline.dagml.folds import _repetition_refit_order
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.operator_routing import route_graph_node, route_operator
 from nirs4all.pipeline.dagml.resolver import MaterializationResolver
@@ -84,6 +86,55 @@ def test_resolver_targets_restore_request_order(regression_dataset) -> None:
     assert out["sample_ids"] == wire
 
 
+def test_resolver_targets_keep_group_split_order_for_classification() -> None:
+    """A group-aware fold is non-monotonic and must not re-key y via storage order."""
+
+    dataset = DatasetConfigs(
+        dataset_path("classification"),
+        repetition="Sample_ID",
+        aggregate=False,
+        task_type="multiclass_classification",
+    ).get_dataset_at(0)
+    identity = mint_identity(dataset)
+    resolver = MaterializationResolver(dataset, identity)
+    # These are real group-fold positions: the middle member is far beyond the
+    # first one, so an accidental storage-order lookup changes the target join.
+    picked = [23, 90, 30]
+    wire = [identity.to_wire(sample) for sample in picked]
+
+    out = resolver.resolve_targets(wire)
+    expected = np.asarray(
+        [float(np.asarray(dataset.y({"sample": [sample]})).ravel()[0]) for sample in picked]
+    )
+
+    assert np.array_equal(np.asarray(out["values"], dtype=float), expected)
+    assert out["sample_ids"] == wire
+
+
+def test_repetition_refit_order_groups_physical_samples_without_reordering_members() -> None:
+    """The full-train order must match legacy's group-first materialization.
+
+    The classification fixture deliberately interleaves later repetitions, so
+    a storage-only refit order would put sample 12 ahead of its physical peers.
+    """
+
+    dataset = DatasetConfigs(
+        dataset_path("classification"),
+        repetition="Sample_ID",
+        aggregate=True,
+        aggregate_method="vote",
+        task_type="multiclass_classification",
+    ).get_dataset_at(0)
+    pool = dataset.index_column("sample", {"partition": "train"})
+
+    ordered = _repetition_refit_order(dataset, pool)
+
+    # BGE1 first appears at row 0 and later repeats at 12..22, then 92, 103,
+    # …; legacy keeps all of those contiguous before moving to BGE0.
+    assert ordered[:20] == [0, *range(12, 23), 92, 103, 114, 125, 136, 147, 158, 169]
+    assert sorted(ordered) == sorted(pool)
+
+
 def test_resolver_serves_real_spectra_not_a_hash(regression_dataset) -> None:
     """Guards the closed gap: the shipped conformance adapters synthesize X from hashed
     sample ids; this resolver must return the actual spectra."""
@@ -131,10 +182,16 @@ def test_route_real_compiled_vertical_slice_nodes() -> None:
     assert routed == {"transform": "StandardNormalVariate", "y_transform": "MinMaxScaler", "model": "PLSRegression"}
 
 
-def test_envelope_builds_and_validates_against_live_contract(regression_dataset) -> None:
-    """build_envelope produces a contract-valid CoordinatorDataPlanEnvelope (the wheel
-    derives relations + fingerprints; a successful build is itself the gate)."""
-    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
+def test_envelope_builds_and_uses_execution_core_relation_authority(regression_dataset) -> None:
+    """The data wheel validates source relations; DAG-ML signs derived relations.
+
+    These are distinct contracts.  ``build_envelope`` first lets dag-ml-data
+    validate/derive the relation set, then replaces only the wire fingerprint
+    with DAG-ML's public coordinator-relation canonicalization.  The latter is
+    what a DataBinding and global aggregation validate at runtime.
+    """
+    pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
+    dag_ml = pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
     identity = mint_identity(regression_dataset)
 
     envelope = build_envelope(regression_dataset, identity)
@@ -148,8 +205,59 @@ def test_envelope_builds_and_validates_against_live_contract(regression_dataset)
     records = envelope["coordinator_relations"]["records"]
     assert len(records) == len(identity.identities)
     assert all(not record["is_augmented"] for record in records)
-    # Re-validate through the same validator dag-ml-data uses (not a stale local schema).
-    dag_ml_data.validate_coordinator_data_plan_envelope_json(json.dumps(envelope))
+    core_fingerprint = dag_ml.sample_relation_set_fingerprint_json(
+        json.dumps(envelope["coordinator_relations"], sort_keys=True, separators=(",", ":"))
+    )
+    assert envelope["relation_fingerprint"] == core_fingerprint
+
+
+def test_v2_terminal_relations_extend_the_cv_authority(regression_dataset, monkeypatch) -> None:
+    """V2 attaches held-out final identities without widening the fold authority."""
+    pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
+    dag_ml = pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
+    identity = mint_identity(regression_dataset)
+    cv_sample_ints = regression_dataset.index_column("sample", {"partition": "train"})
+    final_sample_ints = list(
+        dict.fromkeys(
+            cv_sample_ints
+            + regression_dataset.index_column("sample", {"partition": "test"})
+        )
+    )
+    assert set(cv_sample_ints) < set(final_sample_ints)
+
+    monkeypatch.setattr(
+        envelope_module,
+        "supports_terminal_prediction_relation_authority",
+        lambda: True,
+    )
+    envelope = build_envelope(
+        regression_dataset,
+        identity,
+        sample_ints=cv_sample_ints,
+        final_sample_ints=final_sample_ints,
+    )
+    assert envelope["schema_version"] == 2
+    assert len(envelope["coordinator_relations"]["records"]) == len(cv_sample_ints)
+    assert len(envelope["final_coordinator_relations"]["records"]) == len(final_sample_ints)
+    assert envelope["final_relation_fingerprint"] == dag_ml.sample_relation_set_fingerprint_json(
+        json.dumps(
+            envelope["final_coordinator_relations"],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
+def test_v2_terminal_relations_require_a_negotiated_core(regression_dataset) -> None:
+    identity = mint_identity(regression_dataset)
+    train = regression_dataset.index_column("sample", {"partition": "train"})
+    with pytest.raises(RuntimeError, match="terminal prediction relation authority V2"):
+        build_envelope(
+            regression_dataset,
+            identity,
+            sample_ints=train,
+            final_sample_ints=train,
+        )
 
 
 def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:
