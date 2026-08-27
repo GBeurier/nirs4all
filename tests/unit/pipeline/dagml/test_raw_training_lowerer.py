@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
-from sklearn.model_selection import KFold
+from sklearn.model_selection import KFold, ShuffleSplit
 from sklearn.neighbors import KNeighborsRegressor
 
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
@@ -288,6 +288,19 @@ def test_portable_methods_stacking_refuses_non_native_ridge_options_or_branch_tr
                         [{"model": PLSRegression(n_components=1)}],
                     ]
                 },
+                {"merge": "predictions"},
+                {"model": Ridge(alpha=0.25)},
+            ],
+            X,
+            y,
+            identity_frame=frame,
+            methods_library_path="/absolute/libn4m.so",
+        )
+    with pytest.raises(ValueError, match="exactly one validation prediction per sample"):
+        lower_raw_array_training_contracts(
+            [
+                ShuffleSplit(n_splits=2, test_size=0.25, random_state=7),
+                {"branch": [[{"model": PLSRegression(n_components=1)}], [{"model": PLSRegression(n_components=1)}]]},
                 {"merge": "predictions"},
                 {"model": Ridge(alpha=0.25)},
             ],
