@@ -537,28 +537,64 @@ def _predict_from_native_archive(
             raise TypeError("engine='native' predict requires a Core Archive V2/V3 model path")
         archive_path = Path(model)
         if archive_path.suffix.lower() != ".n4a":
-            raise ValueError("engine='native' predict requires an Archive V2/V3 .n4a path")
-        # Archive generation dispatch belongs to the public native session.
-        # V2 packages use normal portable predictor replay; V3 refit children
-        # use their deliberately separate cache-free replay. Keeping one
-        # dispatch point avoids a second, stale V2-only path here.
-        from nirs4all.api.session import load_native_archive_session
+            raise ValueError(
+                "engine='native' predict requires an Archive V2 .n4a or Archive V3 .n4a path"
+            )
+        # Retain the established V2 direct replay path.  A V3 child has a
+        # distinct Core/DAG-ML package family, so only an explicit V2 refusal
+        # is allowed to try the V3 session reader; all other V2 failures stay
+        # fail-closed with their original diagnostic.
+        from nirs4all.pipeline.dagml.native_archive_replay import (
+            NativeArchiveReplayError,
+            predict_methods_archive_v2_raw_result,
+        )
 
-        with load_native_archive_session(
-            archive_path,
-            methods_library_path=methods_library_path,
-        ) as native_session:
-            session_result = native_session.predict(
+        try:
+            native_prediction = predict_methods_archive_v2_raw_result(
+                archive_path,
                 data["X"],
                 sample_ids=data["sample_ids"],
                 groups=data.get("groups"),
                 metadata=data.get("metadata"),
+                methods_library_path=methods_library_path,
             )
-        values = session_result.y_pred
-        prediction_sample_ids = tuple(session_result.metadata["sample_ids"])
-        intervals = dict(session_result.intervals)
-        metadata = dict(session_result.metadata)
-        conformal_guarantee_status = metadata.get("conformal_guarantee_status")
+        except NativeArchiveReplayError as v2_error:
+            from nirs4all.api.session import load_native_archive_session
+
+            try:
+                with load_native_archive_session(
+                    archive_path,
+                    methods_library_path=methods_library_path,
+                ) as native_session:
+                    if native_session.archive_schema_version != 3:
+                        raise v2_error
+                    session_result = native_session.predict(
+                        data["X"],
+                        sample_ids=data["sample_ids"],
+                        groups=data.get("groups"),
+                        metadata=data.get("metadata"),
+                    )
+            except Exception:
+                raise v2_error from None
+            values = session_result.y_pred
+            prediction_sample_ids = tuple(session_result.metadata["sample_ids"])
+            intervals = dict(session_result.intervals)
+            metadata = dict(session_result.metadata)
+            conformal_guarantee_status = metadata.get("conformal_guarantee_status")
+        else:
+            values = native_prediction.values
+            prediction_sample_ids = native_prediction.sample_ids
+            intervals = dict(native_prediction.intervals)
+            conformal_guarantee_status = native_prediction.conformal_guarantee_status
+            metadata = {
+                "engine": "native",
+                "archive_path": str(archive_path),
+                "sample_ids": list(prediction_sample_ids),
+            }
+            if native_prediction.conformal_presentation is not None:
+                metadata["conformal_presentation"] = dict(
+                    native_prediction.conformal_presentation
+                )
     selected_coverages = _normalize_requested_coverages(coverage)
     if selected_coverages is not None:
         intervals = _select_native_archive_intervals(intervals, selected_coverages)
