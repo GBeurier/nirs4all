@@ -171,12 +171,12 @@ def predict(
             legacy runner. Passing any explicit non-native engine is refused.
 
         methods_library_path: Optional explicit path to the compatible
-            ``libn4m`` for ``engine="native"`` Archive V2 Methods prediction.
+            ``libn4m`` for ``engine="native"`` Archive V2/V3 Methods prediction.
             When omitted, the bundled ``nirs4all-methods`` runtime is used. It
             is never used to select a legacy execution path.
 
         sample_ids: Explicit stable identities for a raw matrix passed to the
-            native Archive V2 path. This is equivalent to
+            native Archive V2/V3 path. This is equivalent to
             ``data={"X": X, "sample_ids": ids}``; it is required when native
             ``data`` is not already a mapping. A mapping carries its own
             identities and must not receive a second identity source.
@@ -187,7 +187,7 @@ def predict(
         **runner_kwargs: Additional PipelineRunner parameters.
             Common options: plots_visible. During the transition, the default
             remains ``"legacy"``. ``engine="native"`` is the explicit,
-            fail-closed Archive V2 Methods subset: pass a ``.n4a`` archive and
+            fail-closed Archive V2/V3 Methods subset: pass a ``.n4a`` archive and
             ``data={"X": ..., "sample_ids": ...}``; it has no legacy fallback.
 
     Returns:
@@ -270,7 +270,7 @@ def predict(
         )
         if save_to_workspace:
             raise NotImplementedError(
-                "engine='native' Archive V2 prediction does not yet publish to the legacy workspace store"
+                "engine='native' Archive V2/V3 prediction does not yet publish to the legacy workspace store"
             )
         return result
 
@@ -433,7 +433,7 @@ def _maybe_publish_predict_result(
 def _native_data_with_explicit_sample_ids(data: DataSpec, sample_ids: Any) -> DataSpec:
     """Build the one native current-cohort mapping without inventing identity.
 
-    Native Archive V2 replay accepts only an exact X/identity cohort.  The
+    Native Archive V2/V3 replay accepts only an exact X/identity cohort.  The
     public keyword form is intentionally a convenience at the boundary, not a
     second identity source or a fallback to positional row numbers.
     """
@@ -461,7 +461,7 @@ def _predict_from_native_archive(
     session: Session | NativeArchiveSession | NativeMethodsSession | None,
     methods_library_path: str | Path | None,
 ) -> PredictResult:
-    """Execute the narrow, portable Archive V2 Methods PREDICT route.
+    """Execute the narrow, portable Archive V2/V3 Methods PREDICT route.
 
     This route is explicit while R2 is being qualified.  It owns no legacy
     runner and accepts only a model path or a NativeArchiveSession, never a
@@ -472,7 +472,7 @@ def _predict_from_native_archive(
 
     if chain_id is not None:
         raise NotImplementedError(
-            "engine='native' predict accepts an Archive V2 model path or NativeArchiveSession, not a legacy chain"
+            "engine='native' predict accepts an Archive V2/V3 model path or NativeArchiveSession, not a legacy chain"
         )
     if session is not None and not isinstance(session, (NativeArchiveSession, NativeMethodsSession)):
         raise NotImplementedError(
@@ -516,7 +516,7 @@ def _predict_from_native_archive(
         )
     if all_predictions:
         raise NotImplementedError(
-            "engine='native' Archive V2 prediction exposes one selected final output"
+            "engine='native' Archive V2/V3 prediction exposes one selected final output"
         )
     metadata: dict[str, Any]
     prediction_sample_ids: tuple[str, ...]
@@ -534,35 +534,31 @@ def _predict_from_native_archive(
         conformal_guarantee_status = metadata.get("conformal_guarantee_status")
     else:
         if not isinstance(model, (str, Path)):
-            raise TypeError("engine='native' predict requires a Core Archive V2 model path")
+            raise TypeError("engine='native' predict requires a Core Archive V2/V3 model path")
         archive_path = Path(model)
         if archive_path.suffix.lower() != ".n4a":
-            raise ValueError("engine='native' predict requires an Archive V2 .n4a path")
-        from nirs4all.pipeline.dagml.native_archive_replay import (
-            predict_methods_archive_v2_raw_result,
-        )
+            raise ValueError("engine='native' predict requires an Archive V2/V3 .n4a path")
+        # Archive generation dispatch belongs to the public native session.
+        # V2 packages use normal portable predictor replay; V3 refit children
+        # use their deliberately separate cache-free replay. Keeping one
+        # dispatch point avoids a second, stale V2-only path here.
+        from nirs4all.api.session import load_native_archive_session
 
-        native_prediction = predict_methods_archive_v2_raw_result(
+        with load_native_archive_session(
             archive_path,
-            data["X"],
-            sample_ids=data["sample_ids"],
-            groups=data.get("groups"),
-            metadata=data.get("metadata"),
             methods_library_path=methods_library_path,
-        )
-        values = native_prediction.values
-        prediction_sample_ids = native_prediction.sample_ids
-        intervals = dict(native_prediction.intervals)
-        conformal_guarantee_status = native_prediction.conformal_guarantee_status
-        metadata = {
-            "engine": "native",
-            "archive_path": str(archive_path),
-            "sample_ids": list(prediction_sample_ids),
-        }
-        if native_prediction.conformal_presentation is not None:
-            metadata["conformal_presentation"] = dict(
-                native_prediction.conformal_presentation
+        ) as native_session:
+            session_result = native_session.predict(
+                data["X"],
+                sample_ids=data["sample_ids"],
+                groups=data.get("groups"),
+                metadata=data.get("metadata"),
             )
+        values = session_result.y_pred
+        prediction_sample_ids = tuple(session_result.metadata["sample_ids"])
+        intervals = dict(session_result.intervals)
+        metadata = dict(session_result.metadata)
+        conformal_guarantee_status = metadata.get("conformal_guarantee_status")
     selected_coverages = _normalize_requested_coverages(coverage)
     if selected_coverages is not None:
         intervals = _select_native_archive_intervals(intervals, selected_coverages)

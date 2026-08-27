@@ -72,6 +72,13 @@ def test_native_full_refit_archive_v3_replays_in_a_fresh_process(tmp_path: Path)
         {"X": prediction_X, "sample_ids": prediction_ids},
         engine="native",
     )
+    direct_archive = nirs4all.predict(
+        archive,
+        {"X": prediction_X, "sample_ids": prediction_ids},
+        engine="native",
+    )
+    assert direct_archive.metadata["sample_ids"] == prediction_ids
+    np.testing.assert_allclose(direct_archive.y_pred, direct.y_pred, rtol=0.0, atol=1e-12)
     script = """
 import json
 import os

@@ -55,7 +55,7 @@ class NativeArchiveSession:
 
     @property
     def archive_path(self) -> Path:
-        """The immutable Archive V2 path used for every replay."""
+        """The immutable Archive V2/V3 path used for every replay."""
 
         return self._archive_path
 
@@ -614,7 +614,7 @@ def load_session(
         engine: Backend selector. ``None`` follows ``$N4A_ENGINE`` and then
             the process default. ``"legacy"`` retains the existing
             BundleLoader session. ``"native"`` opens the fail-closed Core
-            Archive V2 Methods replay session; it never constructs a
+            Archive V2/V3 Methods replay session; it never constructs a
             ``PipelineRunner`` or falls back to the legacy loader.
         methods_library_path: Optional explicit path to ``libn4m`` for an
     ``engine="native"`` Archive V2/V3 Methods session. When omitted,
