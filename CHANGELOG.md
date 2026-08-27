@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.6] — 2026-08-27
+
+### Fixed
+
+- Require DAG-ML 0.3.16, which preserves native replay fingerprints across
+  package serialization and reload.
+
+---
+
 ## [0.12.5] — 2026-08-26
 
 ### Fixed
