@@ -544,7 +544,7 @@ def _portable_methods_ridge_manifest() -> dict[str, Any]:
             {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
             {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
         ],
-        "data_requirements": _model_data_requirements(),
+        "data_requirements": _methods_ridge_data_requirements(),
         "capabilities": [
             "deterministic",
             "thread_safe",
@@ -553,6 +553,8 @@ def _portable_methods_ridge_manifest() -> dict[str, Any]:
             "emits_artifacts",
             "stateful",
             "consumes_oof_predictions",
+            "aggregates_predictions",
+            "trains_aggregation",
             "supports_portable_full_refit",
         ],
         "operator_selectors": [{"refs": ["sklearn.linear_model._ridge.Ridge"]}],
@@ -560,6 +562,14 @@ def _portable_methods_ridge_manifest() -> dict[str, Any]:
         "rng_policy": "uses_core_seed",
         "artifact_policy": "serializable",
     }
+
+
+def _methods_ridge_data_requirements() -> dict[str, Any]:
+    """Declare the Ridge attestation matrix under its exact bound port name."""
+
+    requirements = _model_data_requirements()
+    requirements["ports"][0]["name"] = "x_original"
+    return requirements
 
 
 def _mark_portable_methods_pls_graph(graph: Mapping[str, Any]) -> None:
@@ -715,7 +725,15 @@ def _training_influence_manifest(
         kind = node.get("kind")
         if kind not in {"transform", "model"}:
             continue
-        influence_kind = "model_fit" if kind == "model" else "transform_fit"
+        if kind == "model":
+            controller_id = node.get("metadata", {}).get("controller_id")
+            influence_kind = (
+                "trained_meta_aggregation"
+                if controller_id == "controller:methods.ridge"
+                else "model_fit"
+            )
+        else:
+            influence_kind = "transform_fit"
         node_id = node["id"]
         for index, (train_ints, _validation_ints) in enumerate(folds):
             entries.append(_influence_entry(influence_kind, f"fit_cv:fold{index}", node_id, train_ints, identity, group_by_sample))
