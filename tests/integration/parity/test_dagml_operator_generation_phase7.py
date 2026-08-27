@@ -665,14 +665,16 @@ def test_runtime_dagml_unsupported_from_outcome_is_not_swallowed_by_inner_fallba
     distinct ``_OperatorLoweringUnsupported`` sentinel, so this RUNTIME ``DagMlUnsupported`` must PROPAGATE
     past the inner branch — it must NOT be silently reclassified as a lowering gap and re-run on the dag-ml
     Python-expand path (which would report ``dagml_native=True`` and hide the runtime boundary). It is the
-    OUTER ``run()`` fallback that then redirects it to LEGACY (the documented contract for ANY unsupported
-    shape), so the run is LEGACY (``dagml_native=False``), NOT a dag-ml Python-expand success.
+    public ``run()`` boundary then propagates it by default: legacy rollback is a
+    separate, caller-authorized ``allow_legacy_fallback=True`` operation. This
+    probe therefore proves a strict request raises instead of silently reporting
+    a dag-ml Python-expand success.
 
     The probe distinguishes the two outcomes: the monkeypatched ``run_cv_refit_bundle`` returns the
     nonzero-unsupported outcome ONLY for the native-operator workdir (``native_op``); the Python-expand path
     uses a different workdir, so if the inner branch WRONGLY swallowed the error and re-ran Python-expand,
-    that leg would run the real bundle and the run would be (incorrectly) dag-ml-native. Asserting LEGACY
-    (fallback warning fired) proves the runtime error propagated past the inner branch.
+    that leg would run the real bundle and the request would (incorrectly) succeed. Asserting the original
+    runtime refusal proves the error propagated past the inner branch.
     """
     import nirs4all.pipeline.dagml.run_paths as run_paths
 
@@ -692,11 +694,10 @@ def test_runtime_dagml_unsupported_from_outcome_is_not_swallowed_by_inner_fallba
     monkeypatch.setattr(run_paths, "run_cv_refit_bundle", nonzero_unsupported_for_native_op)
 
     pipeline = [{"_or_": [SNV, MSC]}, KFold(n_splits=3), {"model": PLSRegression(n_components=10)}]
-    result, native = _run_dagml(pipeline)
-    # The runtime DagMlUnsupported propagated past the inner branch → the OUTER run() fallback redirected to
-    # LEGACY (fallback warning fired), NOT a silent dag-ml Python-expand re-run (which would be native).
-    assert native is False
-    assert result.num_predictions >= 1
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+
+    with pytest.raises(DagMlUnsupported, match="simulated runtime unsupported shape"):
+        nirs4all.run(pipeline=pipeline, dataset=_dataset(), verbose=0, engine="dag-ml")
 
 
 @pytest.mark.slow

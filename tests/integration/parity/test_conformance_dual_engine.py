@@ -351,13 +351,14 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 })
 
 
-# EXPECTED-FALLBACK allowlist: the cases the dag-ml path LEGITIMATELY rejects
-# today (branch+merge, by-source multi-source, the preprocessing-keyword shapes),
-# so engine="dag-ml" transparently re-runs legacy. A case that falls back but is
-# NOT on this allowlist is a native-coverage REGRESSION (a shape that used to run
-# native now rejects) and MUST FAIL — never silently pass as a boundary. When
-# dag-ml gains native coverage for one of these, it leaves the allowlist (the test
-# then demands native parity). Measured at scope time; see the probe in the PR.
+# EXPECTED-FALLBACK allowlist: shapes that the dag-ml path legitimately rejects
+# today. Production requests fail closed by default; this parity harness supplies
+# its explicit diagnostic rollback opt-in solely to classify native coverage. A
+# case that falls back but is NOT on this allowlist is a native-coverage
+# REGRESSION (a shape that used to run native now rejects) and MUST FAIL — never
+# silently pass as a boundary. When dag-ml gains native coverage for one of these,
+# it leaves the allowlist (the test then demands native parity). Measured at scope
+# time; see the probe in the PR.
 EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # Branch forms whose merge semantics remain outside the native lowering.
     "branch_dup_three_way_merge_predictions",
@@ -372,8 +373,8 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     "branch_separation_by_tag",
     "branch_separation_by_filter",
     # Legacy Optuna finetuning mutates model parameters before the final run. The
-    # native dag-ml path does not serialize/execute `finetune_params` yet, so it must
-    # fall back rather than silently run the untuned model.
+    # native dag-ml path does not serialize/execute `finetune_params` yet, so the
+    # public strict path rejects it rather than silently run the untuned model.
     "generator_finetune_params_optuna",
     # Stateful concat_transform sub-operations (PCA/SVD/scalers) are materialized
     # pre-CV by the Python oracle; dag-ml's current FeatureConcat lowering fits
@@ -382,8 +383,8 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # Legacy `refit_params: {use_all_partitions: True}` can expand the terminal
     # refit universe beyond the CV train/validation pool. dag-ml deliberately
     # enforces `REFIT FullTrain == fold_set.sample_ids` and structurally excludes
-    # held-out test samples from refit, so the transition backend must fall back
-    # rather than ignore the override or emulate the legacy leakage-prone shape.
+    # held-out test samples from refit, so the strict path rejects the override
+    # rather than ignore it or emulate the legacy leakage-prone shape.
     "refit_params_use_all_partitions",
     # by-source separation / per-source models / source-concat multi-source shapes.
     "multi_source_per_source_models_stacking",
