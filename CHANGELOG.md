@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.10] — 2026-08-27
+
+### Fixed
+
+- Persist the attested native Methods HPO checkpoint and trial evidence so a
+  resume request is validated and restored by DAG-ML rather than reconstructed
+  from free-form Python fields.
+- Preflight native nested stacking against its partitioned-outer-fold contract;
+  resampled outer CV remains on the explicit compatibility boundary instead of
+  failing after native execution begins.
+- Make the native export boundary strict: legacy refit is available only through
+  the explicit compatibility option and is never a silent export fallback.
+
+---
+
 ## [0.12.9] — 2026-08-27
 
 ### Fixed
