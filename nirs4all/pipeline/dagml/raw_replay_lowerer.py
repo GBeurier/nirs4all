@@ -324,22 +324,12 @@ def validate_native_methods_refit_package_v3(package: Any) -> dict[str, Any]:
     outcome = _object(document, "outcome")
     bundle = _object(outcome, "execution_bundle")
     raw = bundle.get("raw_artifact_payloads")
-    records = bundle.get("refit_artifacts")
     if not isinstance(raw, dict) or not raw:
         raise RawArrayMethodsReplayError("Package V3 has no durable raw Methods artifacts")
-    if not isinstance(records, list) or len(records) != 1:
+    artifact_ids = _native_methods_refit_artifact_ids_from_bundle(bundle, package_label="Package V3")
+    if not set(artifact_ids).issubset(raw):
         raise RawArrayMethodsReplayError(
-            "raw-array Methods Package V3 requires exactly one refit artifact"
-        )
-    artifact = _artifact_document(records[0]) if isinstance(records[0], Mapping) else {}
-    artifact_id = artifact.get("id")
-    if (
-        artifact.get("kind") != "n4m_model"
-        or not isinstance(artifact_id, str)
-        or artifact_id not in raw
-    ):
-        raise RawArrayMethodsReplayError(
-            "Package V3 N4MM refit artifact has no matching durable raw payload"
+            "Package V3 N4MM refit artifacts must each have a matching durable raw payload"
         )
     _single_refit_v3_output_binding(outcome)
     _refit_v3_requirements(_object(outcome, "effective_plan"))
@@ -379,13 +369,21 @@ def _native_methods_refit_artifact_ids(package: Mapping[str, Any]) -> list[str]:
     """
 
     bundle = _object(package, "execution_bundle")
+    return _native_methods_refit_artifact_ids_from_bundle(bundle, package_label="Package V2")
+
+
+def _native_methods_refit_artifact_ids_from_bundle(
+    bundle: Mapping[str, Any], *, package_label: str
+) -> list[str]:
+    """Validate one complete raw-Methods refit artifact set from a package bundle."""
+
     artifacts = bundle.get("refit_artifacts")
     if not isinstance(artifacts, list) or not artifacts:
-        raise RawArrayMethodsReplayError("Package V2 has no refit artifact list")
+        raise RawArrayMethodsReplayError(f"{package_label} has no refit artifact list")
     artifact_ids: list[str] = []
     for record in artifacts:
         if not isinstance(record, Mapping):
-            raise RawArrayMethodsReplayError("Package V2 refit artifact is not an object")
+            raise RawArrayMethodsReplayError(f"{package_label} refit artifact is not an object")
         artifact = _artifact_document(record)
         artifact_id = artifact.get("id", record.get("artifact_id"))
         backend = artifact.get("backend")
@@ -400,7 +398,7 @@ def _native_methods_refit_artifact_ids(package: Mapping[str, Any]) -> list[str]:
             )
         artifact_ids.append(artifact_id)
     if len(artifact_ids) != len(set(artifact_ids)):
-        raise RawArrayMethodsReplayError("Package V2 repeats a Methods refit artifact id")
+        raise RawArrayMethodsReplayError(f"{package_label} repeats a Methods refit artifact id")
     return artifact_ids
 
 
