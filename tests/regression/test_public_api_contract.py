@@ -90,7 +90,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "nirs4all.api.result.ExplainResult"
     ),
     "retrain": (
-        "(source: nirs4all.api.native_result.NativeMethodsRunResult | dict[str, typing.Any] | str | pathlib.Path, "
+        "(source: nirs4all.api.native_result.NativeMethodsRunResult | nirs4all.api.native_refit_result.NativeMethodsRefitResult | dict[str, typing.Any] | str | pathlib.Path, "
         "data: str | pathlib.Path | numpy.ndarray | tuple[numpy.ndarray, ...] | "
         "dict[str, typing.Any] | nirs4all.data.dataset.SpectroDataset | "
         "nirs4all.data.config.DatasetConfigs, *, mode: str = 'full', "
