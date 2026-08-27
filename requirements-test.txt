@@ -62,5 +62,5 @@ trendfitter>=0.0.6
 
 # dag-ml execution core — a hard dependency; the public default remains legacy
 # until the ADR-17 cutover gate is explicitly satisfied.
-dag-ml>=0.3.15
+dag-ml>=0.3.16
 dag-ml-data>=0.2.8
