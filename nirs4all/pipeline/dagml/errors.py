@@ -60,10 +60,10 @@ class DagMlUnavailable(RuntimeError):
     (:func:`~nirs4all.pipeline.dagml.run_backend.preflight_dagml_backend`) when BOTH mechanisms are
     missing (the in-process PyO3 extension ``dag_ml._dag_ml`` does not import/load AND the ``dag-ml-cli``
     binary does not exist), and the in-process/subprocess router's SUBPROCESS branch when in-process is
-    not selected and ``dag-ml-cli`` is absent. Since the ADR-17 cutover made ``dag-ml``
-    the default engine + a hard dependency, ``run()`` catches THIS (alongside ``DagMlUnsupported`` /
-    ``NotImplementedError``) and falls back to the legacy engine WITH A WARNING — so a wheel install
-    that is somehow missing the native backend degrades transparently instead of hard-failing.
+    not selected and ``dag-ml-cli`` is absent. ``run(engine="dag-ml")`` propagates this condition by
+    default, before a legacy workspace is constructed. The caller may request the separately observable
+    compatibility rollback with ``allow_legacy_fallback=True``; only that opt-in catches this exception
+    (alongside ``DagMlUnsupported`` / ``NotImplementedError``) and emits a structured warning.
 
     Deliberately NARROW: it is raised only by those explicit availability probes, NEVER by
     wrapping a run in a blanket ``except ImportError/FileNotFoundError`` (which would swallow a genuine

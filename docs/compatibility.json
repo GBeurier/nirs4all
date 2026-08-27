@@ -168,11 +168,6 @@
       "owner_lane": "L5"
     },
     {
-      "case": "aggregation_classification_vote",
-      "shape": "repetition_vote_aggregation",
-      "owner_lane": "L5"
-    },
-    {
       "case": "generator_finetune_params_optuna",
       "shape": "finetune_params",
       "owner_lane": "L5"
@@ -338,8 +333,8 @@
     "registered": 95,
     "non_runnable": 0,
     "runnable": 95,
-    "fallback": 11,
-    "native": 84,
+    "fallback": 10,
+    "native": 85,
     "xfail_strict": 0,
     "skip": 0,
     "num_predictions_divergence": 2,
