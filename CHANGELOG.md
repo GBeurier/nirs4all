@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [0.12.8] — 2026-08-27
+
+### Fixed
+
+- Require `dag-ml` 0.3.17 for native Methods Archive V2 replay, preserving
+  canonical conformal endpoint closures after save, reload and prediction.
+
+---
+
 ## [0.12.7] — 2026-08-27
 
 ### Fixed
