@@ -596,6 +596,30 @@ def test_predict_native_run_result_is_direct_and_never_constructs_a_legacy_runne
     assert observed["sample_ids"] == ["p1"]
 
 
+def test_explain_native_run_result_refuses_before_constructing_a_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SHAP is plugin-only for native artifacts and must never silently reroute."""
+
+    result = object.__new__(NativeMethodsRunResult)
+    explain_module = importlib.import_module("nirs4all.api.explain")
+    monkeypatch.setattr(
+        explain_module,
+        "PipelineRunner",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy runner constructed")),
+    )
+
+    with pytest.raises(NotImplementedError, match="explicitly installed native or host explanation plugin"):
+        explain(model=result, data={"X": np.asarray([[2.0]])})
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
+def test_explain_native_run_result_refuses_explicit_non_native_engine(engine: str) -> None:
+    result = object.__new__(NativeMethodsRunResult)
+    with pytest.raises(ValueError, match="explicit non-native engine"):
+        explain(model=result, data={"X": np.asarray([[2.0]])}, engine=engine)
+
+
 def test_predict_native_archive_accepts_raw_matrix_with_explicit_keyword_identities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
