@@ -698,10 +698,10 @@ def run(
             no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
             typed error for every other shape or unavailable native capability. Override the default
             per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
-        allow_legacy_fallback: Transitional policy for ``engine="dag-ml"``.
-            ``None`` preserves the catchable compatibility fallback. ``False``
-            refuses unavailable or unsupported DAG-ML requests before the
-            legacy engine is constructed; ``True`` explicitly permits it.
+        allow_legacy_fallback: Explicit rollback policy for ``engine="dag-ml"``.
+            ``None`` and ``False`` refuse unavailable or unsupported DAG-ML
+            requests before the legacy engine is constructed. ``True`` is the
+            sole opt-in that permits a warning-bearing legacy rollback.
             ``engine='native'`` runs the verified portable Methods subset: a
             raw ``{'X', 'y', 'sample_ids'}`` dataset, one supported linear
             KFold/PLS pipeline, ``refit=True``, ``save_artifacts=True`` and
@@ -1207,16 +1207,22 @@ def run(
     # dag-ml's native scores. A plain `run()` (the legacy default) runs the in-process legacy orchestrator
     # (`_run_legacy`).
     #
-    # TRANSPARENT LEGACY FALLBACK. The default is 100% safe via two catchable signals, both warned:
+    # EXPLICIT LEGACY ROLLBACK.  A native request fails closed through the two
+    # catchable capability signals below.  Only a caller that passes
+    # ``allow_legacy_fallback=True`` can opt into the diagnostic/rollback path;
+    # this prevents a successful legacy result from being misreported as a
+    # successful native execution during the R2 qualification period.
     #   * SHAPE not yet covered — the catchable coverage-boundary shapes (no splitter, .n4a export,
     #     rich stacking, non-default refit/session/cache/project/workspace, …) raise DagMlUnsupported,
     #     a NotImplementedError subclass.
     #   * BACKEND not installed — the dag-ml preflight raises DagMlUnavailable when NEITHER mechanism
     #     is present (no in-process extension AND no dag-ml-cli). dag-ml is a HARD dependency, but a
     #     wheel install missing the native backend still degrades gracefully rather than crashing.
-    # In either case we warn and re-run on the legacy engine (run_via_dagml cleans its own temp dir in
-    # a finally). ONLY DagMlUnsupported/NotImplementedError/DagMlUnavailable are caught — a GENUINE
-    # dag-ml runtime/operator bug propagates untouched (never silently swallowed into legacy).
+    # In either case, an explicit opt-in warns and re-runs on the legacy engine
+    # (run_via_dagml cleans its own temp dir in a finally). ONLY
+    # DagMlUnsupported/NotImplementedError/DagMlUnavailable are caught — a
+    # GENUINE dag-ml runtime/operator bug propagates untouched (never silently
+    # swallowed into legacy).
     if selected_engine == "dag-ml":
         from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml
@@ -1229,10 +1235,11 @@ def run(
             #     `{name}_p0_{hash}` named, `_refit` on the refit rows — and carried on the dag-ml
             #     RunResult predictions; a generator pipeline's winner-only projection carries no
             #     config_name rather than a wrong one, #55).
-            #   VALIDATED, fall back if un-honorable — `refit`, `session`, `cache`, `project`, and the
+            #   VALIDATED, refuse if un-honorable — `refit`, `session`, `cache`, `project`, and the
             #     workspace/persistence runner_kwargs are checked against what the scores-only in-memory
             #     dag-ml path can deliver; a non-default value it cannot satisfy raises DagMlUnsupported
-            #     (caught below → legacy fallback), so no user option is ever silently dropped.
+            #     (or, only with an explicit rollback opt-in, caught below →
+            #     legacy fallback), so no user option is ever silently dropped.
             # Defaults are honored natively and never trigger a fallback, so a plain engine='dag-ml' run
             # runs natively. The remaining kwargs are presentation/logging-only for the current
             # score-only path: `save_artifacts=True` (the default) runs natively — the dag-ml run keeps no
@@ -1256,7 +1263,7 @@ def run(
                 local_implementations=local_implementations,
             )
         except DagMlUnavailable as e:
-            if custom_training_loss_requested or allow_legacy_fallback is False:
+            if custom_training_loss_requested or allow_legacy_fallback is not True:
                 raise
             warnings.warn(
                 f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
@@ -1264,7 +1271,7 @@ def run(
             )
             return _run_legacy()
         except (DagMlUnsupported, NotImplementedError) as e:
-            if custom_training_loss_requested or allow_legacy_fallback is False:
+            if custom_training_loss_requested or allow_legacy_fallback is not True:
                 raise
             warnings.warn(
                 f"engine='dag-ml' does not support this pipeline shape ({e}); falling back to the legacy engine",

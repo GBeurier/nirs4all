@@ -256,8 +256,10 @@ def preflight_dagml_backend(cli: str) -> None:
     * the ``dag-ml-cli`` binary exists at ``cli`` (Mechanism A, the subprocess fallback).
 
     Either one available → return (the run proceeds). NEITHER → raise :class:`DagMlUnavailable`, the
-    ONE catchable signal ``run()`` turns into a transparent legacy fallback WITH A WARNING. It is the
-    ONLY place that "backend not installed" is decided — deliberately a narrow up-front probe, NOT a
+    ONE catchable signal ``run()`` propagates by default and turns into a
+    warning-bearing legacy rollback only when callers pass
+    ``allow_legacy_fallback=True``. It is the ONLY place that "backend not
+    installed" is decided — deliberately a narrow up-front probe, NOT a
     blanket ``except ImportError/FileNotFoundError`` around the run, so a genuine dag-ml bug raised
     DURING execution propagates untouched instead of being swallowed into a silent legacy fallback.
     """
