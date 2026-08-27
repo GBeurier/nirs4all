@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 
 from nirs4all.data.config import DatasetConfigs
+from nirs4all.pipeline.dagml import envelope as envelope_module
 from nirs4all.pipeline.dagml.envelope import build_envelope, build_fold_set, sample_relations
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.operator_routing import route_graph_node, route_operator
@@ -158,6 +159,55 @@ def test_envelope_builds_and_uses_execution_core_relation_authority(regression_d
         json.dumps(envelope["coordinator_relations"], sort_keys=True, separators=(",", ":"))
     )
     assert envelope["relation_fingerprint"] == core_fingerprint
+
+
+def test_v2_terminal_relations_extend_the_cv_authority(regression_dataset, monkeypatch) -> None:
+    """V2 attaches held-out final identities without widening the fold authority."""
+    pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
+    dag_ml = pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
+    identity = mint_identity(regression_dataset)
+    cv_sample_ints = regression_dataset.index_column("sample", {"partition": "train"})
+    final_sample_ints = list(
+        dict.fromkeys(
+            cv_sample_ints
+            + regression_dataset.index_column("sample", {"partition": "test"})
+        )
+    )
+    assert set(cv_sample_ints) < set(final_sample_ints)
+
+    monkeypatch.setattr(
+        envelope_module,
+        "supports_terminal_prediction_relation_authority",
+        lambda: True,
+    )
+    envelope = build_envelope(
+        regression_dataset,
+        identity,
+        sample_ints=cv_sample_ints,
+        final_sample_ints=final_sample_ints,
+    )
+    assert envelope["schema_version"] == 2
+    assert len(envelope["coordinator_relations"]["records"]) == len(cv_sample_ints)
+    assert len(envelope["final_coordinator_relations"]["records"]) == len(final_sample_ints)
+    assert envelope["final_relation_fingerprint"] == dag_ml.sample_relation_set_fingerprint_json(
+        json.dumps(
+            envelope["final_coordinator_relations"],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+    )
+
+
+def test_v2_terminal_relations_require_a_negotiated_core(regression_dataset) -> None:
+    identity = mint_identity(regression_dataset)
+    train = regression_dataset.index_column("sample", {"partition": "train"})
+    with pytest.raises(RuntimeError, match="terminal prediction relation authority V2"):
+        build_envelope(
+            regression_dataset,
+            identity,
+            sample_ints=train,
+            final_sample_ints=train,
+        )
 
 
 def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:

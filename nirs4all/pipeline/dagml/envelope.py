@@ -105,6 +105,36 @@ def _core_relation_fingerprint(relations: dict[str, Any]) -> str:
     return str(fingerprint(json.dumps(relations, sort_keys=True, separators=(",", ":"))))
 
 
+def supports_terminal_prediction_relation_authority() -> bool:
+    """Whether the loaded execution core accepts envelope V2 terminal relations.
+
+    This is capability negotiation, not a package-version heuristic: an older
+    wheel continues to receive the V1 envelope it understands, while a newer
+    core explicitly opts into the extra authority required for held-out final
+    aggregation.
+    """
+    try:
+        import dag_ml
+
+        manifest = json.loads(dag_ml.contract_manifest_json())
+    except (ImportError, AttributeError, TypeError, ValueError):
+        return False
+    contracts = manifest.get("contracts")
+    capabilities = manifest.get("capabilities")
+    if not isinstance(contracts, list) or not isinstance(capabilities, list):
+        return False
+    return (
+        any(
+            isinstance(contract, dict)
+            and contract.get("id") == "coordinator_data_plan_envelope"
+            and isinstance(contract.get("version"), int)
+            and contract["version"] >= 2
+            for contract in contracts
+        )
+        and "terminal_prediction_relation_authority" in capabilities
+    )
+
+
 def _num_wavelengths(dataset: SpectroDataset, source_idx: int = 0) -> int:
     """Feature count of one source. Single-source ``num_features`` is an int; multi-source a list."""
     num_features = dataset.num_features
@@ -396,6 +426,7 @@ def build_envelope(
     tags_by_sample: dict[int, list[str]] | None = None,
     augmentation_by_sample: dict[int, str] | None = None,
     group_by_sample: dict[int, str] | None = None,
+    final_sample_ints: list[int] | None = None,
 ) -> dict[str, Any]:
     """Build the validated ``CoordinatorDataPlanEnvelope``.
 
@@ -425,6 +456,12 @@ def build_envelope(
     value, and dag-ml-data refuses a fold that splits a group across train/validation. For a
     repetition dataset every relation is its own ``sample_id`` (each stored row is scored
     individually at the repetition grain), so the schema's sample axis is one entry per row.
+
+    Pass ``final_sample_ints`` to request the V2 terminal prediction authority.  It must
+    contain every CV ``sample_ints`` entry and may add held-out prediction identities.  The
+    core uses this extra relation set only for emitted ``test``/``final`` prediction blocks;
+    it is never handed to fold validation or model fitting.  A core that has not negotiated
+    the V2 capability is refused here rather than receiving a silently weakened envelope.
 
     The wheel computes all fingerprints and derives ``coordinator_relations``; a successful
     return means the envelope is contract-valid (the materialize-time fingerprint gate
@@ -460,6 +497,40 @@ def build_envelope(
     )
     out = dict(envelope.to_dict())
     out["relation_fingerprint"] = _core_relation_fingerprint(out["coordinator_relations"])
+    if final_sample_ints is not None:
+        if not supports_terminal_prediction_relation_authority():
+            raise RuntimeError(
+                "the installed dag-ml core does not support terminal prediction relation authority V2"
+            )
+        cv_sample_ints = [sample.sample_int for sample in chosen]
+        final_unique = list(dict.fromkeys(final_sample_ints))
+        if not final_unique:
+            raise ValueError("final_sample_ints must not be empty")
+        if not set(cv_sample_ints).issubset(final_unique):
+            raise ValueError("final_sample_ints must contain every CV sample identity")
+        final_chosen = [identity.identities[i] for i in _positions(identity, final_unique)]
+        final_envelope = dag_ml_data.build_coordinator_data_plan_envelope(
+            _dataset_schema(
+                dataset,
+                sources if multi_source else [source_id],
+                list(dict.fromkeys(sample.sample_id for sample in final_chosen)),
+            ),
+            _data_plan(dataset, sources if multi_source else [source_id]),
+            sample_relations(
+                identity,
+                source_id=relation_source_id,
+                sample_ints=final_unique,
+                excluded_sample_ints=excluded_sample_ints,
+                metadata_by_sample=metadata_by_sample,
+                tags_by_sample=tags_by_sample,
+                augmentation_by_sample=augmentation_by_sample,
+                group_by_sample=group_by_sample,
+            ),
+        )
+        final_relations = dict(final_envelope.to_dict())["coordinator_relations"]
+        out["schema_version"] = 2
+        out["final_coordinator_relations"] = final_relations
+        out["final_relation_fingerprint"] = _core_relation_fingerprint(final_relations)
     if multi_source:
         out["plan"]["source_layout"] = _source_layout(dataset, sources)
     return out
