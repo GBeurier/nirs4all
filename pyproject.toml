@@ -93,7 +93,7 @@ dependencies = [
     # dag-ml execution core — hard dependency, not an extra, so the native backend
     # is selectable out of the box via engine="dag-ml" or N4A_ENGINE=dag-ml. The
     # public Python line remains legacy-default until the explicit ADR-17 drop.
-    "dag-ml>=0.3.13",
+    "dag-ml>=0.3.15",
     "dag-ml-data>=0.2.8",
 ]
 
@@ -121,12 +121,12 @@ migration = ["duckdb>=1.0.0"]
 # the official Methods binding, and the DAG-ML replay surface required by the
 # fail-closed ``engine=\"native\"`` API.
 native = [
-    "dag-ml>=0.3.13",
+    "dag-ml>=0.3.15",
     "dag-ml-data>=0.2.9",
-    # Archive V3 writing is exposed by the Core Python facade starting in 0.3.21.
-    "nirs4all-core[methods]>=0.3.21",
-    # ABI 2.2 carries the optimizer symbols required by DAG-ML Methods training.
-    "nirs4all-methods>=1.0.10",
+    # Archive V3 replay is exposed by the Core Python facade starting in 0.3.22.
+    "nirs4all-core[methods]>=0.3.22",
+    # 1.0.13 is the pinned Methods ABI/runtime used by the released DAG-ML replay path.
+    "nirs4all-methods>=1.0.13",
 ]
 
 # Transition-release workspace converter wrapper. The runtime detects legacy
