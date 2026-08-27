@@ -12,9 +12,10 @@ engines and asserted equality — these helpers fill that gap and the
 
 LOAD-BEARING fallback detection
 -------------------------------
-``run(engine="dag-ml")`` transparently re-runs on
-the LEGACY engine for any pipeline shape the dag-ml path cannot honor yet (the
-P1b/P0 reject→fallback), emitting a ``"falling back to the legacy engine"``
+The harness explicitly asks
+``run(engine="dag-ml", allow_legacy_fallback=True)`` to re-run on the LEGACY
+engine for a pipeline shape the dag-ml path cannot honor yet (the P1b/P0
+reject→fallback boundary), emitting a ``"falling back to the legacy engine"``
 warning (:mod:`nirs4all.api.run`). A fallback run is legacy-under-the-hood, so
 asserting "dag-ml == legacy" on it would be a trivially-true legacy-vs-legacy
 claim. :func:`dual_engine_runner` therefore records ``dagml_native`` from TWO
@@ -79,8 +80,8 @@ def make_dataset(case: PipelineCase) -> DatasetConfigs:
 def dual_engine_runner(case: PipelineCase, dataset: DatasetConfigs) -> _DualResult:
     """Run ``case`` on BOTH engines from the SAME dataset config; report native-ness.
 
-    Runs ``engine="legacy"`` then ``engine="dag-ml"`` EXPLICITLY (NOT the
-    default ``engine=None``) on a freshly materialized pipeline per engine (the
+    Runs ``engine="legacy"`` then ``engine="dag-ml"`` with the explicit
+    rollback opt-in on a freshly materialized pipeline per engine (the
     factory yields fresh operator instances, so the two runs never share mutable
     state). The explicit engine is load-bearing: ``resolve_engine`` honors
     ``$N4A_ENGINE``, so under ``N4A_ENGINE=legacy`` an ``engine=None`` dag-ml leg
@@ -110,7 +111,11 @@ def dual_engine_runner(case: PipelineCase, dataset: DatasetConfigs) -> _DualResu
 
 
 def _run_dagml_leg(case: PipelineCase, dataset: DatasetConfigs) -> tuple[Any, bool]:
-    """Run ONLY the dag-ml leg (explicit ``engine="dag-ml"``); return ``(result, native)``.
+    """Run ONLY the dag-ml leg with explicit rollback measurement.
+
+    Returns ``(result, native)``. The opt-in is test-only evidence: production
+    callers must request it themselves when they deliberately want a legacy
+    rollback.
 
     Shared by :func:`dual_engine_runner` and :func:`dagml_native_status` so the
     fallback detection (warning fragment AND the per_dataset engine marker) lives
@@ -119,7 +124,13 @@ def _run_dagml_leg(case: PipelineCase, dataset: DatasetConfigs) -> tuple[Any, bo
     """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        dagml = nirs4all.run(pipeline=case.pipeline, dataset=dataset, verbose=0, engine="dag-ml")
+        dagml = nirs4all.run(
+            pipeline=case.pipeline,
+            dataset=dataset,
+            verbose=0,
+            engine="dag-ml",
+            allow_legacy_fallback=True,
+        )
         fell_back = any(_FALLBACK_WARNING_FRAGMENT in str(w.message) for w in caught)
     dagml_native = (not fell_back) and bool(dagml._is_dagml_engine())  # noqa: SLF001
     return dagml, dagml_native

@@ -11,6 +11,7 @@ legacy. A genuine dag-ml bug still propagates untouched.
 from __future__ import annotations
 
 import contextlib
+import importlib
 import warnings
 from pathlib import Path
 from typing import Any
@@ -356,6 +357,13 @@ def test_dagml_run_strict_mode_refuses_unavailable_backend_without_legacy_fallba
         raise DagMlUnavailable("simulated: strict native backend unavailable")
 
     monkeypatch.setattr(run_backend, "preflight_dagml_backend", _unavailable)
+    monkeypatch.setattr(
+        importlib.import_module("nirs4all.api.run"),
+        "PipelineRunner",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("default native failure constructed a legacy runner")
+        ),
+    )
     with pytest.raises(DagMlUnavailable, match="strict native backend unavailable"):
         nirs4all.run(
             [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
