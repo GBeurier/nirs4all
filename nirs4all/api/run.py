@@ -692,9 +692,9 @@ def run(
         engine: Execution backend selector. ``None`` (default) resolves to ``"legacy"``: the
             public-maintained nirs4all stays pure-Python by default and runs on the in-process
             orchestrator (interim posture until the planned global refactoring lands). ``"dag-ml"``
-            runs the pipeline natively on the dag-ml backend (Rust, in-process by default), with a
-            TRANSPARENT fallback to the legacy engine (a warning is emitted) when a pipeline shape is
-            not yet covered or the dag-ml backend is not installed. ``"dual"`` is a strict,
+            runs the pipeline natively on the dag-ml backend (Rust, in-process by default) and fails
+            closed when a pipeline shape is not yet covered or the dag-ml backend is not installed.
+            Set ``allow_legacy_fallback=True`` for the sole warning-bearing rollback path. ``"dual"`` is a strict,
             no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
             typed error for every other shape or unavailable native capability. Override the default
             per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).

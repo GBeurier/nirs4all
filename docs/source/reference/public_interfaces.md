@@ -207,21 +207,24 @@ if (run.status !== 0) process.exit(run.status);
 | --- | --- |
 | `None` | Use the package default resolved by `resolve_engine(...)`. |
 | `"legacy"` | Use the in-process Python orchestrator. |
-| `"dag-ml"` | Request the dag-ml backend for covered shapes; catchable unsupported/unavailable cases warn and fall back to legacy. |
+| `"dag-ml"` | Request the dag-ml backend for covered shapes; catchable unsupported/unavailable cases fail closed unless the caller explicitly passes `allow_legacy_fallback=True`. |
 | `"dual"` | Strict no-fallback oracle for exact finite floating NumPy `X` and continuous regression `y`, exact `KFold(shuffle=False)`, and one exact `PLSRegression`; it requires built-in integer `random_state`, `refit=True`, all output flags false, no session/cache/project/runner kwargs/results path/native-results environment, a concrete winner/OOF splits, finite `cv_best_score`, and finite per-fold `val_score` plus declared validation RMSE. The legacy workspace is temporary and removed before return. Its report explicitly marks the current PLS route as `orchestration_parity_only` / `python_sklearn_pls`, not native Methods execution. It raises `DualRunUnsupported` or `DualRunMismatchError`. |
 
-The pipeline language is broader than current dag-ml native coverage. Requesting `engine="dag-ml"` is safe for user workflows because catchable unsupported shapes and unavailable dag-ml runtime dependencies warn and re-run on the legacy engine. A genuine dag-ml runtime/operator bug still propagates as an error.
+The pipeline language is broader than current dag-ml native coverage. Requesting
+`engine="dag-ml"` is fail-closed: a catchable unsupported shape or unavailable
+runtime is returned to the caller before a legacy engine is constructed. A
+genuine dag-ml runtime/operator bug also propagates unchanged.
 
-For migration qualification, set `allow_legacy_fallback=False`. In that mode a
-catchable unavailable or unsupported DAG-ML request is returned to the caller
-as an error before any legacy execution starts:
+`allow_legacy_fallback=True` is the explicit diagnostic/rollback action. It
+emits a warning and re-runs only catchable unsupported or unavailable requests
+on legacy; it is never an implicit substitute for a claimed native execution:
 
 ```python
 result = nirs4all.run(
     pipeline="pipeline.yaml",
     dataset="dataset.yaml",
     engine="dag-ml",
-    allow_legacy_fallback=False,
+    allow_legacy_fallback=True,
     random_state=42,
 )
 ```
