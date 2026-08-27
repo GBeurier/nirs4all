@@ -22,7 +22,7 @@ from nirs4all.pipeline.dagml_bridge import controller_manifests
 
 from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
 from .detect import _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
-from .envelope import build_envelope
+from .envelope import build_envelope, build_fold_set
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _repetition_refit_order, _split_pool
 from .identity import mint_identity
@@ -1853,6 +1853,23 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
 _META_NODE_ID = "merge:stack"
 
 
+def _require_partitioned_outer_stacking(identity: Any, folds: list[tuple[list[int], list[int]]]) -> None:
+    """Reject nested stacking over repeated or incomplete validation folds.
+
+    A regular native CV campaign can aggregate repeated ``ShuffleSplit``
+    predictions per sample.  Nested stacking cannot: its meta learner needs
+    one unambiguous outer-OOF feature row per sample.  Refuse before graph
+    compilation or scheduler execution instead of relying on a later runtime
+    validation error (or, worse, changing the legacy repeated-row semantics).
+    """
+    fold_set = build_fold_set(identity, folds, set_id="folds.stacking.outer")
+    if fold_set.get("partition_mode") == "resampled":
+        raise DagMlUnsupported(
+            "native nested stacking requires an outer CV partition with exactly one validation prediction "
+            "per sample (for example KFold); ShuffleSplit and repeated CV are not portable yet"
+        )
+
+
 def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run one scheduler-owned nested-OOF stacking campaign (ADR-26).
 
@@ -1874,6 +1891,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     identity = mint_identity(spectro)
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
+    _require_partitioned_outer_stacking(identity, folds)
     envelope = build_envelope(spectro, identity, sample_ints=pool)
     # K=2 is the narrowest non-degenerate nested policy.  It is serialized in
     # the DSL and constructed/attested by dag-ml, never delegated to sklearn.
