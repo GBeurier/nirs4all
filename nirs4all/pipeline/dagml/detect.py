@@ -1179,8 +1179,8 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
 def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] | None:
     """Detect the EXACT duplication-branch + ``{"merge": "predictions"}`` + meta-model shape, else ``None``.
 
-    Admits ONLY: the splitter + ONE duplication branch (``{"branch": [[A], [B], …]}``, N≥2 sub-pipelines
-    each with a model) + ONE ``{"merge": "predictions"}`` + ONE downstream ``{"model": M}`` whose M is a
+    Admits ONLY: the splitter + ONE duplication branch (list syntax or a named dict without a separation
+    criterion, N≥2 sub-pipelines each with a model) + ONE ``{"merge": "predictions"}`` + ONE downstream ``{"model": M}`` whose M is a
     handled meta-learner (a default ``MetaModel`` wrapper or a plain sklearn estimator; see
     :func:`_meta_learner`). Returns ``(branches, meta_learner)`` (the bare sklearn estimator) when matched.
     ANY deviation returns ``None`` so the bridge / the loud #10 path fires — never a silent-wrong run.
@@ -1225,8 +1225,11 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
             continue
         return None
 
-    branches = branch_step["branch"]
-    if not isinstance(branches, list) or not all(isinstance(branch, list) for branch in branches):
+    # ``_duplication_branch_bodies`` is the one canonical classifier for list and named duplication
+    # syntax. It preserves named-dict insertion order, which is observable as the meta-feature column
+    # order, and rejects every separation criterion/configuration we do not lower.
+    branches = _duplication_branch_bodies(branch_step)
+    if branches is None:
         return None
     if not all(any(isinstance(sub, dict) and "model" in sub for sub in branch) for branch in branches):
         return None
