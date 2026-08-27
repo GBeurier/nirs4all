@@ -252,11 +252,11 @@ should branch on it rather than inferring support from the broader legacy API.
 | --- | --- | --- |
 | `run(..., engine="native")` | Supported subset | Explicit raw mapping `{"X", "y", "sample_ids"}`, portable Methods pipeline, native refit, and no legacy workspace/cache/project/result path. Unsupported shapes stop before a legacy run. |
 | `session(pipeline, engine="native")` | Supported subset | Returns `NativeMethodsSession`: native train, identity-bound prediction, Archive V2 export, close, and one selected full refit that returns a V3 child. It does not create a `PipelineRunner`. |
-| `predict(..., engine="native")` | Supported subset | Requires an explicitly identified cohort. It accepts a trained `NativeMethodsSession`, a V3 refit result, or a validated Methods Archive V2/V3 session and rehydrates the N4MM for that invocation only. |
+| `predict(..., engine="native")` | Supported subset | Requires an explicitly identified cohort. It accepts an in-memory `NativeMethodsRunResult`, a trained `NativeMethodsSession`, a V3 refit result, or a validated Methods Archive V2/V3 session. In-memory results call the already-attested estimator directly; archive/session replay rehydrates N4MM for that invocation only. |
 | `load_session(path, engine="native")` | Supported, PREDICT-only | Validates Core Archive V2/Package V2 or Archive V3/Package V3 before data/model hydration, then returns `NativeArchiveSession`. It has no train, retrain, save, or legacy fallback capability. |
 | `retrain(source, data, mode="full", engine="native")` | Supported subset | Source must be an in-memory `NativeMethodsRunResult` with a completed selected refit and attested seed. The selected PLS variant is copied exactly and the child outcome persists signed parent lineage. |
 | Native transfer / finetune retrain | Refused | `mode="transfer"`, `mode="finetune"`, archive sources, replacement models, epochs, and legacy retrain kwargs are rejected before native execution. A future plugin must declare its own artifact and lineage contract. |
-| `explain(..., engine="native")` | Refused | SHAP is a host plugin today. The request is rejected at engine preflight; it is never rerouted to legacy implicitly. |
+| `explain(..., engine="native")` | Refused | SHAP is a host plugin today. A native result or session is rejected at preflight even when no engine argument is supplied; it is never rerouted to legacy implicitly. |
 | `generate(..., engine="native")` | Refused | Synthetic-data generation has no native Methods implementation. The explicit engine is rejected before a builder or dataset is constructed. |
 
 The default remains unchanged during R2: it is not evidence that every legacy
