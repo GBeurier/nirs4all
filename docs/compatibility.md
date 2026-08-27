@@ -159,10 +159,12 @@ while the Python oracle materializes `concat_transform` before CV.
 
 ### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (11)
 
-Shapes the dag-ml host bridge does **not serialize yet**, so `engine="dag-ml"`
-transparently re-runs legacy. These make **no parity claim** — they are pinned by
-the never-xfailed `test_native_fallback_boundary` (`test_conformance_dual_engine.py:375`):
-a fallback off the allowlist = native-coverage **regression → FAIL**; a native
+Shapes the dag-ml host bridge does **not serialize yet**. A normal
+`engine="dag-ml"` request fails closed; the parity harness exercises these rows
+only with the explicit `allow_legacy_fallback=True` diagnostic rollback. They
+make **no parity claim** — they are pinned by the never-xfailed
+`test_native_fallback_boundary` (`test_conformance_dual_engine.py:375`): a
+fallback off the allowlist = native-coverage **regression → FAIL**; a native
 case on the allowlist = **stale entry → FAIL**. **Owner: L5/A3** (host-bridge
 serialization, runtime work — not a tolerance question). When L5 lands native
 coverage, the entry leaves the allowlist and the boundary test then demands

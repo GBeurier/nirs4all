@@ -122,3 +122,63 @@ def test_scores_to_run_result_preserves_portable_methods_single_variant_oof_aver
     assert len(avg_rows) == 2
     assert {row["val_score"] for row in avg_rows} == {2.0}
     assert result.cv_best_score == 2.0
+
+
+def test_terminal_group_score_wins_without_replacing_sample_oof_score() -> None:
+    """Repetition vote projects group-grain terminal evidence, not row-grain fallback."""
+
+    scores = {
+        "reports": [
+            {
+                "partition": "validation",
+                "fold_id": "fold0",
+                "variant_id": "variant:base",
+                "producer_node": "model:compat.0",
+                "level": "sample",
+                "metrics": {"accuracy": 0.75},
+            },
+            {
+                "partition": "validation",
+                "fold_id": "avg",
+                "variant_id": "variant:base",
+                "producer_node": "model:compat.0",
+                "level": "sample",
+                "metrics": {"accuracy": 0.75},
+            },
+            {
+                "partition": "test",
+                "fold_id": None,
+                "variant_id": "variant:base",
+                "producer_node": "model:compat.0",
+                "level": "sample",
+                "metrics": {"accuracy": 0.50},
+            },
+            {
+                "partition": "test",
+                "fold_id": None,
+                "variant_id": "variant:base",
+                "producer_node": "model:compat.0",
+                "level": "group",
+                "metrics": {"accuracy": 1.0},
+            },
+            {
+                "partition": "final",
+                "fold_id": None,
+                "variant_id": "variant:base",
+                "producer_node": "model:compat.0",
+                "level": "group",
+                "metrics": {"accuracy": 1.0},
+            },
+        ]
+    }
+
+    result = _scores_to_run_result(
+        scores,
+        "dataset:test",
+        "VoteClassifier",
+        metric="accuracy",
+        task_type="classification",
+    )
+
+    assert result.cv_best_score == 0.75
+    assert result.best_accuracy == 1.0

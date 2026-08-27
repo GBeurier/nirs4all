@@ -207,21 +207,24 @@ if (run.status !== 0) process.exit(run.status);
 | --- | --- |
 | `None` | Use the package default resolved by `resolve_engine(...)`. |
 | `"legacy"` | Use the in-process Python orchestrator. |
-| `"dag-ml"` | Request the dag-ml backend for covered shapes; catchable unsupported/unavailable cases warn and fall back to legacy. |
+| `"dag-ml"` | Request the dag-ml backend for covered shapes; catchable unsupported/unavailable cases fail closed unless the caller explicitly passes `allow_legacy_fallback=True`. |
 | `"dual"` | Strict no-fallback oracle for exact finite floating NumPy `X` and continuous regression `y`, exact `KFold(shuffle=False)`, and one exact `PLSRegression`; it requires built-in integer `random_state`, `refit=True`, all output flags false, no session/cache/project/runner kwargs/results path/native-results environment, a concrete winner/OOF splits, finite `cv_best_score`, and finite per-fold `val_score` plus declared validation RMSE. The legacy workspace is temporary and removed before return. Its report explicitly marks the current PLS route as `orchestration_parity_only` / `python_sklearn_pls`, not native Methods execution. It raises `DualRunUnsupported` or `DualRunMismatchError`. |
 
-The pipeline language is broader than current dag-ml native coverage. Requesting `engine="dag-ml"` is safe for user workflows because catchable unsupported shapes and unavailable dag-ml runtime dependencies warn and re-run on the legacy engine. A genuine dag-ml runtime/operator bug still propagates as an error.
+The pipeline language is broader than current dag-ml native coverage. Requesting
+`engine="dag-ml"` is fail-closed: a catchable unsupported shape or unavailable
+runtime is returned to the caller before a legacy engine is constructed. A
+genuine dag-ml runtime/operator bug also propagates unchanged.
 
-For migration qualification, set `allow_legacy_fallback=False`. In that mode a
-catchable unavailable or unsupported DAG-ML request is returned to the caller
-as an error before any legacy execution starts:
+`allow_legacy_fallback=True` is the explicit diagnostic/rollback action. It
+emits a warning and re-runs only catchable unsupported or unavailable requests
+on legacy; it is never an implicit substitute for a claimed native execution:
 
 ```python
 result = nirs4all.run(
     pipeline="pipeline.yaml",
     dataset="dataset.yaml",
     engine="dag-ml",
-    allow_legacy_fallback=False,
+    allow_legacy_fallback=True,
     random_state=42,
 )
 ```
@@ -252,11 +255,11 @@ should branch on it rather than inferring support from the broader legacy API.
 | --- | --- | --- |
 | `run(..., engine="native")` | Supported subset | Explicit raw mapping `{"X", "y", "sample_ids"}`, portable Methods pipeline, native refit, and no legacy workspace/cache/project/result path. Unsupported shapes stop before a legacy run. |
 | `session(pipeline, engine="native")` | Supported subset | Returns `NativeMethodsSession`: native train, identity-bound prediction, Archive V2 export, close, and one selected full refit that returns a V3 child. It does not create a `PipelineRunner`. |
-| `predict(..., engine="native")` | Supported subset | Requires an explicitly identified cohort. It accepts a trained `NativeMethodsSession`, a V3 refit result, or a validated Methods Archive V2/V3 session and rehydrates the N4MM for that invocation only. |
+| `predict(..., engine="native")` | Supported subset | Requires an explicitly identified cohort. It accepts an in-memory `NativeMethodsRunResult`, a trained `NativeMethodsSession`, a V3 refit result, or a validated Methods Archive V2/V3 session. In-memory results call the already-attested estimator directly; archive/session replay rehydrates N4MM for that invocation only. |
 | `load_session(path, engine="native")` | Supported, PREDICT-only | Validates Core Archive V2/Package V2 or Archive V3/Package V3 before data/model hydration, then returns `NativeArchiveSession`. It has no train, retrain, save, or legacy fallback capability. |
 | `retrain(source, data, mode="full", engine="native")` | Supported subset | Source must be an in-memory `NativeMethodsRunResult` with a completed selected refit and attested seed. The selected PLS variant is copied exactly and the child outcome persists signed parent lineage. |
 | Native transfer / finetune retrain | Refused | `mode="transfer"`, `mode="finetune"`, archive sources, replacement models, epochs, and legacy retrain kwargs are rejected before native execution. A future plugin must declare its own artifact and lineage contract. |
-| `explain(..., engine="native")` | Refused | SHAP is a host plugin today. The request is rejected at engine preflight; it is never rerouted to legacy implicitly. |
+| `explain(..., engine="native")` | Refused | SHAP is a host plugin today. A native result or session is rejected at preflight even when no engine argument is supplied; it is never rerouted to legacy implicitly. |
 | `generate(..., engine="native")` | Refused | Synthetic-data generation has no native Methods implementation. The explicit engine is rejected before a builder or dataset is constructed. |
 
 The default remains unchanged during R2: it is not evidence that every legacy

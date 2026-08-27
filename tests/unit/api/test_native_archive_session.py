@@ -60,7 +60,7 @@ def test_native_archive_session_replays_explicit_ids_and_closes(
         session.predict(np.asarray([[1.0]]), sample_ids=["p3"])
 
 
-def test_load_session_native_uses_the_portable_session_without_bundle_loader(
+def test_load_session_native_environment_uses_the_portable_session_without_bundle_loader(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path,
 ) -> None:
@@ -76,8 +76,9 @@ def test_load_session_native_uses_the_portable_session_without_bundle_loader(
         "nirs4all.pipeline.dagml.native_archive_replay.validate_methods_archive_v2",
         lambda path: None,
     )
+    monkeypatch.setenv("N4A_ENGINE", "native")
 
-    loaded = load_session(archive, engine="native")
+    loaded = load_session(archive)
 
     assert isinstance(loaded, NativeArchiveSession)
     assert loaded.archive_path == archive
@@ -119,6 +120,31 @@ def test_predict_uses_native_archive_session_without_model_or_legacy_runner(
     assert result.metadata["engine"] == "native"
     assert observed["path"] == "portable.n4a"
     assert observed["sample_ids"] == ["p1", "p2"]
+
+
+def test_native_environment_selects_archive_prediction(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The process selector reaches native replay without an explicit kwarg."""
+
+    monkeypatch.setenv("N4A_ENGINE", "native")
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
+        lambda _path, _X, *, sample_ids, **_kwargs: NativeArchivePrediction(
+            values=np.asarray([[3.0]]),
+            sample_ids=tuple(sample_ids),
+            intervals={},
+            conformal_guarantee_status=None,
+        ),
+    )
+
+    result = predict(
+        model="portable.n4a",
+        data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]},
+    )
+
+    assert result.y_pred.tolist() == [[3.0]]
+    assert result.metadata["engine"] == "native"
 
 
 def test_load_native_archive_session_refuses_a_bad_package_before_prediction(

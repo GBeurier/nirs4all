@@ -103,20 +103,47 @@ def data_bindings_for_nodes(model_ids: list[str], envelope: dict[str, Any], *, s
     return [_data_binding(model_id, envelope, source_id=source_id) for model_id in model_ids]
 
 
-def split_invocation_for(identity: IdentityMap, folds: list[tuple[list[int], list[int]]], *, n_splits: int, shuffle: bool = True) -> dict[str, Any]:
+def split_invocation_for(
+    identity: IdentityMap,
+    folds: list[tuple[list[int], list[int]]],
+    *,
+    n_splits: int,
+    shuffle: bool = True,
+    refit_sample_ints: list[int] | None = None,
+) -> dict[str, Any]:
     """A split_invocation with an embedded, materialized FoldSet (params alone are inert)."""
     return {
         "id": "split:outer",
         "controller_id": None,
         "params": {"kind": "kfold", "n_splits": n_splits, "shuffle": shuffle},
-        "fold_set": build_fold_set(identity, folds, set_id="folds.outer"),
+        "fold_set": build_fold_set(
+            identity,
+            folds,
+            set_id="folds.outer",
+            refit_sample_ints=refit_sample_ints,
+        ),
     }
 
 
-def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: dict[str, Any], folds: list[tuple[list[int], list[int]]], *, dsl_id: str = "nirs4all-pipeline", n_splits: int, source_id: str = _SOURCE_ID) -> dict[str, Any]:
+def assemble_cv_refit_dsl(
+    pipeline: list[Any],
+    identity: IdentityMap,
+    envelope: dict[str, Any],
+    folds: list[tuple[list[int], list[int]]],
+    *,
+    dsl_id: str = "nirs4all-pipeline",
+    n_splits: int,
+    source_id: str = _SOURCE_ID,
+    refit_sample_ints: list[int] | None = None,
+) -> dict[str, Any]:
     """The executable compat DSL: lowered pipeline + embedded fold_set + model data binding."""
     dsl = pipeline_to_dsl(pipeline, dsl_id)
-    dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
+    dsl["split_invocation"] = split_invocation_for(
+        identity,
+        folds,
+        n_splits=n_splits,
+        refit_sample_ints=refit_sample_ints,
+    )
     dsl["data_bindings"] = data_bindings_for(model_node_id(pipeline, dsl_id=dsl_id), envelope, source_id=source_id)
     return dsl
 

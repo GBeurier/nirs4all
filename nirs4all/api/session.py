@@ -227,7 +227,9 @@ class Session:
         native request.
         """
 
-        engine = runner_kwargs.get("engine", "legacy")
+        from nirs4all.pipeline.engine import resolve_engine
+
+        engine = resolve_engine(runner_kwargs.get("engine"))
         if cls is Session and engine == "native":
             if pipeline is None:
                 raise ValueError("engine='native' session requires an explicit portable pipeline")
@@ -602,17 +604,18 @@ class Session:
 def load_session(
     path: str | Path,
     *,
-    engine: str = "legacy",
+    engine: str | None = None,
     methods_library_path: str | Path | None = None,
 ) -> Session | NativeArchiveSession:
     """Load a prediction session from a saved bundle or portable archive.
 
     Args:
         path: Path to a ``.n4a`` bundle or archive file.
-        engine: ``"legacy"`` (default) retains the existing BundleLoader
-            session. ``"native"`` opens the fail-closed Core Archive V2
-            Methods replay session; it never constructs a ``PipelineRunner``
-            or falls back to the legacy loader.
+        engine: Backend selector. ``None`` follows ``$N4A_ENGINE`` and then
+            the process default. ``"legacy"`` retains the existing
+            BundleLoader session. ``"native"`` opens the fail-closed Core
+            Archive V2 Methods replay session; it never constructs a
+            ``PipelineRunner`` or falls back to the legacy loader.
         methods_library_path: Optional explicit path to ``libn4m`` for an
     ``engine="native"`` Archive V2/V3 Methods session. When omitted,
             the bundled ``nirs4all-methods`` runtime is used.
@@ -632,14 +635,17 @@ def load_session(
     if not path.exists():
         raise FileNotFoundError(f"Bundle not found: {path}")
 
-    if engine == "native":
+    from nirs4all.pipeline.engine import resolve_engine
+
+    selected_engine = resolve_engine(engine)
+    if selected_engine == "native":
         if path.suffix.lower() != ".n4a":
             raise ValueError("engine='native' load_session requires a Core Archive V2/V3 .n4a path")
         return load_native_archive_session(path, methods_library_path=methods_library_path)
-    if engine != "legacy":
+    if selected_engine != "legacy":
         from nirs4all.pipeline.engine import require_legacy_engine
 
-        require_legacy_engine("load_session", engine)
+        require_legacy_engine("load_session", selected_engine)
         raise AssertionError("require_legacy_engine unexpectedly accepted a non-legacy engine")
 
     # Load the bundle to get pipeline info
@@ -698,7 +704,9 @@ def session(
         ...     result = s.run("sample_data/regression")
         ...     print(f"Best score: {result.best_score:.4f}")
     """
-    engine = kwargs.pop("engine", "legacy")
+    from nirs4all.pipeline.engine import resolve_engine
+
+    engine = resolve_engine(kwargs.pop("engine", None))
     s: Session | NativeMethodsSession
     if engine == "native":
         from nirs4all.api.native_session import NativeMethodsSession

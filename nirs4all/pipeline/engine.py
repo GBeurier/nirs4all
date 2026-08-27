@@ -4,10 +4,15 @@ Seam for the **nirs4all-core → dag-ml** migration. The default production engi
 public-maintained nirs4all stays pure-Python by default, so :func:`nirs4all.run` runs through the
 in-process *legacy* orchestrator (:class:`~nirs4all.pipeline.PipelineRunner`) unless another engine is
 selected. The dag-ml backend (:mod:`nirs4all.pipeline.dagml.run_backend`) — which runs the pipeline
-natively (Rust) and returns a ``RunResult`` of dag-ml's native scores, with a transparent fallback to
-the legacy orchestrator for any shape it cannot yet honor — stays **fully selectable** via
+natively (Rust) and returns a ``RunResult`` of dag-ml's native scores — stays
+**fully selectable** via
 ``engine="dag-ml"`` or ``$N4A_ENGINE=dag-ml``; the whole dag-ml integration (in-process path, native
 generator coverage, conformance pack, hard dependency) is intact and runnable out of the box.
+
+An unavailable or unsupported dag-ml request is fail-closed by default.  A
+legacy rerun is an explicit R2 rollback action through
+``run(..., engine="dag-ml", allow_legacy_fallback=True)``; it is never an
+implicit substitute for a claimed native execution.
 
 This is the interim posture: the maintainer keeps the public Python version as the default until the
 planned global refactoring lands; at that point the legacy-DROP cutover flips the default back to

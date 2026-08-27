@@ -101,7 +101,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "nirs4all.api.native_refit_result.NativeMethodsRefitResult"
     ),
     "session": ("(pipeline: 'list[Any] | None' = None, name: 'str' = '', **kwargs: 'Any') -> 'Generator[Session | NativeMethodsSession, None, None]'"),
-    "load_session": ("(path: 'str | Path', *, engine: 'str' = 'legacy', methods_library_path: 'str | Path | None' = None) -> 'Session | NativeArchiveSession'"),
+    "load_session": ("(path: 'str | Path', *, engine: 'str | None' = None, methods_library_path: 'str | Path | None' = None) -> 'Session | NativeArchiveSession'"),
     "generate": (
         "(n_samples: 'int' = 1000, *, random_state: 'int | None' = None, "
         "complexity: \"Literal['simple', 'realistic', 'complex']\" = 'simple', "
