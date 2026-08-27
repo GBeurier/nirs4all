@@ -20,6 +20,7 @@ from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.transforms import FirstDerivative
 from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
+from nirs4all.pipeline.dagml.identity import mint_identity
 from tests.integration.parity._datasets import dataset_path
 
 SCENARIO_ID = "e2e-multisource-branching-stacking-replay"
@@ -133,6 +134,7 @@ def _branch_specs(pipeline_contract: dict[str, Any]) -> list[dict[str, Any]]:
 def _direct_stacking_oracle(pipeline_contract: dict[str, Any] | None = None) -> dict[str, Any]:
     pipeline_contract = pipeline_contract or _pipeline_contract()
     dataset = _load_multi_dataset()
+    identity = mint_identity(dataset)
     train = dataset.index_column("sample", {"partition": "train"})
     test = dataset.index_column("sample", {"partition": "test"})
     split_params = pipeline_contract["pipeline"][0]["params"]
@@ -142,7 +144,19 @@ def _direct_stacking_oracle(pipeline_contract: dict[str, Any] | None = None) -> 
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(**split_params).split(train)]
 
     def x(ids: list[int]) -> np.ndarray:
-        return np.asarray(dataset.x({"sample": [int(sample) for sample in ids]}, layout="2d", concat_source=True))
+        # The dataset preserves storage order when it materializes a selected
+        # sample set. Nested CV deliberately uses canonical wire-ID ordering,
+        # which is not numerical storage order (``…s100`` sorts before
+        # ``…s11``). Reindex the feature rows just as ``y`` does below so the
+        # Python oracle fits each inner estimator on the exact `(X, y)` pairing
+        # that the identity-keyed native resolver receives.
+        requested = [int(sample) for sample in ids]
+        stored = dataset.index_column("sample", {"sample": requested})
+        row_of = {int(sample): row for row, sample in enumerate(stored)}
+        values = np.asarray(
+            dataset.x({"sample": requested}, layout="2d", concat_source=True)
+        )
+        return values[[row_of[sample] for sample in requested]]
 
     def y(ids: list[int]) -> np.ndarray:
         stored = dataset.index_column("sample", {"sample": [int(sample) for sample in ids]})
@@ -166,29 +180,59 @@ def _direct_stacking_oracle(pipeline_contract: dict[str, Any] | None = None) -> 
     fold_summaries: list[dict[str, Any]] = []
 
     for fold_index, (train_ids, val_ids) in enumerate(folds):
+        train_ids = [int(sample) for sample in train_ids]
         val_ids = [int(sample) for sample in val_ids]
-        meta_columns: list[np.ndarray] = []
+        # Mirror ADR-26 exactly: the meta learner is fit on base OOF made
+        # inside the outer training universe, then evaluated on independently
+        # fitted base predictions for the outer validation universe.
+        # `NestedCvSpec::KFold` sorts canonical wire SampleIds then assigns
+        # validation rows round-robin (`index % n_splits`), unlike sklearn's
+        # contiguous no-shuffle KFold blocks. Reproduce that contract exactly.
+        inner_ordered = sorted(train_ids, key=identity.to_wire)
+        inner_folds = [
+            (
+                [sample for index, sample in enumerate(inner_ordered) if index % 2 != fold],
+                [sample for index, sample in enumerate(inner_ordered) if index % 2 == fold],
+            )
+            for fold in range(2)
+        ]
+        inner_columns: list[np.ndarray] = []
+        outer_columns: list[np.ndarray] = []
         base_scores: dict[str, float] = {}
         for spec in branch_specs:
             branch_name = spec["name"]
+            inner_by_sample: dict[int, float] = {}
+            for inner_train_ids, inner_val_ids in inner_folds:
+                fitted = fit_branch(spec, inner_train_ids)
+                inner_predictions = predict_branch(fitted, inner_val_ids)
+                inner_by_sample.update(
+                    {
+                        sample_id: float(prediction)
+                        for sample_id, prediction in zip(inner_val_ids, inner_predictions, strict=True)
+                    }
+                )
+            assert set(inner_by_sample) == set(train_ids)
+            inner_columns.append(np.asarray([inner_by_sample[sample_id] for sample_id in train_ids]))
             fitted = fit_branch(spec, train_ids)
             predictions = predict_branch(fitted, val_ids)
-            meta_columns.append(predictions)
+            outer_columns.append(predictions)
             for position, sample_id in enumerate(val_ids):
                 base_oof[branch_name][sample_id] = float(predictions[position])
             base_scores[branch_name] = float(np.sqrt(mean_squared_error(y(val_ids), predictions)))
 
-        x_meta = np.column_stack(meta_columns)
-        y_meta = y(val_ids)
-        meta_predictions = Ridge(**final_model_params).fit(x_meta, y_meta).predict(x_meta)
+        x_meta = np.column_stack(inner_columns)
+        y_meta = y(train_ids)
+        x_outer = np.column_stack(outer_columns)
+        y_outer = y(val_ids)
+        meta_predictions = Ridge(**final_model_params).fit(x_meta, y_meta).predict(x_outer)
         for position, sample_id in enumerate(val_ids):
-            truth[sample_id] = float(y_meta[position])
+            truth[sample_id] = float(y_outer[position])
             meta_oof[sample_id] = float(meta_predictions[position])
         fold_summaries.append(
             {
                 "fold_id": fold_index,
                 "sample_ids": val_ids,
-                "meta_rmse": float(np.sqrt(mean_squared_error(y_meta, meta_predictions))),
+                "meta_rmse": float(np.sqrt(mean_squared_error(y_outer, meta_predictions))),
                 "base_rmse": base_scores,
             }
         )
@@ -271,7 +315,12 @@ def test_multisource_stacking_replay(artifacts_dir: Path) -> None:
     assert summary["is_dagml"] is True
     cv_best_score_delta = abs(summary["cv_best_score"] - oracle["scores"]["cv_best_score"])
     best_rmse_delta = abs(summary["best_rmse"] - oracle["scores"]["best_rmse"])
-    assert cv_best_score_delta <= SCORE_TOLERANCE
+    assert cv_best_score_delta <= SCORE_TOLERANCE, {
+        "native_cv": summary["cv_best_score"],
+        "oracle_cv": oracle["scores"]["cv_best_score"],
+        "native_meta_rows": summary["rows"],
+        "oracle_folds": oracle["folds"],
+    }
     assert best_rmse_delta <= SCORE_TOLERANCE
 
     native_dir = Path(summary["native_results_dir"])
