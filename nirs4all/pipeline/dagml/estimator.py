@@ -55,6 +55,11 @@ class DagMLReplayExecution:
     op_callback: Any
     outcome_id: str
     run_id: str
+    # Raw portable artifacts are hydrated and released for this invocation by
+    # DAG-ML.  Keeping the callback alongside the opaque task callback makes
+    # the lifecycle explicit and prevents a replay compiler from smuggling a
+    # process-local model handle through ``artifact_handles``.
+    artifact_callback: Any | None = None
     warnings: Any = ()
     diagnostics: Any = None
 
@@ -167,6 +172,7 @@ class DagMLPipelineEstimator(BaseEstimator):
         )
 
         self.training_result_ = training_result
+        self.training_execution_ = execution
         self.training_outcome_ = getattr(training_result, "outcome", None)
         self.outputs_ = list(getattr(training_result, "outputs", []) or [])
         self.output_binding_ = self._select_output_binding(self.outputs_)
@@ -309,6 +315,7 @@ class DagMLPipelineEstimator(BaseEstimator):
             replay.op_callback,
             outcome_id=replay.outcome_id,
             run_id=replay.run_id,
+            artifact_callback=replay.artifact_callback,
             warnings=replay.warnings,
             diagnostics=replay.diagnostics,
         )

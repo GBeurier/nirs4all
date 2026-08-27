@@ -60,6 +60,7 @@ class _DagMLFacade(Protocol):
         *,
         outcome_id: str,
         run_id: str,
+        artifact_callback: Any | None = None,
         warnings: Any = (),
         diagnostics: Any = None,
     ) -> Any: ...
@@ -147,6 +148,7 @@ class DagMLNativeClient:
         *,
         outcome_id: str,
         run_id: str,
+        artifact_callback: Any | None = None,
         warnings: Any = (),
         diagnostics: Any = None,
     ) -> Any:
@@ -167,6 +169,7 @@ class DagMLNativeClient:
             op_callback,
             outcome_id=outcome_id,
             run_id=run_id,
+            artifact_callback=artifact_callback,
             warnings=warnings,
             diagnostics=diagnostics,
         )

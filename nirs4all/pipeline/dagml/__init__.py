@@ -14,6 +14,7 @@ __all__ = [
     "finetune_lowering",
     "fit_identity",
     "methods_replay",
+    "raw_methods_replay",
     "native_client",
     "pipeline_objective",
     "pipeline_objective_compiler",

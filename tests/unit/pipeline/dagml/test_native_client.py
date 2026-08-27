@@ -193,6 +193,7 @@ def test_replay_loaded_predictor_package_forwards_to_facade(monkeypatch: pytest.
             {
                 "outcome_id": "replay-outcome",
                 "run_id": "replay-run",
+                "artifact_callback": None,
                 "warnings": [],
                 "diagnostics": {"replay": True},
             },
