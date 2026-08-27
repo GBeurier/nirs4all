@@ -549,7 +549,14 @@ def _scores_to_run_result(
         variant_model_name = variant_model_names.get(variant_id, model_name) if variant_model_names is not None else model_name
 
         # The native validation folds for THIS variant, in dag-ml's emitted order (foldN, excluding avg).
-        fold_keys = [fold_id for (other_variant_id, partition, fold_id) in by_key if other_variant_id == variant_id and partition == "validation" and fold_id != "avg"]
+        fold_keys = [
+            fold_id
+            for (other_variant_id, partition, fold_id) in by_key
+            if other_variant_id == variant_id
+            and partition == "validation"
+            and fold_id is not None
+            and fold_id != "avg"
+        ]
         # The cross-fold OOF average for THIS variant. dag-ml emits the avg with `variant_id = None` for
         # the SOLE producer (a single concrete pipeline or a merge node) and for the SWEEP WINNER; a sweep
         # LOSER's avg carries its own variant_id. The portable Methods controller retains `variant:base`
