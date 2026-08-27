@@ -536,7 +536,13 @@ def build_envelope(
     return out
 
 
-def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]]], *, set_id: str = "nirs4all.folds") -> dict[str, Any]:
+def build_fold_set(
+    identity: IdentityMap,
+    folds: list[tuple[list[int], list[int]]],
+    *,
+    set_id: str = "nirs4all.folds",
+    refit_sample_ints: list[int] | None = None,
+) -> dict[str, Any]:
     """Translate ``(train_ints, validation_ints)`` folds into a dag-ml-data ``FoldSet``.
 
     Pure identity translation — sample ints become stable wire ids. The validation distribution is
@@ -553,13 +559,17 @@ def build_fold_set(identity: IdentityMap, folds: list[tuple[list[int], list[int]
         for sample_int in validation_ints:
             validation_counts[sample_int] = validation_counts.get(sample_int, 0) + 1
     # The CV pool drives the REFIT (FullTrain) materialization ORDER: dag-ml preserves the host order of
-    # fold_set.sample_ids when it materializes the full-train universe (merge.rs). Order the pool by
-    # STORAGE order (ascending sample int == the train partition's storage order), NOT fold-first-seen —
-    # legacy refit trains on `dataset.x(train)` in storage order, so a fold-first-seen pool (sample 0
-    # lands late) would feed a fixed-seed RF/GBR a different bootstrap draw and diverge the refit model.
-    # Same SET as fold-first-seen, just the storage ORDER. Per-fold training uses each fold's own
-    # train_sample_ids (unchanged); OOF coverage reads sample_ids as a set (order-insensitive).
+    # fold_set.sample_ids when it materializes the full-train universe (merge.rs). By default use STORAGE
+    # order (ascending sample int), matching legacy `dataset.x(train)`. Repetition datasets are the one
+    # exception: legacy's grouped refit enumerates each physical-sample group in first-seen storage order,
+    # preserving row order within that group. The caller supplies that already-attested ordering explicitly.
+    # Per-fold training always uses each fold's own train_sample_ids (unchanged); OOF coverage is a set.
     pool: list[int] = sorted(seen)
+    if refit_sample_ints is not None:
+        requested = list(refit_sample_ints)
+        if len(requested) != len(set(requested)) or set(requested) != seen:
+            raise ValueError("refit_sample_ints must be a duplicate-free exact permutation of the CV fold universe")
+        pool = requested
     is_oof_partition = len(validation_counts) == len(pool) and all(count == 1 for count in validation_counts.values())
     fold_set: dict[str, Any] = {
         "id": set_id,

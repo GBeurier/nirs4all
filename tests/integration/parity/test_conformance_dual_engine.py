@@ -371,10 +371,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     "branch_separation_by_metadata_auto",
     "branch_separation_by_tag",
     "branch_separation_by_filter",
-    # Classification repetition + vote aggregation requires the final-test surface
-    # to be scored at the legacy sample-vote grain; the native repetition path still
-    # scores classification final-test at the repetition-row grain.
-    "aggregation_classification_vote",
     # Legacy Optuna finetuning mutates model parameters before the final run. The
     # native dag-ml path does not serialize/execute `finetune_params` yet, so it must
     # fall back rather than silently run the untuned model.

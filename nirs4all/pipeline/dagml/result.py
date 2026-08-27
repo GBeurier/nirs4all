@@ -378,7 +378,28 @@ def _scores_to_run_result(
     # Key on (variant_id, partition, fold_id): native generation surfaces every variant's reports and
     # ScoreSet.validate guarantees this triple (per producer) is unique, so distinct variants never
     # collide (the pre-#55 (partition, fold_id) key let later variants overwrite earlier ones).
-    by_key = {(report.get("variant_id"), report["partition"], report.get("fold_id")): {name: float(value) for name, value in report["metrics"].items()} for report in reports}
+    # A node may retain the raw row-grain score alongside an aggregate score for
+    # the same terminal block.  The compatibility table intentionally keeps
+    # row-grain validation/OOF evidence (legacy selection semantics), while a
+    # held-out/refit terminal block must expose the native physical-sample
+    # reducer — notably repetition-group classification vote.  Select that
+    # level explicitly instead of relying on report emission order.
+    def _report_priority(report: dict[str, Any]) -> int:
+        level = report.get("level")
+        terminal = report.get("partition") in {"test", "final"}
+        if terminal:
+            return 2 if level in {"group", "target"} else 1
+        return 2 if level == "sample" else 1
+
+    by_key: dict[tuple[Any, str, str | None], dict[str, float]] = {}
+    priorities: dict[tuple[Any, str, str | None], int] = {}
+    for report in reports:
+        key = (report.get("variant_id"), report["partition"], report.get("fold_id"))
+        priority = _report_priority(report)
+        if priority < priorities.get(key, -1):
+            continue
+        priorities[key] = priority
+        by_key[key] = {name: float(value) for name, value in report["metrics"].items()}
 
     predictions = Predictions()
 

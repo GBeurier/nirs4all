@@ -17,6 +17,7 @@ import pytest
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml import envelope as envelope_module
 from nirs4all.pipeline.dagml.envelope import build_envelope, build_fold_set, sample_relations
+from nirs4all.pipeline.dagml.folds import _repetition_refit_order
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.operator_routing import route_graph_node, route_operator
 from nirs4all.pipeline.dagml.resolver import MaterializationResolver
@@ -83,6 +84,55 @@ def test_resolver_targets_restore_request_order(regression_dataset) -> None:
     ground_truth = np.asarray([float(np.asarray(regression_dataset.y({"sample": [s]})).ravel()[0]) for s in picked])
     assert np.allclose(values, ground_truth)
     assert out["sample_ids"] == wire
+
+
+def test_resolver_targets_keep_group_split_order_for_classification() -> None:
+    """A group-aware fold is non-monotonic and must not re-key y via storage order."""
+
+    dataset = DatasetConfigs(
+        dataset_path("classification"),
+        repetition="Sample_ID",
+        aggregate=False,
+        task_type="multiclass_classification",
+    ).get_dataset_at(0)
+    identity = mint_identity(dataset)
+    resolver = MaterializationResolver(dataset, identity)
+    # These are real group-fold positions: the middle member is far beyond the
+    # first one, so an accidental storage-order lookup changes the target join.
+    picked = [23, 90, 30]
+    wire = [identity.to_wire(sample) for sample in picked]
+
+    out = resolver.resolve_targets(wire)
+    expected = np.asarray(
+        [float(np.asarray(dataset.y({"sample": [sample]})).ravel()[0]) for sample in picked]
+    )
+
+    assert np.array_equal(np.asarray(out["values"], dtype=float), expected)
+    assert out["sample_ids"] == wire
+
+
+def test_repetition_refit_order_groups_physical_samples_without_reordering_members() -> None:
+    """The full-train order must match legacy's group-first materialization.
+
+    The classification fixture deliberately interleaves later repetitions, so
+    a storage-only refit order would put sample 12 ahead of its physical peers.
+    """
+
+    dataset = DatasetConfigs(
+        dataset_path("classification"),
+        repetition="Sample_ID",
+        aggregate=True,
+        aggregate_method="vote",
+        task_type="multiclass_classification",
+    ).get_dataset_at(0)
+    pool = dataset.index_column("sample", {"partition": "train"})
+
+    ordered = _repetition_refit_order(dataset, pool)
+
+    # BGE1 first appears at row 0 and later repeats at 12..22, then 92, 103,
+    # …; legacy keeps all of those contiguous before moving to BGE0.
+    assert ordered[:20] == [0, *range(12, 23), 92, 103, 114, 125, 136, 147, 158, 169]
+    assert sorted(ordered) == sorted(pool)
 
 
 def test_resolver_serves_real_spectra_not_a_hash(regression_dataset) -> None:

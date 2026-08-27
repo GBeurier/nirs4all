@@ -24,7 +24,7 @@ from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
 from .detect import _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
 from .envelope import build_envelope
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
-from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_pool
+from .folds import _build_folds, _build_group_folds, _repetition_grain, _repetition_refit_order, _split_pool
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _frames_by_variant, _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
@@ -669,7 +669,7 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
 
 
 def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
-    """One concrete repetition variant: group-aware folds + a ``group_id``-carrying envelope."""
+    """One concrete repetition variant: group-aware folds and legacy-order refit."""
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
@@ -680,8 +680,25 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_group_folds(splitter, spectro, pool)
     group_by_sample = _repetition_grain(spectro, pool)
-    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=group_by_sample)
-    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
+    # Legacy's repetition refit materializes every row of a physical sample together.  This is
+    # load-bearing for fixed-seed order-sensitive estimators (RF/GBR bootstrap): the fold universe
+    # itself stays untouched, but FullTrain must reproduce the legacy group-first row order.
+    refit_sample_ints = _repetition_refit_order(spectro, pool)
+    envelope = build_envelope(
+        spectro,
+        identity,
+        sample_ints=pool,
+        group_by_sample=group_by_sample,
+    )
+    dsl = assemble_cv_refit_dsl(
+        steps,
+        identity,
+        envelope,
+        folds,
+        dsl_id="nirs4all-pipeline",
+        n_splits=len(folds),
+        refit_sample_ints=refit_sample_ints,
+    )
 
     import dag_ml
 
