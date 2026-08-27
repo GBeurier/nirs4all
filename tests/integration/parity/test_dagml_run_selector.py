@@ -25,7 +25,7 @@ import nirs4all
 from nirs4all.api.result import RunResult
 from nirs4all.config import CacheConfig
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
-from nirs4all.pipeline.engine import resolve_engine
+from nirs4all.pipeline.engine import LegacyFallbackWarning, legacy_fallback_metrics, resolve_engine
 
 pytestmark = [pytest.mark.parity]
 
@@ -106,6 +106,58 @@ def test_run_dagml_propagates_non_catchable_error(monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr(run_backend, "run_via_dagml", _boom)
     with pytest.raises(RuntimeError, match="genuine dag-ml backend bug"):
         nirs4all.run([{"model": PLSRegression(n_components=2)}], dataset_path("regression"), engine="dag-ml")
+
+
+def test_explicit_dagml_fallback_is_structured_and_counted(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only caller-authorized fallback emits safe structured evidence and increments its counter."""
+    import nirs4all.pipeline.dagml.run_backend as run_backend
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+
+    before = legacy_fallback_metrics()
+
+    def _unsupported(*_args: object, **_kwargs: object) -> RunResult:
+        raise DagMlUnsupported("unsupported test shape")
+
+    monkeypatch.setattr(run_backend, "run_via_dagml", _unsupported)
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        result = nirs4all.run(
+            [{"model": PLSRegression(n_components=2)}],
+            dataset_path("regression"),
+            engine="dag-ml",
+            allow_legacy_fallback=True,
+        )
+
+    assert isinstance(result, RunResult)
+    event = next(w.message for w in caught if isinstance(w.message, LegacyFallbackWarning))
+    assert event.as_dict() == {
+        "engine": "dag-ml",
+        "reason": "unsupported_shape",
+    }
+    after = legacy_fallback_metrics()
+    assert after["total"] == before["total"] + 1
+    assert after["unsupported_shape"] == before["unsupported_shape"] + 1
+
+
+def test_fail_closed_dagml_refusal_does_not_increment_fallback_counter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A capability refusal is not a rollback event unless the caller explicitly opted in."""
+    import nirs4all.pipeline.dagml.run_backend as run_backend
+    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+
+    before = legacy_fallback_metrics()
+
+    def _unsupported(*_args: object, **_kwargs: object) -> RunResult:
+        raise DagMlUnsupported("unsupported test shape")
+
+    monkeypatch.setattr(run_backend, "run_via_dagml", _unsupported)
+    with pytest.raises(DagMlUnsupported, match="unsupported test shape"):
+        nirs4all.run(
+            [{"model": PLSRegression(n_components=2)}],
+            dataset_path("regression"),
+            engine="dag-ml",
+            allow_legacy_fallback=False,
+        )
+    assert legacy_fallback_metrics() == before
 
 
 def test_dagml_run_uses_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
