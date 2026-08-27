@@ -565,6 +565,37 @@ def test_predict_native_refit_result_is_direct_and_never_constructs_a_legacy_run
     assert observed["sample_ids"] == ["p1"]
 
 
+def test_predict_native_run_result_is_direct_and_never_constructs_a_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fresh native run result is immediately usable for identity-bound PREDICT."""
+
+    result = object.__new__(NativeMethodsRunResult)
+    observed: dict[str, object] = {}
+
+    class Estimator:
+        def predict_with_identity(self, X, *, sample_ids, groups=None, metadata=None):  # noqa: ANN001
+            observed.update(X=np.asarray(X), sample_ids=list(sample_ids), groups=groups, metadata=metadata)
+            return np.asarray([[4.0]])
+
+    result._native_estimator = Estimator()  # noqa: SLF001
+    predict_module = importlib.import_module("nirs4all.api.predict")
+    monkeypatch.setattr(
+        predict_module,
+        "PipelineRunner",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy runner constructed")),
+    )
+
+    prediction = predict(
+        model=result,
+        data={"X": np.asarray([[2.0]]), "sample_ids": ["p1"]},
+    )
+
+    assert prediction.y_pred.tolist() == [[4.0]]
+    assert prediction.metadata == {"engine": "native", "sample_ids": ["p1"]}
+    assert observed["sample_ids"] == ["p1"]
+
+
 def test_predict_native_archive_accepts_raw_matrix_with_explicit_keyword_identities(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -44,13 +44,15 @@ from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.engine import require_legacy_engine, resolve_engine
 
 from .native_refit_result import NativeMethodsRefitResult
+from .native_result import NativeMethodsRunResult
 from .native_session import NativeMethodsSession
 from .result import PredictResult
 from .session import NativeArchiveSession, Session
 
 # Type aliases for clarity
 ModelSpec: TypeAlias = (
-    NativeMethodsRefitResult  # Detached native full-refit result
+    NativeMethodsRunResult  # In-memory native selected estimator
+    | NativeMethodsRefitResult  # Detached native full-refit result
     | dict[str, Any]  # Prediction dict from previous run
     | str  # Path to bundle (.n4a) or config
     | Path  # Path to bundle or config
@@ -231,7 +233,7 @@ def predict(
     engine = runner_kwargs.pop("engine", None)
 
     if isinstance(session, (NativeArchiveSession, NativeMethodsSession)) or isinstance(
-        model, NativeMethodsRefitResult
+        model, (NativeMethodsRunResult, NativeMethodsRefitResult)
     ):
         if engine is None:
             # The session itself is an unambiguous, already-selected native
@@ -272,7 +274,7 @@ def predict(
             )
         return result
 
-    if isinstance(model, NativeMethodsRefitResult):
+    if isinstance(model, (NativeMethodsRunResult, NativeMethodsRefitResult)):
         raise AssertionError("native V3 result escaped its required native prediction route")
 
     # The explicit native branch above consumes every NativeArchiveSession.
@@ -481,6 +483,25 @@ def _predict_from_native_archive(
     if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
         raise TypeError(
             "engine='native' predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
+        )
+    if isinstance(model, NativeMethodsRunResult):
+        if all_predictions or coverage is not None:
+            raise NotImplementedError(
+                "engine='native' in-memory Methods prediction exposes one selected point output without conformal sidecars"
+            )
+        values = np.asarray(
+            model.native_estimator.predict_with_identity(
+                data["X"],
+                sample_ids=data["sample_ids"],
+                groups=data.get("groups"),
+                metadata=data.get("metadata"),
+            )
+        )
+        return PredictResult(
+            y_pred=values,
+            metadata={"engine": "native", "sample_ids": list(data["sample_ids"])},
+            model_name="MethodsN4MM",
+            preprocessing_steps=[],
         )
     if isinstance(model, NativeMethodsRefitResult):
         if all_predictions or coverage is not None:
