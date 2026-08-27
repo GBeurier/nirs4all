@@ -11,11 +11,11 @@ how ``RunResult.export_model`` actually behaves:
   ``y_pred`` EXACTLY (asserted within 1e-6; measured 0.0). The captured model
   embeds the preprocessing, so it predicts on RAW test X.
 
-* **Multi-model / branch dag-ml run** (branch + merge) — the dag-ml path falls
-  back to the legacy-refit bridge (≠1 captured artifact), and ``export_model``
-  produces a model via that bridge. The merged feature space means predict on
-  raw test X is not architecturally meaningful, so the contract here is the
-  weaker "still round-trips": ``export_model`` writes a loadable artifact.
+* **Feature-merge branch dag-ml run** — this shape has one downstream native
+  model after its branch-local transforms, so it exports directly when that one
+  artifact is captured. Multi-model / stacking shapes with ≠1 artifact are
+  covered separately: they refuse by default and require the deliberate
+  ``legacy-refit`` compatibility opt-in.
 
 The legacy engine's ``export_model`` returns the BARE estimator at the model
 step (no preprocessing wrapper), so its ``predict`` on raw X does not reproduce
@@ -148,7 +148,7 @@ def test_native_dagml_export_reproduces_final_test_pred(case_name: str, tmp_path
     if not result._is_dagml_engine():  # noqa: SLF001
         pytest.skip(f"{case_name}: dag-ml ran legacy fallback on this build; native export N/A")
     if len(result._dagml_refit_artifacts) != 1:  # noqa: SLF001
-        pytest.skip(f"{case_name}: not a single-artifact native run; covered by the bridge round-trip test")
+        pytest.skip(f"{case_name}: not a single-artifact native run; explicit-bridge coverage is separate")
 
     ids, x_test = _test_x(case.dataset_key)
     reloaded = H.round_trip_export_reload_predict(result, x_test, tmp_path / "model.joblib")
@@ -165,13 +165,12 @@ def test_native_dagml_export_reproduces_final_test_pred(case_name: str, tmp_path
     )
 
 
-def test_branch_merge_export_round_trips_via_bridge(tmp_path: Path) -> None:
-    """A branch/merge run (multi-model → legacy-refit bridge) still round-trips.
+def test_branch_feature_merge_export_uses_the_native_downstream_artifact(tmp_path: Path) -> None:
+    """A feature merge with one downstream model remains a direct native export.
 
-    The branch+merge shape falls back to the legacy engine (≠1 native artifact),
-    so ``export_model`` produces a model via the bridge. Its raw-X predict is not
-    meaningful (the model expects the merged feature space), so the contract is
-    that the export WRITES a loadable artifact on both engines.
+    This is not multi-model stacking: its branch transforms feed one native
+    downstream model. The DAG-ML result therefore has exactly one captured
+    artifact and must not be unnecessarily routed through the transition bridge.
     """
     case: PipelineCase = get(_BRANCH_MERGE)
     dataset = H.make_dataset(case)
@@ -184,7 +183,12 @@ def test_branch_merge_export_round_trips_via_bridge(tmp_path: Path) -> None:
             results_path=str(tmp_path / f"res_{engine}"),
         )
         out = tmp_path / f"model_{engine}.joblib"
-        path = result.export_model(out)
+        if engine == "dag-ml":
+            assert len(result._dagml_refit_artifacts) == 1  # noqa: SLF001
+            path = result.export_model(out)
+            assert result._dagml_legacy_result is None  # noqa: SLF001
+        else:
+            path = result.export_model(out)
         assert Path(path).exists(), f"{_BRANCH_MERGE} (engine={engine!r}): export_model wrote no file"
         loaded = joblib.load(path)
         assert hasattr(loaded, "predict"), (

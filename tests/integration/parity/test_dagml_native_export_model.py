@@ -11,13 +11,12 @@ for the single-model case:
   warning (the P1c bridge warned).
 * (2) a ``y_processing`` variant → the inverse ``y_transform`` is applied (exported predict is in the
   original target space).
-* (3) export_model on a dag-ml run WITHOUT a native results dir → still uses the legacy bridge
-  (unchanged behavior).
-* (4) a branch (duplication) run WITH a native dir → falls back to the bridge (≠1 captured artifact).
+* (3) export_model on a dag-ml run WITHOUT a native results dir refuses by default; the legacy bridge is
+  available only through the explicit ``compatibility="legacy-refit"`` transition switch.
+* (4) a branch (duplication) run WITH a native dir similarly refuses by default (≠1 captured artifact).
 * (5) MUST-FIX 1 — a native dir whose artifact bytes are present + fingerprint-VALID but UNLOADABLE (the
-  payload fails to unpickle) → export_model falls back to the bridge (returns a valid model, no crash).
-* (6) MUST-FIX 2 — export_model(..., format=<non-joblib>) on a native single-artifact run uses the legacy
-  bridge (which honors the requested format), NOT a silent joblib write under a foreign format.
+  payload fails to unpickle) must not cause an implicit legacy refit.
+* (6) MUST-FIX 2 — a non-joblib request must not silently write a joblib wrapper under a foreign format.
 """
 
 from __future__ import annotations
@@ -37,6 +36,7 @@ from sklearn.preprocessing import MinMaxScaler
 from nirs4all.api.result import _DagmlExportedModel
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.transforms.scalers import StandardNormalVariate as SNV
+from nirs4all.pipeline.dagml.errors import DagMlExportRefusal
 from nirs4all.pipeline.dagml.native_results import _bytes_fingerprint
 from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
@@ -147,14 +147,13 @@ def test_native_export_model_applies_y_inverse(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (3) NO native dir → legacy bridge (unchanged behavior).
+# (3) NO native dir → refusal by default; bridge only with explicit compatibility.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_no_native_dir_uses_legacy_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """export_model on a dag-ml run WITHOUT a native results dir falls back to the P1c legacy-refit bridge
-    (it materializes a legacy result + warns on the unseeded run) — the native path is skipped."""
+def test_no_native_dir_requires_explicit_legacy_bridge(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """No captured native artifact refuses first; the former bridge is a visible opt-in only."""
     monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
     pipeline = [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
@@ -165,23 +164,28 @@ def test_no_native_dir_uses_legacy_bridge(tmp_path: Path, monkeypatch: pytest.Mo
     assert result._dagml_results_dir is None  # noqa: SLF001 -- no native dir was written
 
     out = tmp_path / "model_bridge.joblib"
-    with pytest.warns(UserWarning, match="nondeterministic"):
+    with pytest.raises(DagMlExportRefusal, match="no single replayable native model artifact"):
         result.export_model(out)
+    assert not out.exists()
+    assert result._dagml_legacy_result is None  # noqa: SLF001
+
+    with pytest.warns(UserWarning, match="nondeterministic"):
+        result.export_model(out, compatibility="legacy-refit")
     assert out.exists()
-    # The legacy bridge WAS materialized (the fallback path ran), proving the native path was skipped.
+    # The bridge was materialized only after its explicit compatibility request.
     assert result._dagml_legacy_result is not None  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
-# (4) branch run WITH native dir → falls back to the bridge (≠1 captured artifact).
+# (4) branch run WITH native dir → refusal by default (≠1 captured artifact).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_branch_run_falls_back_to_bridge(tmp_path: Path) -> None:
+def test_branch_run_requires_explicit_legacy_bridge(tmp_path: Path) -> None:
     """A duplication-branch + merge-predictions (stacking) run captures MULTIPLE REFIT artifacts (≠1), so
-    even WITH a native dir the native single-artifact export is NOT applicable → it defers to the legacy
-    bridge (Codex D4: multi-model / branch / stacking defer to the bridge)."""
+    even WITH a native dir the native single-artifact export is NOT applicable → it refuses unless the
+    caller deliberately requests the transitional legacy bridge."""
     from sklearn.linear_model import Ridge
 
     from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
@@ -209,16 +213,19 @@ def test_branch_run_falls_back_to_bridge(tmp_path: Path) -> None:
     assert result._dagml_results_dir is not None  # noqa: SLF001 -- a native dir WAS written
     assert len(result._dagml_refit_artifacts) != 1, "a branch/stacking run captures ≠1 REFIT artifact"  # noqa: SLF001
 
-    # The native single-artifact export is not applicable (≠1 artifact) → it returns None and the export
-    # falls back to the legacy bridge (which materializes a legacy result).
     out = tmp_path / "model_branch.joblib"
-    result.export_model(out)
+    with pytest.raises(DagMlExportRefusal, match="no single replayable native model artifact"):
+        result.export_model(out)
+    assert not out.exists()
+    assert result._dagml_legacy_result is None  # noqa: SLF001
+
+    result.export_model(out, compatibility="legacy-refit")
     assert out.exists()
-    assert result._dagml_legacy_result is not None, "≠1 artifact → the legacy bridge backs the export"  # noqa: SLF001
+    assert result._dagml_legacy_result is not None, "the explicit bridge backs the transitional export"  # noqa: SLF001
 
 
 # ---------------------------------------------------------------------------
-# (5) MUST-FIX 1 — fingerprint-VALID but UNLOADABLE artifact → fall back to the bridge.
+# (5) MUST-FIX 1 — fingerprint-VALID but UNLOADABLE artifact → refusal by default.
 # ---------------------------------------------------------------------------
 
 
@@ -242,10 +249,10 @@ class _UnloadablePayload:
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_unloadable_artifact_falls_back_to_bridge(tmp_path: Path) -> None:
+def test_unloadable_artifact_requires_explicit_legacy_bridge(tmp_path: Path) -> None:
     """MUST-FIX 1: a native dir whose artifact bytes are present + fingerprint-VALID but UNLOADABLE (the
-    payload raises on unpickle) → export_model falls back to the legacy bridge and returns a valid model,
-    no crash. The broad except around the native read makes this a fallback, not an escaped exception."""
+    payload raises on unpickle) → the default export rejects it without an implicit legacy refit. The
+    transitional bridge remains explicit and returns a valid model."""
     results_root = tmp_path / "results"
     pipeline = [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
@@ -275,26 +282,27 @@ def test_unloadable_artifact_falls_back_to_bridge(tmp_path: Path) -> None:
     with pytest.raises(RuntimeError, match="simulated unloadable artifact"):
         read_native_results(run_dir)
 
-    # export_model must NOT crash: the broad catch falls back to the legacy bridge, which materializes a
-    # legacy result and writes a loadable model.
     out = tmp_path / "model_unloadable.joblib"
-    result.export_model(out)
+    with pytest.raises(DagMlExportRefusal, match="no single replayable native model artifact"):
+        result.export_model(out)
+    assert not out.exists()
+    assert result._dagml_legacy_result is None  # noqa: SLF001
+
+    result.export_model(out, compatibility="legacy-refit")
     assert out.exists()
-    assert result._dagml_legacy_result is not None, "an unloadable native artifact → the legacy bridge backs the export"  # noqa: SLF001
+    assert result._dagml_legacy_result is not None, "the explicit bridge backs the transitional export"  # noqa: SLF001
     loaded = joblib.load(out)
     assert hasattr(loaded, "predict"), "the bridge produced a predict-capable model despite the native-read failure"
 
 
 # ---------------------------------------------------------------------------
-# (6) MUST-FIX 2 — a non-joblib requested format routes through the legacy bridge (not a silent joblib write).
+# (6) MUST-FIX 2 — non-joblib requests require an explicit bridge (never a silent joblib write).
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_non_joblib_format_uses_legacy_bridge(tmp_path: Path) -> None:
-    """MUST-FIX 2: export_model(format="cloudpickle") on a native single-artifact run does NOT take the
-    joblib-only native path — it falls back to the legacy bridge (which honors the requested format), so the
-    output is the bridge's legacy model (NOT the native _DagmlExportedModel wrapper written as joblib)."""
+def test_non_joblib_format_requires_explicit_legacy_bridge(tmp_path: Path) -> None:
+    """A foreign format cannot silently trigger a legacy refit or a disguised joblib export."""
     results_root = tmp_path / "results"
     pipeline = [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
@@ -306,12 +314,15 @@ def test_non_joblib_format_uses_legacy_bridge(tmp_path: Path) -> None:
     assert result._dagml_results_dir is not None and len(result._dagml_refit_artifacts) == 1  # noqa: SLF001
 
     out = tmp_path / "model_cloudpickle.pkl"
-    result.export_model(out, format="cloudpickle")
+    with pytest.raises(DagMlExportRefusal, match="no single replayable native model artifact"):
+        result.export_model(out, format="cloudpickle")
+    assert not out.exists()
+    assert result._dagml_legacy_result is None  # noqa: SLF001
+
+    result.export_model(out, format="cloudpickle", compatibility="legacy-refit")
     assert out.exists()
-    # The native path was SKIPPED (non-joblib request) → the legacy bridge was materialized.
-    assert result._dagml_legacy_result is not None, "a non-joblib format → the legacy bridge backs the export"  # noqa: SLF001
-    # The export is the bridge's legacy model, NOT the native wrapper — proving no silent joblib-as-wrapper
-    # write happened under the non-joblib request.
+    assert result._dagml_legacy_result is not None, "the explicit bridge backs the non-joblib export"  # noqa: SLF001
+    # The export is the transitional bridge's model, not the native wrapper.
     loaded = joblib.load(out)  # cloudpickle bytes load fine via joblib/pickle; the TYPE is what matters
     assert not isinstance(loaded, _DagmlExportedModel), "a non-joblib request must not write the native wrapper"
     assert hasattr(loaded, "predict")

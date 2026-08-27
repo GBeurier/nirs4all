@@ -495,7 +495,7 @@ def _lineage_by_feature(feature_lineage: Mapping[str, Any], feature: str | int) 
 # backend: a ``.joblib`` (or any UNRECOGNIZED extension, whose ``format_map.get(ext, 'joblib')`` default is
 # joblib). The non-joblib extensions (``.pkl``/``.pickle`` → cloudpickle, ``.h5``/``.hdf5`` → keras_h5,
 # ``.keras`` → tensorflow_keras, ``.pt``/``.pth`` → pytorch_state_dict) are the ones that MUST route through
-# the legacy ``to_bytes`` path instead of the joblib-only native helper.
+# the explicit legacy ``to_bytes`` compatibility path rather than the joblib-only native helper.
 _NON_JOBLIB_EXTENSIONS = frozenset({".pkl", ".pickle", ".h5", ".hdf5", ".keras", ".pt", ".pth"})
 _DAGML_LEGACY_REFIT_COMPATIBILITY = "legacy-refit"
 
@@ -507,8 +507,9 @@ def _request_is_joblib(output_path: str | Path, format: str | None) -> bool:
     (joblib only when it is the literal ``"joblib"``); with ``format=None`` the extension decides (a
     ``.joblib`` or any unrecognized extension defaults to joblib via ``format_map.get(ext, 'joblib')``, while
     the framework extensions in :data:`_NON_JOBLIB_EXTENSIONS` resolve to cloudpickle / keras / torch). Any
-    non-joblib request returns ``False`` so :meth:`RunResult._dagml_native_export_model` defers to the legacy
-    ``to_bytes`` path that actually produces the requested format (no silent joblib-under-foreign-extension).
+    non-joblib request returns ``False`` so :meth:`RunResult._dagml_native_export_model` declines it. The
+    public caller then refuses by default or invokes the named ``legacy-refit`` compatibility path; it never
+    silently writes joblib under a foreign extension.
     """
     if format is not None:
         return format == "joblib"
@@ -829,7 +830,7 @@ class RunResult:
     # ``artifacts/`` model tree. P3 Slice 2c-ii uses it for a NATIVE ``export_model``: a dag-ml run with
     # EXACTLY ONE concrete model artifact exports that captured (verify-then-load) estimator DIRECTLY — no
     # legacy refit, no stochastic warning. Multi-model / branch / stacking runs (≠1 artifact) and the .n4a
-    # ``export()`` still defer to the P1c legacy-refit bridge.
+    # ``export()`` refuse by default; ``legacy-refit`` remains a named transition path only.
     _dagml_results_dir: Path | None = field(default=None, repr=False)
 
     # Native full-DAG tuning evidence. This is populated by the tuning
@@ -1640,17 +1641,18 @@ class RunResult:
 
         try:
             artifacts = read_native_results(self._dagml_results_dir)["artifacts"]
-        except Exception as exc:  # noqa: BLE001 -- fallback contract: ANY native-read failure → legacy bridge
+        except Exception as exc:  # noqa: BLE001 -- native read is unavailable; public caller decides refusal/compatibility
             # A tampered/edited manifest (verify-then-load ValueError), a missing/malformed native dir
             # (FileNotFoundError/KeyError/parquet error), OR a fingerprint-valid but UNLOADABLE artifact
             # (EOFError/UnpicklingError/ModuleNotFoundError/ImportError/AttributeError from joblib.load —
-            # bytes that hash correctly but cannot be unpickled/imported in this environment) → fall back to
-            # the legacy bridge. The native fast-path is best-effort; the bridge is the guaranteed export.
+            # bytes that hash correctly but cannot be unpickled/imported in this environment) → this native
+            # fast path is unavailable. The public export method refuses unless its named compatibility opt-in
+            # asks for the legacy bridge.
             # The broad catch is SCOPED to the read+rehydrate only, so a real bug in the write below escapes.
-            logger.debug("native dag-ml export_model fell back to the legacy bridge: %s", exc)
+            logger.debug("native dag-ml export_model is unavailable: %s", exc)
             return None
         # EXACTLY ONE concrete artifact only (D4): a multi-model / branch / stacking run captures several
-        # REFIT artifacts and is NOT cleanly a single exportable model → defer to the legacy bridge.
+        # REFIT artifacts and is NOT cleanly a single exportable model → caller must refuse or opt in.
         if len(artifacts) != 1:
             return None
 
