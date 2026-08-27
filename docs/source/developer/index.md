@@ -6,6 +6,7 @@ Documentation for developers who want to understand NIRS4ALL internals or contri
 :maxdepth: 2
 
 architecture
+r2_native_recovery_audit
 pipeline_architecture
 controllers
 controllers_intro
