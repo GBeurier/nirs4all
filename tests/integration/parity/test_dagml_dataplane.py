@@ -131,10 +131,16 @@ def test_route_real_compiled_vertical_slice_nodes() -> None:
     assert routed == {"transform": "StandardNormalVariate", "y_transform": "MinMaxScaler", "model": "PLSRegression"}
 
 
-def test_envelope_builds_and_validates_against_live_contract(regression_dataset) -> None:
-    """build_envelope produces a contract-valid CoordinatorDataPlanEnvelope (the wheel
-    derives relations + fingerprints; a successful build is itself the gate)."""
-    dag_ml_data = pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
+def test_envelope_builds_and_uses_execution_core_relation_authority(regression_dataset) -> None:
+    """The data wheel validates source relations; DAG-ML signs derived relations.
+
+    These are distinct contracts.  ``build_envelope`` first lets dag-ml-data
+    validate/derive the relation set, then replaces only the wire fingerprint
+    with DAG-ML's public coordinator-relation canonicalization.  The latter is
+    what a DataBinding and global aggregation validate at runtime.
+    """
+    pytest.importorskip("dag_ml_data", reason="dag-ml-data not importable (core dependency; broken install?)")
+    dag_ml = pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
     identity = mint_identity(regression_dataset)
 
     envelope = build_envelope(regression_dataset, identity)
@@ -148,8 +154,10 @@ def test_envelope_builds_and_validates_against_live_contract(regression_dataset)
     records = envelope["coordinator_relations"]["records"]
     assert len(records) == len(identity.identities)
     assert all(not record["is_augmented"] for record in records)
-    # Re-validate through the same validator dag-ml-data uses (not a stale local schema).
-    dag_ml_data.validate_coordinator_data_plan_envelope_json(json.dumps(envelope))
+    core_fingerprint = dag_ml.sample_relation_set_fingerprint_json(
+        json.dumps(envelope["coordinator_relations"], sort_keys=True, separators=(",", ":"))
+    )
+    assert envelope["relation_fingerprint"] == core_fingerprint
 
 
 def test_fold_set_requires_an_oof_partition(regression_dataset) -> None:

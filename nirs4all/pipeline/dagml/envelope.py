@@ -1,11 +1,12 @@
 """Data-plan envelope + fold-set builders for the nirs4all → dag-ml(-data) bridge.
 
-dag-ml-data owns the contract *types* and the fingerprint algorithm; this module only
+dag-ml-data owns the contract *types* and source-relation fingerprint algorithm; this module only
 assembles the JSON inputs from a ``SpectroDataset`` + its :class:`IdentityMap` and hands
 them to the ``dag_ml_data`` wheel, which computes every fingerprint internally and derives
-``coordinator_relations`` from the ``SampleRelationTable``. We never compute a fingerprint
-or hand-build a coordinator relation — that keeps the materialize-time fingerprint gate
-passing by construction.
+``coordinator_relations`` from the ``SampleRelationTable``. The relation table and the
+execution core deliberately fingerprint different contracts: the latter's canonical
+fingerprint is recomputed from the derived coordinator relation set before the envelope
+is emitted, so DataBindings and runtime aggregation share one authority.
 
 Declares **identity only**, never X/y values:
 
@@ -28,6 +29,7 @@ Scope: single-source / no-repetition baseline.
 from __future__ import annotations
 
 import hashlib
+import json
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -89,6 +91,18 @@ def _import_dag_ml_data() -> Any:
     except ImportError as exc:  # pragma: no cover - exercised only without the wheel
         raise ImportError("dag-ml-data is not installed; it is a core dependency — reinstall with `pip install nirs4all`") from exc
     return dag_ml_data
+
+
+def _core_relation_fingerprint(relations: dict[str, Any]) -> str:
+    """Fingerprint coordinator relations through the public execution-core ABI."""
+    try:
+        import dag_ml
+    except ImportError as exc:  # pragma: no cover - exercised only without the wheel
+        raise ImportError("dag-ml is not installed; it is a core dependency — reinstall with `pip install nirs4all`") from exc
+    fingerprint = getattr(dag_ml, "sample_relation_set_fingerprint_json", None)
+    if not callable(fingerprint):
+        raise RuntimeError("dag_ml.sample_relation_set_fingerprint_json is required for native data envelopes")
+    return str(fingerprint(json.dumps(relations, sort_keys=True, separators=(",", ":"))))
 
 
 def _num_wavelengths(dataset: SpectroDataset, source_idx: int = 0) -> int:
@@ -445,6 +459,7 @@ def build_envelope(
         ),
     )
     out = dict(envelope.to_dict())
+    out["relation_fingerprint"] = _core_relation_fingerprint(out["coordinator_relations"])
     if multi_source:
         out["plan"]["source_layout"] = _source_layout(dataset, sources)
     return out
