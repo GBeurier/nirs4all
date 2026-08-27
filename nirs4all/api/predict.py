@@ -41,7 +41,7 @@ import numpy as np
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
-from nirs4all.pipeline.engine import require_legacy_engine
+from nirs4all.pipeline.engine import require_legacy_engine, resolve_engine
 
 from .native_refit_result import NativeMethodsRefitResult
 from .native_session import NativeMethodsSession
@@ -237,11 +237,15 @@ def predict(
             # The session itself is an unambiguous, already-selected native
             # capability. Do not route it through the process default or an
             # environment override: neither may construct a legacy runner.
-            engine = "native"
-        elif engine != "native":
+            selected_engine = "native"
+        else:
+            selected_engine = resolve_engine(engine)
+        if selected_engine != "native":
             raise ValueError(
                 "a native Methods result or session selects native prediction; an explicit non-native engine is refused"
             )
+    else:
+        selected_engine = resolve_engine(engine)
 
     # ---- Validate mutually exclusive arguments ----
     if model is not None and chain_id is not None:
@@ -251,7 +255,7 @@ def predict(
     if data is None:
         raise ValueError("'data' is required.")
 
-    if engine == "native":
+    if selected_engine == "native":
         data = _native_data_with_explicit_sample_ids(data, sample_ids)
         result = _predict_from_native_archive(
             model=model,
@@ -300,7 +304,7 @@ def predict(
         )
 
     if coverage is not None and _is_conformal_attached_bundle_request(model):
-        require_legacy_engine("predict", engine)
+        require_legacy_engine("predict", selected_engine)
         result = _predict_from_conformal_attached_model_bundle(
             model=model,
             data=data,
@@ -330,7 +334,7 @@ def predict(
             "conformal sidecar and data={'X': ..., 'sample_ids': ...}."
         )
 
-    require_legacy_engine("predict", engine)
+    require_legacy_engine("predict", selected_engine)
 
     # ---- Store-based path (chain_id) ----
     if chain_id is not None:

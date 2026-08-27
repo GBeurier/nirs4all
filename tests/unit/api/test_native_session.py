@@ -91,6 +91,20 @@ def test_public_session_constructor_selects_native_or_refuses_before_legacy_runn
         Session(engine="native")
 
 
+def test_native_environment_selects_the_public_session_paths(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """All public session constructors honor the same process selector as run()."""
+
+    monkeypatch.setenv("N4A_ENGINE", "native")
+    pipeline = [{"split": "stub"}, {"model": "stub"}]
+
+    constructed = Session(pipeline, name="native")
+    assert isinstance(constructed, NativeMethodsSession)
+    with session(pipeline, name="native") as contextual:
+        assert isinstance(contextual, NativeMethodsSession)
+
+
 def test_native_session_binds_the_strict_methods_hpo_operation_once(monkeypatch: pytest.MonkeyPatch) -> None:
     """Stateful native training forwards only the explicit HPO request."""
 
