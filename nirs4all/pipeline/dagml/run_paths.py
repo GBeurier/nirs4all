@@ -1854,31 +1854,13 @@ _META_NODE_ID = "merge:stack"
 
 
 def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
-    """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
+    """Run one scheduler-owned nested-OOF stacking campaign (ADR-26).
 
-    Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
-    model node gets the FULL fold data view) + a ``merge_model`` meta-node carrying the meta-learner (its
-    FQN as ``operator.class`` so the node runner instantiates it) bound to ``controller:nirs4all.meta_model``
-    (which declares ``consumes_oof_predictions``, so dag-ml's planner permits the base→meta ``requires_oof``
-    edges). dag-ml runs ONE native CV+refit:
-
-    * each base branch model is FIT_CV on the full fold-train and predicts the full fold-validation
-      (held-out Validation OOF);
-    * the meta-node receives the base branches' **Validation OOF** per fold (Option A: the runtime delivers
-      ``prediction_inputs[*].values`` aligned by sample_id, sourced ONLY from Validation blocks — the
-      ``requires_oof`` edge refuses any train block), builds the per-fold meta-feature matrix (columns in
-      deterministic producer order), fits the meta-learner and emits its own scored Validation OOF.
-
-    The meta producer's cross-fold OOF average is ``cv_best_score`` — the stacking ensemble's CV score.
-    ``best_rmse`` (final test) is also native: in REFIT dag-ml delivers each base producer's held-out
-    TEST prediction to the meta-node as a SEPARATE off-fold input keyed ``…oof:refit`` (partition Test,
-    ``fold_id=None``), alongside the full Validation OOF the meta fits on. The refit meta-model predicts
-    the test set from those base TEST meta-features and emits a scored ``(test, fold_id=None)`` block.
-
-    LEAKAGE INVARIANT: the meta-learner is fit on Validation OOF ONLY (the ``requires_oof`` edge +
-    ``collect_oof_prediction_input`` enforce Validation-only); the TEST meta-features come from the base
-    models' TEST predictions (the ``:refit`` off-fold input, phase-gated to REFIT), never their OOF/train,
-    and never enter the FIT_CV meta-features.
+    Each outer fold has two non-interchangeable evidence classes: base models
+    first emit inner OOF over the outer training universe to fit the meta
+    learner, then emit outer-validation predictions used only to score it.
+    The Rust scheduler materializes that split; this lowering merely declares
+    the exact contract and never performs a Python-side CV loop.
     """
     import dag_ml
 
@@ -1890,17 +1872,14 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
     identity = mint_identity(spectro)
-    # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
     envelope = build_envelope(spectro, identity, sample_ints=pool)
-
-    # Canonical DSL: one duplication branch with N base sub-pipelines (each on the FULL data) + a
-    # merge_model meta-node. The meta-node carries the bare sklearn meta-learner (FQN + params) and the
-    # _META_MODEL_REF (so its dedicated manifest is not a generic model-kind catch-all) and binds to the
-    # meta-model controller via metadata.controller_id.
+    # K=2 is the narrowest non-degenerate nested policy.  It is serialized in
+    # the DSL and constructed/attested by dag-ml, never delegated to sklearn.
     canonical_dsl: dict[str, Any] = {
         "id": "nirs4all-stacking",
+        "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
         "steps": [
             {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch(branch, index) for index, branch in enumerate(branches)]},
             {
@@ -1910,45 +1889,32 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 "params": _json_safe_params(meta_learner),
                 "metadata": {
                     "controller_id": _META_MODEL_CONTROLLER_ID,
+                    "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
                 },
             },
         ],
     }
-
     manifests = controller_manifests()
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]
-    if len(base_model_ids) < 2:
-        raise DagMlUnsupported("stacking compile produced fewer than two base model nodes")
-    if _META_NODE_ID not in model_ids:
-        raise DagMlUnsupported("stacking compile produced no meta-model node")
-
-    # One data_binding per BASE model node (each binds its `x` to the full source). The meta-node has NO
-    # data binding: its features are the base branches' OOF, delivered as prediction_inputs (not data).
+    if len(base_model_ids) < 2 or _META_NODE_ID not in model_ids:
+        raise DagMlUnsupported("stacking compile did not produce two base models and one meta-model")
     canonical_dsl["data_bindings"] = data_bindings_for_nodes(base_model_ids, envelope)
     canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
+        workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
+        selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
+        random_state=random_state,
     )
     if outcome["returncode"] != 0:
-        _raise_run_failure(outcome, "dag-ml stacking run failed")
-
-    # The meta-node producer's reports carry the full-universe cross-fold OOF average (the stacking
-    # ensemble's `cv_best_score`) AND a `(test, fold_id=None)` block (`best_rmse`): the refit meta-model
-    # predicting the held-out test from the base producers' REFIT-test predictions (`…oof:refit`).
-    model_label = f"MetaModel_{type(meta_learner).__name__}"
+        _raise_run_failure(outcome, "dag-ml nested stacking run failed")
     return _scores_to_run_result(
-        outcome["scores"],
-        spectro.name,
-        model_label,
-        metric,
-        task_type,
-        producer=_META_NODE_ID,
-        config_name=config_name,
-        results=outcome["results"],
-        identity=identity,
+        outcome["scores"], spectro.name, f"MetaModel_{type(meta_learner).__name__}",
+        metric, task_type, producer=_META_NODE_ID, config_name=config_name,
+        results=outcome["results"], identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
     )

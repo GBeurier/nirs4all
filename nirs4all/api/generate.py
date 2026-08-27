@@ -247,6 +247,8 @@ def regression(
         ...     random_state=42
         ... )
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -346,6 +348,8 @@ def classification(
         ...     random_state=42
         ... )
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -405,6 +409,8 @@ def builder(
         ...     .build()
         ... )
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     return SyntheticDatasetBuilder(
@@ -470,6 +476,8 @@ def multi_source(
         ...     ]
         ... )
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import generate_multi_source as _generate_multi_source
 
     if sources is None:
@@ -530,6 +538,8 @@ def to_folder(
         ...     random_state=42
         ... )
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -581,6 +591,8 @@ def to_csv(
         >>> import nirs4all
         >>> path = nirs4all.generate.to_csv("data.csv", n_samples=500)
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -664,6 +676,8 @@ def product(
         generate.category: Generate from multiple product templates.
         list_product_templates: List available templates.
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import ProductGenerator
 
     # Build wavelength kwargs
@@ -750,6 +764,8 @@ def category(
     See Also:
         generate.product: Generate from a single product template.
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import CategoryGenerator
 
     # Build wavelength kwargs
@@ -834,6 +850,8 @@ def from_template(
         ...     wavelengths=wavelengths
         ... )
     """
+    require_legacy_engine("generate")
+
     from nirs4all.synthesis import RealDataFitter, SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
