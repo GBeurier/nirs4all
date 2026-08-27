@@ -23,6 +23,7 @@ from sklearn.model_selection import KFold
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
 from nirs4all.pipeline.dagml.envelope import build_envelope
+from nirs4all.pipeline.dagml.errors import DagMlExportRefusal
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled
 
@@ -4640,13 +4641,12 @@ def test_subprocess_error_classification_host_propagates_vs_falls_back_by_struct
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_dagml_result_export_roundtrip(tmp_path: Path) -> None:
-    """`.export()` / `.export_model()` on a dag-ml RunResult SUCCEED via the legacy-refit bridge (P1c).
+    """DAG-ML exports refuse by default and use the legacy bridge only when explicitly requested.
 
     The dag-ml backend returns native scores with NO workspace (no SQLite store / artifacts), so a `.n4a`
-    export has nothing of its own to bundle. P1c bridges this: `RunResult.export()` re-runs the SAME
-    pipeline through the LEGACY engine on demand (`save_artifacts=True` → a real workspace + chain +
-    artifacts), then delegates to the existing export path. So export now SUCCEEDS — it no longer raises
-    the pre-P1c catchable `NotImplementedError` (the fallback for an unsupported shape).
+    export has nothing of its own to bundle. It therefore fails closed until the caller explicitly requests
+    `compatibility="legacy-refit"`; that transitional path re-runs the frozen pipeline through the legacy
+    engine and delegates to the old export path.
 
     Round-trip: the exported `.n4a` loads and predicts finite values on held-out data, and the exported
     model is a real sklearn estimator. The two engines are at numerical parity (the dag-ml backend's
@@ -4660,13 +4660,23 @@ def test_dagml_result_export_roundtrip(tmp_path: Path) -> None:
         dataset_path("regression"),
         engine="dag-ml",
     )
-    # This must be a native dag-ml result (no silent legacy fallback) for the bridge to be exercised.
+    # This must be a native dag-ml result for the refusal and opt-in bridge to be exercised.
     assert [info.get("engine") for info in result.per_dataset.values()] == ["dag-ml"]
 
-    bundle = result.export(tmp_path / "model.n4a")
+    bundle_path = tmp_path / "model.n4a"
+    with pytest.raises(DagMlExportRefusal, match="legacy .n4a writer"):
+        result.export(bundle_path)
+    assert not bundle_path.exists()
+
+    bundle = result.export(bundle_path, compatibility="legacy-refit")
     assert bundle.exists() and bundle.stat().st_size > 0
 
-    model_path = result.export_model(tmp_path / "model.joblib")
+    model_path = tmp_path / "model.joblib"
+    with pytest.raises(DagMlExportRefusal, match="single replayable native model"):
+        result.export_model(model_path)
+    assert not model_path.exists()
+
+    model_path = result.export_model(model_path, compatibility="legacy-refit")
     import joblib
 
     assert model_path.exists() and isinstance(joblib.load(model_path), PLSRegression)
