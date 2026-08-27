@@ -12,6 +12,7 @@ from sklearn.model_selection import KFold
 
 import nirs4all
 from nirs4all.api.explain import explain
+from nirs4all.api.native_refit_result import NativeMethodsRefitResult
 from nirs4all.api.native_result import NativeMethodsRunResult
 from nirs4all.api.native_retrain_lineage import NativeRetrainLineage
 from nirs4all.api.predict import predict
@@ -220,8 +221,8 @@ def test_run_native_attaches_identity_bound_conformal_calibration_without_legacy
         "calibration_relations": {"records": [{"sample_id": "cal-1"}, {"sample_id": "cal-2"}]},
         "truth": {"sample_ids": ["cal-1", "cal-2"], "values": [[1.5], [2.5]]},
         "coverages": [0.8, 0.95],
-        "multi_target_policy": '"marginal"',
-        "small_sample_policy": '"error"',
+        "multi_target_policy": "marginal",
+        "small_sample_policy": "error",
     }
     assert estimator.predictor_package_ == {"package_id": "package:native", "schema_version": 2, "reexported": True}
     assert result.native_conformal_calibration == {"schema_version": 2, "binding_id": "binding:prediction"}
@@ -483,6 +484,30 @@ def test_retrain_native_refits_the_attested_selected_methods_variant_without_leg
 @pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
 def test_retrain_native_source_refuses_explicit_non_native_engine(engine: str) -> None:
     source = object.__new__(NativeMethodsRunResult)
+    with pytest.raises(ValueError, match="explicit non-native engine"):
+        retrain(source, {"X": [], "y": [], "sample_ids": []}, engine=engine)
+
+
+def test_retrain_native_refit_result_refuses_before_constructing_a_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A V3 child cannot silently become a legacy retrain parent."""
+
+    source = object.__new__(NativeMethodsRefitResult)
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    monkeypatch.setattr(
+        retrain_module,
+        "PipelineRunner",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy runner constructed")),
+    )
+
+    with pytest.raises(NotImplementedError, match="NativeMethodsRefitResult as a new parent"):
+        retrain(source, {"X": [], "y": [], "sample_ids": []})
+
+
+@pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
+def test_retrain_native_refit_result_refuses_explicit_non_native_engine(engine: str) -> None:
+    source = object.__new__(NativeMethodsRefitResult)
     with pytest.raises(ValueError, match="explicit non-native engine"):
         retrain(source, {"X": [], "y": [], "sample_ids": []}, engine=engine)
 

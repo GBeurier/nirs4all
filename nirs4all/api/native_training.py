@@ -9,7 +9,6 @@ re-running that workflow through :class:`PipelineRunner` during export.
 from __future__ import annotations
 
 import importlib
-import json
 from collections.abc import Mapping, Sequence
 from typing import Any, cast
 
@@ -466,10 +465,10 @@ def _attach_native_conformal_calibration(
         calibration_relations=replay.calibration_relations,
         truth=replay.truth,
         coverages=calibration["coverages"],
-        # The released DAG-ML facade accepts object values directly but treats
-        # scalar strings as pre-serialized TCV1 JSON contracts.
-        multi_target_policy=json.dumps(calibration["multi_target_policy"]),
-        small_sample_policy=json.dumps(calibration["small_sample_policy"]),
+        # The public DAG-ML facade serializes enum values to strict JSON at
+        # its boundary.  Passing raw enum strings prevents double encoding.
+        multi_target_policy=calibration["multi_target_policy"],
+        small_sample_policy=calibration["small_sample_policy"],
     )
     package_id = _portable_package_id(package)
     estimator.training_outcome_ = getattr(training_result, "outcome", None)

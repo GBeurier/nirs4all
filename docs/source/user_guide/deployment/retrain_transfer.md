@@ -62,9 +62,10 @@ retrained = nirs4all.retrain(
 
 This path never creates a ``PipelineRunner`` or uses a Python HPO objective.
 Archive V2 sources, transfer mode, finetuning, replacing the model, legacy
-runner options and retained sessions are refused before native execution. An
-archive-to-retrain recipe is a separate portable contract and is not inferred
-from prediction-only archive metadata.
+runner options, retained sessions, and a prior ``NativeMethodsRefitResult``
+(Archive V3 child) are refused before native execution. An archive-to-retrain
+recipe and multi-generation native lineage are separate portable contracts and
+are not inferred from prediction-only archive metadata.
 
 A trained ``NativeMethodsSession`` exposes the same full-refit operation as
 ``native_session.retrain({"X": X_new, "y": y_new, "sample_ids": new_ids})``;

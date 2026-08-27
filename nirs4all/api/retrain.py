@@ -35,6 +35,7 @@ from .session import Session
 # Type aliases for clarity
 SourceSpec: TypeAlias = (
     NativeMethodsRunResult  # Native in-memory Methods result
+    | NativeMethodsRefitResult  # Native V3 refit result (not a retrain parent)
     | dict[str, Any]  # Prediction dict from previous run
     | str  # Path to bundle (.n4a) or config
     | Path  # Path to bundle or config
@@ -110,7 +111,7 @@ def retrain(
             - freeze_layers: List of layers to freeze during fine-tuning
             - step_modes: Per-step mode overrides (advanced)
             - engine: the strict in-memory Methods full retrain subset is
-              selected automatically by a ``NativeMethodsRunResult`` source,
+              selected automatically by a native Methods source,
               or explicitly with ``"native"``. It requires a raw ``{"X",
               "y", "sample_ids"}`` dataset and preserves the attested selected
               PLS variant. Archive sources, transfer and finetune remain
@@ -187,7 +188,7 @@ def retrain(
         raise ValueError(f"Invalid mode '{mode}'. Must be one of: {valid_modes}")
 
     engine = kwargs.pop("engine", None)
-    if isinstance(source, NativeMethodsRunResult):
+    if isinstance(source, (NativeMethodsRunResult, NativeMethodsRefitResult)):
         if engine is None:
             # The source is an already-attested native capability. It must not
             # be routed through an environment/default legacy selector.
@@ -196,7 +197,7 @@ def retrain(
             selected_engine = resolve_engine(engine)
         if selected_engine != "native":
             raise ValueError(
-                "a NativeMethodsRunResult selects native retrain; an explicit non-native engine is refused"
+                "a native Methods retrain source selects native retrain; an explicit non-native engine is refused"
             )
     else:
         selected_engine = resolve_engine(engine)
@@ -214,7 +215,7 @@ def retrain(
             extra_kwargs=kwargs,
         )
     require_legacy_engine("retrain", selected_engine)
-    if isinstance(source, NativeMethodsRunResult):
+    if isinstance(source, (NativeMethodsRunResult, NativeMethodsRefitResult)):
         raise RuntimeError("native retrain source escaped native routing")
     # Use session runner if provided, otherwise create new
     runner = session.runner if session is not None else PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
@@ -257,6 +258,11 @@ def _retrain_native_methods_full(
 
     if mode != "full":
         raise NotImplementedError("engine='native' retrain currently supports only mode='full'")
+    if isinstance(source, NativeMethodsRefitResult):
+        raise NotImplementedError(
+            "engine='native' retrain cannot use a NativeMethodsRefitResult as a new parent; "
+            "retain the original NativeMethodsRunResult or use a future lineage capability"
+        )
     if not isinstance(source, NativeMethodsRunResult):
         raise TypeError("engine='native' retrain requires an in-memory NativeMethodsRunResult source")
     if not isinstance(data, Mapping):

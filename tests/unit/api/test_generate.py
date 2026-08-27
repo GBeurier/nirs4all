@@ -34,6 +34,44 @@ class TestGenerateFunction:
         with pytest.raises((NotImplementedError, ValueError), match="nirs4all.generate|dual"):
             nirs4all.generate(n_samples=1, engine=engine)
 
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda api, path: api.regression(n_samples=1),
+            lambda api, path: api.classification(n_samples=1),
+            lambda api, path: api.builder(n_samples=1),
+            lambda api, path: api.multi_source(n_samples=1),
+            lambda api, path: api.to_folder(path / "dataset", n_samples=1),
+            lambda api, path: api.to_csv(path / "dataset.csv", n_samples=1),
+            lambda api, path: api.product("dairy", n_samples=1),
+            lambda api, path: api.category("dairy", n_samples=1),
+            lambda api, path: api.from_template(np.zeros((1, 1)), n_samples=1),
+        ],
+        ids=[
+            "regression",
+            "classification",
+            "builder",
+            "multi_source",
+            "to_folder",
+            "to_csv",
+            "product",
+            "category",
+            "from_template",
+        ],
+    )
+    def test_generate_convenience_paths_refuse_native_default_before_work(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+        call,
+    ) -> None:
+        """Every public generation entry point obeys the engine boundary."""
+        import nirs4all
+
+        monkeypatch.setenv("N4A_ENGINE", "native")
+        with pytest.raises(NotImplementedError, match="nirs4all.generate"):
+            call(nirs4all.generate, tmp_path)
+
     def test_generate_as_arrays(self):
         """Test generation returning arrays."""
         import nirs4all

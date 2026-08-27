@@ -59,7 +59,7 @@ The public Python API runs that contract directly. The CLI currently validates a
 | `nirs4all.get_tuning_space_schema()` | Return the JSON Schema for `inspect_tuning_space(...)` artifacts | None | JSON Schema dict |
 | `nirs4all.tuning_space_schema_json(...)` | Serialize the ordered tuning-space JSON Schema deterministically | Optional JSON indentation | Schema JSON text |
 | `nirs4all.explain(...)` | Generate SHAP explanations | Model/bundle + data | `ExplainResult` |
-| `nirs4all.retrain(..., engine="native")` | Run one fresh target-cohort full refit from an attested in-memory `NativeMethodsRunResult`; CV/SELECT do not repeat | Parent result + exactly `{X, y, sample_ids}` | `NativeMethodsRefitResult`, exportable as target-bound Archive V3; transfer, finetune and archive-parent refit refuse before execution |
+| `nirs4all.retrain(..., engine="native")` | Run one fresh target-cohort full refit from an attested in-memory `NativeMethodsRunResult`; CV/SELECT do not repeat | Parent result + exactly `{X, y, sample_ids}` | `NativeMethodsRefitResult`, exportable as target-bound Archive V3; transfer, finetune, archive-parent refit, and using a V3 child as a new parent refuse before execution |
 | `nirs4all.session(...)` | Share runner/workspace resources across calls | Optional pipeline and runner kwargs | `Session` |
 | `nirs4all.load_session(..., engine="legacy")` | Load an exported legacy `.n4a` bundle for prediction | Bundle path | `Session` |
 | `nirs4all.load_session(..., engine="native")` | Open a portable Archive V2 or V3 Methods PREDICT session without a legacy fallback | Archive path | `NativeArchiveSession` |
