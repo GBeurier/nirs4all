@@ -33,9 +33,7 @@ from .session import NativeArchiveSession, Session
 
 # Type aliases for clarity
 ModelSpec: TypeAlias = (
-    NativeMethodsRunResult  # In-memory native selected estimator
-    | NativeMethodsRefitResult  # Detached native full-refit result
-    | dict[str, Any]               # Prediction dict from previous run
+    dict[str, Any]  # Prediction dict from previous run
     | str                          # Path to bundle (.n4a) or config
     | Path                          # Path to bundle or config
 )
@@ -54,7 +52,7 @@ def explain(
     data: DataSpec,
     *,
     name: str = "explain_dataset",
-    session: Session | NativeArchiveSession | NativeMethodsSession | None = None,
+    session: Session | None = None,
     verbose: int = 1,
     plots_visible: bool = True,
     # SHAP-specific parameters
