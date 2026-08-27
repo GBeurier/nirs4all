@@ -157,7 +157,7 @@ while the Python oracle materializes `concat_transform` before CV.
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (11)
+### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (10)
 
 Shapes the dag-ml host bridge does **not serialize yet**. A normal
 `engine="dag-ml"` request fails closed; the parity harness exercises these rows
@@ -176,7 +176,6 @@ Source: `test_conformance_dual_engine.py:310-337`.
 |---|---|
 | branch (duplication) + merge → multi-model | `branch_dup_three_way_merge_predictions`, `branch_dup_named_with_metamodel`, `branch_dup_merge_all` |
 | branch separation by metadata/tag/filter | `branch_separation_by_metadata_auto`, `branch_separation_by_tag`, `branch_separation_by_filter` |
-| classification repetition + vote aggregation | `aggregation_classification_vote` |
 | legacy Optuna finetuning | `generator_finetune_params_optuna` |
 | stateful `concat_transform` pre-CV materialization | `concat_transform_pca_svd_plsr` |
 | by-source / per-source multi-source | `multi_source_per_source_models_stacking` |
