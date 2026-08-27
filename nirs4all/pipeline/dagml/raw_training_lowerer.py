@@ -1,10 +1,12 @@
-"""Lower a minimal raw-array estimator fit into native DAG-ML training contracts.
+"""Lower raw-array native Methods training into attested DAG-ML contracts.
 
-P3-R1b covers the first real nirs4all-native fit shape: raw ``X``/``y`` arrays,
-a linear nirs4all pipeline with one splitter and one model, and the existing
-DAG-ML host node runner.  It deliberately does not cover finetune_params,
-branches, augmentation, repetition, conformal calibration or public routing yet.
-Unsupported syntax fails before native execution.
+The portable lane deliberately accepts only the Methods shapes that have an
+equivalent controller-owned execution: a linear PLS model, or an exact
+nested-OOF stack of two-or-more PLS base models followed by native Ridge.  In
+particular, Ridge consumes scheduler-delivered OOF values only; the raw
+provider matrix remains an identity/target attestation and never becomes a
+meta-model feature matrix.  Every wider branch, transform, estimator, or
+meta-model configuration fails before native execution.
 """
 
 from __future__ import annotations
@@ -20,7 +22,8 @@ import numpy as np
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.dagml_bridge import _model_controller_id, _model_data_requirements, controller_manifests
 
-from .cli_runner import assemble_cv_refit_dsl
+from .cli_runner import assemble_cv_refit_dsl, data_bindings_for_nodes, split_invocation_for
+from .detect import _detect_stacking_branch
 from .envelope import build_envelope
 from .errors import _reject_multi_model
 from .estimator import DagMLPipelineEstimator, DagMLTrainingExecution
@@ -134,8 +137,11 @@ def lower_raw_array_training_contracts(
 
     steps, splitter, finetune_overrides = _supported_linear_steps(pipeline)
     portable_methods = methods_library_path is not None
+    portable_methods_stacking = None
     if portable_methods:
-        _validate_portable_methods_pipeline(steps)
+        portable_methods_stacking = _portable_methods_stacking(steps)
+        if portable_methods_stacking is None:
+            _validate_portable_methods_pipeline(steps)
     selection_metric = finetune_overrides.get("selection_metric", selection_metric)
     selection_objective = finetune_overrides.get("selection_objective", selection_objective)
     dataset = raw_arrays_to_spectro_dataset(X, y, identity_frame=identity_frame)
@@ -153,20 +159,40 @@ def lower_raw_array_training_contracts(
     envelope["relation_fingerprint"] = _core_relation_fingerprint(envelope["coordinator_relations"], dag_ml)
     envelope["data_content_fingerprint"] = feature_content_fingerprint(X)
     envelope["target_content_fingerprint"] = target_content_fingerprint(y)
-    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-raw-fit", n_splits=len(folds))
-    manifests = controller_manifests()
-    if portable_methods:
-        _lower_portable_methods_pls_dsl(dsl)
-        manifests = [_portable_methods_pls_manifest()]
+    if portable_methods and portable_methods_stacking is not None:
+        dsl = _portable_methods_stacking_dsl(
+            portable_methods_stacking,
+            identity=identity,
+            envelope=envelope,
+            folds=folds,
+            splitter=splitter,
+        )
+        manifests = [_portable_methods_pls_manifest(), _portable_methods_ridge_manifest()]
+    else:
+        dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-raw-fit", n_splits=len(folds))
+        manifests = controller_manifests()
+        if portable_methods:
+            _lower_portable_methods_pls_dsl(dsl)
+            manifests = [_portable_methods_pls_manifest()]
     artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests)
     graph = artifact.graph.to_dict()
     if portable_methods:
-        _mark_portable_methods_pls_graph(graph)
+        if portable_methods_stacking is None:
+            _mark_portable_methods_pls_graph(graph)
+        else:
+            _mark_portable_methods_stacking_graph(graph, portable_methods_stacking)
     campaign = artifact.campaign_template.to_dict()
-    output_requests = [_default_output_request(graph)]
+    output_requests = [
+        _output_request_for_node(
+            graph,
+            portable_methods_stacking.meta_node_id if portable_methods_stacking is not None else None,
+        )
+    ]
     if methods_hpo_operation is not None:
         if not portable_methods:
             raise ValueError("Methods HPO requires the portable Methods execution lane")
+        if portable_methods_stacking is not None:
+            raise ValueError("Methods HPO does not yet tune a portable PLS-to-Ridge stacking topology")
         campaign.setdefault("metadata", {})["methods_hpo_operation"] = _bind_methods_hpo_target(
             methods_hpo_operation,
             output_requests[0]["node_id"],
@@ -211,7 +237,11 @@ def lower_raw_array_training_contracts(
         run_id=run_id,
         bundle_id=bundle_id,
         diagnostics={"nirs4all_raw_array_samples": identity_frame.n_samples},
-        methods_inputs=(_methods_inputs_from_arrays(X, y, identity_frame, next(iter(data_envelopes))) if portable_methods else None),
+        methods_inputs=(
+            _methods_inputs_from_arrays(X, y, identity_frame, data_envelopes)
+            if portable_methods
+            else None
+        ),
         methods_library_path=methods_library_path,
     )
 
@@ -295,6 +325,146 @@ def _validate_portable_methods_pipeline(steps: list[Any]) -> None:
         raise ValueError("portable Methods PLS requires a positive integer n_components")
 
 
+@dataclass(frozen=True)
+class _PortableMethodsStacking:
+    """Closed native stack lowering shape, derived before any scheduler work."""
+
+    branches: tuple[int, ...]
+    ridge_lambda: float
+    meta_node_id: str = "merge:stack"
+
+
+def _portable_methods_stacking(steps: list[Any]) -> _PortableMethodsStacking | None:
+    """Recognize the exact PLS×N → nested-OOF → default Ridge native topology.
+
+    The broad DAG-ML branch detector intentionally admits transform-bearing and
+    Python-controller stacks.  This native lane narrows it further: each base
+    branch is one PLS model, and Ridge keeps every sklearn parameter at its
+    constructor default apart from finite non-negative ``alpha``.  That makes
+    the ``alpha`` → native ``ridge_lambda`` mapping explicit rather than
+    silently ignoring intercept/solver/copy policies that libn4m does not own.
+    """
+
+    detected = _detect_stacking_branch(steps)
+    if detected is None:
+        return None
+    branches, ridge = detected
+    if len(branches) < 2:
+        raise ValueError("portable Methods stacking requires at least two PLS base branches")
+    components: list[int] = []
+    for index, branch in enumerate(branches):
+        if len(branch) != 1 or not isinstance(branch[0], Mapping) or set(branch[0]) != {"model"}:
+            raise ValueError(
+                "portable Methods stacking requires every base branch to contain exactly one "
+                "PLSRegression model (no transforms or policy keys)"
+            )
+        model = branch[0]["model"]
+        cls = model if isinstance(model, type) else type(model)
+        if (
+            getattr(cls, "__name__", None) != "PLSRegression"
+            or not str(getattr(cls, "__module__", "")).startswith("sklearn.cross_decomposition")
+        ):
+            raise ValueError(f"portable Methods stacking base branch {index} requires sklearn.cross_decomposition.PLSRegression")
+        n_components = getattr(model, "n_components", None)
+        if not isinstance(n_components, int) or isinstance(n_components, bool) or n_components < 1:
+            raise ValueError(f"portable Methods stacking base branch {index} requires a positive integer PLS n_components")
+        components.append(n_components)
+
+    ridge_cls = ridge if isinstance(ridge, type) else type(ridge)
+    if (
+        getattr(ridge_cls, "__name__", None) != "Ridge"
+        or not str(getattr(ridge_cls, "__module__", "")).startswith("sklearn.linear_model")
+        or not callable(getattr(ridge, "get_params", None))
+    ):
+        raise ValueError("portable Methods stacking requires sklearn.linear_model.Ridge as its meta-model")
+    alpha = getattr(ridge, "alpha", None)
+    if isinstance(alpha, bool) or not isinstance(alpha, (int, float)) or not np.isfinite(alpha) or alpha < 0:
+        raise ValueError("portable Methods Ridge requires finite non-negative scalar alpha")
+    try:
+        expected = ridge_cls(alpha=float(alpha)).get_params(deep=False)
+        actual = ridge.get_params(deep=False)
+    except (TypeError, ValueError, AttributeError) as error:
+        raise ValueError("portable Methods Ridge must expose a reconstructible sklearn parameter mapping") from error
+    if actual != expected:
+        raise ValueError(
+            "portable Methods Ridge supports only default sklearn Ridge options plus alpha; "
+            "other solver/intercept/copy policies are not silently lowered"
+        )
+    return _PortableMethodsStacking(branches=tuple(components), ridge_lambda=float(alpha))
+
+
+def _portable_methods_stacking_dsl(
+    stacking: _PortableMethodsStacking,
+    *,
+    identity: IdentityMap,
+    envelope: Mapping[str, Any],
+    folds: list[tuple[list[int], list[int]]],
+    splitter: Any,
+) -> dict[str, Any]:
+    """Build the canonical nested-OOF DAG that the Ridge controller consumes."""
+
+    base_node_ids = [f"branch:{index}.node:0" for index in range(len(stacking.branches))]
+    pls_operator = {"class": "sklearn.cross_decomposition._pls.PLSRegression"}
+    branches = [
+        {
+            "id": f"branch_{index}",
+            "steps": [
+                {
+                    "kind": "model",
+                    "id": node_id,
+                    "operator": pls_operator,
+                    "params": {"n_components": components},
+                    "metadata": {"controller_id": "controller:methods.pls"},
+                }
+            ],
+        }
+        for index, (node_id, components) in enumerate(zip(base_node_ids, stacking.branches, strict=True))
+    ]
+    # The graph compiler owns construction of the OOF edges and the inner
+    # fold sets.  The native ridge controller receives only those declared
+    # prediction inputs and an x binding for identity/target attestation.
+    return {
+        "id": "nirs4all-raw-methods-stacking",
+        "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": None},
+        "steps": [
+            {"kind": "branch", "mode": "duplication", "branches": branches},
+            {
+                "kind": "merge_model",
+                "id": stacking.meta_node_id,
+                "operator": {"class": "sklearn.linear_model._ridge.Ridge"},
+                "params": {"ridge_lambda": stacking.ridge_lambda},
+                "metadata": {
+                    "controller_id": "controller:methods.ridge",
+                    "stacking_oof_execution": "nested_oof_v1",
+                    "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
+                },
+            },
+        ],
+        "data_bindings": _portable_methods_stacking_data_bindings(
+            base_node_ids,
+            stacking.meta_node_id,
+            dict(envelope),
+        ),
+        "split_invocation": split_invocation_for(
+            identity,
+            folds,
+            n_splits=len(folds),
+            shuffle=bool(getattr(splitter, "shuffle", True)),
+        ),
+    }
+
+
+def _portable_methods_stacking_data_bindings(
+    base_node_ids: list[str], meta_node_id: str, envelope: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """Bind base PLS nodes on ``x`` and Ridge attestation on canonical ``x_original``."""
+
+    bindings = data_bindings_for_nodes(base_node_ids, envelope)
+    meta_binding = data_bindings_for_nodes([meta_node_id], envelope)[0]
+    meta_binding["input_name"] = "x_original"
+    return [*bindings, meta_binding]
+
+
 def _lower_portable_methods_pls_dsl(dsl: dict[str, Any]) -> None:
     """Bind the single model node to the typed Methods controller, never Python."""
 
@@ -333,9 +503,42 @@ def _portable_methods_pls_manifest() -> dict[str, Any]:
             "emits_predictions",
             "emits_artifacts",
             "stateful",
-            "supports_portable_full_refit",
         ],
         "operator_selectors": [{"refs": ["sklearn.cross_decomposition._pls.PLSRegression"]}],
+        "fit_scope": "fold_train",
+        "rng_policy": "uses_core_seed",
+        "artifact_policy": "serializable",
+    }
+
+
+def _portable_methods_ridge_manifest() -> dict[str, Any]:
+    """Controller contract for a native Ridge meta-model over scheduler OOF blocks."""
+
+    return {
+        "controller_id": "controller:methods.ridge",
+        "controller_version": "n4m-abi-2.3",
+        "operator_kind": "model",
+        "priority": 101,
+        "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+        "input_ports": [
+            {"name": "x_original", "kind": "data", "representation": "tabular_numeric", "cardinality": "one"},
+            {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "many"},
+        ],
+        "output_ports": [
+            {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
+            {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+        ],
+        "data_requirements": _model_data_requirements(),
+        "capabilities": [
+            "deterministic",
+            "thread_safe",
+            "process_safe",
+            "emits_predictions",
+            "emits_artifacts",
+            "stateful",
+            "consumes_oof_predictions",
+        ],
+        "operator_selectors": [{"refs": ["sklearn.linear_model._ridge.Ridge"]}],
         "fit_scope": "fold_train",
         "rng_policy": "uses_core_seed",
         "artifact_policy": "serializable",
@@ -360,6 +563,35 @@ def _mark_portable_methods_pls_graph(graph: Mapping[str, Any]) -> None:
     models[0]["operator"] = "pls"
 
 
+def _mark_portable_methods_stacking_graph(
+    graph: Mapping[str, Any], stacking: _PortableMethodsStacking
+) -> None:
+    """Mark all executable stack nodes as their controller-owned native ops."""
+
+    nodes = graph.get("nodes")
+    if not isinstance(nodes, list):
+        raise ValueError("portable Methods stacking graph must contain a node list")
+    models = {
+        node.get("id"): node
+        for node in nodes
+        if isinstance(node, dict) and node.get("kind") == "model" and isinstance(node.get("id"), str)
+    }
+    base_ids = {f"branch:{index}.node:0" for index in range(len(stacking.branches))}
+    expected_ids = base_ids | {stacking.meta_node_id}
+    if set(models) != expected_ids:
+        raise ValueError("portable Methods stacking graph does not contain the exact declared PLS and Ridge nodes")
+    for node_id in base_ids:
+        models[node_id]["operator"] = "pls"
+        models[node_id]["metadata"] = {"controller_id": "controller:methods.pls"}
+    meta = models[stacking.meta_node_id]
+    meta["operator"] = "ridge"
+    meta["metadata"] = {
+        "controller_id": "controller:methods.ridge",
+        "stacking_oof_execution": "nested_oof_v1",
+        "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
+    }
+
+
 def _bind_methods_hpo_target(operation: Mapping[str, Any], target_node_id: str) -> dict[str, Any]:
     """Attach the only graph-derived field of a native Methods HPO operation.
 
@@ -382,9 +614,9 @@ def _methods_inputs_from_arrays(
     X: Any,
     y: Any,
     identity_frame: DagMLFitIdentityFrame,
-    binding_key: str,
+    binding_keys: str | Mapping[str, Any],
 ) -> dict[str, Any]:
-    """Create the host-owned full numeric input keyed by the one model binding."""
+    """Create host-owned numeric inputs for every explicitly bound model node."""
 
     features = np.asarray(X, dtype=float)
     targets = np.asarray(y, dtype=float)
@@ -392,14 +624,16 @@ def _methods_inputs_from_arrays(
         targets = targets.reshape(-1, 1)
     if targets.ndim != 2 or targets.shape[1] != 1:
         raise ValueError("portable Methods PLS currently supports exactly one numeric target")
-    return {
-        binding_key: {
-            "sample_ids": list(identity_frame.sample_ids),
-            "x": features.tolist(),
-            "y": targets.tolist(),
-            "target_names": ["y"],
-        }
+    keys = [binding_keys] if isinstance(binding_keys, str) else list(binding_keys)
+    if not keys or any(not isinstance(key, str) or not key for key in keys):
+        raise ValueError("portable Methods training requires one non-empty host input per data binding")
+    template = {
+        "sample_ids": list(identity_frame.sample_ids),
+        "x": features.tolist(),
+        "y": targets.tolist(),
+        "target_names": ["y"],
     }
+    return {key: copy.deepcopy(template) for key in keys}
 
 
 def _data_contracts_from_campaign(
@@ -420,10 +654,21 @@ def _data_contracts_from_campaign(
 
 
 def _default_output_request(graph: Mapping[str, Any]) -> dict[str, Any]:
+    """Backward-compatible output selection for one-model native lowering."""
+
+    return _output_request_for_node(graph)
+
+
+def _output_request_for_node(graph: Mapping[str, Any], node_id: str | None = None) -> dict[str, Any]:
+    """Return the sole requested prediction output, optionally for a declared meta node."""
+
     model_nodes = [node for node in graph.get("nodes", []) if node.get("kind") == "model"]
-    if len(model_nodes) != 1:
-        raise ValueError("raw-array lowering requires exactly one model node")
-    node_id = model_nodes[0]["id"]
+    if node_id is None:
+        if len(model_nodes) != 1:
+            raise ValueError("raw-array lowering requires exactly one model node")
+        node_id = model_nodes[0]["id"]
+    elif node_id not in {node.get("id") for node in model_nodes}:
+        raise ValueError("raw-array lowering selected an output node absent from the compiled model graph")
     output: dict[str, Any] = {
         "output_id": "output:prediction",
         "node_id": node_id,

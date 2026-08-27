@@ -7,6 +7,7 @@ from typing import Any
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 from sklearn.neighbors import KNeighborsRegressor
 
@@ -217,6 +218,84 @@ def test_portable_methods_lowering_refuses_non_pls_or_transform_pipelines() -> N
 
     with pytest.raises(ValueError, match="PLSRegression only"):
         lower_raw_array_training_contracts(_pipeline(), X, y, identity_frame=frame, methods_library_path="/absolute/libn4m.so")
+
+
+def test_portable_methods_stacking_lowers_exact_nested_oof_pls_to_native_ridge() -> None:
+    """The raw native lane binds each base and meta node, never a Python stack callback."""
+
+    _require_recent_dag_ml()
+    X = np.arange(16, dtype=float).reshape(8, 2)
+    y = np.arange(8, dtype=float)
+    frame = normalize_fit_identity(X, y, sample_ids=[f"s{index}" for index in range(8)])
+    pipeline = [
+        KFold(n_splits=2),
+        {"branch": [[{"model": PLSRegression(n_components=1)}], [{"model": PLSRegression(n_components=1)}]]},
+        {"merge": "predictions"},
+        {"model": Ridge(alpha=0.25)},
+    ]
+
+    contracts = lower_raw_array_training_contracts(
+        pipeline,
+        X,
+        y,
+        identity_frame=frame,
+        methods_library_path="/absolute/libn4m.so",
+    )
+    prepared = contracts.to_prepared()
+    graph = prepared.request["graph"]
+    models = {node["id"]: node for node in graph["nodes"] if node["kind"] == "model"}
+
+    assert contracts.op_callback is None
+    assert [manifest["controller_id"] for manifest in prepared.request["controller_manifests"]] == [
+        "controller:methods.pls",
+        "controller:methods.ridge",
+    ]
+    assert set(models) == {"branch:0.node:0", "branch:1.node:0", "merge:stack"}
+    assert {node["operator"] for node_id, node in models.items() if node_id.startswith("branch:")} == {"pls"}
+    assert models["merge:stack"]["operator"] == "ridge"
+    assert models["merge:stack"]["metadata"]["stacking_oof_execution"] == "nested_oof_v1"
+    assert prepared.request["options"]["outputs"][0]["node_id"] == "merge:stack"
+    assert set(prepared.methods_inputs) == {"branch:0.node:0.x", "branch:1.node:0.x", "merge:stack.x_original"}
+    assert all(value["sample_ids"] == [f"s{index}" for index in range(8)] for value in prepared.methods_inputs.values())
+
+
+def test_portable_methods_stacking_refuses_non_native_ridge_options_or_branch_transforms() -> None:
+    _require_recent_dag_ml()
+    X = np.arange(16, dtype=float).reshape(8, 2)
+    y = np.arange(8, dtype=float)
+    frame = normalize_fit_identity(X, y, sample_ids=[f"s{index}" for index in range(8)])
+    base = [
+        KFold(n_splits=2),
+        {"branch": [[{"model": PLSRegression(n_components=1)}], [{"model": PLSRegression(n_components=1)}]]},
+        {"merge": "predictions"},
+    ]
+
+    with pytest.raises(ValueError, match="default sklearn Ridge options"):
+        lower_raw_array_training_contracts(
+            [*base, {"model": Ridge(alpha=0.25, fit_intercept=False)}],
+            X,
+            y,
+            identity_frame=frame,
+            methods_library_path="/absolute/libn4m.so",
+        )
+    with pytest.raises(ValueError, match="exactly one PLSRegression model"):
+        lower_raw_array_training_contracts(
+            [
+                KFold(n_splits=2),
+                {
+                    "branch": [
+                        [{"preprocessing": "snv"}, {"model": PLSRegression(n_components=1)}],
+                        [{"model": PLSRegression(n_components=1)}],
+                    ]
+                },
+                {"merge": "predictions"},
+                {"model": Ridge(alpha=0.25)},
+            ],
+            X,
+            y,
+            identity_frame=frame,
+            methods_library_path="/absolute/libn4m.so",
+        )
 
 
 def test_lower_raw_array_training_contracts_maps_deterministic_finetune_grid() -> None:
