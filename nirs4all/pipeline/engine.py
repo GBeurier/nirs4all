@@ -154,12 +154,12 @@ def require_legacy_engine(operation: str, engine: str | None = None) -> Engine:
             raise NotImplementedError(
                 f"nirs4all.{operation} does not have a dag-ml execution path yet; it does not "
                 "have an execution path under dag-ml. Use "
-                "engine='legacy' for this transition release. nirs4all.run supports "
+                "engine='legacy' only as the explicit rollback path. nirs4all.run supports "
                 "engine='dag-ml' with documented fallback boundaries."
             )
         raise NotImplementedError(
-            f"nirs4all.{operation} does not have an execution path for engine='{selected}' yet; use "
-            "engine='legacy' for this transition release. nirs4all.run supports "
+            f"nirs4all.{operation} does not have an execution path for engine='{selected}' yet; "
+            "use engine='legacy' only as the explicit rollback path. nirs4all.run supports "
             "engine='dag-ml' with documented fallback boundaries."
         )
     return selected
