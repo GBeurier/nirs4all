@@ -261,7 +261,12 @@ def test_run_native_routes_strict_methods_hpo_through_the_native_compiler(
 ) -> None:
     """The public HPO lane is scheduler metadata, never a Python objective."""
 
+    class Package:
+        def json(self) -> str:
+            return '{"schema_version":2,"package_id":"hpo-resume"}'
+
     class Estimator:
+        predictor_package_ = Package()
         training_outcome_ = {
             "outcome_fingerprint": "b" * 64,
             "selected_variant_id": "hpo:trial:0",
@@ -305,6 +310,7 @@ def test_run_native_routes_strict_methods_hpo_through_the_native_compiler(
     assert isinstance(result, NativeMethodsRunResult)
     assert result.native_selected_variant_id == "hpo:trial:0"
     assert result.native_methods_hpo_resume_state == {"schema_version": 1, "checkpoint": {"format": "N4MOPT"}}
+    assert result.hpo_resume_package_json() == '{"schema_version":2,"package_id":"hpo-resume"}'
     operation = observed["methods_hpo_operation"]
     assert operation == {
         "operation_id": "hpo:methods",
@@ -338,6 +344,51 @@ def test_run_native_routes_strict_methods_hpo_through_the_native_compiler(
         "trials": 3,
         "parameter_paths": {"n_components": "n_components"},
     }
+
+
+def test_native_methods_hpo_resume_only_forwards_a_complete_package() -> None:
+    """Python carries one signed package; DAG-ML owns all resume validation."""
+
+    from nirs4all.api.native_training import _native_methods_hpo_operation
+
+    package_json = '{"schema_version":2,"package_id":"resume"}'
+    operation = _native_methods_hpo_operation(
+        {
+            "engine": "methods-hpo",
+            "trials": 4,
+            "sampler": "tpe",
+            "pruner": "median",
+            "resume_package_json": package_json,
+        },
+        seed=51,
+    )
+
+    assert operation is not None
+    assert operation["resume_package_json"] == package_json
+    assert set(operation) == {
+        "operation_id",
+        "study",
+        "trials",
+        "parameter_paths",
+        "resume_package_json",
+    }
+
+
+@pytest.mark.parametrize("resume_package_json", ["", "  ", 42, {"checkpoint": "free"}])
+def test_native_methods_hpo_refuses_free_or_empty_resume_state(
+    resume_package_json: object,
+) -> None:
+    from nirs4all.api.native_training import _native_methods_hpo_operation
+
+    with pytest.raises(TypeError, match="resume_package_json"):
+        _native_methods_hpo_operation(
+            {
+                "engine": "methods-hpo",
+                "trials": 4,
+                "resume_package_json": resume_package_json,
+            },
+            seed=51,
+        )
 
 
 @pytest.mark.parametrize(
