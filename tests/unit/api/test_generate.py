@@ -6,13 +6,6 @@ import numpy as np
 import pytest
 
 
-@pytest.fixture(autouse=True)
-def _select_legacy_for_legacy_generation_examples(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Keep the historical generator checks on the explicit rollback lane."""
-
-    monkeypatch.setenv("N4A_ENGINE", "legacy")
-
-
 class TestGenerateFunction:
     """Tests for the main generate() function."""
 

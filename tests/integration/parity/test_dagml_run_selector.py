@@ -50,7 +50,8 @@ if "torch" in globals():
             return self.linear(features)
 
 
-def test_resolve_engine_default_is_native() -> None:
+def test_resolve_engine_default_is_native(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
     assert resolve_engine(None) == "native"
     assert resolve_engine("dag-ml") == "dag-ml"
     assert resolve_engine("legacy") == "legacy"

@@ -28,6 +28,13 @@ from typing import cast
 _TEST_WORKSPACE_DIR = tempfile.mkdtemp(prefix="nirs4all_test_")
 os.environ["NIRS4ALL_WORKSPACE"] = _TEST_WORKSPACE_DIR
 
+# Most of the historical suite is a regression oracle for the retained
+# pure-Python implementation.  Select that rollback lane deliberately rather
+# than relying on the product default; native-default tests delete this value
+# before asserting the public boundary.
+_PRE_TEST_N4A_ENGINE = os.environ.get("N4A_ENGINE")
+os.environ["N4A_ENGINE"] = "legacy"
+
 # Now safe to import other modules
 from pathlib import Path
 
@@ -67,6 +74,10 @@ def pytest_unconfigure(config):
             pass  # Best effort cleanup
     if "NIRS4ALL_WORKSPACE" in os.environ:
         del os.environ["NIRS4ALL_WORKSPACE"]
+    if _PRE_TEST_N4A_ENGINE is None:
+        os.environ.pop("N4A_ENGINE", None)
+    else:
+        os.environ["N4A_ENGINE"] = _PRE_TEST_N4A_ENGINE
 
 # =============================================================================
 # Lazy imports for synthetic module (avoid import errors if module missing)
@@ -672,4 +683,3 @@ def csv_all_variations(tmp_path, base_synthetic_data, csv_variation_generator) -
             random_state=42,
         ),
     )
-

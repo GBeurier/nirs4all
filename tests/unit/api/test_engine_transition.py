@@ -36,6 +36,9 @@ def test_run_native_executes_the_methods_subset_without_constructing_a_legacy_ru
 ) -> None:
     """The default and explicit native lanes never construct ``PipelineRunner``."""
 
+    if engine is None:
+        monkeypatch.delenv("N4A_ENGINE", raising=False)
+
     def legacy_runner(*_args, **_kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("run(engine='native') constructed a legacy PipelineRunner")
 
