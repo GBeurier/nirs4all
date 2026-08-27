@@ -19,6 +19,7 @@ from nirs4all.pipeline.dagml.native_archive_replay import (
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
     RawArrayMethodsReplayCompiler,
     RawArrayMethodsReplayError,
+    _native_methods_refit_artifact_ids_from_bundle,
     validate_native_methods_package,
 )
 
@@ -176,6 +177,16 @@ def test_raw_replay_accepts_complete_native_stack_and_refuses_python_callback_fa
     ).compile_replay(None, X, mode="predict", identity_frame=identity)  # type: ignore[arg-type]
     assert replay.op_callback is None
     assert replay.methods_inputs is not None
+
+
+def test_native_methods_refit_artifact_set_is_shared_by_v2_and_v3() -> None:
+    package = _stack_package()
+    bundle = package["execution_bundle"]
+    assert isinstance(bundle, dict)
+
+    assert _native_methods_refit_artifact_ids_from_bundle(
+        bundle, package_label="Package V3"
+    ) == ["artifact:pls", "artifact:ridge"]
 
 
 def test_raw_replay_resolver_refuses_unknown_or_duplicated_ids(
