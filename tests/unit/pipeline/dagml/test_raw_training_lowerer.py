@@ -250,6 +250,10 @@ def test_portable_methods_stacking_lowers_exact_nested_oof_pls_to_native_ridge()
         "controller:methods.pls",
         "controller:methods.ridge",
     ]
+    assert all(
+        "supports_portable_full_refit" in manifest["capabilities"]
+        for manifest in prepared.request["controller_manifests"]
+    )
     assert set(models) == {"branch:0.node:0", "branch:1.node:0", "merge:stack"}
     assert {node["operator"] for node_id, node in models.items() if node_id.startswith("branch:")} == {"pls"}
     assert models["merge:stack"]["operator"] == "ridge"
