@@ -82,6 +82,13 @@ def test_example_runs_on_engine(example: str, engine: str) -> None:
         env=env,
         capture_output=True,
         text=True,
+        # The child is explicitly UTF-8 (PYTHONIOENCODING above), but Windows
+        # otherwise decodes captured pipes with the runner's cp1252 locale.
+        # Keep the parent-side contract equally explicit so an informational
+        # non-ASCII byte cannot turn a successful example into a reader-thread
+        # failure before its real exit status is evaluated.
+        encoding="utf-8",
+        errors="replace",
         timeout=600,
     )
 
