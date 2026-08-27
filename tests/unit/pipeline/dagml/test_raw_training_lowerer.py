@@ -254,6 +254,19 @@ def test_portable_methods_stacking_lowers_exact_nested_oof_pls_to_native_ridge()
         "supports_portable_full_refit" in manifest["capabilities"]
         for manifest in prepared.request["controller_manifests"]
     )
+    manifest_by_id = {
+        manifest["controller_id"]: manifest
+        for manifest in prepared.request["controller_manifests"]
+    }
+    assert manifest_by_id["controller:methods.pls"]["data_requirements"]["ports"][0]["name"] == "x"
+    assert manifest_by_id["controller:methods.ridge"]["data_requirements"]["ports"][0]["name"] == "x_original"
+    assert "aggregates_predictions" in manifest_by_id["controller:methods.ridge"]["capabilities"]
+    assert "trains_aggregation" in manifest_by_id["controller:methods.ridge"]["capabilities"]
+    assert {
+        entry["kind"]
+        for entry in contracts.training_influence["entries"]
+        if entry["node_id"] == "merge:stack"
+    } == {"trained_meta_aggregation"}
     assert set(models) == {"branch:0.node:0", "branch:1.node:0", "merge:stack"}
     assert {node["operator"] for node_id, node in models.items() if node_id.startswith("branch:")} == {"pls"}
     assert models["merge:stack"]["operator"] == "ridge"
