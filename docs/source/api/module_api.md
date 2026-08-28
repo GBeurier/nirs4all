@@ -157,6 +157,18 @@ with nirs4all.session(pipeline, engine="native") as native:
     result.export("model.n4a")
 ```
 
+##### Live Methods execution observation
+
+Before a strict native result is closed, `result.native_execution_claim` gives
+an immutable, audit-only description of the local callback-free
+`dag_ml.execute_methods_training` call and
+`result.native_execution_is_live` reports whether its exact DAG-ML facade is
+still attached. This is deliberately process-local rather than a portable
+receipt: `result.close()`, `result.detach()`, or closing the owning native
+session invalidates the claim. The signed outcome and portable package are the
+durable evidence, so `result.export("model.n4a")` remains valid after that
+live observation has been released.
+
 The native tuning request is ``{"engine": "methods-hpo", "trials": N}``.
 It may additionally select ``sampler="random"|"tpe"`` and
 ``pruner="none"|"median"``. It uses the DAG-ML Methods controller with the

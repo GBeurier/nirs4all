@@ -16,6 +16,23 @@ fail-closed par défaut ; un rollback legacy demande explicitement
 `allow_legacy_fallback=True`. Cette frontière ne doit pas être inversée avant
 que toutes les capacités déclarées R2 disposent d'une preuve native.
 
+## Évidence de cycle intégrée après l'audit historique
+
+Le lot #122 (merge `0f612509`) ajoute une preuve locale pour le sous-ensemble
+Methods strict déjà déclaré : le résultat expose un témoin vivant, lié à la
+façade `dag_ml.TrainingResult`, qui observe l'appel callback-free
+`dag_ml.execute_methods_training`. Ce témoin est volontairement non
+sérialisable et cesse d'être utilisable après `close()`/`detach()` ; l'outcome
+signé et le package portable restent les seules preuves durables, et permettent
+l'export Archive V2 après cette fermeture.
+
+À l'instant historique du lot #122, la CI `methods-installed.yml` installait
+les roues publiées `dag-ml==0.3.19` et `nirs4all-methods==1.0.13`, retirait
+`N4M_LIB_PATH`, puis vérifiait le cycle réel claim → close → Archive V2. Cette
+preuve renforce la forme `run(..., engine="native")` déjà supportée ; elle ne rend
+pas R2 complet,
+ne change pas le défaut `legacy` et ne justifie aucune bascule de moteur.
+
 ## Méthode
 
 Pour chaque branche candidate, on utilise `git range-diff` contre son merge
