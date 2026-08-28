@@ -10,7 +10,7 @@ from typing import Any
 
 import pytest
 from sklearn.cross_decomposition import PLSRegression
-from sklearn.decomposition import PCA
+from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.model_selection import KFold
 
 import nirs4all
@@ -18,7 +18,7 @@ from nirs4all.operators.transforms import StandardNormalVariate
 from nirs4all.pipeline import PipelineConfigs
 from nirs4all.pipeline.config.generator import expand_spec
 from nirs4all.pipeline.dagml.errors import DagMlPipelinePreflightRequired, DagMlStatefulConcatTransformMigrationRequired
-from nirs4all.pipeline.dagml.migration_preflight import preflight_dagml_pipeline_migration
+from nirs4all.pipeline.dagml.migration_preflight import _operator_is_stateless, preflight_dagml_pipeline_migration
 from nirs4all.pipeline.engine import legacy_fallback_metrics
 
 
@@ -124,6 +124,50 @@ def test_public_pipeline_forms_refuse_before_fallback(
         pipeline = [_safe_pipeline(), _stateful_concat_pipeline()]
 
     _assert_public_refusal(pipeline, monkeypatch)
+
+
+def test_reloaded_pipeline_configs_refuse_serialized_stateful_concat_before_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A stale public re-export remains a PipelineConfigs input after its implementation reloads."""
+
+    from nirs4all.pipeline.config import pipeline_config as pipeline_config_module
+
+    stale_pipeline_configs = PipelineConfigs
+    importlib.reload(pipeline_config_module)
+    assert stale_pipeline_configs is not pipeline_config_module.PipelineConfigs
+    try:
+
+        class ReloadedPipelineConfigs(stale_pipeline_configs):
+            pass
+
+        pipeline = ReloadedPipelineConfigs(
+            [
+                {"concat_transform": [PCA(n_components=1), TruncatedSVD(n_components=1)]},
+                KFold(n_splits=2),
+                {"model": PLSRegression(n_components=1)},
+            ]
+        )
+        operations = pipeline.steps[0][0]["concat_transform"]
+        assert [operation["class"].rsplit(".", 1)[-1] for operation in operations] == ["PCA", "TruncatedSVD"]
+        assert all(not _operator_is_stateless(operation) for operation in operations)
+
+        _assert_public_refusal(pipeline, monkeypatch)
+        _assert_public_refusal([_safe_pipeline(), pipeline], monkeypatch)
+    finally:
+        # Restore the implementation binding so this regression does not leave a distinct class identity
+        # behind for unrelated tests. The public re-export intentionally stays the held stale reference.
+        pipeline_config_module.PipelineConfigs = stale_pipeline_configs
+
+
+def test_malformed_nominal_pipeline_configs_requires_preflight() -> None:
+    """A recognized config object with invalid serialized variants cannot pass as a safe pipeline."""
+
+    malformed = object.__new__(PipelineConfigs)
+    malformed.steps = [{"concat_transform": [PCA(n_components=1)]}]
+
+    with pytest.raises(DagMlPipelinePreflightRequired, match="PipelineConfigs.steps"):
+        preflight_dagml_pipeline_migration(malformed)
 
 
 def test_direct_backend_refuses_before_backend_or_dataset(monkeypatch: pytest.MonkeyPatch) -> None:

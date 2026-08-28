@@ -29,6 +29,8 @@ _BRANCH_OPTION_KEYS = frozenset({"parallel", "n_jobs", "metadata", "params"})
 _OPAQUE_PAYLOAD_KEYS = frozenset({"model", "metadata", "params", "refit_params"})
 _RANDOM_COUNT_GENERATOR_KEYS = frozenset({"_or_", "_grid_", "_zip_", "_cartesian_"})
 _GENERATOR_KEYS = frozenset({"_or_", "_range_", "_log_range_", "_grid_", "_zip_", "_chain_", "_sample_", "_cartesian_"})
+_PIPELINE_CONFIGS_CLASS_MODULE = "nirs4all.pipeline.config.pipeline_config"
+_PIPELINE_CONFIGS_CLASS_QUALNAME = "PipelineConfigs"
 
 
 @dataclass(frozen=True)
@@ -69,6 +71,30 @@ def _minimal_step_config(value: Any) -> Any:
     except Exception:  # pragma: no cover - import is part of the installed package contract.
         return value
     return value.step_config if isinstance(value, MinimalPipelineStep) else value
+
+
+def _is_pipeline_configs(value: Any) -> bool:
+    """Recognize the canonical config object even if its module was reloaded.
+
+    ``PipelineConfigs`` is part of the public API.  A module reload can leave that public re-export
+    pointing at an older class object, so an ``isinstance`` check against a fresh import would silently
+    miss a valid configuration.  The implementation module and qualified class name are stable across
+    that reload; no arbitrary object protocol is accepted here.
+    """
+
+    return any(value_type.__module__ == _PIPELINE_CONFIGS_CLASS_MODULE and value_type.__qualname__ == _PIPELINE_CONFIGS_CLASS_QUALNAME for value_type in type(value).__mro__)
+
+
+def _pipeline_configs_steps(pipeline: Any) -> list[Any]:
+    """Read the concrete PipelineConfigs variants without turning a bad form into a safe pipeline."""
+
+    try:
+        steps = pipeline.steps
+    except Exception as error:  # noqa: BLE001 - this named public form must not bypass preflight.
+        _raise_uninspectable("PipelineConfigs.steps", error)
+    if not isinstance(steps, list) or any(not isinstance(item, list) for item in steps):
+        _raise_uninspectable("PipelineConfigs.steps")
+    return steps
 
 
 def _effective_seed(generator: Mapping[str, Any], root_seed: int | None) -> Any:
@@ -614,14 +640,14 @@ def _looks_like_pipeline_step(value: Any) -> bool:
     return bool(hasattr(value, "__class__") and value.__class__.__module__.startswith("nirs4all"))
 
 
-def _batch_status(value: list[Any], pipeline_configs_type: type[Any]) -> tuple[bool, int | None]:
+def _batch_status(value: list[Any]) -> tuple[bool, int | None]:
     """Return ``(is_batch, opaque_member_index)`` for the public outer-list grammar."""
 
     saw_pipeline_spec = False
     saw_step = False
     opaque_member: int | None = None
     for index, item in enumerate(value):
-        if isinstance(item, (pipeline_configs_type, str, Path, list)) or (isinstance(item, Mapping) and any(key in item for key in ("pipeline", "steps"))):
+        if _is_pipeline_configs(item) or isinstance(item, (str, Path, list)) or (isinstance(item, Mapping) and any(key in item for key in ("pipeline", "steps"))):
             saw_pipeline_spec = True
         elif _looks_like_pipeline_step(item):
             saw_step = True
@@ -635,18 +661,18 @@ def _batch_status(value: list[Any], pipeline_configs_type: type[Any]) -> tuple[b
 def _public_variants(pipeline: Any, active_batches: set[int] | None = None) -> list[tuple[list[Any], int | None]]:
     """Return every inspectable public pipeline member and its generator root seed."""
 
-    from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-
-    if isinstance(pipeline, PipelineConfigs):
-        steps = pipeline.steps
-        if not isinstance(steps, list) or any(not isinstance(item, list) for item in steps):
-            _raise_uninspectable("PipelineConfigs.steps")
-        seed = pipeline.random_state if type(pipeline.random_state) is int else None
+    if _is_pipeline_configs(pipeline):
+        steps = _pipeline_configs_steps(pipeline)
+        try:
+            random_state = pipeline.random_state
+        except Exception as error:  # noqa: BLE001 - a broken config object cannot bypass a concat boundary.
+            _raise_uninspectable("PipelineConfigs.random_state", error)
+        seed = random_state if type(random_state) is int else None
         return [(list(item), seed) for item in steps]
     if not isinstance(pipeline, list):
         return [_raw_steps_and_seed(pipeline)]
 
-    is_batch, opaque_member = _batch_status(pipeline, PipelineConfigs)
+    is_batch, opaque_member = _batch_status(pipeline)
     if opaque_member is not None:
         _raise_uninspectable(f"pipeline batch item {opaque_member}")
     if not is_batch:
@@ -802,6 +828,17 @@ def _value_may_contain_stateful_pre_cv_concat(value: Any, seen_splitter: bool, a
     """Conservatively find the one semantic boundary without interpreting payloads."""
 
     value = _minimal_step_config(value)
+    if _is_pipeline_configs(value):
+        try:
+            return _value_may_contain_stateful_pre_cv_concat(
+                _pipeline_configs_steps(value),
+                seen_splitter,
+                active,
+            )
+        except DagMlMigrationRequired:
+            raise
+        except Exception as error:  # noqa: BLE001 - named config inspection must never look safe after failure.
+            _raise_uninspectable("PipelineConfigs.steps", error)
     if isinstance(value, (list, tuple)):
         marker = id(value)
         if marker in active:
@@ -835,15 +872,14 @@ def _value_may_contain_stateful_pre_cv_concat(value: Any, seen_splitter: bool, a
 def _pipeline_may_contain_stateful_pre_cv_concat(pipeline: Any) -> bool:
     """Whether the supplied public form needs concat semantic preflight at all.
 
-    This deliberately returns false for unreadable or malformed public forms: they belong to the
-    ordinary compatibility/error path unless a valid active concat boundary can be identified.
+    This deliberately returns false for unreadable raw public forms: they belong to the ordinary
+    compatibility/error path unless a valid active concat boundary can be identified. The structural
+    walker recognizes a named ``PipelineConfigs`` object at every public nesting level; its serialized
+    variants are already executable legacy input, so an inspection failure is never turned into a safe
+    pass.
     """
 
     try:
-        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
-
-        if isinstance(pipeline, PipelineConfigs):
-            return _value_may_contain_stateful_pre_cv_concat(pipeline.steps, False, set())
         if isinstance(pipeline, Path):
             pipeline = str(pipeline)
         if isinstance(pipeline, str):
