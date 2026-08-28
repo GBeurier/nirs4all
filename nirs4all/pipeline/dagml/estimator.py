@@ -8,6 +8,7 @@ replay once the nirs4all→DAG-ML contract compiler is supplied.
 
 from __future__ import annotations
 
+from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol, cast
@@ -198,20 +199,28 @@ class DagMLPipelineEstimator(BaseEstimator):
             )
 
         self.training_result_ = training_result
-        # Retain the exact signed contracts that produced this attached native
-        # result.  Full refit may use them only as parent provenance evidence;
-        # it must never rebuild a recipe from Python or re-enter CV/SELECT.
-        self.native_training_execution_ = execution
-        self.training_outcome_ = getattr(training_result, "outcome", None)
-        self.outputs_ = list(getattr(training_result, "outputs", []) or [])
-        self.output_binding_ = self._select_output_binding(self.outputs_)
-        self.predictor_package_ = self._export_predictor_package(
-            training_result,
-            execution,
-        )
-        self.fit_identity_frame_ = identity_frame
-        self.n_features_in_ = self._infer_n_features(X)
-        return self
+        try:
+            # Retain the exact signed contracts that produced this attached native
+            # result.  Full refit may use them only as parent provenance evidence;
+            # it must never rebuild a recipe from Python or re-enter CV/SELECT.
+            self.native_training_execution_ = execution
+            self.training_outcome_ = getattr(training_result, "outcome", None)
+            self.outputs_ = list(getattr(training_result, "outputs", []) or [])
+            self.output_binding_ = self._select_output_binding(self.outputs_)
+            self.predictor_package_ = self._export_predictor_package(
+                training_result,
+                execution,
+            )
+            self.fit_identity_frame_ = identity_frame
+            self.n_features_in_ = self._infer_n_features(X)
+            return self
+        except BaseException:
+            # Once native execution returned an attached TrainingResult, every
+            # later projection/export failure must release its process-local
+            # resources before propagating the original error.
+            with suppress(BaseException):
+                self.detach_native_training_result()
+            raise
 
     def predict(self, X: Any) -> np.ndarray:
         """Predict via native loaded-package replay.
@@ -397,6 +406,32 @@ class DagMLPipelineEstimator(BaseEstimator):
         finally:
             if replay.cleanup is not None:
                 replay.cleanup()
+
+    def detach_native_training_result(self) -> bool:
+        """Release attached DAG-ML execution resources without losing portable state.
+
+        ``fit_native_pipeline`` is public and returns this estimator directly,
+        so callers need a deterministic lifecycle operation independent of the
+        higher-level :class:`~nirs4all.api.native_result.NativeMethodsRunResult`.
+        DAG-ML's ``TrainingResult.detach()`` preserves the signed outcome and
+        portable predictor package used by later native replay/export.
+
+        Returns:
+            ``True`` only when this call performed the attached-to-detached
+            transition. Repeated calls are harmless and return ``False``.
+        """
+
+        check_is_fitted(self, attributes=["training_result_"])
+        training_result = self.training_result_
+        if getattr(training_result, "is_attached", False) is not True:
+            return False
+        detach = getattr(training_result, "detach", None)
+        if not callable(detach):
+            raise DagMLNativeCoverageError("DAG-ML training result does not expose detach()")
+        detached = detach()
+        if not isinstance(detached, bool):
+            raise DagMLNativeCoverageError("DAG-ML training result detach() must return bool")
+        return detached
 
     def export_native_archive(
         self,

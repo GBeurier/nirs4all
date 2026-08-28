@@ -12,6 +12,7 @@ from nirs4all.api.native_retrain_lineage import NativeRetrainLineage
 from nirs4all.api.native_training import fit_native_pipeline
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
 from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
+from nirs4all.pipeline.dagml.raw_replay_lowerer import RawArrayMethodsReplayError
 
 
 @pytest.fixture
@@ -24,6 +25,10 @@ def native_library(tmp_path) -> str:
 
 
 class _TrainingResult:
+    def __init__(self) -> None:
+        self.is_attached = True
+        self.detach_calls = 0
+
     outcome = {"native": True}
     outputs = [
         {
@@ -44,6 +49,13 @@ class _TrainingResult:
                 ],
             },
         }
+
+    def detach(self) -> bool:
+        self.detach_calls += 1
+        if not self.is_attached:
+            return False
+        self.is_attached = False
+        return True
 
 
 class _Client:
@@ -68,6 +80,67 @@ class _Client:
                 }
             ]
         }
+
+
+def test_fit_native_pipeline_uses_the_callback_free_methods_client_when_contracts_require_it(
+    monkeypatch: pytest.MonkeyPatch, native_library: str
+) -> None:
+    """The strict lane must not silently select the generic callback client."""
+
+    from nirs4all.pipeline.dagml.estimator import DagMLTrainingExecution
+
+    class StrictTrainingResult(_TrainingResult):
+        def export_portable_predictor_package(self, package_id: str, **_kwargs: Any) -> dict[str, Any]:
+            return super().export_portable_predictor_package(package_id)
+
+    class StrictClient:
+        def __init__(self) -> None:
+            self.methods_calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+        def execute_training(self, *_args: Any, **_kwargs: Any) -> StrictTrainingResult:
+            raise AssertionError("strict Methods fit selected generic execute_training")
+
+        def execute_methods_training(self, *args: Any, **kwargs: Any) -> StrictTrainingResult:
+            self.methods_calls.append((args, kwargs))
+            return StrictTrainingResult()
+
+    execution = DagMLTrainingExecution(
+        request={"request": "methods"},
+        data_envelopes={"data:train": {}},
+        relations={"records": []},
+        training_influence={"entries": []},
+        op_callback=None,
+        outcome_id="outcome:methods",
+        run_id="run:methods",
+        bundle_id="bundle:methods",
+        methods_inputs={"data:train": {"sample_ids": ["fit-a", "fit-b"]}},
+        methods_library_path=native_library,
+    )
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.RawArrayDagMLTrainingCompiler.compile_fit",
+        lambda *_args, **_kwargs: execution,
+    )
+    client = StrictClient()
+
+    fit_native_pipeline(
+        [{"split": "stub"}, {"model": "stub"}],
+        np.asarray([[1.0], [2.0]]),
+        np.asarray([1.0, 2.0]),
+        sample_ids=["fit-a", "fit-b"],
+        native_client=client,
+        methods_library_path=native_library,
+    )
+
+    assert len(client.methods_calls) == 1
+    args, kwargs = client.methods_calls[0]
+    assert args[:5] == (
+        {"request": "methods"},
+        {"data:train": {}},
+        {"records": []},
+        {"entries": []},
+        {"data:train": {"sample_ids": ["fit-a", "fit-b"]}},
+    )
+    assert kwargs["methods_library_path"] == native_library
 
 
 def test_fit_native_pipeline_is_a_public_strict_native_composition(
@@ -119,6 +192,100 @@ def test_fit_native_pipeline_is_a_public_strict_native_composition(
     assert estimator.prediction_compiler is not None
     assert estimator.prediction_identity_decoder is not None
     assert nirs4all.fit_native_pipeline is fit_native_pipeline
+
+
+def test_estimator_fit_detaches_an_attached_result_when_post_execution_projection_fails(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """No attached Dag-ML result may escape a failed post-execution projection."""
+
+    from nirs4all.pipeline.dagml.estimator import DagMLTrainingExecution
+
+    class Compiler:
+        def compile_fit(self, _estimator, _X, _y, **_kwargs):  # noqa: ANN001
+            return DagMLTrainingExecution(
+                request={},
+                data_envelopes={},
+                relations={},
+                training_influence={},
+                op_callback=lambda task: task,
+                outcome_id="o",
+                run_id="r",
+                bundle_id="b",
+            )
+
+    class Client:
+        def __init__(self) -> None:
+            self.result = _TrainingResult()
+
+        def execute_training(self, *_args: Any, **_kwargs: Any) -> _TrainingResult:
+            return self.result
+
+    client = Client()
+    estimator = DagMLPipelineEstimator(
+        training_compiler=Compiler(),
+        native_client=client,
+    )
+    monkeypatch.setattr(
+        estimator,
+        "_select_output_binding",
+        lambda _outputs: (_ for _ in ()).throw(RuntimeError("projection failed")),
+    )
+
+    with pytest.raises(RuntimeError, match="projection failed"):
+        estimator.fit(
+            np.asarray([[1.0], [2.0]]),
+            np.asarray([1.0, 2.0]),
+        )
+    assert client.result.detach_calls == 1
+    assert not client.result.is_attached
+
+
+def test_fit_native_pipeline_detaches_when_post_fit_package_validation_fails(
+    monkeypatch: pytest.MonkeyPatch,
+    native_library: str,
+) -> None:
+    """Package validation errors must not retain native handles after fit returns."""
+
+    class Client(_Client):
+        def __init__(self) -> None:
+            super().__init__()
+            self.result = _TrainingResult()
+
+        def execute_training(self, *args: Any, **kwargs: Any) -> _TrainingResult:
+            self.calls.append((args, kwargs))
+            return self.result
+
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.RawArrayDagMLTrainingCompiler.compile_fit",
+        lambda *_args, **_kwargs: __import__("nirs4all.pipeline.dagml.estimator", fromlist=["DagMLTrainingExecution"]).DagMLTrainingExecution(
+            request={},
+            data_envelopes={},
+            relations={},
+            training_influence={},
+            op_callback=lambda task: task,
+            outcome_id="o",
+            run_id="r",
+            bundle_id="b",
+        ),
+    )
+    monkeypatch.setattr(
+        "nirs4all.api.native_training.validate_native_methods_package",
+        lambda _package: (_ for _ in ()).throw(RawArrayMethodsReplayError("invalid package")),
+    )
+    client = Client()
+
+    with pytest.raises(DagMLNativeCoverageError, match="replayable portable Methods"):
+        fit_native_pipeline(
+            [{"split": "stub"}, {"model": "stub"}],
+            np.asarray([[1.0], [2.0]]),
+            np.asarray([1.0, 2.0]),
+            sample_ids=["fit-a", "fit-b"],
+            native_client=client,
+            methods_library_path=native_library,
+        )
+    assert client.result.detach_calls == 1
+    assert not client.result.is_attached
 
 
 def test_fit_native_pipeline_seals_internal_retrain_lineage_into_compiler_diagnostics(

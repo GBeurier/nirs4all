@@ -2,9 +2,55 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
+from nirs4all.api import native_result
 from nirs4all.api.native_result import NativeMethodsRunResult
+from nirs4all.api.native_witness import NativeMethodsExecutionClaim
+from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
+
+
+class _TestWitness:
+    """Minimal test double for result projection tests, never production evidence."""
+
+    def __init__(self, estimator: object) -> None:
+        self._estimator = estimator
+        self._live = True
+        self._claim = NativeMethodsExecutionClaim(
+            schema_version=1,
+            execution_entrypoint="dag_ml.execute_methods_training",
+            execution_mode="methods_callback_free",
+            outcome_fingerprint="a" * 64,
+            methods_library_mode="explicit_absolute",
+            portable_artifacts_required=True,
+        )
+
+    @classmethod
+    def from_estimator(cls, estimator: object) -> _TestWitness:
+        return cls(estimator)
+
+    def _claim_for_estimator(self, estimator: object) -> NativeMethodsExecutionClaim:
+        if not self._live:
+            raise DagMLNativeCoverageError("the live Methods witness is no longer attached")
+        if estimator is not self._estimator:
+            raise DagMLNativeCoverageError("the live Methods witness does not own this estimator")
+        return self._claim
+
+    def _is_live_for_estimator(self, estimator: object) -> bool:
+        return self._live and estimator is self._estimator
+
+    def detach(self) -> bool:
+        if not self._live:
+            return False
+        self._live = False
+        return True
+
+
+@pytest.fixture(autouse=True)
+def _patch_witness_type(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(native_result, "_LiveMethodsWitness", _TestWitness)
 
 
 class _Estimator:
@@ -82,8 +128,9 @@ def test_native_methods_result_projects_native_scores_and_exports_archive_v2(tmp
     ],
 )
 def test_native_methods_result_refuses_legacy_export_routes(tmp_path, kwargs, message) -> None:  # noqa: ANN001
+    estimator = _Estimator()
     result = NativeMethodsRunResult.from_estimator(
-        _Estimator(),  # type: ignore[arg-type]
+        estimator,  # type: ignore[arg-type]
         dataset_name="native",
         model_name="PLSRegression",
     )

@@ -11,10 +11,12 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 
 import nirs4all
+from nirs4all.api import native_result
 from nirs4all.api.explain import explain
 from nirs4all.api.native_refit_result import NativeMethodsRefitResult
 from nirs4all.api.native_result import NativeMethodsRunResult
 from nirs4all.api.native_retrain_lineage import NativeRetrainLineage
+from nirs4all.api.native_witness import NativeMethodsExecutionClaim
 from nirs4all.api.predict import predict
 from nirs4all.api.retrain import retrain
 from nirs4all.api.run import run
@@ -23,6 +25,46 @@ from nirs4all.pipeline.dagml.native_archive_replay import (
     NativeArchivePrediction,
 )
 from nirs4all.pipeline.engine import require_legacy_engine
+
+
+class _TestWitness:
+    """Test-only witness substituted at mocked fit boundaries."""
+
+    def __init__(self, estimator: object, outcome_fingerprint: str) -> None:
+        self._estimator = estimator
+        self._claim = NativeMethodsExecutionClaim(
+            schema_version=1,
+            execution_entrypoint="dag_ml.execute_methods_training",
+            execution_mode="methods_callback_free",
+            outcome_fingerprint=outcome_fingerprint,
+            methods_library_mode="explicit_absolute",
+            portable_artifacts_required=True,
+        )
+        self._live = True
+
+    @classmethod
+    def from_estimator(cls, estimator):  # noqa: ANN001
+        return cls(estimator, estimator.training_outcome_["outcome_fingerprint"])
+
+    def _claim_for_estimator(self, estimator: object) -> NativeMethodsExecutionClaim:
+        if not self._live or estimator is not self._estimator:
+            raise RuntimeError("test witness no longer owns the estimator")
+        return self._claim
+
+    def _is_live_for_estimator(self, estimator: object) -> bool:
+        return self._live and estimator is self._estimator
+
+    def detach(self) -> bool:
+        if not self._live:
+            return False
+        self._live = False
+        return True
+
+
+def _patch_live_witness(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Supply an explicit attached witness for mocked strict-fit boundaries."""
+
+    monkeypatch.setattr(native_result, "_LiveMethodsWitness", _TestWitness)
 
 
 def test_require_legacy_engine_accepts_legacy() -> None:
@@ -85,6 +127,7 @@ def test_run_native_executes_the_methods_subset_without_constructing_a_legacy_ru
         return Estimator()
 
     monkeypatch.setattr("nirs4all.api.native_training.fit_native_pipeline", native_fit)
+    _patch_live_witness(monkeypatch)
 
     result = run(
         [{"split": "stub"}, {"model": "stub"}],
@@ -185,6 +228,7 @@ def test_run_native_attaches_identity_bound_conformal_calibration_without_legacy
         )
 
     monkeypatch.setattr("nirs4all.api.native_training.fit_native_pipeline", lambda *_args, **_kwargs: estimator)
+    _patch_live_witness(monkeypatch)
     monkeypatch.setattr("nirs4all.api.native_training.compile_methods_conformal_calibration_replay", compile_calibration)
     monkeypatch.setattr("nirs4all.api.native_training.validate_native_methods_package", lambda package: package)
     monkeypatch.setattr(
@@ -298,6 +342,7 @@ def test_run_native_routes_strict_methods_hpo_through_the_native_compiler(
         return Estimator()
 
     monkeypatch.setattr("nirs4all.api.native_training.fit_native_pipeline", native_fit)
+    _patch_live_witness(monkeypatch)
     result = run(
         [{"split": "stub"}, {"model": "stub"}],
         {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["s1", "s2"]},
