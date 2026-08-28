@@ -259,10 +259,24 @@ semantic authority for these dispositions. The table below is the human-readable
 R2 companion; callers should branch on it rather than inferring support from
 the broader legacy API.
 
+### Local strict-execution observation
+
+A successful portable Methods `run(..., engine="native")` returns a
+`NativeMethodsRunResult` with `native_execution_claim` and
+`native_execution_is_live`.  The claim is an audit-only, process-local
+observation that the strict callback-free
+`dag_ml.execute_methods_training` route produced the attached result; it is
+not a portable attestation or a substitute for the signed outcome and package.
+Calling `result.close()` or `result.detach()` (including through
+`NativeMethodsSession.close()`) releases that live facade: the claim then fails
+closed and `native_execution_is_live` becomes false.  The durable native
+outcome/package remain valid, so `result.export("model.n4a")` may still write
+the Core Archive V2 after the live observation has closed.
+
 | Lifecycle operation | Native status | Exact boundary |
 | --- | --- | --- |
-| `run(..., engine="native")` | Supported subset | Explicit raw mapping `{"X", "y", "sample_ids"}`, portable Methods pipeline, native refit, and no legacy workspace/cache/project/result path. Nested stacking requires a partitioned outer CV (for example `KFold`): repeated or overlapping validation such as `ShuffleSplit` is refused before execution because it cannot provide one outer-OOF row per sample. Unsupported shapes stop before a legacy run. |
-| `session(pipeline, engine="native")` | Supported subset | Returns `NativeMethodsSession`: native train, identity-bound prediction, Archive V2 export, close, and one selected full refit that returns a V3 child. It does not create a `PipelineRunner`. |
+| `run(..., engine="native")` | Supported subset | Explicit raw mapping `{"X", "y", "sample_ids"}`, portable Methods pipeline, native refit, and no legacy workspace/cache/project/result path. Its in-memory result starts with the local strict-execution observation described above. Nested stacking requires a partitioned outer CV (for example `KFold`): repeated or overlapping validation such as `ShuffleSplit` is refused before execution because it cannot provide one outer-OOF row per sample. Unsupported shapes stop before a legacy run. |
+| `session(pipeline, engine="native")` | Supported subset | Returns `NativeMethodsSession`: native train, identity-bound prediction, Archive V2 export, close, and one selected full refit that returns a V3 child. Closing it releases the local live observation before it drops the result reference; it does not create a `PipelineRunner`. |
 | `predict(..., engine="native")` | Supported subset | Requires an explicitly identified cohort. It accepts an in-memory `NativeMethodsRunResult`, a trained `NativeMethodsSession`, a V3 refit result, or a validated Methods Archive V2/V3 session. In-memory results call the already-attested estimator directly; archive/session replay rehydrates N4MM for that invocation only. |
 | `load_session(path, engine="native")` | Supported, PREDICT-only | Validates Core Archive V2/Package V2 or Archive V3/Package V3 before data/model hydration, then returns `NativeArchiveSession`. It has no train, retrain, save, or legacy fallback capability. |
 | `retrain(source, data, mode="full", engine="native")` | Supported subset | Source must be an in-memory `NativeMethodsRunResult` with a completed selected refit and attested seed. The selected PLS variant is copied exactly and the child outcome persists signed parent lineage. |
