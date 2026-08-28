@@ -34,7 +34,7 @@ jobs:
       - name: Install nirs4all test environment
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          python -m pip install -e ".[dev]"
+          python -m pip install -e ".[dev,native]"
 
       - name: Install released DAG-ML and nirs4all-methods wheels
         env:
@@ -65,7 +65,6 @@ jobs:
       - name: Run methods parity gate
         env:
           NIRS4ALL_REQUIRE_N4M: "1"
-        run: >-
-          python -m pytest -m methods
-          tests/unit/operators/methods/test_n4m_ops.py
-          tests/integration/api/test_native_methods_witness.py -q
+        run: |
+          env -u N4M_LIB_PATH python -m pytest -m methods tests/unit/operators/methods/test_n4m_ops.py -q
+          env -u N4M_LIB_PATH python -m pytest -m methods tests/integration/api/test_native_methods_witness.py -q
