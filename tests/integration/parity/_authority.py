@@ -25,6 +25,7 @@ from ._registry import all_cases
 from .test_conformance_dual_engine import (
     CV_BEST_SCORE_DIVERGENCE,
     EXPECTED_FALLBACK,
+    EXPECTED_PREFLIGHT_REFUSAL,
     KNOWN_DIVERGENCES,
     NUM_PREDICTIONS_DIVERGENCE,
     RUNRESULT_SCORE_DIVERGENCE,
@@ -46,6 +47,7 @@ def validate_compatibility_ledger(ledger: dict[str, Any] | None = None) -> None:
     _validate_tolerance_bands(data)
     _validate_authority_entries(data)
     _validate_expected_fallback(data)
+    _validate_expected_preflight_refusal(data)
     _validate_num_prediction_divergences(data)
     _validate_cv_best_score_divergences(data)
     _validate_runresult_score_divergences(data)
@@ -156,6 +158,25 @@ def _validate_expected_fallback(data: dict[str, Any]) -> None:
         raise AssertionError(f"expected_fallback entries must be owned by L5: {bad_owner}")
 
 
+def _validate_expected_preflight_refusal(data: dict[str, Any]) -> None:
+    actual = {row["case"]: row for row in data["expected_preflight_refusal"]}
+    expected = EXPECTED_PREFLIGHT_REFUSAL
+    if set(actual) != set(expected):
+        raise AssertionError(
+            "EXPECTED_PREFLIGHT_REFUSAL ledger drift: "
+            f"expected={sorted(expected)} actual={sorted(actual)}"
+        )
+    overlap = set(actual) & set(EXPECTED_FALLBACK)
+    if overlap:
+        raise AssertionError(f"preflight refusal cases must not remain fallback cases: {sorted(overlap)}")
+    for case_name, expected_refusal_type in expected.items():
+        row = actual[case_name]
+        if row.get("error_type") != expected_refusal_type.__name__:
+            raise AssertionError(f"preflight refusal error type drifted for {case_name}")
+        if row.get("owner_lane") != "L5":
+            raise AssertionError(f"preflight refusal {case_name} must be owned by L5")
+
+
 def _validate_num_prediction_divergences(data: dict[str, Any]) -> None:
     actual = {row["case"]: row for row in data["num_predictions_divergence"]}
     if set(actual) != set(NUM_PREDICTIONS_DIVERGENCE):
@@ -252,7 +273,8 @@ def _validate_coverage_meter(data: dict[str, Any]) -> None:
         "non_runnable": non_runnable,
         "runnable": len(cases) - non_runnable,
         "fallback": len(EXPECTED_FALLBACK),
-        "native": len(cases) - non_runnable - len(EXPECTED_FALLBACK),
+        "preflight_refusal": len(EXPECTED_PREFLIGHT_REFUSAL),
+        "native": len(cases) - non_runnable - len(EXPECTED_FALLBACK) - len(EXPECTED_PREFLIGHT_REFUSAL),
         "xfail_strict": len(KNOWN_DIVERGENCES) + legacy_bug_count,
         "skip": skip_count,
         "num_predictions_divergence": len(NUM_PREDICTIONS_DIVERGENCE),

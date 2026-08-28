@@ -173,18 +173,21 @@
       "owner_lane": "L5"
     },
     {
-      "case": "concat_transform_pca_svd_plsr",
-      "shape": "stateful_concat_transform_pre_cv",
+      "case": "refit_params_use_all_partitions",
+      "shape": "refit_params",
       "owner_lane": "L5"
     },
     {
       "case": "multi_source_per_source_models_stacking",
       "shape": "multi_source",
       "owner_lane": "L5"
-    },
+    }
+  ],
+  "expected_preflight_refusal": [
     {
-      "case": "refit_params_use_all_partitions",
-      "shape": "refit_params",
+      "case": "concat_transform_pca_svd_plsr",
+      "shape": "stateful_concat_transform_pre_cv",
+      "error_type": "DagMlStatefulConcatTransformMigrationRequired",
       "owner_lane": "L5"
     }
   ],
@@ -333,7 +336,8 @@
     "registered": 95,
     "non_runnable": 0,
     "runnable": 95,
-    "fallback": 10,
+    "fallback": 9,
+    "preflight_refusal": 1,
     "native": 85,
     "xfail_strict": 0,
     "skip": 0,

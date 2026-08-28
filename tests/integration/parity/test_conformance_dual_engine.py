@@ -1,9 +1,9 @@
 """DUAL-ENGINE CONFORMANCE: the same case on legacy AND dag-ml, asserted equal.
 
 The single contract reference for the nirs4all-core → dag-ml migration. Every
-:class:`PipelineCase` in the registry is run on BOTH engines via
-:func:`_conformance_helpers.dual_engine_runner` and dispositioned by what the
-dag-ml engine actually did:
+:class:`PipelineCase` outside the explicit semantic-migration refusal registry
+runs on BOTH engines via :func:`_conformance_helpers.dual_engine_runner` and
+is dispositioned by what the dag-ml engine actually did:
 
 * **NATIVE** (``dagml_native is True``) — the dag-ml backend ran the pipeline
   itself. Assert FULL parity: score (within the case's tolerances), exact
@@ -15,6 +15,11 @@ dag-ml engine actually did:
   coverage-boundary: this case is not yet dag-ml-native. The day dag-ml gains
   native coverage, this assertion flips to a failure and forces the case into
   the NATIVE branch — the boundary can never silently widen.
+* **PREFLIGHT REFUSAL** — the requested legacy semantics would differ from the
+  native contract. It raises a dedicated migration error before data work,
+  fallback warnings, or legacy ``PipelineRunner`` construction, even when the
+  caller supplies ``allow_legacy_fallback=True``. These cases make no parity
+  claim until an explicit native migration contract exists.
 
 Known cross-engine NON-EQUALITIES are marked ``xfail(strict=True)`` AT
 PARAMETRIZE TIME (NOT loosened tolerances). The case still RUNS on both engines
@@ -25,16 +30,26 @@ never goes silent. The ``legacy_bug`` registry cases are likewise strict-xfail
 ``fixture`` / ``unknown_semantics`` cases ``skip`` — mirroring
 ``test_parity_smoke``.
 
-Slow: each case runs twice (legacy + dag-ml). Gated by the ``slow`` marker.
+Slow: ordinary conformance cases run twice (legacy + dag-ml). Gated by the
+``slow`` marker; preflight refusals return before either engine consumes data.
 
     pytest tests/integration/parity/test_conformance_dual_engine.py -q
 """
 
 from __future__ import annotations
 
+import importlib
+import warnings
 from typing import NotRequired, TypedDict
 
 import pytest
+
+import nirs4all
+from nirs4all.pipeline.dagml.errors import (
+    DagMlMigrationRequired,
+    DagMlStatefulConcatTransformMigrationRequired,
+)
+from nirs4all.pipeline.engine import legacy_fallback_metrics
 
 from . import _conformance_helpers as H
 from ._registry import PipelineCase, all_cases
@@ -83,9 +98,9 @@ class _RunResultScoreDivergence(TypedDict):
 # removed (the suite goes RED until it is).
 #
 # The last remaining strict-xfail (`concat_transform_pca_svd_plsr`) was moved to
-# EXPECTED_FALLBACK: the dag-ml FeatureConcat path fits stateful PCA/SVD inside
-# each fold, while the Python oracle materializes concat_transform before CV.
-# That is a coverage boundary, not a native parity claim.
+# EXPECTED_PREFLIGHT_REFUSAL: the dag-ml FeatureConcat path fits stateful PCA/SVD
+# inside each fold, while the Python oracle materializes concat_transform before CV.
+# It is a typed semantic preflight refusal, not fallback or a native parity claim.
 # (generator_or_models_pls_ridge was here too — it is NOT a divergence in score/winner/winner-y_pred
 #  (all equal: best_rmse Δ≈2e-15, winner PLSRegression, winner y_pred Δ=0.0); its ONLY delta is
 #  num_predictions 34-legacy vs 32-native, an INTENTIONAL native-vs-legacy refit-policy divergence —
@@ -107,8 +122,8 @@ KNOWN_DIVERGENCES: dict[str, str] = {
     # path is not equivalent to the Python oracle for stateful concat transforms:
     # legacy materializes the concat_transform output before CV, while dag-ml's
     # FeatureConcat lowering fits PCA/SVD fold-locally. It is therefore an
-    # explicit EXPECTED_FALLBACK boundary until backlog #27 can preserve the
-    # pre-CV materialized semantics natively.
+    # explicit preflight migration refusal until a native contract can preserve
+    # the pre-CV materialized semantics.
     # NOTE: the three tree-ensemble cases (baseline_savgol_rf_kfold,
     # baseline_detrend_firstderiv_gbr, baseline_classification_rf_stratified) were REMOVED
     # from this dict — they reach Δ=0.0 now. Their old "fold-materialization/row-order"
@@ -376,19 +391,23 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # native dag-ml path does not serialize/execute `finetune_params` yet, so the
     # public strict path rejects it rather than silently run the untuned model.
     "generator_finetune_params_optuna",
-    # Stateful concat_transform sub-operations (PCA/SVD/scalers) are materialized
-    # pre-CV by the Python oracle; dag-ml's current FeatureConcat lowering fits
-    # them fold-locally, so native execution would compare the wrong semantics.
-    "concat_transform_pca_svd_plsr",
-    # Legacy `refit_params: {use_all_partitions: True}` can expand the terminal
-    # refit universe beyond the CV train/validation pool. dag-ml deliberately
-    # enforces `REFIT FullTrain == fold_set.sample_ids` and structurally excludes
-    # held-out test samples from refit, so the strict path rejects the override
-    # rather than ignore it or emulate the legacy leakage-prone shape.
+    # ``refit_params.use_all_partitions`` is a legacy compatibility no-op. DAG-ML
+    # does not lower that legacy-only key, so the diagnostic rollback retains its
+    # historical behavior without inventing a semantic migration requirement.
     "refit_params_use_all_partitions",
     # by-source separation / per-source models / source-concat multi-source shapes.
     "multi_source_per_source_models_stacking",
 })
+
+
+# PREFLIGHT-REFUSAL authority: legacy semantics that the DAG-ML contract must
+# not silently reinterpret or re-run through Python. Unlike EXPECTED_FALLBACK,
+# these requests propagate a dedicated RuntimeError even with
+# allow_legacy_fallback=True. The test below proves they have not materialized
+# data, emitted a fallback warning, or constructed PipelineRunner.
+EXPECTED_PREFLIGHT_REFUSAL: dict[str, type[DagMlMigrationRequired]] = {
+    "concat_transform_pca_svd_plsr": DagMlStatefulConcatTransformMigrationRequired,
+}
 
 
 def _params() -> list:
@@ -406,6 +425,8 @@ def _params() -> list:
     """
     params = []
     for case in all_cases():
+        if case.name in EXPECTED_PREFLIGHT_REFUSAL:
+            continue
         marks = []
         if case.skip_reason:
             if case.skip_kind == "legacy_bug":
@@ -423,18 +444,29 @@ def _params() -> list:
     return params
 
 
-def _runnable_cases() -> list:
-    """All cases that can actually be exercised (no registry ``skip_reason``).
+def _fallback_boundary_cases() -> list:
+    """Runnable cases that use the catchable fallback/native boundary.
 
     The ``fixture`` / ``unknown_semantics`` / ``legacy_bug`` registry skips can't
     construct or can't run (missing fixture, unconfirmed semantics, a legacy
-    crash), so they are excluded from the boundary test entirely — there is no
-    dag-ml leg to observe for them.
+    crash), so they are excluded entirely. Semantic migration refusals are
+    checked by :func:`test_native_preflight_refusal_boundary`, not through the
+    fallback detector: they intentionally do not return a ``RunResult``.
     """
-    return [pytest.param(c, id=c.name) for c in all_cases() if not c.skip_reason]
+    return [
+        pytest.param(case, id=case.name)
+        for case in all_cases()
+        if not case.skip_reason and case.name not in EXPECTED_PREFLIGHT_REFUSAL
+    ]
 
 
-@pytest.mark.parametrize("case", _runnable_cases())
+def _preflight_refusal_cases() -> list:
+    """Registered cases whose native path must refuse without running legacy."""
+    cases = {case.name: case for case in all_cases()}
+    return [pytest.param(cases[name], id=name) for name in EXPECTED_PREFLIGHT_REFUSAL]
+
+
+@pytest.mark.parametrize("case", _fallback_boundary_cases())
 def test_native_fallback_boundary(case: PipelineCase) -> None:
     """The dag-ml native/fallback status EXACTLY matches the EXPECTED_FALLBACK allowlist.
 
@@ -466,6 +498,45 @@ def test_native_fallback_boundary(case: PipelineCase) -> None:
             "— native-coverage regression (a shape that used to run native now rejects), or a new "
             "fallback that must be triaged + allowlisted with a reason"
         )
+
+
+@pytest.mark.parametrize("case", _preflight_refusal_cases())
+def test_native_preflight_refusal_boundary(case: PipelineCase, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Semantic migration rows refuse before data work or any legacy rollback.
+
+    This is intentionally stronger than a strict ``engine='dag-ml'`` request:
+    the caller supplies ``allow_legacy_fallback=True`` and the test makes any
+    fallback, host dataset materialization, or ``PipelineRunner`` construction
+    fail immediately. A migration boundary must remain explicit until its
+    native semantics are implemented and attested.
+    """
+    expected = EXPECTED_PREFLIGHT_REFUSAL[case.name]
+
+    def _legacy_runner(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError(f"{case.name}: constructed PipelineRunner after a migration refusal")
+
+    def _materialize_dataset(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError(f"{case.name}: materialized a dataset after a migration refusal")
+
+    run_module = importlib.import_module("nirs4all.api.run")
+    run_backend = importlib.import_module("nirs4all.pipeline.dagml.run_backend")
+    monkeypatch.setattr(run_module, "PipelineRunner", _legacy_runner)
+    monkeypatch.setattr(run_backend, "_materialize_dataset", _materialize_dataset)
+    before = legacy_fallback_metrics()
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        with pytest.raises(expected, match="explicit migration requirement"):
+            nirs4all.run(
+                pipeline=case.pipeline,
+                dataset=H.make_dataset(case),
+                verbose=0,
+                engine="dag-ml",
+                allow_legacy_fallback=True,
+            )
+
+    assert not any("falling back to the legacy engine" in str(warning.message) for warning in caught)
+    assert legacy_fallback_metrics() == before
 
 
 @pytest.mark.parametrize("case", _params())
