@@ -40,6 +40,13 @@ EXPECTED_FORMS: dict[str, dict[str, str]] = {
     "explain": {"native_request": "refused"},
     "generate": {"native_request": "refused"},
 }
+EXPECTED_RUNTIME_TESTS = {
+    "tests/unit/api/test_engine_transition.py",
+    "tests/unit/api/test_generate.py",
+    "tests/unit/api/test_native_archive_session.py",
+    "tests/unit/api/test_native_session.py",
+    "tests/unit/api/test_native_witness.py",
+}
 
 
 def _resolve_public_api(path: str) -> object:
@@ -86,7 +93,13 @@ def test_packaged_native_capability_matrix_is_complete_and_fail_closed() -> None
     assert "source_ledgers" not in matrix
     assert evidence["compatibility_context"]["role"] == "parity_tolerance_context_only"
     assert (REPOSITORY_ROOT / evidence["compatibility_context"]["path"]).is_file()
+    assert set(evidence["runtime_tests"]["paths"]) == EXPECTED_RUNTIME_TESTS
     assert all((REPOSITORY_ROOT / path).is_file() for path in evidence["runtime_tests"]["paths"])
+
+    portable_methods = matrix["operations"]["run"]["forms"]["portable_methods"]
+    assert "process-local live execution claim" in portable_methods["boundary"]
+    archive_v2 = matrix["operations"]["export"]["forms"]["archive_v2"]
+    assert "detached or closed" in archive_v2["boundary"]
 
     lifecycle = evidence["lifecycle_reference"]
     lifecycle_text = (REPOSITORY_ROOT / lifecycle["path"]).read_text(encoding="utf-8")

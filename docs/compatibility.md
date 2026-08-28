@@ -254,7 +254,7 @@ as a reminder that the public score scalars are *pinned*
 
 ## §D — Cross-engine surface ledger (EXISTS / PARTIAL / GAP)
 
-The numerical pipeline parity above is proven. These five *cross-engine
+The numerical pipeline parity above is proven. These *cross-engine
 surfaces* are tracked separately; GAPs are `LOCK-PYREF` G5–G9 work (see the A2
 report §4 and SW5 §6 for the concrete test specs).
 
@@ -265,7 +265,7 @@ report §4 and SW5 §6 for the concrete test specs).
 | Workspace cross-engine (legacy SQLite/Parquet/manifest read via runtime V1; native-results triple round-trip) | **GAP** (PYREF-009b) | engines write non-overlapping formats (`test_dagml_native_results.py:210-219` asserts legacy ignores the native dir) | `cross_impl_score` (target) | L17 + L5 |
 | Error / refusal parity (same invalid pipeline → same refusal on both engines) | **GAP** (PYREF-err) | every `pytest.raises` in the parity dir is single-engine dag-ml-only | n/a | L17 |
 | Studio rides the oracle (records resolved engine; one pipeline through both engines) | **GAP** (PYREF-008) | adapter reads native triple correctly, but Studio never passes/records `engine=`; 4 backend routes re-implement nirs4all logic | `cross_impl_score` (target) | L17 + L12 |
-| methods-installed lane (n4m parity) | **PARTIAL** | `test_n4m_ops.py` exists (SNV `1e-12`, PLS `<1e-9`) but is `importorskip("n4m")` and not pinned in CI | `kernel_snv` / `kernel_pls` | L17 + L9 |
+| methods-installed lane (n4m parity and strict Methods lifecycle) | **PARTIAL** | `methods-installed.yml` pins released `dag-ml==0.3.20` and `nirs4all-methods==1.0.13`, requires N4M, removes `N4M_LIB_PATH`, and runs `test_n4m_ops.py` plus `test_native_methods_witness.py` (live claim → close → Core Archive V2). | `kernel_snv` / `kernel_pls` for the numerical kernel checks; lifecycle has no numeric tolerance | L17 + L9 |
 | nirs4all-side wheel / `.so` freshness | **GAP** (PYREF-011) | dag-ml has `scripts/check_so_freshness.py`; nirs4all tracks no artifact and has no consumer-side freshness gate | n/a | L17 + L9 |
 
 ---

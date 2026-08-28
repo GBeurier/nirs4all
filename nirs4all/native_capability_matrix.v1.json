@@ -14,7 +14,8 @@
         "tests/unit/api/test_engine_transition.py",
         "tests/unit/api/test_generate.py",
         "tests/unit/api/test_native_archive_session.py",
-        "tests/unit/api/test_native_session.py"
+        "tests/unit/api/test_native_session.py",
+        "tests/unit/api/test_native_witness.py"
       ],
       "role": "native_lifecycle_verification"
     }
@@ -34,7 +35,7 @@
     "export": {
       "forms": {
         "archive_v2": {
-          "boundary": "Exports a NativeMethodsRunResult as a Core Archive V2 after native package validation.",
+          "boundary": "Exports a NativeMethodsRunResult as a Core Archive V2 after native package validation; it remains available after the process-local live execution claim has been detached or closed.",
           "disposition": "native",
           "fallback": "forbidden",
           "public_api": "nirs4all.NativeMethodsRunResult.export"
@@ -138,7 +139,7 @@
     "run": {
       "forms": {
         "portable_methods": {
-          "boundary": "Requires an explicit raw mapping, a documented portable Methods topology, native refit, and no workspace, cache, project, or result-path state.",
+          "boundary": "Requires an explicit raw mapping, a documented portable Methods topology, native refit, and no workspace, cache, project, or result-path state. The returned result exposes an audit-only process-local live execution claim while its strict Methods facade remains attached.",
           "disposition": "native",
           "fallback": "forbidden",
           "public_api": "nirs4all.run"

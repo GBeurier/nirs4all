@@ -9,6 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add an audit-only, process-local live Methods execution observation on
+  `NativeMethodsRunResult`. Close/detach invalidates that live observation;
+  the retained witness/result are non-serializable, and the claim does not
+  replace the signed outcome or portable package. Core Archive V2 export
+  remains available after release of the live facade.
+- Add an installed-wheel Methods gate for released `dag-ml==0.3.20` and
+  `nirs4all-methods==1.0.13`, proving the live claim → close → Archive V2
+  lifecycle without `N4M_LIB_PATH`.
+
+The public default engine remains `legacy`; this evidence does not promote the
+native lane or alter the explicit rollback boundary.
+
 ---
 
 ## [0.12.10] — 2026-08-27
