@@ -250,10 +250,14 @@ Environment switches:
 alias for `engine="dag-ml"`, and it never silently instantiates a legacy
 `PipelineRunner`. The packaged
 `nirs4all.api.native_capabilities.get_native_capability_matrix()` is the
-authoritative machine-readable form: each operation is `native`, requires an
-explicit `plugin`, or is `refused`, and every fallback route is forbidden. The
-table below is its human-readable R2 companion; callers should branch on it
-rather than inferring support from the broader legacy API.
+authoritative machine-readable form. It records operation forms as `native`,
+`plugin`, or `refused`; a plugin form is valid only when it names a callable,
+explicit plugin path. No current native lifecycle form uses that disposition,
+so native explanation remains refused. Every fallback route is forbidden. The
+historical compatibility ledger is a parity-tolerance context only, never a
+semantic authority for these dispositions. The table below is the human-readable
+R2 companion; callers should branch on it rather than inferring support from
+the broader legacy API.
 
 | Lifecycle operation | Native status | Exact boundary |
 | --- | --- | --- |
@@ -263,7 +267,7 @@ rather than inferring support from the broader legacy API.
 | `load_session(path, engine="native")` | Supported, PREDICT-only | Validates Core Archive V2/Package V2 or Archive V3/Package V3 before data/model hydration, then returns `NativeArchiveSession`. It has no train, retrain, save, or legacy fallback capability. |
 | `retrain(source, data, mode="full", engine="native")` | Supported subset | Source must be an in-memory `NativeMethodsRunResult` with a completed selected refit and attested seed. The selected PLS variant is copied exactly and the child outcome persists signed parent lineage. |
 | Native transfer / finetune retrain | Refused | `mode="transfer"`, `mode="finetune"`, archive sources, replacement models, epochs, and legacy retrain kwargs are rejected before native execution. A future plugin must declare its own artifact and lineage contract. |
-| `explain(..., engine="native")` | Refused | SHAP is a host plugin today. A native result or session is rejected at preflight even when no engine argument is supplied; it is never rerouted to legacy implicitly. |
+| `explain(..., engine="native")` | Refused | No callable explicit native plugin path is exposed for SHAP today. A native result or session is rejected at preflight even when no engine argument is supplied; it is never rerouted to legacy implicitly. |
 | `generate(..., engine="native")` | Refused | Synthetic-data generation has no native Methods implementation. The explicit engine is rejected before a builder or dataset is constructed. |
 
 The default remains unchanged during R2: it is not evidence that every legacy
