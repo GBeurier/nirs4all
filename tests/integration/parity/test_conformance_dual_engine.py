@@ -98,9 +98,9 @@ class _RunResultScoreDivergence(TypedDict):
 # removed (the suite goes RED until it is).
 #
 # The last remaining strict-xfail (`concat_transform_pca_svd_plsr`) was moved to
-# EXPECTED_FALLBACK: the dag-ml FeatureConcat path fits stateful PCA/SVD inside
-# each fold, while the Python oracle materializes concat_transform before CV.
-# That is a coverage boundary, not a native parity claim.
+# EXPECTED_PREFLIGHT_REFUSAL: the dag-ml FeatureConcat path fits stateful PCA/SVD
+# inside each fold, while the Python oracle materializes concat_transform before CV.
+# It is a typed semantic preflight refusal, not fallback or a native parity claim.
 # (generator_or_models_pls_ridge was here too — it is NOT a divergence in score/winner/winner-y_pred
 #  (all equal: best_rmse Δ≈2e-15, winner PLSRegression, winner y_pred Δ=0.0); its ONLY delta is
 #  num_predictions 34-legacy vs 32-native, an INTENTIONAL native-vs-legacy refit-policy divergence —
