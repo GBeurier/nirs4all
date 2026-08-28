@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import importlib
 from collections.abc import Mapping, Sequence
+from contextlib import suppress
 from typing import Any, cast
 
 import numpy as np
@@ -134,20 +135,26 @@ def fit_native_pipeline(
         ),
         require_explicit_sample_ids=True,
     )
-    estimator.fit(X, y, sample_ids=sample_ids, groups=groups, metadata=metadata)
-    if estimator.predictor_package_ is None:
-        raise DagMLNativeCoverageError("native DAG-ML training did not return an exportable Package V2")
     try:
+        estimator.fit(X, y, sample_ids=sample_ids, groups=groups, metadata=metadata)
+        if estimator.predictor_package_ is None:
+            raise DagMLNativeCoverageError("native DAG-ML training did not return an exportable Package V2")
         validate_native_methods_package(estimator.predictor_package_)
+        estimator.prediction_compiler = RawArrayMethodsReplayCompiler(
+            estimator.predictor_package_,
+            dagml_module=dagml_module,
+            methods_library_path=resolved_methods_library_path,
+        )
+        estimator.prediction_identity_decoder = _decode_raw_methods_prediction
+        return estimator
     except RawArrayMethodsReplayError as error:
+        with suppress(BaseException):
+            estimator.detach_native_training_result()
         raise DagMLNativeCoverageError("native DAG-ML training did not return a replayable portable Methods Package V2") from error
-    estimator.prediction_compiler = RawArrayMethodsReplayCompiler(
-        estimator.predictor_package_,
-        dagml_module=dagml_module,
-        methods_library_path=resolved_methods_library_path,
-    )
-    estimator.prediction_identity_decoder = _decode_raw_methods_prediction
-    return estimator
+    except BaseException:
+        with suppress(BaseException):
+            estimator.detach_native_training_result()
+        raise
 
 
 def run_native_methods(
@@ -233,13 +240,24 @@ def run_native_methods(
     if retrain_lineage is not None:
         fit_kwargs["retrain_lineage"] = retrain_lineage
     estimator = fit_native_pipeline(pipeline, dataset["X"], dataset["y"], **fit_kwargs)
-    if calibration_operation is not None:
-        _attach_native_conformal_calibration(estimator, calibration_operation)
-    return NativeMethodsRunResult.from_estimator(
-        estimator,
-        dataset_name=name or "native",
-        model_name=_native_model_name(pipeline),
-    )
+    try:
+        if calibration_operation is not None:
+            _attach_native_conformal_calibration(estimator, calibration_operation)
+        # Calibration mutates the retained TrainingResult/outcome and may change
+        # its fingerprint. ``from_estimator`` binds its internal live witness
+        # only after every optional native post-training operation has finalized.
+        return NativeMethodsRunResult.from_estimator(
+            estimator,
+            dataset_name=name or "native",
+            model_name=_native_model_name(pipeline),
+        )
+    except BaseException:
+        # A fitted native result owns process-local handles even if the later
+        # result projection fails. Preserve the original failure while making
+        # the public estimator lifecycle seam attempt a deterministic release.
+        with suppress(BaseException):
+            estimator.detach_native_training_result()
+        raise
 
 
 def refit_native_methods(

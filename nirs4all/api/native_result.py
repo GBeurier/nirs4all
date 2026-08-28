@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any
+from typing import Any, SupportsIndex
 
 from nirs4all.api.result import RunResult
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
@@ -19,6 +19,9 @@ from nirs4all.pipeline.dagml.result import _scores_to_run_result
 
 from .native_retrain_lineage import DIAGNOSTIC_KEY as RETRAIN_LINEAGE_DIAGNOSTIC_KEY
 from .native_retrain_lineage import NativeRetrainLineage
+from .native_witness import NativeMethodsExecutionClaim, _LiveMethodsWitness
+
+_RESULT_FACTORY_CAPABILITY = object()
 
 
 class NativeMethodsRunResult(RunResult):
@@ -30,9 +33,21 @@ class NativeMethodsRunResult(RunResult):
     :attr:`native_estimator` with explicit sample identities.
     """
 
-    def __init__(self, projected: RunResult, estimator: DagMLPipelineEstimator, *, archive_id: str) -> None:
+    def __init__(
+        self,
+        projected: RunResult,
+        estimator: DagMLPipelineEstimator,
+        *,
+        archive_id: str,
+        live_witness: _LiveMethodsWitness,
+        _factory_capability: object,
+    ) -> None:
+        if _factory_capability is not _RESULT_FACTORY_CAPABILITY:
+            raise TypeError("native Methods results can only be created by the verified internal factory")
         if not isinstance(archive_id, str) or not archive_id:
             raise ValueError("native archive_id must be a non-empty string")
+        if type(live_witness) is not _LiveMethodsWitness:
+            raise TypeError("native Methods results require an internal live execution witness")
         super().__init__(
             predictions=projected.predictions,
             per_dataset={dataset_name: {**info, "engine": "native"} for dataset_name, info in projected.per_dataset.items()},
@@ -42,6 +57,7 @@ class NativeMethodsRunResult(RunResult):
         self._native_estimator = estimator
         self._native_archive_id = archive_id
         self._native_archive_reference: dict[str, str] | None = None
+        self._live_witness = live_witness
 
     @classmethod
     def from_estimator(
@@ -55,6 +71,7 @@ class NativeMethodsRunResult(RunResult):
     ) -> NativeMethodsRunResult:
         """Project a fitted estimator's canonical ScoreSet without re-execution."""
 
+        witness = _LiveMethodsWitness.from_estimator(estimator)
         outcome = _outcome_document(estimator)
         scores = outcome.get("score_set")
         if not isinstance(scores, Mapping):
@@ -69,7 +86,15 @@ class NativeMethodsRunResult(RunResult):
             metric,
             task_type,
         )
-        return cls(projected, estimator, archive_id=f"archive:{fingerprint}")
+        if witness._claim_for_estimator(estimator).outcome_fingerprint != fingerprint:
+            raise DagMLNativeCoverageError("native Methods live witness fingerprint does not match the projected training outcome")
+        return cls(
+            projected,
+            estimator,
+            archive_id=f"archive:{fingerprint}",
+            live_witness=witness,
+            _factory_capability=_RESULT_FACTORY_CAPABILITY,
+        )
 
     @property
     def native_estimator(self) -> DagMLPipelineEstimator:
@@ -82,6 +107,43 @@ class NativeMethodsRunResult(RunResult):
         """The exact Core-issued reference from the last successful export."""
 
         return None if self._native_archive_reference is None else dict(self._native_archive_reference)
+
+    @property
+    def native_execution_claim(self) -> NativeMethodsExecutionClaim:
+        """Return the current audit-only claim for attached strict execution.
+
+        This property fails closed once the result has been detached or closed.
+        It intentionally exposes neither the raw PyO3 result nor native input
+        buffers, callbacks, library paths, or controllers.
+        """
+
+        witness = getattr(self, "_live_witness", None)
+        if type(witness) is not _LiveMethodsWitness:
+            raise DagMLNativeCoverageError("native Methods result has no live execution witness")
+        return witness._claim_for_estimator(self._native_estimator)
+
+    @property
+    def native_execution_is_live(self) -> bool:
+        """Whether the strict process-local execution witness remains attached."""
+
+        witness = getattr(self, "_live_witness", None)
+        return type(witness) is _LiveMethodsWitness and witness._is_live_for_estimator(self._native_estimator)
+
+    def detach(self) -> None:
+        """Release legacy and strict native runtime resources deterministically."""
+
+        witness = getattr(self, "_live_witness", None)
+        if type(witness) is _LiveMethodsWitness:
+            witness.detach()
+        super().detach()
+
+    def close(self) -> None:
+        """Close ordinary result resources and detach the strict native facade."""
+
+        witness = getattr(self, "_live_witness", None)
+        if type(witness) is _LiveMethodsWitness:
+            witness.detach()
+        super().close()
 
     @property
     def native_methods_hpo_resume_state(self) -> dict[str, Any] | None:
@@ -208,6 +270,39 @@ class NativeMethodsRunResult(RunResult):
             archive_id=self._native_archive_id,
         )
         return path
+
+    def export_model(
+        self,
+        output_path: str | Path,
+        source: dict[str, Any] | None = None,
+        format: str | None = None,
+        fold: int | None = None,
+        *,
+        compatibility: str | None = None,
+    ) -> Path:
+        """Refuse legacy model export before it can create any side effect.
+
+        A strict Methods result is persistable only as its native Archive V2.
+        The inherited compatibility exporter may refit through legacy paths,
+        which would invalidate the execution claim.
+        """
+
+        _ = (output_path, source, format, fold, compatibility)
+        raise NotImplementedError("native Methods export_model is unavailable; use export(path, format='n4a') for Core Archive V2")
+
+    def __copy__(self) -> NativeMethodsRunResult:
+        raise TypeError("a live native Methods result cannot be copied; export its Archive V2 instead")
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> NativeMethodsRunResult:
+        _ = memo
+        raise TypeError("a live native Methods result cannot be deep-copied; export its Archive V2 instead")
+
+    def __reduce__(self) -> Any:
+        raise TypeError("a live native Methods result cannot be serialized; export its Archive V2 instead")
+
+    def __reduce_ex__(self, protocol: SupportsIndex) -> Any:
+        _ = protocol
+        raise TypeError("a live native Methods result cannot be serialized; export its Archive V2 instead")
 
 
 def _outcome_document(estimator: DagMLPipelineEstimator) -> Mapping[str, Any]:
