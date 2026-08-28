@@ -115,17 +115,19 @@ enforced cross-engine tolerance is `1e-3`.**
 ## §B — 3-tier authority registry
 
 Each tier is a claim about **which engine is correct**, distinct from coverage,
-skip, and fallback bookkeeping (those are §C). The five scattered structures —
+skip, and fallback bookkeeping (those are §C). The six scattered structures —
 `_registry.SkipKind`, and `KNOWN_DIVERGENCES` / `NUM_PREDICTIONS_DIVERGENCE` /
-`Y_PRED_TOL_OVERRIDES` / `SAME_WINNER_CASES` / `EXPECTED_FALLBACK` in
-`test_conformance_dual_engine.py` — are consolidated here.
+`Y_PRED_TOL_OVERRIDES` / `SAME_WINNER_CASES` / `EXPECTED_FALLBACK` /
+`EXPECTED_PREFLIGHT_REFUSAL` in `test_conformance_dual_engine.py` — are
+consolidated here.
 
 ### Tier 1 — Python (legacy) authoritative
 
-**Default.** Every runnable case not listed in Tier 2 / Tier 3 and not in
-`EXPECTED_FALLBACK` runs *native* on dag-ml and must equal the legacy oracle
-within its matching `cross_impl_*` (or `per_case_tight`) band. No pytest marker;
-**PASS = green parity**. This is the implicit majority tier (≈70 cases).
+**Default.** Every runnable case not listed in Tier 2 / Tier 3 and in neither
+`EXPECTED_FALLBACK` nor `EXPECTED_PREFLIGHT_REFUSAL` runs *native* on dag-ml
+and must equal the legacy oracle within its matching `cross_impl_*` (or
+`per_case_tight`) band. No pytest marker; **PASS = green parity**. This is the
+implicit majority tier (≈70 cases).
 Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 `assert_score_parity` / `assert_y_pred_parity` / `assert_runresult_contract`
 (`_conformance_helpers.py:170,355,253`).
@@ -149,45 +151,62 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 ### Tier 3 — strict-xfail native comparisons
 
 There are currently **no** strict-xfail native comparison rows. The former
-`concat_transform_pca_svd_plsr` row is now an explicit `EXPECTED_FALLBACK`
-boundary (§C.1): the native FeatureConcat path fits stateful PCA/SVD fold-locally,
+`concat_transform_pca_svd_plsr` row is now an explicit preflight migration
+refusal (§C.1a): the native FeatureConcat path fits stateful PCA/SVD fold-locally,
 while the Python oracle materializes `concat_transform` before CV.
 
 ---
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage boundary — `EXPECTED_FALLBACK` (10)
+### C.1 Native-coverage fallback boundary — `EXPECTED_FALLBACK` (9)
 
 Shapes the dag-ml host bridge does **not serialize yet**. A normal
 `engine="dag-ml"` request fails closed; the parity harness exercises these rows
 only with the explicit `allow_legacy_fallback=True` diagnostic rollback. They
 make **no parity claim** — they are pinned by the never-xfailed
-`test_native_fallback_boundary` (`test_conformance_dual_engine.py:375`): a
+`test_native_fallback_boundary`: a
 fallback off the allowlist = native-coverage **regression → FAIL**; a native
 case on the allowlist = **stale entry → FAIL**. **Owner: L5/A3** (host-bridge
 serialization, runtime work — not a tolerance question). When L5 lands native
 coverage, the entry leaves the allowlist and the boundary test then demands
 native parity.
 
-Source: `test_conformance_dual_engine.py:310-337`.
+Source: `test_conformance_dual_engine.py` (`EXPECTED_FALLBACK`).
 
 | Shape group | Cases |
 |---|---|
 | branch (duplication) + merge → multi-model | `branch_dup_three_way_merge_predictions`, `branch_dup_named_with_metamodel`, `branch_dup_merge_all` |
 | branch separation by metadata/tag/filter | `branch_separation_by_metadata_auto`, `branch_separation_by_tag`, `branch_separation_by_filter` |
 | legacy Optuna finetuning | `generator_finetune_params_optuna` |
-| stateful `concat_transform` pre-CV materialization | `concat_transform_pca_svd_plsr` |
+| legacy `refit_params` compatibility no-op | `refit_params_use_all_partitions` |
 | by-source / per-source multi-source | `multi_source_per_source_models_stacking` |
 
 **`EXPECTED_FALLBACK == ∅` is the `LOCK-DROP` D1 gate, owned by L5 — not a
 `LOCK-PYREF` gate.**
 
+#### C.1a Semantic preflight refusals — `EXPECTED_PREFLIGHT_REFUSAL` (1)
+
+These rows are not fallback coverage gaps. Their Python legacy semantics cannot
+be silently substituted for the DAG-ML contract, so they raise a dedicated
+`DagMlMigrationRequired` subtype before backend availability, dataset
+materialization, warning emission, or `PipelineRunner` construction — even with
+`allow_legacy_fallback=True`. Callers must migrate the pipeline or select
+`engine="legacy"` explicitly.
+
+| Case | Error type | Native/legacy semantic boundary |
+|---|---|---|
+| `concat_transform_pca_svd_plsr` | `DagMlStatefulConcatTransformMigrationRequired` | legacy materializes PCA/SVD features pre-CV; native FeatureConcat fits them fold-locally |
+
+The never-xfailed `test_native_preflight_refusal_boundary` keeps the error type,
+absence of fallback, and absence of legacy/data-plane construction load-bearing.
+
 ### C.2 Coverage-debt fixture skips (0)
 
-All former fixture-debt rows are now runnable. The two shapes that still lack
-native coverage moved to the explicit `EXPECTED_FALLBACK` boundary; the
-multi-filter exclusion case now runs as a live legacy-oracle parity case.
+All former fixture-debt rows are now runnable. The remaining unsupported shapes
+use the explicit `EXPECTED_FALLBACK` boundary; semantic migration requirements
+are separately recorded in §C.1a. The multi-filter exclusion case runs as a
+live legacy-oracle parity case.
 
 | Case | Reason | Evidence |
 |---|---|---|
@@ -254,16 +273,18 @@ report §4 and SW5 §6 for the concrete test specs).
 ## §E — Coverage meter (the LOCK-DROP instrument)
 
 Counts verified against `tests/integration/parity/cases_*.py` (95 `register()`
-calls) after the fixture-debt cleanup. The `EXPECTED_FALLBACK` shrink target is the LOCK-DROP D1
-gate.
+calls) after the fixture-debt cleanup. The `EXPECTED_FALLBACK` shrink target is
+the LOCK-DROP D1 gate; semantic migration refusals are a separate explicit
+contract boundary.
 
 | Metric | Count | Note |
 |---|---|---|
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
 | Non-runnable (`skip_reason` set) | **0** | no fixture/unknown/legacy-bug skips in the registry |
 | Runnable | **95** | 95 − 0 |
-| → fall back to legacy (`EXPECTED_FALLBACK`) | **11** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **84** | full parity asserted or parity-note pinned |
+| → fall back to legacy (`EXPECTED_FALLBACK`) | **9** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
+| → semantic preflight refusal (`EXPECTED_PREFLIGHT_REFUSAL`) | **1** | typed error; no data work, legacy fallback, or `PipelineRunner` construction |
+| → run native on dag-ml | **85** | full parity asserted or parity-note pinned |
 | Strict-xfail (documented divergence) | **0** | `KNOWN_DIVERGENCES` is empty; no `legacy_bug` rows in the current registry |
 | `pytest.skip` (fixture) | **0** | fixture skips retired |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
@@ -272,11 +293,11 @@ gate.
 
 > **Correction to prior counts:** the current machine-readable ledger and live
 > registry have no `legacy_bug`, `unknown_semantics`, or fixture skip rows. The
-> verified meter is **0** non-runnable / **95** runnable. `EXPECTED_FALLBACK` is
-> now **11** because the remaining shapes retain native-incompatible semantics:
-> native, `finetune_params` is an explicit coverage boundary, and stateful
-> `concat_transform` now falls back until dag-ml preserves the Python oracle's
-> pre-CV materialization semantics.
+> verified meter is **0** non-runnable / **95** runnable: **9** catchable
+> fallback rows, **1** typed semantic migration refusal, and **85** native rows.
+> Stateful `concat_transform` requires an explicit native migration or
+> `engine="legacy"`; `refit_params.use_all_partitions` remains a legacy no-op
+> on the ordinary fallback boundary.
 
 ---
 
@@ -289,8 +310,9 @@ gate.
 3. **XPASS = RED when strict-xfail rows exist.** There are no strict-xfail rows
    currently; any future `xfail(strict)` must flip the suite red the moment the
    engines reconverge, so a fixed divergence cannot silently leave coverage.
-4. **The native/fallback boundary can never silently widen.**
+4. **The native/fallback/refusal boundary can never silently widen.**
    `test_native_fallback_boundary` is never xfailed; an off-allowlist fallback or
-   a stale allowlist entry fails (`test_conformance_dual_engine.py:375`).
+   a stale allowlist entry fails. `test_native_preflight_refusal_boundary` also
+   rejects automatic legacy rollback for semantic migration rows.
 5. **num_predictions divergences are pinned, not exempted.** Only the documented
    `34/32` and `49/47` loser-refit-row deltas pass.

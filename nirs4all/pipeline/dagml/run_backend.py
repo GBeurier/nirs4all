@@ -60,6 +60,7 @@ from .finetune_lowering import (
     reject_native_training_param_overrides,
 )
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
+from .migration_preflight import preflight_dagml_pipeline_migration
 from .native_results import native_results_enabled, write_native_results
 from .result import _project_operator_sweep, _scores_to_run_result
 from .run_paths import (
@@ -117,6 +118,7 @@ __all__ = [
     "_run_by_source_distinct_preproc_concat",
     "_run_rep_fusion",
     "_run_source_concat_merge",
+    "preflight_dagml_pipeline_migration",
     "preflight_dagml_backend",
     "run_via_dagml",
 ]
@@ -363,6 +365,12 @@ def run_via_dagml(
         A :class:`~nirs4all.api.result.RunResult` whose ``best_rmse`` is the native final-test score
         and ``cv_best_score`` is the native cross-fold OOF average.
     """
+    # Semantic migration requirements come before every catchable capability check: an explicit native
+    # request must never appear to succeed through legacy fallback when it changes pre-CV concat semantics.
+    # The check reads pipeline configuration only; it does not probe a backend,
+    # construct a PipelineRunner, or materialize the dataset.
+    preflight_dagml_pipeline_migration(pipeline)
+
     # Validate the run() options the scores-only in-memory path cannot honor BEFORE any work: a
     # non-honorable non-default raises DagMlUnsupported so run() falls back to legacy (never a silent
     # drop). Defaults pass through untouched, so a plain engine='dag-ml' run is unaffected.

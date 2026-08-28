@@ -2,9 +2,10 @@
 
 ``DagMlUnsupported`` is the catchable error every unsupported-or-failed dag-ml shape raises;
 ``DagMlUnavailable`` is the narrow error a dag-ml-backend PREFLIGHT raises when NEITHER execution
-mechanism is installed (no in-process PyO3 extension AND no dag-ml-cli binary); ``_cli_child_error``
-extracts the real cause from a dag-ml-cli failure; ``_raise_run_failure`` decides
-propagate-vs-fallback for a non-zero subprocess run from the adapter's structured ``error_kind``
+mechanism is installed (no in-process PyO3 extension AND no dag-ml-cli binary).
+``DagMlMigrationRequired`` names a semantic boundary that deliberately cannot use automatic legacy
+rollback. ``_cli_child_error`` extracts the real cause from a dag-ml-cli failure; ``_raise_run_failure``
+decides propagate-vs-fallback for a non-zero subprocess run from the adapter's structured ``error_kind``
 (:func:`_run_failure_kind`); ``_reject_multi_model`` rejects a multi-model pipeline UP FRONT.
 """
 
@@ -72,6 +73,24 @@ class DagMlUnavailable(RuntimeError):
     NOT a subclass of ``DagMlUnsupported``/``NotImplementedError``: "the backend is not installed" is a
     distinct condition from "this pipeline shape is unsupported", and ``run()`` catches it explicitly.
     """
+
+
+class DagMlMigrationRequired(RuntimeError):
+    """A legacy semantic needs an explicit migration and may not auto-fallback.
+
+    ``allow_legacy_fallback`` is intentionally limited to ordinary capability and availability
+    boundaries. It must not make a native request appear successful by silently changing its
+    execution contract. Callers must either migrate the pipeline or select ``engine="legacy"``
+    explicitly. This stays outside the fallback catch hierarchy on purpose.
+    """
+
+
+class DagMlStatefulConcatTransformMigrationRequired(DagMlMigrationRequired):
+    """Legacy pre-CV stateful ``concat_transform`` semantics need an explicit migration."""
+
+
+class DagMlPipelinePreflightRequired(DagMlMigrationRequired):
+    """A generator cannot prove whether it selects a stateful pre-CV concat."""
 
 
 class DagMlExportRefusal(RuntimeError):

@@ -883,6 +883,14 @@ def run(
         raise TypeError("allow_legacy_fallback must be True, False, or None")
 
     selected_engine = resolve_engine(engine)
+    if selected_engine == "dag-ml":
+        # This must precede *every* DAG-ML execution route, including the tuning/calibration early
+        # return below. It reads configuration only, so a stateful pre-CV concat cannot reach native work,
+        # dataset materialization, or the catchable legacy fallback boundary.
+        from nirs4all.pipeline.dagml.migration_preflight import preflight_dagml_pipeline_migration
+
+        preflight_dagml_pipeline_migration(pipeline)
+
     custom_training_loss_requested = bool(training_losses) or local_implementations is not None
     if custom_training_loss_requested and selected_engine != "dag-ml":
         raise ValueError("training_losses/local_implementations require engine='dag-ml'")
@@ -1228,7 +1236,11 @@ def run(
     # (run_via_dagml cleans its own temp dir in a finally). ONLY
     # DagMlUnsupported/NotImplementedError/DagMlUnavailable are caught — a
     # GENUINE dag-ml runtime/operator bug propagates untouched (never silently
-    # swallowed into legacy).
+    # swallowed into legacy). Semantic migration requirements were deliberately
+    # checked immediately after engine selection, before tuning/calibration and
+    # this try block: they are RuntimeErrors outside those catchable capability
+    # signals, so an explicit legacy engine selection is required rather than an
+    # inferred rollback.
     if selected_engine == "dag-ml":
         from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml
