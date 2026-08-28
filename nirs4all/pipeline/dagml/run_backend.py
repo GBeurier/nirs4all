@@ -366,8 +366,8 @@ def run_via_dagml(
         and ``cv_best_score`` is the native cross-fold OOF average.
     """
     # Semantic migration requirements come before every catchable capability check: an explicit native
-    # request must never appear to succeed through legacy fallback when it changes the refit identity or
-    # pre-CV concat semantics. The check reads pipeline configuration only; it does not probe a backend,
+    # request must never appear to succeed through legacy fallback when it changes pre-CV concat semantics.
+    # The check reads pipeline configuration only; it does not probe a backend,
     # construct a PipelineRunner, or materialize the dataset.
     preflight_dagml_pipeline_migration(pipeline)
 

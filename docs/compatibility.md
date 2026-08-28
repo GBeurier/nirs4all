@@ -159,7 +159,7 @@ while the Python oracle materializes `concat_transform` before CV.
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage fallback boundary — `EXPECTED_FALLBACK` (8)
+### C.1 Native-coverage fallback boundary — `EXPECTED_FALLBACK` (9)
 
 Shapes the dag-ml host bridge does **not serialize yet**. A normal
 `engine="dag-ml"` request fails closed; the parity harness exercises these rows
@@ -179,12 +179,13 @@ Source: `test_conformance_dual_engine.py` (`EXPECTED_FALLBACK`).
 | branch (duplication) + merge → multi-model | `branch_dup_three_way_merge_predictions`, `branch_dup_named_with_metamodel`, `branch_dup_merge_all` |
 | branch separation by metadata/tag/filter | `branch_separation_by_metadata_auto`, `branch_separation_by_tag`, `branch_separation_by_filter` |
 | legacy Optuna finetuning | `generator_finetune_params_optuna` |
+| legacy `refit_params` compatibility no-op | `refit_params_use_all_partitions` |
 | by-source / per-source multi-source | `multi_source_per_source_models_stacking` |
 
 **`EXPECTED_FALLBACK == ∅` is the `LOCK-DROP` D1 gate, owned by L5 — not a
 `LOCK-PYREF` gate.**
 
-#### C.1a Semantic preflight refusals — `EXPECTED_PREFLIGHT_REFUSAL` (2)
+#### C.1a Semantic preflight refusals — `EXPECTED_PREFLIGHT_REFUSAL` (1)
 
 These rows are not fallback coverage gaps. Their Python legacy semantics cannot
 be silently substituted for the DAG-ML contract, so they raise a dedicated
@@ -195,7 +196,6 @@ materialization, warning emission, or `PipelineRunner` construction — even wit
 
 | Case | Error type | Native/legacy semantic boundary |
 |---|---|---|
-| `refit_params_use_all_partitions` | `DagMlRefitParamsMigrationRequired` | legacy refit can include held-out partitions; native `REFIT FullTrain` is fixed to FoldSet sample IDs |
 | `concat_transform_pca_svd_plsr` | `DagMlStatefulConcatTransformMigrationRequired` | legacy materializes PCA/SVD features pre-CV; native FeatureConcat fits them fold-locally |
 
 The never-xfailed `test_native_preflight_refusal_boundary` keeps the error type,
@@ -282,8 +282,8 @@ contract boundary.
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
 | Non-runnable (`skip_reason` set) | **0** | no fixture/unknown/legacy-bug skips in the registry |
 | Runnable | **95** | 95 − 0 |
-| → fall back to legacy (`EXPECTED_FALLBACK`) | **8** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → semantic preflight refusal (`EXPECTED_PREFLIGHT_REFUSAL`) | **2** | typed error; no data work, legacy fallback, or `PipelineRunner` construction |
+| → fall back to legacy (`EXPECTED_FALLBACK`) | **9** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
+| → semantic preflight refusal (`EXPECTED_PREFLIGHT_REFUSAL`) | **1** | typed error; no data work, legacy fallback, or `PipelineRunner` construction |
 | → run native on dag-ml | **85** | full parity asserted or parity-note pinned |
 | Strict-xfail (documented divergence) | **0** | `KNOWN_DIVERGENCES` is empty; no `legacy_bug` rows in the current registry |
 | `pytest.skip` (fixture) | **0** | fixture skips retired |
@@ -293,10 +293,11 @@ contract boundary.
 
 > **Correction to prior counts:** the current machine-readable ledger and live
 > registry have no `legacy_bug`, `unknown_semantics`, or fixture skip rows. The
-> verified meter is **0** non-runnable / **95** runnable: **8** catchable
-> fallback rows, **2** typed semantic migration refusals, and **85** native rows.
-> Stateful `concat_transform` and `refit_params.use_all_partitions` do not
-> fallback: they require an explicit native migration or `engine="legacy"`.
+> verified meter is **0** non-runnable / **95** runnable: **9** catchable
+> fallback rows, **1** typed semantic migration refusal, and **85** native rows.
+> Stateful `concat_transform` requires an explicit native migration or
+> `engine="legacy"`; `refit_params.use_all_partitions` remains a legacy no-op
+> on the ordinary fallback boundary.
 
 ---
 

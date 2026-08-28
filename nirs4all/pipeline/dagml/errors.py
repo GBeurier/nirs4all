@@ -85,16 +85,12 @@ class DagMlMigrationRequired(RuntimeError):
     """
 
 
-class DagMlRefitParamsMigrationRequired(DagMlMigrationRequired):
-    """Legacy ``refit_params.use_all_partitions`` has no native refit equivalent."""
-
-
 class DagMlStatefulConcatTransformMigrationRequired(DagMlMigrationRequired):
     """Legacy pre-CV stateful ``concat_transform`` semantics need an explicit migration."""
 
 
 class DagMlPipelinePreflightRequired(DagMlMigrationRequired):
-    """The active declarative pipeline cannot be inspected safely before native routing."""
+    """A generator cannot prove whether it selects a stateful pre-CV concat."""
 
 
 class DagMlExportRefusal(RuntimeError):

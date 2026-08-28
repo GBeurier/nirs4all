@@ -1,9 +1,9 @@
 """Fail-closed semantic migration checks before DAG-ML routing.
 
-This module is deliberately narrower than a second pipeline parser.  It only proves two legacy
-semantics that may not use ``allow_legacy_fallback``: refitting with held-out partitions, and a
-stateful ``concat_transform`` materialized before cross-validation.  All ordinary unsupported
-shapes continue through the existing capability fallback path.
+This module is deliberately narrower than a second pipeline parser. It proves
+only one legacy semantic that may not use ``allow_legacy_fallback``: a stateful
+``concat_transform`` materialized before cross-validation. All ordinary
+unsupported shapes continue through the existing capability fallback path.
 """
 
 from __future__ import annotations
@@ -19,7 +19,6 @@ import yaml
 from .errors import (
     DagMlMigrationRequired,
     DagMlPipelinePreflightRequired,
-    DagMlRefitParamsMigrationRequired,
     DagMlStatefulConcatTransformMigrationRequired,
 )
 
@@ -27,6 +26,7 @@ _MAX_PREFLIGHT_VARIANTS = 10_000
 _SERIALIZED_COMPONENT_KEYS = frozenset({"class", "function", "module", "object", "instance"})
 _SEPARATION_BRANCH_KEYS = frozenset({"by_tag", "by_metadata", "by_filter", "by_source"})
 _BRANCH_OPTION_KEYS = frozenset({"parallel", "n_jobs", "metadata", "params"})
+_OPAQUE_PAYLOAD_KEYS = frozenset({"model", "metadata", "params", "refit_params"})
 _RANDOM_COUNT_GENERATOR_KEYS = frozenset({"_or_", "_grid_", "_zip_", "_cartesian_"})
 _GENERATOR_KEYS = frozenset({"_or_", "_range_", "_log_range_", "_grid_", "_zip_", "_chain_", "_sample_", "_cartesian_"})
 
@@ -39,12 +39,12 @@ class _Opaque:
 
 
 def _raise_uninspectable(context: str, cause: BaseException | None = None) -> NoReturn:
-    """Refuse an active DSL shape whose semantic boundary cannot be proven safely."""
+    """Refuse only concat-relevant generator uncertainty before a fallback can occur."""
 
     error = DagMlPipelinePreflightRequired(
-        f"engine='dag-ml' cannot inspect {context} before semantic migration preflight. "
-        "Automatic legacy fallback is disabled for this active pipeline form; provide a documented "
-        "list/dict/YAML-or-JSON/Path/PipelineConfigs pipeline, or select engine='legacy' explicitly."
+        f"engine='dag-ml' cannot determine whether {context} selects a stateful concat_transform before CV. "
+        "Automatic legacy fallback is disabled only for this concat-semantic uncertainty; provide a "
+        "documented list/dict/YAML-or-JSON/Path/PipelineConfigs pipeline, or select engine='legacy' explicitly."
     )
     if cause is None:
         raise error
@@ -197,15 +197,6 @@ def _zip_column_values(value: Any, root_seed: int | None) -> list[Any] | None:
     return values
 
 
-def _zip_refit_column_may_require_migration(value: Any, root_seed: int | None) -> bool:
-    """Whether a ZipStrategy refit column can emit the held-out-refit override."""
-
-    values = _zip_column_values(value, root_seed)
-    if values is None:
-        return True
-    return any(isinstance(item, Mapping) and item.get("use_all_partitions") is True for item in values)
-
-
 def _zip_concat_column_may_require_migration(value: Any, root_seed: int | None) -> bool:
     """Whether a ZipStrategy concat column can emit a stateful configuration."""
 
@@ -224,17 +215,15 @@ def _has_opaque_generated_mapping(value: Mapping[str, Any]) -> bool:
     try:
         from nirs4all.pipeline.config._generator.keywords import has_nested_generator_keywords
 
-        return any(isinstance(item, dict) and has_nested_generator_keywords(item) for key, item in value.items() if key in {"model", "metadata", "params"})
+        return any(isinstance(item, dict) and has_nested_generator_keywords(item) for key, item in value.items() if key in _OPAQUE_PAYLOAD_KEYS)
     except Exception:  # noqa: BLE001 - only relevant unknown columns are fail-closed below.
-        return any(isinstance(item, dict) for key, item in value.items() if key in {"model", "metadata", "params"})
+        return any(isinstance(item, dict) for key, item in value.items() if key in _OPAQUE_PAYLOAD_KEYS)
 
 
 def _generator_columns_may_require_migration(value: Mapping[str, Any], root_seed: int | None, pre_cv_possible: bool) -> bool:
-    """Whether one grid/zip column map can produce either tracked semantic shape."""
+    """Whether one grid/zip column map can produce a stateful pre-CV concat."""
 
-    return ("model" in value and "refit_params" in value and _zip_refit_column_may_require_migration(value["refit_params"], root_seed)) or (
-        pre_cv_possible and "concat_transform" in value and _zip_concat_column_may_require_migration(value["concat_transform"], root_seed)
-    )
+    return pre_cv_possible and "concat_transform" in value and _zip_concat_column_may_require_migration(value["concat_transform"], root_seed)
 
 
 def _generator_columns_need_preflight(
@@ -253,15 +242,6 @@ def _generator_columns_need_preflight(
     if generator_key != "_zip_" and not selection_context:
         return False
     return _generator_columns_may_require_migration(value, root_seed, pre_cv_possible)
-
-
-def _step_refit_may_require_migration(value: Any, root_seed: int | None) -> bool:
-    """Whether a direct step-level refit configuration can enable held-out refitting."""
-
-    values = _zip_column_values(value, root_seed)
-    if values is None:
-        return True
-    return any(isinstance(item, Mapping) and item.get("use_all_partitions") is True for item in values)
 
 
 def _step_concat_may_require_migration(value: Any, root_seed: int | None) -> bool:
@@ -285,9 +265,7 @@ def _mapping_may_require_migration(value: Mapping[str, Any], root_seed: int | No
     """Inspect direct and mixed-OR step candidates without interpreting unrelated payloads."""
 
     def candidate_may_require_migration(candidate: Mapping[str, Any]) -> bool:
-        return ("model" in candidate and "refit_params" in candidate and _step_refit_may_require_migration(candidate["refit_params"], root_seed)) or (
-            pre_cv_possible and "concat_transform" in candidate and _step_concat_may_require_migration(candidate["concat_transform"], root_seed)
-        )
+        return pre_cv_possible and "concat_transform" in candidate and _step_concat_may_require_migration(candidate["concat_transform"], root_seed)
 
     if candidate_may_require_migration(value):
         return True
@@ -329,7 +307,7 @@ def _selector_population_has_opaque_generator(value: Any, active: set[int] | Non
         if isinstance(value, Mapping):
             if _is_serialized_component(value) or _has_opaque_generated_mapping(value):
                 return _has_opaque_generated_mapping(value)
-            return any(_selector_population_has_opaque_generator(item, active) for key, item in value.items() if key not in {"model", "metadata", "params"})
+            return any(_selector_population_has_opaque_generator(item, active) for key, item in value.items() if key not in _OPAQUE_PAYLOAD_KEYS)
         return any(_selector_population_has_opaque_generator(item, active) for item in value)
     finally:
         active.remove(marker)
@@ -341,7 +319,7 @@ def _selector_population_may_require_migration(
     pre_cv_possible: bool,
     active: set[int] | None = None,
 ) -> bool:
-    """Whether any selected candidate can carry one of the two semantic migrations."""
+    """Whether any selected candidate can carry a stateful pre-CV concat."""
 
     if not isinstance(value, (Mapping, list, tuple)):
         return False
@@ -357,7 +335,7 @@ def _selector_population_may_require_migration(
                 return False
             if _mapping_may_require_migration(value, root_seed, pre_cv_possible):
                 return True
-            return any(_selector_population_may_require_migration(item, root_seed, pre_cv_possible, active) for key, item in value.items() if key not in {"model", "metadata", "params"})
+            return any(_selector_population_may_require_migration(item, root_seed, pre_cv_possible, active) for key, item in value.items() if key not in _OPAQUE_PAYLOAD_KEYS)
         return any(_selector_population_may_require_migration(item, root_seed, pre_cv_possible, active) for item in value)
     finally:
         active.remove(marker)
@@ -395,7 +373,7 @@ def _project_generator_columns(
             _raise_uninspectable("a selected generator whose opaque generated mapping can change a migration-bearing candidate")
         result: dict[str, Any] = {}
         for key, item in value.items():
-            if key in {"model", "metadata", "params"}:
+            if key in _OPAQUE_PAYLOAD_KEYS:
                 result[key] = _opaque_with_shape(item)
             else:
                 result[key] = _project_for_expansion(
@@ -531,7 +509,7 @@ def _project_for_expansion(
                 # ``_or_``, grid, zip, and cartesian sample a positive count at random when unseeded.
                 # Enumerating their full legal output is the only stable proof before a later legacy run.
                 continue
-            if key in {"metadata", "params", "model"}:
+            if key in _OPAQUE_PAYLOAD_KEYS:
                 result[key] = _Opaque(item)
             elif key == "branch":
                 result[key] = _project_branch_for_expansion(
@@ -787,15 +765,6 @@ def _concat_requires_migration(config: Any, active: set[int] | None = None) -> b
             active.remove(marker)
 
 
-def _raise_refit_migration() -> None:
-    raise DagMlRefitParamsMigrationRequired(
-        "engine='dag-ml' refuses refit_params.use_all_partitions=True: legacy may refit on held-out "
-        "test partitions, while DAG-ML fixes REFIT FullTrain to FoldSet sample IDs. This is an explicit "
-        "migration requirement, not a legacy-fallback boundary; remove the override or select "
-        "engine='legacy' explicitly."
-    )
-
-
 def _raise_concat_migration() -> None:
     raise DagMlStatefulConcatTransformMigrationRequired(
         "engine='dag-ml' refuses a stateful concat_transform before CV: legacy materializes learned "
@@ -803,6 +772,85 @@ def _raise_concat_migration() -> None:
         "migration requirement, not a legacy-fallback boundary; use a native-equivalent pipeline or "
         "select engine='legacy' explicitly."
     )
+
+
+def _concat_config_may_be_stateful(config: Any) -> bool:
+    """Whether a raw concat config makes the semantic preflight relevant at all."""
+
+    try:
+        return _concat_requires_migration(config)
+    except DagMlPipelinePreflightRequired:
+        return True
+
+
+def _branch_may_contain_stateful_pre_cv_concat(branch: Any, seen_splitter: bool, active: set[int]) -> bool:
+    """Check executable branch bodies without descending into metadata-like payloads."""
+
+    if isinstance(branch, list):
+        return any(_value_may_contain_stateful_pre_cv_concat(entry, seen_splitter, active) for entry in branch)
+    if not isinstance(branch, Mapping):
+        return _value_may_contain_stateful_pre_cv_concat(branch, seen_splitter, active)
+    if _SEPARATION_BRANCH_KEYS & branch.keys():
+        body = branch.get("steps")
+        if isinstance(body, Mapping):
+            return any(_value_may_contain_stateful_pre_cv_concat(item, seen_splitter, active) for item in body.values())
+        return _value_may_contain_stateful_pre_cv_concat(body, seen_splitter, active) if body is not None else False
+    return any(_value_may_contain_stateful_pre_cv_concat(body, seen_splitter, active) for name, body in branch.items() if isinstance(name, str) and not name.startswith("_") and name not in _BRANCH_OPTION_KEYS)
+
+
+def _value_may_contain_stateful_pre_cv_concat(value: Any, seen_splitter: bool, active: set[int]) -> bool:
+    """Conservatively find the one semantic boundary without interpreting payloads."""
+
+    value = _minimal_step_config(value)
+    if isinstance(value, (list, tuple)):
+        marker = id(value)
+        if marker in active:
+            return False
+        active.add(marker)
+        try:
+            for item in value:
+                if _value_may_contain_stateful_pre_cv_concat(item, seen_splitter, active):
+                    return True
+                seen_splitter = seen_splitter or _is_splitter(_minimal_step_config(item))
+            return False
+        finally:
+            active.remove(marker)
+    if not isinstance(value, Mapping) or _is_serialized_component(value):
+        return False
+
+    marker = id(value)
+    if marker in active:
+        return False
+    active.add(marker)
+    try:
+        if not seen_splitter and "concat_transform" in value and _concat_config_may_be_stateful(value["concat_transform"]):
+            return True
+        if "branch" in value and _branch_may_contain_stateful_pre_cv_concat(value["branch"], seen_splitter, active):
+            return True
+        return any(_value_may_contain_stateful_pre_cv_concat(item, seen_splitter, active) for key, item in value.items() if key not in _OPAQUE_PAYLOAD_KEYS | {"branch", "concat_transform"})
+    finally:
+        active.remove(marker)
+
+
+def _pipeline_may_contain_stateful_pre_cv_concat(pipeline: Any) -> bool:
+    """Whether the supplied public form needs concat semantic preflight at all.
+
+    This deliberately returns false for unreadable or malformed public forms: they belong to the
+    ordinary compatibility/error path unless a valid active concat boundary can be identified.
+    """
+
+    try:
+        from nirs4all.pipeline.config.pipeline_config import PipelineConfigs
+
+        if isinstance(pipeline, PipelineConfigs):
+            return _value_may_contain_stateful_pre_cv_concat(pipeline.steps, False, set())
+        if isinstance(pipeline, Path):
+            pipeline = str(pipeline)
+        if isinstance(pipeline, str):
+            pipeline = _load_string_definition(pipeline)
+    except Exception:  # noqa: BLE001 - malformed non-concat forms must keep their ordinary path.
+        return False
+    return _value_may_contain_stateful_pre_cv_concat(pipeline, False, set())
 
 
 def _scan_branch(branch: Any, seen_splitter: bool, active: set[int]) -> None:
@@ -850,10 +898,6 @@ def _scan_step(value: Any, seen_splitter: bool, active: set[int]) -> bool:
         _raise_uninspectable("a cyclic active pipeline mapping")
     active.add(marker)
     try:
-        if "model" in value:
-            refit = _unwrap(value.get("refit_params"))
-            if isinstance(refit, Mapping) and refit.get("use_all_partitions") is True:
-                _raise_refit_migration()
         if "concat_transform" in value and not seen_splitter and _concat_requires_migration(value["concat_transform"]):
             _raise_concat_migration()
         if "branch" in value:
@@ -892,6 +936,9 @@ def preflight_dagml_pipeline_migration(pipeline: Any) -> None:
     their exact legacy expansion; unseeded random selections are expanded conservatively across every
     possible candidate, since a later legacy normalization may choose a different result.
     """
+
+    if not _pipeline_may_contain_stateful_pre_cv_concat(pipeline):
+        return
 
     for steps, root_seed in _public_variants(pipeline):
         for variant in _expanded_variants(steps, root_seed):

@@ -885,7 +885,7 @@ def run(
     selected_engine = resolve_engine(engine)
     if selected_engine == "dag-ml":
         # This must precede *every* DAG-ML execution route, including the tuning/calibration early
-        # return below. It reads configuration only, so semantic migrations cannot reach native work,
+        # return below. It reads configuration only, so a stateful pre-CV concat cannot reach native work,
         # dataset materialization, or the catchable legacy fallback boundary.
         from nirs4all.pipeline.dagml.migration_preflight import preflight_dagml_pipeline_migration
 
