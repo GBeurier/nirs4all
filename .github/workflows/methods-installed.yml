@@ -5,6 +5,11 @@ on:
     paths:
       - "nirs4all/operators/methods/**"
       - "tests/unit/operators/methods/**"
+      - "nirs4all/api/run.py"
+      - "nirs4all/api/native_*.py"
+      - "nirs4all/pipeline/dagml/**"
+      - "tests/unit/api/test_native_witness.py"
+      - "tests/integration/api/test_native_methods_witness.py"
       - "pyproject.toml"
       - ".github/workflows/methods-installed.yml"
   workflow_dispatch:
@@ -12,7 +17,7 @@ on:
       methods_package:
         description: "Package spec to install for nirs4all-methods"
         required: false
-        default: "nirs4all-methods"
+        default: "nirs4all-methods==1.0.13"
 
 jobs:
   n4m-binding:
@@ -31,21 +36,36 @@ jobs:
           python -m pip install --upgrade pip setuptools wheel
           python -m pip install -e ".[dev]"
 
-      - name: Install nirs4all-methods binding
+      - name: Install released DAG-ML and nirs4all-methods wheels
         env:
-          METHODS_PACKAGE: ${{ inputs.methods_package || 'nirs4all-methods' }}
-        run: python -m pip install "$METHODS_PACKAGE"
+          METHODS_PACKAGE: ${{ inputs.methods_package || 'nirs4all-methods==1.0.13' }}
+        run: python -m pip install "dag-ml==0.3.19" "$METHODS_PACKAGE"
 
-      - name: Verify n4m binding loads
+      - name: Verify published DAG-ML and n4m runtime
         run: |
           python - <<'PY'
+          from importlib.metadata import version
+          from pathlib import Path
+
+          import dag_ml
           import n4m
 
+          assert version("dag-ml") == "0.3.19"
+          assert version("nirs4all-methods") == "1.0.13"
+          assert dag_ml.version() == "0.3.19"
+          abi = tuple(n4m.abi_version())
+          assert len(abi) == 3 and abi[0] == 2 and abi[1] >= 2
+          library = Path(n4m.library_path()).resolve(strict=True)
+          assert library.is_absolute() and library.is_file()
+          print("dag-ml:", dag_ml.version())
           print("n4m abi:", n4m.abi_version())
-          print("n4m lib:", n4m.library_path())
+          print("n4m lib:", library)
           PY
 
       - name: Run methods parity gate
         env:
           NIRS4ALL_REQUIRE_N4M: "1"
-        run: python -m pytest -m methods tests/unit/operators/methods/test_n4m_ops.py -q
+        run: >-
+          python -m pytest -m methods
+          tests/unit/operators/methods/test_n4m_ops.py
+          tests/integration/api/test_native_methods_witness.py -q
