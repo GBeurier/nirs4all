@@ -97,7 +97,13 @@ class NativeMethodsSession:
         """Fit this session's portable Methods pipeline exactly once per call."""
 
         self._require_open()
-        self._result = run_native_methods(
+        previous = self._result
+        if isinstance(previous, NativeMethodsRunResult):
+            # Keep the prior result session-owned until its exact live facade
+            # has detached. This prevents a failed close from being hidden by
+            # a newly created result or by an overwritten session reference.
+            previous.close()
+        result = run_native_methods(
             self._pipeline,
             dataset,
             name=self._name,
@@ -106,7 +112,8 @@ class NativeMethodsSession:
             tuning=self._tuning,
             calibration=self._calibration,
         )
-        return self._result
+        self._result = result
+        return result
 
     def retrain(self, dataset: Mapping[str, Any]) -> NativeMethodsRefitResult:
         """Full-refit the attested selected Methods variant on one new cohort.
@@ -124,6 +131,11 @@ class NativeMethodsSession:
             raise NotImplementedError(
                 "a native Package V3 refit child cannot be retrained again"
             )
+        # ``refit_native_methods`` consumes only the durable package/outcome,
+        # so release the parent facade first. A close failure leaves the parent
+        # session-owned and prevents creating a child with an unowned live
+        # native result.
+        parent.close()
         result = retrain(
             parent,
             # ``retrain`` exposes the public ``DataSpec`` union, whose
@@ -178,8 +190,11 @@ class NativeMethodsSession:
         return self.result.export(path)
 
     def close(self) -> None:
-        """Release this session's in-memory estimator reference."""
+        """Release the current live native result before dropping its reference."""
 
+        result = self._result
+        if isinstance(result, NativeMethodsRunResult):
+            result.close()
         self._result = None
         self._closed = True
 
