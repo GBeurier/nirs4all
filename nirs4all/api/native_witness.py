@@ -8,8 +8,9 @@ facade only long enough to make the local execution boundary observable and to
 release its process-local resources deterministically.
 
 The durable evidence remains the signed outcome and portable package owned by
-Dag-ML.  The internal live witness is deliberately neither serializable nor
-copyable, and is invalid after ``detach()``/``close()``.
+Dag-ML.  The internal live witness relies only on Dag-ML's public Python
+lifecycle surface, is deliberately neither serializable nor copyable, and is
+invalid after ``detach()``/``close()``.
 """
 
 from __future__ import annotations
@@ -69,7 +70,6 @@ class _LiveMethodsWitness:
         "_estimator",
         "_factory_capability",
         "_lock",
-        "_native_training_result",
         "_training_result",
     )
 
@@ -77,7 +77,6 @@ class _LiveMethodsWitness:
         self,
         estimator: Any,
         training_result: Any,
-        native_training_result: Any,
         claim: NativeMethodsExecutionClaim,
         *,
         _factory_capability: object,
@@ -86,7 +85,6 @@ class _LiveMethodsWitness:
             raise TypeError("live Methods witnesses can only be created by the verified internal factory")
         self._estimator = estimator
         self._training_result: Any | None = training_result
-        self._native_training_result: Any | None = native_training_result
         self._claim = claim
         self._factory_capability = _factory_capability
         self._lock = RLock()
@@ -131,32 +129,16 @@ class _LiveMethodsWitness:
         expected_type = getattr(dag_ml, "TrainingResult", None)
         if not isinstance(expected_type, type):
             raise DagMLNativeCoverageError("configured Dag-ML facade does not expose TrainingResult")
-        try:
-            dag_ml_native = importlib.import_module("dag_ml._dag_ml")
-        except ImportError as error:  # pragma: no cover - dependency failure is environment-specific
-            raise DagMLNativeCoverageError("strict Methods witness cannot import the configured Dag-ML native facade") from error
-        expected_native_type = getattr(dag_ml_native, "TrainingResult", None)
-        if not isinstance(expected_native_type, type):
-            raise DagMLNativeCoverageError("configured Dag-ML native facade does not expose TrainingResult")
-
         training_result = getattr(estimator, "training_result_", None)
         if type(training_result) is not expected_type:
             raise DagMLNativeCoverageError("strict Methods execution did not retain the exact Dag-ML TrainingResult facade")
         if getattr(training_result, "is_attached", None) is not True:
             raise DagMLNativeCoverageError("strict Methods TrainingResult must be attached when its live witness is created")
-        native_training_result = getattr(training_result, "_native", None)
-        if type(native_training_result) is not expected_native_type:
-            raise DagMLNativeCoverageError("strict Methods TrainingResult did not retain the exact native TrainingResult")
-        if getattr(native_training_result, "is_attached", None) is not True:
-            raise DagMLNativeCoverageError("strict Methods native TrainingResult must be attached when its live witness is created")
         outcome_fingerprint = getattr(training_result, "outcome_fingerprint", None)
         if not isinstance(outcome_fingerprint, str) or not outcome_fingerprint:
             raise DagMLNativeCoverageError("strict Methods TrainingResult omitted its outcome fingerprint")
         if re.fullmatch(r"[0-9a-f]{64}", outcome_fingerprint) is None:
             raise DagMLNativeCoverageError("strict Methods TrainingResult outcome fingerprint must be canonical SHA-256")
-        if getattr(native_training_result, "outcome_fingerprint", None) != outcome_fingerprint:
-            raise DagMLNativeCoverageError("strict Methods native TrainingResult fingerprint does not match its facade")
-
         result_outcome = getattr(training_result, "outcome", None)
         result_outcome_to_dict = getattr(result_outcome, "to_dict", None)
         if callable(result_outcome_to_dict):
@@ -174,7 +156,6 @@ class _LiveMethodsWitness:
         return cls(
             estimator,
             training_result,
-            native_training_result,
             NativeMethodsExecutionClaim(
                 schema_version=1,
                 execution_entrypoint="dag_ml.execute_methods_training",
@@ -191,26 +172,19 @@ class _LiveMethodsWitness:
 
         with self._lock:
             training_result = self._training_result
-            native_training_result = self._native_training_result
             if self._factory_capability is not _WITNESS_FACTORY_CAPABILITY:
                 raise DagMLNativeCoverageError("the live Methods witness was not created by the internal factory")
             if estimator is not self._estimator:
                 raise DagMLNativeCoverageError("the live Methods witness does not own this estimator")
             if (
                 training_result is None
-                or native_training_result is None
                 or getattr(training_result, "is_attached", None) is not True
-                or getattr(native_training_result, "is_attached", None) is not True
             ):
                 raise DagMLNativeCoverageError("the live Methods witness is no longer attached")
             if getattr(self._estimator, "training_result_", None) is not training_result:
                 raise DagMLNativeCoverageError("the live Methods witness no longer owns the estimator TrainingResult")
-            if getattr(training_result, "_native", None) is not native_training_result:
-                raise DagMLNativeCoverageError("the live Methods witness no longer owns the exact native TrainingResult")
             if getattr(training_result, "outcome_fingerprint", None) != self._claim.outcome_fingerprint:
                 raise DagMLNativeCoverageError("the live Methods witness no longer matches its outcome fingerprint")
-            if getattr(native_training_result, "outcome_fingerprint", None) != self._claim.outcome_fingerprint:
-                raise DagMLNativeCoverageError("the live Methods witness native result no longer matches its outcome fingerprint")
             return self._claim
 
     @property
@@ -245,16 +219,10 @@ class _LiveMethodsWitness:
             training_result = self._training_result
             if training_result is None:
                 return False
-            native_training_result = self._native_training_result
-            if native_training_result is None:
-                raise DagMLNativeCoverageError("the live Methods witness lost its native TrainingResult")
-            if getattr(training_result, "_native", None) is not native_training_result:
-                raise DagMLNativeCoverageError("the live Methods witness no longer owns the exact native TrainingResult")
-            if getattr(training_result, "is_attached", None) is False and getattr(native_training_result, "is_attached", None) is False:
+            if getattr(training_result, "is_attached", None) is False:
                 self._training_result = None
-                self._native_training_result = None
                 return False
-            if getattr(training_result, "is_attached", None) is not True or getattr(native_training_result, "is_attached", None) is not True:
+            if getattr(training_result, "is_attached", None) is not True:
                 raise DagMLNativeCoverageError("strict Methods TrainingResult attachment state is inconsistent")
             detach = getattr(training_result, "detach", None)
             if not callable(detach):
@@ -263,14 +231,12 @@ class _LiveMethodsWitness:
             if not isinstance(detached, bool):
                 raise DagMLNativeCoverageError("strict Methods TrainingResult detach() must return bool")
             if detached:
-                if getattr(training_result, "is_attached", None) is not False or getattr(native_training_result, "is_attached", None) is not False:
-                    raise DagMLNativeCoverageError("strict Methods TrainingResult detach() did not release its exact native result")
+                if getattr(training_result, "is_attached", None) is not False:
+                    raise DagMLNativeCoverageError("strict Methods TrainingResult detach() did not release its facade")
                 self._training_result = None
-                self._native_training_result = None
                 return True
-            if getattr(training_result, "is_attached", None) is False and getattr(native_training_result, "is_attached", None) is False:
+            if getattr(training_result, "is_attached", None) is False:
                 self._training_result = None
-                self._native_training_result = None
                 return False
             raise DagMLNativeCoverageError("strict Methods TrainingResult detach() reported False while still attached")
 

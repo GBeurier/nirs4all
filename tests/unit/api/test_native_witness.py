@@ -27,7 +27,7 @@ class _Outcome:
         return dict(self._document)
 
 
-class _NativeTrainingResult:
+class _TrainingResult:
     def __init__(self, document: dict[str, object]) -> None:
         self._document = document
         self.is_attached = True
@@ -51,31 +51,6 @@ class _NativeTrainingResult:
             return False
         self.is_attached = False
         return True
-
-
-class _TrainingResult:
-    def __init__(self, document: dict[str, object]) -> None:
-        self._document = document
-        self._native = _NativeTrainingResult(document)
-
-    @property
-    def is_attached(self) -> bool:
-        return self._native.is_attached
-
-    @property
-    def detach_calls(self) -> int:
-        return self._native.detach_calls
-
-    @property
-    def outcome_fingerprint(self) -> str:
-        return self._native.outcome_fingerprint
-
-    @property
-    def outcome(self) -> _Outcome:
-        return _Outcome(self._document)
-
-    def detach(self) -> bool:
-        return self._native.detach()
 
 
 def _score_set() -> dict[str, object]:
@@ -102,11 +77,7 @@ def _score_set() -> dict[str, object]:
 def _install_dagml_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     facade = ModuleType("dag_ml")
     facade.TrainingResult = _TrainingResult
-    native = ModuleType("dag_ml._dag_ml")
-    native.TrainingResult = _NativeTrainingResult
-    facade._dag_ml = native  # type: ignore[attr-defined]
     monkeypatch.setitem(sys.modules, "dag_ml", facade)
-    monkeypatch.setitem(sys.modules, "dag_ml._dag_ml", native)
 
 
 def _estimator(tmp_path: Path, *, callback: object | None = None) -> tuple[SimpleNamespace, _TrainingResult]:
@@ -186,13 +157,12 @@ def test_live_witness_constructor_is_internal_and_cannot_forge_a_claim(
         _LiveMethodsWitness(
             estimator,
             training_result,
-            training_result._native,
             claim,
             _factory_capability=object(),
         )
 
 
-def test_native_result_factory_does_not_accept_an_injected_witness_and_detects_raw_swap(
+def test_native_result_factory_does_not_accept_an_injected_witness_and_detects_facade_swap(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
@@ -208,8 +178,8 @@ def test_native_result_factory_does_not_accept_an_injected_witness_and_detects_r
             live_witness=witness,
         )
 
-    training_result_a._native = _NativeTrainingResult(dict(training_result_a._document))
-    with pytest.raises(DagMLNativeCoverageError, match="exact native TrainingResult"):
+    estimator_a.training_result_ = _TrainingResult(dict(training_result_a._document))
+    with pytest.raises(DagMLNativeCoverageError, match="no longer owns the estimator TrainingResult"):
         _ = witness.claim
     assert not witness.is_live
 
@@ -221,7 +191,7 @@ def test_live_witness_detach_failure_keeps_ownership_for_retry(
     _install_dagml_facade(monkeypatch)
     estimator, training_result = _estimator(tmp_path)
     witness = _LiveMethodsWitness.from_estimator(estimator)  # type: ignore[arg-type]
-    training_result._native.raise_once_on_detach = True
+    training_result.raise_once_on_detach = True
 
     with pytest.raises(RuntimeError, match="failed once"):
         witness.detach()
@@ -301,7 +271,7 @@ def test_native_session_close_failure_retains_result_for_retry(
     )
     session = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}])
     session._result = result  # noqa: SLF001 - exercise close ownership directly
-    training_result._native.raise_once_on_detach = True
+    training_result.raise_once_on_detach = True
 
     with pytest.raises(RuntimeError, match="failed once"):
         session.close()
@@ -329,7 +299,7 @@ def test_native_session_replacement_failure_keeps_previous_result_owned(
     )
     session = NativeMethodsSession([{"split": "stub"}, {"model": "stub"}])
     session._result = previous  # noqa: SLF001 - exercise replacement ownership directly
-    training_result._native.raise_once_on_detach = True
+    training_result.raise_once_on_detach = True
 
     def reached(*_args: object, **_kwargs: object) -> object:
         raise AssertionError("replacement work ran before the prior live result closed")
