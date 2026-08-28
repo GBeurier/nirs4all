@@ -106,7 +106,8 @@ register(
     PipelineCase(
         name="refit_params_use_all_partitions",
         description="`refit_params: {use_all_partitions: True}` forces refit on train + val + test. "
-        "Exercises the explicit refit-policy override the bridge must surface.",
+        "The DAG-ML compatibility boundary must raise a typed preflight migration refusal rather than "
+        "auto-fallback to legacy.",
         keywords=("refit_params", "model", "name"),
         capabilities=(
             "preprocessing_transform",
