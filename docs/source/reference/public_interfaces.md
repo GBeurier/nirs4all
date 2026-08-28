@@ -248,8 +248,12 @@ Environment switches:
 
 `engine="native"` is a separate, fail-closed Methods lane. It is not an
 alias for `engine="dag-ml"`, and it never silently instantiates a legacy
-`PipelineRunner`. The table below is the executable R2 boundary; callers
-should branch on it rather than inferring support from the broader legacy API.
+`PipelineRunner`. The packaged
+`nirs4all.api.native_capabilities.get_native_capability_matrix()` is the
+authoritative machine-readable form: each operation is `native`, requires an
+explicit `plugin`, or is `refused`, and every fallback route is forbidden. The
+table below is its human-readable R2 companion; callers should branch on it
+rather than inferring support from the broader legacy API.
 
 | Lifecycle operation | Native status | Exact boundary |
 | --- | --- | --- |

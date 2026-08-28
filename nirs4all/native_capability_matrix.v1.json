@@ -1,0 +1,69 @@
+{
+  "matrix_id": "nirs4all.native-capability-matrix",
+  "operations": {
+    "explain": {
+      "boundary": "Requires an explicitly declared SHAP host plugin; the native profile alone does not execute explanations.",
+      "disposition": "plugin",
+      "fallback": "forbidden",
+      "plugin": {
+        "activation": "explicit",
+        "id": "shap"
+      },
+      "public_api": "nirs4all.explain"
+    },
+    "export": {
+      "boundary": "Exports a NativeMethodsRunResult as a portable archive after native package validation.",
+      "disposition": "native",
+      "fallback": "forbidden",
+      "public_api": "nirs4all.NativeMethodsRunResult.export"
+    },
+    "generate": {
+      "boundary": "Synthetic-data generation has no native Methods implementation.",
+      "disposition": "refused",
+      "fallback": "forbidden",
+      "public_api": "nirs4all.generate"
+    },
+    "load_session": {
+      "boundary": "PREDICT-only after Core Archive V2 or V3 and Package V2 or V3 validation.",
+      "disposition": "native",
+      "fallback": "forbidden",
+      "public_api": "nirs4all.load_session"
+    },
+    "predict": {
+      "boundary": "Requires an explicitly identified cohort through a native result, trained native session, or validated archive session.",
+      "disposition": "native",
+      "fallback": "forbidden",
+      "public_api": "nirs4all.predict"
+    },
+    "retrain": {
+      "boundary": "Only full refit from an in-memory NativeMethodsRunResult with selected-refit evidence and an attested seed.",
+      "disposition": "native",
+      "fallback": "forbidden",
+      "public_api": "nirs4all.retrain"
+    },
+    "run": {
+      "boundary": "Requires an explicit raw mapping, a portable Methods pipeline, native refit, and no workspace, cache, project, or result-path state.",
+      "disposition": "native",
+      "fallback": "forbidden",
+      "public_api": "nirs4all.run"
+    },
+    "save": {
+      "boundary": "Persists a fitted NativeMethodsSession as a portable archive without refitting.",
+      "disposition": "native",
+      "fallback": "forbidden",
+      "public_api": "nirs4all.NativeMethodsSession.save"
+    },
+    "session": {
+      "boundary": "Creates NativeMethodsSession for native train, identity-bound prediction, archive persistence, close, and selected full refit.",
+      "disposition": "native",
+      "fallback": "forbidden",
+      "public_api": "nirs4all.session"
+    }
+  },
+  "profile": "native",
+  "schema_version": 1,
+  "source_ledgers": {
+    "compatibility": "docs/compatibility.json",
+    "lifecycle": "docs/source/reference/public_interfaces.md#native-lifecycle-capability-matrix"
+  }
+}
