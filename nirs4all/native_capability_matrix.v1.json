@@ -1,69 +1,183 @@
 {
+  "evidence_sources": {
+    "compatibility_context": {
+      "path": "docs/compatibility.json",
+      "role": "parity_tolerance_context_only"
+    },
+    "lifecycle_reference": {
+      "anchor": "native-lifecycle-capability-matrix",
+      "path": "docs/source/reference/public_interfaces.md",
+      "role": "human_readable_companion"
+    },
+    "runtime_tests": {
+      "paths": [
+        "tests/unit/api/test_engine_transition.py",
+        "tests/unit/api/test_generate.py",
+        "tests/unit/api/test_native_archive_session.py",
+        "tests/unit/api/test_native_session.py"
+      ],
+      "role": "native_lifecycle_verification"
+    }
+  },
   "matrix_id": "nirs4all.native-capability-matrix",
   "operations": {
     "explain": {
-      "boundary": "Requires an explicitly declared SHAP host plugin; the native profile alone does not execute explanations.",
-      "disposition": "plugin",
-      "fallback": "forbidden",
-      "plugin": {
-        "activation": "explicit",
-        "id": "shap"
-      },
-      "public_api": "nirs4all.explain"
+      "forms": {
+        "native_request": {
+          "boundary": "No callable explicit plugin path or native explanation replay is currently exposed.",
+          "disposition": "refused",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.explain"
+        }
+      }
     },
     "export": {
-      "boundary": "Exports a NativeMethodsRunResult as a portable archive after native package validation.",
-      "disposition": "native",
-      "fallback": "forbidden",
-      "public_api": "nirs4all.NativeMethodsRunResult.export"
+      "forms": {
+        "archive_v2": {
+          "boundary": "Exports a NativeMethodsRunResult as a Core Archive V2 after native package validation.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.NativeMethodsRunResult.export"
+        },
+        "archive_v3": {
+          "boundary": "Exports a NativeMethodsRefitResult as a strict Core Archive V3 child.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.NativeMethodsRefitResult.export"
+        }
+      }
     },
     "generate": {
-      "boundary": "Synthetic-data generation has no native Methods implementation.",
-      "disposition": "refused",
-      "fallback": "forbidden",
-      "public_api": "nirs4all.generate"
+      "forms": {
+        "native_request": {
+          "boundary": "Synthetic-data generation has no native Methods implementation.",
+          "disposition": "refused",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.generate"
+        }
+      }
     },
     "load_session": {
-      "boundary": "PREDICT-only after Core Archive V2 or V3 and Package V2 or V3 validation.",
-      "disposition": "native",
-      "fallback": "forbidden",
-      "public_api": "nirs4all.load_session"
+      "forms": {
+        "archive_v2": {
+          "boundary": "Opens a validated Core Archive V2 and Package V2 as a PREDICT-only NativeArchiveSession.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.load_session"
+        },
+        "archive_v3": {
+          "boundary": "Opens a validated Core Archive V3 and Package V3 as a PREDICT-only NativeArchiveSession.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.load_session"
+        },
+        "non_archive_path": {
+          "boundary": "The native form requires a Core .n4a archive path.",
+          "disposition": "refused",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.load_session"
+        }
+      }
     },
     "predict": {
-      "boundary": "Requires an explicitly identified cohort through a native result, trained native session, or validated archive session.",
-      "disposition": "native",
-      "fallback": "forbidden",
-      "public_api": "nirs4all.predict"
+      "forms": {
+        "archive_v2": {
+          "boundary": "Replays a validated Archive V2 with an explicitly identified prediction cohort.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.predict"
+        },
+        "archive_v3": {
+          "boundary": "Replays a validated Archive V3 with an explicitly identified prediction cohort.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.predict"
+        },
+        "in_memory_result_or_session": {
+          "boundary": "Predicts from an attested native result or trained NativeMethodsSession with explicit sample identities.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.predict"
+        },
+        "workspace_publication": {
+          "boundary": "Native prediction does not publish a workspace prediction row.",
+          "disposition": "refused",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.predict"
+        }
+      }
     },
     "retrain": {
-      "boundary": "Only full refit from an in-memory NativeMethodsRunResult with selected-refit evidence and an attested seed.",
-      "disposition": "native",
-      "fallback": "forbidden",
-      "public_api": "nirs4all.retrain"
+      "forms": {
+        "archive_source": {
+          "boundary": "A persisted archive cannot be used as a native retrain parent.",
+          "disposition": "refused",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.retrain"
+        },
+        "finetune": {
+          "boundary": "mode='finetune' is not a native retrain capability.",
+          "disposition": "refused",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.retrain"
+        },
+        "full_in_memory": {
+          "boundary": "Only mode='full' from an in-memory NativeMethodsRunResult with selected-refit evidence and an attested seed.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.retrain"
+        },
+        "transfer": {
+          "boundary": "mode='transfer' is not a native retrain capability.",
+          "disposition": "refused",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.retrain"
+        }
+      }
     },
     "run": {
-      "boundary": "Requires an explicit raw mapping, a portable Methods pipeline, native refit, and no workspace, cache, project, or result-path state.",
-      "disposition": "native",
-      "fallback": "forbidden",
-      "public_api": "nirs4all.run"
+      "forms": {
+        "portable_methods": {
+          "boundary": "Requires an explicit raw mapping, a documented portable Methods topology, native refit, and no workspace, cache, project, or result-path state.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.run"
+        },
+        "unsupported_request": {
+          "boundary": "Nonportable topology, nonmapping data, unsupported run options, or generic tuning requests stop before execution.",
+          "disposition": "refused",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.run"
+        }
+      }
     },
     "save": {
-      "boundary": "Persists a fitted NativeMethodsSession as a portable archive without refitting.",
-      "disposition": "native",
-      "fallback": "forbidden",
-      "public_api": "nirs4all.NativeMethodsSession.save"
+      "forms": {
+        "archive_v2": {
+          "boundary": "A fitted NativeMethodsSession persists its V2 training result as a Core Archive V2 without refitting.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.NativeMethodsSession.save"
+        },
+        "archive_v3": {
+          "boundary": "A NativeMethodsSession holding one V3 refit child persists it as a strict Core Archive V3.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.NativeMethodsSession.save"
+        }
+      }
     },
     "session": {
-      "boundary": "Creates NativeMethodsSession for native train, identity-bound prediction, archive persistence, close, and selected full refit.",
-      "disposition": "native",
-      "fallback": "forbidden",
-      "public_api": "nirs4all.session"
+      "forms": {
+        "native_methods": {
+          "boundary": "Creates NativeMethodsSession for native train, identity-bound prediction, archive persistence, close, and one selected full refit.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.session"
+        }
+      }
     }
   },
   "profile": "native",
-  "schema_version": 1,
-  "source_ledgers": {
-    "compatibility": "docs/compatibility.json",
-    "lifecycle": "docs/source/reference/public_interfaces.md#native-lifecycle-capability-matrix"
-  }
+  "schema_version": 1
 }

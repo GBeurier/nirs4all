@@ -1,9 +1,9 @@
 """Executable native capability matrix for the stable public lifecycle APIs.
 
 The matrix is descriptive only: it records the fail-closed native profile and
-does not select an execution engine or route a request.  Consumers can use it
-to decide whether to call a native API, explicitly activate a plugin, or stop
-before an unsupported operation reaches a broader runtime.
+does not select an execution engine or route a request. Consumers can use an
+operation form to decide whether to call a native API, use a callable explicit
+plugin, or stop before an unsupported request reaches a broader runtime.
 """
 
 from __future__ import annotations
@@ -38,6 +38,16 @@ _NATIVE_CAPABILITY_MATRIX_SCHEMA: dict[str, Any] = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "additionalProperties": False,
     "properties": {
+        "evidence_sources": {
+            "additionalProperties": False,
+            "properties": {
+                "compatibility_context": {"$ref": "#/$defs/compatibility_context"},
+                "lifecycle_reference": {"$ref": "#/$defs/lifecycle_reference"},
+                "runtime_tests": {"$ref": "#/$defs/runtime_tests"},
+            },
+            "required": ["compatibility_context", "lifecycle_reference", "runtime_tests"],
+            "type": "object",
+        },
         "matrix_id": {"const": "nirs4all.native-capability-matrix"},
         "operations": {
             "additionalProperties": False,
@@ -49,21 +59,21 @@ _NATIVE_CAPABILITY_MATRIX_SCHEMA: dict[str, Any] = {
         },
         "profile": {"const": "native"},
         "schema_version": {"const": 1},
-        "source_ledgers": {
-            "additionalProperties": False,
-            "properties": {
-                "compatibility": {"const": "docs/compatibility.json"},
-                "lifecycle": {"const": "docs/source/reference/public_interfaces.md#native-lifecycle-capability-matrix"},
-            },
-            "required": ["compatibility", "lifecycle"],
-            "type": "object",
-        },
     },
-    "required": ["matrix_id", "operations", "profile", "schema_version", "source_ledgers"],
+    "required": ["evidence_sources", "matrix_id", "operations", "profile", "schema_version"],
     "title": "nirs4all native public API capability matrix",
     "type": "object",
     "$defs": {
-        "operation": {
+        "compatibility_context": {
+            "additionalProperties": False,
+            "properties": {
+                "path": {"const": "docs/compatibility.json"},
+                "role": {"const": "parity_tolerance_context_only"},
+            },
+            "required": ["path", "role"],
+            "type": "object",
+        },
+        "form": {
             "additionalProperties": False,
             "allOf": [
                 {
@@ -83,16 +93,54 @@ _NATIVE_CAPABILITY_MATRIX_SCHEMA: dict[str, Any] = {
                     "additionalProperties": False,
                     "properties": {
                         "activation": {"const": "explicit"},
+                        "callable_api": {"minLength": 1, "pattern": "^nirs4all(?:\\.|$)", "type": "string"},
                         "id": {"minLength": 1, "type": "string"},
                     },
-                    "required": ["activation", "id"],
+                    "required": ["activation", "callable_api", "id"],
                     "type": "object",
                 },
                 "public_api": {"minLength": 1, "pattern": "^nirs4all(?:\\.|$)", "type": "string"},
             },
             "required": ["boundary", "disposition", "fallback", "public_api"],
             "type": "object",
-        }
+        },
+        "lifecycle_reference": {
+            "additionalProperties": False,
+            "properties": {
+                "anchor": {"const": "native-lifecycle-capability-matrix"},
+                "path": {"const": "docs/source/reference/public_interfaces.md"},
+                "role": {"const": "human_readable_companion"},
+            },
+            "required": ["anchor", "path", "role"],
+            "type": "object",
+        },
+        "operation": {
+            "additionalProperties": False,
+            "properties": {
+                "forms": {
+                    "additionalProperties": False,
+                    "minProperties": 1,
+                    "patternProperties": {"^[a-z][a-z0-9_]*$": {"$ref": "#/$defs/form"}},
+                    "type": "object",
+                }
+            },
+            "required": ["forms"],
+            "type": "object",
+        },
+        "runtime_tests": {
+            "additionalProperties": False,
+            "properties": {
+                "paths": {
+                    "items": {"pattern": "^tests/unit/api/test_[a-z0-9_]+\\.py$", "type": "string"},
+                    "minItems": 1,
+                    "type": "array",
+                    "uniqueItems": True,
+                },
+                "role": {"const": "native_lifecycle_verification"},
+            },
+            "required": ["paths", "role"],
+            "type": "object",
+        },
     },
 }
 
