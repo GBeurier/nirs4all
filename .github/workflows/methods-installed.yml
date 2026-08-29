@@ -8,9 +8,28 @@ on:
       - "nirs4all/api/run.py"
       - "nirs4all/api/native_*.py"
       - "nirs4all/pipeline/dagml/**"
+      - "tests/unit/pipeline/dagml/test_finetune_lowering.py"
       - "tests/unit/api/test_native_witness.py"
       - "tests/unit/pipeline/dagml/test_terminal_predict_lowerer.py"
       - "tests/integration/api/test_native_methods_witness.py"
+      - "tests/integration/parity/cases_refit_predict.py"
+      - "tests/integration/parity/test_conformance_dual_engine.py"
+      - "tests/integration/parity/test_parity_compiles.py"
+      - "tests/integration/parity/test_parity_baseline.py"
+      - "tests/integration/parity/test_compatibility_ledger.py"
+      - "tests/integration/parity/_authority.py"
+      - "tests/integration/parity/_oracle.py"
+      - "tests/integration/parity/_registry.py"
+      - "tests/integration/parity/conftest.py"
+      - "tests/integration/parity/baselines/**"
+      - "nirs4all/pipeline/keyword_registry.py"
+      - "tests/unit/pipeline/test_keyword_registry.py"
+      - "tests/unit/docs/test_keyword_registry_extension.py"
+      - "nirs4all/compatibility_ledger.json"
+      - "docs/compatibility.json"
+      - "docs/compatibility.md"
+      - "tests/unit/docs/test_native_methods_witness_docs.py"
+      - "docs/source/reference/pipeline_keywords.md"
       - "pyproject.toml"
       - "requirements*.txt"
       - ".github/workflows/methods-installed.yml"
@@ -71,3 +90,14 @@ jobs:
           env -u N4M_LIB_PATH python -m pytest -m methods tests/unit/operators/methods/test_n4m_ops.py -q
           env -u N4M_LIB_PATH python -m pytest tests/unit/pipeline/dagml/test_terminal_predict_lowerer.py -q
           env -u N4M_LIB_PATH python -m pytest -m methods tests/integration/api/test_native_methods_witness.py -q
+          # The installed witness is the load-bearing n4m lifecycle proof.
+          # The remaining selectors are independent DAG-ML/ledger authority proofs; refit itself does not require n4m.
+          env -u N4M_LIB_PATH NIRS4ALL_REQUIRE_N4M=1 python -m pytest -q \
+            'tests/integration/api/test_native_methods_witness.py::test_installed_methods_witness_claim_closes_through_the_public_dagml_lifecycle' \
+            'tests/integration/parity/test_conformance_dual_engine.py::test_native_fallback_boundary[refit_params_use_all_partitions]' \
+            'tests/integration/parity/test_conformance_dual_engine.py::test_dual_engine_conformance[refit_params_use_all_partitions]' \
+            'tests/integration/parity/test_parity_compiles.py::test_pipeline_compiles[refit_params_use_all_partitions]' \
+            'tests/integration/parity/test_parity_baseline.py::test_every_runnable_case_has_committed_baseline' \
+            'tests/integration/parity/test_parity_baseline.py::test_legacy_gold_baseline[refit_params_use_all_partitions]' \
+            'tests/integration/parity/test_compatibility_ledger.py::test_compatibility_json_is_valid_json' \
+            'tests/integration/parity/test_compatibility_ledger.py::test_compatibility_json_matches_live_parity_authority'

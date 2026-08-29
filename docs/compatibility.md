@@ -159,7 +159,7 @@ while the Python oracle materializes `concat_transform` before CV.
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage fallback boundary — `EXPECTED_FALLBACK` (9)
+### C.1 Native-coverage fallback boundary — `EXPECTED_FALLBACK` (8)
 
 Shapes the dag-ml host bridge does **not serialize yet**. A normal
 `engine="dag-ml"` request fails closed; the parity harness exercises these rows
@@ -179,8 +179,14 @@ Source: `test_conformance_dual_engine.py` (`EXPECTED_FALLBACK`).
 | branch (duplication) + merge → multi-model | `branch_dup_three_way_merge_predictions`, `branch_dup_named_with_metamodel`, `branch_dup_merge_all` |
 | branch separation by metadata/tag/filter | `branch_separation_by_metadata_auto`, `branch_separation_by_tag`, `branch_separation_by_filter` |
 | legacy Optuna finetuning | `generator_finetune_params_optuna` |
-| legacy `refit_params` compatibility no-op | `refit_params_use_all_partitions` |
 | by-source / per-source multi-source | `multi_source_per_source_models_stacking` |
+
+Only the exact plain `PLSRegression` model step with the built-in `dict`
+`{'use_all_partitions': True}` now runs natively; this is a legacy compatibility
+no-op, not general `refit_params` support. Near `refit_params` forms remain on
+the fail-closed fallback boundary: `False` or truthy non-`bool` values, extra
+keys or non-built-in mappings, subclasses or other models, and nested or
+aliased occurrences do not gain native coverage.
 
 **`EXPECTED_FALLBACK == ∅` is the `LOCK-DROP` D1 gate, owned by L5 — not a
 `LOCK-PYREF` gate.**
@@ -282,9 +288,9 @@ contract boundary.
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
 | Non-runnable (`skip_reason` set) | **0** | no fixture/unknown/legacy-bug skips in the registry |
 | Runnable | **95** | 95 − 0 |
-| → fall back to legacy (`EXPECTED_FALLBACK`) | **9** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
+| → fall back to legacy (`EXPECTED_FALLBACK`) | **8** | boundary-asserted, no parity claim — **target → 0 (LOCK-DROP D1, L5)** |
 | → semantic preflight refusal (`EXPECTED_PREFLIGHT_REFUSAL`) | **1** | typed error; no data work, legacy fallback, or `PipelineRunner` construction |
-| → run native on dag-ml | **85** | full parity asserted or parity-note pinned |
+| → run native on dag-ml | **86** | full parity asserted or parity-note pinned |
 | Strict-xfail (documented divergence) | **0** | `KNOWN_DIVERGENCES` is empty; no `legacy_bug` rows in the current registry |
 | `pytest.skip` (fixture) | **0** | fixture skips retired |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |
@@ -293,11 +299,12 @@ contract boundary.
 
 > **Correction to prior counts:** the current machine-readable ledger and live
 > registry have no `legacy_bug`, `unknown_semantics`, or fixture skip rows. The
-> verified meter is **0** non-runnable / **95** runnable: **9** catchable
-> fallback rows, **1** typed semantic migration refusal, and **85** native rows.
+> verified meter is **0** non-runnable / **95** runnable: **8** catchable
+> fallback rows, **1** typed semantic migration refusal, and **86** native rows.
 > Stateful `concat_transform` requires an explicit native migration or
-> `engine="legacy"`; `refit_params.use_all_partitions` remains a legacy no-op
-> on the ordinary fallback boundary.
+> `engine="legacy"`; only the exact plain `PLSRegression`
+> `{'use_all_partitions': True}` no-op runs natively, while near `refit_params`
+> forms remain on the fail-closed fallback boundary.
 
 ---
 
