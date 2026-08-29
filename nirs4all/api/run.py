@@ -695,15 +695,13 @@ def run(
             Affects column headers in final summary tables. Internal variable names
             use ML conventions regardless of this setting.
 
-        engine: Execution backend selector. ``None`` (default) resolves to ``"legacy"``: the
-            public-maintained nirs4all stays pure-Python by default and runs on the in-process
-            orchestrator (interim posture until the planned global refactoring lands). ``"dag-ml"``
-            runs the pipeline natively on the dag-ml backend (Rust, in-process by default) and fails
-            closed when a pipeline shape is not yet covered or the dag-ml backend is not installed.
-            Set ``allow_legacy_fallback=True`` for the sole warning-bearing rollback path. ``"dual"`` is a strict,
-            no-fallback oracle for the small explicit-array/KFold/PLSRegression subset; it raises a
-            typed error for every other shape or unavailable native capability. Override the default
-            per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=dag-ml``).
+        engine: Execution backend selector. ``None`` (default) resolves to ``"native"``.  The
+            portable Methods lane runs covered shapes natively and rejects every other shape before
+            legacy orchestration or data consumption.  ``"legacy"`` is the explicit rollback path.
+            ``"dag-ml"`` remains the broader Rust transition path and may use its separately
+            explicit ``allow_legacy_fallback=True`` diagnostic option. ``"dual"`` is a strict,
+            no-fallback oracle for the documented explicit-array/KFold/PLSRegression subset.
+            Override the default per-process with ``$N4A_ENGINE``.
         allow_legacy_fallback: Explicit rollback policy for ``engine="dag-ml"``.
             ``None`` and ``False`` refuse unavailable or unsupported DAG-ML
             requests before the legacy engine is constructed. ``True`` is the
@@ -1230,13 +1228,10 @@ def run(
             legacy_result._dual_run_report = report
         return legacy_result
 
-    # ADR-17 backend selector (nirs4all-core -> dag-ml migration). The DEFAULT engine is LEGACY again
-    # (interim posture: the public-maintained nirs4all stays pure-Python by default until the planned
-    # global refactoring; the legacy-DROP cutover flips it back to dag-ml). dag-ml stays FULLY SELECTABLE
-    # via `engine="dag-ml"` / `$N4A_ENGINE=dag-ml`: it dispatches to the dag-ml backend, which runs the
-    # pipeline natively (Rust, IN-PROCESS by default via the PyO3 extension) and returns a RunResult of
-    # dag-ml's native scores. A plain `run()` (the legacy default) runs the in-process legacy orchestrator
-    # (`_run_legacy`).
+    # R2 backend selector.  The default is the verified native Methods lane;
+    # unsupported shapes are rejected before any legacy runner is built.
+    # ``engine="dag-ml"`` remains an explicit broader transition path and
+    # ``engine="legacy"`` remains the explicit rollback/diagnostic path.
     #
     # EXPLICIT LEGACY ROLLBACK.  A native request fails closed through the two
     # catchable capability signals below.  Only a caller that passes

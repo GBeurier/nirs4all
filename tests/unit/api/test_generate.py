@@ -19,6 +19,25 @@ class TestGenerateFunction:
         assert isinstance(dataset, SpectroDataset)
         assert dataset.num_samples == 100
 
+    def test_default_native_generation_is_refused_before_constructing_a_dataset(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """A missing generator capability cannot select legacy implicitly."""
+
+        import nirs4all
+        import nirs4all.synthesis
+
+        monkeypatch.delenv("N4A_ENGINE", raising=False)
+        monkeypatch.setattr(
+            nirs4all.synthesis,
+            "SyntheticDatasetBuilder",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("generator was constructed")),
+        )
+
+        with pytest.raises(NotImplementedError, match="nirs4all.generate"):
+            nirs4all.generate(n_samples=1)
+
     @pytest.mark.parametrize("engine", ["native", "dag-ml", "dual"])
     def test_non_legacy_engine_is_refused_before_constructing_a_dataset(self, monkeypatch: pytest.MonkeyPatch, engine: str):
         """Generation has no native capability yet and must not run implicitly."""
@@ -68,7 +87,7 @@ class TestGenerateFunction:
         """Every public generation entry point obeys the engine boundary."""
         import nirs4all
 
-        monkeypatch.setenv("N4A_ENGINE", "native")
+        monkeypatch.delenv("N4A_ENGINE", raising=False)
         with pytest.raises(NotImplementedError, match="nirs4all.generate"):
             call(nirs4all.generate, tmp_path)
 

@@ -1,8 +1,7 @@
 """The engine selector is wired into the public run() entry point.
 
-These assert the public API resolves the engine before execution — the DEFAULT engine is legacy
-(interim, pre-refactoring), while dag-ml stays fully selectable via
-``engine="dag-ml"`` / ``$N4A_ENGINE=dag-ml``. An unknown engine is rejected.
+These assert the public API resolves the engine before execution — the DEFAULT engine is native,
+while dag-ml stays selectable via ``engine="dag-ml"`` / ``$N4A_ENGINE=dag-ml``. An unknown engine is rejected.
 Native capability refusals are fail-closed unless callers explicitly request
 ``allow_legacy_fallback=True``; that opt-in emits a warning and re-runs on
 legacy. A genuine dag-ml bug still propagates untouched.
@@ -51,9 +50,9 @@ if "torch" in globals():
             return self.linear(features)
 
 
-def test_resolve_engine_default_is_legacy() -> None:
-    # default is legacy (interim, pre-refactoring). dag-ml stays fully selectable via engine="dag-ml".
-    assert resolve_engine(None) == "legacy"
+def test_resolve_engine_default_is_native(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+    assert resolve_engine(None) == "native"
     assert resolve_engine("dag-ml") == "dag-ml"
     assert resolve_engine("legacy") == "legacy"
 
@@ -163,8 +162,8 @@ def test_fail_closed_dagml_refusal_does_not_increment_fallback_counter(monkeypat
 def test_dagml_run_uses_in_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """An explicit ``engine="dag-ml"`` run() routes to the dag-ml backend, in-process by default
     (unset N4A_DAGML_INPROCESS). Asserted by capturing the dag-ml dispatch + the in-process selection,
-    so no real campaign/CLI is needed. (dag-ml is selected explicitly: the production DEFAULT is now
-    legacy — interim, pre-refactoring — so a plain run() would route to legacy instead.)"""
+    so no real campaign/CLI is needed. Dag-ml is selected explicitly because
+    the production default is the narrower Methods-native lane."""
     import nirs4all.pipeline.dagml.run_backend as run_backend
     from nirs4all.data.predictions import Predictions
     from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled
