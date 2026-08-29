@@ -9,8 +9,10 @@ on:
       - "nirs4all/api/native_*.py"
       - "nirs4all/pipeline/dagml/**"
       - "tests/unit/api/test_native_witness.py"
+      - "tests/unit/pipeline/dagml/test_terminal_predict_lowerer.py"
       - "tests/integration/api/test_native_methods_witness.py"
       - "pyproject.toml"
+      - "requirements*.txt"
       - ".github/workflows/methods-installed.yml"
   workflow_dispatch:
     inputs:
@@ -39,7 +41,7 @@ jobs:
       - name: Install released DAG-ML and nirs4all-methods wheels
         env:
           METHODS_PACKAGE: ${{ inputs.methods_package || 'nirs4all-methods==1.0.13' }}
-        run: python -m pip install "dag-ml==0.3.20" "$METHODS_PACKAGE"
+        run: python -m pip install "dag-ml==0.3.22" "$METHODS_PACKAGE"
 
       - name: Verify published DAG-ML and n4m runtime
         run: |
@@ -50,9 +52,9 @@ jobs:
           import dag_ml
           import n4m
 
-          assert version("dag-ml") == "0.3.20"
+          assert version("dag-ml") == "0.3.22"
           assert version("nirs4all-methods") == "1.0.13"
-          assert dag_ml.version() == "0.3.20"
+          assert dag_ml.version() == "0.3.22"
           abi = tuple(n4m.abi_version())
           assert len(abi) == 3 and abi[0] == 2 and abi[1] >= 2
           library = Path(n4m.library_path()).resolve(strict=True)
@@ -67,4 +69,5 @@ jobs:
           NIRS4ALL_REQUIRE_N4M: "1"
         run: |
           env -u N4M_LIB_PATH python -m pytest -m methods tests/unit/operators/methods/test_n4m_ops.py -q
+          env -u N4M_LIB_PATH python -m pytest tests/unit/pipeline/dagml/test_terminal_predict_lowerer.py -q
           env -u N4M_LIB_PATH python -m pytest -m methods tests/integration/api/test_native_methods_witness.py -q

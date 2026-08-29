@@ -617,6 +617,7 @@ def run(
     allow_legacy_fallback: bool | None = None,
     tuning: Any | None = None,
     calibration: Any | None = None,
+    terminal_predict: Mapping[str, Any] | None = None,
     results_path: str | Path | None = None,
     training_losses: tuple[Mapping[str, Any], ...] = (),
     local_implementations: Any | None = None,
@@ -755,6 +756,17 @@ def run(
             legacy runs and payloads that supply their own ``calibration_data`` remain
             fail-closed.
 
+        terminal_predict: Strict terminal X-only cohort for ``engine='native'``
+            only: ``{'X': matrix, 'sample_ids': explicit_ids}``.  This selects
+            the callback-free DAG-ML CV→REFIT→terminal-PREDICT facade, which
+            accepts only raw numeric arrays, one unshuffled ``KFold`` and one
+            default-shape ``PLSRegression``.  Groups, metadata, transforms,
+            HPO, calibration and external OOF state are refused before native
+            execution.  The returned native result exposes ordinary terminal
+            prediction output plus its opaque frozen receipt; Archive V2
+            retains its ordinary outcome/Package V2/cache payloads but never
+            archives, reloads or forges that terminal receipt.
+
         results_path: Native results output root (dag-ml engine only, P3 Slice 2b-i; OFF by default).
             When given, the dag-ml run ADDITIONALLY writes a native results directory
             ``<results_path>/<run_id>/`` (``manifest.json`` + the verbatim ``score_set.json`` +
@@ -883,6 +895,8 @@ def run(
         raise TypeError("allow_legacy_fallback must be True, False, or None")
 
     selected_engine = resolve_engine(engine)
+    if terminal_predict is not None and selected_engine != "native":
+        raise ValueError("terminal_predict is available only with engine='native'")
     if selected_engine == "dag-ml":
         # This must precede *every* DAG-ML execution route, including the tuning/calibration early
         # return below. It reads configuration only, so a stateful pre-CV concat cannot reach native work,
@@ -904,6 +918,8 @@ def run(
         from .native_training import run_native_methods
 
         if session is not None:
+            if terminal_predict is not None:
+                raise NotImplementedError("strict terminal prediction is stateless and cannot use a NativeMethodsSession")
             if tuning is not None:
                 raise NotImplementedError("engine='native' Methods HPO is stateless; do not combine tuning with a NativeMethodsSession")
             if calibration is not None:
@@ -945,6 +961,7 @@ def run(
             runner_kwargs=runner_kwargs,
             tuning=tuning,
             calibration=calibration,
+            terminal_predict=terminal_predict,
         )
     if isinstance(session, NativeMethodsSession):
         raise ValueError("NativeMethodsSession requires engine='native'; it never falls back to another engine")

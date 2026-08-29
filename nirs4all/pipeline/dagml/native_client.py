@@ -66,6 +66,27 @@ class _DagMLFacade(Protocol):
         diagnostics: Any = None,
     ) -> Any: ...
 
+    def execute_methods_cv_refit_terminal_predict(
+        self,
+        request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        predict_envelope: Any,
+        predict_input: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+        package_id: str,
+        terminal_node_id: str,
+        terminal_port: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any: ...
+
     def replay_loaded_predictor_package(
         self,
         package: Any,
@@ -238,6 +259,54 @@ class DagMLNativeClient:
             outcome_id=outcome_id,
             run_id=run_id,
             bundle_id=bundle_id,
+            warnings=warnings,
+            diagnostics=diagnostics,
+        )
+
+    def execute_methods_cv_refit_terminal_predict(
+        self,
+        request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        predict_envelope: Any,
+        predict_input: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+        package_id: str,
+        terminal_node_id: str,
+        terminal_port: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any:
+        """Execute the closed callback-free Methods CV→REFIT→PREDICT facade.
+
+        This must stay separate from ``execute_methods_training``: the latter
+        produces only an attached training result, whereas this entry point
+        atomically validates the terminal V2 cohort, hydrates the refit
+        artifact and returns the native frozen result/receipt pair.
+        """
+
+        facade = self._require_callable("execute_methods_cv_refit_terminal_predict")
+        return facade.execute_methods_cv_refit_terminal_predict(
+            request,
+            data_envelopes,
+            relations,
+            training_influence,
+            methods_inputs,
+            predict_envelope,
+            predict_input,
+            methods_library_path=methods_library_path,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            bundle_id=bundle_id,
+            package_id=package_id,
+            terminal_node_id=terminal_node_id,
+            terminal_port=terminal_port,
             warnings=warnings,
             diagnostics=diagnostics,
         )

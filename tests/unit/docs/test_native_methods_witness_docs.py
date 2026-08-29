@@ -55,14 +55,16 @@ def test_installed_methods_evidence_and_r2_release_record_are_published() -> Non
     r2_audit = _normalized(R2_AUDIT.read_text(encoding="utf-8"))
 
     assert "not pinned in CI" not in compatibility
-    assert "`methods-installed.yml` pins released `dag-ml==0.3.20` and `nirs4all-methods==1.0.13`" in compatibility
+    assert "`methods-installed.yml` pins released `dag-ml==0.3.22` and `nirs4all-methods==1.0.13`" in compatibility
+    assert "`test_terminal_predict_lowerer.py`" in compatibility
     assert "`test_native_methods_witness.py`" in compatibility
     assert "| → fall back to legacy (`EXPECTED_FALLBACK`) | **9**" in compatibility
     assert "| → semantic preflight refusal (`EXPECTED_PREFLIGHT_REFUSAL`) | **1**" in compatibility
     assert "| → run native on dag-ml | **85**" in compatibility
 
     assert "process-local live Methods execution observation" in changelog
-    assert "`dag-ml==0.3.20` and `nirs4all-methods==1.0.13`" in changelog
+    assert "`dag-ml==0.3.22` and `nirs4all-methods==1.0.13`" in changelog
+    assert "strict terminal lowerer preflight" in changelog
     assert "The public default engine remains `legacy`" in changelog
 
     assert "Le lot #122 (merge `0f612509`)" in r2_audit
