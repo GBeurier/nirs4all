@@ -27,12 +27,25 @@ class _Outcome:
         return dict(self._document)
 
 
-class _TrainingResult:
-    def __init__(self, document: dict[str, object]) -> None:
-        self._document = document
+class _AttachmentState:
+    def __init__(self) -> None:
         self.is_attached = True
+
+
+class _TrainingResult:
+    def __init__(self, document: dict[str, object], *, attachment: _AttachmentState | None = None) -> None:
+        self._document = document
+        self._attachment = attachment or _AttachmentState()
         self.detach_calls = 0
         self.raise_once_on_detach = False
+
+    @property
+    def is_attached(self) -> bool:
+        return self._attachment.is_attached
+
+    @is_attached.setter
+    def is_attached(self, value: bool) -> None:
+        self._attachment.is_attached = value
 
     @property
     def outcome_fingerprint(self) -> str:
@@ -51,6 +64,64 @@ class _TrainingResult:
             return False
         self.is_attached = False
         return True
+
+
+class _TerminalReceipt:
+    """Small exact-type stand-in for the frozen native receipt."""
+
+    def __init__(self, terminal_run_id: str, receipt_fingerprint: str) -> None:
+        self.terminal_run_id = terminal_run_id
+        self.receipt_fingerprint = receipt_fingerprint
+
+
+class _TerminalResult:
+    """Terminal raw result whose lifecycle wrapper may be read only once."""
+
+    def __init__(
+        self,
+        compatibility_training_result: _TrainingResult,
+        lifecycle_training_result: _TrainingResult,
+        receipt: _TerminalReceipt,
+    ) -> None:
+        self._training_results = (compatibility_training_result, lifecycle_training_result)
+        self._receipt = receipt
+        self._package = {"package_id": "package:terminal"}
+        self.training_result_reads = 0
+
+    @property
+    def training_result(self) -> _TrainingResult:
+        self.training_result_reads += 1
+        if self.training_result_reads > len(self._training_results):
+            raise AssertionError("terminal TrainingResult facade was read more than twice")
+        return self._training_results[self.training_result_reads - 1]
+
+    @property
+    def terminal_receipt(self) -> _TerminalReceipt:
+        return self._receipt
+
+    @property
+    def portable_predictor_package(self) -> dict[str, str]:
+        return self._package
+
+    @property
+    def terminal_prediction(self) -> dict[str, object]:
+        return {"sample_ids": ["predict:1"], "values": [[0.5]]}
+
+
+class _UnexpectedTerminalResult:
+    """Impostor that proves raw type validation precedes every getter."""
+
+    @property
+    def training_result(self) -> object:
+        raise AssertionError("untyped terminal result getter was accessed")
+
+    @property
+    def terminal_receipt(self) -> object:
+        raise AssertionError("untyped terminal result getter was accessed")
+
+    @property
+    def portable_predictor_package(self) -> object:
+        raise AssertionError("untyped terminal result getter was accessed")
 
 
 def _score_set() -> dict[str, object]:
@@ -77,6 +148,14 @@ def _score_set() -> dict[str, object]:
 def _install_dagml_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     facade = ModuleType("dag_ml")
     facade.TrainingResult = _TrainingResult
+    monkeypatch.setitem(sys.modules, "dag_ml", facade)
+
+
+def _install_terminal_dagml_facade(monkeypatch: pytest.MonkeyPatch) -> None:
+    facade = ModuleType("dag_ml")
+    facade.TrainingResult = _TrainingResult
+    facade.MethodsTerminalPredictionResult = _TerminalResult
+    facade.MethodsTerminalPredictionReceipt = _TerminalReceipt
     monkeypatch.setitem(sys.modules, "dag_ml", facade)
 
 
@@ -108,6 +187,23 @@ def _estimator(tmp_path: Path, *, callback: object | None = None) -> tuple[Simpl
 
     estimator.export_native_archive = export_native_archive
     return estimator, result
+
+
+def _terminal_estimator(tmp_path: Path) -> tuple[SimpleNamespace, _TrainingResult, _TrainingResult]:
+    """Build terminal execution state without a callback or public facade."""
+
+    estimator, training_result = _estimator(tmp_path)
+    execution = estimator.native_training_execution_
+    estimator.native_training_execution_ = SimpleNamespace(
+        methods_inputs=execution.methods_inputs,
+        methods_library_path=execution.methods_library_path,
+        run_id="run:terminal",
+    )
+    del estimator.training_result_
+    attachment = _AttachmentState()
+    compatibility_training_result = _TrainingResult(training_result._document, attachment=attachment)
+    lifecycle_training_result = _TrainingResult(training_result._document, attachment=attachment)
+    return estimator, compatibility_training_result, lifecycle_training_result
 
 
 def test_live_witness_is_exact_redacted_nonserializable_and_invalidates_after_detach(
@@ -160,6 +256,103 @@ def test_live_witness_constructor_is_internal_and_cannot_forge_a_claim(
             claim,
             _factory_capability=object(),
         )
+
+
+def test_terminal_components_validate_raw_type_before_native_getters(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _install_terminal_dagml_facade(monkeypatch)
+
+    with pytest.raises(DagMLNativeCoverageError, match="exact frozen DAG-ML terminal result"):
+        native_witness._extract_terminal_native_result_components(_UnexpectedTerminalResult())
+
+
+def test_terminal_witness_keeps_one_private_lifecycle_facade_and_historical_receipt(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_terminal_dagml_facade(monkeypatch)
+    estimator, compatibility_training_result, lifecycle_training_result = _terminal_estimator(tmp_path)
+    receipt = _TerminalReceipt("run:terminal:methods-terminal-predict", "c" * 64)
+    terminal_result = _TerminalResult(compatibility_training_result, lifecycle_training_result, receipt)
+
+    components = native_witness._extract_terminal_native_result_components(terminal_result)
+    assert terminal_result.training_result_reads == 2
+    witness = native_witness._LiveMethodsTerminalWitness.from_terminal_components(estimator, components)
+    assert terminal_result.training_result_reads == 2
+    assert witness.claim.terminal_run_id == receipt.terminal_run_id
+    assert witness.claim.receipt_fingerprint == receipt.receipt_fingerprint
+
+    assert witness.detach() is True
+    assert witness.detach() is False
+    assert lifecycle_training_result.detach_calls == 1
+    assert not compatibility_training_result.is_attached
+    assert witness._terminal_receipt_for_estimator(estimator) is receipt
+    with pytest.raises(DagMLNativeCoverageError, match="no longer attached"):
+        _ = witness.claim
+
+
+def test_terminal_witness_requires_the_exact_receipt_run_id(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_terminal_dagml_facade(monkeypatch)
+    estimator, compatibility_training_result, lifecycle_training_result = _terminal_estimator(tmp_path)
+    receipt = _TerminalReceipt("run:other:methods-terminal-predict", "c" * 64)
+    terminal_result = _TerminalResult(compatibility_training_result, lifecycle_training_result, receipt)
+    components = native_witness._extract_terminal_native_result_components(terminal_result)
+
+    with pytest.raises(DagMLNativeCoverageError, match="bound to this terminal RunId"):
+        native_witness._LiveMethodsTerminalWitness.from_terminal_components(estimator, components)
+
+
+def test_terminal_result_cannot_attest_a_forged_python_receipt_field(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    _install_terminal_dagml_facade(monkeypatch)
+    estimator, compatibility_training_result, lifecycle_training_result = _terminal_estimator(tmp_path)
+    receipt = _TerminalReceipt("run:terminal:methods-terminal-predict", "c" * 64)
+    components = native_witness._extract_terminal_native_result_components(
+        _TerminalResult(compatibility_training_result, lifecycle_training_result, receipt)
+    )
+    estimator.training_result_ = compatibility_training_result
+    result = NativeMethodsRunResult._from_terminal_components(
+        estimator,  # type: ignore[arg-type]
+        components,
+        dataset_name="native",
+        model_name="MethodsPLS",
+    )
+
+    assert result.terminal_receipt is receipt
+    estimator.training_result_ = _TrainingResult(dict(compatibility_training_result._document))
+    assert result.native_execution_claim.terminal_run_id == receipt.terminal_run_id
+    object.__setattr__(result, "_native_terminal_receipt", {"forged": True})
+    object.__setattr__(result, "_native_terminal_result", object())
+    assert result.terminal_receipt is receipt
+    assert result.terminal_prediction == {"sample_ids": ["predict:1"], "values": [[0.5]]}
+
+    result.close()
+    assert lifecycle_training_result.detach_calls == 1
+    assert result.terminal_receipt is receipt
+
+    object.__setattr__(result, "_live_witness", object())
+    with pytest.raises(DagMLNativeCoverageError, match="no strict terminal receipt"):
+        _ = result.terminal_receipt
+
+
+def test_published_terminal_pytypes_reject_public_construction_when_available() -> None:
+    dag_ml = pytest.importorskip("dag_ml")
+    terminal_type = getattr(dag_ml, "MethodsTerminalPredictionResult", None)
+    receipt_type = getattr(dag_ml, "MethodsTerminalPredictionReceipt", None)
+    if not isinstance(terminal_type, type) or not isinstance(receipt_type, type):
+        pytest.skip("installed dag-ml predates the strict terminal PyO3 facade")
+
+    for native_type in (terminal_type, receipt_type):
+        with pytest.raises(TypeError):
+            native_type()
+        with pytest.raises(TypeError):
+            object.__new__(native_type)
 
 
 def test_native_result_factory_does_not_accept_an_injected_witness_and_detects_facade_swap(
