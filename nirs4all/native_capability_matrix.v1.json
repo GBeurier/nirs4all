@@ -15,7 +15,9 @@
         "tests/unit/api/test_generate.py",
         "tests/unit/api/test_native_archive_session.py",
         "tests/unit/api/test_native_session.py",
-        "tests/unit/api/test_native_witness.py"
+        "tests/unit/api/test_native_witness.py",
+        "tests/unit/pipeline/dagml/test_terminal_predict_lowerer.py",
+        "tests/integration/api/test_native_methods_witness.py"
       ],
       "role": "native_lifecycle_verification"
     }
@@ -139,7 +141,13 @@
     "run": {
       "forms": {
         "portable_methods": {
-          "boundary": "Requires an explicit raw mapping, a documented portable Methods topology, native refit, and no workspace, cache, project, or result-path state. The returned result exposes an audit-only process-local live execution claim while its strict Methods facade remains attached.",
+          "boundary": "Requires an explicit raw mapping, a documented portable Methods topology, native refit, no terminal_predict cohort, and no workspace, cache, project, or result-path state. The returned result exposes an audit-only process-local live execution claim while its strict Methods facade remains attached.",
+          "disposition": "native",
+          "fallback": "forbidden",
+          "public_api": "nirs4all.run"
+        },
+        "terminal_predict": {
+          "boundary": "Requires explicit raw training {X, y, sample_ids} and target-free terminal_predict {X, sample_ids} cohorts, raw numeric arrays, one unshuffled KFold, one default-shape PLSRegression, and native refit. It is stateless and callback-free: groups, metadata, transforms, HPO, calibration, external OOF state, session, cache, project, result-path, and PipelineRunner state are refused before execution. Its opaque frozen terminal receipt is process-local and is never archived, reloaded, or forged by Archive V2.",
           "disposition": "native",
           "fallback": "forbidden",
           "public_api": "nirs4all.run"

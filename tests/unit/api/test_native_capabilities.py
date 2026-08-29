@@ -20,7 +20,7 @@ from nirs4all.api.native_capabilities import (
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 EXPECTED_FORMS: dict[str, dict[str, str]] = {
-    "run": {"portable_methods": "native", "unsupported_request": "refused"},
+    "run": {"portable_methods": "native", "terminal_predict": "native", "unsupported_request": "refused"},
     "predict": {
         "in_memory_result_or_session": "native",
         "archive_v2": "native",
@@ -46,6 +46,8 @@ EXPECTED_RUNTIME_TESTS = {
     "tests/unit/api/test_native_archive_session.py",
     "tests/unit/api/test_native_session.py",
     "tests/unit/api/test_native_witness.py",
+    "tests/unit/pipeline/dagml/test_terminal_predict_lowerer.py",
+    "tests/integration/api/test_native_methods_witness.py",
 }
 
 
@@ -98,6 +100,11 @@ def test_packaged_native_capability_matrix_is_complete_and_fail_closed() -> None
 
     portable_methods = matrix["operations"]["run"]["forms"]["portable_methods"]
     assert "process-local live execution claim" in portable_methods["boundary"]
+    assert "no terminal_predict cohort" in portable_methods["boundary"]
+    terminal_predict = matrix["operations"]["run"]["forms"]["terminal_predict"]
+    assert "stateless and callback-free" in terminal_predict["boundary"]
+    assert "opaque frozen terminal receipt" in terminal_predict["boundary"]
+    assert "never archived, reloaded, or forged by Archive V2" in terminal_predict["boundary"]
     archive_v2 = matrix["operations"]["export"]["forms"]["archive_v2"]
     assert "detached or closed" in archive_v2["boundary"]
 
@@ -132,6 +139,13 @@ def test_native_capability_matrix_requires_forms_callable_plugins_and_scoped_evi
     semantic_compatibility_ledger["evidence_sources"]["compatibility_context"]["role"] = "semantic_authority"
     with pytest.raises(ValueError, match="parity_tolerance_context_only"):
         validate_native_capability_matrix(semantic_compatibility_ledger)
+
+    unapproved_runtime_test = copy.deepcopy(get_native_capability_matrix())
+    unapproved_runtime_test["evidence_sources"]["runtime_tests"]["paths"].append(
+        "tests/unit/pipeline/dagml/test_unapproved_terminal_route.py"
+    )
+    with pytest.raises(ValueError):
+        validate_native_capability_matrix(unapproved_runtime_test)
 
 
 def test_native_capability_matrix_returns_a_detached_document() -> None:

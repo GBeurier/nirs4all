@@ -131,7 +131,17 @@ _NATIVE_CAPABILITY_MATRIX_SCHEMA: dict[str, Any] = {
             "additionalProperties": False,
             "properties": {
                 "paths": {
-                    "items": {"pattern": "^tests/unit/api/test_[a-z0-9_]+\\.py$", "type": "string"},
+                    "items": {
+                        "anyOf": [
+                            {"pattern": "^tests/unit/api/test_[a-z0-9_]+\\.py$", "type": "string"},
+                            {
+                                "enum": [
+                                    "tests/unit/pipeline/dagml/test_terminal_predict_lowerer.py",
+                                    "tests/integration/api/test_native_methods_witness.py",
+                                ]
+                            },
+                        ]
+                    },
                     "minItems": 1,
                     "type": "array",
                     "uniqueItems": True,
