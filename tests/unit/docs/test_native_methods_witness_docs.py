@@ -47,6 +47,22 @@ def test_native_methods_live_witness_is_documented_as_local_and_non_durable() ->
     assert not missing_module_api, "module API missing:\n" + "\n".join(missing_module_api)
 
 
+def test_native_terminal_predict_form_is_documented_as_strict_and_non_durable() -> None:
+    """The terminal run form remains distinct from ordinary portable Methods run."""
+
+    public_interfaces = _normalized(PUBLIC_INTERFACES.read_text(encoding="utf-8"))
+    required_terminal_form = (
+        '`run(..., terminal_predict={"X", "sample_ids"}, engine="native")`',
+        "Supported strict terminal form",
+        "callback-free DAG-ML CV→REFIT→terminal-PREDICT facade",
+        "opaque frozen receipt is process-local",
+        "Archive V2 never archives, reloads, or forges that terminal receipt",
+    )
+
+    missing = [phrase for phrase in required_terminal_form if phrase not in public_interfaces]
+    assert not missing, "public Interfaces terminal form missing:\n" + "\n".join(missing)
+
+
 def test_installed_methods_evidence_and_r2_release_record_are_published() -> None:
     """The documented CI proof preserves its narrow R2/default boundary."""
 
@@ -72,6 +88,18 @@ def test_installed_methods_evidence_and_r2_release_record_are_published() -> Non
     assert "`dag-ml==0.3.19` et `nirs4all-methods==1.0.13`" in r2_audit
     assert "ne rend pas R2 complet" in r2_audit
     assert "ne change pas le défaut `legacy`" in r2_audit
+
+
+def test_r2_audit_links_to_the_available_root_roadmap_without_reclassifying_historical_ids() -> None:
+    """The audit must not cite a removed roadmap or invent sections in the current one."""
+
+    r2_audit = _normalized(R2_AUDIT.read_text(encoding="utf-8"))
+
+    assert (REPOSITORY_ROOT / "Roadmap.md").is_file()
+    assert "[`Roadmap.md`](../../../Roadmap.md)" in r2_audit
+    assert "ROADMAP_BACKEND_NATIF_V1.md" not in r2_audit
+    assert "repères historiques de portage" in r2_audit
+    assert "ne désignent pas des sections de cette feuille de route" in r2_audit
 
 
 def test_documented_compatibility_counts_follow_the_packaged_ledger() -> None:

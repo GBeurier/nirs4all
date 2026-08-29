@@ -7,9 +7,11 @@ une déclaration que R2 est prêt.
 ## Point de départ
 
 L'audit a été réalisé depuis `main` au commit `25a4d652` (`feat(native): close
-R2 API safety boundaries (#111)`). La référence produit reste le roadmap
-racine `ROADMAP_BACKEND_NATIF_V1.md`, en particulier les lots `API-001` à
-`API-005`, `DAG-001` et `HPO-001`.
+R2 API safety boundaries (#111)`). La référence produit disponible est la
+feuille de route racine [`Roadmap.md`](../../../Roadmap.md). Les identifiants
+`API-001` à `API-005`, `DAG-001` et `HPO-001` sont conservés dans le présent
+audit comme repères historiques de portage ; ils ne désignent pas des sections
+de cette feuille de route.
 
 Le défaut est encore `legacy`. Le chemin `dag-ml` est sélectionnable et
 fail-closed par défaut ; un rollback legacy demande explicitement
