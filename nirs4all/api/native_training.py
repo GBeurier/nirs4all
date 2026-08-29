@@ -12,7 +12,7 @@ import importlib
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Protocol, cast
 
 import numpy as np
 
@@ -184,6 +184,19 @@ class _StrictMethodsTerminalExecution:
     package_id: str
 
 
+class _StrictMethodsTerminalExecutionCarrier(Protocol):
+    """Post-terminal structural view of the estimator's execution record.
+
+    ``DagMLPipelineEstimator.fit`` records a generic
+    :class:`DagMLTrainingExecution`, whose callback field is deliberately
+    absent from the terminal facade.  The terminal route therefore mounts this
+    narrower, callback-free execution record without widening the generic
+    training contract or passing through ``Any``.
+    """
+
+    native_training_execution_: _StrictMethodsTerminalExecution
+
+
 def _run_strict_methods_terminal_prediction(
     pipeline: list[Any],
     dataset: Mapping[str, Any],
@@ -338,7 +351,7 @@ def _terminal_result_estimator(
     estimator.predictor_package_ = package
     estimator.fit_identity_frame_ = execution.fit_identity_frame
     estimator.n_features_in_ = execution.n_features
-    estimator.native_training_execution_ = _StrictMethodsTerminalExecution(
+    terminal_execution = _StrictMethodsTerminalExecution(
         methods_inputs=execution.methods_inputs,
         methods_library_path=methods_library_path,
         terminal_node_id=execution.terminal_node_id,
@@ -347,6 +360,12 @@ def _terminal_result_estimator(
         bundle_id=execution.bundle_id,
         package_id=execution.package_id,
     )
+    # ``DagMLPipelineEstimator`` normally learns this dynamic fitted-state
+    # attribute from ``fit()``.  The strict terminal facade never calls that
+    # generic path, so retain its distinct callback-free record through the
+    # exact structural contract instead of an ``Any`` cast.
+    terminal_execution_carrier = cast(_StrictMethodsTerminalExecutionCarrier, estimator)
+    terminal_execution_carrier.native_training_execution_ = terminal_execution
     return estimator
 
 
