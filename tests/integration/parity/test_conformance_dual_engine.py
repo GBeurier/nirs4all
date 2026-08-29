@@ -391,10 +391,6 @@ EXPECTED_FALLBACK: frozenset[str] = frozenset({
     # native dag-ml path does not serialize/execute `finetune_params` yet, so the
     # public strict path rejects it rather than silently run the untuned model.
     "generator_finetune_params_optuna",
-    # ``refit_params.use_all_partitions`` is a legacy compatibility no-op. DAG-ML
-    # does not lower that legacy-only key, so the diagnostic rollback retains its
-    # historical behavior without inventing a semantic migration requirement.
-    "refit_params_use_all_partitions",
     # by-source separation / per-source models / source-concat multi-source shapes.
     "multi_source_per_source_models_stacking",
 })

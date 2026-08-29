@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `nirs4all-methods==1.0.13`, proving strict terminal lowerer preflight plus
   the live claim → close → Archive V2 lifecycle without `N4M_LIB_PATH`.
 
+### Fixed
+
+- Promote only the exact plain `PLSRegression` `refit_params`
+  `{'use_all_partitions': True}` compatibility no-op from the conformance
+  fallback allowlist to native DAG-ML; nearby `refit_params` forms remain
+  fail-closed on the fallback boundary.
+
 The public default engine remains `legacy`; this evidence does not promote the
 native lane or alter the explicit rollback boundary.
 

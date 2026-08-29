@@ -11,13 +11,171 @@ from __future__ import annotations
 from collections.abc import Mapping
 from typing import Any
 
-from nirs4all.pipeline.dagml_bridge import is_grid_param_generator_spec, is_param_generator_spec
-
 SUPPORTED_FINETUNE_META_KEYS = frozenset({"model_params", "metric", "direction", "eval_mode", "approach", "engine"})
 DETERMINISTIC_FINETUNE_ENGINES = frozenset({"", "dag-ml", "dagml", "native", "grid"})
 CORE_DAGML_SELECTION_METRICS = frozenset({"mse", "rmse", "mae", "r2", "accuracy", "balanced_accuracy"})
 PUBLIC_DAGML_SELECTION_METRICS = frozenset({"rmse", "accuracy", "balanced_accuracy"})
 UNSUPPORTED_NATIVE_TRAINING_PARAM_KEYS = frozenset({"train_params", "refit_params"})
+_REFIT_NOOP_MODEL_STEP_KEYS = frozenset({"name", "model", "refit_params"})
+_BRANCH_CONFIG_KEYS = frozenset({"parallel", "n_jobs"})
+_SEPARATION_BRANCH_KEYS = frozenset({"by_source", "by_tag", "by_metadata", "by_filter"})
+
+
+def _is_safe_refit_noop_direct_step(value: Any) -> bool:
+    """Whether a direct item is unambiguously non-model for the no-op proof."""
+
+    if value is None:
+        return True
+    if isinstance(value, (str, bytes, bytearray)):
+        return False
+    is_predictor = callable(getattr(value, "predict", None))
+    return (
+        callable(getattr(value, "split", None)) and not is_predictor
+    ) or (
+        callable(getattr(value, "transform", None)) and not is_predictor
+    )
+
+
+def _has_nested_structural_refit_params(steps: list[Any]) -> bool:
+    """Find refit keys only inside executable branch/wrapper/generator grammar.
+
+    Arbitrary estimator, preprocessing, metadata, and label payload mappings
+    remain opaque. The active identity stack makes malformed cyclic branch
+    payloads fail safely without treating aliases as a single occurrence.
+    """
+
+    from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS
+
+    active_container_ids: set[int] = set()
+
+    def enter(value: Any) -> bool:
+        value_id = id(value)
+        if value_id in active_container_ids:
+            return False
+        active_container_ids.add(value_id)
+        return True
+
+    def visit_sequence(value: Any, *, branch_body: bool = False) -> bool:
+        if not isinstance(value, (list, tuple)):
+            return visit_step(value, branch_body=branch_body)
+        if not enter(value):
+            return False
+        try:
+            return any(visit_sequence(item, branch_body=branch_body) for item in value)
+        finally:
+            active_container_ids.remove(id(value))
+
+    def visit_step(value: Any, *, branch_body: bool = False, branch_list_wrapper: bool = False) -> bool:
+        if not isinstance(value, dict):
+            return False
+        if not enter(value):
+            return False
+        try:
+            if branch_list_wrapper and "steps" in value:
+                return visit_sequence(value["steps"], branch_body=True)
+            if branch_body and "refit_params" in value:
+                return True
+            if branch_body and any(key in GENERATION_KEYWORDS for key in value):
+                return visit_generator(value)
+            if "branch" in value:
+                return visit_branch(value["branch"])
+            if not branch_body and set(value) <= {"name", "pipeline"} and "pipeline" in value:
+                return visit_sequence(value["pipeline"], branch_body=True)
+            if not branch_body and set(value) <= {"name", "steps"} and "steps" in value:
+                return visit_sequence(value["steps"], branch_body=True)
+            return False
+        finally:
+            active_container_ids.remove(id(value))
+
+    def visit_generator(value: dict[Any, Any]) -> bool:
+        """Inspect generator choices, but never arbitrary sibling payload maps."""
+
+        return any(
+            visit_sequence(payload, branch_body=True)
+            for key, payload in value.items()
+            if key in GENERATION_KEYWORDS
+        )
+
+    def visit_separation_body(value: Any) -> bool:
+        if not isinstance(value, dict) or {"model", "branch", "refit_params"} & set(value):
+            return visit_sequence(value, branch_body=True)
+        if not enter(value):
+            return False
+        try:
+            return any(visit_sequence(body, branch_body=True) for body in value.values())
+        finally:
+            active_container_ids.remove(id(value))
+
+    def visit_branch(value: Any) -> bool:
+        if isinstance(value, (list, tuple)):
+            if not enter(value):
+                return False
+            try:
+                return any(
+                    visit_sequence(body, branch_body=True)
+                    if isinstance(body, (list, tuple))
+                    else visit_step(body, branch_body=True, branch_list_wrapper=True)
+                    for body in value
+                )
+            finally:
+                active_container_ids.remove(id(value))
+        if not isinstance(value, dict):
+            return visit_sequence(value, branch_body=True)
+        if not enter(value):
+            return False
+        try:
+            if any(key in GENERATION_KEYWORDS for key in value):
+                return visit_generator(value)
+            if _SEPARATION_BRANCH_KEYS & set(value):
+                return visit_separation_body(value.get("steps"))
+            return any(
+                visit_sequence(body, branch_body=True)
+                for name, body in value.items()
+                if isinstance(name, str) and not name.startswith("_") and name not in _BRANCH_CONFIG_KEYS
+            )
+        finally:
+            active_container_ids.remove(id(value))
+
+    return visit_sequence(steps)
+
+
+def _is_supported_native_refit_params_noop(steps: list[Any]) -> bool:
+    """Whether the sole legacy refit option is safe for native PLS to ignore.
+
+    ``use_all_partitions`` is a legacy controller no-op for exactly one plain,
+    top-level :class:`~sklearn.cross_decomposition.PLSRegression` model step.
+    Keep the proof deliberately narrow: cycles, aliases, bare estimators, a
+    subclass, another model, another occurrence, or any payload variation
+    remains on the fail-closed boundary.
+    """
+
+    from sklearn.cross_decomposition import PLSRegression
+
+    model_step: dict[Any, Any] | None = None
+    for step in steps:
+        if isinstance(step, dict):
+            if type(step) is not dict or model_step is not None:
+                return False
+            if set(step) - _REFIT_NOOP_MODEL_STEP_KEYS or {"model", "refit_params"} - set(step):
+                return False
+            if "name" in step and type(step["name"]) is not str:
+                return False
+            model_step = step
+        elif not _is_safe_refit_noop_direct_step(step):
+            return False
+
+    if model_step is None:
+        return False
+
+    model = model_step["model"]
+    if type(model) is not PLSRegression or "use_all_partitions" in model.get_params(deep=False):
+        return False
+
+    refit_params = model_step["refit_params"]
+    if type(refit_params) is not dict or len(refit_params) != 1:
+        return False
+    key, value = next(iter(refit_params.items()))
+    return type(key) is str and key == "use_all_partitions" and value is True
 
 
 def reject_native_training_param_overrides(
@@ -55,6 +213,8 @@ def lower_deterministic_finetune_params_to_generators(
         - trial counts, samplers, pruners and phases;
         - train/refit fit-argument sampling.
     """
+
+    from nirs4all.pipeline.dagml_bridge import is_grid_param_generator_spec, is_param_generator_spec
 
     lowered: list[Any] = []
     overrides: dict[str, str] = {}

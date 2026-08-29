@@ -106,7 +106,7 @@ register(
     PipelineCase(
         name="refit_params_use_all_partitions",
         description="Legacy `refit_params: {use_all_partitions: True}` compatibility no-op → PLSR. "
-        "The DAG-ML path keeps this legacy-only key on the ordinary fallback boundary.",
+        "The native DAG-ML path accepts exactly this no-op while retaining the original pipeline identity.",
         keywords=("refit_params", "model", "name"),
         capabilities=(
             "preprocessing_transform",

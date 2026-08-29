@@ -232,11 +232,19 @@ These similarly named dictionaries act at different lifecycle stages:
 3. Step-level `refit_params` overrides `train_params` only for the selected
    legacy winner's refit; missing values inherit from `train_params`.
 
-The current DAG-ML lowering rejects all fit-argument scopes that it cannot
-preserve: `finetune_params.train_params`, step-level `train_params`, and
-`refit_params`. Their DAG-ML support is explicitly `unsupported`, not partial.
-On the legacy path all three can change the deployed predictor. A conformal
-calibrator fitted before such a change is stale and must not be reused.
+DAG-ML still rejects `finetune_params.train_params` and step-level
+`train_params`. Step-level `refit_params` is **partial**: the sole accepted
+exception is the exact built-in `{"use_all_partitions": True}` no-op mapping on
+exactly one top-level model step whose model is exactly
+`sklearn.cross_decomposition.PLSRegression`; that step may carry only an
+optional `name` sibling. The pipeline is not mutated, so its original legacy
+configuration identity is retained.
+
+Every false, extra, or non-built-in payload; PLS subclass or other estimator;
+additional or nested model/refit step; and serialized or workflow step remains
+rejected before native execution. Outside that no-op, all three legacy scopes
+can change the deployed predictor. A conformal calibrator fitted before such a
+change is stale and must not be reused.
 
 (planned-full-dag-tuning)=
 ### Full-DAG tuning
