@@ -95,7 +95,7 @@ class KeywordRegistry(TypedDict):
 
 KEYWORD_REGISTRY_SCHEMA_ID: Final = "https://nirs4all.org/schemas/keyword-effects/v1"
 KEYWORD_REGISTRY_SCHEMA_VERSION: Final = 1
-KEYWORD_REGISTRY_VERSION: Final = "1.0.0"
+KEYWORD_REGISTRY_VERSION: Final = "1.0.1"
 
 _OBJECT_SCHEMA: Final[dict[str, Any]] = {"type": "object"}
 _STRING_SCHEMA: Final[dict[str, Any]] = {"type": "string", "minLength": 1}
@@ -553,8 +553,12 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "reads": ["development"],
         "changes": ["final_predictor"],
         "invalidates_calibration": "always",
-        "engine_support": {"legacy": "supported", "dag-ml": "unsupported"},
-        "summary": "Overrides train_params only during legacy winner refit; DAG-ML currently rejects it before native execution.",
+        "engine_support": {"legacy": "supported", "dag-ml": "partial"},
+        "summary": (
+            "Overrides train_params only during legacy winner refit. DAG-ML accepts only the exact "
+            "{'use_all_partitions': True} no-op on one top-level exact PLSRegression model step "
+            "(optional name only); every other refit_params shape is rejected before native execution."
+        ),
         "docs_anchor": "three-training-parameter-scopes",
         "ui": {"label": "Winner refit parameters", "group": "training", "control": "object", "order": 80},
     },
