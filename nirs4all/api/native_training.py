@@ -11,13 +11,14 @@ from __future__ import annotations
 import importlib
 from collections.abc import Mapping, Sequence
 from contextlib import suppress
-from typing import Any, cast
+from dataclasses import dataclass
+from typing import Any, Protocol, cast
 
 import numpy as np
 
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
 from nirs4all.pipeline.dagml.methods_runtime import resolve_methods_library_path
-from nirs4all.pipeline.dagml.native_client import DagMLNativeCoverageError
+from nirs4all.pipeline.dagml.native_client import DagMLNativeClient, DagMLNativeCoverageError
 from nirs4all.pipeline.dagml.native_conformal_calibration import (
     NativeConformalCalibrationError,
     compile_methods_conformal_calibration_replay,
@@ -31,6 +32,10 @@ from nirs4all.pipeline.dagml.raw_training_lowerer import (
     RawArrayDagMLTrainingCompiler,
     lower_raw_array_training_contracts,
 )
+from nirs4all.pipeline.dagml.terminal_predict_lowerer import (
+    StrictMethodsTerminalPredictionExecution,
+    lower_strict_methods_terminal_prediction,
+)
 
 from .native_refit_result import NativeMethodsRefitResult
 from .native_result import NativeMethodsRunResult
@@ -40,6 +45,10 @@ from .native_retrain_lineage import (
 from .native_retrain_lineage import (
     SEED_DIAGNOSTIC_KEY,
     NativeRetrainLineage,
+)
+from .native_witness import (
+    _extract_terminal_native_result_components,
+    _TerminalNativeResultComponents,
 )
 
 
@@ -157,6 +166,219 @@ def fit_native_pipeline(
         raise
 
 
+@dataclass(frozen=True)
+class _StrictMethodsTerminalExecution:
+    """Runtime details retained for terminal lifecycle and later Package V2 replay.
+
+    This deliberately has no callback field.  The terminal lowerer and client
+    are separate from the generic native training compiler so no Python model
+    or node callback can enter the CV→REFIT→terminal-PREDICT operation.
+    """
+
+    methods_inputs: Mapping[str, Any]
+    methods_library_path: str
+    terminal_node_id: str
+    terminal_port: str
+    run_id: str
+    bundle_id: str
+    package_id: str
+
+
+class _StrictMethodsTerminalExecutionCarrier(Protocol):
+    """Post-terminal structural view of the estimator's execution record.
+
+    ``DagMLPipelineEstimator.fit`` records a generic
+    :class:`DagMLTrainingExecution`, whose callback field is deliberately
+    absent from the terminal facade.  The terminal route therefore mounts this
+    narrower, callback-free execution record without widening the generic
+    training contract or passing through ``Any``.
+    """
+
+    native_training_execution_: _StrictMethodsTerminalExecution
+
+
+def _run_strict_methods_terminal_prediction(
+    pipeline: list[Any],
+    dataset: Mapping[str, Any],
+    *,
+    terminal_predict: Mapping[str, Any],
+    name: str,
+    session: Any,
+    save_artifacts: bool,
+    save_charts: bool,
+    plots_visible: bool,
+    random_state: int | None,
+    refit: bool | None,
+    cache: Any,
+    project: str | None,
+    report_naming: str,
+    results_path: Any,
+    runner_kwargs: Mapping[str, Any] | None,
+    tuning: Any,
+    calibration: Any,
+    retrain_lineage: NativeRetrainLineage | None,
+) -> NativeMethodsRunResult:
+    """Run the one callback-free terminal facade after complete Python preflight."""
+
+    if not isinstance(dataset, Mapping):
+        raise TypeError("strict terminal prediction requires dataset={'X', 'y', 'sample_ids'}")
+    unknown = set(dataset) - {"X", "y", "sample_ids"}
+    if unknown:
+        raise ValueError(
+            "strict terminal prediction rejects groups/metadata and other dataset keys: "
+            f"{sorted(unknown)}"
+        )
+    missing = {"X", "y", "sample_ids"} - set(dataset)
+    if missing:
+        raise ValueError(f"strict terminal prediction dataset is missing required keys: {sorted(missing)}")
+    if session is not None:
+        raise NotImplementedError("strict terminal prediction is stateless and cannot use a NativeMethodsSession")
+    if save_artifacts is not True:
+        raise ValueError("strict terminal prediction requires save_artifacts=True for Package V2")
+    if save_charts or plots_visible:
+        raise NotImplementedError("strict terminal prediction does not support legacy charts or interactive plots")
+    if refit is not True:
+        raise NotImplementedError("strict terminal prediction requires refit=True (native refit_one)")
+    if cache is not None or project is not None or results_path is not None:
+        raise NotImplementedError("strict terminal prediction does not support cache, project, or results_path")
+    if report_naming != "nirs":
+        raise NotImplementedError("strict terminal prediction supports only report_naming='nirs'")
+    if runner_kwargs:
+        raise NotImplementedError(f"strict terminal prediction does not accept legacy runner kwargs: {sorted(runner_kwargs)}")
+    if tuning is not None or calibration is not None:
+        raise NotImplementedError("strict terminal prediction rejects HPO and calibration")
+    if retrain_lineage is not None:
+        raise NotImplementedError("strict terminal prediction rejects retrain lineage metadata")
+    if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
+        raise TypeError("strict terminal prediction random_state must be an integer or None")
+
+    seed = 12345 if random_state is None else random_state
+    # This lowerer finishes every input/policy/width validation and V2 cohort
+    # derivation before libn4m is resolved or any native operation can run.
+    execution = lower_strict_methods_terminal_prediction(
+        pipeline,
+        dataset["X"],
+        dataset["y"],
+        sample_ids=dataset["sample_ids"],
+        terminal_predict=terminal_predict,
+        seed=seed,
+    )
+    methods_library_path = resolve_methods_library_path()
+    terminal_result: Any | None = None
+    terminal_components: _TerminalNativeResultComponents | None = None
+    estimator: DagMLPipelineEstimator | None = None
+    try:
+        terminal_result = DagMLNativeClient().execute_methods_cv_refit_terminal_predict(
+            execution.request,
+            execution.data_envelopes,
+            execution.relations,
+            execution.training_influence,
+            execution.methods_inputs,
+            execution.predict_envelope,
+            execution.predict_input,
+            methods_library_path=methods_library_path,
+            outcome_id=execution.outcome_id,
+            run_id=execution.run_id,
+            bundle_id=execution.bundle_id,
+            package_id=execution.package_id,
+            terminal_node_id=execution.terminal_node_id,
+            terminal_port=execution.terminal_port,
+        )
+        terminal_components = _extract_terminal_native_result_components(terminal_result)
+        estimator = _terminal_result_estimator(
+            pipeline,
+            execution,
+            terminal_components,
+            methods_library_path=methods_library_path,
+        )
+        return NativeMethodsRunResult._from_terminal_components(
+            estimator,
+            terminal_components,
+            dataset_name=name or "native",
+            model_name=_native_model_name(pipeline),
+        )
+    except BaseException:
+        # The native terminal result owns an attached TrainingResult even when
+        # a Python projection or Package V2 validation fails.  Release only
+        # that lifecycle facade; never replace or decode its frozen receipt.
+        if terminal_components is not None:
+            with suppress(BaseException):
+                _detach_terminal_training_result(terminal_components.lifecycle_training_result)
+        elif terminal_result is not None:
+            with suppress(BaseException):
+                components = _extract_terminal_native_result_components(terminal_result)
+                _detach_terminal_training_result(components.lifecycle_training_result)
+        raise
+
+
+def _terminal_result_estimator(
+    pipeline: list[Any],
+    execution: StrictMethodsTerminalPredictionExecution,
+    terminal_components: _TerminalNativeResultComponents,
+    *,
+    methods_library_path: str,
+) -> DagMLPipelineEstimator:
+    """Attach direct native terminal components to the normal replay/export adapter."""
+
+    if type(terminal_components) is not _TerminalNativeResultComponents:
+        raise TypeError("strict terminal estimator requires verified native terminal components")
+    training_result = terminal_components.compatibility_training_result
+    package = terminal_components.portable_predictor_package
+    try:
+        validate_native_methods_package(package)
+    except RawArrayMethodsReplayError as error:
+        raise DagMLNativeCoverageError(
+            "strict terminal DAG-ML result did not retain a replayable portable Methods Package V2"
+        ) from error
+    estimator = DagMLPipelineEstimator(
+        pipeline=pipeline,
+        selection_output_id="output:prediction",
+        package_id=execution.package_id,
+        prediction_compiler=RawArrayMethodsReplayCompiler(
+            package,
+            methods_library_path=methods_library_path,
+        ),
+        prediction_identity_decoder=_decode_raw_methods_prediction,
+        require_explicit_sample_ids=True,
+    )
+    # sklearn's replay surface requires this fitted-state marker.  It is a
+    # separate public facade from the witness's private lifecycle facade, so
+    # rebinding it cannot forge a live terminal claim or redirect close().
+    estimator.training_result_ = training_result
+    estimator.training_outcome_ = getattr(training_result, "outcome", None)
+    estimator.outputs_ = list(getattr(training_result, "outputs", []) or [])
+    estimator.output_binding_ = estimator._select_output_binding(estimator.outputs_)
+    estimator.predictor_package_ = package
+    estimator.fit_identity_frame_ = execution.fit_identity_frame
+    estimator.n_features_in_ = execution.n_features
+    terminal_execution = _StrictMethodsTerminalExecution(
+        methods_inputs=execution.methods_inputs,
+        methods_library_path=methods_library_path,
+        terminal_node_id=execution.terminal_node_id,
+        terminal_port=execution.terminal_port,
+        run_id=execution.run_id,
+        bundle_id=execution.bundle_id,
+        package_id=execution.package_id,
+    )
+    # ``DagMLPipelineEstimator`` normally learns this dynamic fitted-state
+    # attribute from ``fit()``.  The strict terminal facade never calls that
+    # generic path, so retain its distinct callback-free record through the
+    # exact structural contract instead of an ``Any`` cast.
+    terminal_execution_carrier = cast(_StrictMethodsTerminalExecutionCarrier, estimator)
+    terminal_execution_carrier.native_training_execution_ = terminal_execution
+    return estimator
+
+
+def _detach_terminal_training_result(training_result: Any) -> None:
+    """Best-effort cleanup of the one private terminal lifecycle facade."""
+
+    if getattr(training_result, "is_attached", None) is not True:
+        return
+    detach = getattr(training_result, "detach", None)
+    if callable(detach):
+        detach()
+
+
 def run_native_methods(
     pipeline: list[Any],
     dataset: Mapping[str, Any],
@@ -175,6 +397,7 @@ def run_native_methods(
     runner_kwargs: Mapping[str, Any] | None = None,
     tuning: Any = None,
     calibration: Any = None,
+    terminal_predict: Mapping[str, Any] | None = None,
     retrain_lineage: NativeRetrainLineage | None = None,
 ) -> NativeMethodsRunResult:
     """Run the verified public Methods training subset without a legacy runner.
@@ -194,6 +417,28 @@ def run_native_methods(
     execution, resume validation, SELECT, native incumbent attestation, and
     the single selected rerun/refit.
     """
+
+    if terminal_predict is not None:
+        return _run_strict_methods_terminal_prediction(
+            pipeline,
+            dataset,
+            terminal_predict=terminal_predict,
+            name=name,
+            session=session,
+            save_artifacts=save_artifacts,
+            save_charts=save_charts,
+            plots_visible=plots_visible,
+            random_state=random_state,
+            refit=refit,
+            cache=cache,
+            project=project,
+            report_naming=report_naming,
+            results_path=results_path,
+            runner_kwargs=runner_kwargs,
+            tuning=tuning,
+            calibration=calibration,
+            retrain_lineage=retrain_lineage,
+        )
 
     if not isinstance(dataset, Mapping):
         raise TypeError("engine='native' requires dataset={'X': matrix, 'y': targets, 'sample_ids': explicit_ids}")

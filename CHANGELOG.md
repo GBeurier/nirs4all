@@ -16,9 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the retained witness/result are non-serializable, and the claim does not
   replace the signed outcome or portable package. Core Archive V2 export
   remains available after release of the live facade.
-- Add an installed-wheel Methods gate for released `dag-ml==0.3.20` and
-  `nirs4all-methods==1.0.13`, proving the live claim → close → Archive V2
-  lifecycle without `N4M_LIB_PATH`.
+- Update the installed-wheel Methods gate to released `dag-ml==0.3.22` and
+  `nirs4all-methods==1.0.13`, proving strict terminal lowerer preflight plus
+  the live claim → close → Archive V2 lifecycle without `N4M_LIB_PATH`.
 
 The public default engine remains `legacy`; this evidence does not promote the
 native lane or alter the explicit rollback boundary.

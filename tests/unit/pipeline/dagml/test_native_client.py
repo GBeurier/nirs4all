@@ -196,6 +196,73 @@ def test_execute_methods_training_forwards_without_a_python_operator_callback(
     ]
 
 
+def test_execute_methods_terminal_predict_forwards_without_a_callback_or_generic_training(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_methods_terminal"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    sentinel = object()
+
+    def terminal_predict(*args: Any, **kwargs: Any) -> object:
+        calls.append((args, kwargs))
+        return sentinel
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(
+            module_name,
+            execute_methods_cv_refit_terminal_predict=terminal_predict,
+            execute_methods_training=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("strict terminal client selected generic Methods training")
+            ),
+        ),
+    )
+
+    result = DagMLNativeClient(module_name).execute_methods_cv_refit_terminal_predict(
+        {"request": "strict"},
+        {"model:terminal.x": {"envelope": "fit"}},
+        {"records": []},
+        {"entries": []},
+        {"model:terminal.x": {"sample_ids": ["fit-a"], "x": [[1.0]], "y": [[2.0]]}},
+        {"schema_version": 2, "predict_cohort": {"role": "inference"}},
+        {"sample_ids": ["predict-a"], "x": [[3.0]], "target_names": ["y"]},
+        methods_library_path="/absolute/libn4m.so",
+        outcome_id="outcome:terminal",
+        run_id="run:terminal",
+        bundle_id="bundle:terminal",
+        package_id="package:terminal",
+        terminal_node_id="model:terminal",
+        terminal_port="oof",
+    )
+
+    assert result is sentinel
+    assert calls == [
+        (
+            (
+                {"request": "strict"},
+                {"model:terminal.x": {"envelope": "fit"}},
+                {"records": []},
+                {"entries": []},
+                {"model:terminal.x": {"sample_ids": ["fit-a"], "x": [[1.0]], "y": [[2.0]]}},
+                {"schema_version": 2, "predict_cohort": {"role": "inference"}},
+                {"sample_ids": ["predict-a"], "x": [[3.0]], "target_names": ["y"]},
+            ),
+            {
+                "methods_library_path": "/absolute/libn4m.so",
+                "outcome_id": "outcome:terminal",
+                "run_id": "run:terminal",
+                "bundle_id": "bundle:terminal",
+                "package_id": "package:terminal",
+                "terminal_node_id": "model:terminal",
+                "terminal_port": "oof",
+                "warnings": (),
+                "diagnostics": None,
+            },
+        )
+    ]
+
+
 def test_portable_full_refit_and_v3_replay_forward_without_python_sidecars(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, SupportsIndex
+from typing import Any, SupportsIndex, cast
 
 from nirs4all.api.result import RunResult
 from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
@@ -19,7 +19,13 @@ from nirs4all.pipeline.dagml.result import _scores_to_run_result
 
 from .native_retrain_lineage import DIAGNOSTIC_KEY as RETRAIN_LINEAGE_DIAGNOSTIC_KEY
 from .native_retrain_lineage import NativeRetrainLineage
-from .native_witness import NativeMethodsExecutionClaim, _LiveMethodsWitness
+from .native_witness import (
+    NativeMethodsExecutionClaim,
+    NativeMethodsTerminalExecutionClaim,
+    _LiveMethodsTerminalWitness,
+    _LiveMethodsWitness,
+    _TerminalNativeResultComponents,
+)
 
 _RESULT_FACTORY_CAPABILITY = object()
 
@@ -39,14 +45,14 @@ class NativeMethodsRunResult(RunResult):
         estimator: DagMLPipelineEstimator,
         *,
         archive_id: str,
-        live_witness: _LiveMethodsWitness,
+        live_witness: _LiveMethodsWitness | _LiveMethodsTerminalWitness,
         _factory_capability: object,
     ) -> None:
         if _factory_capability is not _RESULT_FACTORY_CAPABILITY:
             raise TypeError("native Methods results can only be created by the verified internal factory")
         if not isinstance(archive_id, str) or not archive_id:
             raise ValueError("native archive_id must be a non-empty string")
-        if type(live_witness) is not _LiveMethodsWitness:
+        if type(live_witness) not in {_LiveMethodsWitness, _LiveMethodsTerminalWitness}:
             raise TypeError("native Methods results require an internal live execution witness")
         super().__init__(
             predictions=projected.predictions,
@@ -96,6 +102,54 @@ class NativeMethodsRunResult(RunResult):
             _factory_capability=_RESULT_FACTORY_CAPABILITY,
         )
 
+    @classmethod
+    def _from_terminal_components(
+        cls,
+        estimator: DagMLPipelineEstimator,
+        components: _TerminalNativeResultComponents,
+        *,
+        dataset_name: str,
+        model_name: str,
+        metric: str = "rmse",
+        task_type: str = "regression",
+    ) -> NativeMethodsRunResult:
+        """Project verified terminal native components without re-execution.
+
+        The live witness is the sole private owner of the raw PyO3 terminal
+        result and receipt.  It also retains the one extracted TrainingResult
+        facade solely for lifecycle detach/close; no raw terminal object is
+        copied onto this public Python wrapper.
+        """
+
+        witness = _LiveMethodsTerminalWitness.from_terminal_components(estimator, components)
+        outcome = _outcome_document(estimator)
+        scores = outcome.get("score_set")
+        if not isinstance(scores, Mapping):
+            raise DagMLNativeCoverageError("strict terminal Methods training did not return a canonical ScoreSet")
+        fingerprint = outcome.get("outcome_fingerprint")
+        if not isinstance(fingerprint, str) or not fingerprint:
+            raise DagMLNativeCoverageError(
+                "strict terminal Methods training did not return an outcome fingerprint for Archive V2 export"
+            )
+        projected = _scores_to_run_result(
+            dict(scores),
+            dataset_name,
+            model_name,
+            metric,
+            task_type,
+        )
+        if witness._claim_for_estimator(estimator).outcome_fingerprint != fingerprint:
+            raise DagMLNativeCoverageError(
+                "strict terminal Methods live witness fingerprint does not match the projected training outcome"
+            )
+        return cls(
+            projected,
+            estimator,
+            archive_id=f"archive:{fingerprint}",
+            live_witness=witness,
+            _factory_capability=_RESULT_FACTORY_CAPABILITY,
+        )
+
     @property
     def native_estimator(self) -> DagMLPipelineEstimator:
         """The fitted native estimator for identity-bound PREDICT replay."""
@@ -109,7 +163,7 @@ class NativeMethodsRunResult(RunResult):
         return None if self._native_archive_reference is None else dict(self._native_archive_reference)
 
     @property
-    def native_execution_claim(self) -> NativeMethodsExecutionClaim:
+    def native_execution_claim(self) -> NativeMethodsExecutionClaim | NativeMethodsTerminalExecutionClaim:
         """Return the current audit-only claim for attached strict execution.
 
         This property fails closed once the result has been detached or closed.
@@ -117,31 +171,77 @@ class NativeMethodsRunResult(RunResult):
         buffers, callbacks, library paths, or controllers.
         """
 
-        witness = getattr(self, "_live_witness", None)
-        if type(witness) is not _LiveMethodsWitness:
-            raise DagMLNativeCoverageError("native Methods result has no live execution witness")
-        return witness._claim_for_estimator(self._native_estimator)
+        witness = cast(_LiveMethodsWitness | _LiveMethodsTerminalWitness | None, getattr(self, "_live_witness", None))
+        if isinstance(witness, _LiveMethodsWitness) and type(witness) is _LiveMethodsWitness:
+            return witness._claim_for_estimator(self._native_estimator)
+        if isinstance(witness, _LiveMethodsTerminalWitness) and type(witness) is _LiveMethodsTerminalWitness:
+            return witness._claim_for_estimator(self._native_estimator)
+        raise DagMLNativeCoverageError("native Methods result has no live execution witness")
 
     @property
     def native_execution_is_live(self) -> bool:
         """Whether the strict process-local execution witness remains attached."""
 
+        witness = cast(_LiveMethodsWitness | _LiveMethodsTerminalWitness | None, getattr(self, "_live_witness", None))
+        if isinstance(witness, _LiveMethodsWitness) and type(witness) is _LiveMethodsWitness:
+            return witness._is_live_for_estimator(self._native_estimator)
+        if isinstance(witness, _LiveMethodsTerminalWitness) and type(witness) is _LiveMethodsTerminalWitness:
+            return witness._is_live_for_estimator(self._native_estimator)
+        return False
+
+    @property
+    def terminal_receipt(self) -> Any:
+        """Return the exact frozen native receipt for a terminal execution.
+
+        The receipt remains available after ``close()`` because only its
+        companion TrainingResult lifecycle facade is detached.  It is not
+        written to or reconstructed from Archive V2/export/replay.
+        """
+
         witness = getattr(self, "_live_witness", None)
-        return type(witness) is _LiveMethodsWitness and witness._is_live_for_estimator(self._native_estimator)
+        if type(witness) is not _LiveMethodsTerminalWitness:
+            raise DagMLNativeCoverageError("native Methods result has no strict terminal receipt")
+        return witness._terminal_receipt_for_estimator(self._native_estimator)
+
+    @property
+    def terminal_prediction(self) -> dict[str, Any]:
+        """Return the non-attesting output snapshot of the terminal call.
+
+        Unlike :attr:`terminal_receipt`, this is ordinary prediction data and
+        DAG-ML intentionally materializes a new mutable mapping for it.
+        """
+
+        witness = getattr(self, "_live_witness", None)
+        if type(witness) is not _LiveMethodsTerminalWitness:
+            raise DagMLNativeCoverageError("native Methods result has no strict terminal prediction result")
+        # The exact terminal result intentionally remains private in its live
+        # witness.  Prediction output is deliberately only a non-attesting
+        # snapshot, never a Python carrier for the native receipt.
+        terminal_result = witness._terminal_result_for_estimator(self._native_estimator)
+        prediction = getattr(terminal_result, "terminal_prediction", None)
+        if not isinstance(prediction, dict):
+            raise DagMLNativeCoverageError("strict terminal Methods result did not expose a structured prediction snapshot")
+        return prediction
 
     def detach(self) -> None:
         """Release legacy and strict native runtime resources deterministically."""
 
-        witness = getattr(self, "_live_witness", None)
-        if type(witness) is _LiveMethodsWitness:
+        witness = cast(_LiveMethodsWitness | _LiveMethodsTerminalWitness | None, getattr(self, "_live_witness", None))
+        if isinstance(witness, (_LiveMethodsWitness, _LiveMethodsTerminalWitness)) and type(witness) in {
+            _LiveMethodsWitness,
+            _LiveMethodsTerminalWitness,
+        }:
             witness.detach()
         super().detach()
 
     def close(self) -> None:
         """Close ordinary result resources and detach the strict native facade."""
 
-        witness = getattr(self, "_live_witness", None)
-        if type(witness) is _LiveMethodsWitness:
+        witness = cast(_LiveMethodsWitness | _LiveMethodsTerminalWitness | None, getattr(self, "_live_witness", None))
+        if isinstance(witness, (_LiveMethodsWitness, _LiveMethodsTerminalWitness)) and type(witness) in {
+            _LiveMethodsWitness,
+            _LiveMethodsTerminalWitness,
+        }:
             witness.detach()
         super().close()
 
@@ -236,7 +336,7 @@ class NativeMethodsRunResult(RunResult):
         if not isinstance(lineage, Mapping):
             raise DagMLNativeCoverageError("native Methods retrain lineage is not a structured mapping")
         try:
-            return NativeRetrainLineage.from_mapping(lineage).to_dict()
+            return cast(dict[str, Any], NativeRetrainLineage.from_mapping(lineage).to_dict())
         except ValueError as error:
             raise DagMLNativeCoverageError("native Methods retrain lineage is malformed") from error
 
@@ -253,7 +353,9 @@ class NativeMethodsRunResult(RunResult):
 
         Legacy workspace selectors and ``compatibility='legacy-refit'`` are
         rejected: this result must never turn a native training request into a
-        second host fit.
+        second host fit.  Archive V2 preserves its ordinary manifest, signed
+        outcome, Package V2 and validated cache members, but never writes,
+        restores or forges a live terminal receipt.
         """
 
         if format != "n4a":
