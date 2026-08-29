@@ -56,6 +56,8 @@ from .errors import DagMlUnavailable, DagMlUnsupported, _OperatorLoweringUnsuppo
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .finetune_lowering import (
     PUBLIC_DAGML_SELECTION_METRICS,
+    _has_nested_structural_refit_params,
+    _is_supported_native_refit_params_noop,
     lower_deterministic_finetune_params_to_generators,
     reject_native_training_param_overrides,
 )
@@ -689,11 +691,16 @@ def _dispatch_run(
         if len(model_steps) == 1 and _model_controller_id(model_steps[0]["model"]) is not None
         else frozenset()
     )
+    refit_params_noop = _is_supported_native_refit_params_noop(pipeline)
+    if refit_params_noop:
+        allowed_training_param_keys |= frozenset({"refit_params"})
     reject_native_training_param_overrides(
         list(pipeline),
         context="engine='dag-ml'",
         allowed_keys=allowed_training_param_keys,
     )
+    if not refit_params_noop and _has_nested_structural_refit_params(pipeline):
+        raise NotImplementedError("engine='dag-ml' does not yet support nested step-level ['refit_params']; running natively would ignore refit arguments instead of preserving legacy parity.")
     config_name = _derive_config_name(pipeline, name)
     # The ordered legacy per-variant config names for a SWEEP (empty for a single concrete pipeline). The
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
