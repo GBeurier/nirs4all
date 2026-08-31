@@ -13,6 +13,7 @@ from .chain_builder import ChainBuilder
 from .chain_replay import replay_chain
 from .library import PipelineLibrary
 from .migration import MigrationReport, migrate_arrays_to_parquet, verify_migrated_store
+from .workspace_read_contract import workspace_store_read_contract
 from .workspace_store import WorkspaceStore
 
 __all__ = [
@@ -24,6 +25,7 @@ __all__ = [
     'replay_chain',
     'verify_migrated_store',
     'PipelineLibrary',
+    'workspace_store_read_contract',
 ]
 
 # Inversion of control: register WorkspaceStore as the data layer's store backend so
