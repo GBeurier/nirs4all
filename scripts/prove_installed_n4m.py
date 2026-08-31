@@ -115,6 +115,10 @@ def _wheel_from_smoke_result(result: dict[str, Any]) -> Path:
         raise ProofError(f"methods wheel smoke did not report OK: {json.dumps(result, sort_keys=True)}")
     wheel_value = result.get("wheel")
     if not isinstance(wheel_value, str) or not wheel_value:
+        artifact = result.get("artifact")
+        if result.get("artifact_kind") == "wheel" and isinstance(artifact, str) and artifact:
+            wheel_value = artifact
+    if not isinstance(wheel_value, str) or not wheel_value:
         raise ProofError(f"methods wheel smoke did not return a wheel path: {json.dumps(result, sort_keys=True)}")
     wheel = Path(wheel_value).resolve()
     if not wheel.exists():

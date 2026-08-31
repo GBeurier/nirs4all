@@ -57,6 +57,15 @@ def test_wheel_from_smoke_result_rejects_missing_wheel(tmp_path: Path) -> None:
         proof._wheel_from_smoke_result({"status": "OK", "wheel": str(missing)})
 
 
+def test_wheel_from_smoke_result_accepts_typed_artifact(tmp_path: Path) -> None:
+    wheel = tmp_path / "nirs4all_methods-1.0.0-py3-none-any.whl"
+    wheel.write_bytes(b"wheel")
+
+    assert proof._wheel_from_smoke_result(
+        {"status": "OK", "artifact": str(wheel), "artifact_kind": "wheel"}
+    ) == wheel.resolve()
+
+
 def test_wheel_from_smoke_result_requires_ok_status(tmp_path: Path) -> None:
     wheel = tmp_path / "nirs4all_methods-1.0.0-py3-none-any.whl"
     wheel.write_bytes(b"wheel")
