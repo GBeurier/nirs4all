@@ -9,6 +9,15 @@
     "writer_lock_required": false,
     "must_not_create_wal_or_shm": true
   },
+  "workspace_location": {
+    "candidate_order": ["normalized_content_directory", "input_path"],
+    "normalized_content_directory": {
+      "workspace_subdirectory": "workspace",
+      "direct_content_markers": ["runs", "exports"],
+      "fallback": "workspace_subdirectory"
+    },
+    "selection": "first_existing_store_sqlite"
+  },
   "projections": {
     "studio_run_summary": {
       "source_table": "runs",
