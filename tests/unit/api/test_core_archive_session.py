@@ -184,7 +184,7 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     with pytest.raises(RtError) as run_caught:
         session.run(object())
     assert run_caught.value.cause == "unsupported_capability"
-    assert run_caught.value.unsupported_capability == "core_archive_v2_prediction_only"
+    assert run_caught.value.unsupported_capability == "native_session_legacy_engine"
     with pytest.raises(RtError) as caught:
         session.retrain(object(), engine="legacy")
     assert caught.value.cause == "unsupported_capability"
@@ -255,9 +255,17 @@ def test_native_session_run_owns_one_validated_archive_and_releases_handles(
     )
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
 
-    class FakeNativeResult:
+    class FakeNativeResult(NativeMethodsArchiveRunResult):
         best_score = 0.25
         num_predictions = 3
+
+        @property
+        def native_execution_is_live(self) -> bool:
+            return self._live
+
+        @native_execution_is_live.setter
+        def native_execution_is_live(self, value: bool) -> None:
+            self._live = value
 
         def __init__(self) -> None:
             self.exports: list[Path] = []
@@ -334,6 +342,57 @@ def test_native_session_run_owns_one_validated_archive_and_releases_handles(
     assert native._core_archive_path is None
     assert native._core_archive_validation is None
     assert native._core_archive_fingerprint is None
+
+
+@pytest.mark.parametrize("legacy_owner", ["bundle", "runner", "result"])
+def test_native_run_refuses_every_legacy_session_owner(legacy_owner: str) -> None:
+    session = Session(pipeline=["native-step"])
+    if legacy_owner == "bundle":
+        session._bundle_path = Path("legacy.n4a")
+    elif legacy_owner == "runner":
+        session._runner = object()  # type: ignore[assignment]
+    else:
+        session._last_result = object()  # type: ignore[assignment]
+
+    owner_message = "PipelineRunner" if legacy_owner == "runner" else legacy_owner
+    with pytest.raises(RtError, match=rf"already owns a legacy {owner_message}") as caught:
+        session.run({}, engine="native")
+
+    assert caught.value.verb == "run"
+    assert caught.value.cause == "unsupported_capability"
+    assert caught.value.unsupported_capability == "legacy_session_native_engine"
+
+
+def test_native_session_refuses_runner_and_all_explicit_legacy_top_level_paths() -> None:
+    session = Session()
+    session._core_archive_path = Path("native.n4a")
+
+    legacy_calls = [
+        lambda: session.runner,
+        lambda: nirs4all.run(object(), object(), engine="legacy", session=session),
+        lambda: nirs4all.predict(session=session, engine="legacy"),
+        lambda: nirs4all.retrain(object(), object(), engine="legacy", session=session),
+        lambda: nirs4all.explain(object(), object(), engine="legacy", session=session),
+    ]
+    for legacy_call in legacy_calls:
+        with pytest.raises(RtError, match="native Archive V2 Session cannot enter engine='legacy'") as caught:
+            legacy_call()
+        assert caught.value.cause == "unsupported_capability"
+        assert caught.value.unsupported_capability == "native_session_legacy_engine"
+
+    assert session._runner is None
+
+
+def test_explicit_legacy_remains_available_for_fresh_and_legacy_sessions() -> None:
+    fresh = Session()
+    existing_runner = object()
+    legacy = Session()
+    legacy._runner = existing_runner  # type: ignore[assignment]
+    legacy._last_result = object()  # type: ignore[assignment]
+
+    fresh._prepare_legacy_access("run")
+    legacy._prepare_legacy_access("run")
+    assert legacy.runner is existing_runner
 
 
 def test_session_close_detaches_an_owned_native_result_once() -> None:

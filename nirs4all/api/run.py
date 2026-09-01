@@ -933,6 +933,8 @@ def run(
     """
 
     selected_engine = resolve_engine(engine)
+    if selected_engine == "legacy" and isinstance(session, Session):
+        session._prepare_legacy_access("run")
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
     if selected_engine == "native" and (tuning is not None or calibration is not None):
