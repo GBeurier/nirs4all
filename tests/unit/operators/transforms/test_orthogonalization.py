@@ -499,6 +499,10 @@ class TestOSCDataLeakage:
 class TestOSCEPOIntegration:
     """Integration tests for OSC and EPO."""
 
+    @pytest.fixture(autouse=True)
+    def _explicit_legacy_generate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("N4A_ENGINE", "legacy")
+
     def test_osc_in_nirs4all_pipeline(self):
         """Test OSC integration with nirs4all.run() controller."""
         import nirs4all

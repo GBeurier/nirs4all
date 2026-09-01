@@ -391,6 +391,10 @@ class TestBuilderFitTo:
 class TestGenerateFromTemplate:
     """Tests for generate.from_template function."""
 
+    @pytest.fixture(autouse=True)
+    def _explicit_legacy_generate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("N4A_ENGINE", "legacy")
+
     def test_from_template_array(self):
         """Test from_template with array input."""
         from nirs4all.api.generate import from_template

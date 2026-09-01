@@ -10,6 +10,8 @@ pins the verbs the production flip needs on that supported native path, under th
   ``train_pipeline.json`` replayable training spec (fully-qualified classes + params) for a concrete
   (non-generator) pipeline;
 * predict() from that bundle returns finite values of the right shape;
+* explain() keeps exercising the explicit Python SHAP rollback lane until an
+  API-005 native/plugin contract is wired (never an implicit fallback);
 * retrain(mode="full") from that bundle RE-TRAINS the ORIGINAL pipeline structure on new data — the
   regression this file exists for: without ``train_pipeline.json`` the bundle's cosmetic
   ``{"model": {"class": "<label>"}}`` step is not deserializable and retrain crashed with
@@ -95,6 +97,7 @@ def test_native_results_run_export_predict_retrain_roundtrip(regression_xy, tmp_
     explanation = nirs4all.explain(
         model=str(bundle_path),
         data=x[:8],
+        engine="legacy",
         verbose=0,
         plots_visible=False,
         n_samples=5,

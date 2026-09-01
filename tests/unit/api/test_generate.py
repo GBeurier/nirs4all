@@ -2,8 +2,20 @@
 Unit tests for nirs4all.generate API.
 """
 
+import builtins
+
 import numpy as np
 import pytest
+
+from nirs4all.api.advanced_capabilities import advanced_api_capability_ledger
+from nirs4all.pipeline.dagml.rt import RtError
+
+
+@pytest.fixture(autouse=True)
+def _explicit_legacy_generate_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Existing synthesis assertions exercise the explicit V1 rollback lane."""
+    monkeypatch.setenv("N4A_ENGINE", "legacy")
+    monkeypatch.delenv("N4A_GENERATE_PLUGIN", raising=False)
 
 
 class TestGenerateFunction:
@@ -464,3 +476,104 @@ class TestEdgeCases:
 
         assert train_count == 100
         assert test_count == 0
+
+
+class TestGenerateApi005Boundary:
+    """Fail-closed native/plugin decisions for every public synthesis surface."""
+
+    def test_default_refuses_before_synthesis_import_or_write(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+    ) -> None:
+        """The default native profile performs no Python import or output write."""
+        import nirs4all
+
+        monkeypatch.delenv("N4A_ENGINE", raising=False)
+        output = tmp_path / "must-not-exist.csv"
+        real_import = builtins.__import__
+
+        def guarded_import(name, *args, **kwargs):
+            if name == "nirs4all.synthesis" or name.startswith("nirs4all.synthesis."):
+                raise AssertionError("native generate refusal imported Python synthesis")
+            return real_import(name, *args, **kwargs)
+
+        monkeypatch.setattr(builtins, "__import__", guarded_import)
+
+        with pytest.raises(RtError) as caught:
+            nirs4all.generate.to_csv(output, n_samples=1)
+
+        assert caught.value.unsupported_capability == "native_generate"
+        assert caught.value.verb == "generate"
+        assert not output.exists()
+
+    @pytest.mark.parametrize(
+        ("method", "args"),
+        [
+            ("regression", ()),
+            ("classification", ()),
+            ("builder", ()),
+            ("multi_source", ()),
+            ("to_folder", ("must-not-exist",)),
+            ("to_csv", ("must-not-exist.csv",)),
+            ("product", ("missing-template",)),
+            ("category", (["missing-template"],)),
+            ("from_template", ("missing-dataset",)),
+        ],
+    )
+    def test_all_namespace_surfaces_preflight_before_data_or_compute(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        method: str,
+        args: tuple,
+    ) -> None:
+        """Every frozen convenience signature shares the same refusal boundary."""
+        import nirs4all
+
+        monkeypatch.delenv("N4A_ENGINE", raising=False)
+        with pytest.raises(RtError) as caught:
+            getattr(nirs4all.generate, method)(*args)
+        assert caught.value.unsupported_capability == "native_generate"
+
+    def test_main_surface_plugin_and_fallback_are_typed_refusals(self) -> None:
+        """No plugin or fallback selector can silently enter Python synthesis."""
+        import nirs4all
+
+        with pytest.raises(RtError) as plugin_error:
+            nirs4all.generate(n_samples=1, plugin="nirs-synthesis-provider")
+        assert plugin_error.value.unsupported_capability == "generate_plugin"
+
+        with pytest.raises(RtError) as fallback_error:
+            nirs4all.generate(n_samples=1, engine="legacy", allow_fallback=True)
+        assert fallback_error.value.unsupported_capability == "implicit_legacy_fallback"
+
+    def test_explicit_legacy_main_selector_is_consumed_before_synthesis(self) -> None:
+        """The frozen ``**kwargs`` keeps explicit rollback source-compatible."""
+        import nirs4all
+
+        X, y = nirs4all.generate(
+            n_samples=4,
+            as_dataset=False,
+            random_state=7,
+            engine="legacy",
+        )
+        assert X.shape[0] == y.shape[0] == 4
+
+    def test_preflight_and_capability_ledger_are_additive_and_detached(self) -> None:
+        """Callers can inspect honest availability without supplying data."""
+        import nirs4all
+
+        native = nirs4all.generate.preflight(engine="native")
+        assert native.executable is False
+        assert native.contract is None
+        assert native.unsupported_capability == "native_generate"
+
+        legacy = nirs4all.generate.preflight(engine="legacy")
+        assert legacy.executable is True
+        assert legacy.contract == "nirs4all.python.synthesis"
+
+        ledger = advanced_api_capability_ledger()
+        assert ledger["explain"]["native"]["executable"] is False
+        assert ledger["generate"]["plugin"]["executable"] is False
+        ledger["generate"]["native"]["executable"] = True
+        assert advanced_api_capability_ledger()["generate"]["native"]["executable"] is False
