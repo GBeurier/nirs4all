@@ -619,12 +619,23 @@ def test_run_detail_http_owner_boundary_runs_in_fresh_cpython_without_studio_run
     database = workspace / "store.sqlite"
     before_database = database.read_bytes()
     package_root = Path(__file__).parents[2]
+    dependency_roots = sorted(
+        {
+            str(path)
+            for entry in sys.path
+            if entry
+            and (path := Path(entry).resolve()).is_dir()
+            and path.name in {"site-packages", "dist-packages"}
+        }
+    )
+    assert dependency_roots, "the host must expose at least one explicit dependency root"
     script = """
 import json
 import sys
 from pathlib import Path
 
 sys.path.insert(0, sys.argv[1])
+sys.path[1:1] = json.loads(sys.argv[2])
 from nirs4all.pipeline.storage import studio_run_detail_http_inputs_v1
 from nirs4all.pipeline.runner import PipelineRunner
 
@@ -635,7 +646,7 @@ def forbid_runner_construction(*args, **kwargs):
 
 PipelineRunner.__init__ = forbid_runner_construction
 
-payload = studio_run_detail_http_inputs_v1(Path(sys.argv[2]), sys.argv[3])
+payload = studio_run_detail_http_inputs_v1(Path(sys.argv[3]), sys.argv[4])
 fastapi_modules = sorted(
     name for name in sys.modules
     if name == "fastapi" or name.startswith("fastapi.")
@@ -647,11 +658,16 @@ print(json.dumps({
 }, allow_nan=False))
 """
     completed = subprocess.run(
-        [sys.executable, "-I", "-c", script, str(package_root), str(workspace), run_id],
-        check=True,
+        [sys.executable, "-I", "-c", script, str(package_root), json.dumps(dependency_roots), str(workspace), run_id],
+        check=False,
         capture_output=True,
         text=True,
         timeout=30,
+    )
+    assert completed.returncode == 0, (
+        f"fresh CPython owner boundary exited with {completed.returncode}\n"
+        f"stdout:\n{completed.stdout}\n"
+        f"stderr:\n{completed.stderr}"
     )
     fresh = json.loads(completed.stdout)
     payload = fresh["payload"]
