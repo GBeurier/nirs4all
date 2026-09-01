@@ -90,6 +90,129 @@
       },
       "incompatible_store_http_status": 409
     },
+    "studio_run_detail_v1": {
+      "source_tables": ["runs", "pipelines", "chains", "logs"],
+      "owner_method": "WorkspaceStore.get_studio_run_detail_v1",
+      "http": {
+        "method": "GET",
+        "path_suffix": "/runs/{run_id}",
+        "query_string": "absent",
+        "run_id": {
+          "type": "canonical_nonempty_string",
+          "leading_or_trailing_whitespace": "reject",
+          "embedded_nul": "reject"
+        }
+      },
+      "queries": {
+        "run": "SELECT run_id, name, config, datasets, status, created_at, completed_at, summary, error, project_id FROM runs WHERE run_id = ?",
+        "pipelines": "SELECT pipeline_id, run_id, name, expanded_config, original_template, generator_choices, dataset_name, dataset_hash, status, created_at, completed_at, best_val, best_test, metric, duration_ms, error FROM pipelines WHERE run_id = ? ORDER BY created_at DESC, pipeline_id ASC",
+        "has_refit": "SELECT CASE WHEN EXISTS (SELECT 1 FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE p.run_id = ? AND (c.final_test_score IS NOT NULL OR c.final_train_score IS NOT NULL)) THEN 1 ELSE 0 END AS has_refit",
+        "log_summary": "SELECT p.pipeline_id, p.name AS pipeline_name, p.status AS pipeline_status, COUNT(l.log_id) AS log_count, COALESCE(SUM(CASE WHEN l.event = 'end' THEN l.duration_ms ELSE 0 END), 0) AS total_duration_ms, SUM(CASE WHEN l.level = 'warning' THEN 1 ELSE 0 END) AS warning_count, SUM(CASE WHEN l.level = 'error' THEN 1 ELSE 0 END) AS error_count FROM pipelines AS p LEFT JOIN logs AS l ON p.pipeline_id = l.pipeline_id WHERE p.run_id = ? GROUP BY p.pipeline_id, p.name, p.status, p.created_at ORDER BY p.created_at ASC, p.pipeline_id ASC"
+      },
+      "fields": {
+        "run": [
+          {"name": "run_id", "column": "run_id", "type": "string", "required": true},
+          {"name": "name", "column": "name", "type": "string", "required": true},
+          {"name": "config", "column": "config", "type": "json_object", "default": {}},
+          {"name": "datasets", "column": "datasets", "type": "json_array", "default": []},
+          {"name": "status", "column": "status", "type": "string", "default": "running"},
+          {"name": "created_at", "column": "created_at", "type": "timestamp", "serialization": "iso8601"},
+          {"name": "completed_at", "column": "completed_at", "type": "timestamp", "serialization": "iso8601", "nullable": true},
+          {"name": "summary", "column": "summary", "type": "json_object", "default": {}},
+          {"name": "error", "column": "error", "type": "string", "nullable": true},
+          {"name": "project_id", "column": "project_id", "type": "string", "nullable": true}
+        ],
+        "pipeline": [
+          {"name": "pipeline_id", "column": "pipeline_id", "type": "string", "required": true},
+          {"name": "run_id", "column": "run_id", "type": "string", "required": true},
+          {"name": "name", "column": "name", "type": "string", "required": true},
+          {"name": "expanded_config", "column": "expanded_config", "type": "json", "nullable": true},
+          {"name": "original_template", "column": "original_template", "type": "json", "nullable": true},
+          {"name": "generator_choices", "column": "generator_choices", "type": "json", "nullable": true},
+          {"name": "dataset_name", "column": "dataset_name", "type": "string", "required": true},
+          {"name": "dataset_hash", "column": "dataset_hash", "type": "string", "nullable": true},
+          {"name": "status", "column": "status", "type": "string", "default": "running"},
+          {"name": "created_at", "column": "created_at", "type": "timestamp", "serialization": "iso8601"},
+          {"name": "completed_at", "column": "completed_at", "type": "timestamp", "serialization": "iso8601", "nullable": true},
+          {"name": "best_val", "column": "best_val", "type": "number", "nullable": true, "finite_output": true},
+          {"name": "best_test", "column": "best_test", "type": "number", "nullable": true, "finite_output": true},
+          {"name": "metric", "column": "metric", "type": "string", "nullable": true},
+          {"name": "duration_ms", "column": "duration_ms", "type": "integer", "nullable": true},
+          {"name": "error", "column": "error", "type": "string", "nullable": true}
+        ],
+        "log_summary": [
+          {"name": "pipeline_id", "type": "string", "required": true},
+          {"name": "pipeline_name", "type": "string", "required": true},
+          {"name": "pipeline_status", "type": "string", "nullable": true},
+          {"name": "log_count", "type": "integer", "minimum": 0},
+          {"name": "total_duration_ms", "type": "integer", "minimum": 0},
+          {"name": "warning_count", "type": "integer", "minimum": 0},
+          {"name": "error_count", "type": "integer", "minimum": 0}
+        ]
+      },
+      "ordering": {
+        "pipelines": "created_at_desc_then_pipeline_id_asc",
+        "log_summary": "pipeline_created_at_asc_then_pipeline_id_asc"
+      },
+      "json_policy": {
+        "parse_fields": [
+          "runs.config",
+          "runs.datasets",
+          "runs.summary",
+          "pipelines.expanded_config",
+          "pipelines.original_template",
+          "pipelines.generator_choices"
+        ],
+        "malformed_json": "reject",
+        "wrong_run_json_shape": "reject",
+        "non_finite_numbers": "replace_with_null_recursively",
+        "timestamps": "iso8601",
+        "run_config_null_entries": "drop_top_level_before_stored_config_merge"
+      },
+      "assembly": {
+        "run_config": "start_with_computed_has_refit_then_overlay_non_null_stored_config_entries",
+        "has_refit": "true_if_any_run_chain_has_non_null_final_test_score_or_final_train_score",
+        "pipelines": "merge_same_pipeline_id_log_summary_fields_into_each_pipeline",
+        "log_summary": "also_return_as_top_level_array",
+        "not_found": "null_owner_result_for_http_404"
+      },
+      "native_read_preconditions": {
+        "open_mode": "sqlite_immutable_read_only",
+        "pragma_user_version": 5,
+        "active_sidecars": ["store.sqlite-wal", "store.sqlite-shm", "store.sqlite-journal"],
+        "active_sidecar_policy": "reject_if_any_exists",
+        "database_change_during_read": "reject",
+        "writes_or_cache": "forbidden"
+      },
+      "cutover_scope": "store_owned_source_projection_not_complete_http_response",
+      "studio_composition_required": {
+        "derived_fields": [
+          "config.cv_strategy",
+          "config.splitter_class",
+          "config.cv_folds",
+          "config.random_state",
+          "config.shuffle",
+          "pipeline.splitter_class",
+          "runtime_engine_fields_and_pipeline_propagation"
+        ],
+        "external_fields": [
+          "datasets.name_and_dataset_name_normalization",
+          "datasets.linked_dataset_id",
+          "rerun_ready",
+          "unresolved_dataset_names",
+          "results",
+          "results_count"
+        ],
+        "external_sources": [
+          "studio_linked_dataset_configuration",
+          "studio_results_repository_and_filesystem_scanner"
+        ],
+        "route_selection": "forbidden_until_all_required_composition_has_exact_oracle_parity"
+      },
+      "legacy_filesystem_manifest_branch": "not_covered",
+      "incompatible_store_http_status": 409,
+      "fallback_after_native_selection": "none"
+    },
     "studio_pipeline_summary": {
       "source_table": "pipelines",
       "query": "SELECT pipeline_id AS id, run_id, name AS pipeline_config, pipeline_id AS pipeline_config_id, dataset_name AS dataset, created_at, best_val AS best_score, best_test AS best_test_score, metric, status, duration_ms FROM pipelines ORDER BY CASE WHEN best_val IS NULL THEN 1 ELSE 0 END ASC, best_val DESC, created_at DESC, pipeline_id ASC LIMIT ? OFFSET ?",
