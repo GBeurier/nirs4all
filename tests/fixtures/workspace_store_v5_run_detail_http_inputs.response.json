@@ -136,6 +136,47 @@
       "splitter": null
     }
   ],
+  "pipeline_runtime": [
+    {
+      "pipeline_id": "11111111-1111-1111-1111-111111111111",
+      "engine": "legacy",
+      "engine_requested": "dag-ml",
+      "engine_diagnostics": [
+        {
+          "cause": "unsupported_shape",
+          "score": null
+        }
+      ],
+      "runtime_manifest": {
+        "engine": "legacy",
+        "duration": null
+      },
+      "fallback_policy": {
+        "engine_requested": "dag-ml",
+        "allow_fallback": true
+      },
+      "native_result_refs": [
+        "native://result/1"
+      ]
+    },
+    {
+      "pipeline_id": "22222222-2222-2222-2222-222222222222",
+      "engine": null,
+      "engine_requested": null,
+      "engine_diagnostics": null,
+      "runtime_manifest": null,
+      "fallback_policy": null,
+      "native_result_refs": null
+    }
+  ],
+  "runtime_column_provenance": {
+    "engine": "stored_column",
+    "engine_requested": "stored_column",
+    "engine_diagnostics": "stored_column",
+    "runtime_manifest": "stored_column",
+    "fallback_policy": "stored_column",
+    "native_result_refs": "stored_column"
+  },
   "results": [
     {
       "id": "11111111-1111-1111-1111-111111111111",

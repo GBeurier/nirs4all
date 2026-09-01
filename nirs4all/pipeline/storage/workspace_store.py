@@ -142,6 +142,20 @@ _STUDIO_RUN_DETAIL_PIPELINES_QUERY = (
     "completed_at, best_val, best_test, metric, duration_ms, error FROM pipelines "
     "WHERE run_id = ? ORDER BY created_at DESC, pipeline_id ASC"
 )
+_STUDIO_RUN_DETAIL_RUNTIME_COLUMNS = (
+    "engine",
+    "engine_requested",
+    "engine_diagnostics",
+    "runtime_manifest",
+    "fallback_policy",
+    "native_result_refs",
+)
+_STUDIO_RUN_DETAIL_RUNTIME_JSON_SHAPES: dict[str, type] = {
+    "engine_diagnostics": list,
+    "runtime_manifest": dict,
+    "fallback_policy": dict,
+    "native_result_refs": list,
+}
 _STUDIO_RUN_DETAIL_REFIT_QUERY = (
     "SELECT CASE WHEN EXISTS (SELECT 1 FROM chains AS c JOIN pipelines AS p "
     "ON p.pipeline_id = c.pipeline_id WHERE p.run_id = ? AND "
@@ -278,16 +292,16 @@ def _studio_run_detail_json_value(value: Any) -> Any:
     return value
 
 
-def _studio_run_detail_parse_json(value: Any, field: str) -> Any:
+def _studio_run_detail_parse_json(value: Any, field: str, *, projection: str = "studio_run_detail_v1") -> Any:
     """Parse a stored JSON field or fail closed on malformed Store-v5 data."""
     if value is None:
         return None
     if not isinstance(value, str):
-        raise ValueError(f"studio_run_detail_v1 {field} must be stored JSON text or null")
+        raise ValueError(f"{projection} {field} must be stored JSON text or null")
     try:
         parsed = json.loads(value)
     except (json.JSONDecodeError, ValueError) as exc:
-        raise ValueError(f"studio_run_detail_v1 {field} contains malformed JSON") from exc
+        raise ValueError(f"{projection} {field} contains malformed JSON") from exc
     return _studio_run_detail_json_value(parsed)
 
 
@@ -2225,6 +2239,98 @@ class WorkspaceStore:
                 raise RuntimeError("studio_run_detail_v1 detected an active SQLite journal")
             if after_signature != before_signature:
                 raise RuntimeError("studio_run_detail_v1 detected a database change during immutable read")
+
+    @staticmethod
+    def get_studio_run_detail_runtime_v1(workspace_path: str | Path, run_id: str) -> dict[str, Any] | None:
+        """Return optional Store-v5 runtime columns with explicit provenance.
+
+        Runtime-aware producers may add the six published columns to the
+        ``pipelines`` table without changing the base Store-v5 projection.
+        Historical v5 databases remain valid: an absent optional column emits
+        ``null`` for every pipeline and ``"absent_in_store_v5"`` provenance.
+        Present columns are read strictly; malformed JSON or unexpected SQLite
+        value types fail closed.
+
+        Args:
+            workspace_path: Workspace content directory containing ``store.sqlite``.
+            run_id: Exact Store run identifier.
+
+        Returns:
+            Ordered per-pipeline runtime records and per-column provenance, or
+            ``None`` when the run does not exist.
+        """
+        canonical_run_id = _canonical_optional_id(run_id, "run_id")
+        if canonical_run_id is None:
+            raise ValueError("run_id must be a canonical non-empty string")
+
+        projection = "studio_run_detail_runtime_v1"
+        database = Path(workspace_path) / "store.sqlite"
+        if not database.is_file():
+            raise FileNotFoundError(f"WorkspaceStore database not found: {database}")
+        sidecars = tuple(Path(f"{database}{suffix}") for suffix in ("-wal", "-shm", "-journal"))
+        if any(path.exists() for path in sidecars):
+            raise RuntimeError(f"{projection} refuses an active SQLite journal")
+
+        before = database.stat()
+        before_signature = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        connection = sqlite3.connect(
+            f"{database.resolve().as_uri()}?mode=ro&immutable=1",
+            uri=True,
+            detect_types=sqlite3.PARSE_DECLTYPES,
+        )
+        connection.row_factory = sqlite3.Row
+        try:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if version != SCHEMA_VERSION:
+                raise RuntimeError(f"{projection} requires WorkspaceStore schema {SCHEMA_VERSION}, got {version}")
+            if connection.execute("SELECT 1 FROM runs WHERE run_id = ?", [canonical_run_id]).fetchone() is None:
+                return None
+
+            available_columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(pipelines)").fetchall()}
+            required_columns = {"pipeline_id", "run_id", "created_at"}
+            missing_required = sorted(required_columns - available_columns)
+            if missing_required:
+                raise RuntimeError(f"{projection} pipelines is missing required columns: {', '.join(missing_required)}")
+
+            provenance = {
+                column: "stored_column" if column in available_columns else "absent_in_store_v5"
+                for column in _STUDIO_RUN_DETAIL_RUNTIME_COLUMNS
+            }
+            selections = ["pipeline_id"] + [
+                f'"{column}"' if column in available_columns else f'NULL AS "{column}"'
+                for column in _STUDIO_RUN_DETAIL_RUNTIME_COLUMNS
+            ]
+            query = (
+                f"SELECT {', '.join(selections)} FROM pipelines WHERE run_id = ? "
+                "ORDER BY created_at DESC, pipeline_id ASC"
+            )
+            pipeline_runtime: list[dict[str, Any]] = []
+            for raw_row in connection.execute(query, [canonical_run_id]).fetchall():
+                row = dict(raw_row)
+                for field in ("engine", "engine_requested"):
+                    value = row.get(field)
+                    if value is not None and not isinstance(value, str):
+                        raise ValueError(f"{projection} pipelines.{field} must be stored text or null")
+                for field, expected_type in _STUDIO_RUN_DETAIL_RUNTIME_JSON_SHAPES.items():
+                    value = _studio_run_detail_parse_json(row.get(field), f"pipelines.{field}", projection=projection)
+                    if value is not None and not isinstance(value, expected_type):
+                        expected_shape = "array" if expected_type is list else "object"
+                        raise ValueError(f"{projection} pipelines.{field} must decode to a JSON {expected_shape} or null")
+                    row[field] = value
+                pipeline_runtime.append(_studio_run_detail_json_value(row))
+
+            return {
+                "pipeline_runtime": pipeline_runtime,
+                "runtime_column_provenance": provenance,
+            }
+        finally:
+            connection.close()
+            after = database.stat()
+            after_signature = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            if any(path.exists() for path in sidecars):
+                raise RuntimeError(f"{projection} detected an active SQLite journal")
+            if after_signature != before_signature:
+                raise RuntimeError(f"{projection} detected a database change during immutable read")
 
     def list_runs(
         self,
