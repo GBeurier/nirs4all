@@ -10,7 +10,13 @@ from uuid import UUID
 
 import pytest
 
-from nirs4all.pipeline.storage import WorkspaceStore, workspace_store_read_contract, workspace_store_results_summary_contract
+from nirs4all.pipeline.storage import (
+    WorkspaceStore,
+    studio_run_detail_http_contract,
+    studio_run_detail_http_inputs_v1,
+    workspace_store_read_contract,
+    workspace_store_results_summary_contract,
+)
 from nirs4all.pipeline.storage.store_schema import SCHEMA_VERSION
 
 
@@ -389,6 +395,101 @@ def test_run_detail_projection_matches_golden_without_mutating_store(tmp_path: P
     assert projection["fallback_after_native_selection"] == "none"
 
 
+def test_run_detail_http_contract_assigns_every_composition_owner_and_forbids_cutover() -> None:
+    """The HTTP contract exposes owner inputs without claiming external parity."""
+    contract = studio_run_detail_http_contract()
+
+    assert contract["request"] == {
+        "method": "GET",
+        "path_suffix": "/runs/{run_id}",
+        "query_string": "absent",
+    }
+    assert contract["dependencies"]["workspace_store_read"] == {
+        "schema_id": "nirs4all.workspace-store-read.v1",
+        "schema_version": 1,
+        "projection": "studio_run_detail_v1",
+    }
+    assert contract["owner_output"]["results"]["mapping"] == {
+        "id": "pipeline.pipeline_id",
+        "run_id": "pipeline.run_id",
+        "dataset": "pipeline.dataset_name",
+        "pipeline_config": "pipeline.name",
+        "pipeline_config_id": "pipeline.pipeline_id",
+        "created_at": "pipeline.created_at_or_empty_string",
+        "best_score": "pipeline.best_val",
+        "best_test_score": "pipeline.best_test",
+        "metric": "pipeline.metric",
+        "status": "pipeline.status",
+        "duration_ms": "pipeline.duration_ms",
+        "format": "store",
+    }
+    store_branch = contract["http_composition"]["store_branch"]
+    assert store_branch["dataset_composition"]["owner"] == "studio_linked_dataset_configuration"
+    assert store_branch["runtime_composition"]["owner"] == "studio_http_adapter"
+    assert store_branch["config_splitter_inference"]["owner"] == "studio_http_adapter"
+    assert contract["http_composition"]["legacy_manifest_branch"] == {
+        "owner": "workspace_manifest_scanner",
+        "status": "not_covered",
+        "required_contract": "studio_workspace_manifest_run_detail_v1",
+        "must_not_be_reconstructed_from_store_v5": True,
+    }
+    assert contract["cutover"] == {
+        "route_selection": "forbidden",
+        "blocked_on": [
+            "studio_dataset_link_composition_v1",
+            "studio_runtime_field_composition_v1",
+            "studio_ui_splitter_strategy_vocabulary_v1",
+            "studio_workspace_manifest_run_detail_v1_or_preselection_proof",
+        ],
+        "store_owner_inputs_complete": True,
+        "complete_http_response_proven": False,
+        "legacy_manifest_branch_proven": False,
+        "fallback_after_native_selection": "none",
+        "incompatible_store_http_status": 409,
+    }
+
+
+def test_run_detail_http_owner_inputs_match_golden_without_mutating_store(tmp_path: Path) -> None:
+    """Store results and library splitter metadata form one deterministic input."""
+    workspace, database = _create_run_detail_workspace(tmp_path)
+    expanded_config = json.dumps(
+        [
+            {
+                "class": "sklearn.model_selection.KFold",
+                "params": {"n_splits": 5, "shuffle": True, "random_state": 17},
+            },
+            {"model": {"class": "PLSRegression", "score": None}},
+        ],
+        separators=(",", ":"),
+    )
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE pipelines SET expanded_config = ? WHERE pipeline_id = ?",
+            (expanded_config, "11111111-1111-1111-1111-111111111111"),
+        )
+        connection.commit()
+        connection.execute("PRAGMA journal_mode=DELETE")
+    expected = json.loads(
+        (Path(__file__).parents[1] / "fixtures" / "workspace_store_v5_run_detail_http_inputs.response.json").read_text(encoding="utf-8")
+    )
+    before_files = {path.name for path in workspace.iterdir()}
+    before_database = database.read_bytes()
+
+    actual = studio_run_detail_http_inputs_v1(workspace, "run-detail-001")
+
+    assert actual == expected
+    assert studio_run_detail_http_inputs_v1(workspace, "missing-run") is None
+    assert json.dumps(actual, allow_nan=False, separators=(",", ":"), sort_keys=True) == json.dumps(
+        expected,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    assert {path.name for path in workspace.iterdir()} == before_files
+    assert database.read_bytes() == before_database
+    assert not any((workspace / f"store.sqlite{suffix}").exists() for suffix in ("-wal", "-shm", "-journal"))
+
+
 def test_run_detail_projection_fails_closed_on_journal_schema_and_json(tmp_path: Path) -> None:
     """Unsafe SQLite state and malformed Store-v5 rows never produce partial output."""
     workspace, database = _create_run_detail_workspace(tmp_path)
@@ -396,6 +497,8 @@ def test_run_detail_projection_fails_closed_on_journal_schema_and_json(tmp_path:
     journal.write_bytes(b"active writer sentinel")
     with pytest.raises(RuntimeError, match="active SQLite journal"):
         WorkspaceStore.get_studio_run_detail_v1(workspace, "run-detail-001")
+    with pytest.raises(RuntimeError, match="active SQLite journal"):
+        studio_run_detail_http_inputs_v1(workspace, "run-detail-001")
     journal.unlink()
 
     with sqlite3.connect(database) as connection:
