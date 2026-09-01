@@ -13,7 +13,7 @@ import copy
 import hashlib
 import json
 import struct
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -116,6 +116,7 @@ def lower_raw_array_training_contracts(
     seed: int = 12345,
     dagml_module: str = "dag_ml",
     portable_methods: bool = False,
+    target_names: Sequence[str] | None = None,
 ) -> DagMLTrainingRequestContracts:
     """Lower a linear raw-array pipeline into executable DAG-ML contracts."""
 
@@ -154,7 +155,7 @@ def lower_raw_array_training_contracts(
     if campaign.get("root_seed") is None:
         campaign["root_seed"] = seed
     data_envelopes, data_identities = _data_contracts_from_campaign(campaign, envelope)
-    output_requests = [_default_output_request(graph)]
+    output_requests = [_default_output_request(graph, target_names=target_names)]
     request_spec = DagMLTrainingRequestSpec(
         request_id=request_id,
         plan_id=plan_id,
@@ -382,20 +383,29 @@ def _data_contracts_from_campaign(
     return data_envelopes, data_identities
 
 
-def _default_output_request(graph: Mapping[str, Any]) -> dict[str, Any]:
+def _default_output_request(
+    graph: Mapping[str, Any],
+    *,
+    target_names: Sequence[str] | None = None,
+) -> dict[str, Any]:
     model_nodes = [node for node in graph.get("nodes", []) if node.get("kind") == "model"]
     if len(model_nodes) != 1:
         raise ValueError("raw-array lowering requires exactly one model node")
     node_id = model_nodes[0]["id"]
+    names = ["y"] if target_names is None else list(target_names)
+    if not names or not all(isinstance(name, str) and name for name in names):
+        raise ValueError("raw-array lowering target_names must be non-empty strings")
+    if len(set(names)) != len(names):
+        raise ValueError("raw-array lowering target_names must be unique")
     output: dict[str, Any] = {
         "output_id": "output:prediction",
         "node_id": node_id,
         "prediction_level": "sample",
         "unit_level": "physical_sample",
         "prediction_kind": "regression_point",
-        "target_names": ["y"],
-        "target_units": [None],
-        "class_labels": [[]],
+        "target_names": names,
+        "target_units": [None] * len(names),
+        "class_labels": [[] for _ in names],
         "output_order": "target_order",
         "target_space": "raw",
     }

@@ -49,6 +49,14 @@ def _dataset() -> dict[str, object]:
     }
 
 
+def _multi_target_dataset() -> dict[str, object]:
+    dataset = _dataset()
+    first = np.asarray(dataset["y"], dtype=float)
+    dataset["y"] = np.column_stack((first, 10.0 + 2.0 * first))
+    dataset["target_names"] = ["protein", "moisture"]
+    return dataset
+
+
 def test_native_archive_training_refuses_a_missing_runtime_before_pipeline_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -97,6 +105,28 @@ def test_native_archive_training_refuses_legacy_session_sharing_before_runner(
     assert session.status == "initialized"
 
 
+def test_native_archive_training_requires_unambiguous_multi_target_names() -> None:
+    native_module = importlib.import_module("nirs4all.api.native_archive_training")
+    dataset = _multi_target_dataset()
+
+    missing = dict(dataset)
+    missing.pop("target_names")
+    with pytest.raises(ValueError, match="multi-target.*explicit target_names"):
+        native_module._normalize_training_arrays(missing)
+
+    mismatch = {**dataset, "target_names": ["protein"]}
+    with pytest.raises(ValueError, match="length must match y width 2"):
+        native_module._normalize_training_arrays(mismatch)
+
+    duplicate = {**dataset, "target_names": ["protein", "protein"]}
+    with pytest.raises(ValueError, match="must be unique"):
+        native_module._normalize_training_arrays(duplicate)
+
+    _, targets, _, target_names = native_module._normalize_training_arrays(dataset)
+    assert targets.shape == (6, 2)
+    assert target_names == ("protein", "moisture")
+
+
 @pytest.mark.methods
 @pytest.mark.skipif(
     os.environ.get(_REQUIRE_ENV) != "1",
@@ -123,7 +153,7 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
     try:
         result = nirs4all.run(
             _pipeline(),
-            _dataset(),
+            _multi_target_dataset(),
             engine="native",
             save_charts=False,
             methods_library_path=library_path,
@@ -211,10 +241,12 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
         )
         print(json.dumps({
             "session_ids": from_session.metadata["sample_ids"],
+            "session_target_names": from_session.metadata["target_names"],
             "session_values": from_session.y_pred.tolist(),
             "second_session_ids": second_from_session.metadata["sample_ids"],
             "second_session_values": second_from_session.y_pred.tolist(),
             "direct_ids": direct.metadata["sample_ids"],
+            "direct_target_names": direct.metadata["target_names"],
             "direct_values": direct.y_pred.tolist(),
             "closed_refusal": closed_refusal,
         }))
@@ -241,10 +273,13 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
     assert completed.returncode == 0, completed.stderr
     observed = json.loads(completed.stdout.strip().splitlines()[-1])
     assert observed["session_ids"] == prediction_ids
+    assert observed["session_target_names"] == ["protein", "moisture"]
     assert observed["second_session_ids"] == list(reversed(prediction_ids))
     assert observed["direct_ids"] == prediction_ids
+    assert observed["direct_target_names"] == ["protein", "moisture"]
     assert observed["session_values"] == observed["direct_values"]
     assert observed["second_session_values"] == list(reversed(observed["direct_values"]))
+    assert all(len(row) == 2 for row in observed["direct_values"])
     assert "Session is closed" in observed["closed_refusal"]
     assert all(math.isfinite(value) for row in observed["direct_values"] for value in row)
 

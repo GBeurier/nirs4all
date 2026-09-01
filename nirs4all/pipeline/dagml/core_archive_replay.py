@@ -130,6 +130,7 @@ def predict_core_methods_archive_v2(
         groups=groups,
         metadata_rows=metadata_rows,
     )
+    target_names = tuple(_single_binding(package)["target_names"])
     library_path = _resolve_methods_library_path(methods_library_path)
     try:
         outcome = replay(
@@ -145,12 +146,13 @@ def predict_core_methods_archive_v2(
         )
     except Exception as error:
         raise CoreArchiveReplayError("Core/DAG-ML/Methods Archive V2 replay failed") from error
-    values = _decode_prediction(outcome, sample_ids)
+    values = _decode_prediction(outcome, sample_ids, target_names=target_names)
     return values, {
         "engine": "core-native",
         "archive_path": str(candidate),
         "archive_schema_version": 2,
         "sample_ids": list(sample_ids),
+        "target_names": list(target_names),
         "outcome_id": outcome_id,
         "run_id": run_id,
     }
@@ -379,7 +381,12 @@ def _single_binding(package: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(binding.get("binding_id"), str) or not binding["binding_id"]:
         raise CoreArchiveReplayError("Package V2 output binding lacks binding_id")
     targets = binding.get("target_names")
-    if not isinstance(targets, list) or not targets or not all(isinstance(item, str) and item for item in targets):
+    if (
+        not isinstance(targets, list)
+        or not targets
+        or not all(isinstance(item, str) and item.strip() for item in targets)
+        or len(set(targets)) != len(targets)
+    ):
         raise CoreArchiveReplayError("Package V2 output binding lacks target_names")
     return binding
 
@@ -417,7 +424,12 @@ def _resolve_methods_library_path(path: str | Path | None) -> str:
     return str(value)
 
 
-def _decode_prediction(outcome: Any, sample_ids: tuple[str, ...]) -> np.ndarray:
+def _decode_prediction(
+    outcome: Any,
+    sample_ids: tuple[str, ...],
+    *,
+    target_names: tuple[str, ...],
+) -> np.ndarray:
     if not isinstance(outcome, dict):
         raise CoreArchiveReplayError("Core Archive V2 replay returned a non-object outcome")
     outputs = outcome.get("outputs")
@@ -430,7 +442,11 @@ def _decode_prediction(outcome: Any, sample_ids: tuple[str, ...]) -> np.ndarray:
     if block.get("sample_ids") != list(sample_ids):
         raise CoreArchiveReplayError("Core Archive V2 prediction identities do not match the request")
     values = np.asarray(block.get("values"), dtype=float)
-    if values.ndim != 2 or values.shape[0] != len(sample_ids) or not np.isfinite(values).all():
+    if (
+        values.ndim != 2
+        or values.shape != (len(sample_ids), len(target_names))
+        or not np.isfinite(values).all()
+    ):
         raise CoreArchiveReplayError("Core Archive V2 predictions are not a finite aligned matrix")
     return cast(np.ndarray, values)
 
