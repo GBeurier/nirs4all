@@ -111,6 +111,14 @@ from .run import run
 
 # Session (Phase 3 - full implementation)
 from .session import Session, SessionClosedError, load_session, session
+from .studio_scientific import (
+    MAX_STUDIO_SCIENTIFIC_REQUEST_BYTES,
+    MAX_STUDIO_SCIENTIFIC_RESPONSE_BYTES,
+    STUDIO_SCIENTIFIC_JOB_SCHEMA,
+    STUDIO_SCIENTIFIC_RESULT_SCHEMA,
+    StudioScientificJobError,
+    studio_scientific_job_v1,
+)
 from .tuning import (
     CONFORMAL_TUNING_SCORE_METRICS,
     FINETUNE_APPROACHES,
@@ -167,6 +175,12 @@ from .tuning import (
 __all__ = [
     # Module-level API functions
     "run",
+    "studio_scientific_job_v1",
+    "StudioScientificJobError",
+    "STUDIO_SCIENTIFIC_JOB_SCHEMA",
+    "STUDIO_SCIENTIFIC_RESULT_SCHEMA",
+    "MAX_STUDIO_SCIENTIFIC_REQUEST_BYTES",
+    "MAX_STUDIO_SCIENTIFIC_RESPONSE_BYTES",
     "DualRunUnsupported",
     "DualRunMismatchError",
     "calibrate",

@@ -16,6 +16,7 @@ The public Python API runs that contract directly. The CLI currently validates a
 | Function/class | Purpose | Typical input | Typical output |
 | --- | --- | --- | --- |
 | `nirs4all.run(...)` | Train/evaluate one or many pipelines on one or many datasets | Pipeline spec + dataset spec | `RunResult` |
+| `nirs4all.studio_scientific_job_v1(...)` | Bounded scientific-library callable for Studio's Rust-owned CPython stdio host | Closed, already-resolved JSON value | Bounded JSON-native scientific summary |
 | `nirs4all.predict(...)` | Predict from a stored chain or exported bundle | `chain_id` or model bundle + data | `PredictResult` |
 | `nirs4all.calibrate(...)` | Fit split-conformal intervals from explicit calibration evidence | Replayed calibration predictions or selected calibration cohort + prediction ids | `CalibratedRunResult` or `PredictResult` |
 | `nirs4all.CONFORMAL_CALIBRATION_METHODS` / `CONFORMAL_CALIBRATION_UNITS` | Discover conformal method and exchangeability-unit vocabularies | None | Tuples aligned with runtime validation and registry schema |
@@ -228,6 +229,57 @@ result = nirs4all.run(
     random_state=42,
 )
 ```
+
+## Studio Scientific CPython Host Boundary
+
+`nirs4all.studio_scientific_job_v1(request)` is a library callable, not an
+HTTP backend. It never opens a socket or caller-supplied path, reads a
+workspace, owns a scheduler/job/event/cancellation transition, or writes a
+durable result. The Studio sidecar must keep all of those responsibilities and
+invoke this callable in a fresh, isolated CPython process over bounded JSON
+stdio.
+
+The v1 callable accepts exactly this minimal resolved contract (unknown keys
+are refused):
+
+```json
+{
+  "schema": "nirs4all.studio-scientific-job.v1",
+  "operation": "run",
+  "job_id": "training_0001",
+  "engine": "dag-ml",
+  "allow_fallback": false,
+  "dataset": {
+    "name": "protein",
+    "task_type": "regression",
+    "X": [[1.0, 2.0], [2.0, 3.0], [3.0, 5.0], [4.0, 7.0]],
+    "y": [1.1, 2.2, 3.3, 4.4]
+  },
+  "pipeline": {
+    "kind": "pls_regression",
+    "n_components": 1,
+    "scale": true,
+    "cross_validation": {"kind": "kfold", "n_splits": 2, "shuffle": false}
+  },
+  "options": {"name": "protein_pls", "random_state": 17}
+}
+```
+
+Only plain JSON is accepted. The engine is always `dag-ml`, fallback is always
+disabled, and v1 is limited to bounded single-target regression with K-fold
+PLS. `legacy`, `dual`, `native`, Python objects, non-finite values, arbitrary
+class/import names, paths/workspaces, and ambient CLI or result-persistence
+overrides are refused before scientific execution. The result contains no job
+status; it reports only the selected metric and bounded counts for Rust to
+interpret and persist.
+
+Current Studio integration remains fail-closed. The selected `cdb9f46`
+sidecar `ScientificExecutionRequest` still carries the unresolved run-group
+manifest plus a workspace path, while this callable deliberately requires
+resolved inline matrices and a closed pipeline descriptor. The sidecar also
+lacks the terminal result/event bridge. Rust must implement those two pieces
+before changing `scientific_execution_capability` or selecting the executor;
+passing the current workspace path to Python would violate this contract.
 
 Environment switches:
 
