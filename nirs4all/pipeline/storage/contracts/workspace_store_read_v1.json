@@ -50,6 +50,46 @@
         {"name": "error", "column": "error", "type": "string", "nullable": true}
       ]
     },
+    "studio_run_discovery_query_v1": {
+      "source_projection": "studio_run_summary",
+      "http": {
+        "method": "GET",
+        "path_suffix": "/runs",
+        "query_mode": "explicit_allowlist",
+        "query_absent_allowed": true,
+        "unknown_parameters": "reject",
+        "duplicate_parameters": "reject",
+        "parameter_order": "any",
+        "parameters": [
+          {
+            "name": "source",
+            "type": "string",
+            "enum": ["unified", "manifests", "parquet"],
+            "default": "unified"
+          },
+          {
+            "name": "refresh",
+            "type": "string",
+            "enum": ["true", "false"],
+            "default": "false"
+          }
+        ]
+      },
+      "store_semantics": {
+        "source": "accepted_for_store_parity_but_does_not_switch_away_from_workspace_store",
+        "refresh": "every_native_request_is_an_uncached_immutable_read",
+        "limit": 500,
+        "offset": 0,
+        "ordering": "studio_run_summary",
+        "fallback_after_native_selection": "none"
+      },
+      "response": {
+        "workspace_id": "requested_workspace_id",
+        "runs": "studio_run_summary_rows",
+        "total": "returned_row_count"
+      },
+      "incompatible_store_http_status": 409
+    },
     "studio_pipeline_summary": {
       "source_table": "pipelines",
       "query": "SELECT pipeline_id AS id, run_id, name AS pipeline_config, pipeline_id AS pipeline_config_id, dataset_name AS dataset, created_at, best_val AS best_score, best_test AS best_test_score, metric, status, duration_ms FROM pipelines ORDER BY CASE WHEN best_val IS NULL THEN 1 ELSE 0 END ASC, best_val DESC, created_at DESC, pipeline_id ASC LIMIT ? OFFSET ?",

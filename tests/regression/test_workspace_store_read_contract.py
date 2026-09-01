@@ -16,6 +16,7 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
     """The native summary projections stay executable against the exact SQLite schema."""
     contract = workspace_store_read_contract()
     run_projection = contract["projections"]["studio_run_summary"]
+    run_discovery = contract["projections"]["studio_run_discovery_query_v1"]
     pipeline_projection = contract["projections"]["studio_pipeline_summary"]
     chain_projection = contract["projections"]["studio_chain_ranked_v1"]
 
@@ -37,6 +38,46 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
             "fallback": "workspace_subdirectory",
         },
         "selection": "first_existing_store_sqlite",
+    }
+    assert run_discovery == {
+        "source_projection": "studio_run_summary",
+        "http": {
+            "method": "GET",
+            "path_suffix": "/runs",
+            "query_mode": "explicit_allowlist",
+            "query_absent_allowed": True,
+            "unknown_parameters": "reject",
+            "duplicate_parameters": "reject",
+            "parameter_order": "any",
+            "parameters": [
+                {
+                    "name": "source",
+                    "type": "string",
+                    "enum": ["unified", "manifests", "parquet"],
+                    "default": "unified",
+                },
+                {
+                    "name": "refresh",
+                    "type": "string",
+                    "enum": ["true", "false"],
+                    "default": "false",
+                },
+            ],
+        },
+        "store_semantics": {
+            "source": "accepted_for_store_parity_but_does_not_switch_away_from_workspace_store",
+            "refresh": "every_native_request_is_an_uncached_immutable_read",
+            "limit": 500,
+            "offset": 0,
+            "ordering": "studio_run_summary",
+            "fallback_after_native_selection": "none",
+        },
+        "response": {
+            "workspace_id": "requested_workspace_id",
+            "runs": "studio_run_summary_rows",
+            "total": "returned_row_count",
+        },
+        "incompatible_store_http_status": 409,
     }
 
     workspace = tmp_path / "workspace"
