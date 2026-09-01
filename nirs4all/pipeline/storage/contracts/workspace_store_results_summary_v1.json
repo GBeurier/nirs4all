@@ -1,0 +1,138 @@
+{
+  "schema_id": "nirs4all.workspace-store-results-summary.v1",
+  "schema_version": 1,
+  "workspace_store_schema_version": 5,
+  "dependencies": {
+    "workspace_store_read": {
+      "schema_id": "nirs4all.workspace-store-read.v1",
+      "schema_version": 1,
+      "projection": "studio_chain_ranked_v1"
+    }
+  },
+  "request": {
+    "surface": "studio_results_summary",
+    "method": "GET",
+    "path_suffix": "/results/summary",
+    "query_string": "absent",
+    "top_n": 5,
+    "supported_top_n": [5]
+  },
+  "source_projection": {
+    "source_tables": ["chains", "pipelines", "predictions"],
+    "eligibility": "at_least_one_prediction_for_chain",
+    "page_query": "SELECT c.chain_id, c.pipeline_id, p.run_id, p.name AS pipeline_name, p.expanded_config, c.model_step_idx, c.dataset_name, c.metric, c.task_type, c.model_name, c.model_class, c.preprocessings, c.cv_val_score, c.cv_test_score, c.cv_train_score, c.cv_fold_count, c.cv_scores, c.final_test_score, c.final_train_score, c.final_scores, c.final_agg_test_score, c.final_agg_train_score, c.final_agg_scores, c.best_params FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE EXISTS (SELECT 1 FROM predictions AS pr WHERE pr.chain_id = c.chain_id) ORDER BY c.rowid ASC LIMIT ? OFFSET ?",
+    "count_query": "SELECT COUNT(*) FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE EXISTS (SELECT 1 FROM predictions AS pr WHERE pr.chain_id = c.chain_id)",
+    "parameters": [
+      {"name": "limit", "type": "integer", "minimum": 1, "maximum": 500, "default": 500},
+      {"name": "offset", "type": "integer", "minimum": 0, "default": 0}
+    ],
+    "snapshot": "all_pages_must_be_read_from_one_immutable_database_snapshot",
+    "fields": [
+      {"name": "chain_id", "column": "chain_id", "type": "string", "required": true},
+      {"name": "pipeline_id", "column": "pipeline_id", "type": "string", "required": true},
+      {"name": "run_id", "column": "run_id", "type": "string", "required": true},
+      {"name": "pipeline_name", "column": "name", "type": "string", "required": true},
+      {"name": "expanded_config", "column": "expanded_config", "type": "json_array", "nullable": true},
+      {"name": "model_step_idx", "column": "model_step_idx", "type": "integer", "required": true},
+      {"name": "dataset_name", "column": "dataset_name", "type": "string", "required": true},
+      {"name": "metric", "column": "metric", "type": "string", "nullable": true},
+      {"name": "task_type", "column": "task_type", "type": "string", "nullable": true},
+      {"name": "model_name", "column": "model_name", "type": "string", "nullable": true},
+      {"name": "model_class", "column": "model_class", "type": "string", "required": true},
+      {"name": "preprocessings", "column": "preprocessings", "type": "string", "default": ""},
+      {"name": "cv_val_score", "column": "cv_val_score", "type": "number", "nullable": true, "finite": true},
+      {"name": "cv_test_score", "column": "cv_test_score", "type": "number", "nullable": true, "finite": true},
+      {"name": "cv_train_score", "column": "cv_train_score", "type": "number", "nullable": true, "finite": true},
+      {"name": "cv_fold_count", "column": "cv_fold_count", "type": "integer", "minimum": 0, "default": 0},
+      {"name": "cv_scores", "column": "cv_scores", "type": "json_object", "default": {}},
+      {"name": "final_test_score", "column": "final_test_score", "type": "number", "nullable": true, "finite": true},
+      {"name": "final_train_score", "column": "final_train_score", "type": "number", "nullable": true, "finite": true},
+      {"name": "final_scores", "column": "final_scores", "type": "json_object", "default": {}},
+      {"name": "final_agg_test_score", "column": "final_agg_test_score", "type": "number", "nullable": true, "finite": true},
+      {"name": "final_agg_train_score", "column": "final_agg_train_score", "type": "number", "nullable": true, "finite": true},
+      {"name": "final_agg_scores", "column": "final_agg_scores", "type": "json_object", "default": {}},
+      {"name": "best_params", "column": "best_params", "type": "json_object", "nullable": true}
+    ]
+  },
+  "metric_direction": {
+    "normalization": "trim_then_lowercase",
+    "lower_is_better": ["rmse", "rmsecv", "rmsep", "mae", "mse", "mape", "bias", "sep"],
+    "all_other_metrics": "higher_is_better",
+    "applies_to": ["top_cv_ranking", "top_cv_fallback", "best_final_comparison"],
+    "ascending_query_when_lower_is_better": true,
+    "ranked_projection_nulls": "last"
+  },
+  "normalization": {
+    "dataset_grouping": "ignore_empty_dataset_name_then_group_exact_string_and_emit_groups_in_lexicographic_order",
+    "metric": "first_truthy_metric_in_source_order_or_r2",
+    "task_type": "first_truthy_task_type_in_source_order_or_null",
+    "finite_score": "finite_number_or_null",
+    "json_object": "parse_json_string_then_require_object_else_empty_object",
+    "optional_json_object": "parse_json_string_then_require_nonempty_object_else_null"
+  },
+  "synthetic_refit": {
+    "mark_refit_only_before_synthesis": true,
+    "meaningful_final": "final_test_score_is_not_null_or_final_train_score_is_not_null_or_final_scores_is_nonempty_json_object",
+    "has_cv_payload": "cv_val_score_is_not_null_or_cv_test_score_is_not_null_or_cv_train_score_is_not_null_or_cv_fold_count_is_truthy_or_cv_scores_is_nonempty_json_object",
+    "refit_only_marker": "meaningful_final_and_not_has_cv_payload",
+    "when": "not_meaningful_final_and_has_cv_payload",
+    "assignments": {
+      "final_test_score": "finite_cv_test_score_or_null",
+      "final_train_score": "finite_cv_train_score_or_null",
+      "final_scores": "nonempty_cv_scores_else_partition_metric_object_from_finite_cv_val_test_train_scores",
+      "synthetic_refit": true
+    },
+    "otherwise": "preserve_final_fields_and_booleanize_existing_synthetic_refit"
+  },
+  "selection": {
+    "cv_candidates": "cv_fold_count_greater_than_zero",
+    "refit_only_candidates": "cv_fold_count_is_zero_and_finite_final_test_score_is_not_null",
+    "best_final_candidate": "finite_final_test_score_is_not_null",
+    "best_final_comparison": "strict_summary_comparison_so_first_source_row_wins_ties",
+    "top_cv": {
+      "primary": "query_workspace_store_read_studio_chain_ranked_v1_with_dataset_metric_top_n_5_and_contract_metric_direction_then_merge_by_chain_id_with_source_row",
+      "accept": "cv_fold_count_is_truthy_or_cv_val_score_is_not_null",
+      "deduplicate": "chain_key",
+      "fallback_when_fewer_than_top_n": "stable_sort_cv_candidates_by_cv_val_score_using_summary_comparison_with_missing_score_worst_then_append_unseen_until_top_n"
+    },
+    "append_order": ["top_cv", "all_refit_only_in_source_order", "best_final_if_not_already_selected"],
+    "final_deduplication": "nonempty_chain_id_first_occurrence_wins",
+    "omit_dataset_when": "selection_is_empty"
+  },
+  "serialization": {
+    "dataset_fields": ["dataset_name", "metric", "task_type", "top_chains"],
+    "chain_fields_in_order": ["chain_id", "run_id", "pipeline_id", "pipeline_name", "model_name", "model_class", "preprocessings", "avg_val_score", "avg_test_score", "avg_train_score", "fold_count", "scores", "cv_source_chain_id", "final_test_score", "final_train_score", "final_scores", "final_agg_test_score", "final_agg_train_score", "final_agg_scores", "best_params", "variant_params", "synthetic_refit"],
+    "score_aliases": {
+      "avg_val_score": "cv_val_score",
+      "avg_test_score": "cv_test_score",
+      "avg_train_score": "cv_train_score",
+      "fold_count": "cv_fold_count",
+      "scores": "cv_scores"
+    },
+    "json_object_fields": ["scores", "final_scores", "final_agg_scores"],
+    "optional_json_object_fields": ["best_params", "variant_params"],
+    "schema_v5_constants": {"cv_source_chain_id": null},
+    "string_defaults": {"chain_id": "", "run_id": "", "model_name": "", "model_class": "", "preprocessings": ""},
+    "variant_params": {
+      "source": "no_direct_schema_v5_field",
+      "fallback": "merge_model_step_params_from_expanded_config_with_best_params_best_params_wins",
+      "model_step": "one_based_model_step_idx_into_expanded_config_json_array",
+      "model_step_params": "step.model.params_when_step_has_model_object_else_step.params_when_step_is_object_else_null",
+      "empty_result": null
+    },
+    "conditional_field": {"is_refit_only": "include_with_true_value_only_when_selected_as_refit_only"},
+    "recursive_sanitization": "replace_non_finite_numbers_with_null",
+    "empty_response": {"workspace_id": "$workspace_id", "datasets": []},
+    "response": {"workspace_id": "$workspace_id", "datasets": "$serialized_nonempty_dataset_groups"}
+  },
+  "excluded_surfaces": [
+    "dataset_link_augmentation",
+    "prediction_arrays",
+    "parquet_sidecars",
+    "artifacts",
+    "workspace_mutation",
+    "duckdb_workspaces",
+    "schema_versions_other_than_5",
+    "top_n_values_other_than_5"
+  ]
+}
