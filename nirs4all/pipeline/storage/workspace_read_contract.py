@@ -2,8 +2,9 @@
 
 The contract is a distribution resource so native consumers can use the same
 bounded SQL projections without importing ``WorkspaceStore`` or recreating its
-private schema knowledge. It is intentionally limited to run and pipeline
-summaries; chain ranking, arrays, artifacts, predictions and mutations need
+private schema knowledge. It is intentionally limited to bounded run,
+pipeline, and explicitly directed chain-ranking projections. Studio's
+high-level results policy, arrays, artifacts, predictions and mutations need
 their own contracts.
 """
 
