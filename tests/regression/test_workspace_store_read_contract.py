@@ -409,6 +409,33 @@ def test_run_detail_http_contract_assigns_every_composition_owner_and_forbids_cu
         "schema_version": 1,
         "projection": "studio_run_detail_v1",
     }
+    assert contract["dependencies"]["pipeline_runtime"] == {
+        "owner_method": "WorkspaceStore.get_studio_run_detail_runtime_v1",
+        "source_table": "pipelines",
+        "required_columns": ["pipeline_id", "run_id", "created_at"],
+        "optional_columns": [
+            "engine",
+            "engine_requested",
+            "engine_diagnostics",
+            "runtime_manifest",
+            "fallback_policy",
+            "native_result_refs",
+        ],
+        "optional_column_selection": "fixed_allowlist_present_column_or_sql_null_alias",
+        "absent_optional_column": "null_with_absent_in_store_v5_provenance",
+        "present_text_columns": ["engine", "engine_requested"],
+        "present_json_shapes": {
+            "engine_diagnostics": "array_or_null",
+            "runtime_manifest": "object_or_null",
+            "fallback_policy": "object_or_null",
+            "native_result_refs": "array_or_null",
+        },
+        "malformed_or_wrong_shape": "reject",
+        "non_finite_numbers": "replace_with_null_recursively",
+        "ordering": "pipeline_created_at_desc_then_pipeline_id_asc",
+    }
+    assert contract["owner_output"]["pipeline_splitters"]["consumer_reimplementation"] == "forbidden"
+    assert contract["owner_output"]["pipeline_runtime"]["source"] == "pipeline_runtime_dependency"
     assert contract["owner_output"]["results"]["mapping"] == {
         "id": "pipeline.pipeline_id",
         "run_id": "pipeline.run_id",
@@ -450,7 +477,7 @@ def test_run_detail_http_contract_assigns_every_composition_owner_and_forbids_cu
 
 
 def test_run_detail_http_owner_inputs_match_golden_without_mutating_store(tmp_path: Path) -> None:
-    """Store results and library splitter metadata form one deterministic input."""
+    """Splitter and optional runtime owner data form one deterministic input."""
     workspace, database = _create_run_detail_workspace(tmp_path)
     expanded_config = json.dumps(
         [
@@ -466,6 +493,37 @@ def test_run_detail_http_owner_inputs_match_golden_without_mutating_store(tmp_pa
         connection.execute(
             "UPDATE pipelines SET expanded_config = ? WHERE pipeline_id = ?",
             (expanded_config, "11111111-1111-1111-1111-111111111111"),
+        )
+        connection.commit()
+        connection.execute("PRAGMA journal_mode=DELETE")
+
+    absent_runtime = WorkspaceStore.get_studio_run_detail_runtime_v1(workspace, "run-detail-001")
+    assert absent_runtime is not None
+    assert set(absent_runtime["runtime_column_provenance"].values()) == {"absent_in_store_v5"}
+    assert all(
+        value is None
+        for row in absent_runtime["pipeline_runtime"]
+        for key, value in row.items()
+        if key != "pipeline_id"
+    )
+
+    with sqlite3.connect(database) as connection:
+        for column in ("engine", "engine_requested", "engine_diagnostics", "runtime_manifest", "fallback_policy", "native_result_refs"):
+            connection.execute(f"ALTER TABLE pipelines ADD COLUMN {column} TEXT")
+        connection.execute(
+            """UPDATE pipelines SET
+               engine = ?, engine_requested = ?, engine_diagnostics = ?,
+               runtime_manifest = ?, fallback_policy = ?, native_result_refs = ?
+               WHERE pipeline_id = ?""",
+            (
+                "legacy",
+                "dag-ml",
+                '[{"cause":"unsupported_shape","score":NaN}]',
+                '{"engine":"legacy","duration":Infinity}',
+                '{"engine_requested":"dag-ml","allow_fallback":true}',
+                '["native://result/1"]',
+                "11111111-1111-1111-1111-111111111111",
+            ),
         )
         connection.commit()
         connection.execute("PRAGMA journal_mode=DELETE")
@@ -514,6 +572,20 @@ def test_run_detail_projection_fails_closed_on_journal_schema_and_json(tmp_path:
         connection.execute("PRAGMA journal_mode=DELETE")
     with pytest.raises(ValueError, match="runs.config contains malformed JSON"):
         WorkspaceStore.get_studio_run_detail_v1(workspace, "run-detail-001")
+
+    with sqlite3.connect(database) as connection:
+        connection.execute("UPDATE runs SET config = '{}' WHERE run_id = 'run-detail-001'")
+        connection.execute("ALTER TABLE pipelines ADD COLUMN engine_diagnostics TEXT")
+        connection.execute(
+            "UPDATE pipelines SET engine_diagnostics = '{}' WHERE pipeline_id = ?",
+            ("11111111-1111-1111-1111-111111111111",),
+        )
+        connection.commit()
+        connection.execute("PRAGMA journal_mode=DELETE")
+    with pytest.raises(ValueError, match="engine_diagnostics must decode to a JSON array"):
+        WorkspaceStore.get_studio_run_detail_runtime_v1(workspace, "run-detail-001")
+    with pytest.raises(ValueError, match="engine_diagnostics must decode to a JSON array"):
+        studio_run_detail_http_inputs_v1(workspace, "run-detail-001")
 
 
 def test_ranked_chain_contract_is_filtered_deterministic_and_null_last(tmp_path: Path) -> None:
