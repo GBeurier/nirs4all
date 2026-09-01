@@ -12,10 +12,11 @@ from nirs4all.pipeline.storage import WorkspaceStore, workspace_store_read_contr
 from nirs4all.pipeline.storage.store_schema import SCHEMA_VERSION
 
 
-def test_run_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tmp_path: Path) -> None:
-    """The native run projection stays executable against the exact SQLite schema."""
+def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tmp_path: Path) -> None:
+    """The native summary projections stay executable against the exact SQLite schema."""
     contract = workspace_store_read_contract()
-    projection = contract["projections"]["studio_run_summary"]
+    run_projection = contract["projections"]["studio_run_summary"]
+    pipeline_projection = contract["projections"]["studio_pipeline_summary"]
 
     assert contract["workspace_store_schema_version"] == SCHEMA_VERSION == 5
     assert contract["store"] == {
@@ -47,6 +48,37 @@ def test_run_summary_contract_matches_a_fresh_workspace_store_without_mutating_i
             datasets=[{"name": "corn", "samples": 42}],
         )
     store.complete_run(run_id, {"total_results": 3, "best_score": 0.12})
+    with patch(
+        "nirs4all.pipeline.storage.workspace_store.uuid4",
+        return_value=UUID("87654321-4321-6789-4321-678943216789"),
+    ):
+        pipeline_id = store.begin_pipeline(
+            run_id=run_id,
+            name="0001_pls",
+            expanded_config=[{"model": "PLSRegression"}],
+            generator_choices=[],
+            dataset_name="corn",
+            dataset_hash="sha256:corn",
+        )
+    store.complete_pipeline(
+        pipeline_id,
+        best_val=0.12,
+        best_test=0.15,
+        metric="rmsecv",
+        duration_ms=1234,
+    )
+    with patch(
+        "nirs4all.pipeline.storage.workspace_store.uuid4",
+        return_value=UUID("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"),
+    ):
+        pending_pipeline_id = store.begin_pipeline(
+            run_id=run_id,
+            name="0002_pending",
+            expanded_config=[{"model": "PendingRegressor"}],
+            generator_choices=[],
+            dataset_name="corn",
+            dataset_hash="sha256:corn",
+        )
     store.close()
     database = workspace / contract["store"]["metadata_file"]
     before = {path.name for path in workspace.iterdir()}
@@ -54,9 +86,13 @@ def test_run_summary_contract_matches_a_fresh_workspace_store_without_mutating_i
     with sqlite3.connect(f"{database.as_uri()}?mode=ro&immutable=1", uri=True) as connection:
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         assert version == contract["workspace_store_schema_version"]
-        columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
-        assert {field["column"] for field in projection["fields"]} <= columns
-        rows = connection.execute(projection["query"], (100, 0)).fetchall()
+        run_columns = {row[1] for row in connection.execute("PRAGMA table_info(runs)")}
+        assert {field["column"] for field in run_projection["fields"]} <= run_columns
+        rows = connection.execute(run_projection["query"], (100, 0)).fetchall()
+        pipeline_columns = {row[1] for row in connection.execute("PRAGMA table_info(pipelines)")}
+        assert {field["column"] for field in pipeline_projection["fields"]} <= pipeline_columns
+        pipeline_rows = connection.execute(pipeline_projection["query"], (100, 0)).fetchall()
+        pipeline_count = connection.execute(pipeline_projection["count_query"]).fetchone()[0]
 
     assert len(rows) == 1
     (
@@ -74,11 +110,50 @@ def test_run_summary_contract_matches_a_fresh_workspace_store_without_mutating_i
     assert row_status == "completed"
     assert row_created_at
     assert row_completed_at
-    assert next(field for field in projection["fields"] if field["name"] == "created_at")["serialization"] == "iso8601"
-    assert next(field for field in projection["fields"] if field["name"] == "completed_at")["serialization"] == "iso8601"
+    assert next(field for field in run_projection["fields"] if field["name"] == "created_at")["serialization"] == "iso8601"
+    assert next(field for field in run_projection["fields"] if field["name"] == "completed_at")["serialization"] == "iso8601"
     assert json.loads(row_datasets) == [{"name": "corn", "samples": 42}]
     assert json.loads(row_summary) == {"total_results": 3, "best_score": 0.12}
     assert row_error is None
+
+    assert pipeline_count == len(pipeline_rows) == 2
+    assert pipeline_projection["response_constants"] == {"format": "store"}
+    (
+        row_pipeline_id,
+        row_run_id,
+        row_pipeline_name,
+        row_pipeline_config_id,
+        row_dataset_name,
+        row_pipeline_created_at,
+        row_best_val,
+        row_best_test,
+        row_metric,
+        row_pipeline_status,
+        row_duration_ms,
+    ) = pipeline_rows[0]
+    assert row_pipeline_id == "87654321-4321-6789-4321-678943216789"
+    assert row_run_id == run_id
+    assert row_pipeline_name == "0001_pls"
+    assert row_pipeline_config_id == row_pipeline_id
+    assert row_dataset_name == "corn"
+    assert row_pipeline_created_at
+    assert next(field for field in pipeline_projection["fields"] if field["name"] == "created_at") == {
+        "name": "created_at",
+        "column": "created_at",
+        "type": "timestamp",
+        "serialization": "iso8601",
+        "default": "",
+    }
+    assert row_best_val == 0.12
+    assert row_best_test == 0.15
+    assert row_metric == "rmsecv"
+    assert row_pipeline_status == "completed"
+    assert row_duration_ms == 1234
+    assert pipeline_rows[1][0] == pending_pipeline_id
+    assert pipeline_rows[1][6] is None
+    assert pipeline_rows[1][7] is None
+    assert pipeline_rows[1][8] is None
+    assert next(field for field in pipeline_projection["fields"] if field["name"] == "status")["nullable"] is True
 
     assert {path.name for path in workspace.iterdir()} == before
     assert contract["excluded_surfaces"] == [

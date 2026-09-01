@@ -2155,7 +2155,8 @@ class WorkspaceStore:
 
         Returns:
             A :class:`polars.DataFrame` with one row per matching
-            pipeline, ordered by ``created_at`` descending.
+            pipeline, ordered by ``created_at`` descending and then
+            ``pipeline_id`` ascending for deterministic ties.
         """
         conditions: list[str] = []
         params: list[object] = []
@@ -2171,7 +2172,7 @@ class WorkspaceStore:
         if conditions:
             where = " WHERE " + " AND ".join(conditions)
 
-        sql = f"SELECT * FROM pipelines{where} ORDER BY created_at DESC"
+        sql = f"SELECT * FROM pipelines{where} ORDER BY created_at DESC, pipeline_id ASC"
         return self._fetch_pl(sql, params)
 
     # =====================================================================

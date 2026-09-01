@@ -9,11 +9,13 @@ from __future__ import annotations
 
 import gc
 import json
+import sqlite3
 import threading
 import weakref
 import zipfile
 from datetime import datetime
 from pathlib import Path
+from uuid import UUID
 
 import numpy as np
 import polars as pl
@@ -255,8 +257,17 @@ class TestPipelineCrud:
 
         store.close()
 
-    def test_list_pipelines(self, tmp_path):
+    def test_list_pipelines(self, tmp_path, monkeypatch):
         """list_pipelines with filters."""
+        identifiers = iter(
+            [
+                UUID("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                UUID("cccccccc-cccc-cccc-cccc-cccccccccccc"),
+                UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+                UUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+            ]
+        )
+        monkeypatch.setattr("nirs4all.pipeline.storage.workspace_store.uuid4", lambda: next(identifiers))
         store = _make_store(tmp_path)
 
         run_id = store.begin_run("run1", config={}, datasets=[])
@@ -264,13 +275,23 @@ class TestPipelineCrud:
         store.begin_pipeline(run_id, "p2", {}, [], "corn", "h2")
         store.begin_pipeline(run_id, "p3", {}, [], "wheat", "h3")
 
-        # All pipelines
+        store.close()
+        with sqlite3.connect(tmp_path / "workspace" / "store.sqlite") as connection:
+            connection.execute("UPDATE pipelines SET created_at = ?", ("2026-09-01 08:00:00",))
+        store = _make_store(tmp_path)
+
+        # All pipelines use an explicit ID tie-break when timestamps match.
         df = store.list_pipelines()
         assert len(df) == 3
+        assert df["pipeline_id"].to_list() == sorted(df["pipeline_id"].to_list())
 
         # Filter by dataset
         df = store.list_pipelines(dataset_name="wheat")
         assert len(df) == 2
+        assert df["pipeline_id"].to_list() == [
+            "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+            "cccccccc-cccc-cccc-cccc-cccccccccccc",
+        ]
 
         # Filter by run_id
         df = store.list_pipelines(run_id=run_id)
