@@ -41,8 +41,8 @@
         {"name": "id", "column": "run_id", "type": "string", "required": true},
         {"name": "name", "column": "name", "type": "string", "required": true},
         {"name": "status", "column": "status", "type": "string", "default": "unknown"},
-        {"name": "created_at", "column": "created_at", "type": "timestamp", "default": ""},
-        {"name": "completed_at", "column": "completed_at", "type": "timestamp", "default": ""},
+        {"name": "created_at", "column": "created_at", "type": "timestamp", "serialization": "iso8601", "default": ""},
+        {"name": "completed_at", "column": "completed_at", "type": "timestamp", "serialization": "iso8601", "default": ""},
         {"name": "datasets", "column": "datasets", "type": "json", "default": []},
         {"name": "summary", "column": "summary", "type": "json", "default": {}},
         {"name": "error", "column": "error", "type": "string", "nullable": true}
