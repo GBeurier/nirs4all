@@ -101,7 +101,7 @@ def test_closed_callable_runs_only_dagml_without_fallback(monkeypatch: pytest.Mo
     assert captured["project"] is None
     assert captured["cache"] is None
     assert captured["name"] == "protein_pls"
-    assert captured["random_state"] == 17
+    assert captured["random_state"] is None
     X, y = captured["dataset"]
     np.testing.assert_allclose(X, np.asarray(_request()["dataset"]["X"]))
     np.testing.assert_allclose(y, np.asarray(_request()["dataset"]["y"]))
