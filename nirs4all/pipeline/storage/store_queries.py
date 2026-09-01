@@ -817,7 +817,7 @@ def build_top_chains_query(
 
     direction = "ASC" if ascending else "DESC"
 
-    sql = f"SELECT * FROM v_chain_summary{where} ORDER BY ({resolved_column} IS NULL), {resolved_column} {direction} LIMIT ?"
+    sql = f"SELECT * FROM v_chain_summary{where} ORDER BY ({resolved_column} IS NULL), {resolved_column} {direction}, chain_id ASC LIMIT ?"
     params.append(n)
     if offset:
         sql += " OFFSET ?"

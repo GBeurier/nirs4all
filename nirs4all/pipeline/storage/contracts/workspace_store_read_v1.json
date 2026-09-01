@@ -6,6 +6,8 @@
     "metadata_file": "store.sqlite",
     "open_mode": "sqlite_immutable_read_only",
     "compatibility": "exact_schema_version",
+    "path_support": "local_filesystem_only",
+    "unsupported_paths": ["windows_unc", "windows_device_namespace"],
     "writer_lock_required": false,
     "must_not_create_wal_or_shm": true
   },
@@ -117,7 +119,7 @@
         {"name": "final_agg_test_score", "column": "final_agg_test_score", "type": "number", "nullable": true, "finite": true},
         {"name": "final_agg_train_score", "column": "final_agg_train_score", "type": "number", "nullable": true, "finite": true},
         {"name": "final_agg_scores", "column": "final_agg_scores", "type": "json_object", "default": {}},
-        {"name": "best_params", "column": "best_params", "type": "json_object", "nullable": true}
+        {"name": "best_params", "column": "best_params", "type": "json_object", "nullable": true, "empty_object": "null"}
       ],
       "excluded_computed_fields": [
         "variant_params",

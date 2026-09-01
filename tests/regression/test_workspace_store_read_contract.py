@@ -24,6 +24,8 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
         "metadata_file": "store.sqlite",
         "open_mode": "sqlite_immutable_read_only",
         "compatibility": "exact_schema_version",
+        "path_support": "local_filesystem_only",
+        "unsupported_paths": ["windows_unc", "windows_device_namespace"],
         "writer_lock_required": False,
         "must_not_create_wal_or_shm": True,
     }
@@ -267,6 +269,13 @@ def test_ranked_chain_contract_is_filtered_deterministic_and_null_last(tmp_path:
         "cv_source_chain_id",
         "is_refit_only",
     ]
+    assert projection["fields"][-1] == {
+        "name": "best_params",
+        "column": "best_params",
+        "type": "json_object",
+        "nullable": True,
+        "empty_object": "null",
+    }
 
 
 def test_results_summary_contract_source_is_complete_paged_and_read_only(tmp_path: Path) -> None:
