@@ -23,7 +23,7 @@ Two usage patterns:
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult, RunResult
@@ -226,7 +226,7 @@ class Session:
 
             return self._last_result
 
-        except Exception as e:
+        except Exception:
             self._status = "error"
             raise
 
