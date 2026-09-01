@@ -693,7 +693,7 @@ previous conformal result must be treated as stale.
 
 | Registry path | Lifecycle | Changes | Invalidates calibration | Summary |
 |---------------|-----------|---------|-------------------------|---------|
-| `run.engine` | `execution` | `execution_backend` | `if_predictor_changes` | Selects the pipeline execution backend; dual is a bounded native-first, no-fallback oracle only for explicit array regression with KFold(shuffle=False) and PLSRegression, and this does not select the HPO algorithm. |
+| `run.engine` | `execution` | `execution_backend` | `if_predictor_changes` | Selects the pipeline execution backend; native is the fail-closed Archive V2 Methods subset, while dual is a bounded native-first, no-fallback oracle only for explicit array regression with KFold(shuffle=False) and PLSRegression; neither selects the HPO algorithm. |
 | `run.tuning` | `search` | `candidate_fit, selection, final_predictor` | `always` | Fixed-topology full-DAG HPO argument. The public subset currently executes only `engine="dag-ml"` single-estimator array pipelines with explicit `score_data`; broader DAG shapes remain fail-closed. |
 | `run.tuning.engine` | `search` | `optimizer_algorithm` | `if_predictor_changes` | Optimizer selector inside full-DAG tuning; it is distinct from `run.engine` and currently executes only the single-estimator array subset. |
 | `run.tuning.space` | `search` | `parameter_patches, candidate_predictors, selection` | `always` | Fixed-topology parameter search space. The public subset supports value patches on a single estimator; structural axes and full pipeline recompilation remain planned. |
