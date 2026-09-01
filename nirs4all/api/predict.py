@@ -77,7 +77,6 @@ def predict(
     save_to_workspace: bool = False,
     workspace_metadata: Mapping[str, Any] | None = None,
     workspace_result_metadata: Mapping[str, Any] | None = None,
-    methods_library_path: str | Path | None = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Make predictions with a trained model on new data.
@@ -158,10 +157,6 @@ def predict(
         workspace_result_metadata: Optional result-level metadata merged over
             ``result.metadata`` when publishing the workspace prediction row.
 
-        methods_library_path: Optional explicit path to the compatible
-            ``libn4m`` used for a recognized Core Archive V2. If omitted, the
-            installed ``nirs4all-methods`` package resolves its bundled library.
-
         session: Optional Session for resource reuse.
             If provided, uses the session's runner.
 
@@ -231,6 +226,7 @@ def predict(
         core_archive_version = detect_core_archive_version(model)
     if core_archive_version is not None:
         assert isinstance(model, (str, Path))
+        methods_library_path = runner_kwargs.pop("methods_library_path", None)
         if engine not in (None, "native", "dag-ml"):
             raise CoreArchiveReplayError(
                 "recognized Core archives cannot be replayed with the legacy engine"
