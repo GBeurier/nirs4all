@@ -385,6 +385,7 @@ def test_results_summary_contract_freezes_one_metric_and_selection_policy() -> N
         "best_final_if_not_already_selected",
     ]
     assert contract["selection"]["best_final_comparison"] == "strict_summary_comparison_so_first_source_row_wins_ties"
+    assert contract["normalization"]["source_order"] == "chain_id_ascending"
     assert contract["synthetic_refit"]["mark_refit_only_before_synthesis"] is True
     assert contract["synthetic_refit"]["assignments"] == {
         "final_test_score": "finite_cv_test_score_or_null",

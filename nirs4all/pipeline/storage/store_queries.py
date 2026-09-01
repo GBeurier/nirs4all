@@ -684,7 +684,7 @@ def build_chain_summary_query(
     if conditions:
         where = " WHERE " + " AND ".join(conditions)
 
-    return QUERY_CHAIN_SUMMARY_BASE + where, params
+    return QUERY_CHAIN_SUMMARY_BASE + where + " ORDER BY chain_id ASC", params
 
 
 def build_chain_summary_count_query(
