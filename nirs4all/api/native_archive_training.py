@@ -2,6 +2,8 @@
 
 This module is intentionally limited to the portable V1 minimum: explicit raw
 arrays, one KFold-like splitter and one sklearn ``PLSRegression`` declaration.
+Single- and multi-target regression are supported when target identities are
+explicit.
 DAG-ML owns scheduling and archive-member assembly, Methods owns fit/predict and
 N4MM bytes, and Core alone writes and validates the ``.n4a`` container.
 """
@@ -39,6 +41,8 @@ class NativeMethodsArchiveRunResult(RunResult):
         training_result: Any,
         outcome: Mapping[str, Any],
         package: Mapping[str, Any],
+        outcome_contract: Any,
+        package_contract: Any,
         archive_id: str,
     ) -> None:
         super().__init__(
@@ -54,6 +58,8 @@ class NativeMethodsArchiveRunResult(RunResult):
         self._native_training_result = training_result
         self._native_outcome = dict(outcome)
         self._native_package = dict(package)
+        self._native_outcome_contract = outcome_contract
+        self._native_package_contract = package_contract
         self._native_archive_id = archive_id
         self._native_archive_reference: dict[str, str] | None = None
 
@@ -94,8 +100,8 @@ class NativeMethodsArchiveRunResult(RunResult):
         try:
             manifest, members = self._native_dag_ml.build_archive_v2_native_portable_payloads(
                 self._native_archive_id,
-                self._native_outcome,
-                self._native_package,
+                self._native_outcome_contract,
+                self._native_package_contract,
             )
             reference = self._native_core.write_archive_v2_from_native_payloads(
                 path,
@@ -151,9 +157,17 @@ def run_native_methods_archive(
         raise TypeError("engine='native' requires a list pipeline")
     if not isinstance(dataset, Mapping):
         raise TypeError(
-            "engine='native' requires dataset={'X': matrix, 'y': targets, 'sample_ids': ids}"
+            "engine='native' requires dataset={'X': matrix, 'y': targets, "
+            "'sample_ids': ids, 'target_names': optional_names}"
         )
-    unknown = set(dataset) - {"X", "y", "sample_ids", "groups", "metadata"}
+    unknown = set(dataset) - {
+        "X",
+        "y",
+        "sample_ids",
+        "target_names",
+        "groups",
+        "metadata",
+    }
     missing = {"X", "y", "sample_ids"} - set(dataset)
     if unknown:
         raise ValueError(f"engine='native' dataset has unsupported keys: {sorted(unknown)}")
@@ -184,7 +198,7 @@ def run_native_methods_archive(
 
     dag_ml, core = _require_archive_runtime()
     methods_library_path = _resolve_methods_library_path(methods_library_override)
-    features, targets, sample_ids = _normalize_training_arrays(dataset)
+    features, targets, sample_ids, target_names = _normalize_training_arrays(dataset)
     identity = normalize_fit_identity(
         features,
         targets,
@@ -201,6 +215,7 @@ def run_native_methods_archive(
         identity_frame=identity,
         seed=seed,
         portable_methods=True,
+        target_names=target_names,
     )
     prepared = contracts.to_prepared()
     requirement_keys = sorted(prepared.data_envelopes)
@@ -214,7 +229,7 @@ def run_native_methods_archive(
             "sample_ids": list(identity.sample_ids),
             "x": features.tolist(),
             "y": target_matrix.tolist(),
-            "target_names": ["y"],
+            "target_names": list(target_names),
         }
     }
     request = dag_ml.sign_training_request(prepared.request)
@@ -241,7 +256,8 @@ def run_native_methods_archive(
             fitted_artifact_mode="portable_required",
             artifact_load_mode="native_portable",
         )
-        outcome = _to_mapping(training_result.outcome, "TrainingOutcome")
+        outcome_object = training_result.outcome
+        outcome = _to_mapping(outcome_object, "TrainingOutcome")
         package = _to_mapping(package_object, "Package V2")
         score_set = outcome.get("score_set")
         fingerprint = outcome.get("outcome_fingerprint")
@@ -263,6 +279,8 @@ def run_native_methods_archive(
             training_result=training_result,
             outcome=outcome,
             package=package,
+            outcome_contract=outcome_object,
+            package_contract=package_object,
             archive_id=f"archive:{fingerprint}",
         )
     except BaseException:
@@ -299,21 +317,44 @@ def _require_archive_runtime() -> tuple[Any, Any]:
 
 def _normalize_training_arrays(
     dataset: Mapping[str, Any],
-) -> tuple[np.ndarray, np.ndarray, Sequence[Any]]:
+) -> tuple[np.ndarray, np.ndarray, Sequence[Any], tuple[str, ...]]:
     features = np.ascontiguousarray(np.asarray(dataset["X"], dtype=np.dtype("<f8")))
     targets = np.ascontiguousarray(np.asarray(dataset["y"], dtype=np.dtype("<f8")))
     if features.ndim != 2 or targets.ndim not in (1, 2):
         raise ValueError("engine='native' requires 2-D X and 1-D or 2-D y")
     if features.shape[0] == 0 or features.shape[0] != targets.shape[0]:
         raise ValueError("engine='native' requires aligned non-empty X and y")
-    if targets.ndim == 2 and targets.shape[1] != 1:
-        raise ValueError("portable Methods PLS supports one target only")
+    target_width = 1 if targets.ndim == 1 else targets.shape[1]
+    if target_width == 0:
+        raise ValueError("engine='native' requires at least one target column")
     if not np.isfinite(features).all() or not np.isfinite(targets).all():
         raise ValueError("engine='native' requires finite X and y")
     sample_ids = dataset["sample_ids"]
     if not isinstance(sample_ids, Sequence) or isinstance(sample_ids, (str, bytes)):
         raise TypeError("engine='native' sample_ids must be a sequence")
-    return features, targets, sample_ids
+    target_names = _normalize_target_names(dataset.get("target_names"), target_width)
+    return features, targets, sample_ids, target_names
+
+
+def _normalize_target_names(value: Any, target_width: int) -> tuple[str, ...]:
+    if value is None:
+        if target_width == 1:
+            return ("y",)
+        raise ValueError(
+            "engine='native' multi-target y requires explicit target_names"
+        )
+    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
+        raise TypeError("engine='native' target_names must be a sequence of strings")
+    if len(value) != target_width:
+        raise ValueError(
+            f"engine='native' target_names length must match y width {target_width}"
+        )
+    names = tuple(value)
+    if not all(isinstance(name, str) and name.strip() for name in names):
+        raise ValueError("engine='native' target_names must be non-empty strings")
+    if len(set(names)) != len(names):
+        raise ValueError("engine='native' target_names must be unique")
+    return names
 
 
 def _to_mapping(value: Any, label: str) -> Mapping[str, Any]:

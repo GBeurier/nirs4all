@@ -30,7 +30,7 @@ def _archive(path: Path, version: int) -> Path:
     return path
 
 
-def _package() -> dict[str, Any]:
+def _package(target_names: list[str] | None = None) -> dict[str, Any]:
     return {
         "schema_version": 2,
         "execution_bundle": {
@@ -48,7 +48,7 @@ def _package() -> dict[str, Any]:
             {
                 "binding_id": "binding:prediction",
                 "node_id": "model:methods",
-                "target_names": ["protein"],
+                "target_names": target_names or ["protein"],
             }
         ],
     }
@@ -85,7 +85,7 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
                     "predictions": [
                         {
                             "sample_ids": ["sample.one", "sample.two"],
-                            "values": [[1.5], [2.5]],
+                            "values": [[1.5, 10.5], [2.5, 20.5]],
                         }
                     ]
                 }
@@ -93,7 +93,9 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
         }
 
     core = SimpleNamespace(
-        read_portable_predictor_package_v2=lambda _: json.dumps(_package()).encode(),
+        read_portable_predictor_package_v2=lambda _: json.dumps(
+            _package(["protein", "moisture"])
+        ).encode(),
         replay_methods_archive_v2=replay,
     )
     dag_ml = SimpleNamespace(
@@ -127,8 +129,9 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
     )
 
     assert isinstance(result, PredictResult)
-    np.testing.assert_array_equal(result.y_pred, [[1.5], [2.5]])
+    np.testing.assert_array_equal(result.y_pred, [[1.5, 10.5], [2.5, 20.5]])
     assert result.metadata["engine"] == "core-native"
+    assert result.metadata["target_names"] == ["protein", "moisture"]
     assert "serialized_model_predict" not in result.metadata
     assert observed["archive_path"] == str(path)
     assert observed["request"]["phase"] == "PREDICT"
@@ -142,10 +145,80 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
         "model:methods.x": {
             "sample_ids": ["sample.one", "sample.two"],
             "x": [[1.0, 2.0], [3.0, 4.0]],
-            "target_names": ["protein"],
+            "target_names": ["protein", "moisture"],
         }
     }
     assert observed["kwargs"]["methods_library_path"] == "/opt/lib/libn4m.so"
+
+
+def test_core_v2_refuses_prediction_width_that_disagrees_with_binding() -> None:
+    outcome = {
+        "outputs": [
+            {
+                "predictions": [
+                    {"sample_ids": ["sample.one"], "values": [[1.5]]}
+                ]
+            }
+        ]
+    }
+
+    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="aligned matrix"):
+        core_archive_replay._decode_prediction(
+            outcome,
+            ("sample.one",),
+            target_names=("protein", "moisture"),
+        )
+
+
+def test_core_v2_cross_link_refusal_never_falls_back_to_pipeline_runner(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _archive(tmp_path / "version-mismatch.n4a", 2)
+
+    def replay(*_args: Any, **_kwargs: Any) -> None:
+        raise ValueError("execution bundle content is not cross-linked by outcome reference")
+
+    core = SimpleNamespace(
+        read_portable_predictor_package_v2=lambda _: json.dumps(_package()).encode(),
+        replay_methods_archive_v2=replay,
+    )
+    dag_ml = SimpleNamespace(
+        sample_relation_set_fingerprint_json=lambda _: "r" * 64,
+        sign_training_replay_request=lambda request: {
+            **request,
+            "request_fingerprint": "f" * 64,
+        },
+    )
+    real_import = core_archive_replay.importlib.import_module
+
+    def fake_import(name: str) -> Any:
+        if name == "nirs4all_core":
+            return core
+        if name == "dag_ml":
+            return dag_ml
+        return real_import(name)
+
+    monkeypatch.setattr(core_archive_replay.importlib, "import_module", fake_import)
+    monkeypatch.setattr(predict_module, "PipelineRunner", _never_runner)
+    monkeypatch.setattr(
+        predict_module,
+        "_predict_from_model",
+        lambda *args, **kwargs: pytest.fail("legacy model replay must not run"),
+    )
+
+    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="replay failed"):
+        predict_module.predict(
+            model=path,
+            data={"X": [[1.0]], "sample_ids": ["sample.one"]},
+            methods_library_path="/opt/lib/libn4m.so",
+        )
+
+
+@pytest.mark.parametrize("target_names", [["protein", "protein"], ["protein", " "]])
+def test_core_v2_refuses_ambiguous_target_names(target_names: list[str]) -> None:
+    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="target_names"):
+        core_archive_replay._single_binding(_package(target_names))
 
 
 def test_recognized_v2_missing_core_wheel_fails_without_legacy_fallback(
