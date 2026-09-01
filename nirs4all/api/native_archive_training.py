@@ -1,0 +1,340 @@
+"""Callback-free Methods training that closes directly into Core Archive V2.
+
+This module is intentionally limited to the portable V1 minimum: explicit raw
+arrays, one KFold-like splitter and one sklearn ``PLSRegression`` declaration.
+DAG-ML owns scheduling and archive-member assembly, Methods owns fit/predict and
+N4MM bytes, and Core alone writes and validates the ``.n4a`` container.
+"""
+
+from __future__ import annotations
+
+import importlib
+from collections.abc import Mapping, Sequence
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+
+from nirs4all.pipeline.dagml.core_archive_replay import _resolve_methods_library_path
+from nirs4all.pipeline.dagml.fit_identity import normalize_fit_identity
+from nirs4all.pipeline.dagml.raw_training_lowerer import lower_raw_array_training_contracts
+from nirs4all.pipeline.dagml.result import _scores_to_run_result
+
+from .result import RunResult
+
+
+class NativeArchiveTrainingError(RuntimeError):
+    """The installed native stack cannot produce a portable Archive V2."""
+
+
+class NativeMethodsArchiveRunResult(RunResult):
+    """A normal score projection retaining only portable Methods contracts."""
+
+    def __init__(
+        self,
+        projected: RunResult,
+        *,
+        dag_ml: Any,
+        core: Any,
+        training_result: Any,
+        outcome: Mapping[str, Any],
+        package: Mapping[str, Any],
+        archive_id: str,
+    ) -> None:
+        super().__init__(
+            predictions=projected.predictions,
+            per_dataset={
+                dataset_name: {**info, "engine": "native"}
+                for dataset_name, info in projected.per_dataset.items()
+            },
+        )
+        self._dagml_score_set = dict(outcome["score_set"])
+        self._native_dag_ml = dag_ml
+        self._native_core = core
+        self._native_training_result = training_result
+        self._native_outcome = dict(outcome)
+        self._native_package = dict(package)
+        self._native_archive_id = archive_id
+        self._native_archive_reference: dict[str, str] | None = None
+
+    @property
+    def native_archive_reference(self) -> dict[str, str] | None:
+        """Return the Core-issued id/checksum of the last successful save."""
+
+        if self._native_archive_reference is None:
+            return None
+        return dict(self._native_archive_reference)
+
+    @property
+    def native_execution_is_live(self) -> bool:
+        """Whether the native training resources have not yet been detached."""
+
+        return bool(getattr(self._native_training_result, "is_attached", False))
+
+    def export(
+        self,
+        output_path: str | Path,
+        format: str = "n4a",
+        source: dict[str, Any] | None = None,
+        chain_id: str | None = None,
+        *,
+        compatibility: str | None = None,
+    ) -> Path:
+        """Write the captured Package V2/N4MM without refitting or host models."""
+
+        if format != "n4a":
+            raise ValueError("native Methods export supports only format='n4a' (Core Archive V2)")
+        if source is not None or chain_id is not None or compatibility is not None:
+            raise NotImplementedError(
+                "native Methods Archive V2 export rejects legacy selectors and compatibility refits"
+            )
+        path = Path(output_path)
+        if path.suffix.lower() != ".n4a":
+            raise ValueError("native Methods export requires a .n4a path")
+        try:
+            manifest, members = self._native_dag_ml.build_archive_v2_native_portable_payloads(
+                self._native_archive_id,
+                self._native_outcome,
+                self._native_package,
+            )
+            reference = self._native_core.write_archive_v2_from_native_payloads(
+                path,
+                manifest,
+                members,
+            )
+        except Exception as error:
+            raise NativeArchiveTrainingError(
+                "DAG-ML/Core refused native Archive V2 publication"
+            ) from error
+        if not isinstance(reference, Mapping):
+            raise NativeArchiveTrainingError("Core Archive V2 writer returned an invalid reference")
+        archive_id = reference.get("archive_id")
+        archive_sha256 = reference.get("archive_sha256")
+        if not isinstance(archive_id, str) or not isinstance(archive_sha256, str):
+            raise NativeArchiveTrainingError("Core Archive V2 writer omitted id/checksum evidence")
+        self._native_archive_reference = {
+            "archive_id": archive_id,
+            "archive_sha256": archive_sha256,
+        }
+        return path
+
+    def close(self) -> None:
+        """Release native handles while retaining immutable package/archive bytes."""
+
+        if getattr(self._native_training_result, "is_attached", False):
+            detach = getattr(self._native_training_result, "detach", None)
+            if callable(detach):
+                detach()
+
+
+def run_native_methods_archive(
+    pipeline: Any,
+    dataset: Any,
+    *,
+    name: str = "",
+    verbose: int = 1,
+    save_artifacts: bool = True,
+    save_charts: bool = False,
+    plots_visible: bool = False,
+    random_state: int | None = None,
+    refit: Any = True,
+    cache: Any = None,
+    project: str | None = None,
+    report_naming: str = "nirs",
+    results_path: Any = None,
+    session: Any = None,
+    runner_kwargs: Mapping[str, Any] | None = None,
+) -> NativeMethodsArchiveRunResult:
+    """Run the frozen portable Methods subset without ``PipelineRunner``."""
+
+    if not isinstance(pipeline, list):
+        raise TypeError("engine='native' requires a list pipeline")
+    if not isinstance(dataset, Mapping):
+        raise TypeError(
+            "engine='native' requires dataset={'X': matrix, 'y': targets, 'sample_ids': ids}"
+        )
+    unknown = set(dataset) - {"X", "y", "sample_ids", "groups", "metadata"}
+    missing = {"X", "y", "sample_ids"} - set(dataset)
+    if unknown:
+        raise ValueError(f"engine='native' dataset has unsupported keys: {sorted(unknown)}")
+    if missing:
+        raise ValueError(f"engine='native' dataset is missing required keys: {sorted(missing)}")
+    if not save_artifacts:
+        raise ValueError("engine='native' requires save_artifacts=True for its N4MM artifact")
+    if verbose != 1 or save_charts or plots_visible:
+        raise NotImplementedError("engine='native' does not expose legacy progress or chart controls")
+    if refit is not True:
+        raise NotImplementedError("engine='native' requires the native refit")
+    if cache is not None or project is not None or results_path is not None or session is not None:
+        raise NotImplementedError(
+            "engine='native' does not use legacy cache, project, results_path, or Session"
+        )
+    if report_naming != "nirs":
+        raise NotImplementedError("engine='native' supports report_naming='nirs' only")
+    native_options = dict(runner_kwargs or {})
+    methods_library_override = native_options.pop("methods_library_path", None)
+    if native_options:
+        raise NotImplementedError(
+            f"engine='native' rejects legacy runner options: {sorted(native_options)}"
+        )
+    if random_state is not None and (
+        isinstance(random_state, bool) or not isinstance(random_state, int) or random_state < 0
+    ):
+        raise TypeError("engine='native' random_state must be a non-negative integer or None")
+
+    dag_ml, core = _require_archive_runtime()
+    methods_library_path = _resolve_methods_library_path(methods_library_override)
+    features, targets, sample_ids = _normalize_training_arrays(dataset)
+    identity = normalize_fit_identity(
+        features,
+        targets,
+        sample_ids=sample_ids,
+        groups=dataset.get("groups"),
+        metadata=dataset.get("metadata"),
+        require_explicit_sample_ids=True,
+    )
+    seed = 12345 if random_state is None else random_state
+    contracts = lower_raw_array_training_contracts(
+        pipeline,
+        features,
+        targets,
+        identity_frame=identity,
+        seed=seed,
+        portable_methods=True,
+    )
+    prepared = contracts.to_prepared()
+    requirement_keys = sorted(prepared.data_envelopes)
+    if len(requirement_keys) != 1:
+        raise NativeArchiveTrainingError(
+            "portable Methods PLS requires exactly one signed data requirement"
+        )
+    target_matrix = targets.reshape(-1, 1) if targets.ndim == 1 else targets
+    methods_inputs = {
+        requirement_keys[0]: {
+            "sample_ids": list(identity.sample_ids),
+            "x": features.tolist(),
+            "y": target_matrix.tolist(),
+            "target_names": ["y"],
+        }
+    }
+    request = dag_ml.sign_training_request(prepared.request)
+    training_result: Any | None = None
+    try:
+        training_result = dag_ml.execute_methods_training(
+            request,
+            prepared.data_envelopes,
+            prepared.relations,
+            prepared.training_influence,
+            methods_inputs,
+            methods_library_path=methods_library_path,
+            outcome_id=prepared.outcome_id,
+            run_id=prepared.run_id,
+            bundle_id=prepared.bundle_id,
+            warnings=prepared.warnings,
+            diagnostics={
+                **dict(prepared.diagnostics or {}),
+                "nirs4all_execution": "methods_callback_free_archive_v2",
+            },
+        )
+        package_object = training_result.export_portable_predictor_package(
+            f"package:{prepared.outcome_id}",
+            fitted_artifact_mode="portable_required",
+            artifact_load_mode="native_portable",
+        )
+        outcome = _to_mapping(training_result.outcome, "TrainingOutcome")
+        package = _to_mapping(package_object, "Package V2")
+        score_set = outcome.get("score_set")
+        fingerprint = outcome.get("outcome_fingerprint")
+        if not isinstance(score_set, Mapping) or not isinstance(fingerprint, str) or not fingerprint:
+            raise NativeArchiveTrainingError(
+                "native Methods training omitted score/archive identity evidence"
+            )
+        projected = _scores_to_run_result(
+            dict(score_set),
+            name or "native",
+            _native_model_name(pipeline),
+            "rmse",
+            "regression",
+        )
+        return NativeMethodsArchiveRunResult(
+            projected,
+            dag_ml=dag_ml,
+            core=core,
+            training_result=training_result,
+            outcome=outcome,
+            package=package,
+            archive_id=f"archive:{fingerprint}",
+        )
+    except BaseException:
+        if training_result is not None and getattr(training_result, "is_attached", False):
+            training_result.detach()
+        raise
+
+
+def _require_archive_runtime() -> tuple[Any, Any]:
+    try:
+        dag_ml = importlib.import_module("dag_ml")
+        core = importlib.import_module("nirs4all_core")
+    except ImportError as error:
+        raise NativeArchiveTrainingError(
+            "engine='native' requires matching dag-ml and nirs4all-core native wheels"
+        ) from error
+    required_dagml = (
+        "compile_pipeline_dsl_artifact_with_controllers",
+        "sign_training_request",
+        "execute_methods_training",
+        "build_archive_v2_native_portable_payloads",
+    )
+    missing = [name for name in required_dagml if not callable(getattr(dag_ml, name, None))]
+    if missing:
+        raise NativeArchiveTrainingError(
+            "installed dag-ml lacks native Archive V2 producer capabilities: " + ", ".join(missing)
+        )
+    if not callable(getattr(core, "write_archive_v2_from_native_payloads", None)):
+        raise NativeArchiveTrainingError(
+            "installed nirs4all-core lacks the Archive V2 writer"
+        )
+    return dag_ml, core
+
+
+def _normalize_training_arrays(
+    dataset: Mapping[str, Any],
+) -> tuple[np.ndarray, np.ndarray, Sequence[Any]]:
+    features = np.ascontiguousarray(np.asarray(dataset["X"], dtype=np.dtype("<f8")))
+    targets = np.ascontiguousarray(np.asarray(dataset["y"], dtype=np.dtype("<f8")))
+    if features.ndim != 2 or targets.ndim not in (1, 2):
+        raise ValueError("engine='native' requires 2-D X and 1-D or 2-D y")
+    if features.shape[0] == 0 or features.shape[0] != targets.shape[0]:
+        raise ValueError("engine='native' requires aligned non-empty X and y")
+    if targets.ndim == 2 and targets.shape[1] != 1:
+        raise ValueError("portable Methods PLS supports one target only")
+    if not np.isfinite(features).all() or not np.isfinite(targets).all():
+        raise ValueError("engine='native' requires finite X and y")
+    sample_ids = dataset["sample_ids"]
+    if not isinstance(sample_ids, Sequence) or isinstance(sample_ids, (str, bytes)):
+        raise TypeError("engine='native' sample_ids must be a sequence")
+    return features, targets, sample_ids
+
+
+def _to_mapping(value: Any, label: str) -> Mapping[str, Any]:
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        value = to_dict()
+    if not isinstance(value, Mapping):
+        raise NativeArchiveTrainingError(f"native {label} is not a mapping")
+    return value
+
+
+def _native_model_name(pipeline: list[Any]) -> str:
+    final = pipeline[-1] if pipeline else None
+    if isinstance(final, Mapping) and set(final) == {"model"}:
+        final = final["model"]
+    name = getattr(final, "__name__", None) or type(final).__name__
+    return name if isinstance(name, str) and name else "MethodsPLS"
+
+
+__all__ = [
+    "NativeArchiveTrainingError",
+    "NativeMethodsArchiveRunResult",
+    "run_native_methods_archive",
+]

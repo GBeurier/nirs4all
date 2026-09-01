@@ -5,6 +5,8 @@ Seam for the **nirs4all-core → dag-ml** migration. The default production engi
 (:mod:`nirs4all.pipeline.dagml.run_backend`) unless another engine is selected. The in-process
 *legacy* orchestrator (:class:`~nirs4all.pipeline.PipelineRunner`) remains available as an explicit
 compatibility path via ``engine="legacy"`` or ``$N4A_ENGINE=legacy``.
+The explicit ``engine="native"`` lane is the fail-closed Archive V2/N4MM producer for the
+portable Methods subset; it never falls back to :class:`~nirs4all.pipeline.PipelineRunner`.
 
 The side-by-side comparison mode (``"dual"``) is reserved and :func:`resolve_engine` refuses it with a
 clear ``NotImplementedError``.
@@ -19,25 +21,27 @@ from __future__ import annotations
 import os
 from typing import Literal, cast
 
-Engine = Literal["legacy", "dag-ml", "dual"]
+Engine = Literal["legacy", "dag-ml", "native", "dual"]
 
 DEFAULT_ENGINE: Engine = "dag-ml"
 ENGINE_ENV_VAR = "N4A_ENGINE"
-ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "dual")
+ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "native", "dual")
 
 
 def resolve_engine(engine: str | None = None) -> Engine:
     """Resolve the requested execution engine, defaulting to ``dag-ml``.
 
-    The V1 default is the native dag-ml backend. The pure-Python legacy orchestrator remains available
-    only when selected explicitly via ``engine="legacy"`` or ``$N4A_ENGINE=legacy``.
+    The V1 default is the dag-ml backend. The pure-Python legacy orchestrator remains available only
+    when selected explicitly via ``engine="legacy"`` or ``$N4A_ENGINE=legacy``. The ``"native"``
+    engine explicitly selects the fail-closed portable Methods Archive V2 producer.
 
     Args:
         engine: Explicit engine name. When ``None``, falls back to the
             ``$N4A_ENGINE`` environment variable, then :data:`DEFAULT_ENGINE`.
 
     Returns:
-        The validated engine name. ``"dag-ml"`` (the default) and ``"legacy"`` are both runnable.
+        The validated engine name. ``"dag-ml"`` (the default), ``"native"``, and ``"legacy"`` are
+        runnable.
 
     Raises:
         ValueError: If the name is not one of :data:`ENGINES`.
@@ -49,6 +53,6 @@ def resolve_engine(engine: str | None = None) -> Engine:
     if name == "dual":
         raise NotImplementedError(
             "the 'dual' engine (side-by-side legacy vs dag-ml comparison) is not implemented yet; "
-            "use 'legacy' or 'dag-ml' (see dag-ml/docs/migration-nirs4all/)"
+            "use 'legacy', 'dag-ml', or 'native' (see dag-ml/docs/migration-nirs4all/)"
         )
     return cast(Engine, name)
