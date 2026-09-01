@@ -1,0 +1,154 @@
+{
+  "schema_id": "nirs4all.studio-run-detail-http.v1",
+  "schema_version": 1,
+  "workspace_store_schema_version": 5,
+  "request": {
+    "method": "GET",
+    "path_suffix": "/runs/{run_id}",
+    "query_string": "absent"
+  },
+  "dependencies": {
+    "workspace_store_read": {
+      "schema_id": "nirs4all.workspace-store-read.v1",
+      "schema_version": 1,
+      "projection": "studio_run_detail_v1"
+    },
+    "splitter_config": {
+      "callable": "nirs4all.pipeline.analysis.splitter_config.extract_splitter_config",
+      "input": "pipeline.expanded_config",
+      "selection": "first_recognized_splitter_step",
+      "output_fields": [
+        "splitter_class",
+        "reference",
+        "n_splits",
+        "shuffle",
+        "random_state",
+        "test_size",
+        "group_by"
+      ]
+    }
+  },
+  "owner_oracle": {
+    "callable": "nirs4all.pipeline.storage.studio_run_detail_http_inputs_v1",
+    "scope": "store_v5_owner_inputs_only",
+    "open_mode": "delegated_to_workspace_store_read_studio_run_detail_v1",
+    "writes_or_cache": "forbidden",
+    "not_found": "null"
+  },
+  "owner_output": {
+    "fields": [
+      "source_branch",
+      "run_detail",
+      "pipeline_splitters",
+      "results",
+      "results_count"
+    ],
+    "source_branch": "store_v5",
+    "run_detail": "workspace_store_read.studio_run_detail_v1",
+    "pipeline_splitters": {
+      "ordering": "run_detail.pipelines_order",
+      "entry_fields": ["pipeline_id", "splitter"],
+      "splitter": "splitter_config_output_or_null"
+    },
+    "results": {
+      "ordering": "run_detail.pipelines_order",
+      "source": "run_detail.pipelines",
+      "mapping": {
+        "id": "pipeline.pipeline_id",
+        "run_id": "pipeline.run_id",
+        "dataset": "pipeline.dataset_name",
+        "pipeline_config": "pipeline.name",
+        "pipeline_config_id": "pipeline.pipeline_id",
+        "created_at": "pipeline.created_at_or_empty_string",
+        "best_score": "pipeline.best_val",
+        "best_test_score": "pipeline.best_test",
+        "metric": "pipeline.metric",
+        "status": "pipeline.status",
+        "duration_ms": "pipeline.duration_ms",
+        "format": "store"
+      }
+    },
+    "results_count": "length_of_results",
+    "json_policy": "strict_finite_json_inherited_from_workspace_store_read"
+  },
+  "http_composition": {
+    "store_branch": {
+      "start": "owner_output.run_detail",
+      "results": "owner_output.results",
+      "results_count": "owner_output.results_count",
+      "config_splitter_inference": {
+        "owner": "studio_http_adapter",
+        "source": "first_non_null_owner_output.pipeline_splitters.splitter",
+        "derived_fields": {
+          "config.cv_strategy": "studio_ui_strategy_vocabulary(reference)_or_splitter_class_or_reference",
+          "config.splitter_class": "splitter_class_or_reference",
+          "config.cv_folds": "n_splits",
+          "config.random_state": "random_state",
+          "config.shuffle": "shuffle",
+          "config.test_size": "test_size",
+          "config.group_by": "group_by",
+          "pipeline.splitter_class": "that_pipeline_splitter_class_or_reference"
+        },
+        "merge": "infer_non_null_fields_then_overlay_non_null_stored_run_config"
+      },
+      "dataset_composition": {
+        "owner": "studio_linked_dataset_configuration",
+        "required_input": "ordered_linked_dataset_records_with_id_name_path",
+        "required_outputs": [
+          "datasets.name_and_dataset_name_normalization",
+          "datasets.linked_dataset_id",
+          "unresolved_dataset_names"
+        ],
+        "policy_contract": "not_yet_published"
+      },
+      "runtime_composition": {
+        "owner": "studio_http_adapter",
+        "required_outputs": [
+          "engine",
+          "engine_requested",
+          "engine_diagnostics",
+          "runtime_source",
+          "runtime_manifest",
+          "fallback_policy",
+          "allow_fallback",
+          "native_result_refs",
+          "pipeline_runtime_propagation"
+        ],
+        "policy_contract": "not_yet_published"
+      },
+      "rerun_ready": {
+        "owner": "studio_http_adapter",
+        "rule": "unresolved_dataset_names_is_empty_and_pipeline_count_is_greater_than_zero"
+      }
+    },
+    "legacy_manifest_branch": {
+      "owner": "workspace_manifest_scanner",
+      "status": "not_covered",
+      "required_contract": "studio_workspace_manifest_run_detail_v1",
+      "must_not_be_reconstructed_from_store_v5": true
+    }
+  },
+  "cutover": {
+    "route_selection": "forbidden",
+    "blocked_on": [
+      "studio_dataset_link_composition_v1",
+      "studio_runtime_field_composition_v1",
+      "studio_ui_splitter_strategy_vocabulary_v1",
+      "studio_workspace_manifest_run_detail_v1_or_preselection_proof"
+    ],
+    "store_owner_inputs_complete": true,
+    "complete_http_response_proven": false,
+    "legacy_manifest_branch_proven": false,
+    "fallback_after_native_selection": "none",
+    "incompatible_store_http_status": 409
+  },
+  "excluded_surfaces": [
+    "linked_dataset_catalogue_storage",
+    "studio_ui_vocabulary",
+    "studio_runtime_alias_policy",
+    "legacy_manifest_parsing",
+    "workspace_mutation",
+    "duckdb_workspaces",
+    "schema_versions_other_than_5"
+  ]
+}
