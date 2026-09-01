@@ -14,6 +14,12 @@ Example:
     >>> print(f"Best RMSE: {result.best_rmse:.4f}")
 """
 
+import copy
+import importlib.resources
+import json
+import math
+import tempfile
+import time
 import warnings
 from collections.abc import Mapping
 from pathlib import Path
@@ -26,7 +32,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.pipeline.engine import resolve_engine
+from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, resolve_engine
 
 from .result import RunResult
 from .session import Session
@@ -61,6 +67,472 @@ PipelineSpec: TypeAlias = (
 DatasetSpec: TypeAlias = (
     SingleDatasetSpec | list[SingleDatasetSpec]  # List of datasets for batch execution
 )
+
+_DUAL_COMPATIBILITY_LEDGER_RESOURCE = "compatibility_ledger.json"
+_DUAL_MAX_LEDGER_BYTES = 256 * 1024
+_DUAL_MAX_TOLERANCE_BANDS = 128
+_DUAL_MAX_SAMPLES = 4_096
+_DUAL_MAX_FEATURES = 2_048
+_DUAL_MAX_FOLDS = 20
+_DUAL_MAX_COMPONENTS = 64
+_DUAL_MAX_ITERATIONS = 1_000
+_DUAL_MAX_MISMATCHES = 256
+
+
+def _resolve_dual_tolerances() -> dict[str, dict[str, Any]]:
+    """Load the default cross-implementation tolerances from the compatibility ledger.
+
+    The public dual subset has no per-case override vocabulary.  It therefore
+    uses only the ledger rows enforced by the parity harness' ``_DEFAULT_*``
+    constants, never a case-specific or guarded relaxation.  Missing or
+    ambiguous ledger evidence is a capability failure, rather than an excuse
+    to select a tolerance locally.
+    """
+
+    try:
+        ledger_bytes = importlib.resources.files("nirs4all").joinpath(_DUAL_COMPATIBILITY_LEDGER_RESOURCE).read_bytes()
+        if len(ledger_bytes) > _DUAL_MAX_LEDGER_BYTES:
+            raise DualRunUnsupported(
+                f"engine='dual' refuses a compatibility ledger larger than {_DUAL_MAX_LEDGER_BYTES} bytes"
+            )
+        ledger = json.loads(ledger_bytes.decode("utf-8"))
+    except (FileNotFoundError, ModuleNotFoundError, OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise DualRunUnsupported("engine='dual' requires the packaged compatibility ledger") from error
+    if not isinstance(ledger, dict) or not isinstance(ledger.get("tolerance_bands"), list):
+        raise DualRunUnsupported("engine='dual' requires a valid compatibility-ledger tolerance_bands list")
+    if len(ledger["tolerance_bands"]) > _DUAL_MAX_TOLERANCE_BANDS:
+        raise DualRunUnsupported(
+            f"engine='dual' refuses more than {_DUAL_MAX_TOLERANCE_BANDS} compatibility-ledger tolerance bands"
+        )
+
+    resolved: dict[str, dict[str, Any]] = {}
+    for metric_class, enforcement_suffix in (("score", "_DEFAULT_SCORE_TOL"), ("prediction", "_DEFAULT_YPRED_TOL")):
+        matches = [
+            band
+            for band in ledger["tolerance_bands"]
+            if isinstance(band, dict)
+            and band.get("numeric_path") == "cross_impl_pipeline"
+            and band.get("metric_class") == metric_class
+            and isinstance(band.get("enforced_at"), str)
+            and band["enforced_at"].endswith(enforcement_suffix)
+        ]
+        if len(matches) != 1:
+            raise DualRunUnsupported(
+                f"engine='dual' could not resolve one default cross_impl_pipeline/{metric_class} tolerance from the compatibility ledger"
+            )
+        band = matches[0]
+        abs_tol = band.get("abs_tol")
+        rel_tol = band.get("rel_tol")
+        if (
+            not isinstance(band.get("band_id"), str)
+            or type(abs_tol) not in (int, float)
+            or type(rel_tol) not in (int, float)
+        ):
+            raise DualRunUnsupported(
+                f"engine='dual' found an invalid cross_impl_pipeline/{metric_class} tolerance in the compatibility ledger"
+            )
+        absolute = cast(int | float, abs_tol)
+        relative = cast(int | float, rel_tol)
+        if absolute < 0 or relative < 0:
+            raise DualRunUnsupported(
+                f"engine='dual' found an invalid cross_impl_pipeline/{metric_class} tolerance in the compatibility ledger"
+            )
+        resolved[metric_class] = {
+            "band_id": band["band_id"],
+            "numeric_path": band["numeric_path"],
+            "metric_class": band["metric_class"],
+            "absolute": float(absolute),
+            "relative": float(relative),
+        }
+    return resolved
+
+
+def _dual_semantic_observation(
+    result: RunResult,
+    *,
+    leg: str,
+    expected_folds: int | None,
+    expected_sample_count: int | None,
+) -> dict[str, Any]:
+    """Extract concrete winner, OOF predictions, and validation splits for one leg.
+
+    The dual oracle intentionally does not compare inferred or synthesized
+    values. Each validation row must carry stable sample positions, a
+    row-aligned prediction, and two concrete finite validation scores; the
+    winning configuration and cross-fold score must also be explicit.
+    """
+
+    best = result.best
+    if not isinstance(best, Mapping) or not isinstance(best.get("config_name"), str) or not best["config_name"]:
+        raise DualRunUnsupported(f"engine='dual' {leg} leg did not expose a concrete winning configuration")
+
+    try:
+        validation_rows = result.predictions.filter_predictions(partition="val")
+    except (AttributeError, TypeError) as error:
+        raise DualRunUnsupported(f"engine='dual' {leg} leg did not expose validation prediction evidence") from error
+
+    splits: dict[str, tuple[int, ...]] = {}
+    y_pred_by_sample: dict[int, float] = {}
+    fold_metrics: dict[str, dict[str, float]] = {}
+    for row in validation_rows:
+        fold_id = row.get("fold_id")
+        if fold_id in (None, "", "avg", "w_avg", "final"):
+            continue
+        fold_key = str(fold_id)
+        sample_indices = row.get("sample_indices")
+        if not isinstance(sample_indices, (list, tuple, np.ndarray)) or len(sample_indices) == 0:
+            raise DualRunUnsupported(f"engine='dual' {leg} leg has no concrete sample IDs for validation fold {fold_key!r}")
+        if any(not isinstance(sample_id, (int, np.integer)) or isinstance(sample_id, bool) for sample_id in sample_indices):
+            raise DualRunUnsupported(f"engine='dual' {leg} leg has non-integer sample IDs for validation fold {fold_key!r}")
+        sample_ids = tuple(int(sample_id) for sample_id in sample_indices)
+        if len(set(sample_ids)) != len(sample_ids) or fold_key in splits:
+            raise DualRunUnsupported(f"engine='dual' {leg} leg has ambiguous validation split evidence for fold {fold_key!r}")
+        try:
+            y_pred = np.asarray(row.get("y_pred"), dtype=float).reshape(-1)
+        except (TypeError, ValueError) as error:
+            raise DualRunUnsupported(f"engine='dual' {leg} leg has non-numeric y_pred for validation fold {fold_key!r}") from error
+        if y_pred.size != len(sample_ids) or not np.all(np.isfinite(y_pred)):
+            raise DualRunUnsupported(f"engine='dual' {leg} leg has incomplete or non-finite y_pred for validation fold {fold_key!r}")
+        if any(sample_id in y_pred_by_sample for sample_id in sample_ids):
+            raise DualRunUnsupported(f"engine='dual' {leg} leg does not expose exactly-once OOF sample predictions")
+        scores = row.get("scores")
+        if not isinstance(scores, Mapping):
+            raise DualRunUnsupported(f"engine='dual' {leg} leg has no scores mapping for validation fold {fold_key!r}")
+        validation_scores = scores.get("val")
+        if isinstance(validation_scores, Mapping):
+            # The current legacy/native projections expose the selected RMSE as
+            # a partition metric block. This is a declared row field, not an
+            # inferred score; the narrow PLS regression subset has RMSE as its
+            # fixed validation objective.
+            validation_scores = validation_scores.get("rmse")
+        splits[fold_key] = sample_ids
+        fold_metrics[fold_key] = {
+            "val_score": _require_finite_dual_metric(row.get("val_score"), leg=leg, field=f"validation fold {fold_key!r} val_score"),
+            "scores.val": _require_finite_dual_metric(validation_scores, leg=leg, field=f"validation fold {fold_key!r} scores['val']"),
+        }
+        y_pred_by_sample.update(zip(sample_ids, (float(value) for value in y_pred), strict=True))
+
+    if not splits or not y_pred_by_sample:
+        raise DualRunUnsupported(f"engine='dual' {leg} leg did not expose concrete OOF predictions and validation splits")
+    if expected_folds is not None and len(splits) != expected_folds:
+        raise DualRunUnsupported(
+            f"engine='dual' {leg} leg exposed {len(splits)} validation splits, expected {expected_folds} from the declared KFold"
+        )
+    if expected_sample_count is not None and set(y_pred_by_sample) != set(range(expected_sample_count)):
+        raise DualRunUnsupported(
+            f"engine='dual' {leg} leg OOF sample IDs do not exactly cover 0..{expected_sample_count - 1}"
+        )
+    return {
+        "winner": best["config_name"],
+        "splits": splits,
+        "y_pred_by_sample": y_pred_by_sample,
+        "fold_metrics": fold_metrics,
+        "cv_best_score": _require_finite_dual_metric(getattr(result, "cv_best_score", None), leg=leg, field="cv_best_score"),
+    }
+
+
+def _require_finite_dual_metric(value: Any, *, leg: str, field: str) -> float:
+    """Return one declared R1 metric or refuse missing/non-finite evidence."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float, np.integer, np.floating)):
+        raise DualRunUnsupported(f"engine='dual' {leg} leg has missing or non-numeric required metric {field}")
+    metric = float(value)
+    if not math.isfinite(metric):
+        raise DualRunUnsupported(f"engine='dual' {leg} leg has non-finite required metric {field}")
+    return metric
+
+
+def _require_dual_supported_request(
+    pipeline: Any,
+    dataset: Any,
+    *,
+    random_state: int | None,
+    refit: bool | dict[str, Any] | list[dict[str, Any]] | None,
+    save_artifacts: bool,
+    save_charts: bool,
+    plots_visible: bool,
+    project: str | None,
+    session: Session | None,
+    cache: Any | None,
+    results_path: str | Path | None,
+    allow_fallback: bool,
+    runner_kwargs: Mapping[str, Any],
+) -> None:
+    """Fail closed unless this is the deliberately small R1 dual-oracle subset."""
+
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.model_selection import KFold
+    from sklearn.utils.multiclass import type_of_target
+
+    if type(dataset) is not tuple or len(dataset) != 2 or any(type(value) is not np.ndarray for value in dataset):
+        raise DualRunUnsupported("engine='dual' supports only an explicit (np.ndarray X, np.ndarray y) dataset")
+    X, y = dataset
+    if X.ndim != 2 or y.ndim != 1 or X.shape[0] != y.shape[0] or X.shape[0] == 0 or X.shape[1] == 0:
+        raise DualRunUnsupported("engine='dual' requires a non-empty X.shape == (n_samples, n_features) and y.shape == (n_samples,)")
+    if X.shape[0] > _DUAL_MAX_SAMPLES or X.shape[1] > _DUAL_MAX_FEATURES:
+        raise DualRunUnsupported(
+            f"engine='dual' bounds its oracle to at most {_DUAL_MAX_SAMPLES} samples and {_DUAL_MAX_FEATURES} features"
+        )
+    if (
+        not np.issubdtype(X.dtype, np.floating)
+        or not np.issubdtype(y.dtype, np.floating)
+        or not np.all(np.isfinite(X))
+        or not np.all(np.isfinite(y))
+    ):
+        raise DualRunUnsupported("engine='dual' requires finite floating-point X and y for its regression-only oracle")
+    if type_of_target(y) != "continuous":
+        raise DualRunUnsupported("engine='dual' requires a continuous regression target, not classification labels")
+    if type(pipeline) is not list or len(pipeline) != 2:
+        raise DualRunUnsupported("engine='dual' supports exactly [KFold(shuffle=False), {'model': PLSRegression(...)}]")
+    splitter, model_step = pipeline
+    if type(splitter) is not KFold or splitter.shuffle:
+        raise DualRunUnsupported("engine='dual' supports only KFold(shuffle=False) as its splitter")
+    if type(model_step) is not dict or set(model_step) != {"model"} or type(model_step["model"]) is not PLSRegression:
+        raise DualRunUnsupported("engine='dual' supports only a single {'model': PLSRegression(...)} step")
+    n_splits = splitter.get_n_splits()
+    if type(n_splits) is not int or not 2 <= n_splits <= min(_DUAL_MAX_FOLDS, X.shape[0]):
+        raise DualRunUnsupported(
+            f"engine='dual' requires 2..{min(_DUAL_MAX_FOLDS, X.shape[0])} concrete KFold splits"
+        )
+    model = model_step["model"]
+    if type(model.n_components) is not int or not 1 <= model.n_components <= min(_DUAL_MAX_COMPONENTS, X.shape[1]):
+        raise DualRunUnsupported(
+            f"engine='dual' requires 1..{min(_DUAL_MAX_COMPONENTS, X.shape[1])} PLS components"
+        )
+    if type(model.max_iter) is not int or not 1 <= model.max_iter <= _DUAL_MAX_ITERATIONS:
+        raise DualRunUnsupported(
+            f"engine='dual' bounds PLS max_iter to 1..{_DUAL_MAX_ITERATIONS}"
+        )
+    if type(random_state) is not int:
+        raise DualRunUnsupported("engine='dual' requires an explicit integer random_state for reproducible comparison")
+    if refit is not True or save_artifacts or save_charts or plots_visible:
+        raise DualRunUnsupported("engine='dual' requires refit=True and save_artifacts=False, save_charts=False, plots_visible=False")
+    if project is not None or session is not None or cache is not None or results_path is not None or allow_fallback or runner_kwargs:
+        raise DualRunUnsupported("engine='dual' does not support project, session, cache, results_path, allow_fallback, or runner kwargs")
+    from nirs4all.pipeline.dagml.native_results import native_results_enabled
+
+    if native_results_enabled(None):
+        raise DualRunUnsupported("engine='dual' refuses N4A_NATIVE_RESULTS because the oracle must not write native result artifacts")
+
+
+def _dual_comparison_report(
+    legacy_result: RunResult,
+    native_result: RunResult,
+    *,
+    legacy_seconds: float,
+    native_seconds: float,
+    expected_folds: int | None = None,
+    expected_sample_count: int | None = None,
+    tolerances: Mapping[str, Mapping[str, Any]] | None = None,
+) -> dict[str, Any]:
+    """Compare the R1 dual semantic projection and retain non-blocking timings."""
+
+    resolved_tolerances = _resolve_dual_tolerances() if tolerances is None else tolerances
+    score_tolerance = resolved_tolerances.get("score")
+    prediction_tolerance = resolved_tolerances.get("prediction")
+    if not isinstance(score_tolerance, Mapping) or not isinstance(prediction_tolerance, Mapping):
+        raise DualRunUnsupported("engine='dual' has no resolved score and prediction tolerances")
+    if any(
+        type(tolerance.get(key)) not in (int, float)
+        for tolerance in (score_tolerance, prediction_tolerance)
+        for key in ("absolute", "relative")
+    ):
+        raise DualRunUnsupported("engine='dual' has invalid resolved numeric tolerances")
+
+    legacy_observation = _dual_semantic_observation(
+        legacy_result,
+        leg="legacy",
+        expected_folds=expected_folds,
+        expected_sample_count=expected_sample_count,
+    )
+    native_observation = _dual_semantic_observation(
+        native_result,
+        leg="native",
+        expected_folds=expected_folds,
+        expected_sample_count=expected_sample_count,
+    )
+    mismatches: list[dict[str, Any]] = []
+    semantics: dict[str, Any] = {
+        "num_predictions": {
+            "legacy": legacy_result.num_predictions,
+            "native": native_result.num_predictions,
+        },
+        "metrics": {
+            "cv_best_score": {
+                "legacy": legacy_observation["cv_best_score"],
+                "native": native_observation["cv_best_score"],
+            }
+        },
+        "winner": {"legacy": legacy_observation["winner"], "native": native_observation["winner"]},
+        "validation_splits": {
+            "legacy": {fold: list(sample_ids) for fold, sample_ids in legacy_observation["splits"].items()},
+            "native": {fold: list(sample_ids) for fold, sample_ids in native_observation["splits"].items()},
+        },
+        "y_pred": {
+            "legacy_sample_ids": sorted(legacy_observation["y_pred_by_sample"]),
+            "native_sample_ids": sorted(native_observation["y_pred_by_sample"]),
+        },
+        "validation_metrics": {
+            "legacy": legacy_observation["fold_metrics"],
+            "native": native_observation["fold_metrics"],
+        },
+    }
+    if legacy_result.num_predictions != native_result.num_predictions:
+        _append_dual_mismatch(
+            mismatches,
+            {"field": "num_predictions", "legacy": legacy_result.num_predictions, "native": native_result.num_predictions, "reason": "exact_value_mismatch"},
+        )
+
+    _append_dual_score_mismatch(
+        mismatches,
+        field="cv_best_score",
+        legacy_value=legacy_observation["cv_best_score"],
+        native_value=native_observation["cv_best_score"],
+        score_tolerance=score_tolerance,
+    )
+
+    if legacy_observation["winner"] != native_observation["winner"]:
+        _append_dual_mismatch(
+            mismatches,
+            {
+                "field": "winner",
+                "legacy": legacy_observation["winner"],
+                "native": native_observation["winner"],
+                "reason": "exact_value_mismatch",
+            }
+        )
+    if legacy_observation["splits"] != native_observation["splits"]:
+        _append_dual_mismatch(
+            mismatches,
+            {
+                "field": "validation_splits",
+                "legacy": semantics["validation_splits"]["legacy"],
+                "native": semantics["validation_splits"]["native"],
+                "reason": "exact_value_mismatch",
+            }
+        )
+
+    legacy_fold_metrics = legacy_observation["fold_metrics"]
+    native_fold_metrics = native_observation["fold_metrics"]
+    if legacy_fold_metrics.keys() != native_fold_metrics.keys():
+        _append_dual_mismatch(
+            mismatches,
+            {
+                "field": "validation_metrics.folds",
+                "legacy": sorted(legacy_fold_metrics),
+                "native": sorted(native_fold_metrics),
+                "reason": "exact_value_mismatch",
+            }
+        )
+    for fold_key in sorted(legacy_fold_metrics.keys() & native_fold_metrics.keys()):
+        for metric_name in ("val_score", "scores.val"):
+            _append_dual_score_mismatch(
+                mismatches,
+                field=f"validation_metrics.{fold_key}.{metric_name}",
+                legacy_value=legacy_fold_metrics[fold_key][metric_name],
+                native_value=native_fold_metrics[fold_key][metric_name],
+                score_tolerance=score_tolerance,
+            )
+
+    legacy_predictions = legacy_observation["y_pred_by_sample"]
+    native_predictions = native_observation["y_pred_by_sample"]
+    if legacy_predictions.keys() != native_predictions.keys():
+        _append_dual_mismatch(
+            mismatches,
+            {
+                "field": "y_pred.sample_ids",
+                "legacy": sorted(legacy_predictions),
+                "native": sorted(native_predictions),
+                "reason": "exact_value_mismatch",
+            }
+        )
+    else:
+        for sample_id in sorted(legacy_predictions):
+            legacy_value = legacy_predictions[sample_id]
+            native_value = native_predictions[sample_id]
+            if not math.isclose(
+                legacy_value,
+                native_value,
+                rel_tol=float(prediction_tolerance["relative"]),
+                abs_tol=float(prediction_tolerance["absolute"]),
+            ):
+                _append_dual_mismatch(
+                    mismatches,
+                    {
+                        "field": "y_pred",
+                        "sample_id": sample_id,
+                        "legacy": legacy_value,
+                        "native": native_value,
+                        "absolute_error": abs(legacy_value - native_value),
+                        "reason": "outside_tolerance",
+                    }
+                )
+
+    return {
+        "schema_version": 3,
+        "engine": "dual",
+        "capability": {
+            "native_leg": "orchestration_parity_only",
+            "model_runtime": "python_sklearn_pls",
+            "methods_native_execution": False,
+        },
+        "semantics": semantics,
+        "tolerances": {"score": dict(score_tolerance), "prediction": dict(prediction_tolerance)},
+        "non_finite_policy": {
+            "required_metrics": "cv_best_score and every validation-fold val_score/scores['val'] must be numeric and finite",
+            "global_summary_metrics": "best_score and best_rmse are omitted because this no-test-set subset may legitimately report NaN",
+        },
+        "performance": {
+            "legacy_wall_seconds": legacy_seconds,
+            "native_wall_seconds": native_seconds,
+            "legacy_to_native_speedup": legacy_seconds / native_seconds if native_seconds else None,
+            "enforced": False,
+        },
+        "mismatches": mismatches,
+    }
+
+
+def _append_dual_mismatch(mismatches: list[dict[str, Any]], mismatch: dict[str, Any]) -> None:
+    """Retain a bounded mismatch ledger while preserving truncation evidence."""
+
+    if len(mismatches) < _DUAL_MAX_MISMATCHES:
+        mismatches.append(mismatch)
+    elif len(mismatches) == _DUAL_MAX_MISMATCHES:
+        mismatches.append(
+            {
+                "field": "mismatches",
+                "reason": "truncated",
+                "retained": _DUAL_MAX_MISMATCHES,
+            }
+        )
+
+
+def _append_dual_score_mismatch(
+    mismatches: list[dict[str, Any]],
+    *,
+    field: str,
+    legacy_value: float,
+    native_value: float,
+    score_tolerance: Mapping[str, Any],
+) -> None:
+    """Append one finite, ledger-governed score mismatch when necessary."""
+
+    if not math.isclose(
+        legacy_value,
+        native_value,
+        rel_tol=float(score_tolerance["relative"]),
+        abs_tol=float(score_tolerance["absolute"]),
+    ):
+        _append_dual_mismatch(
+            mismatches,
+            {
+                "field": field,
+                "legacy": legacy_value,
+                "native": native_value,
+                "absolute_error": abs(legacy_value - native_value),
+                "reason": "outside_tolerance",
+            }
+        )
 
 
 def _is_pipeline_wrapper_dict(obj: Any) -> bool:
@@ -298,9 +770,12 @@ def run(
         engine: Execution backend selector. ``None`` (default) resolves to ``"dag-ml"`` and runs the
             pipeline on the dag-ml backend. Explicit ``"native"`` selects the fail-closed portable
             Methods Archive V2 producer; explicit ``"legacy"`` runs the pure-Python orchestrator as a
-            compatibility path. ``"dual"`` (side-by-side comparison) is reserved and raises
-            ``NotImplementedError``. Override the default per-process with ``$N4A_ENGINE`` (e.g.
-            ``$N4A_ENGINE=legacy``).
+            compatibility path. Explicit ``"dual"`` runs a bounded, native-first parity oracle for
+            exact NumPy ``(X, y)`` regression, ``KFold(shuffle=False)``, and one
+            ``PLSRegression`` model. It validates native OOF evidence before invoking the temporary
+            legacy oracle, compares ledger-governed scores/predictions, removes the legacy workspace,
+            and returns the native result. Every other dual shape fails closed before execution.
+            Override the default per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=legacy``).
 
         tuning: Typed native tuning specification for the currently supported
             DAG-ML subset. With ``engine="dag-ml"``, this supports explicit
@@ -336,7 +811,7 @@ def run(
             explicit compatibility opt-in: the same condition warns, re-runs on legacy, and attaches the
             ``RtError`` diagnostic to the returned result (``result.to_rt_result().diagnostics``), so
             callers can see *"ran legacy because <cause>"*. No effect on ``engine="legacy"`` (legacy
-            never falls back).
+            never falls back). ``engine="dual"`` refuses ``allow_fallback=True``.
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -366,6 +841,10 @@ def run(
     Raises:
         ValueError: If pipeline or dataset format is invalid.
         FileNotFoundError: If pipeline config or dataset path doesn't exist.
+        DualRunUnsupported: If the explicit dual request, native capability, packaged ledger, or
+            concrete OOF evidence is outside the bounded oracle contract.
+        DualRunMismatchError: If the native and explicit temporary legacy legs differ outside the
+            ledger tolerances.
 
     Examples:
         Simple usage with list of steps:
@@ -442,6 +921,8 @@ def run(
     """
 
     selected_engine = resolve_engine(engine)
+    if selected_engine == "dual" and (tuning is not None or calibration is not None):
+        raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
     if selected_engine == "native" and (tuning is not None or calibration is not None):
         raise NotImplementedError(
             "engine='native' currently supports the strict Archive V2 Methods training subset only"
@@ -497,18 +978,24 @@ def run(
             ),
         )
 
-    def _run_legacy() -> RunResult:
+    def _run_legacy(
+        *,
+        pipeline_input: Any = pipeline,
+        dataset_input: Any = dataset,
+        local_runner_kwargs: Mapping[str, Any] | None = None,
+    ) -> RunResult:
         """Run the in-process legacy orchestrator path (the engine='legacy' behaviour).
 
         Defined as a closure over ``run()``'s arguments so both the default path and the
         dag-ml→legacy cutover fallback re-enter the SAME code without re-passing every parameter.
         """
         # Normalize pipelines and datasets to lists
-        pipelines = _normalize_to_list(pipeline, _is_single_pipeline)
-        datasets = _normalize_to_list(dataset, _is_single_dataset)
+        pipelines = _normalize_to_list(pipeline_input, _is_single_pipeline)
+        datasets = _normalize_to_list(dataset_input, _is_single_dataset)
 
         # Extract store_run_id before passing runner_kwargs to PipelineRunner
-        caller_store_run_id: str | None = runner_kwargs.pop("store_run_id", None)
+        effective_runner_kwargs = dict(runner_kwargs if local_runner_kwargs is None else local_runner_kwargs)
+        caller_store_run_id: str | None = effective_runner_kwargs.pop("store_run_id", None)
 
         # If session provided, use its runner
         if session is not None:
@@ -518,7 +1005,7 @@ def run(
                 runner.verbose = verbose
         else:
             # Build runner kwargs from explicit params + extras
-            all_kwargs = {"verbose": verbose, "save_artifacts": save_artifacts, "save_charts": save_charts, "plots_visible": plots_visible, "report_naming": report_naming, **runner_kwargs}
+            all_kwargs = {"verbose": verbose, "save_artifacts": save_artifacts, "save_charts": save_charts, "plots_visible": plots_visible, "report_naming": report_naming, **effective_runner_kwargs}
             if random_state is not None:
                 all_kwargs["random_state"] = random_state
 
@@ -639,6 +1126,92 @@ def run(
             result.detach()
 
         return result
+
+    if selected_engine == "dual":
+        _require_dual_supported_request(
+            pipeline,
+            dataset,
+            random_state=random_state,
+            refit=refit,
+            save_artifacts=save_artifacts,
+            save_charts=save_charts,
+            plots_visible=plots_visible,
+            project=project,
+            session=session,
+            cache=cache,
+            results_path=results_path,
+            allow_fallback=allow_fallback,
+            runner_kwargs=runner_kwargs,
+        )
+        tolerances = _resolve_dual_tolerances()
+        expected_folds = pipeline[0].get_n_splits()  # type: ignore[index,union-attr]
+        expected_sample_count = dataset[0].shape[0]  # type: ignore[index,union-attr]
+        try:
+            native_pipeline = copy.deepcopy(pipeline)
+            native_dataset = copy.deepcopy(dataset)
+            legacy_pipeline = copy.deepcopy(pipeline)
+            legacy_dataset = copy.deepcopy(dataset)
+        except Exception as error:
+            raise DualRunUnsupported("engine='dual' could not isolate inputs for independent native/legacy execution") from error
+
+        from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
+        from nirs4all.pipeline.dagml.run_backend import run_via_dagml
+
+        native_started = time.perf_counter()
+        try:
+            native_result = run_via_dagml(
+                native_pipeline,
+                native_dataset,
+                name=name,
+                random_state=random_state,
+                refit=True,
+                project=None,
+                session=None,
+                cache=None,
+                runner_kwargs={},
+                save_charts=False,
+                plots_visible=False,
+                results_path=None,
+            )
+        except (DagMlUnavailable, DagMlUnsupported, NotImplementedError) as error:
+            raise DualRunUnsupported(
+                "engine='dual' requires a supported native DAG-ML counterpart; no legacy fallback was run and no legacy oracle was invoked"
+            ) from error
+        native_seconds = time.perf_counter() - native_started
+
+        # Refuse incomplete native evidence before allocating the temporary
+        # legacy workspace or invoking the rollback implementation.
+        _dual_semantic_observation(
+            native_result,
+            leg="native",
+            expected_folds=expected_folds,
+            expected_sample_count=expected_sample_count,
+        )
+
+        with tempfile.TemporaryDirectory(prefix="nirs4all-dual-legacy-") as legacy_workspace:
+            legacy_started = time.perf_counter()
+            legacy_result = _run_legacy(
+                pipeline_input=legacy_pipeline,
+                dataset_input=legacy_dataset,
+                local_runner_kwargs={"workspace_path": legacy_workspace},
+            )
+            legacy_seconds = time.perf_counter() - legacy_started
+            report = _dual_comparison_report(
+                legacy_result,
+                native_result,
+                legacy_seconds=legacy_seconds,
+                native_seconds=native_seconds,
+                expected_folds=expected_folds,
+                expected_sample_count=expected_sample_count,
+                tolerances=tolerances,
+            )
+            if report["mismatches"]:
+                raise DualRunMismatchError(report)
+
+        # The native result remains the product output. The explicit legacy
+        # leg is comparison-only and its workspace has already been removed.
+        setattr(native_result, "_dual_run_report", report)  # noqa: B010 - private diagnostic seam
+        return native_result
 
     # ADR-17 backend selector (nirs4all-core -> dag-ml migration). The V1 default engine is dag-ml:
     # a plain `run()` dispatches to the dag-ml backend, which runs the pipeline natively (Rust,

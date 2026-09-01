@@ -8,8 +8,8 @@ compatibility path via ``engine="legacy"`` or ``$N4A_ENGINE=legacy``.
 The explicit ``engine="native"`` lane is the fail-closed Archive V2/N4MM producer for the
 portable Methods subset; it never falls back to :class:`~nirs4all.pipeline.PipelineRunner`.
 
-The side-by-side comparison mode (``"dual"``) is reserved and :func:`resolve_engine` refuses it with a
-clear ``NotImplementedError``.
+The side-by-side comparison mode (``"dual"``) is intentionally limited to the strict
+:func:`nirs4all.run` oracle subset; other public operations remain unavailable.
 
 Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAULT_ENGINE`
 (``dag-ml``). Pass ``engine="legacy"`` (or ``$N4A_ENGINE=legacy``) only for compatibility runs. See
@@ -19,13 +19,31 @@ Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAU
 from __future__ import annotations
 
 import os
-from typing import Literal, cast
+from collections.abc import Mapping
+from typing import Any, Literal, cast
 
 Engine = Literal["legacy", "dag-ml", "native", "dual"]
 
 DEFAULT_ENGINE: Engine = "dag-ml"
 ENGINE_ENV_VAR = "N4A_ENGINE"
 ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "native", "dual")
+
+
+class DualRunUnsupported(NotImplementedError):
+    """The strict side-by-side oracle cannot prove support for a requested run.
+
+    The dual engine never falls back to legacy. Callers must select
+    ``engine="legacy"`` explicitly when they need the temporary rollback lane.
+    """
+
+
+class DualRunMismatchError(RuntimeError):
+    """The native and explicit legacy oracle legs disagreed."""
+
+    def __init__(self, report: Mapping[str, Any]) -> None:
+        self.report = dict(report)
+        mismatches = self.report.get("mismatches", [])
+        super().__init__(f"engine='dual' detected {len(mismatches)} native/legacy mismatch(es): {mismatches}")
 
 
 def resolve_engine(engine: str | None = None) -> Engine:
@@ -40,19 +58,13 @@ def resolve_engine(engine: str | None = None) -> Engine:
             ``$N4A_ENGINE`` environment variable, then :data:`DEFAULT_ENGINE`.
 
     Returns:
-        The validated engine name. ``"dag-ml"`` (the default), ``"native"``, and ``"legacy"`` are
-        runnable.
+        The validated engine name. ``"dag-ml"`` (the default), ``"native"``, ``"legacy"``, and
+        the narrow ``"dual"`` oracle are dispatched by :func:`nirs4all.run`.
 
     Raises:
         ValueError: If the name is not one of :data:`ENGINES`.
-        NotImplementedError: If the reserved-but-unimplemented ``"dual"`` engine is requested.
     """
     name = (engine or os.environ.get(ENGINE_ENV_VAR) or DEFAULT_ENGINE).strip().lower()
     if name not in ENGINES:
         raise ValueError(f"unknown nirs4all engine {name!r}; valid engines: {list(ENGINES)}")
-    if name == "dual":
-        raise NotImplementedError(
-            "the 'dual' engine (side-by-side legacy vs dag-ml comparison) is not implemented yet; "
-            "use 'legacy', 'dag-ml', or 'native' (see dag-ml/docs/migration-nirs4all/)"
-        )
     return cast(Engine, name)

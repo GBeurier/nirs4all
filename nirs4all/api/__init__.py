@@ -39,6 +39,7 @@ For more examples, see the examples/Q40_new_api.py file.
 """
 
 # Result classes (Phase 1)
+from ..pipeline.engine import DualRunMismatchError, DualRunUnsupported
 from ..pipeline.keyword_registry import (
     get_keyword_registry,
     get_keyword_registry_schema,
@@ -166,6 +167,8 @@ from .tuning import (
 __all__ = [
     # Module-level API functions
     "run",
+    "DualRunUnsupported",
+    "DualRunMismatchError",
     "calibrate",
     "attach_calibrated_result_to_bundle",
     "export_calibrated_result",

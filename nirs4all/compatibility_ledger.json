@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "owner": "nirs4all compatibility ledger",
+  "consumer_of": "dag-ml.nirs4all.parity_oracle.v1",
+  "last_reconciled": {
+    "date": "2026-07-02",
+    "nirs4all_commit": "3d568abe",
+    "dag_ml_commit": "7f86a9b",
+    "dag_ml_data_commit": "e681685"
+  },
+  "tolerance_bands": [
+    {
+      "band_id": "kernel_snv",
+      "numeric_path": "same_impl_kernel",
+      "metric_class": "y_transform",
+      "abs_tol": 1e-12,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/unit/operators/methods/test_n4m_ops.py"
+    },
+    {
+      "band_id": "kernel_pls",
+      "numeric_path": "same_impl_kernel",
+      "metric_class": "prediction",
+      "abs_tol": 1e-9,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/unit/operators/methods/test_n4m_ops.py"
+    },
+    {
+      "band_id": "native_export_reproduce",
+      "numeric_path": "dagml_native_self",
+      "metric_class": "prediction",
+      "abs_tol": 1e-6,
+      "rel_tol": 0.0,
+      "enforced_at": "tests/integration/parity/test_conformance_export_roundtrip.py"
+    },
+    {
+      "band_id": "per_case_tight",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "score",
+      "abs_tol": 0.001,
+      "rel_tol": 0.0,
+      "enforced_at": "PipelineCase.metric_tolerances",
+      "note": "The per-case metric_tolerances override mechanism. Its sole live instance, baseline_vertical_slice, pins BOTH rmse AND r2 at 1e-3 (the cross_impl_score magnitude, adding the secondary r2 guard that caught the best_r2 re-rank bug). No case currently pins a sub-1e-3 tolerance; _authority.py binds this abs_tol to the live baseline_vertical_slice value so the two cannot drift."
+    },
+    {
+      "band_id": "cross_impl_score",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "score",
+      "abs_tol": 0.001,
+      "rel_tol": 0.0,
+      "measured_ceiling": 7e-6,
+      "enforced_at": "tests/integration/parity/_conformance_helpers.py:_DEFAULT_SCORE_TOL"
+    },
+    {
+      "band_id": "cross_impl_ypred",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "prediction",
+      "abs_tol": 0.001,
+      "rel_tol": 0.0,
+      "measured_ceiling": 0.0006,
+      "enforced_at": "tests/integration/parity/_conformance_helpers.py:_DEFAULT_YPRED_TOL"
+    },
+    {
+      "band_id": "cross_impl_ypred_firstderiv",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "prediction",
+      "abs_tol": 0.005,
+      "rel_tol": 0.0,
+      "measured_ceiling": 0.00345,
+      "guard": "assert_same_winner",
+      "enforced_at": "tests/integration/parity/test_conformance_dual_engine.py:Y_PRED_TOL_OVERRIDES"
+    },
+    {
+      "band_id": "classification_label",
+      "numeric_path": "any",
+      "metric_class": "class_label",
+      "abs_tol": 0.0,
+      "rel_tol": 0.0,
+      "enforced_at": "dag-ml/docs/contracts/parity_oracle.v1.json"
+    },
+    {
+      "band_id": "n/a_semantic",
+      "numeric_path": "none",
+      "metric_class": "semantic_divergence",
+      "abs_tol": null,
+      "rel_tol": null,
+      "enforced_at": "ledgered parity-note, strict xfail, or skip"
+    },
+    {
+      "band_id": "n/a_rng",
+      "numeric_path": "none",
+      "metric_class": "rng_nondeterminism",
+      "abs_tol": null,
+      "rel_tol": null,
+      "enforced_at": "ledgered run-only nondeterministic contract, strict xfail, or skip"
+    }
+  ],
+  "authority": [
+    {
+      "case": "rep_to_sources_basic",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "legacy double-counts overlapping repetition OOF folds; dag-ml scores each reshaped sample once"
+    },
+    {
+      "case": "rep_to_pp_basic",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "legacy double-counts overlapping repetition OOF folds; dag-ml scores each reshaped sample once"
+    },
+    {
+      "case": "generator_or_models_pls_ridge",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "cross_impl_score",
+      "mechanism": "operator-select refits the winner only; legacy stores loser final rows"
+    },
+    {
+      "case": "generator_chain_model_configs",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "cross_impl_score",
+      "mechanism": "operator-select refits the winner only; legacy stores loser final rows"
+    },
+    {
+      "case": "generator_sample_log_uniform_alpha",
+      "tier": 3,
+      "disposition": "run_only_nondeterministic",
+      "authoritative_engine": "neither",
+      "tolerance_band": "n/a_rng",
+      "mechanism": "unseeded _sample_ has no cross-engine equality claim; seeded twin carries strict parity"
+    }
+  ],
+  "coverage_skips": [],
+  "expected_fallback": [],
+  "num_predictions_divergence": [
+    {
+      "case": "generator_or_models_pls_ridge",
+      "legacy": 34,
+      "dagml": 32,
+      "disposition": "pass_parity_note"
+    },
+    {
+      "case": "generator_chain_model_configs",
+      "legacy": 49,
+      "dagml": 47,
+      "disposition": "pass_parity_note"
+    }
+  ],
+  "legacy_cv_score_divergence": [
+    {
+      "case": "rep_to_sources_basic",
+      "metric": "cv_best_score",
+      "legacy": 6.673486795441247,
+      "dagml": 6.190624012206827,
+      "disposition": "pass_parity_note"
+    },
+    {
+      "case": "rep_to_pp_basic",
+      "metric": "cv_best_score",
+      "legacy": 6.1427143240770405,
+      "dagml": 6.190624012206827,
+      "disposition": "pass_parity_note"
+    }
+  ],
+  "ypred_tol_overrides": [
+    {
+      "case": "generator_or_with_pick",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_cartesian_stages",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_cartesian_with_param_range",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_or_pick_requires",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_cartesian_pick",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    },
+    {
+      "case": "generator_or_pick_mutex3",
+      "band": "cross_impl_ypred_firstderiv",
+      "abs_tol": 0.005,
+      "guard": "assert_same_winner"
+    }
+  ],
+  "same_winner_cases": [
+    "generator_or_pick_mutex",
+    "generator_or_pick_mutex3",
+    "generator_or_pick_exclude",
+    "generator_cartesian_exclude",
+    "generator_combined_constraints",
+    "generator_or_with_pick",
+    "generator_or_arrange_ordered",
+    "generator_cartesian_stages",
+    "generator_or_then_pick",
+    "generator_or_then_arrange",
+    "generator_cartesian_pick",
+    "generator_cartesian_count_seed",
+    "generator_or_count_seed",
+    "generator_or_weights_count_seed",
+    "generator_grid_twelve_variants",
+    "generator_grid_n_components_scale",
+    "generator_or_multistep_choices",
+    "generator_or_multistep_pick",
+    "generator_or_nested",
+    "generator_zip_single_param",
+    "generator_chain_multistep_configs"
+  ],
+  "cross_engine_surfaces": [
+    {
+      "surface": "n4a_export_roundtrip",
+      "status": "partial",
+      "tolerance_band": "native_export_reproduce",
+      "owner_lane": "L17"
+    },
+    {
+      "surface": "n4a_cross_engine",
+      "status": "exists",
+      "tolerance_band": "cross_impl_ypred",
+      "owning_test": "tests/integration/parity/test_conformance_n4a_cross_engine.py::test_n4a_bundle_cross_engine_round_trip",
+      "owner_lane": "L17+L5",
+      "note": "pins the transitional legacy-refit export bridge round-trip; tightens to native_export_reproduce when native .n4a export (DML-008/W3) lands"
+    },
+    {
+      "surface": "workspace_cross_engine",
+      "status": "exists",
+      "tolerance_band": "cross_impl_score",
+      "owning_test": "tests/integration/parity/test_conformance_workspace_cross_engine.py::test_native_results_triple_round_trips_and_agrees_cross_engine",
+      "owner_lane": "L17+L5"
+    },
+    {
+      "surface": "error_refusal_parity",
+      "status": "exists",
+      "tolerance_band": "n/a_semantic",
+      "owning_test": "tests/integration/parity/test_conformance_error_parity.py",
+      "owner_lane": "L17",
+      "note": "dag-ml refusal cause vocab pinned via local RT-003 helper; consumes W7 rt.py RtError.from_dagml_error when B-018/L10 lands"
+    },
+    {
+      "surface": "studio_oracle",
+      "status": "exists",
+      "tolerance_band": "cross_impl_score",
+      "owning_test": "nirs4all-studio/tests/test_runtime_engine.py + tests/test_studio_oracle_routes.py + tests/test_runs_engine_routing.py",
+      "owner_lane": "L17+L12",
+      "note": "Studio-side RC gate covers requested/default engine threading, fallback policy, actual-engine recording, and manifest round-trip; Python full parity remains the numerical oracle."
+    },
+    {
+      "surface": "methods_installed",
+      "status": "exists",
+      "tolerance_band": "kernel_pls",
+      "tolerance_bands": [
+        "kernel_snv",
+        "kernel_pls"
+      ],
+      "owning_test": "scripts/prove_installed_n4m.py",
+      "owner_lane": "L17+L9",
+      "note": "release proof builds and installs a fresh nirs4all-methods wheel, strips dev overrides, requires NIRS4ALL_REQUIRE_N4M=1, and runs the focused n4m packaging/SNV/PLS tests"
+    },
+    {
+      "surface": "nirs4all_methods_artifact_freshness",
+      "status": "exists",
+      "tolerance_band": "n/a",
+      "owning_test": "scripts/prove_installed_n4m.py::_assert_methods_artifact_freshness",
+      "owner_lane": "L17+L9",
+      "note": "consumer-side PYREF-011 proof: the source libn4m reported by the methods smoke, the staged wheel payload, and the proof-venv loaded library must have identical SHA-256 hashes; source-to-binary build freshness remains owned by nirs4all-methods"
+    }
+  ],
+  "coverage_meter": {
+    "registered": 95,
+    "non_runnable": 0,
+    "runnable": 95,
+    "fallback": 0,
+    "native": 95,
+    "xfail_strict": 0,
+    "skip": 0,
+    "num_predictions_divergence": 2,
+    "run_only_nondeterministic": 1,
+    "expected_fallback_target": 0
+  },
+  "marker_policy": {
+    "schema": "nirs4all.pyref.marker_policy.v1",
+    "enforced_by": "tests/integration/parity/_marker_audit.py",
+    "purpose": "A static AST gate over tests/integration/parity/*.py that fails on the first UNTRACKED xfail, skip, or tolerance override — debt added directly in a test body, bypassing the ledgered constants that _authority.py reconciles.",
+    "xfail": {
+      "sanctioned_modules": ["test_conformance_dual_engine.py", "test_parity_smoke.py"],
+      "note": "Strict xfail is applied only by collection-time param builders from KNOWN_DIVERGENCES and registry legacy_bug debt. An xfail marker in any other parity module is untracked cross-engine divergence debt and fails the gate."
+    },
+    "skip_categories": [
+      {"id": "registry_skip", "kind": "tracked_debt", "note": "fixture / unknown_semantics registry skips ([{skip_kind}] ...); currently no live cases, but the category remains enforced across the compile / smoke / baseline / dual-engine modules."},
+      {"id": "optional_env_import", "kind": "optional_env", "note": "pytest.importorskip(dag_ml / dag_ml_data / shap / jsonschema / referencing)."},
+      {"id": "optional_env_dagml_cli", "kind": "optional_env", "note": "skipif(not _DAGML_CLI.exists()) — the native dag-ml-cli binary is not built on this host."},
+      {"id": "optional_env_dependency", "kind": "optional_env", "note": "an example requires an optional dependency that is not installed."},
+      {"id": "optional_env_sibling", "kind": "optional_env", "note": "sibling nirs4all-ecosystem runtime schemas not checked out."},
+      {"id": "optional_env_methods", "kind": "optional_env", "note": "the nirs4all-methods SNV / n4m binding is unavailable (hard fail only under NIRS4ALL_REQUIRE_N4M=1)."},
+      {"id": "runtime_na", "kind": "runtime_precondition", "note": "a cross-engine comparison is N/A on this build: dag-ml ran the legacy fallback, wrote no native results, or the case is not a single-artifact native run. With coverage_meter.fallback=0 the fallback branch does not fire for covered cases."},
+      {"id": "baseline_capture", "kind": "workflow", "note": "gold-baseline capture / absent-baseline guard in test_parity_baseline (--parity-capture)."},
+      {"id": "lockdrop_empty", "kind": "workflow", "note": "EXPECTED_FALLBACK is empty (LOCK-DROP D1 closed); the live boundary assertion covers this without producing a skip."}
+    ],
+    "tolerance": {
+      "allowlist_source": "tolerance_bands[].abs_tol (positive values)",
+      "negative_guard_exempt": true,
+      "note": "Every explicit atol / rtol / abs / rel kwarg, every *_TOL constant, and every metric_tolerances / Y_PRED_TOL_OVERRIDES value must equal a published tolerance band. A value inside a NEGATIVE assertion (assert not allclose / != approx) is a divergence floor, not a tolerance ceiling, and is exempt."
+    }
+  }
+}
