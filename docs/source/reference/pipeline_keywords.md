@@ -36,7 +36,7 @@ Statuses are contractual:
   proven for every relevant model or engine;
 - **planned** means the syntax is reserved for the roadmap and is not executable.
 
-In the generated `Engine support` column, `legacy`, `dag-ml`, and `dual` name
+In the generated `Engine support` column, `legacy`, `dag-ml`, `native`, and `dual` name
 execution backends; `optuna` and `n4m` name optimizer engines. An entry can list
 both namespaces when the effect crosses that boundary. `legacy fallback` means
 that selecting DAG-ML currently delegates the supported shape to the legacy
@@ -153,7 +153,7 @@ closed.
 
 The same token has two independent scopes:
 
-- `run(engine="legacy" | "dag-ml" | "dual")` selects the **pipeline execution backend**;
+- `run(engine="legacy" | "dag-ml" | "native" | "dual")` selects the **pipeline execution backend**;
 - `finetune_params["engine"]` selects the **model-local HPO/generation
   driver**:
   - `"optuna"` or `"n4m"` request adaptive optimization;

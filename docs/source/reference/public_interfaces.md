@@ -206,6 +206,7 @@ if (run.status !== 0) process.exit(run.status);
 | `None` | Use the package default resolved by `resolve_engine(...)`. |
 | `"legacy"` | Use the in-process Python orchestrator. |
 | `"dag-ml"` | Request the dag-ml backend for covered shapes. Unsupported or unavailable native execution fails closed by default. |
+| `"native"` | Produce a portable Methods Archive V2 for the strict supported training subset; unsupported shapes fail closed without legacy fallback. |
 | `"dual"` | Run the bounded native-first parity oracle for exact array/KFold/PLS regression; unsupported shapes fail before execution and the temporary legacy workspace is removed. |
 
 The pipeline language is broader than current dag-ml native coverage. Requesting
