@@ -296,10 +296,11 @@ def run(
             use ML conventions regardless of this setting.
 
         engine: Execution backend selector. ``None`` (default) resolves to ``"dag-ml"`` and runs the
-            pipeline natively on the dag-ml backend (Rust, in-process by default). Explicit
-            ``"legacy"`` runs the pure-Python orchestrator as a compatibility path. ``"dual"``
-            (side-by-side comparison) is reserved and raises ``NotImplementedError``. Override the
-            default per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=legacy``).
+            pipeline on the dag-ml backend. Explicit ``"native"`` selects the fail-closed portable
+            Methods Archive V2 producer; explicit ``"legacy"`` runs the pure-Python orchestrator as a
+            compatibility path. ``"dual"`` (side-by-side comparison) is reserved and raises
+            ``NotImplementedError``. Override the default per-process with ``$N4A_ENGINE`` (e.g.
+            ``$N4A_ENGINE=legacy``).
 
         tuning: Typed native tuning specification for the currently supported
             DAG-ML subset. With ``engine="dag-ml"``, this supports explicit
@@ -440,6 +441,12 @@ def run(
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
 
+    selected_engine = resolve_engine(engine)
+    if selected_engine == "native" and (tuning is not None or calibration is not None):
+        raise NotImplementedError(
+            "engine='native' currently supports the strict Archive V2 Methods training subset only"
+        )
+
     if calibration is not None:
         if tuning is None:
             raise NotImplementedError("run(calibration=...) currently requires run(tuning=..., engine='dag-ml') with an explicit tuning.winner")
@@ -453,7 +460,7 @@ def run(
 
     if tuning is not None:
         tuning = _coerce_public_tuning_payload(tuning)
-        if resolve_engine(engine) == "dag-ml":
+        if selected_engine == "dag-ml":
             return _run_single_estimator_tuning_subset(
                 pipeline,
                 dataset,
@@ -465,6 +472,30 @@ def run(
 
         tuning_spec = parse_tuning_spec(_tuning_spec_payload(tuning))
         raise DagMLTuningNotImplementedError(tuning_spec)
+
+    if selected_engine == "native":
+        from .native_archive_training import run_native_methods_archive
+
+        return cast(
+            RunResult,
+            run_native_methods_archive(
+                pipeline,
+                dataset,
+                name=name,
+                verbose=verbose,
+                save_artifacts=save_artifacts,
+                save_charts=save_charts,
+                plots_visible=plots_visible,
+                random_state=random_state,
+                refit=refit,
+                cache=cache,
+                project=project,
+                report_naming=report_naming,
+                results_path=results_path,
+                session=session,
+                runner_kwargs=runner_kwargs,
+            ),
+        )
 
     def _run_legacy() -> RunResult:
         """Run the in-process legacy orchestrator path (the engine='legacy' behaviour).
@@ -626,7 +657,7 @@ def run(
     # warns and re-runs on the legacy engine (run_via_dagml cleans its own temp dir in a finally).
     # ONLY DagMlUnsupported/NotImplementedError/DagMlUnavailable are caught — a GENUINE dag-ml
     # runtime/operator bug propagates untouched (never silently swallowed into legacy).
-    if resolve_engine(engine) == "dag-ml":
+    if selected_engine == "dag-ml":
         from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
         from nirs4all.pipeline.dagml.rt import RtError
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml

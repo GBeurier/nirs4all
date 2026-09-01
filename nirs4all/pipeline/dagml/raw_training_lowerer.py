@@ -12,6 +12,7 @@ from __future__ import annotations
 import copy
 import hashlib
 import json
+import struct
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, cast
@@ -114,10 +115,13 @@ def lower_raw_array_training_contracts(
     bundle_id: str = "bundle:nirs4all.raw_fit",
     seed: int = 12345,
     dagml_module: str = "dag_ml",
+    portable_methods: bool = False,
 ) -> DagMLTrainingRequestContracts:
     """Lower a linear raw-array pipeline into executable DAG-ML contracts."""
 
     steps, splitter, finetune_overrides = _supported_linear_steps(pipeline)
+    if portable_methods:
+        _validate_portable_methods_pipeline(steps)
     selection_metric = finetune_overrides.get("selection_metric", selection_metric)
     selection_objective = finetune_overrides.get("selection_objective", selection_objective)
     dataset = raw_arrays_to_spectro_dataset(X, y, identity_frame=identity_frame)
@@ -133,10 +137,18 @@ def lower_raw_array_training_contracts(
     )
     dag_ml = _import_dagml(dagml_module)
     envelope["relation_fingerprint"] = _core_relation_fingerprint(envelope["coordinator_relations"], dag_ml)
-    envelope["data_content_fingerprint"] = _array_content_fingerprint("X", X)
+    envelope["data_content_fingerprint"] = (
+        _portable_feature_fingerprint(X)
+        if portable_methods
+        else _array_content_fingerprint("X", X)
+    )
     envelope["target_content_fingerprint"] = _array_content_fingerprint("y", y)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-raw-fit", n_splits=len(folds))
-    artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests())
+    manifests = controller_manifests()
+    if portable_methods:
+        _lower_portable_methods_pls_dsl(dsl)
+        manifests = [_portable_methods_pls_manifest()]
+    artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests)
     graph = artifact.graph.to_dict()
     campaign = artifact.campaign_template.to_dict()
     if campaign.get("root_seed") is None:
@@ -148,7 +160,7 @@ def lower_raw_array_training_contracts(
         plan_id=plan_id,
         graph=graph,
         campaign=campaign,
-        controller_manifests=controller_manifests(),
+        controller_manifests=manifests,
         data_identities=data_identities,
         selection_metric=selection_metric,
         selection_objective=selection_objective,
@@ -158,6 +170,10 @@ def lower_raw_array_training_contracts(
         selection_required_metric_level="sample",
         selection_evaluation_scope="oof",
         cv_artifacts="discard",
+        prediction_caches="retain",
+        fitted_artifacts=(
+            "portable_required" if portable_methods else "allow_host_sidecar"
+        ),
     )
     training_influence = _training_influence_manifest(
         graph,
@@ -172,7 +188,7 @@ def lower_raw_array_training_contracts(
         data_envelopes=data_envelopes,
         relations=copy.deepcopy(envelope["coordinator_relations"]),
         training_influence=training_influence,
-        op_callback=_op_callback(dataset, identity, graph),
+        op_callback=None if portable_methods else _op_callback(dataset, identity, graph),
         outcome_id=outcome_id,
         run_id=run_id,
         bundle_id=bundle_id,
@@ -237,6 +253,116 @@ def _supported_linear_steps(pipeline: Any) -> tuple[list[Any], Any, dict[str, st
     _reject_multi_model(steps)
     _assert_supported_operators(steps)
     return steps, splitter, finetune_overrides
+
+
+def _validate_portable_methods_pipeline(steps: list[Any]) -> None:
+    """Refuse every fit shape the callback-free Methods PLS lane cannot encode."""
+
+    if len(steps) != 1 or not isinstance(steps[0], Mapping) or set(steps[0]) != {"model"}:
+        raise ValueError(
+            "portable Methods training supports exactly one PLSRegression model step after the splitter"
+        )
+    model = steps[0]["model"]
+    cls = model if isinstance(model, type) else type(model)
+    if (
+        getattr(cls, "__name__", None) != "PLSRegression"
+        or not str(getattr(cls, "__module__", "")).startswith(
+            "sklearn.cross_decomposition"
+        )
+    ):
+        raise ValueError(
+            "portable Methods training supports sklearn.cross_decomposition.PLSRegression only"
+        )
+    components = getattr(model, "n_components", None)
+    if not isinstance(components, int) or isinstance(components, bool) or components < 1:
+        raise ValueError("portable Methods PLS requires a positive integer n_components")
+
+
+def _lower_portable_methods_pls_dsl(dsl: dict[str, Any]) -> None:
+    """Bind the one model node to the Rust Methods controller."""
+
+    pipeline = dsl.get("pipeline")
+    if not isinstance(pipeline, list) or len(pipeline) != 1 or not isinstance(pipeline[0], dict):
+        raise ValueError("portable Methods DSL must contain exactly one model step")
+    step = pipeline[0]
+    params = step.get("params")
+    if not isinstance(params, Mapping) or not isinstance(params.get("n_components"), int):
+        raise ValueError("portable Methods DSL requires integer PLS n_components")
+    step["metadata"] = {"controller_id": "controller:methods.pls"}
+
+
+def _portable_methods_pls_manifest() -> dict[str, Any]:
+    """Return the public manifest implemented by DAG-ML's Methods runtime."""
+
+    data_requirements = {
+        "schema_version": 1,
+        "ports": [
+            {
+                "name": "x",
+                "accepted_representations": ["tabular_numeric", "feature_block_set"],
+                "accepted_types": ["table", "multi_block"],
+                "rank": 2,
+                "multi_source": True,
+                "optional": False,
+            }
+        ],
+        "default_fusion": {
+            "mode": "concatenate_features",
+            "alignment": "sample_id",
+            "adapter_id": None,
+            "params": {"namespace_columns": True},
+        },
+        "metadata": {"source": "nirs4all-dagml-bridge"},
+    }
+    return {
+        "controller_id": "controller:methods.pls",
+        "controller_version": "n4m-abi-2.2",
+        "operator_kind": "model",
+        "priority": 100,
+        "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
+        "input_ports": [
+            {
+                "name": "x",
+                "kind": "data",
+                "representation": "tabular_numeric",
+                "cardinality": "one",
+            }
+        ],
+        "output_ports": [
+            {"name": "oof", "kind": "prediction", "representation": None, "cardinality": "one"},
+            {"name": "model", "kind": "artifact", "representation": None, "cardinality": "one"},
+        ],
+        "data_requirements": data_requirements,
+        "capabilities": [
+            "deterministic",
+            "thread_safe",
+            "process_safe",
+            "emits_predictions",
+            "emits_artifacts",
+            "stateful",
+        ],
+        "operator_selectors": [
+            {"refs": ["sklearn.cross_decomposition._pls.PLSRegression"]}
+        ],
+        "fit_scope": "fold_train",
+        "rng_policy": "uses_core_seed",
+        "artifact_policy": "serializable",
+    }
+
+
+def _portable_feature_fingerprint(value: Any) -> str:
+    """Return the Methods provider's canonical little-endian matrix digest."""
+
+    matrix = np.ascontiguousarray(np.asarray(value, dtype=np.dtype("<f8")))
+    if matrix.ndim != 2 or matrix.shape[0] == 0 or matrix.shape[1] == 0:
+        raise ValueError("portable Methods training requires a non-empty rank-2 X matrix")
+    if not np.isfinite(matrix).all():
+        raise ValueError("portable Methods training requires finite X values")
+    hasher = hashlib.sha256()
+    hasher.update(b"n4a-matrix-f64-le.v1\0")
+    hasher.update(struct.pack("<QQ", matrix.shape[0], matrix.shape[1]))
+    hasher.update(matrix.tobytes(order="C"))
+    return hasher.hexdigest()
 
 
 def _data_contracts_from_campaign(
