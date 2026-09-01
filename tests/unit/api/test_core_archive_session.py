@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import importlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -12,11 +11,13 @@ from zipfile import ZIP_DEFLATED, ZipFile
 import numpy as np
 import pytest
 
+import nirs4all
+import nirs4all.api as api_module
 import nirs4all.pipeline as pipeline_module
 import nirs4all.pipeline.bundle as bundle_module
 from nirs4all.api.native_archive_training import NativeMethodsArchiveRunResult
 from nirs4all.api.result import PredictResult
-from nirs4all.api.session import Session, load_session
+from nirs4all.api.session import Session, SessionClosedError, load_session
 from nirs4all.pipeline.dagml import core_archive_replay
 from nirs4all.pipeline.dagml.rt import RtError
 
@@ -137,6 +138,7 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
 
     session = load_session(path)
     assert session._core_archive_validation is not None
+    assert session._core_archive_fingerprint is not None
     cached_package_json = json.dumps(
         session._core_archive_validation[2], sort_keys=True, separators=(",", ":")
     )
@@ -176,19 +178,24 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     assert json.dumps(
         session._core_archive_validation[2], sort_keys=True, separators=(",", ":")
     ) == cached_package_json
-    retrain_module = importlib.import_module("nirs4all.api.retrain")
-    monkeypatch.setattr(retrain_module, "require_dagml_retrain_backend", lambda: None)
+    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="cannot use the legacy"):
+        session.predict(object(), engine="legacy")
+    with pytest.raises(RtError) as run_caught:
+        session.run(object())
+    assert run_caught.value.cause == "unsupported_capability"
+    assert run_caught.value.unsupported_capability == "core_archive_v2_prediction_only"
     with pytest.raises(RtError) as caught:
-        session.retrain({"X": [[2.0]], "sample_ids": ["sample.two"]})
-    assert caught.value.cause == "invalid_request"
-    assert caught.value.unsupported_capability == "dagml_full_retrain_training_spec"
+        session.retrain(object(), engine="legacy")
+    assert caught.value.cause == "unsupported_capability"
+    assert caught.value.unsupported_capability == "core_archive_v2_prediction_only"
     assert session._runner is None
     session.close()
     session.close()
     assert session.status == "closed"
     assert not session.is_trained
     assert session._core_archive_validation is None
-    with pytest.raises(RuntimeError, match="Session is closed"):
+    assert session._core_archive_fingerprint is None
+    with pytest.raises(SessionClosedError, match="Session is closed"):
         session.predict(
             {"X": [[7.0, 8.0]], "sample_ids": ["sample.four"]},
             methods_library_path="/opt/lib/libn4m.so",
@@ -197,6 +204,9 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
 
 
 def test_session_close_detaches_an_owned_native_result_once() -> None:
+    assert nirs4all.SessionClosedError is SessionClosedError
+    assert api_module.SessionClosedError is SessionClosedError
+
     class AttachedTrainingResult:
         is_attached = True
 
@@ -218,17 +228,17 @@ def test_session_close_detaches_an_owned_native_result_once() -> None:
 
     assert training_result.detach_calls == 1
     assert session.status == "closed"
-    with pytest.raises(RuntimeError, match="Session is closed"):
+    with pytest.raises(SessionClosedError, match="Session is closed"):
         session.runner
-    with pytest.raises(RuntimeError, match="Session is closed"):
+    with pytest.raises(SessionClosedError, match="Session is closed"):
         session.run({})
-    with pytest.raises(RuntimeError, match="Session is closed"):
+    with pytest.raises(SessionClosedError, match="Session is closed"):
         session.predict({})
-    with pytest.raises(RuntimeError, match="Session is closed"):
+    with pytest.raises(SessionClosedError, match="Session is closed"):
         session.retrain({})
-    with pytest.raises(RuntimeError, match="Session is closed"):
+    with pytest.raises(SessionClosedError, match="Session is closed"):
         session.save("closed.n4a")
-    with pytest.raises(RuntimeError, match="Session is closed"):
+    with pytest.raises(SessionClosedError, match="Session is closed"):
         session.__enter__()
 
 
@@ -248,8 +258,10 @@ def test_load_v2_missing_core_fails_without_bundle_fallback(
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
     monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
 
-    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="matching nirs4all-core"):
+    with pytest.raises(core_archive_replay.CoreArchiveDependencyError, match="matching nirs4all-core") as caught:
         load_session(path)
+    assert caught.value.dependency == "nirs4all-core"
+    assert "release lock" in caught.value.mitigation
 
 
 def test_load_v2_old_core_fails_without_bundle_fallback(
@@ -269,7 +281,108 @@ def test_load_v2_old_core_fails_without_bundle_fallback(
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
     monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
 
-    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="too old"):
+    with pytest.raises(core_archive_replay.CoreArchiveDependencyError, match="too old") as caught:
+        load_session(path)
+    assert caught.value.dependency == "nirs4all-core"
+
+
+def test_v2_session_closes_reloads_and_rejects_changed_source_before_data(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _archive(tmp_path / "portable.n4a", 2)
+    observed = {"reads": 0, "replays": 0}
+
+    def read(_: str) -> bytes:
+        observed["reads"] += 1
+        return json.dumps(_package()).encode()
+
+    def replay(
+        _: str,
+        _request: dict[str, Any],
+        _envelopes: dict[str, Any],
+        methods_inputs: dict[str, Any],
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        observed["replays"] += 1
+        sample_ids = methods_inputs["model:methods.x"]["sample_ids"]
+        return {
+            "outputs": [
+                {
+                    "predictions": [
+                        {"sample_ids": sample_ids, "values": [[1.0] for _ in sample_ids]}
+                    ]
+                }
+            ]
+        }
+
+    core = SimpleNamespace(
+        read_portable_predictor_package_v2=read,
+        replay_methods_archive_v2=replay,
+    )
+    dag_ml = SimpleNamespace(
+        sample_relation_set_fingerprint_json=lambda _: "r" * 64,
+        sign_training_replay_request=lambda request: {
+            **request,
+            "request_fingerprint": "f" * 64,
+        },
+    )
+    real_import = core_archive_replay.importlib.import_module
+    monkeypatch.setattr(
+        core_archive_replay.importlib,
+        "import_module",
+        lambda name: core
+        if name == "nirs4all_core"
+        else dag_ml
+        if name == "dag_ml"
+        else real_import(name),
+    )
+    monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
+    monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
+
+    first = load_session(path)
+    first.predict(
+        {"X": [[1.0, 2.0]], "sample_ids": ["sample.one"]},
+        methods_library_path="/opt/lib/libn4m.so",
+    )
+    first.close()
+    assert first._core_archive_validation is None
+    assert first._core_archive_fingerprint is None
+
+    resumed = load_session(path)
+    resumed.predict(
+        {"X": [[3.0, 4.0]], "sample_ids": ["sample.two"]},
+        methods_library_path="/opt/lib/libn4m.so",
+    )
+    assert observed == {"reads": 2, "replays": 2}
+    path.write_bytes(path.read_bytes() + b"changed-after-validation")
+    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="changed after Session validation"):
+        resumed.predict(object(), methods_library_path="/opt/lib/libn4m.so")
+    assert observed == {"reads": 2, "replays": 2}
+    assert resumed._runner is None
+    resumed.close()
+
+
+def test_v2_session_refuses_oversized_cached_package(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _archive(tmp_path / "portable.n4a", 2)
+    core = SimpleNamespace(
+        read_portable_predictor_package_v2=lambda _: b"x"
+        * (core_archive_replay._MAX_PACKAGE_BYTES + 1),
+        replay_methods_archive_v2=lambda *_args, **_kwargs: {},
+    )
+    real_import = core_archive_replay.importlib.import_module
+    monkeypatch.setattr(
+        core_archive_replay.importlib,
+        "import_module",
+        lambda name: core if name == "nirs4all_core" else real_import(name),
+    )
+    monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
+    monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
+
+    with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="8 MiB Session cache budget"):
         load_session(path)
 
 
