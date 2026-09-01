@@ -38,7 +38,7 @@ def test_keyword_registry_extension_writes_static_json_artifact(tmp_path) -> Non
     tuning_summary_schema = json.loads((tmp_path / "html" / "_static" / "tuning-summary.schema.json").read_text(encoding="utf-8"))
     assert payload["schema_id"] == "https://nirs4all.org/schemas/keyword-effects/v1"
     assert any(entry["id"] == "robustness.scenarios.kind" for entry in payload["entries"])
-    assert hashlib.sha256(raw_payload.encode("utf-8")).hexdigest() == "2f801d06288f065ea3eca835ae0ff0b984f8541405e32c83ccf2ab04b56a14c6"
+    assert hashlib.sha256(raw_payload.encode("utf-8")).hexdigest() == "ee987eec467523d31def7e55baeeced73caad9f9a61d522f7aa36a06147a05f8"
     entries = {entry["id"]: entry for entry in payload["entries"]}
     assert entries["calibrate.calibration_data.sample_ids"]["aliases"] == [
         {"kind": "token", "name": "calibration_sample_ids", "canonical": "sample_ids", "mode": "read_only"},
