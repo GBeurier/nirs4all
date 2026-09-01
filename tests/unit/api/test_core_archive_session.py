@@ -611,3 +611,37 @@ def test_load_non_core_archive_keeps_legacy_bundle_loader(
     assert session.pipeline == ["legacy-step"]
     assert session.is_trained
     assert session._core_archive_path is None
+
+
+def test_top_level_native_run_refuses_loaded_legacy_session_before_options_or_runtime(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _archive(tmp_path / "legacy.n4a", 1, core=False)
+
+    class FakeBundleLoader:
+        def __init__(self, _archive_path: Path) -> None:
+            self.pipeline_config = {"steps": ["legacy-step"], "name": "legacy"}
+
+    native_module = importlib.import_module("nirs4all.api.native_archive_training")
+    monkeypatch.setattr(bundle_module, "BundleLoader", FakeBundleLoader)
+    monkeypatch.setattr(
+        native_module,
+        "_require_archive_runtime",
+        lambda: pytest.fail("mixed Session authority must fail before native runtime access"),
+    )
+    session = load_session(path)
+    snapshot = dict(vars(session))
+
+    with pytest.raises(RtError, match="already owns a legacy bundle") as caught:
+        nirs4all.run(
+            session.pipeline,
+            object(),
+            engine="native",
+            session=session,
+        )
+
+    assert caught.value.verb == "run"
+    assert caught.value.cause == "unsupported_capability"
+    assert caught.value.unsupported_capability == "legacy_session_native_engine"
+    assert vars(session) == snapshot
