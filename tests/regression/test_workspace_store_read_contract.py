@@ -74,6 +74,8 @@ def test_run_summary_contract_matches_a_fresh_workspace_store_without_mutating_i
     assert row_status == "completed"
     assert row_created_at
     assert row_completed_at
+    assert next(field for field in projection["fields"] if field["name"] == "created_at")["serialization"] == "iso8601"
+    assert next(field for field in projection["fields"] if field["name"] == "completed_at")["serialization"] == "iso8601"
     assert json.loads(row_datasets) == [{"name": "corn", "samples": 42}]
     assert json.loads(row_summary) == {"total_results": 3, "best_score": 0.12}
     assert row_error is None
