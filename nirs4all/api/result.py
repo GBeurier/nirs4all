@@ -764,6 +764,7 @@ def _dagml_native_bundle_provenance(
     export_path: str,
     artifact_count: int,
     export_shape: str | None = None,
+    retrain_lineage: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     provenance = {
         "source_type": "dagml_native",
@@ -776,6 +777,8 @@ def _dagml_native_bundle_provenance(
     }
     if export_shape is not None:
         provenance["dagml_native_export_shape"] = export_shape
+    if retrain_lineage is not None:
+        provenance["retrain_lineage"] = dict(retrain_lineage)
     return provenance
 
 
@@ -2117,7 +2120,12 @@ class RunResult:
                 output_path,
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
-                provenance=_dagml_native_bundle_provenance(native_manifest, export_path="dagml_native", artifact_count=1),
+                provenance=_dagml_native_bundle_provenance(
+                    native_manifest,
+                    export_path="dagml_native",
+                    artifact_count=1,
+                    retrain_lineage=getattr(self, "_retrain_lineage", None),
+                ),
                 train_steps=train_steps,
             )
 
@@ -2132,6 +2140,7 @@ class RunResult:
                 export_path="dagml_native_stacking",
                 artifact_count=len(artifacts),
                 export_shape="branch_stacking_predictions",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
             )
             provenance["dagml_stacking_base_count"] = len(base_artifacts)
             provenance["dagml_stacking_meta_artifact_id"] = meta_artifact.get("artifact_id")
@@ -2157,6 +2166,7 @@ class RunResult:
                     export_path="dagml_native_fusion",
                     artifact_count=len(artifacts),
                     export_shape="branch_fusion_mean",
+                    retrain_lineage=getattr(self, "_retrain_lineage", None),
                 ),
                 train_steps=train_steps,
             )
@@ -2172,6 +2182,7 @@ class RunResult:
                 export_path="dagml_native_by_source_fusion",
                 artifact_count=len(artifacts),
                 export_shape="by_source_fusion_mean",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
             )
             provenance["dagml_source_count"] = len(source_model.source_indices)
             provenance["dagml_source_widths"] = list(source_model.source_widths)

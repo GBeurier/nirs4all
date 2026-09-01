@@ -71,6 +71,8 @@ class BundleMetadata:
         partitioner_routing: Routing info for metadata partitioner branches
         relation_replay_manifest: Reference to the optional N9 relation replay
             manifest embedded in the bundle.
+        retrain_lineage: Additive API-004 provenance for a natively retrained
+            artifact, empty for ordinary prediction bundles.
     """
     bundle_format_version: str = "1.0"
     nirs4all_version: str = ""
@@ -84,6 +86,7 @@ class BundleMetadata:
     original_manifest: dict[str, Any] = field(default_factory=dict)
     partitioner_routing: dict[str, Any] = field(default_factory=dict)
     relation_replay_manifest: dict[str, Any] = field(default_factory=dict)
+    retrain_lineage: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "BundleMetadata":
@@ -95,6 +98,9 @@ class BundleMetadata:
         Returns:
             BundleMetadata instance
         """
+        retrain_lineage = data.get("retrain_lineage", {})
+        if not isinstance(retrain_lineage, dict):
+            raise ValueError("Bundle retrain_lineage provenance must be a JSON object")
         return cls(
             bundle_format_version=data.get("bundle_format_version", "1.0"),
             nirs4all_version=data.get("nirs4all_version", ""),
@@ -108,6 +114,7 @@ class BundleMetadata:
             original_manifest=data.get("original_manifest", {}),
             partitioner_routing=data.get("partitioner_routing", {}),
             relation_replay_manifest=data.get("relation_replay_manifest", {}),
+            retrain_lineage=dict(retrain_lineage),
         )
 
 class BundleArtifactProvider(ArtifactProvider):
