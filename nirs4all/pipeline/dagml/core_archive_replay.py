@@ -102,18 +102,8 @@ def predict_core_methods_archive_v2(
     """Replay one exact, explicitly identified raw cohort through Core V2."""
 
     X, sample_ids, groups, metadata_rows = _normalize_dataset(data)
-    core = _load_core_bridge()
-    read_package = getattr(core, "read_portable_predictor_package_v2", None)
-    replay = getattr(core, "replay_methods_archive_v2", None)
-    if not callable(read_package) or not callable(replay):
-        raise CoreArchiveReplayError(
-            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay"
-        )
-    try:
-        package_bytes = read_package(str(Path(archive_path)))
-    except Exception as error:
-        raise CoreArchiveReplayError("nirs4all-core refused Archive V2 validation") from error
-    package = _decode_package(package_bytes)
+    core, package = validate_core_methods_archive_v2(archive_path)
+    replay = core.replay_methods_archive_v2
     request, envelopes, methods_inputs = _build_replay_contracts(
         package,
         X,
@@ -145,6 +135,26 @@ def predict_core_methods_archive_v2(
         "outcome_id": outcome_id,
         "run_id": run_id,
     }
+
+
+def validate_core_methods_archive_v2(
+    archive_path: str | Path,
+) -> tuple[Any, dict[str, Any]]:
+    """Validate one V2 archive and the exact callback-free Core bridge."""
+
+    core = _load_core_bridge()
+    read_package = getattr(core, "read_portable_predictor_package_v2", None)
+    replay = getattr(core, "replay_methods_archive_v2", None)
+    if not callable(read_package) or not callable(replay):
+        raise CoreArchiveReplayError(
+            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay"
+        )
+    try:
+        package_bytes = read_package(str(Path(archive_path)))
+    except Exception as error:
+        raise CoreArchiveReplayError("nirs4all-core refused Archive V2 validation") from error
+    package = _decode_package(package_bytes)
+    return core, package
 
 
 def _load_core_bridge() -> Any:
@@ -414,4 +424,5 @@ __all__ = [
     "CoreArchiveReplayError",
     "detect_core_archive_version",
     "predict_core_methods_archive_v2",
+    "validate_core_methods_archive_v2",
 ]
