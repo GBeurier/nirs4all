@@ -19,7 +19,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 
 from nirs4all.api.native_archive_training import NativeArchiveTrainingError
-from nirs4all.api.session import Session
+from nirs4all.api.session import Session, SessionClosedError
 from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveReplayError
 
 _REQUIRE_ENV = "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2"
@@ -80,19 +80,26 @@ def test_native_archive_training_refuses_a_missing_runtime_before_pipeline_runne
         run_module.run(_pipeline(), _dataset(), engine="native", save_charts=False)
 
 
-def test_native_archive_training_refuses_legacy_session_sharing_before_runner(
+def test_native_archive_training_refuses_closed_session_before_runtime_or_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    native_module = importlib.import_module("nirs4all.api.native_archive_training")
     run_module = importlib.import_module("nirs4all.api.run")
 
     class LegacyPathReached:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
-            raise AssertionError("native Session refusal constructed PipelineRunner")
+            raise AssertionError("closed native Session constructed PipelineRunner")
 
     session = Session()
+    session.close()
     monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
+    monkeypatch.setattr(
+        native_module,
+        "_require_archive_runtime",
+        lambda: pytest.fail("closed native Session inspected the native runtime"),
+    )
 
-    with pytest.raises(NotImplementedError, match="does not use legacy.*Session"):
+    with pytest.raises(SessionClosedError, match="Session is closed"):
         run_module.run(
             _pipeline(),
             _dataset(),
@@ -102,7 +109,83 @@ def test_native_archive_training_refuses_legacy_session_sharing_before_runner(
         )
 
     assert session._runner is None
-    assert session.status == "initialized"
+    assert session.status == "closed"
+
+
+def test_native_archive_training_adopts_the_result_without_pipeline_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_module = importlib.import_module("nirs4all.api.native_archive_training")
+    run_module = importlib.import_module("nirs4all.api.run")
+
+    class LegacyPathReached:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("native Session adoption constructed PipelineRunner")
+
+    prepared = type(
+        "Prepared",
+        (),
+        {
+            "request": {"schema_version": 1},
+            "data_envelopes": {"model:methods.x": {}},
+            "relations": {},
+            "training_influence": {},
+            "outcome_id": "outcome:test",
+            "run_id": "run:test",
+            "bundle_id": "bundle:test",
+            "warnings": (),
+            "diagnostics": {},
+        },
+    )()
+    contracts = type("Contracts", (), {"to_prepared": lambda self: prepared})()
+
+    class TrainingResult:
+        is_attached = True
+        outcome = {"score_set": {"scores": []}, "outcome_fingerprint": "f" * 64}
+
+        def export_portable_predictor_package(self, *_args: object, **_kwargs: object) -> dict[str, object]:
+            return {"schema_version": 2}
+
+        def detach(self) -> None:
+            self.is_attached = False
+
+    training_result = TrainingResult()
+    dag_ml = type(
+        "DagMl",
+        (),
+        {
+            "sign_training_request": staticmethod(lambda request: request),
+            "execute_methods_training": staticmethod(lambda *_args, **_kwargs: training_result),
+        },
+    )()
+    sentinel = object()
+    adopted: list[tuple[object, object]] = []
+    session = Session()
+    monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
+    monkeypatch.setattr(native_module, "_require_archive_runtime", lambda: (dag_ml, object()))
+    monkeypatch.setattr(native_module, "_resolve_methods_library_path", lambda _: "/opt/lib/libn4m.so")
+    monkeypatch.setattr(native_module, "lower_raw_array_training_contracts", lambda *_args, **_kwargs: contracts)
+    monkeypatch.setattr(native_module, "_scores_to_run_result", lambda *_args, **_kwargs: object())
+    monkeypatch.setattr(native_module, "NativeMethodsArchiveRunResult", lambda *_args, **_kwargs: sentinel)
+    monkeypatch.setattr(
+        session,
+        "_adopt_native_result",
+        lambda result, dataset: adopted.append((result, dataset)),
+    )
+
+    dataset = _dataset()
+    result = run_module.run(
+        _pipeline(),
+        dataset,
+        engine="native",
+        session=session,
+        save_charts=False,
+        methods_library_path="/opt/lib/libn4m.so",
+    )
+
+    assert result is sentinel
+    assert adopted == [(sentinel, dataset)]
+    assert session._runner is None
 
 
 def test_native_archive_training_requires_unambiguous_multi_target_names() -> None:
@@ -148,6 +231,8 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             raise AssertionError("native Archive V2 lifecycle constructed PipelineRunner")
 
+    prediction_features = [[8.0, 0.0], [-1.0, 4.0]]
+    prediction_ids = ["predict.z", "predict.a"]
     original_runner = run_module.PipelineRunner
     run_module.PipelineRunner = LegacyPathReached
     try:
@@ -166,11 +251,46 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
         result.close()
         result.close()
         assert result.native_execution_is_live is False
+
+        owned_session = Session(
+            pipeline=_pipeline(),
+            name="native-session",
+            methods_library_path=library_path,
+        )
+        owned_archive: Path | None = None
+        try:
+            owned_result = owned_session.run(
+                _multi_target_dataset(),
+                engine="native",
+            )
+            owned_archive = owned_session._core_archive_path
+            assert owned_result.native_execution_is_live is False
+            assert owned_archive is not None and owned_archive.is_file()
+            assert owned_session._runner is None
+            owned_prediction = owned_session.predict(
+                {"X": prediction_features, "sample_ids": prediction_ids},
+                methods_library_path=library_path,
+            )
+            session_archive = owned_session.save(tmp_path / "native-session-v2.n4a")
+        finally:
+            owned_session.close()
+            owned_session.close()
+        assert owned_archive is not None
+        assert not owned_archive.exists()
+        with nirs4all.load_session(session_archive) as resumed_session:
+            resumed_prediction = resumed_session.predict(
+                {"X": prediction_features, "sample_ids": prediction_ids},
+                methods_library_path=library_path,
+            )
+        np.testing.assert_allclose(
+            resumed_prediction.y_pred,
+            owned_prediction.y_pred,
+            rtol=0.0,
+            atol=0.0,
+        )
     finally:
         run_module.PipelineRunner = original_runner
 
-    prediction_features = [[8.0, 0.0], [-1.0, 4.0]]
-    prediction_ids = ["predict.z", "predict.a"]
     revalidation_archive = tmp_path / "native-methods-v2-revalidation.n4a"
     shutil.copyfile(archive_path, revalidation_archive)
     replacement = tmp_path / "native-methods-v2-revalidation-tampered.n4a"

@@ -23,6 +23,7 @@ Two usage patterns:
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager, suppress
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
@@ -45,11 +46,12 @@ class Session:
     2. **Stateful pipeline mode** (with pipeline):
        Manage a single pipeline's lifecycle: train, predict, save, load.
 
-    A Core Archive V2 loaded with :func:`load_session` is a native prediction
-    session.  It keeps one size-bounded Core-validated replay contract bound
-    to the source archive fingerprint; native Methods handles remain
-    invocation-scoped inside Core and do not survive a prediction call. This
-    is a per-Session cache, not a process-wide prediction cache.
+    A Core Archive V2 loaded with :func:`load_session`, or produced by an
+    explicit native run, is a native prediction session. It keeps one
+    size-bounded Core-validated replay contract bound to the source archive
+    fingerprint. Training handles are detached as soon as the private archive
+    is validated; replay handles remain invocation-scoped inside Core. This is
+    a per-Session, single-entry cache, not a process-wide prediction cache.
 
     Attributes:
         name: Session/pipeline name for identification.
@@ -99,6 +101,7 @@ class Session:
         self._core_archive_path: Path | None = None
         self._core_archive_validation: tuple[Path, Any, dict[str, Any]] | None = None
         self._core_archive_fingerprint: str | None = None
+        self._native_archive_directory: TemporaryDirectory[str] | None = None
         self._closed = False
 
     @property
@@ -167,6 +170,70 @@ class Session:
         if self._closed:
             raise SessionClosedError("Session is closed; load or create a new session")
 
+    def _prepare_native_run(self) -> None:
+        """Refuse unsafe ownership mixing before native runtime access."""
+        self._ensure_open()
+        if self._core_archive_path is not None and self._native_archive_directory is None:
+            from nirs4all.pipeline.dagml.rt import RtError
+
+            raise RtError(
+                "run",
+                "unsupported_capability",
+                "A loaded Core Archive V2 Session is prediction-only and cannot train",
+                mitigation="create a new Session for native training",
+                unsupported_capability="core_archive_v2_prediction_only",
+            )
+        if self._runner is not None:
+            raise NotImplementedError(
+                "engine='native' cannot adopt a Session that already owns a legacy PipelineRunner"
+            )
+
+    def _adopt_native_result(self, result: "RunResult", dataset: Any) -> None:
+        """Bind one native result to one validated, closeable archive cache."""
+        self._prepare_native_run()
+        archive_directory = TemporaryDirectory(prefix="nirs4all-native-session-")
+        archive_path = Path(archive_directory.name) / "session.n4a"
+        try:
+            exported = Path(result.export(archive_path))
+            if exported != archive_path:
+                raise RuntimeError("native Session export returned an unexpected archive path")
+            validation, fingerprint = _validated_core_archive(archive_path)
+            best_score = result.best_score
+            num_predictions = result.num_predictions
+            result.close()
+            if bool(getattr(result, "native_execution_is_live", False)):
+                raise RuntimeError("native Session training handles remained attached after close")
+        except BaseException:
+            with suppress(Exception):
+                result.close()
+            archive_directory.cleanup()
+            raise
+
+        previous_result = self._last_result
+        previous_directory = self._native_archive_directory
+        try:
+            if previous_result is not None and previous_result is not result:
+                previous_result.close()
+            if previous_directory is not None:
+                previous_directory.cleanup()
+        except BaseException:
+            archive_directory.cleanup()
+            raise
+
+        self._last_result = result
+        self._bundle_path = None
+        self._core_archive_path = archive_path
+        self._core_archive_validation = validation
+        self._core_archive_fingerprint = fingerprint
+        self._native_archive_directory = archive_directory
+        self._status = "trained"
+        self._run_history.append({
+            "dataset": "native-array" if isinstance(dataset, Mapping) else str(dataset),
+            "engine": "native",
+            "best_score": best_score,
+            "num_predictions": num_predictions,
+        })
+
     def run(
         self,
         dataset: str | Path | Any,
@@ -191,6 +258,40 @@ class Session:
             ValueError: If no pipeline was provided to the session.
         """
         self._ensure_open()
+        selected_engine = kwargs.pop("engine", None)
+        if selected_engine == "native":
+            self._prepare_native_run()
+            if self._pipeline is None:
+                raise ValueError(
+                    "No pipeline defined for this session. "
+                    "Either pass pipeline= to Session() or use nirs4all.run() directly."
+                )
+            from nirs4all.api.run import run as run_api
+
+            native_options = {**self._runner_kwargs, **kwargs}
+            reserved = {"dataset", "engine", "name", "pipeline", "session"} & set(native_options)
+            if reserved:
+                raise TypeError(
+                    f"native Session options contain reserved keys: {sorted(reserved)}"
+                )
+            configured_plots_visible = native_options.pop("plots_visible", False)
+            native_options.setdefault("save_charts", False)
+            return cast(
+                "RunResult",
+                run_api(
+                    self._pipeline,
+                    dataset,
+                    name=self._name,
+                    session=self,
+                    engine="native",
+                    plots_visible=plots_visible or configured_plots_visible,
+                    **native_options,
+                ),
+            )
+        if selected_engine not in (None, "legacy"):
+            raise NotImplementedError(
+                "Session.run supports explicit engine='native' or the historical legacy lane"
+            )
         if self._core_archive_path is not None:
             from nirs4all.pipeline.dagml.rt import RtError
 
@@ -485,7 +586,12 @@ class Session:
         if self._runner is not None:
             with suppress(Exception):
                 self._runner.close()
+        if self._native_archive_directory is not None:
+            with suppress(Exception):
+                self._native_archive_directory.cleanup()
         self._runner = None
+        self._native_archive_directory = None
+        self._core_archive_path = None
         self._core_archive_validation = None
         self._core_archive_fingerprint = None
         self._closed = True
@@ -510,6 +616,26 @@ class Session:
             status = "active" if self._runner is not None else "idle"
             return f"Session({status}, kwargs={list(self._runner_kwargs.keys())})"
 
+
+def _validated_core_archive(
+    path: Path,
+) -> tuple[tuple[Path, Any, dict[str, Any]], str]:
+    """Create the one-entry Session cache while binding it to exact bytes."""
+    from nirs4all.pipeline.dagml.core_archive_replay import (
+        CoreArchiveReplayError,
+        _archive_fingerprint,
+        validate_core_methods_archive_v2,
+    )
+
+    source_fingerprint = _archive_fingerprint(path)
+    validation = validate_core_methods_archive_v2(path)
+    if _archive_fingerprint(path) != source_fingerprint:
+        raise CoreArchiveReplayError(
+            "Core Archive V2 changed while the Session cache was created"
+        )
+    return (path, *validation), source_fingerprint
+
+
 def load_session(path: str | Path) -> Session:
     """Load a session from a saved bundle file.
 
@@ -533,12 +659,7 @@ def load_session(path: str | Path) -> Session:
     if not path.exists():
         raise FileNotFoundError(f"Bundle not found: {path}")
 
-    from nirs4all.pipeline.dagml.core_archive_replay import (
-        CoreArchiveReplayError,
-        _archive_fingerprint,
-        detect_core_archive_version,
-        validate_core_methods_archive_v2,
-    )
+    from nirs4all.pipeline.dagml.core_archive_replay import detect_core_archive_version
 
     core_archive_version = detect_core_archive_version(path)
     if core_archive_version == 3:
@@ -547,16 +668,11 @@ def load_session(path: str | Path) -> Session:
             "not a serialized-model prediction session"
         )
     if core_archive_version == 2:
-        source_fingerprint = _archive_fingerprint(path)
-        validation = validate_core_methods_archive_v2(path)
-        if _archive_fingerprint(path) != source_fingerprint:
-            raise CoreArchiveReplayError(
-                "Core Archive V2 changed while the Session cache was created"
-            )
+        validation, source_fingerprint = _validated_core_archive(path)
         loaded = Session(name=path.stem)
         loaded._status = "trained"
         loaded._core_archive_path = path
-        loaded._core_archive_validation = (path, *validation)
+        loaded._core_archive_validation = validation
         loaded._core_archive_fingerprint = source_fingerprint
         return loaded
 
