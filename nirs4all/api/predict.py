@@ -206,6 +206,10 @@ def predict(
         - :func:`nirs4all.explain`: Generate SHAP explanations
         - :class:`nirs4all.api.result.PredictResult`: Result class
     """
+    engine = runner_kwargs.pop("engine", None)
+    if engine == "legacy" and isinstance(session, Session):
+        session._prepare_legacy_access("predict")
+
     # ---- Validate mutually exclusive arguments ----
     if model is not None and chain_id is not None:
         raise ValueError("Provide either 'model' or 'chain_id', not both.")
@@ -213,8 +217,6 @@ def predict(
         raise ValueError("Provide either 'model' or 'chain_id'.")
     if data is None:
         raise ValueError("'data' is required.")
-
-    engine = runner_kwargs.pop("engine", None)
 
     core_archive_version: int | None = None
     if isinstance(model, (str, Path)):

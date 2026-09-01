@@ -401,6 +401,9 @@ def retrain(
         session_present=session is not None,
     ).require()
 
+    if decision.lane == "legacy" and isinstance(session, Session):
+        session._prepare_legacy_access("run")
+
     if decision.lane == "dag-ml":
         if new_model is not None or epochs is not None:
             raise _native_retrain_request_error(

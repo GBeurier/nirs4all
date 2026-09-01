@@ -191,6 +191,8 @@ def explain(
         plugin=requested_plugin,
         allow_fallback=allow_fallback,
     ).require()
+    if isinstance(session, Session):
+        session._prepare_legacy_access("explain")
 
     # The legacy lane is explicitly selected and accepted before any model or
     # dataset path is normalized and before PipelineRunner is constructed.

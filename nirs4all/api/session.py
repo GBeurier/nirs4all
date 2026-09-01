@@ -144,7 +144,7 @@ class Session:
         Returns:
             The shared PipelineRunner instance.
         """
-        self._ensure_open()
+        self._prepare_legacy_access("run")
         if self._runner is None:
             from nirs4all.pipeline import PipelineRunner
             self._runner = PipelineRunner(**self._runner_kwargs)
@@ -170,9 +170,55 @@ class Session:
         if self._closed:
             raise SessionClosedError("Session is closed; load or create a new session")
 
+    def _has_native_state(self) -> bool:
+        """Return whether this Session is owned by the native archive lane."""
+        if self._core_archive_path is not None or self._native_archive_directory is not None:
+            return True
+        if self._last_result is None:
+            return False
+        from nirs4all.api.native_archive_training import NativeMethodsArchiveRunResult
+
+        return isinstance(self._last_result, NativeMethodsArchiveRunResult)
+
+    def _prepare_legacy_access(self, operation: str) -> None:
+        """Refuse crossing from native archive ownership into PipelineRunner."""
+        self._ensure_open()
+        if not self._has_native_state():
+            return
+        from nirs4all.pipeline.dagml.rt import RtError
+
+        raise RtError(
+            operation,
+            "unsupported_capability",
+            "A native Archive V2 Session cannot enter engine='legacy' or create a PipelineRunner",
+            mitigation="create a fresh Session for the explicit engine='legacy' rollback lane",
+            unsupported_capability="native_session_legacy_engine",
+        )
+
     def _prepare_native_run(self) -> None:
         """Refuse unsafe ownership mixing before native runtime access."""
         self._ensure_open()
+        from nirs4all.api.native_archive_training import NativeMethodsArchiveRunResult
+
+        legacy_owner = None
+        if self._bundle_path is not None:
+            legacy_owner = "bundle"
+        elif self._runner is not None:
+            legacy_owner = "PipelineRunner"
+        elif self._last_result is not None and not isinstance(
+            self._last_result, NativeMethodsArchiveRunResult
+        ):
+            legacy_owner = "result"
+        if legacy_owner is not None:
+            from nirs4all.pipeline.dagml.rt import RtError
+
+            raise RtError(
+                "run",
+                "unsupported_capability",
+                f"engine='native' cannot adopt a Session that already owns a legacy {legacy_owner}",
+                mitigation="create a fresh Session for native Archive V2 training",
+                unsupported_capability="legacy_session_native_engine",
+            )
         if self._core_archive_path is not None and self._native_archive_directory is None:
             from nirs4all.pipeline.dagml.rt import RtError
 
@@ -182,10 +228,6 @@ class Session:
                 "A loaded Core Archive V2 Session is prediction-only and cannot train",
                 mitigation="create a new Session for native training",
                 unsupported_capability="core_archive_v2_prediction_only",
-            )
-        if self._runner is not None:
-            raise NotImplementedError(
-                "engine='native' cannot adopt a Session that already owns a legacy PipelineRunner"
             )
 
     def _adopt_native_result(self, result: "RunResult", dataset: Any) -> None:
@@ -292,16 +334,7 @@ class Session:
             raise NotImplementedError(
                 "Session.run supports explicit engine='native' or the historical legacy lane"
             )
-        if self._core_archive_path is not None:
-            from nirs4all.pipeline.dagml.rt import RtError
-
-            raise RtError(
-                "run",
-                "unsupported_capability",
-                "Core Archive V2 Session is prediction-only and cannot train",
-                mitigation="start a new training run; load Archive V2 only for predict",
-                unsupported_capability="core_archive_v2_prediction_only",
-            )
+        self._prepare_legacy_access("run")
         if self._pipeline is None:
             raise ValueError(
                 "No pipeline defined for this session. "
