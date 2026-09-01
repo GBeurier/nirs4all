@@ -14,8 +14,9 @@ import pytest
 
 import nirs4all.pipeline as pipeline_module
 import nirs4all.pipeline.bundle as bundle_module
+from nirs4all.api.native_archive_training import NativeMethodsArchiveRunResult
 from nirs4all.api.result import PredictResult
-from nirs4all.api.session import load_session
+from nirs4all.api.session import Session, load_session
 from nirs4all.pipeline.dagml import core_archive_replay
 
 
@@ -71,7 +72,7 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _archive(tmp_path / "portable.n4a", 2)
-    observed: dict[str, Any] = {"reads": 0}
+    observed: dict[str, Any] = {"reads": 0, "replays": []}
 
     def read(archive_path: str) -> bytes:
         observed["reads"] += 1
@@ -85,18 +86,25 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
         methods_inputs: dict[str, Any],
         **kwargs: Any,
     ) -> dict[str, Any]:
-        observed.update(
-            archive_path=archive_path,
-            request=request,
-            data_envelopes=data_envelopes,
-            methods_inputs=methods_inputs,
-            kwargs=kwargs,
+        replay_number = len(observed["replays"]) + 1
+        sample_ids = methods_inputs["model:methods.x"]["sample_ids"]
+        observed["replays"].append(
+            {
+                "archive_path": archive_path,
+                "request": request,
+                "data_envelopes": data_envelopes,
+                "methods_inputs": methods_inputs,
+                "kwargs": kwargs,
+            }
         )
         return {
             "outputs": [
                 {
                     "predictions": [
-                        {"sample_ids": ["sample.one"], "values": [[4.5]]}
+                        {
+                            "sample_ids": sample_ids,
+                            "values": [[3.5 + replay_number] for _ in sample_ids],
+                        }
                     ]
                 }
             ]
@@ -127,6 +135,10 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
 
     session = load_session(path)
+    assert session._core_archive_validation is not None
+    cached_package_json = json.dumps(
+        session._core_archive_validation[2], sort_keys=True, separators=(",", ":")
+    )
     monkeypatch.setattr(
         core_archive_replay,
         "detect_core_archive_version",
@@ -136,21 +148,83 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
         {"X": [[1.0, 2.0]], "sample_ids": ["sample.one"]},
         methods_library_path="/opt/lib/libn4m.so",
     )
+    second = session.predict(
+        {
+            "X": [[3.0, 4.0], [5.0, 6.0]],
+            "sample_ids": ["sample.two", "sample.three"],
+        },
+        engine="native",
+        methods_library_path="/opt/lib/libn4m.so",
+    )
 
     assert isinstance(result, PredictResult)
     np.testing.assert_array_equal(result.y_pred, [[4.5]])
+    np.testing.assert_array_equal(second.y_pred, [[5.5], [5.5]])
     assert result.metadata["engine"] == "core-native"
+    assert second.metadata["sample_ids"] == ["sample.two", "sample.three"]
     assert session.is_trained
     assert session._runner is None
-    assert observed["reads"] == 2
+    assert observed["reads"] == 1
     assert observed["read_path"] == str(path)
-    assert observed["kwargs"]["methods_library_path"] == "/opt/lib/libn4m.so"
-    assert observed["methods_inputs"]["model:methods.x"]["sample_ids"] == [
+    assert len(observed["replays"]) == 2
+    assert observed["replays"][0]["kwargs"]["methods_library_path"] == "/opt/lib/libn4m.so"
+    assert observed["replays"][0]["methods_inputs"]["model:methods.x"]["sample_ids"] == [
         "sample.one"
     ]
+    assert session._core_archive_validation is not None
+    assert json.dumps(
+        session._core_archive_validation[2], sort_keys=True, separators=(",", ":")
+    ) == cached_package_json
     with pytest.raises(NotImplementedError, match="full-refit/retrain"):
         session.retrain({"X": [[2.0]], "sample_ids": ["sample.two"]})
     assert session._runner is None
+    session.close()
+    session.close()
+    assert session.status == "closed"
+    assert not session.is_trained
+    assert session._core_archive_validation is None
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.predict(
+            {"X": [[7.0, 8.0]], "sample_ids": ["sample.four"]},
+            methods_library_path="/opt/lib/libn4m.so",
+        )
+    assert len(observed["replays"]) == 2
+
+
+def test_session_close_detaches_an_owned_native_result_once() -> None:
+    class AttachedTrainingResult:
+        is_attached = True
+
+        def __init__(self) -> None:
+            self.detach_calls = 0
+
+        def detach(self) -> None:
+            self.detach_calls += 1
+            self.is_attached = False
+
+    training_result = AttachedTrainingResult()
+    native_result = NativeMethodsArchiveRunResult.__new__(NativeMethodsArchiveRunResult)
+    native_result._native_training_result = training_result
+    session = Session()
+    session._last_result = native_result
+
+    session.close()
+    session.close()
+
+    assert training_result.detach_calls == 1
+    assert session.status == "closed"
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.runner
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.run({})
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.predict({})
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.retrain({})
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.save("closed.n4a")
+    with pytest.raises(RuntimeError, match="Session is closed"):
+        session.__enter__()
 
 
 def test_load_v2_missing_core_fails_without_bundle_fallback(

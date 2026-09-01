@@ -6,6 +6,7 @@ import importlib
 import json
 import math
 import os
+import shutil
 import subprocess
 import sys
 import textwrap
@@ -18,6 +19,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 
 from nirs4all.api.native_archive_training import NativeArchiveTrainingError
+from nirs4all.api.session import Session
 from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveReplayError
 
 _REQUIRE_ENV = "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2"
@@ -70,6 +72,31 @@ def test_native_archive_training_refuses_a_missing_runtime_before_pipeline_runne
         run_module.run(_pipeline(), _dataset(), engine="native", save_charts=False)
 
 
+def test_native_archive_training_refuses_legacy_session_sharing_before_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_module = importlib.import_module("nirs4all.api.run")
+
+    class LegacyPathReached:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("native Session refusal constructed PipelineRunner")
+
+    session = Session()
+    monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
+
+    with pytest.raises(NotImplementedError, match="does not use legacy.*Session"):
+        run_module.run(
+            _pipeline(),
+            _dataset(),
+            engine="native",
+            session=session,
+            save_charts=False,
+        )
+
+    assert session._runner is None
+    assert session.status == "initialized"
+
+
 @pytest.mark.methods
 @pytest.mark.skipif(
     os.environ.get(_REQUIRE_ENV) != "1",
@@ -107,12 +134,30 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
         assert reference["archive_id"].startswith("archive:")
         assert len(reference["archive_sha256"]) == 64
         result.close()
+        result.close()
         assert result.native_execution_is_live is False
     finally:
         run_module.PipelineRunner = original_runner
 
     prediction_features = [[8.0, 0.0], [-1.0, 4.0]]
     prediction_ids = ["predict.z", "predict.a"]
+    revalidation_archive = tmp_path / "native-methods-v2-revalidation.n4a"
+    shutil.copyfile(archive_path, revalidation_archive)
+    replacement = tmp_path / "native-methods-v2-revalidation-tampered.n4a"
+    with nirs4all.load_session(revalidation_archive) as revalidated_session:
+        before_tamper = revalidated_session.predict(
+            {"X": prediction_features, "sample_ids": prediction_ids},
+            methods_library_path=library_path,
+        )
+        assert before_tamper.metadata["sample_ids"] == prediction_ids
+        _tamper_n4mm(revalidation_archive, replacement)
+        os.replace(replacement, revalidation_archive)
+        with pytest.raises(CoreArchiveReplayError, match="validation|replay|refused"):
+            revalidated_session.predict(
+                {"X": prediction_features, "sample_ids": prediction_ids},
+                methods_library_path=library_path,
+            )
+
     child = textwrap.dedent(
         """
         import importlib
@@ -134,11 +179,30 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
             "X": json.loads(os.environ["N4A_PREDICT_X"]),
             "sample_ids": json.loads(os.environ["N4A_PREDICT_IDS"]),
         }
+        second_data = {
+            "X": list(reversed(data["X"])),
+            "sample_ids": list(reversed(data["sample_ids"])),
+        }
         with nirs4all.load_session(os.environ["N4A_ARCHIVE"]) as loaded:
             from_session = loaded.predict(
                 data,
                 methods_library_path=os.environ["N4A_METHODS_LIBRARY"],
             )
+            second_from_session = loaded.predict(
+                second_data,
+                engine="native",
+                methods_library_path=os.environ["N4A_METHODS_LIBRARY"],
+            )
+        loaded.close()
+        try:
+            loaded.predict(
+                data,
+                methods_library_path=os.environ["N4A_METHODS_LIBRARY"],
+            )
+        except RuntimeError as error:
+            closed_refusal = str(error)
+        else:
+            raise AssertionError("closed native session accepted another prediction")
         direct = nirs4all.predict(
             model=os.environ["N4A_ARCHIVE"],
             data=data,
@@ -148,8 +212,11 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
         print(json.dumps({
             "session_ids": from_session.metadata["sample_ids"],
             "session_values": from_session.y_pred.tolist(),
+            "second_session_ids": second_from_session.metadata["sample_ids"],
+            "second_session_values": second_from_session.y_pred.tolist(),
             "direct_ids": direct.metadata["sample_ids"],
             "direct_values": direct.y_pred.tolist(),
+            "closed_refusal": closed_refusal,
         }))
         """
     )
@@ -174,8 +241,11 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
     assert completed.returncode == 0, completed.stderr
     observed = json.loads(completed.stdout.strip().splitlines()[-1])
     assert observed["session_ids"] == prediction_ids
+    assert observed["second_session_ids"] == list(reversed(prediction_ids))
     assert observed["direct_ids"] == prediction_ids
     assert observed["session_values"] == observed["direct_values"]
+    assert observed["second_session_values"] == list(reversed(observed["direct_values"]))
+    assert "Session is closed" in observed["closed_refusal"]
     assert all(math.isfinite(value) for row in observed["direct_values"] for value in row)
 
     tampered = tmp_path / "tampered.n4a"

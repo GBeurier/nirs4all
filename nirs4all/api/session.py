@@ -21,7 +21,7 @@ Two usage patterns:
 """
 
 from collections.abc import Generator, Mapping
-from contextlib import contextmanager
+from contextlib import contextmanager, suppress
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -40,10 +40,16 @@ class Session:
     2. **Stateful pipeline mode** (with pipeline):
        Manage a single pipeline's lifecycle: train, predict, save, load.
 
+    A Core Archive V2 loaded with :func:`load_session` is a native prediction
+    session.  It caches only Core-validated immutable replay contracts; native
+    Methods handles remain invocation-scoped inside Core and do not survive a
+    prediction call.
+
     Attributes:
         name: Session/pipeline name for identification.
         pipeline: Pipeline definition (if in stateful mode).
-        status: Current session status ('initialized', 'trained', 'error').
+        status: Current session status ('initialized', 'trained', 'error',
+            or 'closed').
         is_trained: Whether the pipeline has been trained.
         runner: The shared PipelineRunner instance.
         workspace_path: Path to the workspace directory.
@@ -85,6 +91,8 @@ class Session:
         self._run_history: list[dict[str, Any]] = []
         self._bundle_path: Path | None = None  # Set when loading from bundle
         self._core_archive_path: Path | None = None
+        self._core_archive_validation: tuple[Path, Any, dict[str, Any]] | None = None
+        self._closed = False
 
     @property
     def name(self) -> str:
@@ -101,7 +109,7 @@ class Session:
         """Get current session status.
 
         Returns:
-            One of: 'initialized', 'trained', 'error'
+            One of: 'initialized', 'trained', 'error', 'closed'
         """
         return self._status
 
@@ -126,6 +134,7 @@ class Session:
         Returns:
             The shared PipelineRunner instance.
         """
+        self._ensure_open()
         if self._runner is None:
             from nirs4all.pipeline import PipelineRunner
             self._runner = PipelineRunner(**self._runner_kwargs)
@@ -146,6 +155,10 @@ class Session:
     def history(self) -> list[dict[str, Any]]:
         """Get run history for this session."""
         return self._run_history
+
+    def _ensure_open(self) -> None:
+        if self._closed:
+            raise RuntimeError("Session is closed; load or create a new session")
 
     def run(
         self,
@@ -170,6 +183,7 @@ class Session:
         Raises:
             ValueError: If no pipeline was provided to the session.
         """
+        self._ensure_open()
         if self._pipeline is None:
             raise ValueError(
                 "No pipeline defined for this session. "
@@ -250,6 +264,7 @@ class Session:
         Raises:
             ValueError: If session has not been trained.
         """
+        self._ensure_open()
         if not self.is_trained:
             raise ValueError(
                 "Session must be trained before prediction. "
@@ -277,6 +292,7 @@ class Session:
                 self._core_archive_path,
                 dataset,
                 methods_library_path=methods_library_path,
+                validated_archive=self._core_archive_validation,
             )
             return PredictResult(
                 y_pred=values,
@@ -347,6 +363,7 @@ class Session:
         Raises:
             ValueError: If session has not been trained.
         """
+        self._ensure_open()
         if not self.is_trained:
             raise ValueError(
                 "Session must be trained before retraining. "
@@ -413,6 +430,7 @@ class Session:
         Raises:
             ValueError: If session has not been trained.
         """
+        self._ensure_open()
         if not self.is_trained or self._last_result is None:
             raise ValueError(
                 "Session must be trained before saving. "
@@ -425,20 +443,26 @@ class Session:
         """Clean up session resources.
 
         Called automatically when exiting a context manager block.
-        Closes the WorkspaceStore to release SQLite file locks (required on
-        Windows where open handles prevent file deletion).
+        Closes result-owned native handles and the shared runner, drops the
+        validated Archive V2 contract cache, and terminally closes the
+        session. Calling this method more than once is safe.
         """
+        if self._closed:
+            return
+        if self._last_result is not None:
+            with suppress(Exception):
+                self._last_result.close()
         if self._runner is not None:
-            try:
-                store = self._runner.store
-                if store is not None:
-                    store.close()
-            except Exception:
-                pass
+            with suppress(Exception):
+                self._runner.close()
         self._runner = None
+        self._core_archive_validation = None
+        self._closed = True
+        self._status = "closed"
 
     def __enter__(self) -> "Session":
         """Enter the session context."""
+        self._ensure_open()
         return self
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
@@ -447,6 +471,8 @@ class Session:
 
     def __repr__(self) -> str:
         """Return string representation of session."""
+        if self._closed:
+            return f"Session(name='{self._name}', status='closed')"
         if self._pipeline is not None:
             return f"Session(name='{self._name}', status='{self._status}', steps={len(self._pipeline)})"
         else:
@@ -482,10 +508,11 @@ def load_session(path: str | Path) -> Session:
             "not a serialized-model prediction session"
         )
     if core_archive_version == 2:
-        validate_core_methods_archive_v2(path)
+        validation = validate_core_methods_archive_v2(path)
         loaded = Session(name=path.stem)
         loaded._status = "trained"
         loaded._core_archive_path = path
+        loaded._core_archive_validation = (path, *validation)
         return loaded
 
     from nirs4all.pipeline.bundle import BundleLoader
