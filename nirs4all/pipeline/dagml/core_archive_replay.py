@@ -96,14 +96,33 @@ def predict_core_methods_archive_v2(
     data: Any,
     *,
     methods_library_path: str | Path | None,
+    validated_archive: tuple[Path, Any, dict[str, Any]] | None = None,
     outcome_id: str = "outcome:nirs4all.core_archive_predict",
     run_id: str = "run:nirs4all.core_archive_predict",
 ) -> tuple[np.ndarray, dict[str, Any]]:
-    """Replay one exact, explicitly identified raw cohort through Core V2."""
+    """Replay one exact, explicitly identified raw cohort through Core V2.
+
+    ``validated_archive`` is the immutable package-contract cache owned by a
+    loaded :class:`Session`. Core still reopens and validates the archive for
+    every replay, and the Methods runtime keeps all native handles scoped to
+    that call.
+    """
 
     X, sample_ids, groups, metadata_rows = _normalize_dataset(data)
-    core, package = validate_core_methods_archive_v2(archive_path)
-    replay = core.replay_methods_archive_v2
+    candidate = Path(archive_path)
+    if validated_archive is None:
+        core, package = validate_core_methods_archive_v2(candidate)
+    else:
+        validated_path, core, package = validated_archive
+        if candidate != validated_path:
+            raise CoreArchiveReplayError(
+                "Core Archive V2 validation cache does not match the replay path"
+            )
+    replay = getattr(core, "replay_methods_archive_v2", None)
+    if not callable(replay):
+        raise CoreArchiveReplayError(
+            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay"
+        )
     request, envelopes, methods_inputs = _build_replay_contracts(
         package,
         X,
@@ -114,7 +133,7 @@ def predict_core_methods_archive_v2(
     library_path = _resolve_methods_library_path(methods_library_path)
     try:
         outcome = replay(
-            str(Path(archive_path)),
+            str(candidate),
             request,
             envelopes,
             methods_inputs,
@@ -129,7 +148,7 @@ def predict_core_methods_archive_v2(
     values = _decode_prediction(outcome, sample_ids)
     return values, {
         "engine": "core-native",
-        "archive_path": str(Path(archive_path)),
+        "archive_path": str(candidate),
         "archive_schema_version": 2,
         "sample_ids": list(sample_ids),
         "outcome_id": outcome_id,
