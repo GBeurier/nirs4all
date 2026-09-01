@@ -33,6 +33,15 @@ MAX_STUDIO_SCIENTIFIC_FEATURES: Final = 256
 MAX_STUDIO_SCIENTIFIC_CELLS: Final = 16_384
 _MAX_JSON_DEPTH: Final = 8
 _MAX_TEXT_BYTES: Final = 256
+_FORBIDDEN_DAGML_SIDE_CHANNELS: Final = (
+    "N4A_DAGML_DATASET_PATH",
+    "N4A_DAGML_DATASET_PICKLE",
+    "N4A_DAGML_GRAPH_PATH",
+    "N4A_DAGML_METHODS_SNV",
+    "N4A_DAGML_RESULT_CAPTURE",
+    "N4A_DAGML_SAMPLE_META_PATH",
+    "N4A_RANDOM_STATE",
+)
 
 
 class StudioScientificJobError(ValueError):
@@ -146,6 +155,17 @@ def _ambient_runtime_preflight() -> None:
         raise _refuse("external_runtime_forbidden", "an external dag-ml CLI is forbidden in the Studio scientific host")
     if os.environ.get("N4A_DAGML_INPROCESS", "").strip().lower() in {"0", "false", "off"}:
         raise _refuse("external_runtime_forbidden", "the Studio scientific host requires the packaged in-process dag-ml runtime")
+    active_side_channels = [variable for variable in _FORBIDDEN_DAGML_SIDE_CHANNELS if os.environ.get(variable)]
+    if active_side_channels:
+        raise _refuse(
+            "ambient_runtime_forbidden",
+            f"ambient dag-ml side channels are forbidden in the Studio scientific host: {', '.join(active_side_channels)}",
+        )
+    prefix = Path(sys.prefix).resolve()
+    try:
+        Path(__file__).resolve().relative_to(prefix)
+    except ValueError as error:
+        raise _refuse("sibling_runtime_forbidden", "the nirs4all Studio callable must be installed inside the active Python prefix") from error
     try:
         import dag_ml._dag_ml as _dag_ml
     except ImportError as error:
@@ -154,7 +174,7 @@ def _ambient_runtime_preflight() -> None:
     if not isinstance(origin, str):
         raise _refuse("native_runtime_unavailable", "the packaged in-process dag-ml runtime has no file identity")
     try:
-        Path(origin).resolve().relative_to(Path(sys.prefix).resolve())
+        Path(origin).resolve().relative_to(prefix)
     except ValueError as error:
         raise _refuse("sibling_runtime_forbidden", "the dag-ml runtime must be installed inside the active Python prefix") from error
 
