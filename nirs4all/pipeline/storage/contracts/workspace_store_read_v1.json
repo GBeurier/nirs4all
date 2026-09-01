@@ -81,12 +81,59 @@
         {"name": "status", "column": "status", "type": "string", "nullable": true},
         {"name": "duration_ms", "column": "duration_ms", "type": "integer", "nullable": true}
       ]
+    },
+    "studio_chain_ranked_v1": {
+      "source_tables": ["chains", "pipelines", "predictions"],
+      "eligibility": "at_least_one_prediction_for_chain",
+      "ascending_query": "SELECT c.chain_id, c.pipeline_id, p.run_id, p.name AS pipeline_name, c.dataset_name, c.metric, c.task_type, c.model_name, c.model_class, c.preprocessings, c.cv_val_score, c.cv_test_score, c.cv_train_score, c.cv_fold_count, c.cv_scores, c.final_test_score, c.final_train_score, c.final_scores, c.final_agg_test_score, c.final_agg_train_score, c.final_agg_scores, c.best_params FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE c.dataset_name = ? AND c.metric = ? AND EXISTS (SELECT 1 FROM predictions AS pr WHERE pr.chain_id = c.chain_id) ORDER BY (c.cv_val_score IS NULL) ASC, c.cv_val_score ASC, c.chain_id ASC LIMIT ? OFFSET ?",
+      "descending_query": "SELECT c.chain_id, c.pipeline_id, p.run_id, p.name AS pipeline_name, c.dataset_name, c.metric, c.task_type, c.model_name, c.model_class, c.preprocessings, c.cv_val_score, c.cv_test_score, c.cv_train_score, c.cv_fold_count, c.cv_scores, c.final_test_score, c.final_train_score, c.final_scores, c.final_agg_test_score, c.final_agg_train_score, c.final_agg_scores, c.best_params FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE c.dataset_name = ? AND c.metric = ? AND EXISTS (SELECT 1 FROM predictions AS pr WHERE pr.chain_id = c.chain_id) ORDER BY (c.cv_val_score IS NULL) ASC, c.cv_val_score DESC, c.chain_id ASC LIMIT ? OFFSET ?",
+      "count_query": "SELECT COUNT(*) FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE c.dataset_name = ? AND c.metric = ? AND EXISTS (SELECT 1 FROM predictions AS pr WHERE pr.chain_id = c.chain_id)",
+      "parameters": [
+        {"name": "dataset_name", "type": "string", "minimum_length": 1},
+        {"name": "metric", "type": "string", "minimum_length": 1},
+        {"name": "direction", "type": "string", "enum": ["asc", "desc"], "required": true},
+        {"name": "limit", "type": "integer", "minimum": 1, "maximum": 100, "default": 5},
+        {"name": "offset", "type": "integer", "minimum": 0, "default": 0}
+      ],
+      "fields": [
+        {"name": "chain_id", "column": "chain_id", "type": "string", "required": true},
+        {"name": "pipeline_id", "column": "pipeline_id", "type": "string", "required": true},
+        {"name": "run_id", "column": "run_id", "type": "string", "required": true},
+        {"name": "pipeline_name", "column": "name", "type": "string", "nullable": true},
+        {"name": "dataset_name", "column": "dataset_name", "type": "string", "required": true},
+        {"name": "metric", "column": "metric", "type": "string", "required": true},
+        {"name": "task_type", "column": "task_type", "type": "string", "nullable": true},
+        {"name": "model_name", "column": "model_name", "type": "string", "nullable": true},
+        {"name": "model_class", "column": "model_class", "type": "string", "nullable": true},
+        {"name": "preprocessings", "column": "preprocessings", "type": "string", "default": ""},
+        {"name": "cv_val_score", "column": "cv_val_score", "type": "number", "nullable": true, "finite": true},
+        {"name": "cv_test_score", "column": "cv_test_score", "type": "number", "nullable": true, "finite": true},
+        {"name": "cv_train_score", "column": "cv_train_score", "type": "number", "nullable": true, "finite": true},
+        {"name": "cv_fold_count", "column": "cv_fold_count", "type": "integer", "minimum": 0, "default": 0},
+        {"name": "cv_scores", "column": "cv_scores", "type": "json_object", "default": {}},
+        {"name": "final_test_score", "column": "final_test_score", "type": "number", "nullable": true, "finite": true},
+        {"name": "final_train_score", "column": "final_train_score", "type": "number", "nullable": true, "finite": true},
+        {"name": "final_scores", "column": "final_scores", "type": "json_object", "default": {}},
+        {"name": "final_agg_test_score", "column": "final_agg_test_score", "type": "number", "nullable": true, "finite": true},
+        {"name": "final_agg_train_score", "column": "final_agg_train_score", "type": "number", "nullable": true, "finite": true},
+        {"name": "final_agg_scores", "column": "final_agg_scores", "type": "json_object", "default": {}},
+        {"name": "best_params", "column": "best_params", "type": "json_object", "nullable": true}
+      ],
+      "excluded_computed_fields": [
+        "variant_params",
+        "synthetic_refit",
+        "cv_source_chain_id",
+        "is_refit_only"
+      ]
     }
   },
   "excluded_surfaces": [
     "prediction_arrays",
     "parquet_sidecars",
     "artifacts",
+    "studio_results_summary_policy",
+    "metric_direction_inference",
+    "dataset_links",
     "workspace_mutation",
     "duckdb_workspaces",
     "schema_versions_other_than_5"

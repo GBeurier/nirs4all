@@ -17,6 +17,7 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
     contract = workspace_store_read_contract()
     run_projection = contract["projections"]["studio_run_summary"]
     pipeline_projection = contract["projections"]["studio_pipeline_summary"]
+    chain_projection = contract["projections"]["studio_chain_ranked_v1"]
 
     assert contract["workspace_store_schema_version"] == SCHEMA_VERSION == 5
     assert contract["store"] == {
@@ -93,6 +94,14 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
         assert {field["column"] for field in pipeline_projection["fields"]} <= pipeline_columns
         pipeline_rows = connection.execute(pipeline_projection["query"], (100, 0)).fetchall()
         pipeline_count = connection.execute(pipeline_projection["count_query"]).fetchone()[0]
+        chain_columns = {row[1] for row in connection.execute("PRAGMA table_info(chains)")}
+        pipeline_columns = {row[1] for row in connection.execute("PRAGMA table_info(pipelines)")}
+        contract_columns = {field["column"] for field in chain_projection["fields"]}
+        assert contract_columns - {"run_id", "name"} <= chain_columns
+        assert {"run_id", "name"} <= pipeline_columns
+        assert connection.execute(chain_projection["ascending_query"], ("corn", "rmsecv", 5, 0)).fetchall() == []
+        assert connection.execute(chain_projection["descending_query"], ("corn", "rmsecv", 5, 0)).fetchall() == []
+        assert connection.execute(chain_projection["count_query"], ("corn", "rmsecv")).fetchone()[0] == 0
 
     assert len(rows) == 1
     (
@@ -160,7 +169,101 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
         "prediction_arrays",
         "parquet_sidecars",
         "artifacts",
+        "studio_results_summary_policy",
+        "metric_direction_inference",
+        "dataset_links",
         "workspace_mutation",
         "duckdb_workspaces",
         "schema_versions_other_than_5",
+    ]
+
+
+def test_ranked_chain_contract_is_filtered_deterministic_and_null_last(tmp_path: Path) -> None:
+    """The native primitive has stable paging and excludes chains without predictions."""
+    contract = workspace_store_read_contract()
+    projection = contract["projections"]["studio_chain_ranked_v1"]
+    workspace = tmp_path / "workspace"
+    store = WorkspaceStore(workspace)
+    store.close()
+
+    database = workspace / contract["store"]["metadata_file"]
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "INSERT INTO runs (run_id, name) VALUES (?, ?)",
+            ("run-ranked", "ranked chains"),
+        )
+        connection.execute(
+            """INSERT INTO pipelines
+               (pipeline_id, run_id, name, dataset_name)
+               VALUES (?, ?, ?, ?)""",
+            ("pipeline-pending", "run-ranked", "pending pipeline", "corn"),
+        )
+        chain_rows = [
+            ("chain-a", 0.5, "rmse"),
+            ("chain-b", 0.1, "rmse"),
+            ("chain-c", None, "rmse"),
+            ("chain-no-prediction", 0.01, "rmse"),
+            ("chain-z", 0.5, "rmse"),
+            ("chain-other-metric", 0.99, "r2"),
+        ]
+        connection.executemany(
+            """INSERT INTO chains
+               (chain_id, pipeline_id, steps, model_step_idx, model_class,
+                dataset_name, metric, cv_val_score, cv_fold_count, cv_scores)
+               VALUES (?, 'pipeline-pending', '[]', 1, 'PLSRegression',
+                       'corn', ?, ?, 2, '{"rmse": 0.1}')""",
+            [(chain_id, metric, score) for chain_id, score, metric in chain_rows],
+        )
+        prediction_chain_ids = [
+            "chain-a",
+            "chain-b",
+            "chain-c",
+            "chain-z",
+            "chain-other-metric",
+        ]
+        connection.executemany(
+            """INSERT INTO predictions
+               (prediction_id, pipeline_id, chain_id, dataset_name, model_name,
+                model_class, fold_id, partition, metric, task_type)
+               VALUES (?, 'pipeline-pending', ?, 'corn', 'PLS',
+                       'PLSRegression', 'fold_0', 'val', 'rmse', 'regression')""",
+            [(f"prediction-{chain_id}", chain_id) for chain_id in prediction_chain_ids],
+        )
+        connection.commit()
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+
+    with sqlite3.connect(f"{database.as_uri()}?mode=ro&immutable=1", uri=True) as connection:
+        ascending = connection.execute(
+            projection["ascending_query"],
+            ("corn", "rmse", 100, 0),
+        ).fetchall()
+        descending = connection.execute(
+            projection["descending_query"],
+            ("corn", "rmse", 100, 0),
+        ).fetchall()
+        second_page = connection.execute(
+            projection["ascending_query"],
+            ("corn", "rmse", 2, 2),
+        ).fetchall()
+        total = connection.execute(
+            projection["count_query"],
+            ("corn", "rmse"),
+        ).fetchone()[0]
+
+    assert [row[0] for row in ascending] == ["chain-b", "chain-a", "chain-z", "chain-c"]
+    assert [row[0] for row in descending] == ["chain-a", "chain-z", "chain-b", "chain-c"]
+    assert [row[0] for row in second_page] == ["chain-z", "chain-c"]
+    assert total == 4
+    assert ascending[0][2:6] == ("run-ranked", "pending pipeline", "corn", "rmse")
+    assert projection["parameters"][2] == {
+        "name": "direction",
+        "type": "string",
+        "enum": ["asc", "desc"],
+        "required": True,
+    }
+    assert projection["excluded_computed_fields"] == [
+        "variant_params",
+        "synthetic_refit",
+        "cv_source_chain_id",
+        "is_refit_only",
     ]
