@@ -264,7 +264,10 @@ def studio_scientific_job_v1(request: object) -> dict[str, object]:
         save_artifacts=False,
         save_charts=False,
         plots_visible=False,
-        random_state=random_state,
+        # KFold is the only stochastic v1 component and is seeded above.  Do
+        # not ask run_via_dagml to seed process globals: that would mutate
+        # PYTHONHASHSEED (and optional framework state) inside the stdio host.
+        random_state=None,
         refit=True,
         cache=None,
         project=None,
