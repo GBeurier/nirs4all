@@ -77,6 +77,7 @@ def predict(
     save_to_workspace: bool = False,
     workspace_metadata: Mapping[str, Any] | None = None,
     workspace_result_metadata: Mapping[str, Any] | None = None,
+    methods_library_path: str | Path | None = None,
     **runner_kwargs: Any,
 ) -> PredictResult:
     """Make predictions with a trained model on new data.
@@ -157,6 +158,10 @@ def predict(
         workspace_result_metadata: Optional result-level metadata merged over
             ``result.metadata`` when publishing the workspace prediction row.
 
+        methods_library_path: Optional explicit path to the compatible
+            ``libn4m`` used for a recognized Core Archive V2. If omitted, the
+            installed ``nirs4all-methods`` package resolves its bundled library.
+
         session: Optional Session for resource reuse.
             If provided, uses the session's runner.
 
@@ -215,6 +220,55 @@ def predict(
         raise ValueError("'data' is required.")
 
     engine = runner_kwargs.pop("engine", None)
+
+    core_archive_version: int | None = None
+    if isinstance(model, (str, Path)):
+        from nirs4all.pipeline.dagml.core_archive_replay import (
+            CoreArchiveReplayError,
+            detect_core_archive_version,
+        )
+
+        core_archive_version = detect_core_archive_version(model)
+    if core_archive_version is not None:
+        assert isinstance(model, (str, Path))
+        if engine not in (None, "native", "dag-ml"):
+            raise CoreArchiveReplayError(
+                "recognized Core archives cannot be replayed with the legacy engine"
+            )
+        if core_archive_version == 3:
+            raise NotImplementedError(
+                "Core Archive V3 is a target-bound full-refit/retrain package, "
+                "not a serialized-model prediction artifact"
+            )
+        if session is not None:
+            raise ValueError("Core Archive V2 prediction does not accept a legacy Session")
+        if all_predictions:
+            raise NotImplementedError(
+                "Core Archive V2 prediction exposes one identity-aligned final output"
+            )
+        if coverage is not None:
+            raise NotImplementedError(
+                "Core Archive V2 prediction does not project conformal intervals on this facade"
+            )
+        if save_to_workspace:
+            raise NotImplementedError(
+                "Core Archive V2 prediction does not yet publish to the legacy workspace store"
+            )
+        from nirs4all.pipeline.dagml.core_archive_replay import (
+            predict_core_methods_archive_v2,
+        )
+
+        values, metadata = predict_core_methods_archive_v2(
+            model,
+            data,
+            methods_library_path=methods_library_path,
+        )
+        return PredictResult(
+            y_pred=values,
+            metadata=metadata,
+            model_name="MethodsN4MM",
+            preprocessing_steps=[],
+        )
 
     if _is_calibrated_replayed_prediction_request(model, data):
         result = _predict_from_calibrated_replayed_arrays(
