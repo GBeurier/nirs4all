@@ -179,10 +179,18 @@ def run_native_methods_archive(
         raise NotImplementedError("engine='native' does not expose legacy progress or chart controls")
     if refit is not True:
         raise NotImplementedError("engine='native' requires the native refit")
-    if cache is not None or project is not None or results_path is not None or session is not None:
+    if cache is not None or project is not None or results_path is not None:
         raise NotImplementedError(
-            "engine='native' does not use legacy cache, project, results_path, or Session"
+            "engine='native' does not use legacy cache, project, or results_path"
         )
+    native_session = None
+    if session is not None:
+        from nirs4all.api.session import Session
+
+        if not isinstance(session, Session):
+            raise TypeError("engine='native' session must be a nirs4all.Session")
+        session._prepare_native_run()
+        native_session = session
     if report_naming != "nirs":
         raise NotImplementedError("engine='native' supports report_naming='nirs' only")
     native_options = dict(runner_kwargs or {})
@@ -272,7 +280,7 @@ def run_native_methods_archive(
             "rmse",
             "regression",
         )
-        return NativeMethodsArchiveRunResult(
+        result = NativeMethodsArchiveRunResult(
             projected,
             dag_ml=dag_ml,
             core=core,
@@ -283,6 +291,9 @@ def run_native_methods_archive(
             package_contract=package_object,
             archive_id=f"archive:{fingerprint}",
         )
+        if native_session is not None:
+            native_session._adopt_native_result(result, dataset)
+        return result
     except BaseException:
         if training_result is not None and getattr(training_result, "is_attached", False):
             training_result.detach()

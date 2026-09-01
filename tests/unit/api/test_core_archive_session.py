@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -201,6 +202,138 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
             methods_library_path="/opt/lib/libn4m.so",
         )
     assert len(observed["replays"]) == 2
+
+
+def test_native_session_run_owns_one_validated_archive_and_releases_handles(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    observed: dict[str, Any] = {"reads": 0, "replays": 0, "run_options": []}
+
+    def read(_: str) -> bytes:
+        observed["reads"] += 1
+        return json.dumps(_package()).encode()
+
+    def replay(
+        _: str,
+        _request: dict[str, Any],
+        _envelopes: dict[str, Any],
+        methods_inputs: dict[str, Any],
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        observed["replays"] += 1
+        sample_ids = methods_inputs["model:methods.x"]["sample_ids"]
+        return {
+            "outputs": [{
+                "predictions": [{
+                    "sample_ids": sample_ids,
+                    "values": [[2.0] for _ in sample_ids],
+                }]
+            }]
+        }
+
+    core = SimpleNamespace(
+        read_portable_predictor_package_v2=read,
+        replay_methods_archive_v2=replay,
+    )
+    dag_ml = SimpleNamespace(
+        sample_relation_set_fingerprint_json=lambda _: "r" * 64,
+        sign_training_replay_request=lambda request: {
+            **request,
+            "request_fingerprint": "f" * 64,
+        },
+    )
+    real_import = core_archive_replay.importlib.import_module
+    monkeypatch.setattr(
+        core_archive_replay.importlib,
+        "import_module",
+        lambda name: core
+        if name == "nirs4all_core"
+        else dag_ml
+        if name == "dag_ml"
+        else real_import(name),
+    )
+    monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
+
+    class FakeNativeResult:
+        best_score = 0.25
+        num_predictions = 3
+
+        def __init__(self) -> None:
+            self.exports: list[Path] = []
+            self.detach_calls = 0
+            self.native_execution_is_live = True
+
+        def export(self, path: str | Path) -> Path:
+            destination = Path(path)
+            self.exports.append(destination)
+            return _archive(destination, 2)
+
+        def close(self) -> None:
+            if self.native_execution_is_live:
+                self.detach_calls += 1
+                self.native_execution_is_live = False
+
+    results: list[FakeNativeResult] = []
+    run_module = importlib.import_module("nirs4all.api.run")
+
+    def fake_run(pipeline: list[Any], dataset: Any, **options: Any) -> FakeNativeResult:
+        assert pipeline == ["native-step"]
+        assert options["engine"] == "native"
+        assert options["save_charts"] is False
+        observed["run_options"].append(dict(options))
+        result = FakeNativeResult()
+        results.append(result)
+        options["session"]._adopt_native_result(result, dataset)
+        return result
+
+    monkeypatch.setattr(run_module, "run", fake_run)
+    dataset = {"X": [[0.0]], "y": [1.0], "sample_ids": ["fit.one"]}
+    prediction = {"X": [[2.0]], "sample_ids": ["predict.one"]}
+    native = Session(pipeline=["native-step"], name="portable")
+
+    first = native.run(
+        dataset,
+        engine="native",
+        methods_library_path="/opt/lib/libn4m.so",
+    )
+    first_archive = native._core_archive_path
+    assert first is results[0]
+    assert first.detach_calls == 1
+    assert first_archive is not None and first_archive.is_file()
+    assert native._runner is None
+    assert observed["reads"] == 1
+    native.predict(prediction, methods_library_path="/opt/lib/libn4m.so")
+    native.predict(prediction, engine="native", methods_library_path="/opt/lib/libn4m.so")
+    assert observed["replays"] == 2
+
+    saved = native.save(tmp_path / "saved.n4a")
+    assert saved.is_file()
+    assert first.detach_calls == 1
+    with load_session(saved) as resumed:
+        resumed.predict(prediction, methods_library_path="/opt/lib/libn4m.so")
+        assert resumed._runner is None
+    assert observed["reads"] == 2
+    assert observed["replays"] == 3
+    assert len(observed["run_options"]) == 1
+    assert observed["run_options"][0]["methods_library_path"] == "/opt/lib/libn4m.so"
+
+    second = native.run(dataset, engine="native")
+    second_archive = native._core_archive_path
+    assert second is results[1]
+    assert second.detach_calls == 1
+    assert first.detach_calls == 1
+    assert not first_archive.exists()
+    assert second_archive is not None and second_archive.is_file()
+    assert len(native.history) == 2
+    assert all(item["engine"] == "native" for item in native.history)
+    native.close()
+    native.close()
+    assert second.detach_calls == 1
+    assert not second_archive.exists()
+    assert native._core_archive_path is None
+    assert native._core_archive_validation is None
+    assert native._core_archive_fingerprint is None
 
 
 def test_session_close_detaches_an_owned_native_result_once() -> None:
