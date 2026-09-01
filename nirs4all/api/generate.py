@@ -21,15 +21,32 @@ Example:
 from __future__ import annotations
 
 import contextlib
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union, overload
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast, overload
 
 import numpy as np
+
+from .advanced_capabilities import AdvancedApiCapabilityDecision, preflight_advanced_api
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from nirs4all.data.dataset import SpectroDataset
     from nirs4all.synthesis import SyntheticDatasetBuilder
+
+
+def generate_preflight(
+    *,
+    engine: str | None = None,
+    plugin: str | None = None,
+    allow_fallback: bool = False,
+) -> AdvancedApiCapabilityDecision:
+    """Return the side-effect-free API-005 decision for ``generate``."""
+    return preflight_advanced_api(
+        "generate",
+        engine=engine,
+        plugin=plugin,
+        allow_fallback=allow_fallback,
+    )
 
 @overload
 def generate(
@@ -96,7 +113,11 @@ def generate(
         train_ratio: Proportion of samples for training partition.
         as_dataset: If True, returns SpectroDataset. If False, returns (X, y) tuple.
         name: Dataset name.
-        **kwargs: Additional arguments passed to SyntheticDatasetBuilder.
+        **kwargs: Additional arguments passed to SyntheticDatasetBuilder.  The
+            stable catch-all also accepts the API-005 control keys ``engine``,
+            ``plugin``, and ``allow_fallback``.  The in-package Python
+            synthesizer requires ``engine="legacy"`` explicitly during the V1
+            rollback window.
 
     Returns:
         If as_dataset=True: SpectroDataset ready for pipeline use.
@@ -125,6 +146,15 @@ def generate(
         generate.classification: Convenience function for classification datasets.
         generate.builder: Access the full builder API.
     """
+    requested_engine = kwargs.pop("engine", None)
+    requested_plugin = kwargs.pop("plugin", None)
+    allow_fallback = kwargs.pop("allow_fallback", False)
+    generate_preflight(
+        engine=requested_engine,
+        plugin=requested_plugin,
+        allow_fallback=allow_fallback,
+    ).require()
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -237,6 +267,8 @@ def regression(
         ...     random_state=42
         ... )
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -336,6 +368,8 @@ def classification(
         ...     random_state=42
         ... )
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -395,6 +429,8 @@ def builder(
         ...     .build()
         ... )
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     return SyntheticDatasetBuilder(
@@ -460,6 +496,8 @@ def multi_source(
         ...     ]
         ... )
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import generate_multi_source as _generate_multi_source
 
     if sources is None:
@@ -520,6 +558,8 @@ def to_folder(
         ...     random_state=42
         ... )
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -542,7 +582,7 @@ def to_folder(
     # Configure partitions
     builder.with_partitions(train_ratio=train_ratio)
 
-    return builder.export(path, format=format)
+    return cast("Path", builder.export(path, format=format))
 
 def to_csv(
     path: str | Path,
@@ -571,6 +611,8 @@ def to_csv(
         >>> import nirs4all
         >>> path = nirs4all.generate.to_csv("data.csv", n_samples=500)
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -588,7 +630,7 @@ def to_csv(
     if target_range is not None:
         builder.with_targets(range=target_range)
 
-    return builder.export_to_csv(path)
+    return cast("Path", builder.export_to_csv(path))
 
 def product(
     template: str,
@@ -654,6 +696,8 @@ def product(
         generate.category: Generate from multiple product templates.
         list_product_templates: List available templates.
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import ProductGenerator
 
     # Build wavelength kwargs
@@ -740,6 +784,8 @@ def category(
     See Also:
         generate.product: Generate from a single product template.
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import CategoryGenerator
 
     # Build wavelength kwargs
@@ -824,6 +870,8 @@ def from_template(
         ...     wavelengths=wavelengths
         ... )
     """
+    generate_preflight().require()
+
     from nirs4all.synthesis import RealDataFitter, SyntheticDatasetBuilder
 
     builder = SyntheticDatasetBuilder(
@@ -911,6 +959,8 @@ class _GenerateNamespace:
         # Make the main generate function available as __call__
         __call__ = staticmethod(generate)
 
+    preflight = staticmethod(generate_preflight)
+
     # Convenience functions as class attributes
     regression = staticmethod(regression)
     classification = staticmethod(classification)
@@ -940,6 +990,7 @@ class _GenerateNamespace:
             "  generate.to_folder(...) - Generate and export to folder\n"
             "  generate.to_csv(...) - Generate and export to CSV file\n"
             "  generate.from_template(...) - Generate mimicking real data"
+            "\n  generate.preflight(...) - Inspect native/plugin/legacy availability"
         )
 
 # Create the singleton namespace instance
@@ -949,6 +1000,7 @@ generate_namespace = _GenerateNamespace()
 # For direct function access
 __all__ = [
     "generate",
+    "generate_preflight",
     "regression",
     "classification",
     "builder",

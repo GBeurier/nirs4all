@@ -104,7 +104,7 @@ def test_round_trip_bundle_export_load_predict(case: PipelineCase, tmp_path) -> 
 
 @pytest.mark.parametrize("case", _case_params(by_tag("explain")))
 def test_explain_path(case: PipelineCase, tmp_path) -> None:
-    """Cases tagged `explain` must complete `nirs4all.explain()` on the trained bundle."""
+    """Explain-tagged cases exercise the explicit Python SHAP rollback lane."""
     # nirs4all.explain() builds a ShapAnalyzer, which raises if SHAP is absent.
     pytest.importorskip("shap")
 
@@ -117,7 +117,7 @@ def test_explain_path(case: PipelineCase, tmp_path) -> None:
     bundle_path = tmp_path / f"{case.name}.n4a"
     _export_bundle_for_smoke(result, bundle_path)
 
-    explanation = nirs4all.explain(str(bundle_path), dataset)
+    explanation = nirs4all.explain(str(bundle_path), dataset, engine="legacy")
     assert explanation is not None
 
 

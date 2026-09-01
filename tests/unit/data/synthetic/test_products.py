@@ -534,6 +534,10 @@ class TestConvenienceFunctions:
 class TestGenerateAPIIntegration:
     """Tests for integration with nirs4all.generate API."""
 
+    @pytest.fixture(autouse=True)
+    def _explicit_legacy_generate(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("N4A_ENGINE", "legacy")
+
     def test_generate_product(self):
         """Test nirs4all.generate.product() function."""
         import nirs4all

@@ -24,6 +24,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 
+from .advanced_capabilities import AdvancedApiCapabilityDecision, preflight_advanced_api
 from .result import ExplainResult
 from .session import Session
 
@@ -42,6 +43,21 @@ DataSpec: TypeAlias = (
     | SpectroDataset               # Direct SpectroDataset instance
     | DatasetConfigs                # Backward compat
 )
+
+
+def explain_preflight(
+    *,
+    engine: str | None = None,
+    plugin: str | None = None,
+    allow_fallback: bool = False,
+) -> AdvancedApiCapabilityDecision:
+    """Return the side-effect-free API-005 decision for ``explain``."""
+    return preflight_advanced_api(
+        "explain",
+        engine=engine,
+        plugin=plugin,
+        allow_fallback=allow_fallback,
+    )
 
 def explain(
     model: ModelSpec,
@@ -97,7 +113,11 @@ def explain(
             - "linear": LinearExplainer (for linear models)
             Default: "auto"
 
-        **shap_params: Additional SHAP configuration parameters.
+        **shap_params: Additional SHAP configuration parameters.  The stable
+            catch-all also accepts the API-005 control keys ``engine``,
+            ``plugin``, and ``allow_fallback`` without changing this frozen
+            signature.  Python SHAP execution requires
+            ``engine="legacy"`` explicitly during the V1 rollback window.
             Common options:
             - feature_names: List of feature names
             - background_samples: Number of background samples
@@ -162,8 +182,18 @@ def explain(
         - :func:`nirs4all.predict`: Make predictions
         - :class:`nirs4all.api.result.ExplainResult`: Result class
     """
-    # Build SHAP params dict
     full_shap_params = dict(shap_params)
+    requested_engine = full_shap_params.pop("engine", None)
+    requested_plugin = full_shap_params.pop("plugin", None)
+    allow_fallback = full_shap_params.pop("allow_fallback", False)
+    explain_preflight(
+        engine=requested_engine,
+        plugin=requested_plugin,
+        allow_fallback=allow_fallback,
+    ).require()
+
+    # The legacy lane is explicitly selected and accepted before any model or
+    # dataset path is normalized and before PipelineRunner is constructed.
     if n_samples is not None:
         full_shap_params["n_samples"] = n_samples
     if explainer_type != "auto":
@@ -229,3 +259,8 @@ def explain(
         feature_lineage=shap_results.get("feature_lineage") or {},
         lineage_warning=shap_results.get("lineage_warning"),
     )
+
+
+# Additive discovery surface; assigning an attribute does not change the
+# frozen call signature validated by ``test_public_api_contract.py``.
+explain.preflight = explain_preflight  # type: ignore[attr-defined]
