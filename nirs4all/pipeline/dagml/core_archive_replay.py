@@ -23,6 +23,7 @@ import numpy as np
 from .identity import validate_data_id
 
 _MAX_MANIFEST_BYTES = 1_048_576
+_MAX_PACKAGE_BYTES = 8_388_608
 _FINGERPRINT_PREFIX = b"n4a-matrix-f64-le.v1\0"
 _CORE_PROFILES = {
     2: "nirs4all.archive_workspace.v2",
@@ -32,6 +33,15 @@ _CORE_PROFILES = {
 
 class CoreArchiveReplayError(RuntimeError):
     """A recognized Core archive cannot be replayed safely."""
+
+
+class CoreArchiveDependencyError(CoreArchiveReplayError):
+    """A required native Archive V2 component is absent or incompatible."""
+
+    def __init__(self, dependency: str, message: str, *, mitigation: str) -> None:
+        self.dependency = dependency
+        self.mitigation = mitigation
+        super().__init__(message)
 
 
 def detect_core_archive_version(path: str | Path) -> int | None:
@@ -97,6 +107,7 @@ def predict_core_methods_archive_v2(
     *,
     methods_library_path: str | Path | None,
     validated_archive: tuple[Path, Any, dict[str, Any]] | None = None,
+    expected_archive_fingerprint: str | None = None,
     outcome_id: str = "outcome:nirs4all.core_archive_predict",
     run_id: str = "run:nirs4all.core_archive_predict",
 ) -> tuple[np.ndarray, dict[str, Any]]:
@@ -105,11 +116,20 @@ def predict_core_methods_archive_v2(
     ``validated_archive`` is the immutable package-contract cache owned by a
     loaded :class:`Session`. Core still reopens and validates the archive for
     every replay, and the Methods runtime keeps all native handles scoped to
-    that call.
+    that call. When ``expected_archive_fingerprint`` is supplied, the adapter
+    performs one bounded-memory full-file hash before reading ``data``; this
+    binds the single Session cache entry to its source and is not a general
+    replay-result cache.
     """
 
-    X, sample_ids, groups, metadata_rows = _normalize_dataset(data)
     candidate = Path(archive_path)
+    if (
+        expected_archive_fingerprint is not None
+        and _archive_fingerprint(candidate) != expected_archive_fingerprint
+    ):
+        raise CoreArchiveReplayError(
+            "Core Archive V2 changed after Session validation; load a new session"
+        )
     if validated_archive is None:
         core, package = validate_core_methods_archive_v2(candidate)
     else:
@@ -118,10 +138,13 @@ def predict_core_methods_archive_v2(
             raise CoreArchiveReplayError(
                 "Core Archive V2 validation cache does not match the replay path"
             )
+    X, sample_ids, groups, metadata_rows = _normalize_dataset(data)
     replay = getattr(core, "replay_methods_archive_v2", None)
     if not callable(replay):
-        raise CoreArchiveReplayError(
-            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay"
+        raise CoreArchiveDependencyError(
+            "nirs4all-core",
+            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay",
+            mitigation="install the nirs4all-core version pinned by the release lock",
         )
     request, envelopes, methods_inputs = _build_replay_contracts(
         package,
@@ -167,8 +190,10 @@ def validate_core_methods_archive_v2(
     read_package = getattr(core, "read_portable_predictor_package_v2", None)
     replay = getattr(core, "replay_methods_archive_v2", None)
     if not callable(read_package) or not callable(replay):
-        raise CoreArchiveReplayError(
-            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay"
+        raise CoreArchiveDependencyError(
+            "nirs4all-core",
+            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay",
+            mitigation="install the nirs4all-core version pinned by the release lock",
         )
     try:
         package_bytes = read_package(str(Path(archive_path)))
@@ -182,14 +207,20 @@ def _load_core_bridge() -> Any:
     try:
         return importlib.import_module("nirs4all_core")
     except ImportError as error:
-        raise CoreArchiveReplayError(
-            "Core Archive V2 replay requires a matching nirs4all-core native wheel"
+        raise CoreArchiveDependencyError(
+            "nirs4all-core",
+            "Core Archive V2 replay requires a matching nirs4all-core native wheel",
+            mitigation="install the nirs4all-core native wheel pinned by the release lock",
         ) from error
 
 
 def _decode_package(payload: Any) -> dict[str, Any]:
     if not isinstance(payload, bytes):
         raise CoreArchiveReplayError("Core Archive V2 reader returned non-byte package data")
+    if len(payload) > _MAX_PACKAGE_BYTES:
+        raise CoreArchiveReplayError(
+            "Core Archive V2 Package V2 exceeds the 8 MiB Session cache budget"
+        )
     try:
         document = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
@@ -197,6 +228,21 @@ def _decode_package(payload: Any) -> dict[str, Any]:
     if not isinstance(document, dict) or document.get("schema_version") != 2:
         raise CoreArchiveReplayError("Core Archive V2 does not contain a Package V2 object")
     return document
+
+
+def _archive_fingerprint(path: Path) -> str:
+    """Hash an archive in bounded-memory chunks for Session cache binding."""
+
+    digest = hashlib.sha256()
+    try:
+        with path.open("rb") as archive:
+            for chunk in iter(lambda: archive.read(1_048_576), b""):
+                digest.update(chunk)
+    except OSError as error:
+        raise CoreArchiveReplayError(
+            "Core Archive V2 source cannot be fingerprinted"
+        ) from error
+    return digest.hexdigest()
 
 
 def _normalize_dataset(
@@ -296,8 +342,10 @@ def _build_replay_contracts(
     fingerprint_fn = getattr(dag_ml, "sample_relation_set_fingerprint_json", None)
     signer = getattr(dag_ml, "sign_training_replay_request", None)
     if not callable(fingerprint_fn) or not callable(signer):
-        raise CoreArchiveReplayError(
-            "installed dag-ml is too old to fingerprint and sign Archive V2 replay contracts"
+        raise CoreArchiveDependencyError(
+            "dag-ml",
+            "installed dag-ml is too old to fingerprint and sign Archive V2 replay contracts",
+            mitigation="install the dag-ml facade version pinned by the release lock",
         )
     relation_fingerprint = fingerprint_fn(_canonical_json(relations))
     if not isinstance(relation_fingerprint, str) or len(relation_fingerprint) != 64:
@@ -349,8 +397,10 @@ def _load_dag_ml() -> Any:
     try:
         return importlib.import_module("dag_ml")
     except ImportError as error:
-        raise CoreArchiveReplayError(
-            "Core Archive V2 replay requires a matching DAG-ML Python facade"
+        raise CoreArchiveDependencyError(
+            "dag-ml",
+            "Core Archive V2 replay requires a matching DAG-ML Python facade",
+            mitigation="install the dag-ml facade version pinned by the release lock",
         ) from error
 
 
@@ -412,15 +462,25 @@ def _resolve_methods_library_path(path: str | Path | None) -> str:
     try:
         n4m = importlib.import_module("n4m")
     except ImportError as error:
-        raise CoreArchiveReplayError(
-            "Core Archive V2 replay requires nirs4all-methods or an explicit methods_library_path"
+        raise CoreArchiveDependencyError(
+            "nirs4all-methods",
+            "Core Archive V2 replay requires nirs4all-methods or an explicit methods_library_path",
+            mitigation="install the nirs4all-methods wheel pinned by the release lock or pass methods_library_path",
         ) from error
     resolver = getattr(n4m, "library_path", None)
     if not callable(resolver):
-        raise CoreArchiveReplayError("installed nirs4all-methods does not expose library_path()")
+        raise CoreArchiveDependencyError(
+            "nirs4all-methods",
+            "installed nirs4all-methods does not expose library_path()",
+            mitigation="install the nirs4all-methods wheel pinned by the release lock",
+        )
     value = resolver()
     if not isinstance(value, (str, Path)):
-        raise CoreArchiveReplayError("nirs4all-methods returned an invalid library path")
+        raise CoreArchiveDependencyError(
+            "nirs4all-methods",
+            "nirs4all-methods returned an invalid library path",
+            mitigation="install the nirs4all-methods wheel pinned by the release lock",
+        )
     return str(value)
 
 
@@ -456,6 +516,7 @@ def _canonical_json(value: Any) -> str:
 
 
 __all__ = [
+    "CoreArchiveDependencyError",
     "CoreArchiveReplayError",
     "detect_core_archive_version",
     "predict_core_methods_archive_v2",

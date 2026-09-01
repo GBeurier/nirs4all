@@ -29,6 +29,11 @@ if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult, RunResult
     from nirs4all.pipeline import PipelineRunner
 
+
+class SessionClosedError(RuntimeError):
+    """An operation was attempted on a terminally closed Session."""
+
+
 class Session:
     """Execution session for resource reuse and stateful pipeline management.
 
@@ -41,9 +46,10 @@ class Session:
        Manage a single pipeline's lifecycle: train, predict, save, load.
 
     A Core Archive V2 loaded with :func:`load_session` is a native prediction
-    session.  It caches only Core-validated immutable replay contracts; native
-    Methods handles remain invocation-scoped inside Core and do not survive a
-    prediction call.
+    session.  It keeps one size-bounded Core-validated replay contract bound
+    to the source archive fingerprint; native Methods handles remain
+    invocation-scoped inside Core and do not survive a prediction call. This
+    is a per-Session cache, not a process-wide prediction cache.
 
     Attributes:
         name: Session/pipeline name for identification.
@@ -92,6 +98,7 @@ class Session:
         self._bundle_path: Path | None = None  # Set when loading from bundle
         self._core_archive_path: Path | None = None
         self._core_archive_validation: tuple[Path, Any, dict[str, Any]] | None = None
+        self._core_archive_fingerprint: str | None = None
         self._closed = False
 
     @property
@@ -158,7 +165,7 @@ class Session:
 
     def _ensure_open(self) -> None:
         if self._closed:
-            raise RuntimeError("Session is closed; load or create a new session")
+            raise SessionClosedError("Session is closed; load or create a new session")
 
     def run(
         self,
@@ -184,6 +191,16 @@ class Session:
             ValueError: If no pipeline was provided to the session.
         """
         self._ensure_open()
+        if self._core_archive_path is not None:
+            from nirs4all.pipeline.dagml.rt import RtError
+
+            raise RtError(
+                "run",
+                "unsupported_capability",
+                "Core Archive V2 Session is prediction-only and cannot train",
+                mitigation="start a new training run; load Archive V2 only for predict",
+                unsupported_capability="core_archive_v2_prediction_only",
+            )
         if self._pipeline is None:
             raise ValueError(
                 "No pipeline defined for this session. "
@@ -293,6 +310,7 @@ class Session:
                 dataset,
                 methods_library_path=methods_library_path,
                 validated_archive=self._core_archive_validation,
+                expected_archive_fingerprint=self._core_archive_fingerprint,
             )
             return PredictResult(
                 y_pred=values,
@@ -364,6 +382,16 @@ class Session:
             ValueError: If session has not been trained.
         """
         self._ensure_open()
+        if self._core_archive_path is not None:
+            from nirs4all.pipeline.dagml.rt import RtError
+
+            raise RtError(
+                "run",
+                "unsupported_capability",
+                "Core Archive V2 Session is prediction-only and cannot retrain",
+                mitigation="use the separately qualified Archive V3 retrain contract when exposed",
+                unsupported_capability="core_archive_v2_prediction_only",
+            )
 
         # Decide the ADR-24 lane before inspecting source state, materializing
         # data, or constructing the historical PipelineRunner.  A stateful
@@ -460,6 +488,7 @@ class Session:
                 self._runner.close()
         self._runner = None
         self._core_archive_validation = None
+        self._core_archive_fingerprint = None
         self._closed = True
         self._status = "closed"
 
@@ -491,6 +520,12 @@ def load_session(path: str | Path) -> Session:
     Returns:
         Session ready for prediction.
 
+    Notes:
+        Core Archive V2 is hashed immediately before and after native
+        validation, so loading performs two bounded-memory full-file reads.
+        Prediction hashes the source once more before it inspects input data,
+        binding the cached contract to the exact archive bytes.
+
     Example:
         >>> session = nirs4all.load_session("exports/model.n4a")
         >>> predictions = session.predict(new_data)
@@ -500,6 +535,8 @@ def load_session(path: str | Path) -> Session:
         raise FileNotFoundError(f"Bundle not found: {path}")
 
     from nirs4all.pipeline.dagml.core_archive_replay import (
+        CoreArchiveReplayError,
+        _archive_fingerprint,
         detect_core_archive_version,
         validate_core_methods_archive_v2,
     )
@@ -511,11 +548,17 @@ def load_session(path: str | Path) -> Session:
             "not a serialized-model prediction session"
         )
     if core_archive_version == 2:
+        source_fingerprint = _archive_fingerprint(path)
         validation = validate_core_methods_archive_v2(path)
+        if _archive_fingerprint(path) != source_fingerprint:
+            raise CoreArchiveReplayError(
+                "Core Archive V2 changed while the Session cache was created"
+            )
         loaded = Session(name=path.stem)
         loaded._status = "trained"
         loaded._core_archive_path = path
         loaded._core_archive_validation = (path, *validation)
+        loaded._core_archive_fingerprint = source_fingerprint
         return loaded
 
     from nirs4all.pipeline.bundle import BundleLoader
