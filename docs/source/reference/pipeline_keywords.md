@@ -153,7 +153,7 @@ closed.
 
 The same token has two independent scopes:
 
-- `run(engine="legacy" | "dag-ml")` selects the **pipeline execution backend**;
+- `run(engine="legacy" | "dag-ml" | "dual")` selects the **pipeline execution backend**;
 - `finetune_params["engine"]` selects the **model-local HPO/generation
   driver**:
   - `"optuna"` or `"n4m"` request adaptive optimization;
@@ -165,9 +165,11 @@ used as an alias for `run.engine`. Likewise, `finetune_params["engine"] =
 "dag-ml"` does not switch the whole run to DAG-ML; it only declares that the
 model-local search space is deterministic and can be represented as native
 DAG-ML generators when the execution backend is already DAG-ML. The accepted
-value `run(engine="dual")` is a reserved side-by-side comparison mode and
-currently raises `NotImplementedError`; the registry therefore marks that
-backend as planned.
+value `run(engine="dual")` selects only the bounded native-first parity oracle:
+exact floating NumPy `(X, y)` regression, `KFold(shuffle=False)`, and one
+`PLSRegression` model. It validates capability and native OOF evidence before
+starting the temporary explicit legacy oracle, never falls back, and is marked
+partial because every broader shape remains fail-closed.
 
 (canonical-aliases)=
 ### Canonical aliases

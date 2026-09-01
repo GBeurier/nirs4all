@@ -206,13 +206,18 @@ if (run.status !== 0) process.exit(run.status);
 | `None` | Use the package default resolved by `resolve_engine(...)`. |
 | `"legacy"` | Use the in-process Python orchestrator. |
 | `"dag-ml"` | Request the dag-ml backend for covered shapes. Unsupported or unavailable native execution fails closed by default. |
-| `"dual"` | Reserved; not implemented as a public side-by-side mode. |
+| `"dual"` | Run the bounded native-first parity oracle for exact array/KFold/PLS regression; unsupported shapes fail before execution and the temporary legacy workspace is removed. |
 
 The pipeline language is broader than current dag-ml native coverage. Requesting
 `engine="dag-ml"` is fail-closed by default: unsupported shapes and unavailable
 native dependencies raise structured errors. Callers may opt into the explicit
 compatibility path with `allow_fallback=True`; genuine native runtime or operator
 failures always propagate.
+
+The explicit dual oracle returns the native `RunResult` after comparing its
+winner, OOF identities/predictions, validation scores, and split evidence with
+a temporary `engine="legacy"` oracle under the packaged compatibility ledger.
+It never enables `allow_fallback` and does not expose the legacy workspace.
 
 ```python
 result = nirs4all.run(

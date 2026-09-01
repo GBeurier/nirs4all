@@ -64,7 +64,7 @@ _VALID_INVALIDATIONS = {
     "not_applicable",
 }
 _VALID_ENGINE_SUPPORT = {"supported", "partial", "planned", "unsupported", "legacy_fallback", "not_applicable"}
-EXPECTED_PUBLISHED_REGISTRY_SHA256 = "38997cf10c2629259b64d7f3fcbeff589680e6585ccbbfdfbe711a3fde5eaf12"
+EXPECTED_PUBLISHED_REGISTRY_SHA256 = "2f801d06288f065ea3eca835ae0ff0b984f8541405e32c83ccf2ab04b56a14c6"
 
 
 def _entries_by_id() -> dict[str, KeywordEntry]:
@@ -191,7 +191,8 @@ def test_execution_engine_and_optimizer_engines_are_distinct() -> None:
     assert local_driver["canonical_term"] == "hpo_or_generation_driver"
     assert dag_optimizer["canonical_term"] == "optimizer_engine"
     assert execution_engine["value_schema"]["enum"] == [None, "legacy", "dag-ml", "dual"]
-    assert execution_engine["engine_support"]["dual"] == "planned"
+    assert execution_engine["engine_support"]["dual"] == "partial"
+    assert "bounded native-first, no-fallback oracle" in execution_engine["summary"]
     assert local_driver["value_schema"]["enum"] == ["optuna", "n4m", "dag-ml", "grid"]
     assert local_driver["status"] == "partial"
     assert local_driver["engine_support"]["n4m"] == "partial"
