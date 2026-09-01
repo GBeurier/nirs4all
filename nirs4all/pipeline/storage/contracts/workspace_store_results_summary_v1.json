@@ -20,7 +20,7 @@
   "source_projection": {
     "source_tables": ["chains", "pipelines", "predictions"],
     "eligibility": "at_least_one_prediction_for_chain",
-    "page_query": "SELECT c.chain_id, c.pipeline_id, p.run_id, p.name AS pipeline_name, p.expanded_config, c.model_step_idx, c.dataset_name, c.metric, c.task_type, c.model_name, c.model_class, c.preprocessings, c.cv_val_score, c.cv_test_score, c.cv_train_score, c.cv_fold_count, c.cv_scores, c.final_test_score, c.final_train_score, c.final_scores, c.final_agg_test_score, c.final_agg_train_score, c.final_agg_scores, c.best_params FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE EXISTS (SELECT 1 FROM predictions AS pr WHERE pr.chain_id = c.chain_id) ORDER BY c.rowid ASC LIMIT ? OFFSET ?",
+    "page_query": "SELECT c.chain_id, c.pipeline_id, p.run_id, p.name AS pipeline_name, p.expanded_config, c.model_step_idx, c.dataset_name, c.metric, c.task_type, c.model_name, c.model_class, c.preprocessings, c.cv_val_score, c.cv_test_score, c.cv_train_score, c.cv_fold_count, c.cv_scores, c.final_test_score, c.final_train_score, c.final_scores, c.final_agg_test_score, c.final_agg_train_score, c.final_agg_scores, c.best_params FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE EXISTS (SELECT 1 FROM predictions AS pr WHERE pr.chain_id = c.chain_id) ORDER BY c.chain_id ASC LIMIT ? OFFSET ?",
     "count_query": "SELECT COUNT(*) FROM chains AS c JOIN pipelines AS p ON p.pipeline_id = c.pipeline_id WHERE EXISTS (SELECT 1 FROM predictions AS pr WHERE pr.chain_id = c.chain_id)",
     "parameters": [
       {"name": "limit", "type": "integer", "minimum": 1, "maximum": 500, "default": 500},
@@ -64,6 +64,7 @@
   },
   "normalization": {
     "dataset_grouping": "ignore_empty_dataset_name_then_group_exact_string_and_emit_groups_in_lexicographic_order",
+    "source_order": "chain_id_ascending",
     "metric": "first_truthy_metric_in_source_order_or_r2",
     "task_type": "first_truthy_task_type_in_source_order_or_null",
     "finite_score": "finite_number_or_null",
