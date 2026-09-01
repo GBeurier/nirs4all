@@ -204,11 +204,39 @@ def test_ambient_persistence_and_external_runtime_overrides_are_refused(monkeypa
     _assert_code(_request(), "external_runtime_forbidden")
 
 
+@pytest.mark.parametrize(
+    "variable",
+    [
+        "N4A_DAGML_DATASET_PATH",
+        "N4A_DAGML_DATASET_PICKLE",
+        "N4A_DAGML_GRAPH_PATH",
+        "N4A_DAGML_METHODS_SNV",
+        "N4A_DAGML_RESULT_CAPTURE",
+        "N4A_DAGML_SAMPLE_META_PATH",
+        "N4A_RANDOM_STATE",
+    ],
+)
+def test_ambient_dagml_side_channels_are_refused(monkeypatch: pytest.MonkeyPatch, variable: str) -> None:
+    monkeypatch.setenv(variable, "/caller/owned/value")
+    _assert_code(_request(), "ambient_runtime_forbidden")
+
+
 def test_runtime_outside_active_prefix_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
     monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
     monkeypatch.delenv("N4A_DAGML_CLI", raising=False)
     monkeypatch.delenv("N4A_DAGML_INPROCESS", raising=False)
+    isolated_prefix = tmp_path / "isolated-prefix"
+    monkeypatch.setattr(host.sys, "prefix", str(isolated_prefix))
+    monkeypatch.setattr(host, "__file__", str(isolated_prefix / "lib" / "python" / "site-packages" / "nirs4all" / "api" / "studio_scientific.py"))
+    _assert_code(_request(), "sibling_runtime_forbidden")
+
+
+def test_source_injected_callable_outside_active_prefix_is_refused(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
+    monkeypatch.delenv("N4A_DAGML_CLI", raising=False)
+    monkeypatch.delenv("N4A_DAGML_INPROCESS", raising=False)
     monkeypatch.setattr(host.sys, "prefix", str(tmp_path / "isolated-prefix"))
+    monkeypatch.setattr(host, "__file__", str(tmp_path / "sibling-source" / "studio_scientific.py"))
     _assert_code(_request(), "sibling_runtime_forbidden")
 
 
