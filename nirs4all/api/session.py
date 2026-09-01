@@ -23,7 +23,7 @@ Two usage patterns:
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult, RunResult
@@ -84,6 +84,7 @@ class Session:
         self._last_result: RunResult | None = None
         self._run_history: list[dict[str, Any]] = []
         self._bundle_path: Path | None = None  # Set when loading from bundle
+        self._core_archive_path: Path | None = None
 
     @property
     def name(self) -> str:
@@ -110,7 +111,11 @@ class Session:
         if self._status != "trained":
             return False
         # Trained if we have a result from training or a loaded bundle
-        return self._last_result is not None or self._bundle_path is not None
+        return (
+            self._last_result is not None
+            or self._bundle_path is not None
+            or self._core_archive_path is not None
+        )
 
     @property
     def runner(self) -> "PipelineRunner":
@@ -251,6 +256,35 @@ class Session:
                 "Call session.run(dataset) first."
             )
 
+        if self._core_archive_path is not None:
+            from nirs4all.api.result import PredictResult
+            from nirs4all.pipeline.dagml.core_archive_replay import (
+                CoreArchiveReplayError,
+                predict_core_methods_archive_v2,
+            )
+
+            methods_library_path = kwargs.pop("methods_library_path", None)
+            engine = kwargs.pop("engine", None)
+            if engine not in (None, "native", "dag-ml"):
+                raise CoreArchiveReplayError(
+                    "Core Archive V2 sessions cannot use the legacy engine"
+                )
+            if kwargs:
+                raise TypeError(
+                    f"Core Archive V2 session prediction does not accept options: {sorted(kwargs)}"
+                )
+            values, metadata = predict_core_methods_archive_v2(
+                self._core_archive_path,
+                dataset,
+                methods_library_path=methods_library_path,
+            )
+            return PredictResult(
+                y_pred=values,
+                metadata=metadata,
+                model_name="MethodsN4MM",
+                preprocessing_steps=[],
+            )
+
         import numpy as np
 
         from nirs4all.api.result import PredictResult
@@ -318,6 +352,11 @@ class Session:
                 "Session must be trained before retraining. "
                 "Call session.run(dataset) first."
             )
+        if self._core_archive_path is not None:
+            raise NotImplementedError(
+                "Core Archive V2 is a prediction package; Archive V3 is the distinct "
+                "target-bound full-refit/retrain contract and is not exposed by this prediction session"
+            )
 
         from nirs4all.api.result import RunResult
         from nirs4all.data import DatasetConfigs
@@ -380,7 +419,7 @@ class Session:
                 "Call session.run(dataset) first."
             )
 
-        return self._last_result.export(path)
+        return cast(Path, self._last_result.export(path))
 
     def close(self) -> None:
         """Clean up session resources.
@@ -418,7 +457,7 @@ def load_session(path: str | Path) -> Session:
     """Load a session from a saved bundle file.
 
     Args:
-        path: Path to .n4a bundle file.
+        path: Path to a legacy .n4a bundle or Core Archive V2.
 
     Returns:
         Session ready for prediction.
@@ -427,12 +466,29 @@ def load_session(path: str | Path) -> Session:
         >>> session = nirs4all.load_session("exports/model.n4a")
         >>> predictions = session.predict(new_data)
     """
-    from nirs4all.api.result import RunResult
-    from nirs4all.pipeline.bundle import BundleLoader
-
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Bundle not found: {path}")
+
+    from nirs4all.pipeline.dagml.core_archive_replay import (
+        detect_core_archive_version,
+        validate_core_methods_archive_v2,
+    )
+
+    core_archive_version = detect_core_archive_version(path)
+    if core_archive_version == 3:
+        raise NotImplementedError(
+            "Core Archive V3 is a target-bound full-refit/retrain package, "
+            "not a serialized-model prediction session"
+        )
+    if core_archive_version == 2:
+        validate_core_methods_archive_v2(path)
+        loaded = Session(name=path.stem)
+        loaded._status = "trained"
+        loaded._core_archive_path = path
+        return loaded
+
+    from nirs4all.pipeline.bundle import BundleLoader
 
     # Load the bundle to get pipeline info
     loader = BundleLoader(path)
