@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
@@ -404,10 +406,45 @@ def test_run_detail_http_contract_assigns_every_composition_owner_and_forbids_cu
         "path_suffix": "/runs/{run_id}",
         "query_string": "absent",
     }
+    assert contract["owner_oracle"] == {
+        "callable": "nirs4all.pipeline.storage.studio_run_detail_http_inputs_v1",
+        "signature": "(workspace_path: str | Path, run_id: str) -> dict[str, Any] | None",
+        "inputs": ["workspace_path", "run_id"],
+        "native_abi": "none_python_callable_only",
+        "bounded_cpython_subprocess": "supported",
+        "framework_requirements": {
+            "fastapi": "none",
+            "pipeline_runner_construction": "forbidden",
+        },
+        "scope": "store_v5_owner_inputs_only",
+        "open_mode": "composed_immutable_reads_guarded_by_before_after_database_stamp",
+        "writes_or_cache": "forbidden",
+        "not_found": "null",
+    }
     assert contract["dependencies"]["workspace_store_read"] == {
         "schema_id": "nirs4all.workspace-store-read.v1",
         "schema_version": 1,
         "projection": "studio_run_detail_v1",
+    }
+    assert contract["dependencies"]["splitter_config"] == {
+        "callable": "nirs4all.pipeline.analysis.splitter_config.extract_splitter_config",
+        "input": "pipeline.expanded_config",
+        "write_boundary": "WorkspaceStore.begin_pipeline",
+        "persisted_source": "pipelines.expanded_config",
+        "store_v5_splitter_column": "absent_by_design",
+        "historical_compatibility": "derive_or_null_from_existing_expanded_config",
+        "schema_migration": "none_required_for_owner_projection",
+        "consumer_expanded_config_access": "forbidden",
+        "selection": "first_recognized_splitter_step",
+        "output_fields": [
+            "splitter_class",
+            "reference",
+            "n_splits",
+            "shuffle",
+            "random_state",
+            "test_size",
+            "group_by",
+        ],
     }
     assert contract["dependencies"]["pipeline_runtime"] == {
         "owner_method": "WorkspaceStore.get_studio_run_detail_runtime_v1",
@@ -434,7 +471,15 @@ def test_run_detail_http_contract_assigns_every_composition_owner_and_forbids_cu
         "non_finite_numbers": "replace_with_null_recursively",
         "ordering": "pipeline_created_at_desc_then_pipeline_id_asc",
     }
-    assert contract["owner_output"]["pipeline_splitters"]["consumer_reimplementation"] == "forbidden"
+    assert contract["owner_output"]["pipeline_splitters"] == {
+        "ordering": "run_detail.pipelines_order",
+        "entry_fields": ["pipeline_id", "splitter"],
+        "splitter": "splitter_config_output_or_null",
+        "materialization": "derived_by_owner_oracle_before_consumer_boundary",
+        "materialization_time": "immutable_owner_read",
+        "consumer_reimplementation": "forbidden",
+        "consumer_expanded_config_access": "forbidden",
+    }
     assert contract["owner_output"]["pipeline_runtime"]["source"] == "pipeline_runtime_dependency"
     assert contract["owner_output"]["results"]["mapping"] == {
         "id": "pipeline.pipeline_id",
@@ -545,6 +590,106 @@ def test_run_detail_http_owner_inputs_match_golden_without_mutating_store(tmp_pa
     )
     assert {path.name for path in workspace.iterdir()} == before_files
     assert database.read_bytes() == before_database
+    assert not any((workspace / f"store.sqlite{suffix}").exists() for suffix in ("-wal", "-shm", "-journal"))
+
+
+def test_run_detail_http_owner_boundary_runs_in_fresh_cpython_without_studio_runtime(tmp_path: Path) -> None:
+    """The sidecar-callable owner boundary needs no FastAPI or runner instance."""
+    workspace = tmp_path / "fresh-owner-boundary"
+    expanded_config = [
+        {
+            "class": "sklearn.model_selection.KFold",
+            "params": {"n_splits": 4, "shuffle": True, "random_state": 23},
+        },
+        {"model": {"class": "PLSRegression"}},
+    ]
+    with WorkspaceStore(workspace) as store:
+        run_id = store.begin_run("fresh owner", {"metric": "rmsecv"}, [{"name": "corn"}])
+        pipeline_id = store.begin_pipeline(
+            run_id,
+            "0001_pls",
+            expanded_config,
+            [],
+            "corn",
+            "sha256:corn",
+        )
+        store.complete_pipeline(pipeline_id, 0.12, 0.15, "rmsecv", 123)
+        store.complete_run(run_id, {"total_results": 1})
+
+    database = workspace / "store.sqlite"
+    before_database = database.read_bytes()
+    package_root = Path(__file__).parents[2]
+    script = """
+import json
+import sys
+from pathlib import Path
+
+sys.path.insert(0, sys.argv[1])
+from nirs4all.pipeline.storage import studio_run_detail_http_inputs_v1
+from nirs4all.pipeline.runner import PipelineRunner
+
+runner_constructions = []
+def forbid_runner_construction(*args, **kwargs):
+    runner_constructions.append([args, kwargs])
+    raise AssertionError("owner boundary constructed PipelineRunner")
+
+PipelineRunner.__init__ = forbid_runner_construction
+
+payload = studio_run_detail_http_inputs_v1(Path(sys.argv[2]), sys.argv[3])
+fastapi_modules = sorted(
+    name for name in sys.modules
+    if name == "fastapi" or name.startswith("fastapi.")
+)
+print(json.dumps({
+    "payload": payload,
+    "fastapi_modules": fastapi_modules,
+    "runner_constructions": len(runner_constructions),
+}, allow_nan=False))
+"""
+    completed = subprocess.run(
+        [sys.executable, "-I", "-c", script, str(package_root), str(workspace), run_id],
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=30,
+    )
+    fresh = json.loads(completed.stdout)
+    payload = fresh["payload"]
+
+    assert fresh["fastapi_modules"] == []
+    assert fresh["runner_constructions"] == 0
+    assert list(payload) == [
+        "source_branch",
+        "run_detail",
+        "pipeline_splitters",
+        "pipeline_runtime",
+        "runtime_column_provenance",
+        "results",
+        "results_count",
+    ]
+    assert payload["source_branch"] == "store_v5"
+    assert payload["results_count"] == 1
+    assert payload["pipeline_splitters"] == [
+        {
+            "pipeline_id": pipeline_id,
+            "splitter": {
+                "splitter_class": "KFold",
+                "reference": "sklearn.model_selection.KFold",
+                "n_splits": 4,
+                "shuffle": True,
+                "random_state": 23,
+                "test_size": None,
+                "group_by": None,
+            },
+        }
+    ]
+    assert set(payload["runtime_column_provenance"].values()) == {"absent_in_store_v5"}
+    assert database.read_bytes() == before_database
+    with sqlite3.connect(f"{database.as_uri()}?mode=ro&immutable=1", uri=True) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(pipelines)")}
+    assert "splitter" not in columns
+    assert "splitter_config" not in columns
     assert not any((workspace / f"store.sqlite{suffix}").exists() for suffix in ("-wal", "-shm", "-journal"))
 
 

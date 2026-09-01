@@ -815,6 +815,8 @@ class TestMethodInventory:
         # Queries -- Runs
         "get_run",
         "list_runs",
+        "get_studio_run_detail_v1",
+        "get_studio_run_detail_runtime_v1",
         # Queries -- Pipelines
         "get_pipeline",
         "list_pipelines",
@@ -925,4 +927,4 @@ class TestMethodInventory:
 
     def test_total_method_count(self):
         """The expected method count matches the design doc."""
-        assert len(self.EXPECTED_METHODS) == 67
+        assert len(self.EXPECTED_METHODS) == 69
