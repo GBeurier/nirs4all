@@ -1,9 +1,10 @@
 """Published read-only projection contract for WorkspaceStore schema v5.
 
 The contract is a distribution resource so native consumers can use the same
-bounded SQL projection without importing ``WorkspaceStore`` or recreating its
-private schema knowledge. It is intentionally limited to run summaries; array,
-artifact, prediction and mutation surfaces need their own contracts.
+bounded SQL projections without importing ``WorkspaceStore`` or recreating its
+private schema knowledge. It is intentionally limited to run and pipeline
+summaries; chain ranking, arrays, artifacts, predictions and mutations need
+their own contracts.
 """
 
 from __future__ import annotations
@@ -32,9 +33,7 @@ def workspace_store_read_contract() -> dict[str, Any]:
     if contract.get("schema_version") != WORKSPACE_STORE_READ_CONTRACT_SCHEMA_VERSION:
         raise RuntimeError("workspace read contract has an unsupported schema version")
     if contract.get("workspace_store_schema_version") != SCHEMA_VERSION:
-        raise RuntimeError(
-            "workspace read contract does not match the installed WorkspaceStore schema version"
-        )
+        raise RuntimeError("workspace read contract does not match the installed WorkspaceStore schema version")
     return contract
 
 

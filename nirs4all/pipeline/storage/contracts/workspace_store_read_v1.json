@@ -47,6 +47,40 @@
         {"name": "summary", "column": "summary", "type": "json", "default": {}},
         {"name": "error", "column": "error", "type": "string", "nullable": true}
       ]
+    },
+    "studio_pipeline_summary": {
+      "source_table": "pipelines",
+      "query": "SELECT pipeline_id AS id, run_id, name AS pipeline_config, pipeline_id AS pipeline_config_id, dataset_name AS dataset, created_at, best_val AS best_score, best_test AS best_test_score, metric, status, duration_ms FROM pipelines ORDER BY CASE WHEN best_val IS NULL THEN 1 ELSE 0 END ASC, best_val DESC, created_at DESC, pipeline_id ASC LIMIT ? OFFSET ?",
+      "count_query": "SELECT COUNT(*) FROM pipelines",
+      "response_constants": {"format": "store"},
+      "parameters": [
+        {
+          "name": "limit",
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 500,
+          "default": 100
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        }
+      ],
+      "fields": [
+        {"name": "id", "column": "pipeline_id", "type": "string", "required": true},
+        {"name": "run_id", "column": "run_id", "type": "string", "required": true},
+        {"name": "pipeline_config", "column": "name", "type": "string", "required": true},
+        {"name": "pipeline_config_id", "column": "pipeline_id", "type": "string", "required": true},
+        {"name": "dataset", "column": "dataset_name", "type": "string", "required": true},
+        {"name": "created_at", "column": "created_at", "type": "timestamp", "serialization": "iso8601", "default": ""},
+        {"name": "best_score", "column": "best_val", "type": "number", "nullable": true},
+        {"name": "best_test_score", "column": "best_test", "type": "number", "nullable": true},
+        {"name": "metric", "column": "metric", "type": "string", "nullable": true},
+        {"name": "status", "column": "status", "type": "string", "nullable": true},
+        {"name": "duration_ms", "column": "duration_ms", "type": "integer", "nullable": true}
+      ]
     }
   },
   "excluded_surfaces": [
