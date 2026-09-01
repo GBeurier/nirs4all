@@ -296,6 +296,46 @@ def test_dual_tolerance_ledger_size_is_bounded_before_json_decode(monkeypatch: p
         run_module._resolve_dual_tolerances()
 
 
+@pytest.mark.parametrize("invalid_tolerance", [float("nan"), float("inf"), float("-inf")])
+def test_dual_tolerance_ledger_refuses_non_finite_values(
+    monkeypatch: pytest.MonkeyPatch,
+    invalid_tolerance: float,
+) -> None:
+    run_module = importlib.import_module("nirs4all.api.run")
+    ledger = {
+        "tolerance_bands": [
+            {
+                "band_id": "score",
+                "numeric_path": "cross_impl_pipeline",
+                "metric_class": "score",
+                "abs_tol": invalid_tolerance,
+                "rel_tol": 0.0,
+                "enforced_at": "fixture_DEFAULT_SCORE_TOL",
+            },
+            {
+                "band_id": "prediction",
+                "numeric_path": "cross_impl_pipeline",
+                "metric_class": "prediction",
+                "abs_tol": 0.001,
+                "rel_tol": 0.0,
+                "enforced_at": "fixture_DEFAULT_YPRED_TOL",
+            },
+        ]
+    }
+
+    class _LedgerResource:
+        def joinpath(self, _name: str) -> _LedgerResource:
+            return self
+
+        def read_bytes(self) -> bytes:
+            return json.dumps(ledger).encode("utf-8")
+
+    monkeypatch.setattr(run_module.importlib.resources, "files", lambda _package: _LedgerResource())
+
+    with pytest.raises(DualRunUnsupported, match="invalid cross_impl_pipeline/score tolerance"):
+        run_module._resolve_dual_tolerances()
+
+
 def test_packaged_dual_ledger_matches_the_documented_companion() -> None:
     documented = (Path(__file__).resolve().parents[3] / "docs" / "compatibility.json").read_text(encoding="utf-8")
     packaged = importlib.resources.files("nirs4all").joinpath("compatibility_ledger.json").read_text(encoding="utf-8")

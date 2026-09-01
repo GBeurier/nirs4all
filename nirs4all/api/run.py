@@ -133,7 +133,14 @@ def _resolve_dual_tolerances() -> dict[str, dict[str, Any]]:
             )
         absolute = cast(int | float, abs_tol)
         relative = cast(int | float, rel_tol)
-        if absolute < 0 or relative < 0:
+        try:
+            absolute_float = float(absolute)
+            relative_float = float(relative)
+        except (OverflowError, ValueError) as error:
+            raise DualRunUnsupported(
+                f"engine='dual' found an invalid cross_impl_pipeline/{metric_class} tolerance in the compatibility ledger"
+            ) from error
+        if not math.isfinite(absolute_float) or not math.isfinite(relative_float) or absolute_float < 0 or relative_float < 0:
             raise DualRunUnsupported(
                 f"engine='dual' found an invalid cross_impl_pipeline/{metric_class} tolerance in the compatibility ledger"
             )
@@ -141,8 +148,8 @@ def _resolve_dual_tolerances() -> dict[str, dict[str, Any]]:
             "band_id": band["band_id"],
             "numeric_path": band["numeric_path"],
             "metric_class": band["metric_class"],
-            "absolute": float(absolute),
-            "relative": float(relative),
+            "absolute": absolute_float,
+            "relative": relative_float,
         }
     return resolved
 
@@ -332,12 +339,17 @@ def _dual_comparison_report(
     prediction_tolerance = resolved_tolerances.get("prediction")
     if not isinstance(score_tolerance, Mapping) or not isinstance(prediction_tolerance, Mapping):
         raise DualRunUnsupported("engine='dual' has no resolved score and prediction tolerances")
-    if any(
-        type(tolerance.get(key)) not in (int, float)
+    tolerance_values = [
+        tolerance.get(key)
         for tolerance in (score_tolerance, prediction_tolerance)
         for key in ("absolute", "relative")
-    ):
-        raise DualRunUnsupported("engine='dual' has invalid resolved numeric tolerances")
+    ]
+    for value in tolerance_values:
+        if type(value) not in (int, float):
+            raise DualRunUnsupported("engine='dual' has invalid resolved numeric tolerances")
+        numeric_value = float(cast(int | float, value))
+        if not math.isfinite(numeric_value) or numeric_value < 0:
+            raise DualRunUnsupported("engine='dual' has invalid resolved numeric tolerances")
 
     legacy_observation = _dual_semantic_observation(
         legacy_result,
