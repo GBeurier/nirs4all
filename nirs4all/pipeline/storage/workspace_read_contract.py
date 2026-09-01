@@ -97,6 +97,22 @@ def studio_run_detail_http_contract() -> dict[str, Any]:
         raise RuntimeError("studio run-detail HTTP contract has an unsupported schema version")
     if contract.get("workspace_store_schema_version") != SCHEMA_VERSION:
         raise RuntimeError("studio run-detail HTTP contract does not match the installed WorkspaceStore schema version")
+    if contract.get("owner_oracle") != {
+        "callable": "nirs4all.pipeline.storage.studio_run_detail_http_inputs_v1",
+        "signature": "(workspace_path: str | Path, run_id: str) -> dict[str, Any] | None",
+        "inputs": ["workspace_path", "run_id"],
+        "native_abi": "none_python_callable_only",
+        "bounded_cpython_subprocess": "supported",
+        "framework_requirements": {
+            "fastapi": "none",
+            "pipeline_runner_construction": "forbidden",
+        },
+        "scope": "store_v5_owner_inputs_only",
+        "open_mode": "composed_immutable_reads_guarded_by_before_after_database_stamp",
+        "writes_or_cache": "forbidden",
+        "not_found": "null",
+    }:
+        raise RuntimeError("studio run-detail HTTP contract has an incompatible owner oracle")
 
     dependency = contract.get("dependencies", {}).get("workspace_store_read")
     read_contract = workspace_store_read_contract()
@@ -106,6 +122,28 @@ def studio_run_detail_http_contract() -> dict[str, Any]:
         "projection": "studio_run_detail_v1",
     }:
         raise RuntimeError("studio run-detail HTTP contract has an incompatible read-contract dependency")
+    splitter_dependency = contract.get("dependencies", {}).get("splitter_config")
+    if splitter_dependency != {
+        "callable": "nirs4all.pipeline.analysis.splitter_config.extract_splitter_config",
+        "input": "pipeline.expanded_config",
+        "write_boundary": "WorkspaceStore.begin_pipeline",
+        "persisted_source": "pipelines.expanded_config",
+        "store_v5_splitter_column": "absent_by_design",
+        "historical_compatibility": "derive_or_null_from_existing_expanded_config",
+        "schema_migration": "none_required_for_owner_projection",
+        "consumer_expanded_config_access": "forbidden",
+        "selection": "first_recognized_splitter_step",
+        "output_fields": [
+            "splitter_class",
+            "reference",
+            "n_splits",
+            "shuffle",
+            "random_state",
+            "test_size",
+            "group_by",
+        ],
+    }:
+        raise RuntimeError("studio run-detail HTTP contract has an incompatible splitter projection")
     runtime_dependency = contract.get("dependencies", {}).get("pipeline_runtime")
     if runtime_dependency != {
         "owner_method": "WorkspaceStore.get_studio_run_detail_runtime_v1",
@@ -133,8 +171,16 @@ def studio_run_detail_http_contract() -> dict[str, Any]:
         "ordering": "pipeline_created_at_desc_then_pipeline_id_asc",
     }:
         raise RuntimeError("studio run-detail HTTP contract has an incompatible runtime projection")
-    splitter_output = contract.get("owner_output", {}).get("pipeline_splitters", {})
-    if splitter_output.get("materialization") != "derived_by_owner_oracle_before_consumer_boundary" or splitter_output.get("consumer_reimplementation") != "forbidden":
+    splitter_output = contract.get("owner_output", {}).get("pipeline_splitters")
+    if splitter_output != {
+        "ordering": "run_detail.pipelines_order",
+        "entry_fields": ["pipeline_id", "splitter"],
+        "splitter": "splitter_config_output_or_null",
+        "materialization": "derived_by_owner_oracle_before_consumer_boundary",
+        "materialization_time": "immutable_owner_read",
+        "consumer_reimplementation": "forbidden",
+        "consumer_expanded_config_access": "forbidden",
+    }:
         raise RuntimeError("studio run-detail HTTP contract does not preserve owner-only splitter materialization")
     if contract.get("cutover", {}).get("route_selection") != "forbidden":
         raise RuntimeError("studio run-detail HTTP contract must remain fail-closed until all external policies are proven")

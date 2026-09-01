@@ -16,6 +16,12 @@
     "splitter_config": {
       "callable": "nirs4all.pipeline.analysis.splitter_config.extract_splitter_config",
       "input": "pipeline.expanded_config",
+      "write_boundary": "WorkspaceStore.begin_pipeline",
+      "persisted_source": "pipelines.expanded_config",
+      "store_v5_splitter_column": "absent_by_design",
+      "historical_compatibility": "derive_or_null_from_existing_expanded_config",
+      "schema_migration": "none_required_for_owner_projection",
+      "consumer_expanded_config_access": "forbidden",
       "selection": "first_recognized_splitter_step",
       "output_fields": [
         "splitter_class",
@@ -55,6 +61,14 @@
   },
   "owner_oracle": {
     "callable": "nirs4all.pipeline.storage.studio_run_detail_http_inputs_v1",
+    "signature": "(workspace_path: str | Path, run_id: str) -> dict[str, Any] | None",
+    "inputs": ["workspace_path", "run_id"],
+    "native_abi": "none_python_callable_only",
+    "bounded_cpython_subprocess": "supported",
+    "framework_requirements": {
+      "fastapi": "none",
+      "pipeline_runner_construction": "forbidden"
+    },
     "scope": "store_v5_owner_inputs_only",
     "open_mode": "composed_immutable_reads_guarded_by_before_after_database_stamp",
     "writes_or_cache": "forbidden",
@@ -77,7 +91,9 @@
       "entry_fields": ["pipeline_id", "splitter"],
       "splitter": "splitter_config_output_or_null",
       "materialization": "derived_by_owner_oracle_before_consumer_boundary",
-      "consumer_reimplementation": "forbidden"
+      "materialization_time": "immutable_owner_read",
+      "consumer_reimplementation": "forbidden",
+      "consumer_expanded_config_access": "forbidden"
     },
     "pipeline_runtime": {
       "ordering": "run_detail.pipelines_order",
