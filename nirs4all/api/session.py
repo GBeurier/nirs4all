@@ -413,11 +413,10 @@ class Session:
                 "Call session.run(dataset) first."
             )
 
-        # Determine source: bundle path or trained model
+        # Determine source: bundle path or trained model. Core Archive V2 was
+        # refused above, before preflight or dataset access.
         source: str | dict[str, Any]
-        if self._core_archive_path is not None:
-            source = str(self._core_archive_path)
-        elif self._bundle_path is not None:
+        if self._bundle_path is not None:
             # Use bundle file for loaded sessions
             source = str(self._bundle_path)
         elif self._last_result is not None:
