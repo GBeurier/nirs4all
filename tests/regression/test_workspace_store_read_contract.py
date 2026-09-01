@@ -8,8 +8,128 @@ from pathlib import Path
 from unittest.mock import patch
 from uuid import UUID
 
+import pytest
+
 from nirs4all.pipeline.storage import WorkspaceStore, workspace_store_read_contract, workspace_store_results_summary_contract
 from nirs4all.pipeline.storage.store_schema import SCHEMA_VERSION
+
+
+def _create_run_detail_workspace(tmp_path: Path) -> tuple[Path, Path]:
+    workspace = tmp_path / "run-detail-workspace"
+    store = WorkspaceStore(workspace)
+    store.close()
+    del store
+    database = workspace / "store.sqlite"
+
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            """INSERT INTO runs
+               (run_id, name, config, datasets, status, created_at,
+                completed_at, summary, error, project_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                "run-detail-001",
+                "Detail oracle",
+                '{"metric":"rmsecv","drop":null,"nested":{"nan":NaN,"values":[Infinity,-Infinity,1.5]}}',
+                '[{"name":"corn","n_samples":42}]',
+                "completed",
+                "2026-09-01T10:00:00+02:00",
+                "2026-09-01T10:05:00+02:00",
+                '{"total_results":2,"best_score":Infinity}',
+                None,
+                None,
+            ),
+        )
+        connection.executemany(
+            """INSERT INTO pipelines
+               (pipeline_id, run_id, name, expanded_config, original_template,
+                generator_choices, dataset_name, dataset_hash, status,
+                created_at, completed_at, best_val, best_test, metric,
+                duration_ms, error)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    "11111111-1111-1111-1111-111111111111",
+                    "run-detail-001",
+                    "0001_pls",
+                    '[{"model":{"class":"PLSRegression","score":NaN}}]',
+                    '{"name":"PLS template"}',
+                    '[{"n_components":8}]',
+                    "corn",
+                    "sha256:corn",
+                    "completed",
+                    "2026-09-01T10:02:00+02:00",
+                    "2026-09-01T10:03:00+02:00",
+                    float("inf"),
+                    float("-inf"),
+                    "rmsecv",
+                    321,
+                    None,
+                ),
+                (
+                    "22222222-2222-2222-2222-222222222222",
+                    "run-detail-001",
+                    "0002_pending",
+                    None,
+                    None,
+                    "[]",
+                    "corn",
+                    "sha256:corn",
+                    "running",
+                    "2026-09-01T10:02:00+02:00",
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                ),
+            ],
+        )
+        connection.execute(
+            """INSERT INTO chains
+               (chain_id, pipeline_id, steps, model_step_idx, model_class,
+                final_test_score)
+               VALUES ('chain-refit', ?, '[]', 1, 'PLSRegression', 0.11)""",
+            ("11111111-1111-1111-1111-111111111111",),
+        )
+        connection.executemany(
+            """INSERT INTO logs
+               (log_id, pipeline_id, step_idx, operator_class, event,
+                duration_ms, message, details, level, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    "log-warning",
+                    "11111111-1111-1111-1111-111111111111",
+                    0,
+                    "SNV",
+                    "warning",
+                    None,
+                    "warning",
+                    '{"value":NaN}',
+                    "warning",
+                    "2026-09-01T10:02:10+02:00",
+                ),
+                (
+                    "log-end",
+                    "11111111-1111-1111-1111-111111111111",
+                    0,
+                    "SNV",
+                    "end",
+                    321,
+                    None,
+                    None,
+                    "info",
+                    "2026-09-01T10:02:11+02:00",
+                ),
+            ],
+        )
+        connection.commit()
+        connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+        connection.execute("PRAGMA journal_mode=DELETE")
+
+    return workspace, database
 
 
 def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tmp_path: Path) -> None:
@@ -219,6 +339,78 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
         "duckdb_workspaces",
         "schema_versions_other_than_5",
     ]
+
+
+def test_run_detail_projection_matches_golden_without_mutating_store(tmp_path: Path) -> None:
+    """The owner oracle is immutable, deterministic, finite JSON, and schema-exact."""
+    contract = workspace_store_read_contract()
+    projection = contract["projections"]["studio_run_detail_v1"]
+    workspace, database = _create_run_detail_workspace(tmp_path)
+    expected = json.loads(
+        (Path(__file__).parents[1] / "fixtures" / "workspace_store_v5_run_detail.response.json").read_text(encoding="utf-8")
+    )
+
+    before = {path.name for path in workspace.iterdir()}
+    actual = WorkspaceStore.get_studio_run_detail_v1(workspace, "run-detail-001")
+    assert actual == expected
+    assert WorkspaceStore.get_studio_run_detail_v1(workspace, "missing-run") is None
+    assert json.dumps(actual, allow_nan=False, separators=(",", ":"), sort_keys=True) == json.dumps(
+        expected,
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+    assert {path.name for path in workspace.iterdir()} == before
+    assert not any((workspace / f"store.sqlite{suffix}").exists() for suffix in ("-wal", "-shm", "-journal"))
+
+    with sqlite3.connect(f"{database.as_uri()}?mode=ro&immutable=1", uri=True) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 5
+        assert connection.execute(projection["queries"]["run"], ("run-detail-001",)).fetchone() is not None
+        assert len(connection.execute(projection["queries"]["pipelines"], ("run-detail-001",)).fetchall()) == 2
+        assert connection.execute(projection["queries"]["has_refit"], ("run-detail-001",)).fetchone()[0] == 1
+        assert len(connection.execute(projection["queries"]["log_summary"], ("run-detail-001",)).fetchall()) == 2
+
+    assert projection["ordering"] == {
+        "pipelines": "created_at_desc_then_pipeline_id_asc",
+        "log_summary": "pipeline_created_at_asc_then_pipeline_id_asc",
+    }
+    assert projection["json_policy"]["non_finite_numbers"] == "replace_with_null_recursively"
+    assert projection["native_read_preconditions"] == {
+        "open_mode": "sqlite_immutable_read_only",
+        "pragma_user_version": 5,
+        "active_sidecars": ["store.sqlite-wal", "store.sqlite-shm", "store.sqlite-journal"],
+        "active_sidecar_policy": "reject_if_any_exists",
+        "database_change_during_read": "reject",
+        "writes_or_cache": "forbidden",
+    }
+    assert projection["cutover_scope"] == "store_owned_source_projection_not_complete_http_response"
+    assert projection["studio_composition_required"]["route_selection"] == "forbidden_until_all_required_composition_has_exact_oracle_parity"
+    assert projection["legacy_filesystem_manifest_branch"] == "not_covered"
+    assert projection["fallback_after_native_selection"] == "none"
+
+
+def test_run_detail_projection_fails_closed_on_journal_schema_and_json(tmp_path: Path) -> None:
+    """Unsafe SQLite state and malformed Store-v5 rows never produce partial output."""
+    workspace, database = _create_run_detail_workspace(tmp_path)
+    journal = Path(f"{database}-wal")
+    journal.write_bytes(b"active writer sentinel")
+    with pytest.raises(RuntimeError, match="active SQLite journal"):
+        WorkspaceStore.get_studio_run_detail_v1(workspace, "run-detail-001")
+    journal.unlink()
+
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA user_version=4")
+        connection.execute("PRAGMA journal_mode=DELETE")
+    with pytest.raises(RuntimeError, match="requires WorkspaceStore schema 5, got 4"):
+        WorkspaceStore.get_studio_run_detail_v1(workspace, "run-detail-001")
+
+    with sqlite3.connect(database) as connection:
+        connection.execute("PRAGMA user_version=5")
+        connection.execute("UPDATE runs SET config = '[' WHERE run_id = 'run-detail-001'")
+        connection.commit()
+        connection.execute("PRAGMA journal_mode=DELETE")
+    with pytest.raises(ValueError, match="runs.config contains malformed JSON"):
+        WorkspaceStore.get_studio_run_detail_v1(workspace, "run-detail-001")
 
 
 def test_ranked_chain_contract_is_filtered_deterministic_and_null_last(tmp_path: Path) -> None:

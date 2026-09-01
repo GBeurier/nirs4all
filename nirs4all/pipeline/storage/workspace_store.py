@@ -126,11 +126,39 @@ from nirs4all.pipeline.storage.store_queries import (
     build_top_chains_query,
     build_top_predictions_query,
 )
-from nirs4all.pipeline.storage.store_schema import create_schema
+from nirs4all.pipeline.storage.store_schema import SCHEMA_VERSION, create_schema
 from nirs4all.pipeline.trace.execution_trace import fold_key_candidates
 
 _MAX_RETRIES = 8
 _BASE_DELAY = 0.15
+
+_STUDIO_RUN_DETAIL_RUN_QUERY = (
+    "SELECT run_id, name, config, datasets, status, created_at, completed_at, "
+    "summary, error, project_id FROM runs WHERE run_id = ?"
+)
+_STUDIO_RUN_DETAIL_PIPELINES_QUERY = (
+    "SELECT pipeline_id, run_id, name, expanded_config, original_template, "
+    "generator_choices, dataset_name, dataset_hash, status, created_at, "
+    "completed_at, best_val, best_test, metric, duration_ms, error FROM pipelines "
+    "WHERE run_id = ? ORDER BY created_at DESC, pipeline_id ASC"
+)
+_STUDIO_RUN_DETAIL_REFIT_QUERY = (
+    "SELECT CASE WHEN EXISTS (SELECT 1 FROM chains AS c JOIN pipelines AS p "
+    "ON p.pipeline_id = c.pipeline_id WHERE p.run_id = ? AND "
+    "(c.final_test_score IS NOT NULL OR c.final_train_score IS NOT NULL)) "
+    "THEN 1 ELSE 0 END AS has_refit"
+)
+_STUDIO_RUN_DETAIL_LOG_QUERY = (
+    "SELECT p.pipeline_id, p.name AS pipeline_name, p.status AS pipeline_status, "
+    "COUNT(l.log_id) AS log_count, "
+    "COALESCE(SUM(CASE WHEN l.event = 'end' THEN l.duration_ms ELSE 0 END), 0) "
+    "AS total_duration_ms, "
+    "SUM(CASE WHEN l.level = 'warning' THEN 1 ELSE 0 END) AS warning_count, "
+    "SUM(CASE WHEN l.level = 'error' THEN 1 ELSE 0 END) AS error_count "
+    "FROM pipelines AS p LEFT JOIN logs AS l ON p.pipeline_id = l.pipeline_id "
+    "WHERE p.run_id = ? GROUP BY p.pipeline_id, p.name, p.status, p.created_at "
+    "ORDER BY p.created_at ASC, p.pipeline_id ASC"
+)
 
 
 def _jittered_delay(base: float, attempt: int) -> float:
@@ -235,6 +263,32 @@ def _from_json(val: str | None) -> Any:
     if val is None:
         return None
     return json.loads(val)
+
+
+def _studio_run_detail_json_value(value: Any) -> Any:
+    """Normalize one Store-v5 run-detail value to strict JSON output."""
+    if isinstance(value, datetime):
+        return value.isoformat()
+    if isinstance(value, float) and not math.isfinite(value):
+        return None
+    if isinstance(value, dict):
+        return {key: _studio_run_detail_json_value(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_studio_run_detail_json_value(item) for item in value]
+    return value
+
+
+def _studio_run_detail_parse_json(value: Any, field: str) -> Any:
+    """Parse a stored JSON field or fail closed on malformed Store-v5 data."""
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise ValueError(f"studio_run_detail_v1 {field} must be stored JSON text or null")
+    try:
+        parsed = json.loads(value)
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise ValueError(f"studio_run_detail_v1 {field} contains malformed JSON") from exc
+    return _studio_run_detail_json_value(parsed)
 
 
 def _relation_replay_manifest_payload(value: Any | None) -> dict[str, Any] | None:
@@ -2069,6 +2123,108 @@ class WorkspaceStore:
         for field in ("config", "datasets", "summary"):
             row[field] = _from_json(row[field])
         return row
+
+    @staticmethod
+    def get_studio_run_detail_v1(workspace_path: str | Path, run_id: str) -> dict[str, Any] | None:
+        """Return the immutable Store-owned portion of Studio run detail.
+
+        This is the Python oracle for the public ``studio_run_detail_v1``
+        projection. It refuses active journal sidecars and schema drift and
+        performs no writes. Studio dataset links, result repositories, and
+        presentation/runtime inference remain separate composition inputs.
+
+        Args:
+            workspace_path: Workspace content directory containing ``store.sqlite``.
+            run_id: Exact Store run identifier.
+
+        Returns:
+            A strict JSON-native run record with deterministically ordered and
+            log-enriched pipelines, plus the run log summary; ``None`` when the
+            run does not exist.
+
+        Raises:
+            FileNotFoundError: If ``store.sqlite`` is absent.
+            RuntimeError: If the database is incompatible, journaled, or changes.
+            ValueError: If the identifier or stored JSON shapes are invalid.
+        """
+        canonical_run_id = _canonical_optional_id(run_id, "run_id")
+        if canonical_run_id is None:
+            raise ValueError("run_id must be a canonical non-empty string")
+
+        database = Path(workspace_path) / "store.sqlite"
+        if not database.is_file():
+            raise FileNotFoundError(f"WorkspaceStore database not found: {database}")
+        sidecars = tuple(Path(f"{database}{suffix}") for suffix in ("-wal", "-shm", "-journal"))
+        if any(path.exists() for path in sidecars):
+            raise RuntimeError("studio_run_detail_v1 refuses an active SQLite journal")
+
+        before = database.stat()
+        before_signature = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
+        connection = sqlite3.connect(
+            f"{database.resolve().as_uri()}?mode=ro&immutable=1",
+            uri=True,
+            detect_types=sqlite3.PARSE_DECLTYPES,
+        )
+        connection.row_factory = sqlite3.Row
+        try:
+            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if version != SCHEMA_VERSION:
+                raise RuntimeError(f"studio_run_detail_v1 requires WorkspaceStore schema {SCHEMA_VERSION}, got {version}")
+
+            raw_run = connection.execute(_STUDIO_RUN_DETAIL_RUN_QUERY, [canonical_run_id]).fetchone()
+            if raw_run is None:
+                return None
+            run = dict(raw_run)
+
+            config = _studio_run_detail_parse_json(run.get("config"), "runs.config")
+            datasets = _studio_run_detail_parse_json(run.get("datasets"), "runs.datasets")
+            summary = _studio_run_detail_parse_json(run.get("summary"), "runs.summary")
+            if config is not None and not isinstance(config, dict):
+                raise ValueError("studio_run_detail_v1 runs.config must decode to an object or null")
+            if datasets is not None and not isinstance(datasets, list):
+                raise ValueError("studio_run_detail_v1 runs.datasets must decode to an array or null")
+            if summary is not None and not isinstance(summary, dict):
+                raise ValueError("studio_run_detail_v1 runs.summary must decode to an object or null")
+
+            refit_row = connection.execute(_STUDIO_RUN_DETAIL_REFIT_QUERY, [canonical_run_id]).fetchone()
+            has_refit = bool(refit_row and refit_row["has_refit"])
+            stored_config = config or {}
+            run["config"] = {
+                "has_refit": has_refit,
+                **{key: value for key, value in stored_config.items() if value is not None},
+            }
+            run["datasets"] = datasets or []
+            run["summary"] = summary or {}
+
+            log_rows = [
+                _studio_run_detail_json_value(dict(row))
+                for row in connection.execute(_STUDIO_RUN_DETAIL_LOG_QUERY, [canonical_run_id]).fetchall()
+            ]
+            log_by_pipeline = {str(row["pipeline_id"]): row for row in log_rows}
+
+            pipelines: list[dict[str, Any]] = []
+            for row in connection.execute(_STUDIO_RUN_DETAIL_PIPELINES_QUERY, [canonical_run_id]).fetchall():
+                pipeline = dict(row)
+                for field in ("expanded_config", "original_template", "generator_choices"):
+                    pipeline[field] = _studio_run_detail_parse_json(pipeline.get(field), f"pipelines.{field}")
+                pipeline = _studio_run_detail_json_value(pipeline)
+                pipeline.update(log_by_pipeline.get(str(pipeline["pipeline_id"]), {}))
+                pipelines.append(pipeline)
+
+            run["pipelines"] = pipelines
+            run["log_summary"] = log_rows
+            normalized = _studio_run_detail_json_value(run)
+            if not isinstance(normalized, dict):
+                raise RuntimeError("studio_run_detail_v1 normalization did not produce an object")
+            return normalized
+        finally:
+            connection.close()
+            after = database.stat()
+            after_signature = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+            if any(path.exists() for path in sidecars):
+                raise RuntimeError("studio_run_detail_v1 detected an active SQLite journal")
+            if after_signature != before_signature:
+                raise RuntimeError("studio_run_detail_v1 detected a database change during immutable read")
 
     def list_runs(
         self,
