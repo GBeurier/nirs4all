@@ -18,6 +18,7 @@ from nirs4all.api.native_archive_training import NativeMethodsArchiveRunResult
 from nirs4all.api.result import PredictResult
 from nirs4all.api.session import Session, load_session
 from nirs4all.pipeline.dagml import core_archive_replay
+from nirs4all.pipeline.dagml.rt import RtError
 
 
 def _archive(path: Path, version: int, *, core: bool = True) -> Path:
@@ -175,8 +176,12 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     assert json.dumps(
         session._core_archive_validation[2], sort_keys=True, separators=(",", ":")
     ) == cached_package_json
-    with pytest.raises(NotImplementedError, match="full-refit/retrain"):
+    retrain_module = importlib.import_module("nirs4all.api.retrain")
+    monkeypatch.setattr(retrain_module, "require_dagml_retrain_backend", lambda: None)
+    with pytest.raises(RtError) as caught:
         session.retrain({"X": [[2.0]], "sample_ids": ["sample.two"]})
+    assert caught.value.cause == "invalid_request"
+    assert caught.value.unsupported_capability == "dagml_full_retrain_training_spec"
     assert session._runner is None
     session.close()
     session.close()

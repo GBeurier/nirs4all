@@ -364,23 +364,32 @@ class Session:
             ValueError: If session has not been trained.
         """
         self._ensure_open()
+
+        # Decide the ADR-24 lane before inspecting source state, materializing
+        # data, or constructing the historical PipelineRunner.  A stateful
+        # Session can invoke the native adapter, but cannot share its legacy
+        # runner with that adapter.
+        from nirs4all.api.retrain import retrain as retrain_api
+        from nirs4all.api.retrain import retrain_preflight
+
+        decision = retrain_preflight(
+            mode,
+            engine=kwargs.get("engine"),
+            plugin=kwargs.get("plugin"),
+            allow_fallback=kwargs.get("allow_fallback", False),
+            session_present=False,
+        ).require()
         if not self.is_trained:
             raise ValueError(
                 "Session must be trained before retraining. "
                 "Call session.run(dataset) first."
             )
-        if self._core_archive_path is not None:
-            raise NotImplementedError(
-                "Core Archive V2 is a prediction package; Archive V3 is the distinct "
-                "target-bound full-refit/retrain contract and is not exposed by this prediction session"
-            )
-
-        from nirs4all.api.result import RunResult
-        from nirs4all.data import DatasetConfigs
 
         # Determine source: bundle path or trained model
         source: str | dict[str, Any]
-        if self._bundle_path is not None:
+        if self._core_archive_path is not None:
+            source = str(self._core_archive_path)
+        elif self._bundle_path is not None:
             # Use bundle file for loaded sessions
             source = str(self._bundle_path)
         elif self._last_result is not None:
@@ -391,22 +400,16 @@ class Session:
         else:
             raise ValueError("No trained model available for retraining.")
 
-        # Handle dataset
-        dataset_config = DatasetConfigs(str(dataset)) if isinstance(dataset, (str, Path)) else dataset
-
-        predictions, per_dataset = self.runner.retrain(
-            source=source,
-            dataset=dataset_config,
+        # Only the explicit rollback lane shares this Session's runner. Native
+        # replay remains independent and reaches the real DAG-ML adapter.
+        result = retrain_api(
+            source,
+            dataset,
             mode=mode,
-            **kwargs
+            session=self if decision.lane == "legacy" else None,
+            **kwargs,
         )
-
-        self._last_result = RunResult(
-            predictions=predictions,
-            per_dataset=per_dataset,
-            _runner=self.runner,
-            _owns_runner=False,
-        )
+        self._last_result = result
 
         # Record in history
         self._run_history.append({

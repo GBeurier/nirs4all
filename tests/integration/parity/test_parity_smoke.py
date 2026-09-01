@@ -133,7 +133,9 @@ def test_retrain_path(case: PipelineCase, tmp_path) -> None:
     bundle_path = tmp_path / f"{case.name}.n4a"
     _export_bundle_for_smoke(result, bundle_path)
 
-    retrained = nirs4all.retrain(str(bundle_path), dataset)
+    # This helper intentionally exported a legacy compatibility bundle above;
+    # keep its retrainer on the explicit ADR-24 rollback profile as well.
+    retrained = nirs4all.retrain(str(bundle_path), dataset, engine="legacy")
     assert retrained is not None
 
 
