@@ -20,6 +20,7 @@ from sklearn.model_selection import KFold
 
 from nirs4all.api.native_archive_training import NativeArchiveTrainingError
 from nirs4all.api.session import Session, SessionClosedError
+from nirs4all.operators.transforms import SNV, SavitzkyGolay
 from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveReplayError
 
 _REQUIRE_ENV = "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2"
@@ -28,6 +29,15 @@ _LIBRARY_ENV = "NIRS4ALL_CORE_LIVE_METHODS_LIBRARY"
 
 def _pipeline() -> list[object]:
     return [KFold(n_splits=3), {"model": PLSRegression(n_components=1)}]
+
+
+def _portable_roadmap_pipeline() -> list[object]:
+    return [
+        KFold(n_splits=3),
+        SNV(),
+        SavitzkyGolay(window_length=3, polyorder=1),
+        {"model": PLSRegression(n_components=1)},
+    ]
 
 
 def _dataset() -> dict[str, object]:
@@ -78,6 +88,32 @@ def test_native_archive_training_refuses_a_missing_runtime_before_pipeline_runne
     monkeypatch.setattr(native_module.importlib, "import_module", unavailable)
     with pytest.raises(NativeArchiveTrainingError, match="matching dag-ml and nirs4all-core"):
         run_module.run(_pipeline(), _dataset(), engine="native", save_charts=False)
+
+
+def test_native_archive_training_refuses_unreplayable_preprocessing_without_legacy_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native_module = importlib.import_module("nirs4all.api.native_archive_training")
+    run_module = importlib.import_module("nirs4all.api.run")
+
+    class LegacyPathReached:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("unsupported native preprocessing constructed PipelineRunner")
+
+    monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
+    monkeypatch.setattr(native_module, "_require_archive_runtime", lambda: (object(), object()))
+    monkeypatch.setattr(native_module, "_resolve_methods_library_path", lambda _path: "/opt/lib/libn4m.so")
+
+    with pytest.raises(
+        ValueError,
+        match="SNV or Savitzky-Golay requires an upstream DAG-ML Methods controller and replay contract",
+    ):
+        run_module.run(
+            _portable_roadmap_pipeline(),
+            _dataset(),
+            engine="native",
+            save_charts=False,
+        )
 
 
 def test_native_archive_training_refuses_closed_session_before_runtime_or_runner(

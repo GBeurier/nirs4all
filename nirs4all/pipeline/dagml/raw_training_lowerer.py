@@ -261,7 +261,10 @@ def _validate_portable_methods_pipeline(steps: list[Any]) -> None:
 
     if len(steps) != 1 or not isinstance(steps[0], Mapping) or set(steps[0]) != {"model"}:
         raise ValueError(
-            "portable Methods training supports exactly one PLSRegression model step after the splitter"
+            "portable Methods Archive V2 training currently supports exactly one "
+            "PLSRegression model step after the splitter; native preprocessing "
+            "such as SNV or Savitzky-Golay requires an upstream DAG-ML Methods "
+            "controller and replay contract before Python can expose it"
         )
     model = steps[0]["model"]
     cls = model if isinstance(model, type) else type(model)
