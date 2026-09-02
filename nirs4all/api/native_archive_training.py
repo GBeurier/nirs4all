@@ -31,6 +31,10 @@ class NativeArchiveTrainingError(RuntimeError):
     """The installed native stack cannot produce a portable Archive V2."""
 
 
+class NativeMethodsHpoCapabilityError(NativeArchiveTrainingError, ValueError):
+    """The public HPO request exceeds the selected portable Methods slice."""
+
+
 @dataclass(frozen=True)
 class _PortableMethodsHpo:
     """Closed public projection onto DAG-ML's controller-owned Methods HPO."""
@@ -235,7 +239,6 @@ def run_native_methods_archive(
 
         if not isinstance(session, Session):
             raise TypeError("engine='native' session must be a nirs4all.Session")
-        session._prepare_native_run()
         native_session = session
     if report_naming != "nirs":
         raise NotImplementedError("engine='native' supports report_naming='nirs' only")
@@ -246,13 +249,14 @@ def run_native_methods_archive(
     if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int) or random_state < 0):
         raise TypeError("engine='native' random_state must be a non-negative integer or None")
 
-    features, targets, sample_ids, target_names = _normalize_training_arrays(dataset)
     seed = 12345 if random_state is None else random_state
     portable_pipeline, hpo = _extract_portable_methods_hpo(
         pipeline,
         seed=seed,
-        feature_count=features.shape[1],
     )
+    features, targets, sample_ids, target_names = _normalize_training_arrays(dataset)
+    if hpo is not None and features.shape[1] < 3:
+        raise NativeMethodsHpoCapabilityError("engine='native' portable Methods HPO v1 evaluates n_components=1..3 and therefore requires X to contain at least 3 features")
     identity = normalize_fit_identity(
         features,
         targets,
@@ -261,6 +265,8 @@ def run_native_methods_archive(
         metadata=dataset.get("metadata"),
         require_explicit_sample_ids=True,
     )
+    if native_session is not None:
+        native_session._prepare_native_run()
     dag_ml, core = _require_archive_runtime()
     methods_library_path = _resolve_methods_library_path(methods_library_override)
     contracts = lower_raw_array_training_contracts(
@@ -369,13 +375,14 @@ def _extract_portable_methods_hpo(
     pipeline: list[Any],
     *,
     seed: int,
-    feature_count: int,
 ) -> tuple[list[Any], _PortableMethodsHpo | None]:
     """Extract the first executable API-001 HPO slice from a Methods pipeline.
 
     Python only validates and translates the public request. DAG-ML owns folds,
     OOF scoring, selection and refit; the official Methods controller owns the
-    optimizer state machine.
+    optimizer state machine.  This first public slice deliberately does not
+    expose N4MOPT checkpoint/resume and accepts only the exact search space
+    implemented by the selected portable Methods HPO v1 runtime.
     """
 
     model_steps = [(index, step) for index, step in enumerate(pipeline) if isinstance(step, Mapping) and "finetune_params" in step]
@@ -426,8 +433,13 @@ def _extract_portable_methods_hpo(
     if not isinstance(space, Mapping) or set(space) != {"n_components"}:
         raise ValueError("native Methods HPO first slice requires exactly model_params.n_components")
     low, high, step_size = _normalize_n_components_space(space["n_components"])
-    if high > feature_count:
-        raise ValueError(f"native Methods HPO n_components high={high} exceeds X feature count {feature_count}")
+    if (low, high, step_size) != (1, 3, 1):
+        raise NativeMethodsHpoCapabilityError(
+            "engine='native' portable Methods HPO v1 requires "
+            "model_params.n_components exactly ['int', 1, 3, 1] "
+            f"(received low={low}, high={high}, step={step_size}); "
+            "broader spaces and N4MOPT checkpoint/resume are not exposed by this public slice"
+        )
 
     stripped = list(pipeline)
     stripped[index] = {"model": step["model"]}
@@ -441,26 +453,26 @@ def _extract_portable_methods_hpo(
 
 
 def _normalize_n_components_space(value: Any) -> tuple[int, int, int]:
-    """Normalize the existing public integer-range spellings, nothing broader."""
+    """Normalize only public range spellings; runtime support is checked next."""
 
     if isinstance(value, Mapping):
         unknown = set(value) - {"type", "min", "max", "low", "high", "step", "log"}
         if unknown or value.get("type") != "int" or value.get("log", False) is not False:
-            raise ValueError("native Methods HPO n_components requires a linear integer range")
+            raise NativeMethodsHpoCapabilityError("engine='native' portable Methods HPO v1 requires one linear integer n_components range")
         low = value.get("low", value.get("min"))
         high = value.get("high", value.get("max"))
         step = value.get("step", 1)
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         if len(value) not in (3, 4) or value[0] != "int":
-            raise ValueError("native Methods HPO n_components requires ['int', low, high, step?]")
+            raise NativeMethodsHpoCapabilityError("engine='native' portable Methods HPO v1 requires n_components=['int', 1, 3, 1]")
         low, high = value[1], value[2]
         step = value[3] if len(value) == 4 else 1
     else:
-        raise ValueError("native Methods HPO n_components requires an integer range")
+        raise NativeMethodsHpoCapabilityError("engine='native' portable Methods HPO v1 requires n_components=['int', 1, 3, 1]")
     if any(not isinstance(item, int) or isinstance(item, bool) for item in (low, high, step)):
-        raise ValueError("native Methods HPO n_components bounds and step must be integers")
+        raise NativeMethodsHpoCapabilityError("engine='native' portable Methods HPO v1 requires integer n_components bounds and step")
     if low < 1 or high < low or step < 1:
-        raise ValueError("native Methods HPO n_components requires 1 <= low <= high and step >= 1")
+        raise NativeMethodsHpoCapabilityError("engine='native' portable Methods HPO v1 requires n_components bounds 1..=3 with step=1")
     return low, high, step
 
 
@@ -541,6 +553,7 @@ def _attach_portable_methods_hpo(contracts: Any, hpo: _PortableMethodsHpo) -> An
         diagnostics={
             **dict(contracts.diagnostics or {}),
             "nirs4all_execution": "methods_controller_owned_hpo_archive_v2",
+            "nirs4all_methods_hpo_resume": "not_exposed_by_public_api_v1",
         },
     )
 
@@ -602,6 +615,7 @@ def _native_model_name(pipeline: list[Any]) -> str:
 
 __all__ = [
     "NativeArchiveTrainingError",
+    "NativeMethodsHpoCapabilityError",
     "NativeMethodsArchiveRunResult",
     "run_native_methods_archive",
 ]

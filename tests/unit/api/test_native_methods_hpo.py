@@ -12,6 +12,7 @@ from sklearn.model_selection import KFold
 
 from nirs4all.api.native_archive_training import (
     NativeMethodsArchiveRunResult,
+    NativeMethodsHpoCapabilityError,
     _attach_portable_methods_hpo,
     _extract_portable_methods_hpo,
 )
@@ -96,11 +97,7 @@ def _contracts() -> DagMLTrainingRequestContracts:
 def test_extracts_bounded_hpo_without_mutating_the_public_pipeline() -> None:
     pipeline = _pipeline(_finetune())
 
-    stripped, hpo = _extract_portable_methods_hpo(
-        pipeline,
-        seed=12345,
-        feature_count=3,
-    )
+    stripped, hpo = _extract_portable_methods_hpo(pipeline, seed=12345)
 
     assert hpo is not None
     assert (hpo.trials, hpo.seed, hpo.low, hpo.high, hpo.step) == (4, 7, 1, 3, 1)
@@ -115,7 +112,6 @@ def test_extracts_bounded_hpo_without_mutating_the_public_pipeline() -> None:
         ({"pruner": "median"}, "pruner='none'"),
         ({"metric": "mae"}, "OOF RMSE"),
         ({"n_trials": 0}, "1..256"),
-        ({"model_params": {"n_components": ["int", 1, 4]}}, "exceeds X feature count"),
     ],
 )
 def test_refuses_unimplemented_hpo_shapes_before_native_runtime(
@@ -144,12 +140,99 @@ def test_refuses_unimplemented_hpo_shapes_before_native_runtime(
         )
 
 
-def test_attaches_one_signed_scheduler_operation_and_tuner_controller() -> None:
-    _stripped, hpo = _extract_portable_methods_hpo(
-        _pipeline(_finetune()),
-        seed=12345,
-        feature_count=3,
+@pytest.mark.parametrize(
+    "space",
+    [
+        ["int", 1, 4],
+        ["int", 1, 3, 2],
+        ["int", 2, 3],
+        ["float", 1, 3],
+        ["int", 1, 3, 1, 1],
+        {"type": "int", "low": 1, "high": 3, "step": 2},
+        {"type": "int", "low": 1, "high": 3, "log": True},
+    ],
+)
+def test_refuses_spaces_outside_exact_methods_v1_before_data_or_session(
+    monkeypatch: pytest.MonkeyPatch,
+    space: Any,
+) -> None:
+    from nirs4all.api import native_archive_training as module
+    from nirs4all.api.session import Session
+
+    native_session = Session()
+    monkeypatch.setattr(
+        native_session,
+        "_prepare_native_run",
+        lambda: pytest.fail("invalid HPO request prepared a native session"),
     )
+    monkeypatch.setattr(
+        module,
+        "_normalize_training_arrays",
+        lambda _dataset: pytest.fail("invalid HPO request consumed dataset arrays"),
+    )
+
+    with pytest.raises(
+        NativeMethodsHpoCapabilityError,
+        match="portable Methods HPO v1",
+    ):
+        module.run_native_methods_archive(
+            _pipeline(_finetune(model_params={"n_components": space})),
+            {"X": object(), "y": object(), "sample_ids": object()},
+            session=native_session,
+        )
+
+
+def test_refuses_too_narrow_feature_matrix_before_session_or_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nirs4all.api import native_archive_training as module
+    from nirs4all.api.session import Session
+
+    native_session = Session()
+    monkeypatch.setattr(
+        native_session,
+        "_prepare_native_run",
+        lambda: pytest.fail("unsupported HPO request prepared a native session"),
+    )
+    monkeypatch.setattr(
+        module,
+        "_require_archive_runtime",
+        lambda: pytest.fail("unsupported HPO request reached the native runtime"),
+    )
+
+    with pytest.raises(NativeMethodsHpoCapabilityError, match="at least 3 features"):
+        module.run_native_methods_archive(
+            _pipeline(_finetune()),
+            {
+                "X": np.arange(12, dtype=float).reshape(6, 2),
+                "y": np.arange(6, dtype=float),
+                "sample_ids": [f"sample.{index}" for index in range(6)],
+            },
+            session=native_session,
+        )
+
+
+@pytest.mark.parametrize(
+    "space",
+    [
+        ["int", 1, 3],
+        ["int", 1, 3, 1],
+        {"type": "int", "low": 1, "high": 3, "step": 1},
+        {"type": "int", "min": 1, "max": 3},
+    ],
+)
+def test_accepts_only_equivalent_exact_methods_v1_space_spellings(space: Any) -> None:
+    _pipeline_without_hpo, hpo = _extract_portable_methods_hpo(
+        _pipeline(_finetune(model_params={"n_components": space})),
+        seed=12345,
+    )
+
+    assert hpo is not None
+    assert (hpo.low, hpo.high, hpo.step) == (1, 3, 1)
+
+
+def test_attaches_one_signed_scheduler_operation_and_tuner_controller() -> None:
+    _stripped, hpo = _extract_portable_methods_hpo(_pipeline(_finetune()), seed=12345)
     assert hpo is not None
 
     attached = _attach_portable_methods_hpo(_contracts(), hpo)
@@ -194,7 +277,10 @@ def test_attaches_one_signed_scheduler_operation_and_tuner_controller() -> None:
     controllers = {item["controller_id"]: item for item in request["controller_manifests"]}
     assert set(controllers) == {"controller:methods.pls", "controller:tuner.methods"}
     assert controllers["controller:tuner.methods"]["operator_kind"] == "tuner"
-    assert attached.diagnostics == {"nirs4all_execution": "methods_controller_owned_hpo_archive_v2"}
+    assert attached.diagnostics == {
+        "nirs4all_execution": "methods_controller_owned_hpo_archive_v2",
+        "nirs4all_methods_hpo_resume": "not_exposed_by_public_api_v1",
+    }
 
 
 def test_projects_only_the_scheduler_checked_native_incumbent() -> None:
@@ -227,11 +313,7 @@ def test_projects_only_the_scheduler_checked_native_incumbent() -> None:
 
 def test_hpo_attachment_is_immutable() -> None:
     contracts = _contracts()
-    _stripped, hpo = _extract_portable_methods_hpo(
-        _pipeline(_finetune()),
-        seed=12345,
-        feature_count=3,
-    )
+    _stripped, hpo = _extract_portable_methods_hpo(_pipeline(_finetune()), seed=12345)
     assert hpo is not None
     original = replace(contracts.request_spec)
 
