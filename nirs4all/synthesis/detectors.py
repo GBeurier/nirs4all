@@ -440,7 +440,7 @@ class DetectorSimulator:
         # Quadratic nonlinearity
         result = spectra * (1 + coef * spectra)
 
-        return result
+        return np.asarray(result)
 
     def _apply_noise(
         self,

@@ -172,7 +172,7 @@ class ArrayStorage:
         if self._blocks:
             return (self._blocks[0].shape[0], len(self._blocks), self._blocks[0].shape[1])
         if self._shared is not None:
-            return self._shared._array.shape
+            return tuple(int(dimension) for dimension in self._shared._array.shape)
         return (0, 0, 0)
 
     @property
@@ -183,9 +183,9 @@ class ArrayStorage:
             Numpy dtype of the array.
         """
         if self._blocks:
-            return self._blocks[0].dtype
+            return np.dtype(self._blocks[0].dtype)
         if self._shared is not None:
-            return self._shared._array.dtype
+            return np.dtype(self._shared._array.dtype)
         return np.dtype(np.float32)
 
     @property

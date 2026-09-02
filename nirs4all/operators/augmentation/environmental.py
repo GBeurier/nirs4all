@@ -275,7 +275,7 @@ class TemperatureAugmenter(SpectraTransformerMixin):
         k = 10.0 / edge_width
         rising = 1.0 / (1.0 + np.exp(-k * (wavelengths - wl_min)))
         falling = 1.0 / (1.0 + np.exp(k * (wavelengths - wl_max)))
-        return rising * falling
+        return np.asarray(rising * falling)
 
     def _apply_wavelength_shift(
         self,
@@ -494,7 +494,7 @@ class MoistureAugmenter(SpectraTransformerMixin):
         width: float
     ) -> np.ndarray:
         """Create Gaussian weighting for a spectral region."""
-        return np.exp(-0.5 * ((wavelengths - center) / width) ** 2)
+        return np.asarray(np.exp(-0.5 * ((wavelengths - center) / width) ** 2))
 
 __all__ = [
     "TemperatureAugmenter",

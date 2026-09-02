@@ -454,11 +454,11 @@ class TargetGenerator:
         # Determine thresholds based on class weights
         if class_weights is None:
             # Uniform thresholds
-            percentiles = np.linspace(0, 100, n_classes + 1)[1:-1]
+            percentiles = np.asarray(np.linspace(0, 100, n_classes + 1)[1:-1], dtype=float)
         else:
             # Weighted thresholds
             cumsum = np.cumsum(class_weights[:-1])
-            percentiles = cumsum * 100
+            percentiles = np.asarray(cumsum * 100, dtype=float)
 
         thresholds = [np.percentile(values, p) for p in percentiles]
 

@@ -96,8 +96,8 @@ def _arr_to_list(arr: np.ndarray | None, dtype: str = "float") -> list | None:
         return None
     flat = arr.flatten()
     if dtype == "int":
-        return flat.astype(np.int32).tolist()
-    return flat.astype(np.float64).tolist()
+        return [int(value) for value in flat.astype(np.int32)]
+    return [float(value) for value in flat.astype(np.float64)]
 
 
 def _json_default(obj: Any) -> Any:

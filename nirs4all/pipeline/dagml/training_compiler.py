@@ -37,7 +37,7 @@ class DagMLPreparedTrainingContracts:
     data_envelopes: Mapping[str, Any]
     relations: Any
     training_influence: Any
-    op_callback: Callable[[Any], Any]
+    op_callback: Callable[[Any], Any] | None
     outcome_id: str
     run_id: str
     bundle_id: str
@@ -53,7 +53,7 @@ class DagMLTrainingRequestContracts:
     data_envelopes: Mapping[str, Any]
     relations: Any
     training_influence: Any
-    op_callback: Callable[[Any], Any]
+    op_callback: Callable[[Any], Any] | None
     outcome_id: str
     run_id: str
     bundle_id: str

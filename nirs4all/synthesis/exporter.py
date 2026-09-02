@@ -530,10 +530,10 @@ class DatasetExporter:
 
         if compressed:
             save_path = path.with_suffix(".npz")
-            np.savez_compressed(save_path, **arrays)  # type: ignore[arg-type]
+            np.savez_compressed(save_path, **arrays)
         else:
             save_path = path.with_suffix(".npz")
-            np.savez(save_path, **arrays)  # type: ignore[arg-type]
+            np.savez(save_path, **arrays)
 
         return save_path
 

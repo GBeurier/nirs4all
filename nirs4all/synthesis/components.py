@@ -63,7 +63,7 @@ class NIRBand:
         """
         if self.gamma <= 0:
             # Pure Gaussian for efficiency
-            return self.amplitude * np.exp(-0.5 * ((wavelengths - self.center) / self.sigma) ** 2)
+            return np.asarray(self.amplitude * np.exp(-0.5 * ((wavelengths - self.center) / self.sigma) ** 2))
         else:
             # Voigt profile (convolution of Gaussian and Lorentzian)
             return np.asarray(self.amplitude * voigt_profile(
