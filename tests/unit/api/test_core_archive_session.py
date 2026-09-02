@@ -39,6 +39,24 @@ def _archive(path: Path, version: int, *, core: bool = True) -> Path:
 
 
 def _package() -> dict[str, Any]:
+    descriptor = {
+        "descriptor_type": "dagml.native_predictor_descriptor.v1",
+        "schema_version": 1,
+        "artifact_sha256": "a" * 64,
+        "owner_controller": "controller:methods.pls",
+        "format": "N4MM",
+        "format_version": 1,
+        "writer_abi": {"major": 2, "minor": 4, "patch": 0},
+        "storage_algorithm": 0,
+        "capabilities": 3,
+        "dimensions": {
+            "training_samples": 8,
+            "n_features": 2,
+            "n_targets": 1,
+            "n_components": 1,
+        },
+        "descriptor_fingerprint": "b" * 64,
+    }
     return {
         "schema_version": 2,
         "execution_bundle": {
@@ -49,7 +67,26 @@ def _package() -> dict[str, Any]:
                     "schema_fingerprint": "s" * 64,
                     "plan_fingerprint": "p" * 64,
                 }
-            ]
+            ],
+            "refit_artifacts": [
+                {
+                    "node_id": "model:methods",
+                    "controller_id": "controller:methods.pls",
+                    "artifact": {
+                        "id": "artifact:methods",
+                        "kind": "n4m_model",
+                        "controller_id": "controller:methods.pls",
+                        "backend": "raw",
+                        "content_fingerprint": "a" * 64,
+                        "abi_major": 2,
+                        "abi_min_minor": 0,
+                        "native_predictor_descriptor": descriptor,
+                    },
+                    "params_fingerprint": "p" * 64,
+                    "data_requirement_keys": ["model:methods.x"],
+                    "prediction_requirement_keys": [],
+                }
+            ],
         },
         "training_outcome": {"outcome_fingerprint": "o" * 64},
         "output_bindings": [
@@ -60,6 +97,31 @@ def _package() -> dict[str, Any]:
             }
         ],
     }
+
+
+def _descriptor() -> dict[str, Any]:
+    descriptor = _package()["execution_bundle"]["refit_artifacts"][0]["artifact"][
+        "native_predictor_descriptor"
+    ]
+    assert isinstance(descriptor, dict)
+    return descriptor
+
+
+def _install_core(
+    monkeypatch: pytest.MonkeyPatch,
+    core: Any,
+) -> None:
+    real_import = core_archive_replay.importlib.import_module
+    monkeypatch.setattr(
+        core_archive_replay.importlib,
+        "import_module",
+        lambda name: core if name == "nirs4all_core" else real_import(name),
+    )
+    monkeypatch.setattr(
+        core_archive_replay,
+        "_resolve_methods_library_identity",
+        lambda path: (str(path or "/opt/lib/libn4m.so"), "f" * 64),
+    )
 
 
 def _never_runner(*args: Any, **kwargs: Any) -> None:
@@ -84,19 +146,18 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
 
     def replay(
         archive_path: str,
-        request: dict[str, Any],
-        data_envelopes: dict[str, Any],
-        methods_inputs: dict[str, Any],
+        sample_ids: list[str],
+        x: list[list[float]],
+        target_names: list[str],
         **kwargs: Any,
     ) -> dict[str, Any]:
         replay_number = len(observed["replays"]) + 1
-        sample_ids = methods_inputs["model:methods.x"]["sample_ids"]
         observed["replays"].append(
             {
                 "archive_path": archive_path,
-                "request": request,
-                "data_envelopes": data_envelopes,
-                "methods_inputs": methods_inputs,
+                "sample_ids": sample_ids,
+                "x": x,
+                "target_names": target_names,
                 "kwargs": kwargs,
             }
         )
@@ -115,25 +176,10 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
 
     core = SimpleNamespace(
         read_portable_predictor_package_v2=read,
-        replay_methods_archive_v2=replay,
+        inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [_descriptor()],
+        predict_methods_archive_v2_matrix=replay,
     )
-    dag_ml = SimpleNamespace(
-        sample_relation_set_fingerprint_json=lambda _: "r" * 64,
-        sign_training_replay_request=lambda request: {
-            **request,
-            "request_fingerprint": "f" * 64,
-        },
-    )
-    real_import = core_archive_replay.importlib.import_module
-
-    def fake_import(name: str) -> Any:
-        if name == "nirs4all_core":
-            return core
-        if name == "dag_ml":
-            return dag_ml
-        return real_import(name)
-
-    monkeypatch.setattr(core_archive_replay.importlib, "import_module", fake_import)
+    _install_core(monkeypatch, core)
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
     monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
 
@@ -141,7 +187,9 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     assert session._core_archive_validation is not None
     assert session._core_archive_fingerprint is not None
     cached_package_json = json.dumps(
-        session._core_archive_validation[2], sort_keys=True, separators=(",", ":")
+        session._core_archive_validation[1].package,
+        sort_keys=True,
+        separators=(",", ":"),
     )
     monkeypatch.setattr(
         core_archive_replay,
@@ -172,12 +220,12 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     assert observed["read_path"] == str(path)
     assert len(observed["replays"]) == 2
     assert observed["replays"][0]["kwargs"]["methods_library_path"] == "/opt/lib/libn4m.so"
-    assert observed["replays"][0]["methods_inputs"]["model:methods.x"]["sample_ids"] == [
-        "sample.one"
-    ]
+    assert observed["replays"][0]["sample_ids"] == ["sample.one"]
     assert session._core_archive_validation is not None
     assert json.dumps(
-        session._core_archive_validation[2], sort_keys=True, separators=(",", ":")
+        session._core_archive_validation[1].package,
+        sort_keys=True,
+        separators=(",", ":"),
     ) == cached_package_json
     with pytest.raises(core_archive_replay.CoreArchiveReplayError, match="cannot use the legacy"):
         session.predict(object(), engine="legacy")
@@ -216,13 +264,12 @@ def test_native_session_run_owns_one_validated_archive_and_releases_handles(
 
     def replay(
         _: str,
-        _request: dict[str, Any],
-        _envelopes: dict[str, Any],
-        methods_inputs: dict[str, Any],
+        sample_ids: list[str],
+        _x: list[list[float]],
+        _target_names: list[str],
         **_kwargs: Any,
     ) -> dict[str, Any]:
         observed["replays"] += 1
-        sample_ids = methods_inputs["model:methods.x"]["sample_ids"]
         return {
             "outputs": [{
                 "predictions": [{
@@ -234,25 +281,10 @@ def test_native_session_run_owns_one_validated_archive_and_releases_handles(
 
     core = SimpleNamespace(
         read_portable_predictor_package_v2=read,
-        replay_methods_archive_v2=replay,
+        inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [_descriptor()],
+        predict_methods_archive_v2_matrix=replay,
     )
-    dag_ml = SimpleNamespace(
-        sample_relation_set_fingerprint_json=lambda _: "r" * 64,
-        sign_training_replay_request=lambda request: {
-            **request,
-            "request_fingerprint": "f" * 64,
-        },
-    )
-    real_import = core_archive_replay.importlib.import_module
-    monkeypatch.setattr(
-        core_archive_replay.importlib,
-        "import_module",
-        lambda name: core
-        if name == "nirs4all_core"
-        else dag_ml
-        if name == "dag_ml"
-        else real_import(name),
-    )
+    _install_core(monkeypatch, core)
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
 
     class FakeNativeResult(NativeMethodsArchiveRunResult):
@@ -272,10 +304,30 @@ def test_native_session_run_owns_one_validated_archive_and_releases_handles(
             self.detach_calls = 0
             self.native_execution_is_live = True
 
-        def export(self, path: str | Path) -> Path:
-            destination = Path(path)
+        def export(
+            self,
+            output_path: str | Path,
+            format: str = "n4a",
+            source: dict[str, Any] | None = None,
+            chain_id: str | None = None,
+            *,
+            compatibility: str | None = None,
+        ) -> Path:
+            assert format == "n4a"
+            assert source is None and chain_id is None and compatibility is None
+            destination = Path(output_path)
             self.exports.append(destination)
-            return _archive(destination, 2)
+            _archive(destination, 2)
+            validation = core_archive_replay.validate_core_methods_archive_v2(
+                destination,
+                methods_library_path="/opt/lib/libn4m.so",
+            )
+            self._native_export_validation = (
+                destination,
+                validation,
+                core_archive_replay._archive_fingerprint(destination),
+            )
+            return destination
 
         def close(self) -> None:
             if self.native_execution_is_live:
@@ -321,7 +373,7 @@ def test_native_session_run_owns_one_validated_archive_and_releases_handles(
     with load_session(saved) as resumed:
         resumed.predict(prediction, methods_library_path="/opt/lib/libn4m.so")
         assert resumed._runner is None
-    assert observed["reads"] == 2
+    assert observed["reads"] == 3
     assert observed["replays"] == 3
     assert len(observed["run_options"]) == 1
     assert observed["run_options"][0]["methods_library_path"] == "/opt/lib/libn4m.so"
@@ -369,10 +421,10 @@ def test_native_session_refuses_runner_and_all_explicit_legacy_top_level_paths()
 
     legacy_calls = [
         lambda: session.runner,
-        lambda: nirs4all.run(object(), object(), engine="legacy", session=session),
+        lambda: nirs4all.run(object(), object(), engine="legacy", session=session),  # type: ignore[arg-type]
         lambda: nirs4all.predict(session=session, engine="legacy"),
-        lambda: nirs4all.retrain(object(), object(), engine="legacy", session=session),
-        lambda: nirs4all.explain(object(), object(), engine="legacy", session=session),
+        lambda: nirs4all.retrain(object(), object(), engine="legacy", session=session),  # type: ignore[arg-type]
+        lambda: nirs4all.explain(object(), object(), engine="legacy", session=session),  # type: ignore[arg-type]
     ]
     for legacy_call in legacy_calls:
         with pytest.raises(RtError, match="native Archive V2 Session cannot enter engine='legacy'") as caught:
@@ -491,13 +543,12 @@ def test_v2_session_closes_reloads_and_rejects_changed_source_before_data(
 
     def replay(
         _: str,
-        _request: dict[str, Any],
-        _envelopes: dict[str, Any],
-        methods_inputs: dict[str, Any],
+        sample_ids: list[str],
+        _x: list[list[float]],
+        _target_names: list[str],
         **_kwargs: Any,
     ) -> dict[str, Any]:
         observed["replays"] += 1
-        sample_ids = methods_inputs["model:methods.x"]["sample_ids"]
         return {
             "outputs": [
                 {
@@ -510,25 +561,10 @@ def test_v2_session_closes_reloads_and_rejects_changed_source_before_data(
 
     core = SimpleNamespace(
         read_portable_predictor_package_v2=read,
-        replay_methods_archive_v2=replay,
+        inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [_descriptor()],
+        predict_methods_archive_v2_matrix=replay,
     )
-    dag_ml = SimpleNamespace(
-        sample_relation_set_fingerprint_json=lambda _: "r" * 64,
-        sign_training_replay_request=lambda request: {
-            **request,
-            "request_fingerprint": "f" * 64,
-        },
-    )
-    real_import = core_archive_replay.importlib.import_module
-    monkeypatch.setattr(
-        core_archive_replay.importlib,
-        "import_module",
-        lambda name: core
-        if name == "nirs4all_core"
-        else dag_ml
-        if name == "dag_ml"
-        else real_import(name),
-    )
+    _install_core(monkeypatch, core)
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
     monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
 
@@ -563,14 +599,10 @@ def test_v2_session_refuses_oversized_cached_package(
     core = SimpleNamespace(
         read_portable_predictor_package_v2=lambda _: b"x"
         * (core_archive_replay._MAX_PACKAGE_BYTES + 1),
-        replay_methods_archive_v2=lambda *_args, **_kwargs: {},
+        inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [_descriptor()],
+        predict_methods_archive_v2_matrix=lambda *_args, **_kwargs: {},
     )
-    real_import = core_archive_replay.importlib.import_module
-    monkeypatch.setattr(
-        core_archive_replay.importlib,
-        "import_module",
-        lambda name: core if name == "nirs4all_core" else real_import(name),
-    )
+    _install_core(monkeypatch, core)
     monkeypatch.setattr(pipeline_module, "PipelineRunner", _never_runner)
     monkeypatch.setattr(bundle_module, "BundleLoader", _never_bundle)
 
@@ -635,8 +667,8 @@ def test_top_level_native_run_refuses_loaded_legacy_session_before_options_or_ru
 
     with pytest.raises(RtError, match="already owns a legacy bundle") as caught:
         nirs4all.run(
-            session.pipeline,
-            object(),
+            session.pipeline,  # type: ignore[arg-type]
+            object(),  # type: ignore[arg-type]
             engine="native",
             session=session,
         )
