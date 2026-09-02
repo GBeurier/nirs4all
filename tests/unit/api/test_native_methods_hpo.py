@@ -150,6 +150,19 @@ def test_refuses_unimplemented_hpo_shapes_before_native_runtime(
         ["int", 1, 3, 1, 1],
         {"type": "int", "low": 1, "high": 3, "step": 2},
         {"type": "int", "low": 1, "high": 3, "log": True},
+        {"type": "int", "low": 1, "high": 3, "min": 2, "max": 999, "step": 1},
+        {"type": "int", "low": 1, "high": 3, "min": 1},
+        {"type": "int", "min": 1, "max": 3, "low": 1},
+        {"type": "int", "low": 1},
+        {"type": "int", "high": 3},
+        {"type": "int", "min": 1},
+        {"type": "int", "max": 3},
+        {"type": "int", "low": 1, "max": 3},
+        {"type": "int", "min": 1, "high": 3},
+        {"type": "int"},
+        {"low": 1, "high": 3},
+        {"type": "float", "low": 1, "high": 3},
+        {"type": "int", "low": 1, "high": 3, "grid": [1, 2, 3]},
     ],
 )
 def test_refuses_spaces_outside_exact_methods_v1_before_data_or_session(
@@ -218,7 +231,10 @@ def test_refuses_too_narrow_feature_matrix_before_session_or_runtime(
         ["int", 1, 3],
         ["int", 1, 3, 1],
         {"type": "int", "low": 1, "high": 3, "step": 1},
+        {"type": "int", "low": 1, "high": 3, "log": False},
+        {"type": "int", "low": 1, "high": 3, "step": 1, "log": False},
         {"type": "int", "min": 1, "max": 3},
+        {"type": "int", "min": 1, "max": 3, "step": 1, "log": False},
     ],
 )
 def test_accepts_only_equivalent_exact_methods_v1_space_spellings(space: Any) -> None:

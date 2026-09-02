@@ -456,11 +456,19 @@ def _normalize_n_components_space(value: Any) -> tuple[int, int, int]:
     """Normalize only public range spellings; runtime support is checked next."""
 
     if isinstance(value, Mapping):
-        unknown = set(value) - {"type", "min", "max", "low", "high", "step", "log"}
-        if unknown or value.get("type") != "int" or value.get("log", False) is not False:
+        keys = set(value)
+        unknown = keys - {"type", "min", "max", "low", "high", "step", "log"}
+        bound_keys = keys - {"type", "step", "log"}
+        if unknown or bound_keys not in ({"low", "high"}, {"min", "max"}):
+            raise NativeMethodsHpoCapabilityError(
+                "engine='native' portable Methods HPO v1 requires exactly one complete n_components bound pair: type='int' with low/high or min/max; mixed, duplicated, partial, or unknown aliases are refused"
+            )
+        if value.get("type") != "int" or value.get("log", False) is not False:
             raise NativeMethodsHpoCapabilityError("engine='native' portable Methods HPO v1 requires one linear integer n_components range")
-        low = value.get("low", value.get("min"))
-        high = value.get("high", value.get("max"))
+        if bound_keys == {"low", "high"}:
+            low, high = value["low"], value["high"]
+        else:
+            low, high = value["min"], value["max"]
         step = value.get("step", 1)
     elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
         if len(value) not in (3, 4) or value[0] != "int":
