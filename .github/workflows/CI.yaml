@@ -11,7 +11,7 @@ on:
 # This workflow runs quick tests for regular development
 
 env:
-  N4A_DAG_ML_REF: a8f6cb3845fcb19f81450b4776094f21978cf2b7
+  N4A_DAG_ML_REF: bad5aff0bfbc14c622f5ade7f393f29399df6e07
   N4A_DAG_ML_DATA_REF: 95e56a7fa3d82ea00fda7ecfcd950a22ab526d21
 
 jobs:
