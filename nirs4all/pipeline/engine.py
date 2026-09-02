@@ -15,10 +15,11 @@ Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAU
 (``dag-ml``). Pass ``engine="legacy"`` (or ``$N4A_ENGINE=legacy``) only for compatibility runs. See
 ``dag-ml/docs/migration-nirs4all/``.
 
-Product callers must also select ``execution_profile="strict"``.  That profile is deliberately
-not ambient-configurable: it rejects both direct and environment-selected legacy execution, the
-dual legacy oracle, and opt-in legacy fallback.  The default ``"rollback-capable"`` profile keeps
-the public Python compatibility contract available until the R4 removal decision.
+Product-owned internal boundaries resolve with ``execution_profile="strict"``.  That profile is
+deliberately not ambient-configurable: it rejects both direct and environment-selected legacy
+execution, the dual legacy oracle, and opt-in legacy fallback.  The default
+``"rollback-capable"`` profile keeps the frozen public Python ``run`` contract and explicit
+compatibility lane available until the R4 removal decision.
 """
 
 from __future__ import annotations
@@ -90,6 +91,11 @@ def resolve_engine(
         ValueError: If the name is not one of :data:`ENGINES`.
         ExecutionProfileError: If the profile is unknown or a strict request could reach legacy.
     """
+    if not isinstance(execution_profile, str):
+        raise ExecutionProfileError(
+            "profile_invalid_type",
+            "nirs4all execution profile must be a string",
+        )
     normalized_profile = execution_profile.strip().lower()
     if normalized_profile not in EXECUTION_PROFILES:
         raise ExecutionProfileError(
