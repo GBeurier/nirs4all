@@ -22,6 +22,7 @@ def test_example_plot_flags_generate_charts(flag: str, tmp_path: Path) -> None:
     env["MPLBACKEND"] = "Agg"
     env["NIRS4ALL_EXAMPLE_FAST"] = "1"
     env["NIRS4ALL_WORKSPACE"] = str(tmp_path)
+    env["N4A_ENGINE"] = "legacy"
 
     result = subprocess.run(
         [sys.executable, str(launcher), str(example), flag],
