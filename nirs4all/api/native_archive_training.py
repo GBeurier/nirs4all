@@ -61,6 +61,7 @@ class NativeMethodsArchiveRunResult(RunResult):
         outcome_contract: Any,
         package_contract: Any,
         archive_id: str,
+        methods_library_path: str,
     ) -> None:
         super().__init__(
             predictions=projected.predictions,
@@ -75,7 +76,9 @@ class NativeMethodsArchiveRunResult(RunResult):
         self._native_outcome_contract = outcome_contract
         self._native_package_contract = package_contract
         self._native_archive_id = archive_id
+        self._methods_library_path = methods_library_path
         self._native_archive_reference: dict[str, str] | None = None
+        self._native_export_validation: tuple[Path, Any, str] | None = None
 
     @property
     def native_archive_reference(self) -> dict[str, str] | None:
@@ -165,6 +168,16 @@ class NativeMethodsArchiveRunResult(RunResult):
                 manifest,
                 members,
             )
+            from nirs4all.pipeline.dagml.core_archive_replay import (
+                _archive_fingerprint,
+                validate_core_methods_archive_v2,
+            )
+
+            validation = validate_core_methods_archive_v2(
+                path,
+                methods_library_path=self._methods_library_path,
+            )
+            archive_fingerprint = _archive_fingerprint(path)
         except Exception as error:
             raise NativeArchiveTrainingError("DAG-ML/Core refused native Archive V2 publication") from error
         if not isinstance(reference, Mapping):
@@ -177,6 +190,7 @@ class NativeMethodsArchiveRunResult(RunResult):
             "archive_id": archive_id,
             "archive_sha256": archive_sha256,
         }
+        self._native_export_validation = (path, validation, archive_fingerprint)
         return path
 
     def close(self) -> None:
@@ -341,6 +355,7 @@ def run_native_methods_archive(
             outcome_contract=outcome_object,
             package_contract=package_object,
             archive_id=f"archive:{fingerprint}",
+            methods_library_path=methods_library_path,
         )
         if native_session is not None:
             native_session._adopt_native_result(result, dataset)

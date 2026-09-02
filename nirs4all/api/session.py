@@ -29,6 +29,7 @@ from typing import TYPE_CHECKING, Any, cast
 if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult, RunResult
     from nirs4all.pipeline import PipelineRunner
+    from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveValidation
 
 
 class SessionClosedError(RuntimeError):
@@ -99,7 +100,7 @@ class Session:
         self._run_history: list[dict[str, Any]] = []
         self._bundle_path: Path | None = None  # Set when loading from bundle
         self._core_archive_path: Path | None = None
-        self._core_archive_validation: tuple[Path, Any, dict[str, Any]] | None = None
+        self._core_archive_validation: tuple[Path, CoreArchiveValidation] | None = None
         self._core_archive_fingerprint: str | None = None
         self._native_archive_directory: TemporaryDirectory[str] | None = None
         self._closed = False
@@ -239,7 +240,18 @@ class Session:
             exported = Path(result.export(archive_path))
             if exported != archive_path:
                 raise RuntimeError("native Session export returned an unexpected archive path")
-            validation, fingerprint = _validated_core_archive(archive_path)
+            export_validation = getattr(result, "_native_export_validation", None)
+            if (
+                not isinstance(export_validation, tuple)
+                or len(export_validation) != 3
+                or export_validation[0] != archive_path
+                or not isinstance(export_validation[2], str)
+            ):
+                raise RuntimeError(
+                    "native Session export omitted predictor inspection evidence"
+                )
+            validation = (archive_path, export_validation[1])
+            fingerprint = export_validation[2]
             best_score = result.best_score
             num_predictions = result.num_predictions
             result.close()
@@ -652,7 +664,7 @@ class Session:
 
 def _validated_core_archive(
     path: Path,
-) -> tuple[tuple[Path, Any, dict[str, Any]], str]:
+) -> tuple[tuple[Path, "CoreArchiveValidation"], str]:
     """Create the one-entry Session cache while binding it to exact bytes."""
     from nirs4all.pipeline.dagml.core_archive_replay import (
         CoreArchiveReplayError,
@@ -666,7 +678,7 @@ def _validated_core_archive(
         raise CoreArchiveReplayError(
             "Core Archive V2 changed while the Session cache was created"
         )
-    return (path, *validation), source_fingerprint
+    return (path, validation), source_fingerprint
 
 
 def load_session(path: str | Path) -> Session:
@@ -679,10 +691,10 @@ def load_session(path: str | Path) -> Session:
         Session ready for prediction.
 
     Notes:
-        Core Archive V2 is hashed immediately before and after native
-        validation, so loading performs two bounded-memory full-file reads.
-        Prediction hashes the source once more before it inspects input data,
-        binding the cached contract to the exact archive bytes.
+        Core Archive V2 is hashed immediately before and after Core derives
+        its native predictor descriptors. Prediction hashes the source once
+        more before it inspects input data, binding the cached package,
+        descriptor set and libn4m identity to the exact archive bytes.
 
     Example:
         >>> session = nirs4all.load_session("exports/model.n4a")

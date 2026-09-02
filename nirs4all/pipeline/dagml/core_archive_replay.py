@@ -11,10 +11,10 @@ from __future__ import annotations
 import hashlib
 import importlib
 import json
-import math
-import struct
 import zipfile
+from collections import Counter
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
 
@@ -24,7 +24,7 @@ from .identity import validate_data_id
 
 _MAX_MANIFEST_BYTES = 1_048_576
 _MAX_PACKAGE_BYTES = 8_388_608
-_FINGERPRINT_PREFIX = b"n4a-matrix-f64-le.v1\0"
+_MAX_METHODS_LIBRARY_BYTES = 67_108_864
 _CORE_PROFILES = {
     2: "nirs4all.archive_workspace.v2",
     3: "nirs4all.archive_workspace.v3",
@@ -42,6 +42,17 @@ class CoreArchiveDependencyError(CoreArchiveReplayError):
         self.dependency = dependency
         self.mitigation = mitigation
         super().__init__(message)
+
+
+@dataclass(frozen=True)
+class CoreArchiveValidation:
+    """Core-derived, byte-bound evidence cached by one strict consumer."""
+
+    core: Any
+    package: dict[str, Any]
+    predictors: tuple[dict[str, Any], ...]
+    methods_library_path: str
+    methods_library_sha256: str
 
 
 def detect_core_archive_version(path: str | Path) -> int | None:
@@ -106,7 +117,7 @@ def predict_core_methods_archive_v2(
     data: Any,
     *,
     methods_library_path: str | Path | None,
-    validated_archive: tuple[Path, Any, dict[str, Any]] | None = None,
+    validated_archive: tuple[Path, CoreArchiveValidation] | None = None,
     expected_archive_fingerprint: str | None = None,
     outcome_id: str = "outcome:nirs4all.core_archive_predict",
     run_id: str = "run:nirs4all.core_archive_predict",
@@ -131,37 +142,46 @@ def predict_core_methods_archive_v2(
             "Core Archive V2 changed after Session validation; load a new session"
         )
     if validated_archive is None:
-        core, package = validate_core_methods_archive_v2(candidate)
+        validation = validate_core_methods_archive_v2(
+            candidate,
+            methods_library_path=methods_library_path,
+        )
     else:
-        validated_path, core, package = validated_archive
+        validated_path, validation = validated_archive
         if candidate != validated_path:
             raise CoreArchiveReplayError(
                 "Core Archive V2 validation cache does not match the replay path"
             )
-    X, sample_ids, groups, metadata_rows = _normalize_dataset(data)
-    replay = getattr(core, "replay_methods_archive_v2", None)
-    if not callable(replay):
+        if methods_library_path is not None:
+            requested_path, requested_sha256 = _resolve_methods_library_identity(
+                methods_library_path
+            )
+            if (
+                requested_path != validation.methods_library_path
+                or requested_sha256 != validation.methods_library_sha256
+            ):
+                raise CoreArchiveReplayError(
+                    "Core Archive V2 Session is bound to a different libn4m identity"
+                )
+
+    X, sample_ids = _normalize_dataset(data)
+    target_names = tuple(_single_binding(validation.package)["target_names"])
+    predict = getattr(validation.core, "predict_methods_archive_v2_matrix", None)
+    if not callable(predict):
         raise CoreArchiveDependencyError(
             "nirs4all-core",
-            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay",
+            "installed nirs4all-core is too old for closed Archive V2 matrix prediction",
             mitigation="install the nirs4all-core version pinned by the release lock",
         )
-    request, envelopes, methods_inputs = _build_replay_contracts(
-        package,
-        X,
-        sample_ids=sample_ids,
-        groups=groups,
-        metadata_rows=metadata_rows,
-    )
-    target_names = tuple(_single_binding(package)["target_names"])
-    library_path = _resolve_methods_library_path(methods_library_path)
     try:
-        outcome = replay(
+        outcome = predict(
             str(candidate),
-            request,
-            envelopes,
-            methods_inputs,
-            methods_library_path=library_path,
+            list(sample_ids),
+            X.tolist(),
+            list(target_names),
+            methods_library_path=validation.methods_library_path,
+            methods_library_sha256=validation.methods_library_sha256,
+            request_id="replay:nirs4all.core_archive_predict",
             outcome_id=outcome_id,
             run_id=run_id,
             warnings=(),
@@ -176,6 +196,9 @@ def predict_core_methods_archive_v2(
         "archive_schema_version": 2,
         "sample_ids": list(sample_ids),
         "target_names": list(target_names),
+        "native_predictor_descriptors": [
+            dict(descriptor) for descriptor in validation.predictors
+        ],
         "outcome_id": outcome_id,
         "run_id": run_id,
     }
@@ -183,24 +206,49 @@ def predict_core_methods_archive_v2(
 
 def validate_core_methods_archive_v2(
     archive_path: str | Path,
-) -> tuple[Any, dict[str, Any]]:
-    """Validate one V2 archive and the exact callback-free Core bridge."""
+    *,
+    methods_library_path: str | Path | None = None,
+) -> CoreArchiveValidation:
+    """Validate one V2 archive and derive its predictors from native bytes."""
 
     core = _load_core_bridge()
     read_package = getattr(core, "read_portable_predictor_package_v2", None)
-    replay = getattr(core, "replay_methods_archive_v2", None)
-    if not callable(read_package) or not callable(replay):
+    inspect_predictors = getattr(core, "inspect_methods_archive_v2_predictors", None)
+    predict = getattr(core, "predict_methods_archive_v2_matrix", None)
+    if (
+        not callable(read_package)
+        or not callable(inspect_predictors)
+        or not callable(predict)
+    ):
         raise CoreArchiveDependencyError(
             "nirs4all-core",
-            "installed nirs4all-core is too old for callback-free Archive V2 Methods replay",
+            "installed nirs4all-core is too old for native predictor inspection and closed Archive V2 prediction",
             mitigation="install the nirs4all-core version pinned by the release lock",
         )
+    library_path, library_sha256 = _resolve_methods_library_identity(methods_library_path)
     try:
         package_bytes = read_package(str(Path(archive_path)))
     except Exception as error:
         raise CoreArchiveReplayError("nirs4all-core refused Archive V2 validation") from error
     package = _decode_package(package_bytes)
-    return core, package
+    try:
+        raw_predictors = inspect_predictors(
+            str(Path(archive_path)),
+            methods_library_path=library_path,
+            methods_library_sha256=library_sha256,
+        )
+    except Exception as error:
+        raise CoreArchiveReplayError(
+            "Core/DAG-ML/Methods refused Archive V2 predictor inspection"
+        ) from error
+    predictors = _validate_native_predictor_evidence(package, raw_predictors)
+    return CoreArchiveValidation(
+        core=core,
+        package=package,
+        predictors=predictors,
+        methods_library_path=library_path,
+        methods_library_sha256=library_sha256,
+    )
 
 
 def _load_core_bridge() -> Any:
@@ -247,10 +295,18 @@ def _archive_fingerprint(path: Path) -> str:
 
 def _normalize_dataset(
     data: Any,
-) -> tuple[np.ndarray, tuple[str, ...], tuple[str | None, ...], tuple[dict[str, Any], ...]]:
+) -> tuple[np.ndarray, tuple[str, ...]]:
     if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
         raise TypeError(
             "Core Archive V2 predict requires data={'X': matrix, 'sample_ids': explicit_ids}"
+        )
+    unsupported = sorted(
+        key for key in ("groups", "metadata") if data.get(key) is not None
+    )
+    if unsupported:
+        raise ValueError(
+            "Core Archive V2 closed matrix prediction does not accept cohort fields: "
+            f"{unsupported}"
         )
     X = np.ascontiguousarray(np.asarray(data["X"], dtype=np.dtype("<f8")))
     if X.ndim != 2 or X.shape[0] == 0 or X.shape[1] == 0:
@@ -265,162 +321,106 @@ def _normalize_dataset(
     sample_ids = tuple(validate_data_id(str(value)) for value in raw_ids)
     if len(set(sample_ids)) != len(sample_ids):
         raise ValueError("Core Archive V2 predict sample_ids must be unique")
-    groups = _normalize_groups(data.get("groups"), X.shape[0])
-    metadata_rows = _normalize_metadata(data.get("metadata"), X.shape[0])
-    return X, sample_ids, groups, metadata_rows
+    return X, sample_ids
 
 
-def _normalize_groups(value: Any, rows: int) -> tuple[str | None, ...]:
-    if value is None:
-        return (None,) * rows
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != rows:
-        raise ValueError("Core Archive V2 predict groups must align with X rows")
-    groups = tuple(None if item is None else str(item) for item in value)
-    if any(item == "" for item in groups):
-        raise ValueError("Core Archive V2 predict group ids must be non-empty")
-    return groups
-
-
-def _normalize_metadata(value: Any, rows: int) -> tuple[dict[str, Any], ...]:
-    if value is None:
-        return tuple({} for _ in range(rows))
-    if isinstance(value, Mapping):
-        normalized: list[dict[str, Any]] = [{} for _ in range(rows)]
-        for key, column in value.items():
-            if not isinstance(column, Sequence) or isinstance(column, (str, bytes)) or len(column) != rows:
-                raise ValueError(f"Core Archive V2 metadata column {key!r} must align with X rows")
-            for index, item in enumerate(column):
-                normalized[index][str(key)] = _json_scalar(item)
-        return tuple(normalized)
-    if not isinstance(value, Sequence) or isinstance(value, (str, bytes)) or len(value) != rows:
-        raise ValueError("Core Archive V2 metadata rows must align with X rows")
-    normalized = []
-    for row in value:
-        if not isinstance(row, Mapping):
-            raise TypeError("Core Archive V2 metadata rows must be mappings")
-        normalized.append({str(key): _json_scalar(item) for key, item in row.items()})
-    return tuple(normalized)
-
-
-def _json_scalar(value: Any) -> str | bool | int | float | None:
-    if isinstance(value, np.generic):
-        value = value.item()
-    if value is None or isinstance(value, (str, bool, int)):
-        return value
-    if isinstance(value, float) and math.isfinite(value):
-        return value
-    raise TypeError("Core Archive V2 metadata values must be finite JSON scalars")
-
-
-def _build_replay_contracts(
+def _validate_native_predictor_evidence(
     package: Mapping[str, Any],
-    X: np.ndarray,
-    *,
-    sample_ids: tuple[str, ...],
-    groups: tuple[str | None, ...],
-    metadata_rows: tuple[dict[str, Any], ...],
-) -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
-    bundle = _object(package, "execution_bundle")
-    requirements = _requirements(bundle)
-    binding = _single_binding(package)
-    relations = {
-        "records": [
-            {
-                "observation_id": sample_id,
-                "sample_id": sample_id,
-                "target_id": None,
-                "group_id": group,
-                "origin_sample_id": None,
-                "source_id": None,
-                "is_augmented": False,
-                "metadata": metadata,
-            }
-            for sample_id, group, metadata in zip(sample_ids, groups, metadata_rows, strict=True)
-        ]
-    }
-    dag_ml = _load_dag_ml()
-    fingerprint_fn = getattr(dag_ml, "sample_relation_set_fingerprint_json", None)
-    signer = getattr(dag_ml, "sign_training_replay_request", None)
-    if not callable(fingerprint_fn) or not callable(signer):
-        raise CoreArchiveDependencyError(
-            "dag-ml",
-            "installed dag-ml is too old to fingerprint and sign Archive V2 replay contracts",
-            mitigation="install the dag-ml facade version pinned by the release lock",
+    raw_predictors: Any,
+) -> tuple[dict[str, Any], ...]:
+    """Match Core-derived descriptors to the package and admit V1 topology."""
+
+    if not isinstance(raw_predictors, list) or not raw_predictors or not all(
+        isinstance(descriptor, dict) for descriptor in raw_predictors
+    ):
+        raise CoreArchiveReplayError(
+            "Core Archive V2 inspection returned an invalid predictor descriptor list"
         )
-    relation_fingerprint = fingerprint_fn(_canonical_json(relations))
-    if not isinstance(relation_fingerprint, str) or len(relation_fingerprint) != 64:
-        raise CoreArchiveReplayError("DAG-ML returned an invalid relation fingerprint")
-    data_fingerprint = _feature_fingerprint(X)
-    envelopes = {
-        key: {
-            "schema_version": 1,
-            "schema_fingerprint": requirement["schema_fingerprint"],
-            "plan_fingerprint": requirement["plan_fingerprint"],
-            "relation_fingerprint": relation_fingerprint,
-            "data_content_fingerprint": data_fingerprint,
-            "target_content_fingerprint": None,
-            "coordinator_relations": relations,
-        }
-        for key, requirement in requirements.items()
-    }
-    outcome = _object(package, "training_outcome")
-    source_fingerprint = outcome.get("outcome_fingerprint")
-    if not isinstance(source_fingerprint, str) or len(source_fingerprint) != 64:
-        raise CoreArchiveReplayError("Package V2 training outcome lacks its fingerprint")
-    request = signer(
-        {
-            "schema_version": 1,
-            "request_id": "replay:nirs4all.core_archive_predict",
-            "source_outcome_fingerprint": source_fingerprint,
-            "phase": "PREDICT",
-            "data_envelope_keys": sorted(envelopes),
-            "output_binding_ids": [binding["binding_id"]],
-            "request_fingerprint": "0" * 64,
-        }
-    )
-    if hasattr(request, "to_dict") and callable(request.to_dict):
-        request = request.to_dict()
-    if not isinstance(request, dict):
-        raise CoreArchiveReplayError("DAG-ML replay request signer returned a non-object")
-    inputs = {
-        key: {
-            "sample_ids": list(sample_ids),
-            "x": X.tolist(),
-            "target_names": list(binding["target_names"]),
-        }
-        for key in requirements
-    }
-    return request, envelopes, inputs
+    predictors = tuple(dict(descriptor) for descriptor in raw_predictors)
+    bundle = _object(package, "execution_bundle")
+    records = bundle.get("refit_artifacts")
+    if not isinstance(records, list):
+        raise CoreArchiveReplayError("Package V2 lacks refit_artifacts")
+    native_records: list[dict[str, Any]] = []
+    embedded: list[dict[str, Any] | None] = []
+    for record in records:
+        if not isinstance(record, dict):
+            raise CoreArchiveReplayError("Package V2 refit artifact is not an object")
+        artifact = record.get("artifact")
+        if not isinstance(artifact, dict):
+            raise CoreArchiveReplayError("Package V2 refit artifact lacks artifact metadata")
+        if artifact.get("kind") != "n4m_model":
+            continue
+        native_records.append(record)
+        descriptor = artifact.get("native_predictor_descriptor")
+        if descriptor is not None and not isinstance(descriptor, dict):
+            raise CoreArchiveReplayError(
+                "Package V2 native predictor descriptor is not an object"
+            )
+        embedded.append(descriptor)
 
+    if len(native_records) != len(predictors):
+        raise CoreArchiveReplayError(
+            "Core-derived predictors do not exactly cover Package V2 refit artifacts"
+        )
+    present = [descriptor is not None for descriptor in embedded]
+    if any(present) and not all(present):
+        raise CoreArchiveReplayError(
+            "Package V2 mixes present and historical absent native predictor descriptors"
+        )
+    if all(present):
+        expected = Counter(_canonical_json(descriptor) for descriptor in embedded)
+        observed = Counter(_canonical_json(descriptor) for descriptor in predictors)
+        if expected != observed:
+            raise CoreArchiveReplayError(
+                "Package V2 native predictor descriptors do not match Core-derived bytes"
+            )
 
-def _load_dag_ml() -> Any:
-    try:
-        return importlib.import_module("dag_ml")
-    except ImportError as error:
-        raise CoreArchiveDependencyError(
-            "dag-ml",
-            "Core Archive V2 replay requires a matching DAG-ML Python facade",
-            mitigation="install the dag-ml facade version pinned by the release lock",
-        ) from error
+    binding = _single_binding(package)
+    final_records = [record for record in native_records if record.get("node_id") == binding.get("node_id")]
+    if len(final_records) != 1:
+        raise CoreArchiveReplayError(
+            "Package V2 output binding must select exactly one native predictor"
+        )
+    final_record = final_records[0]
+    final_index = native_records.index(final_record)
+    final_descriptor = predictors[final_index]
+    final_owner = final_descriptor.get("owner_controller")
+    target_names = binding["target_names"]
+    dimensions = final_descriptor.get("dimensions")
+    if not isinstance(dimensions, dict) or dimensions.get("n_targets") != len(target_names):
+        raise CoreArchiveReplayError(
+            "Package V2 final native predictor dimensions do not match output targets"
+        )
 
-
-def _requirements(bundle: Mapping[str, Any]) -> dict[str, dict[str, str]]:
-    raw = bundle.get("data_requirements")
-    if not isinstance(raw, list) or not raw:
-        raise CoreArchiveReplayError("Package V2 has no data requirements")
-    requirements: dict[str, dict[str, str]] = {}
-    for item in raw:
-        if not isinstance(item, dict):
-            raise CoreArchiveReplayError("Package V2 data requirement is not an object")
-        values = tuple(item.get(name) for name in ("node_id", "input_name", "schema_fingerprint", "plan_fingerprint"))
-        if not all(isinstance(value, str) and value for value in values):
-            raise CoreArchiveReplayError("Package V2 data requirement lacks stable fingerprints")
-        node_id, input_name, schema, plan = cast(tuple[str, str, str, str], values)
-        key = f"{node_id}.{input_name}"
-        if key in requirements:
-            raise CoreArchiveReplayError("Package V2 repeats a data requirement key")
-        requirements[key] = {"schema_fingerprint": schema, "plan_fingerprint": plan}
-    return requirements
+    owners = [descriptor.get("owner_controller") for descriptor in predictors]
+    prediction_inputs = final_record.get("prediction_requirement_keys", [])
+    data_inputs = final_record.get("data_requirement_keys", [])
+    if not isinstance(prediction_inputs, list) or not isinstance(data_inputs, list):
+        raise CoreArchiveReplayError(
+            "Package V2 final native predictor requirements are invalid"
+        )
+    if final_owner == "controller:methods.pls":
+        if len(predictors) != 1 or prediction_inputs:
+            raise CoreArchiveReplayError(
+                "strict Archive V2 prediction accepts only one raw Methods PLS predictor"
+            )
+    elif final_owner == "controller:methods.ridge":
+        if (
+            len(predictors) < 2
+            or final_index != len(predictors) - 1
+            or any(owner != "controller:methods.pls" for owner in owners[:-1])
+            or not prediction_inputs
+            or data_inputs
+        ):
+            raise CoreArchiveReplayError(
+                "strict Archive V2 prediction accepts Ridge only as the final stacking predictor"
+            )
+    else:
+        raise CoreArchiveReplayError(
+            "strict Archive V2 prediction supports raw PLS or final stacking Ridge only"
+        )
+    return predictors
 
 
 def _single_binding(package: Mapping[str, Any]) -> dict[str, Any]:
@@ -446,14 +446,6 @@ def _object(container: Mapping[str, Any], name: str) -> dict[str, Any]:
     if not isinstance(value, dict):
         raise CoreArchiveReplayError(f"Package V2 lacks object `{name}`")
     return value
-
-
-def _feature_fingerprint(X: np.ndarray) -> str:
-    hasher = hashlib.sha256()
-    hasher.update(_FINGERPRINT_PREFIX)
-    hasher.update(struct.pack("<QQ", *X.shape))
-    hasher.update(X.tobytes(order="C"))
-    return hasher.hexdigest()
 
 
 def _resolve_methods_library_path(path: str | Path | None) -> str:
@@ -482,6 +474,29 @@ def _resolve_methods_library_path(path: str | Path | None) -> str:
             mitigation="install the nirs4all-methods wheel pinned by the release lock",
         )
     return str(value)
+
+
+def _resolve_methods_library_identity(
+    path: str | Path | None,
+) -> tuple[str, str]:
+    """Resolve and hash the exact libn4m bytes attested again by Core."""
+
+    candidate = Path(_resolve_methods_library_path(path))
+    try:
+        resolved = candidate.resolve(strict=True)
+        if not resolved.is_file() or resolved.stat().st_size > _MAX_METHODS_LIBRARY_BYTES:
+            raise OSError("libn4m is not a bounded regular file")
+        digest = hashlib.sha256()
+        with resolved.open("rb") as library:
+            for chunk in iter(lambda: library.read(1_048_576), b""):
+                digest.update(chunk)
+    except OSError as error:
+        raise CoreArchiveDependencyError(
+            "nirs4all-methods",
+            "Core Archive V2 replay cannot attest the selected libn4m file",
+            mitigation="install the nirs4all-methods wheel pinned by the release lock or pass its canonical library path",
+        ) from error
+    return str(resolved), digest.hexdigest()
 
 
 def _decode_prediction(
@@ -518,6 +533,7 @@ def _canonical_json(value: Any) -> str:
 __all__ = [
     "CoreArchiveDependencyError",
     "CoreArchiveReplayError",
+    "CoreArchiveValidation",
     "detect_core_archive_version",
     "predict_core_methods_archive_v2",
     "validate_core_methods_archive_v2",

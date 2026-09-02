@@ -30,7 +30,51 @@ def _archive(path: Path, version: int) -> Path:
     return path
 
 
-def _package(target_names: list[str] | None = None) -> dict[str, Any]:
+def _descriptor(
+    *,
+    owner: str = "controller:methods.pls",
+    artifact_sha256: str = "a" * 64,
+    n_targets: int = 1,
+) -> dict[str, Any]:
+    ridge = owner == "controller:methods.ridge"
+    return {
+        "descriptor_type": "dagml.native_predictor_descriptor.v1",
+        "schema_version": 1,
+        "artifact_sha256": artifact_sha256,
+        "owner_controller": owner,
+        "format": "N4MM",
+        "format_version": 1,
+        "writer_abi": {"major": 2, "minor": 4, "patch": 0},
+        "storage_algorithm": 11 if ridge else 0,
+        "capabilities": 5 if ridge else 3,
+        "dimensions": {
+            "training_samples": 8,
+            "n_features": 2,
+            "n_targets": n_targets,
+            "n_components": 0 if ridge else 1,
+        },
+        "descriptor_fingerprint": ("b" if ridge else "c") * 64,
+    }
+
+
+def _package(
+    target_names: list[str] | None = None,
+    *,
+    descriptor: dict[str, Any] | None | object = ...,
+) -> dict[str, Any]:
+    targets = target_names or ["protein"]
+    native_descriptor = _descriptor(n_targets=len(targets)) if descriptor is ... else descriptor
+    artifact = {
+        "id": "artifact:methods",
+        "kind": "n4m_model",
+        "controller_id": "controller:methods.pls",
+        "backend": "raw",
+        "content_fingerprint": "a" * 64,
+        "abi_major": 2,
+        "abi_min_minor": 0,
+    }
+    if native_descriptor is not None:
+        artifact["native_predictor_descriptor"] = native_descriptor
     return {
         "schema_version": 2,
         "execution_bundle": {
@@ -41,14 +85,24 @@ def _package(target_names: list[str] | None = None) -> dict[str, Any]:
                     "schema_fingerprint": "s" * 64,
                     "plan_fingerprint": "p" * 64,
                 }
-            ]
+            ],
+            "refit_artifacts": [
+                {
+                    "node_id": "model:methods",
+                    "controller_id": "controller:methods.pls",
+                    "artifact": artifact,
+                    "params_fingerprint": "p" * 64,
+                    "data_requirement_keys": ["model:methods.x"],
+                    "prediction_requirement_keys": [],
+                }
+            ],
         },
         "training_outcome": {"outcome_fingerprint": "o" * 64},
         "output_bindings": [
             {
                 "binding_id": "binding:prediction",
                 "node_id": "model:methods",
-                "target_names": target_names or ["protein"],
+                "target_names": targets,
             }
         ],
     }
@@ -63,20 +117,26 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _archive(tmp_path / "portable.n4a", 2)
+    library = tmp_path / "libn4m.so"
+    library.write_bytes(b"n4m-test-library")
+    package = _package(["protein", "moisture"])
+    descriptor = package["execution_bundle"]["refit_artifacts"][0]["artifact"][
+        "native_predictor_descriptor"
+    ]
     observed: dict[str, Any] = {}
 
     def replay(
         archive_path: str,
-        request: dict[str, Any],
-        data_envelopes: dict[str, Any],
-        methods_inputs: dict[str, Any],
+        sample_ids: list[str],
+        x: list[list[float]],
+        target_names: list[str],
         **kwargs: Any,
     ) -> dict[str, Any]:
         observed.update(
             archive_path=archive_path,
-            request=request,
-            data_envelopes=data_envelopes,
-            methods_inputs=methods_inputs,
+            sample_ids=sample_ids,
+            x=x,
+            target_names=target_names,
             kwargs=kwargs,
         )
         return {
@@ -93,25 +153,15 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
         }
 
     core = SimpleNamespace(
-        read_portable_predictor_package_v2=lambda _: json.dumps(
-            _package(["protein", "moisture"])
-        ).encode(),
-        replay_methods_archive_v2=replay,
-    )
-    dag_ml = SimpleNamespace(
-        sample_relation_set_fingerprint_json=lambda _: "r" * 64,
-        sign_training_replay_request=lambda request: {
-            **request,
-            "request_fingerprint": "f" * 64,
-        },
+        read_portable_predictor_package_v2=lambda _: json.dumps(package).encode(),
+        inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [descriptor],
+        predict_methods_archive_v2_matrix=replay,
     )
     real_import = core_archive_replay.importlib.import_module
 
     def fake_import(name: str) -> Any:
         if name == "nirs4all_core":
             return core
-        if name == "dag_ml":
-            return dag_ml
         return real_import(name)
 
     monkeypatch.setattr(core_archive_replay.importlib, "import_module", fake_import)
@@ -122,33 +172,109 @@ def test_predict_replays_core_v2_without_constructing_pipeline_runner(
         data={
             "X": np.asarray([[1.0, 2.0], [3.0, 4.0]]),
             "sample_ids": ["sample.one", "sample.two"],
-            "groups": ["g1", "g2"],
-            "metadata": {"batch": [1, 2]},
         },
-        methods_library_path="/opt/lib/libn4m.so",
+        methods_library_path=library,
     )
 
     assert isinstance(result, PredictResult)
     np.testing.assert_array_equal(result.y_pred, [[1.5, 10.5], [2.5, 20.5]])
     assert result.metadata["engine"] == "core-native"
     assert result.metadata["target_names"] == ["protein", "moisture"]
+    assert result.metadata["native_predictor_descriptors"] == [descriptor]
     assert "serialized_model_predict" not in result.metadata
     assert observed["archive_path"] == str(path)
-    assert observed["request"]["phase"] == "PREDICT"
-    assert observed["request"]["request_fingerprint"] == "f" * 64
-    assert observed["request"]["data_envelope_keys"] == ["model:methods.x"]
-    envelope = observed["data_envelopes"]["model:methods.x"]
-    assert envelope["target_content_fingerprint"] is None
-    assert envelope["coordinator_relations"]["records"][0]["group_id"] == "g1"
-    assert envelope["coordinator_relations"]["records"][1]["metadata"] == {"batch": 2}
-    assert observed["methods_inputs"] == {
-        "model:methods.x": {
-            "sample_ids": ["sample.one", "sample.two"],
-            "x": [[1.0, 2.0], [3.0, 4.0]],
-            "target_names": ["protein", "moisture"],
+    assert observed["sample_ids"] == ["sample.one", "sample.two"]
+    assert observed["x"] == [[1.0, 2.0], [3.0, 4.0]]
+    assert observed["target_names"] == ["protein", "moisture"]
+    assert observed["kwargs"]["methods_library_path"] == str(library.resolve())
+    assert len(observed["kwargs"]["methods_library_sha256"]) == 64
+
+
+def test_historical_descriptor_absence_uses_core_derived_evidence() -> None:
+    package = _package(descriptor=None)
+    derived = _descriptor()
+
+    predictors = core_archive_replay._validate_native_predictor_evidence(
+        package,
+        [derived],
+    )
+
+    assert predictors == (derived,)
+
+
+def test_mixed_embedded_descriptor_generation_is_refused() -> None:
+    package = _package()
+    ridge = _descriptor(
+        owner="controller:methods.ridge",
+        artifact_sha256="d" * 64,
+    )
+    package["execution_bundle"]["refit_artifacts"].append(
+        {
+            "node_id": "model:ridge",
+            "controller_id": "controller:methods.ridge",
+            "artifact": {
+                "id": "artifact:ridge",
+                "kind": "n4m_model",
+                "controller_id": "controller:methods.ridge",
+                "backend": "raw",
+                "content_fingerprint": "d" * 64,
+                "abi_major": 2,
+                "abi_min_minor": 3,
+            },
+            "params_fingerprint": "q" * 64,
+            "data_requirement_keys": [],
+            "prediction_requirement_keys": ["model:methods.prediction"],
         }
+    )
+    package["output_bindings"][0]["node_id"] = "model:ridge"
+
+    with pytest.raises(
+        core_archive_replay.CoreArchiveReplayError,
+        match="mixes present and historical absent",
+    ):
+        core_archive_replay._validate_native_predictor_evidence(
+            package,
+            [_descriptor(), ridge],
+        )
+
+
+def test_accepts_only_ridge_as_final_stacking_predictor() -> None:
+    package = _package()
+    ridge = _descriptor(
+        owner="controller:methods.ridge",
+        artifact_sha256="d" * 64,
+    )
+    ridge_record = {
+        "node_id": "model:ridge",
+        "controller_id": "controller:methods.ridge",
+        "artifact": {
+            "id": "artifact:ridge",
+            "kind": "n4m_model",
+            "controller_id": "controller:methods.ridge",
+            "backend": "raw",
+            "content_fingerprint": "d" * 64,
+            "abi_major": 2,
+            "abi_min_minor": 3,
+            "native_predictor_descriptor": ridge,
+        },
+        "params_fingerprint": "q" * 64,
+        "data_requirement_keys": [],
+        "prediction_requirement_keys": ["model:methods.prediction"],
     }
-    assert observed["kwargs"]["methods_library_path"] == "/opt/lib/libn4m.so"
+    package["execution_bundle"]["refit_artifacts"].append(ridge_record)
+    package["output_bindings"][0]["node_id"] = "model:ridge"
+
+    assert core_archive_replay._validate_native_predictor_evidence(
+        package,
+        [_descriptor(), ridge],
+    ) == (_descriptor(), ridge)
+
+    package["execution_bundle"]["refit_artifacts"] = [ridge_record]
+    with pytest.raises(
+        core_archive_replay.CoreArchiveReplayError,
+        match="Ridge only as the final stacking predictor",
+    ):
+        core_archive_replay._validate_native_predictor_evidence(package, [ridge])
 
 
 def test_core_v2_refuses_prediction_width_that_disagrees_with_binding() -> None:
@@ -175,28 +301,26 @@ def test_core_v2_cross_link_refusal_never_falls_back_to_pipeline_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _archive(tmp_path / "version-mismatch.n4a", 2)
+    library = tmp_path / "libn4m.so"
+    library.write_bytes(b"n4m-test-library")
+    package = _package()
+    descriptor = package["execution_bundle"]["refit_artifacts"][0]["artifact"][
+        "native_predictor_descriptor"
+    ]
 
     def replay(*_args: Any, **_kwargs: Any) -> None:
         raise ValueError("execution bundle content is not cross-linked by outcome reference")
 
     core = SimpleNamespace(
-        read_portable_predictor_package_v2=lambda _: json.dumps(_package()).encode(),
-        replay_methods_archive_v2=replay,
-    )
-    dag_ml = SimpleNamespace(
-        sample_relation_set_fingerprint_json=lambda _: "r" * 64,
-        sign_training_replay_request=lambda request: {
-            **request,
-            "request_fingerprint": "f" * 64,
-        },
+        read_portable_predictor_package_v2=lambda _: json.dumps(package).encode(),
+        inspect_methods_archive_v2_predictors=lambda *_args, **_kwargs: [descriptor],
+        predict_methods_archive_v2_matrix=replay,
     )
     real_import = core_archive_replay.importlib.import_module
 
     def fake_import(name: str) -> Any:
         if name == "nirs4all_core":
             return core
-        if name == "dag_ml":
-            return dag_ml
         return real_import(name)
 
     monkeypatch.setattr(core_archive_replay.importlib, "import_module", fake_import)
@@ -211,7 +335,7 @@ def test_core_v2_cross_link_refusal_never_falls_back_to_pipeline_runner(
         predict_module.predict(
             model=path,
             data={"X": [[1.0]], "sample_ids": ["sample.one"]},
-            methods_library_path="/opt/lib/libn4m.so",
+            methods_library_path=library,
         )
 
 
