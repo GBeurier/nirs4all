@@ -2653,7 +2653,7 @@ class PredictResult:
         """Get shape of prediction array."""
         if self.y_pred is None:
             return (0,)
-        return self.y_pred.shape
+        return tuple(int(dimension) for dimension in self.y_pred.shape)
 
     @property
     def is_multioutput(self) -> bool:
@@ -2811,7 +2811,7 @@ class PredictResult:
         """
         if self.y_pred is None:
             return []
-        return self.y_pred.flatten().tolist()
+        return [float(value) for value in self.y_pred.flatten()]
 
     def to_dataframe(self, include_indices: bool = True):
         """Get predictions as pandas DataFrame.
@@ -2972,7 +2972,7 @@ class ExplainResult:
     @property
     def shape(self) -> tuple:
         """Get shape of SHAP values array."""
-        return self.values.shape
+        return tuple(int(dimension) for dimension in self.values.shape)
 
     @property
     def mean_abs_shap(self) -> np.ndarray:

@@ -42,7 +42,7 @@ import unicodedata
 import uuid
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import joblib
 import numpy as np
@@ -214,7 +214,7 @@ def _as_list(value: Any) -> list[Any]:
     arr = np.asarray(value)
     if arr.size == 0:
         return []
-    return arr.ravel().tolist()
+    return cast(list[Any], arr.ravel().tolist())
 
 
 def _shape_of(value: Any) -> list[int]:

@@ -733,7 +733,7 @@ class TruncatedPeakAugmenter(SpectraTransformerMixin):
         # Gaussian profile
         peak = amplitude * np.exp(-0.5 * ((wavelengths - center) / width) ** 2)
 
-        return peak
+        return np.asarray(peak)
 
 # =============================================================================
 # Combined Edge Artifacts Augmenter

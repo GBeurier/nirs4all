@@ -4056,7 +4056,7 @@ class RealBandFitter:
         amplitude: float,
     ) -> np.ndarray:
         """Compute Gaussian band profile."""
-        return amplitude * np.exp(-0.5 * ((wl - center) / sigma) ** 2)
+        return np.asarray(amplitude * np.exp(-0.5 * ((wl - center) / sigma) ** 2))
 
     def _compute_all_bands(
         self,

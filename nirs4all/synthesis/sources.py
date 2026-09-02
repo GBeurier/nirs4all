@@ -375,7 +375,7 @@ class MultiSourceGenerator:
                 ranks = np.argsort(np.argsort(X[:, j]))
                 X[:, j] = ranks / (n_samples - 1)
 
-        return X
+        return np.asarray(X)
 
     def _generate_targets(
         self,

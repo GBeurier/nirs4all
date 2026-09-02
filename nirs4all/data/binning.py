@@ -75,9 +75,9 @@ class BinningCalculator:
         # If we got fewer unique edges than expected, pad with original edges
         if len(bin_edges) < bins + 1:
             # Use equal width as fallback to maintain bin count
-            return np.linspace(y.min(), y.max(), bins + 1)
+            return np.asarray(np.linspace(y.min(), y.max(), bins + 1))
 
-        return bin_edges
+        return np.asarray(bin_edges)
 
     @staticmethod
     def _equal_width_binning(y: np.ndarray, bins: int) -> np.ndarray:
@@ -86,5 +86,4 @@ class BinningCalculator:
 
         Each bin has width = (y.max() - y.min()) / bins.
         """
-        return np.linspace(y.min(), y.max(), bins + 1)
-
+        return np.asarray(np.linspace(y.min(), y.max(), bins + 1))
