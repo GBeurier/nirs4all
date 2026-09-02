@@ -66,6 +66,7 @@ def test_native_methods_hpo_exports_a_fresh_process_replayable_winner(
     assert result.tuning_best_value == pytest.approx(0.08963750601197541)
     assert result._native_outcome["methods_hpo_resume_state"]["trial_history_len"] == 3
     assert result._native_outcome["diagnostics"]["nirs4all_execution"] == ("methods_controller_owned_hpo_archive_v2")
+    assert result._native_outcome["diagnostics"]["nirs4all_methods_hpo_resume"] == "not_exposed_by_public_api_v1"
     archive = result.export(tmp_path / "hpo-winner.n4a")
     result.close()
     assert result.native_execution_is_live is False
