@@ -32,7 +32,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, resolve_engine
+from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, ExecutionProfile, resolve_engine
 
 from .result import RunResult
 from .session import Session
@@ -701,6 +701,7 @@ def run(
     project: str | None = None,
     report_naming: str = "nirs",
     engine: str | None = None,
+    execution_profile: ExecutionProfile = "rollback-capable",
     tuning: Any | None = None,
     calibration: Any | None = None,
     results_path: str | Path | None = None,
@@ -788,6 +789,13 @@ def run(
             legacy oracle, compares ledger-governed scores/predictions, removes the legacy workspace,
             and returns the native result. Every other dual shape fails closed before execution.
             Override the default per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=legacy``).
+
+        execution_profile: Product-boundary policy. ``"rollback-capable"`` (default) preserves the
+            public Python compatibility lane, including explicit ``engine="legacy"``, through R4.
+            Studio and other product paths must explicitly select ``"strict"``; that profile refuses
+            ``engine="legacy"``, the dual legacy oracle, and ``allow_fallback=True`` before touching
+            the dataset or starting meaningful computation.  It cannot be selected or weakened by
+            an environment variable.
 
         tuning: Typed native tuning specification for the currently supported
             DAG-ML subset. With ``engine="dag-ml"``, this supports explicit
@@ -932,7 +940,13 @@ def run(
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
 
-    selected_engine = resolve_engine(engine)
+    # This is the first executable statement: strict product policy must fail before session
+    # preparation, dataset access, result writes, or construction of a PipelineRunner.
+    selected_engine = resolve_engine(
+        engine,
+        execution_profile=execution_profile,
+        allow_fallback=allow_fallback,
+    )
     if selected_engine == "legacy" and isinstance(session, Session):
         session._prepare_legacy_access("run")
     if selected_engine == "native" and isinstance(session, Session):

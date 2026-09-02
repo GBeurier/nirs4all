@@ -246,8 +246,10 @@ def studio_scientific_job_v1(request: object) -> dict[str, object]:
     """Execute one resolved, bounded Studio regression job through dag-ml.
 
     The request and response schemas are documented in
-    ``docs/source/reference/public_interfaces.md``.  The callable never opens a
-    caller path, workspace, socket, HTTP server, scheduler, or durable store.
+    ``docs/source/reference/public_interfaces.md``.  The callable explicitly selects the strict
+    product execution profile, so no direct, dual-oracle, environment-selected, or fallback legacy
+    path can enter the runner.  It never opens a caller path, workspace, socket, HTTP server,
+    scheduler, or durable store.
     """
 
     job_id, run_name, X, y, components, scale, splits, shuffle, random_state = _validated_job(request)
@@ -272,6 +274,7 @@ def studio_scientific_job_v1(request: object) -> dict[str, object]:
         cache=None,
         project=None,
         engine="dag-ml",
+        execution_profile="strict",
         results_path=None,
         allow_fallback=False,
     )
