@@ -12,6 +12,7 @@ from sklearn.model_selection import KFold
 import nirs4all
 from nirs4all import api
 from nirs4all.api import studio_scientific as host
+from nirs4all.pipeline.engine import ENGINE_ENV_VAR, ExecutionProfileError
 
 
 def _request() -> dict[str, Any]:
@@ -94,6 +95,7 @@ def test_closed_callable_runs_only_dagml_without_fallback(monkeypatch: pytest.Mo
     assert "status" not in response
     assert "workspace" not in response
     assert captured["engine"] == "dag-ml"
+    assert captured["execution_profile"] == "strict"
     assert captured["allow_fallback"] is False
     assert captured["results_path"] is None
     assert captured["save_artifacts"] is False
@@ -119,6 +121,28 @@ def test_forbidden_engines_fail_before_runtime(monkeypatch: pytest.MonkeyPatch, 
     request = _request()
     request["engine"] = engine
     _assert_code(request, "engine_forbidden")
+
+
+def test_public_run_strict_profile_refuses_legacy_before_inspecting_inputs(monkeypatch: pytest.MonkeyPatch) -> None:
+    class Untouchable:
+        def __getattribute__(self, name: str) -> Any:
+            raise AssertionError(f"input was inspected through {name}")
+
+    guarded = Untouchable()
+    with pytest.raises(ExecutionProfileError) as caught:
+        nirs4all.run(guarded, guarded, engine="legacy", execution_profile="strict")
+    assert caught.value.code == "legacy_execution_forbidden"
+
+    monkeypatch.setenv(ENGINE_ENV_VAR, "legacy")
+    with pytest.raises(ExecutionProfileError) as caught:
+        nirs4all.run(guarded, guarded, execution_profile="strict")
+    assert caught.value.code == "legacy_execution_forbidden"
+
+
+def test_public_run_strict_profile_refuses_opt_in_fallback_before_inputs() -> None:
+    with pytest.raises(ExecutionProfileError) as caught:
+        nirs4all.run(object(), object(), engine="dag-ml", execution_profile="strict", allow_fallback=True)
+    assert caught.value.code == "legacy_fallback_forbidden"
 
 
 def test_fallback_and_caller_owned_paths_are_refused_before_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
