@@ -3511,7 +3511,6 @@ def _named_dict_stacking_legacy_projection(
     meta_test_predictions: list[np.ndarray] = []
     meta_val_true: list[np.ndarray] = []
     meta_val_pred: list[np.ndarray] = []
-    direct_meta_val_scores: list[float] = []
 
     for fold_index, (train_ids, val_ids) in enumerate(folds):
         x_meta_val = np.column_stack([record["folds"][fold_index]["val"]["y_pred"] for record in branch_records])
@@ -3522,12 +3521,13 @@ def _named_dict_stacking_legacy_projection(
 
         direct_meta = clone(meta_learner)
         direct_meta.fit(x_meta_val, y_meta_val)
-        direct_val_pred = np.asarray(direct_meta.predict(x_meta_val), dtype=float).ravel()
+        # Validation rows must remain out-of-fold. Substituting an in-sample
+        # direct_meta.predict(x_meta_val) score here leaks the validation target
+        # into the public leaderboard and can promote the meta-learner unfairly.
         if len(y_meta_val) > 1:
             meta_fold_val_pred = np.asarray(cross_val_predict(clone(meta_learner), x_meta_val, y_meta_val, cv=LeaveOneOut()), dtype=float).ravel()
         else:
-            meta_fold_val_pred = direct_val_pred
-        direct_meta_val_scores.append(float(_score_prediction_block(y_meta_val, direct_val_pred, task_type).get(metric, float("nan"))))
+            meta_fold_val_pred = np.asarray(direct_meta.predict(x_meta_val), dtype=float).ravel()
 
         train_pred = np.asarray(direct_meta.predict(x_meta_train), dtype=float).ravel()
         test_pred = np.asarray(direct_meta.predict(x_meta_test), dtype=float).ravel()
@@ -3536,19 +3536,12 @@ def _named_dict_stacking_legacy_projection(
             "train": {"y_true": y(train_ids), "y_pred": train_pred, "scores": _score_prediction_block(y(train_ids), train_pred, task_type)},
             "val": {"y_true": y_meta_val, "y_pred": meta_fold_val_pred, "scores": _score_prediction_block(y_meta_val, meta_fold_val_pred, task_type)},
             "test": {"y_true": y_test, "y_pred": test_pred, "scores": _score_prediction_block(y_test, test_pred, task_type)},
-            "direct_val": {"y_true": y_meta_val, "y_pred": direct_val_pred, "scores": _score_prediction_block(y_meta_val, direct_val_pred, task_type)},
         }
         meta_fold_records.append(record)
         meta_pool_predictions.append(pool_pred)
         meta_test_predictions.append(test_pred)
         meta_val_true.append(y_meta_val)
         meta_val_pred.append(meta_fold_val_pred)
-
-    # Keep one native OOF-trained meta fold visible in top(n), as legacy does, while keeping the avg row
-    # conservative so this named-dict syntax still selects the branch CV winner and emits no final rows.
-    if direct_meta_val_scores:
-        best_direct_fold = int(np.nanargmin(np.asarray(direct_meta_val_scores, dtype=float)))
-        meta_fold_records[best_direct_fold]["val"] = meta_fold_records[best_direct_fold]["direct_val"]
 
     meta_avg_scores = {
         "train": _mean_prediction_score(y_pool, meta_pool_predictions, task_type),
