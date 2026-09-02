@@ -3,32 +3,39 @@
 **Date:** 2026-06-30 · **Branch:** `core/dagml` · **Tag:** `dagml-adr17-complete-2026-06-30`
 **Companion engine branch:** dag-ml `feat/native-scoring` @ `f58d7bf` · **Migration war-room:** `dag-ml/docs/migration-nirs4all/`
 
+> **V1 status update (2026-09-02):** this handoff originally recorded a temporary
+> legacy-default posture. The current default is `dag-ml`. The public Python profile remains
+> `rollback-capable`, so `engine="legacy"`, `$N4A_ENGINE=legacy`, and
+> `allow_fallback=True` remain explicit rollback controls until the R4 removal decision.
+> Product-owned strict execution rejects every legacy and fallback path.
+
 ---
 
 ## TL;DR
 
 dag-ml is **fully implemented** and **fully integrated** into nirs4all as a selectable execution backend. Every
 ADR-17 work item *except the final legacy-DROP cutover* is done, Codex-reviewed, committed, and validated. The
-backend is **selectable** (`engine="legacy" | "dag-ml"`, or `$N4A_ENGINE`); per the maintainer's decision the
-**default is LEGACY (Python)** so the public package keeps being maintained as pure-Python-by-default until a planned
-**global refactoring** lands. The legacy-DROP (remove legacy, make dag-ml the only engine) is **deferred and
-user-gated** — it is the only remaining step and is detailed in §3.
+backend is **selectable** (`engine="legacy" | "dag-ml"`, or `$N4A_ENGINE`) and the current default is
+**dag-ml**. Legacy remains available only through the public `rollback-capable` profile's explicit controls until
+R4. The legacy-DROP (remove legacy and its rollback controls) is **deferred and user-gated** — it is the only
+remaining step and is detailed in §3.
 
 ---
 
-## 1. Current posture (interim)
+## 1. Current V1 posture
 
 | Aspect | State |
 |---|---|
 | Engine selector | `nirs4all/pipeline/engine.py` — `resolve_engine()`, precedence: explicit arg > `$N4A_ENGINE` > `DEFAULT_ENGINE` |
-| **Default engine** | **`legacy`** (interim, public-maintained). Was flipped to `dag-ml` at the cutover (e5ab1387); flipped back to `legacy` for the public version pending the global refactoring. |
-| dag-ml availability | **Fully selectable** — `nirs4all.run(..., engine="dag-ml")` or `N4A_ENGINE=dag-ml`. In-process (Mechanism B) by default; subprocess CLI available. |
+| **Default engine** | **`dag-ml`**. An unqualified `nirs4all.run()` selects it when `$N4A_ENGINE` is unset. |
+| dag-ml availability | **Default and explicitly selectable** — `nirs4all.run(..., engine="dag-ml")` or `N4A_ENGINE=dag-ml`. In-process (Mechanism B) by default; subprocess CLI available. |
 | Dependencies | `dag-ml>=0.2.1`, `dag-ml-data>=0.2.1` are **hard deps** (installed, so dag-ml is selectable out-of-the-box). Not moved to extras. |
-| Fallback | `DagMlUnavailable` typed preflight → transparent legacy fallback if dag-ml is absent or a shape is genuinely unsupported. |
+| Fallback | Fail-closed by default. The public `rollback-capable` profile permits legacy fallback only when `allow_fallback=True` is explicit; the strict product profile rejects it. |
 | Public API contract | The 0.9.x surface (`run/predict/explain/retrain/session/generate`, `RunResult`, workspace SQLite+Parquet, `.n4a`) is preserved on **both** engines. |
 
-**To make dag-ml the default again** (for local testing or the eventual drop): set `DEFAULT_ENGINE = "dag-ml"` in
-`nirs4all/pipeline/engine.py` (one line) — that is exactly the revert of the interim change above.
+The original 2026-06-30 handoff temporarily restored `legacy` as the default pending the global refactoring. That
+historical interim step has since been superseded: `nirs4all/pipeline/engine.py` now defines
+`DEFAULT_ENGINE = "dag-ml"`, while retaining explicit rollback controls through R4.
 
 ---
 
@@ -87,7 +94,7 @@ All items below are **committed on `core/dagml`**, **Codex-reviewed (SHIP)**, an
 This is the **only remaining ADR-17 work**, and it is **user-gated** (verify backups + legacy users first). It is a
 **deliberate, irreversible** removal of the legacy engine. Recommended order:
 
-1. **Flip the default** — `DEFAULT_ENGINE = "dag-ml"` in `engine.py` (revert §1's interim line). Re-validate full suite on dag-ml default (expect ≈8220/0).
+1. **Flip the default — completed** — `DEFAULT_ENGINE = "dag-ml"` in `engine.py`; the selector tests certify the unqualified dag-ml path. This did not remove the explicit rollback lane.
 2. **Remove the legacy execution engine** — the legacy orchestrator path (`PipelineRunner` / `PipelineOrchestrator` / `PipelineExecutor` legacy branch) that `engine="legacy"` selects. Decide what (if any) of that machinery dag-ml still reuses (e.g. controllers, operators, the dataset layer **stay** — they are engine-agnostic; only the legacy *scheduling/execution* path is removed).
 3. **Remove the engine selector & fallback** — collapse `engine.py` to a no-op (or remove `engine=`/`$N4A_ENGINE`); remove the `DagMlUnavailable` → legacy fallback (no fallback target once legacy is gone). Decide the public `run(engine=...)` contract (drop the kwarg, or keep it accepting only `"dag-ml"`).
 4. **Collapse the dual-engine test layer** — `test_conformance_dual_engine.py`, `test_parity_baseline.py` (+ the `baselines/` legacy gold), `test_dagml_run_selector.py`, `test_engine_selector.py`, the `engine="legacy"` legs of export-roundtrip/examples-smoke. These exist **only** to prove legacy↔dag-ml parity; once legacy is gone they are dead weight. Keep the *single-engine* dag-ml oracle (`cases_generators_conformance.py`, `test_dagml_operator_generation_phase7.py`).
@@ -100,7 +107,7 @@ This is the **only remaining ADR-17 work**, and it is **user-gated** (verify bac
 ### Gates / risks before the drop
 - **Backups + legacy users** (the maintainer's explicit gate) — anyone pinned to the legacy engine / legacy-produced `.n4a` / workspace must be migrated or warned.
 - **0.9.x public contract** — the drop must not silently change `RunResult` semantics. Known *intended* changes already shipped: `best_X` now anchors on the SELECTED model (a 0.9.x bugfix, CHANGELOG-noted); the 1c winner-only 32-row num_predictions for multi-model sweeps.
-- **Global refactoring interplay** — the maintainer plans a large refactoring; the drop should likely land *with or after* it, not before, to avoid double-churn. The interim legacy-default posture exists precisely to decouple these.
+- **Global refactoring interplay** — the default flip has landed, but the destructive removal should still be coordinated with the broader refactoring and the R4 decision to avoid double-churn.
 - **Performance** — dag-ml in-process is faster than legacy on the measured workloads; no perf regression expected, but re-benchmark the public hot paths post-drop.
 
 ---
@@ -111,7 +118,7 @@ This is the **only remaining ADR-17 work**, and it is **user-gated** (verify bac
 - **Branches:** nirs4all-core `core/dagml` · dag-ml `feat/native-scoring` · nirs4all-studio `feat/native-results-reader` (unmerged) · dag-ml-data local `main` ahead-4 (held).
 - **War-room:** `dag-ml/docs/migration-nirs4all/` (README, PARITY_AND_PERF_HARNESS, TARGET_RESPONSIBILITY_SPLIT, WORKING_STRATEGY, NATIVE_PERSISTENCE_LAYER_REPORT) · ADR: `dag-ml/docs/adr/ADR-17-cutover-rollback.md`.
 - **Parity oracle:** `tests/integration/parity/` — `test_conformance_dual_engine.py` (dual-engine exact equality), `cases_generators_conformance.py` (the generator registry), `test_parity_baseline.py` (legacy gold), `baselines/` (committed gold).
-- **The interim default lives in one place:** `nirs4all/pipeline/engine.py::DEFAULT_ENGINE`.
+- **The current default lives in one place:** `nirs4all/pipeline/engine.py::DEFAULT_ENGINE`.
 
 > **Not touched by this work:** `nirs4all-io` has pre-existing uncommitted Rust changes in the `nirs4all-io-dagml`
 > crate (the `SpectroDataset → CoordinatorDataPlanEnvelope` bridge) from a separate effort — left strictly alone.
