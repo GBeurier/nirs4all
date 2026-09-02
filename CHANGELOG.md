@@ -11,14 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ⚙️ Changed
 
-- **`dag-ml` is now a fully selectable execution backend.** Pass `engine="dag-ml"` (or set
-  `$N4A_ENGINE=dag-ml`) and `nirs4all.run()` dispatches to the dag-ml backend — the pipeline
-  runs natively (Rust) and returns a `RunResult` of dag-ml's native scores. This is the first
-  half of the "nirs4all = the lite skeleton + Python controllers" North Star.
-  **The DEFAULT engine stays `legacy`** — the public-maintained nirs4all remains pure-Python by
-  default until a planned global refactoring, after which the legacy-DROP cutover makes dag-ml
-  the default. (The ADR-17 flip briefly defaulted to dag-ml; it was rolled back to legacy for
-  the public version — see `ADR-17_LEGACY_DROP_HANDOFF.md`.) `predict()` / `explain()` /
+- **`dag-ml` is now the default execution backend.** An unqualified `nirs4all.run()` dispatches
+  to the dag-ml backend — the pipeline runs natively (Rust) and returns a `RunResult` of dag-ml's
+  native scores. The default public execution profile remains `rollback-capable`: callers can
+  still select the temporary Python rollback lane explicitly with `engine="legacy"` or
+  `$N4A_ENGINE=legacy`, and fallback remains opt-in through `allow_fallback=True`, until the R4
+  legacy-removal decision. Product-owned strict execution rejects legacy, the dual oracle, and
+  fallback. This supersedes the interim legacy-default posture recorded at the original ADR-17
+  handoff. `predict()` / `explain()` /
   `retrain()` / `Session.run()` use `PipelineRunner` directly and never route through the engine
   selector.
 - **In-process dag-ml execution is the default mechanism for `engine="dag-ml"`.** The native PyO3
