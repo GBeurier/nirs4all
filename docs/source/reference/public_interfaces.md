@@ -205,16 +205,22 @@ if (run.status !== 0) process.exit(run.status);
 | Engine | Meaning |
 | --- | --- |
 | `None` | Use the package default resolved by `resolve_engine(...)`. |
-| `"legacy"` | Use the in-process Python orchestrator. |
+| `"legacy"` | Explicitly use the in-process Python compatibility orchestrator outside Studio during the ADR-24 rollback window. |
 | `"dag-ml"` | Request the dag-ml backend for covered shapes. Unsupported or unavailable native execution fails closed by default. |
-| `"native"` | Produce a portable Methods Archive V2 for the strict supported training subset; unsupported shapes fail closed without legacy fallback. |
+| `"native"` | Produce a portable Methods Archive V2 for the strict supported training subset; install `nirs4all[native]` and unsupported shapes fail closed without legacy fallback. |
 | `"dual"` | Run the bounded native-first parity oracle for exact array/KFold/PLS regression; unsupported shapes fail before execution and the temporary legacy workspace is removed. |
 
 The pipeline language is broader than current dag-ml native coverage. Requesting
 `engine="dag-ml"` is fail-closed by default: unsupported shapes and unavailable
-native dependencies raise structured errors. Callers may opt into the explicit
-compatibility path with `allow_fallback=True`; genuine native runtime or operator
-failures always propagate.
+native dependencies raise structured errors. Direct Python callers may opt into
+the ADR-24 compatibility path with `engine="legacy"` or
+`allow_fallback=True`; genuine native runtime or operator failures always
+propagate. Studio cannot select either compatibility route.
+
+Install `nirs4all[native]` to use the strict Archive V2 path. The release extra
+selects the compatible Core 0.3.25 and Methods 1.0.13 release families; source
+commit identities and artifact digests remain release-receipt concerns rather
+than Python package metadata.
 
 The explicit dual oracle returns the native `RunResult` after comparing its
 winner, OOF identities/predictions, validation scores, and split evidence with
@@ -273,13 +279,12 @@ overrides are refused before scientific execution. The result contains no job
 status; it reports only the selected metric and bounded counts for Rust to
 interpret and persist.
 
-Current Studio integration remains fail-closed. The selected `cdb9f46`
-sidecar `ScientificExecutionRequest` still carries the unresolved run-group
-manifest plus a workspace path, while this callable deliberately requires
-resolved inline matrices and a closed pipeline descriptor. The sidecar also
-lacks the terminal result/event bridge. Rust must implement those two pieces
-before changing `scientific_execution_capability` or selecting the executor;
-passing the current workspace path to Python would violate this contract.
+Studio owns HTTP, jobs, WebSocket events, persistence, scheduling, and terminal
+state in Rust. CPython is a bounded, explicit stdio library/plugin host for the
+scientific call only. The Studio contract cannot request `engine="legacy"` or
+`allow_fallback=True`: native refusal is returned to Rust, with no product
+fallback. This keeps the ADR-24 legacy rollback surface available to direct
+Python callers without making it reachable from Studio.
 
 Environment switches:
 

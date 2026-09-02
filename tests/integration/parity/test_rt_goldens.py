@@ -185,16 +185,23 @@ def test_parity_environment_dependencies_are_declared() -> None:
     optional = pyproject["project"]["optional-dependencies"]
     dev_deps = _declared_dependency_names(optional["dev"])
     explain_deps = _declared_dependency_names(optional["explain"])
+    native_deps = _declared_dependencies(optional["native"])
 
     assert "referencing" in project_dep_names
     assert "jsonschema" in project_dep_names
     assert str(project_deps["jsonschema"].specifier) == ">=4.18.0"
+    assert str(project_deps["dag-ml"].specifier) == "<0.4,>=0.3.23"
+    assert str(project_deps["dag-ml-data"].specifier) == "<0.3,>=0.2.9"
+    assert str(native_deps["nirs4all-core"].specifier) == "<0.4,>=0.3.25"
+    assert str(native_deps["nirs4all-methods"].specifier) == "<2,>=1.0.13"
     assert "shap" in explain_deps
     assert "shap" in dev_deps
     for filename in ("requirements.txt", "requirements-test.txt", "requirements-examples.txt"):
         requirements = _requirements(filename)
         assert "referencing" in requirements
         assert str(requirements["jsonschema"].specifier) == ">=4.18.0"
+        assert requirements["dag-ml"].specifier == project_deps["dag-ml"].specifier
+        assert requirements["dag-ml-data"].specifier == project_deps["dag-ml-data"].specifier
     assert "shap" in _requirements_names("requirements-test.txt")
     assert "shap" in _requirements_names("requirements-examples.txt")
 
