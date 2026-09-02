@@ -12,7 +12,7 @@ on:
       methods_package:
         description: "Package spec to install for nirs4all-methods"
         required: false
-        default: "nirs4all-methods"
+        default: "nirs4all-methods>=1.0.13,<2"
 
 jobs:
   n4m-binding:
@@ -33,16 +33,20 @@ jobs:
 
       - name: Install nirs4all-methods binding
         env:
-          METHODS_PACKAGE: ${{ inputs.methods_package || 'nirs4all-methods' }}
+          METHODS_PACKAGE: ${{ inputs.methods_package || 'nirs4all-methods>=1.0.13,<2' }}
         run: python -m pip install "$METHODS_PACKAGE"
 
       - name: Verify n4m binding loads
         run: |
           python - <<'PY'
           import n4m
+          from importlib.metadata import version
+          from packaging.version import Version
 
           print("n4m abi:", n4m.abi_version())
           print("n4m lib:", n4m.library_path())
+          installed = Version(version("nirs4all-methods"))
+          assert installed >= Version("1.0.13"), installed
           PY
 
       - name: Run methods parity gate

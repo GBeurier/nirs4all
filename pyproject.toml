@@ -95,10 +95,10 @@ dependencies = [
 
     # dag-ml execution core — the DEFAULT engine since the ADR-17 cutover (the
     # "nirs4all = the lite skeleton + Python controllers" North Star). A hard
-    # dependency, not an extra: run() dispatches to dag-ml by default and falls
-    # back to legacy with a warning only when the native backend is unavailable.
-    "dag-ml>=0.2.1",
-    "dag-ml-data>=0.2.1",
+    # dependency, not an extra: run() dispatches to dag-ml by default and fails
+    # closed unless the caller explicitly opts into compatibility fallback.
+    "dag-ml>=0.3.23,<0.4",
+    "dag-ml-data>=0.2.9,<0.3",
 ]
 
 [project.optional-dependencies]
@@ -125,6 +125,11 @@ migration = ["duckdb>=1.0.0"]
 # ``nirs4all workspace convert`` from the library CLI. The DuckDB/Parquet
 # readers are included so the extra supports real conversion.
 transition = ["nirs4all-tools[duckdb,parquet]>=0.0.5"]
+
+# Callback-free Archive V2 training/replay. The broad Python library remains
+# installable without the portable aggregate, while engine="native" users can
+# request the exact compatible Core/Methods release family explicitly.
+native = ["nirs4all-core>=0.3.25,<0.4", "nirs4all-methods>=1.0.13,<2"]
 
 # AutoML
 autogluon = ["autogluon>=1.0.0"]
