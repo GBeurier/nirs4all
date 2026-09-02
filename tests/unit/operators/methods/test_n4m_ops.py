@@ -289,12 +289,13 @@ class TestDualEngine:
         ]
 
     @pytest.mark.parametrize("engine", ["legacy", "dag-ml"])
-    def test_runs_under_engine(self, engine: str, methods_available: bool) -> None:
+    def test_runs_under_engine(self, engine: str, methods_available: bool, monkeypatch: pytest.MonkeyPatch) -> None:
         if not methods_available:
             _skip_unavailable_binding()
         import nirs4all
 
         # Single-target corpus: the native engine is PLS1 (single-output).
+        monkeypatch.setenv("N4A_ENGINE", "legacy")
         dataset = nirs4all.generate.regression(n_samples=80, random_state=0, target_component=0)
         result = nirs4all.run(
             pipeline=self._pipeline(),
