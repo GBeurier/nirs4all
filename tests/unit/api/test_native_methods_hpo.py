@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import replace
 from typing import Any
 
@@ -42,6 +43,18 @@ def _finetune(**overrides: Any) -> dict[str, Any]:
         "direction": "minimize",
         "model_params": {"n_components": ["int", 1, 3]},
         **overrides,
+    }
+
+
+def _resume_package() -> dict[str, Any]:
+    return {
+        "schema_version": 2,
+        "execution_bundle": {
+            "methods_hpo_resume_state": {
+                "schema_version": 1,
+                "checkpoint": {"format": "N4MOPT"},
+            }
+        },
     }
 
 
@@ -108,10 +121,11 @@ def test_extracts_bounded_hpo_without_mutating_the_public_pipeline() -> None:
 @pytest.mark.parametrize(
     ("overrides", "match"),
     [
-        ({"sampler": "tpe"}, "sampler='random'"),
-        ({"pruner": "median"}, "pruner='none'"),
+        ({"sampler": "sobol"}, "sampler='random' or sampler='tpe'"),
+        ({"pruner": "asha"}, "pruner='none' or pruner='median'"),
         ({"metric": "mae"}, "OOF RMSE"),
         ({"n_trials": 0}, "1..256"),
+        ({"n_startup_trials": 5}, "0..n_trials"),
     ],
 )
 def test_refuses_unimplemented_hpo_shapes_before_native_runtime(
@@ -262,7 +276,7 @@ def test_attaches_one_signed_scheduler_operation_and_tuner_controller() -> None:
         "study": {
             "controller_id": "controller:tuner.methods",
             "study_id": "study:nirs4all.native.methods",
-            "methods_abi": "n4m-abi-2.2",
+            "methods_abi": "n4m-abi-2.4",
             "search_space": {
                 "parameters": [
                     {
@@ -295,8 +309,67 @@ def test_attaches_one_signed_scheduler_operation_and_tuner_controller() -> None:
     assert controllers["controller:tuner.methods"]["operator_kind"] == "tuner"
     assert attached.diagnostics == {
         "nirs4all_execution": "methods_controller_owned_hpo_archive_v2",
-        "nirs4all_methods_hpo_resume": "not_exposed_by_public_api_v1",
+        "nirs4all_methods_hpo_resume": "package_v2",
     }
+
+
+def test_attaches_native_tpe_median_and_complete_package_v2_resume() -> None:
+    package = _resume_package()
+    _stripped, hpo = _extract_portable_methods_hpo(
+        _pipeline(
+            _finetune(
+                sampler="tpe",
+                pruner="median",
+                n_startup_trials=2,
+                resume_package=package,
+            )
+        ),
+        seed=12345,
+    )
+    assert hpo is not None
+
+    request = _attach_portable_methods_hpo(_contracts(), hpo).to_prepared().request
+    operation = request["campaign"]["metadata"]["methods_hpo_operation"]
+
+    assert operation["study"]["optimizer"] == {
+        "sampler": "tpe",
+        "pruner": "median",
+        "direction": "minimize",
+        "metric": "rmse",
+        "seed": 7,
+        "n_startup_trials": 2,
+        "max_resource": 0,
+        "reduction_factor": 0,
+    }
+    assert json.loads(operation["resume_package_json"]) == package
+
+
+@pytest.mark.parametrize(
+    "resume_package",
+    [
+        "checkpoint.n4mopt",
+        {},
+        {"execution_bundle": {}},
+        {"execution_bundle": {"methods_hpo_resume_state": {"score": float("nan")}}},
+    ],
+)
+def test_refuses_non_package_or_non_finite_resume_state_before_native_runtime(
+    monkeypatch: pytest.MonkeyPatch,
+    resume_package: Any,
+) -> None:
+    from nirs4all.api import native_archive_training as module
+
+    monkeypatch.setattr(
+        module,
+        "_normalize_training_arrays",
+        lambda _dataset: pytest.fail("invalid resume package consumed dataset arrays"),
+    )
+
+    with pytest.raises((TypeError, NativeMethodsHpoCapabilityError), match="resume_package"):
+        module.run_native_methods_archive(
+            _pipeline(_finetune(resume_package=resume_package)),
+            {"X": object(), "y": object(), "sample_ids": object()},
+        )
 
 
 def test_projects_only_the_scheduler_checked_native_incumbent() -> None:
@@ -325,6 +398,19 @@ def test_projects_only_the_scheduler_checked_native_incumbent() -> None:
 
     assert result.tuning_best_params == {"model.n_components": 3}
     assert result.tuning_best_value == 0.125
+
+
+def test_returns_a_detached_copy_of_the_package_v2_resume_authority() -> None:
+    package = _resume_package()
+    result = object.__new__(NativeMethodsArchiveRunResult)
+    result._native_package = package
+    result._native_package_json = json.dumps(package)
+
+    first = result.tuning_resume_package
+    assert first == package
+    assert first is not None
+    first["execution_bundle"] = {}
+    assert result.tuning_resume_package == package
 
 
 def test_hpo_attachment_is_immutable() -> None:

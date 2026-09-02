@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import copy
 import importlib
+import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -44,6 +45,10 @@ class _PortableMethodsHpo:
     low: int
     high: int
     step: int
+    sampler: str
+    pruner: str
+    n_startup_trials: int
+    resume_package_json: str | None
 
 
 class NativeMethodsArchiveRunResult(RunResult):
@@ -60,6 +65,7 @@ class NativeMethodsArchiveRunResult(RunResult):
         package: Mapping[str, Any],
         outcome_contract: Any,
         package_contract: Any,
+        package_json: str,
         archive_id: str,
         methods_library_path: str,
     ) -> None:
@@ -75,6 +81,7 @@ class NativeMethodsArchiveRunResult(RunResult):
         self._native_package = dict(package)
         self._native_outcome_contract = outcome_contract
         self._native_package_contract = package_contract
+        self._native_package_json = package_json
         self._native_archive_id = archive_id
         self._methods_library_path = methods_library_path
         self._native_archive_reference: dict[str, str] | None = None
@@ -138,6 +145,20 @@ class NativeMethodsArchiveRunResult(RunResult):
         if not isinstance(score, (int, float)) or isinstance(score, bool) or not np.isfinite(score):
             raise NativeArchiveTrainingError("native Methods HPO outcome omitted a finite incumbent score")
         return float(score)
+
+    @property
+    def tuning_resume_package(self) -> dict[str, Any] | None:
+        """Return the immutable Package V2 snapshot accepted for HPO resume."""
+
+        execution_bundle = self._native_package.get("execution_bundle")
+        if not isinstance(execution_bundle, Mapping) or not isinstance(
+            execution_bundle.get("methods_hpo_resume_state"), Mapping
+        ):
+            return None
+        package = json.loads(self._native_package_json)
+        if not isinstance(package, dict):
+            raise NativeArchiveTrainingError("native HPO Package V2 snapshot is not an object")
+        return package
 
     def export(
         self,
@@ -334,6 +355,7 @@ def run_native_methods_archive(
         outcome_object = training_result.outcome
         outcome = _to_mapping(outcome_object, "TrainingOutcome")
         package = _to_mapping(package_object, "Package V2")
+        package_json = _json_contract(package_object, package, "Package V2")
         score_set = outcome.get("score_set")
         fingerprint = outcome.get("outcome_fingerprint")
         if not isinstance(score_set, Mapping) or not isinstance(fingerprint, str) or not fingerprint:
@@ -354,6 +376,7 @@ def run_native_methods_archive(
             package=package,
             outcome_contract=outcome_object,
             package_contract=package_object,
+            package_json=package_json,
             archive_id=f"archive:{fingerprint}",
             methods_library_path=methods_library_path,
         )
@@ -395,9 +418,9 @@ def _extract_portable_methods_hpo(
 
     Python only validates and translates the public request. DAG-ML owns folds,
     OOF scoring, selection and refit; the official Methods controller owns the
-    optimizer state machine.  This first public slice deliberately does not
-    expose N4MOPT checkpoint/resume and accepts only the exact search space
-    implemented by the selected portable Methods HPO v1 runtime.
+    optimizer state machine. Checkpoint/restart crosses Python only as a
+    complete validated Package V2; an opaque N4MOPT checkpoint is never a
+    public authority boundary.
     """
 
     model_steps = [(index, step) for index, step in enumerate(pipeline) if isinstance(step, Mapping) and "finetune_params" in step]
@@ -417,8 +440,10 @@ def _extract_portable_methods_hpo(
         "engine",
         "metric",
         "model_params",
+        "n_startup_trials",
         "n_trials",
         "pruner",
+        "resume_package",
         "sampler",
         "seed",
     }
@@ -433,17 +458,22 @@ def _extract_portable_methods_hpo(
         raise ValueError("native Methods HPO currently selects only the native OOF RMSE")
     if str(params.get("direction", "minimize")).strip().lower() != "minimize":
         raise ValueError("native Methods HPO RMSE requires direction='minimize'")
-    if str(params.get("sampler", "random")).strip().lower() != "random":
-        raise ValueError("native Methods HPO first slice supports only sampler='random'")
-    if str(params.get("pruner", "none")).strip().lower() != "none":
-        raise ValueError("native Methods HPO first slice supports only pruner='none'")
+    sampler = str(params.get("sampler", "random")).strip().lower()
+    if sampler not in {"random", "tpe"}:
+        raise ValueError("native Methods HPO supports only sampler='random' or sampler='tpe'")
+    pruner = str(params.get("pruner", "none")).strip().lower()
+    if pruner not in {"none", "median"}:
+        raise ValueError("native Methods HPO supports only pruner='none' or pruner='median'")
 
     trials = params.get("n_trials", 20)
     hpo_seed = params.get("seed", seed)
     if not isinstance(trials, int) or isinstance(trials, bool) or not 1 <= trials <= 256:
         raise ValueError("native Methods HPO n_trials must be an integer in 1..256")
+    n_startup_trials = params.get("n_startup_trials", min(2, trials) if sampler == "tpe" else 0)
     if not isinstance(hpo_seed, int) or isinstance(hpo_seed, bool) or hpo_seed < 0:
         raise ValueError("native Methods HPO seed must be a non-negative integer")
+    if not isinstance(n_startup_trials, int) or isinstance(n_startup_trials, bool) or not 0 <= n_startup_trials <= trials:
+        raise ValueError("native Methods HPO n_startup_trials must be an integer in 0..n_trials")
     space = params.get("model_params")
     if not isinstance(space, Mapping) or set(space) != {"n_components"}:
         raise ValueError("native Methods HPO first slice requires exactly model_params.n_components")
@@ -453,8 +483,9 @@ def _extract_portable_methods_hpo(
             "engine='native' portable Methods HPO v1 requires "
             "model_params.n_components exactly ['int', 1, 3, 1] "
             f"(received low={low}, high={high}, step={step_size}); "
-            "broader spaces and N4MOPT checkpoint/resume are not exposed by this public slice"
+            "broader spaces are not exposed by this public slice"
         )
+    resume_package_json = _normalize_resume_package_json(params.get("resume_package"))
 
     stripped = list(pipeline)
     stripped[index] = {"model": step["model"]}
@@ -464,7 +495,31 @@ def _extract_portable_methods_hpo(
         low=low,
         high=high,
         step=step_size,
+        sampler=sampler,
+        pruner=pruner,
+        n_startup_trials=n_startup_trials,
+        resume_package_json=resume_package_json,
     )
+
+
+def _normalize_resume_package_json(value: Any) -> str | None:
+    """Serialize only a complete Package V2 carrying typed Methods HPO state."""
+
+    if value is None:
+        return None
+    if not isinstance(value, Mapping):
+        raise TypeError("native Methods HPO resume_package must be a Package V2 mapping")
+    execution_bundle = value.get("execution_bundle")
+    if not isinstance(execution_bundle, Mapping) or not isinstance(
+        execution_bundle.get("methods_hpo_resume_state"), Mapping
+    ):
+        raise NativeMethodsHpoCapabilityError(
+            "native Methods HPO resume_package must be a complete Package V2 with typed methods_hpo_resume_state"
+        )
+    try:
+        return json.dumps(value, allow_nan=False, separators=(",", ":"), sort_keys=True)
+    except (TypeError, ValueError) as error:
+        raise TypeError("native Methods HPO resume_package must contain only finite JSON values") from error
 
 
 def _normalize_n_components_space(value: Any) -> tuple[int, int, int]:
@@ -537,7 +592,7 @@ def _attach_portable_methods_hpo(contracts: Any, hpo: _PortableMethodsHpo) -> An
         "study": {
             "controller_id": "controller:tuner.methods",
             "study_id": "study:nirs4all.native.methods",
-            "methods_abi": "n4m-abi-2.2",
+            "methods_abi": "n4m-abi-2.4",
             "search_space": {
                 "parameters": [
                     {
@@ -551,12 +606,12 @@ def _attach_portable_methods_hpo(contracts: Any, hpo: _PortableMethodsHpo) -> An
                 ]
             },
             "optimizer": {
-                "sampler": "random",
-                "pruner": "none",
+                "sampler": hpo.sampler,
+                "pruner": hpo.pruner,
                 "direction": "minimize",
                 "metric": "rmse",
                 "seed": hpo.seed,
-                "n_startup_trials": 0,
+                "n_startup_trials": hpo.n_startup_trials,
                 "max_resource": 0,
                 "reduction_factor": 0,
             },
@@ -565,6 +620,8 @@ def _attach_portable_methods_hpo(contracts: Any, hpo: _PortableMethodsHpo) -> An
         "target_node_id": target["id"],
         "parameter_paths": {"n_components": "n_components"},
     }
+    if hpo.resume_package_json is not None:
+        metadata["methods_hpo_operation"]["resume_package_json"] = hpo.resume_package_json
     return replace(
         contracts,
         request_spec=replace(
@@ -576,7 +633,7 @@ def _attach_portable_methods_hpo(contracts: Any, hpo: _PortableMethodsHpo) -> An
         diagnostics={
             **dict(contracts.diagnostics or {}),
             "nirs4all_execution": "methods_controller_owned_hpo_archive_v2",
-            "nirs4all_methods_hpo_resume": "not_exposed_by_public_api_v1",
+            "nirs4all_methods_hpo_resume": "package_v2",
         },
     )
 
@@ -626,6 +683,20 @@ def _to_mapping(value: Any, label: str) -> Mapping[str, Any]:
     if not isinstance(value, Mapping):
         raise NativeArchiveTrainingError(f"native {label} is not a mapping")
     return value
+
+
+def _json_contract(value: Any, mapping: Mapping[str, Any], label: str) -> str:
+    """Retain a native contract's exact JSON, with a strict facade fallback."""
+
+    serialize = getattr(value, "json", None)
+    if callable(serialize):
+        payload = serialize()
+        if isinstance(payload, str):
+            return payload
+    try:
+        return json.dumps(mapping, allow_nan=False, separators=(",", ":"), sort_keys=True)
+    except (TypeError, ValueError) as error:
+        raise NativeArchiveTrainingError(f"native {label} is not finite JSON") from error
 
 
 def _native_model_name(pipeline: list[Any]) -> str:
