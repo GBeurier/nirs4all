@@ -217,6 +217,11 @@ the ADR-24 compatibility path with `engine="legacy"` or
 `allow_fallback=True`; genuine native runtime or operator failures always
 propagate. Studio cannot select either compatibility route.
 
+The frozen public `nirs4all.run(...)` signature deliberately has no product
+execution-profile parameter. It remains the rollback-capable Python API through
+the R4 removal decision. Product integrations use a private strict boundary
+inside the package instead of widening or weakening that public contract.
+
 Install `nirs4all[native]` to use the strict Archive V2 path. The release extra
 selects the compatible Core 0.3.25 and Methods 1.0.13 release families; source
 commit identities and artifact digests remain release-receipt concerns rather
@@ -244,6 +249,14 @@ workspace, owns a scheduler/job/event/cancellation transition, or writes a
 durable result. The Studio sidecar must keep all of those responsibilities and
 invoke this callable in a fresh, isolated CPython process over bounded JSON
 stdio.
+
+Before the public runner can prepare a session, inspect its pipeline or dataset,
+write a result, or construct a `PipelineRunner`, the callable enters that private
+strict boundary. The boundary rejects direct or environment-selected `legacy`,
+the `dual` legacy oracle, and `allow_fallback=True`. The profile itself is fixed
+in package code and is not selectable through the Studio request or an
+environment variable. Public request/result contract refusals are reported as
+the exported `nirs4all.StudioScientificJobError` with a stable `code`.
 
 The v1 callable accepts exactly this minimal resolved contract (unknown keys
 are refused):
