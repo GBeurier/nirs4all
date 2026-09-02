@@ -39,6 +39,7 @@ def test_binary_sampler_basic():
     result = nirs4all.run(
         pipeline=pipeline,
         dataset=str(SAMPLE_DATA_PATH),
+        engine="legacy",
         verbose=0
     )
 
@@ -67,8 +68,8 @@ def test_binary_sampler_with_seed():
         },
     ]
 
-    result1 = nirs4all.run(pipeline=pipeline, dataset=str(SAMPLE_DATA_PATH), verbose=0)
-    result2 = nirs4all.run(pipeline=pipeline, dataset=str(SAMPLE_DATA_PATH), verbose=0)
+    result1 = nirs4all.run(pipeline=pipeline, dataset=str(SAMPLE_DATA_PATH), engine="legacy", verbose=0)
+    result2 = nirs4all.run(pipeline=pipeline, dataset=str(SAMPLE_DATA_PATH), engine="legacy", verbose=0)
 
     # Results should be similar (not necessarily identical due to sklearn randomness)
     assert abs(result1.best_score - result2.best_score) < 0.1
@@ -98,6 +99,7 @@ def test_binary_sampler_multiphase():
     result = nirs4all.run(
         pipeline=pipeline,
         dataset=str(SAMPLE_DATA_PATH),
+        engine="legacy",
         verbose=0
     )
 
@@ -160,6 +162,7 @@ def test_binary_sampler_with_categorical():
     result = nirs4all.run(
         pipeline=pipeline,
         dataset=str(SAMPLE_DATA_PATH),
+        engine="legacy",
         verbose=0
     )
 

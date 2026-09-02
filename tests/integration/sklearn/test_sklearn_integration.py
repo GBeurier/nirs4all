@@ -69,6 +69,7 @@ class TestNIRSPipelineIntegration:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=(X, y, partition_info),
+            engine="legacy",
             name="sklearn_integration_test",
             verbose=0,
             save_artifacts=True,
@@ -211,6 +212,7 @@ class TestNIRSPipelineSklearnCompatibility:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=(X, y, partition_info),
+            engine="legacy",
             name="sklearn_compat_test",
             verbose=0,
             save_artifacts=True,
@@ -274,6 +276,7 @@ class TestShapIntegration:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=(X, y, partition_info),
+            engine="legacy",
             name="shap_test",
             verbose=0,
             save_artifacts=True,
