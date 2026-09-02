@@ -12,10 +12,10 @@ engines and asserted equality — these helpers fill that gap and the
 
 LOAD-BEARING fallback detection
 -------------------------------
-``run(engine="dag-ml")`` transparently re-runs on
-the LEGACY engine for any pipeline shape the dag-ml path cannot honor yet (the
-P1b/P0 reject→fallback), emitting a ``"falling back to the legacy engine"``
-warning (:mod:`nirs4all.api.run`). A fallback run is legacy-under-the-hood, so
+``run(engine="dag-ml", allow_fallback=True)`` explicitly re-runs on the LEGACY
+engine for a pipeline shape the dag-ml path cannot honor yet (the P1b/P0
+reject→fallback), emitting a ``"falling back to the legacy engine"`` warning
+(:mod:`nirs4all.api.run`). A fallback run is legacy-under-the-hood, so
 asserting "dag-ml == legacy" on it would be a trivially-true legacy-vs-legacy
 claim. :func:`dual_engine_runner` therefore records ``dagml_native`` from TWO
 independent signals — the fallback warning text AND the ``per_dataset`` engine
@@ -119,7 +119,13 @@ def _run_dagml_leg(case: PipelineCase, dataset: DatasetConfigs) -> tuple[Any, bo
     """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        dagml = nirs4all.run(pipeline=case.pipeline, dataset=dataset, verbose=0, engine="dag-ml")
+        dagml = nirs4all.run(
+            pipeline=case.pipeline,
+            dataset=dataset,
+            verbose=0,
+            engine="dag-ml",
+            allow_fallback=True,
+        )
         fell_back = any(_FALLBACK_WARNING_FRAGMENT in str(w.message) for w in caught)
     dagml_native = (not fell_back) and bool(dagml._is_dagml_engine())  # noqa: SLF001
     return dagml, dagml_native

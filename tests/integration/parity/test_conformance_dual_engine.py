@@ -388,8 +388,8 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 
 
 # EXPECTED-FALLBACK allowlist: the cases the dag-ml path LEGITIMATELY rejects
-# today (raw branch+merge shapes), so
-# engine="dag-ml" transparently re-runs legacy.
+# today, so the conformance harness explicitly opts into the ADR-24 legacy
+# compatibility lane with engine="dag-ml", allow_fallback=True.
 # A case that falls back but is NOT on this allowlist is a native-coverage REGRESSION
 # (a shape that used to run native now rejects) and MUST FAIL — never silently pass
 # as a boundary. When dag-ml gains native coverage for one of these, it leaves the
@@ -397,9 +397,14 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 # coverage-boundary rejects in `run_backend._unsupported_fallback_reason`, so they
 # no longer fall through to the generic concrete route and crash at native setup.
 EXPECTED_FALLBACK: frozenset[str] = frozenset({
-    # LOCK-DROP D1 is currently closed: every registered runnable parity case either has a native
-    # dag-ml route or a documented strict-xfail/parity note. Keep this set empty unless a new
-    # native-coverage boundary is deliberately introduced with a ledger entry.
+    # Classification repetition vote is intentionally rejected until the native
+    # final-test surface can score at the legacy sample-vote grain (backlog #21).
+    "aggregation_classification_vote",
+    # Adaptive Optuna metadata is not part of the deterministic native
+    # finetune_params lowering subset.
+    "generator_finetune_params_optuna",
+    # Step-level refit_params would currently be ignored by native execution.
+    "refit_params_use_all_partitions",
 })
 
 

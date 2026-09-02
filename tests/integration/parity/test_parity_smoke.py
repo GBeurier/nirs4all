@@ -77,6 +77,7 @@ def test_pipeline_runs_end_to_end(case: PipelineCase, tmp_path) -> None:
         pipeline=case.pipeline,
         dataset=dataset,
         verbose=0,
+        allow_fallback=True,
     )
     assert result is not None, f"{case.name}: nirs4all.run returned None"
     assert result.num_predictions >= case.expected_min_predictions, (
