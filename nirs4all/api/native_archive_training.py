@@ -10,8 +10,10 @@ N4MM bytes, and Core alone writes and validates the ``.n4a`` container.
 
 from __future__ import annotations
 
+import copy
 import importlib
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -27,6 +29,17 @@ from .result import RunResult
 
 class NativeArchiveTrainingError(RuntimeError):
     """The installed native stack cannot produce a portable Archive V2."""
+
+
+@dataclass(frozen=True)
+class _PortableMethodsHpo:
+    """Closed public projection onto DAG-ML's controller-owned Methods HPO."""
+
+    trials: int
+    seed: int
+    low: int
+    high: int
+    step: int
 
 
 class NativeMethodsArchiveRunResult(RunResult):
@@ -47,10 +60,7 @@ class NativeMethodsArchiveRunResult(RunResult):
     ) -> None:
         super().__init__(
             predictions=projected.predictions,
-            per_dataset={
-                dataset_name: {**info, "engine": "native"}
-                for dataset_name, info in projected.per_dataset.items()
-            },
+            per_dataset={dataset_name: {**info, "engine": "native"} for dataset_name, info in projected.per_dataset.items()},
         )
         self._dagml_score_set = dict(outcome["score_set"])
         self._native_dag_ml = dag_ml
@@ -77,6 +87,51 @@ class NativeMethodsArchiveRunResult(RunResult):
 
         return bool(getattr(self._native_training_result, "is_attached", False))
 
+    @property
+    def tuning_best_params(self) -> dict[str, Any]:
+        """Return the native Methods incumbent without consulting Python HPO."""
+
+        state = self._native_outcome.get("methods_hpo_resume_state")
+        if not isinstance(state, Mapping):
+            fallback: dict[str, Any] = super().tuning_best_params
+            return fallback
+        incumbent = state.get("incumbent")
+        terminals = state.get("terminal_trials")
+        if not isinstance(incumbent, Mapping) or not isinstance(terminals, Sequence):
+            raise NativeArchiveTrainingError("native Methods HPO outcome omitted incumbent evidence")
+        trial_id = incumbent.get("trial_id")
+        for terminal in terminals:
+            if not isinstance(terminal, Mapping) or not isinstance(terminal.get("trial"), Mapping):
+                continue
+            trial = terminal["trial"]
+            if trial.get("id") != trial_id:
+                continue
+            parameters = trial.get("parameters")
+            if not isinstance(parameters, Mapping) or set(parameters) != {"n_components"}:
+                break
+            parameter = parameters["n_components"]
+            if not isinstance(parameter, Mapping):
+                break
+            value = parameter.get("value")
+            if isinstance(value, (int, float)) and not isinstance(value, bool) and float(value).is_integer():
+                return {"model.n_components": int(value)}
+            break
+        raise NativeArchiveTrainingError("native Methods HPO outcome cannot identify its incumbent parameters")
+
+    @property
+    def tuning_best_value(self) -> float | None:
+        """Return the scheduler-checked native Methods incumbent score."""
+
+        state = self._native_outcome.get("methods_hpo_resume_state")
+        if not isinstance(state, Mapping):
+            fallback: float | None = super().tuning_best_value
+            return fallback
+        incumbent = state.get("incumbent")
+        score = incumbent.get("score") if isinstance(incumbent, Mapping) else None
+        if not isinstance(score, (int, float)) or isinstance(score, bool) or not np.isfinite(score):
+            raise NativeArchiveTrainingError("native Methods HPO outcome omitted a finite incumbent score")
+        return float(score)
+
     def export(
         self,
         output_path: str | Path,
@@ -91,9 +146,7 @@ class NativeMethodsArchiveRunResult(RunResult):
         if format != "n4a":
             raise ValueError("native Methods export supports only format='n4a' (Core Archive V2)")
         if source is not None or chain_id is not None or compatibility is not None:
-            raise NotImplementedError(
-                "native Methods Archive V2 export rejects legacy selectors and compatibility refits"
-            )
+            raise NotImplementedError("native Methods Archive V2 export rejects legacy selectors and compatibility refits")
         path = Path(output_path)
         if path.suffix.lower() != ".n4a":
             raise ValueError("native Methods export requires a .n4a path")
@@ -109,9 +162,7 @@ class NativeMethodsArchiveRunResult(RunResult):
                 members,
             )
         except Exception as error:
-            raise NativeArchiveTrainingError(
-                "DAG-ML/Core refused native Archive V2 publication"
-            ) from error
+            raise NativeArchiveTrainingError("DAG-ML/Core refused native Archive V2 publication") from error
         if not isinstance(reference, Mapping):
             raise NativeArchiveTrainingError("Core Archive V2 writer returned an invalid reference")
         archive_id = reference.get("archive_id")
@@ -156,10 +207,7 @@ def run_native_methods_archive(
     if not isinstance(pipeline, list):
         raise TypeError("engine='native' requires a list pipeline")
     if not isinstance(dataset, Mapping):
-        raise TypeError(
-            "engine='native' requires dataset={'X': matrix, 'y': targets, "
-            "'sample_ids': ids, 'target_names': optional_names}"
-        )
+        raise TypeError("engine='native' requires dataset={'X': matrix, 'y': targets, 'sample_ids': ids, 'target_names': optional_names}")
     unknown = set(dataset) - {
         "X",
         "y",
@@ -180,9 +228,7 @@ def run_native_methods_archive(
     if refit is not True:
         raise NotImplementedError("engine='native' requires the native refit")
     if cache is not None or project is not None or results_path is not None:
-        raise NotImplementedError(
-            "engine='native' does not use legacy cache, project, or results_path"
-        )
+        raise NotImplementedError("engine='native' does not use legacy cache, project, or results_path")
     native_session = None
     if session is not None:
         from nirs4all.api.session import Session
@@ -196,17 +242,17 @@ def run_native_methods_archive(
     native_options = dict(runner_kwargs or {})
     methods_library_override = native_options.pop("methods_library_path", None)
     if native_options:
-        raise NotImplementedError(
-            f"engine='native' rejects legacy runner options: {sorted(native_options)}"
-        )
-    if random_state is not None and (
-        isinstance(random_state, bool) or not isinstance(random_state, int) or random_state < 0
-    ):
+        raise NotImplementedError(f"engine='native' rejects legacy runner options: {sorted(native_options)}")
+    if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int) or random_state < 0):
         raise TypeError("engine='native' random_state must be a non-negative integer or None")
 
-    dag_ml, core = _require_archive_runtime()
-    methods_library_path = _resolve_methods_library_path(methods_library_override)
     features, targets, sample_ids, target_names = _normalize_training_arrays(dataset)
+    seed = 12345 if random_state is None else random_state
+    portable_pipeline, hpo = _extract_portable_methods_hpo(
+        pipeline,
+        seed=seed,
+        feature_count=features.shape[1],
+    )
     identity = normalize_fit_identity(
         features,
         targets,
@@ -215,9 +261,10 @@ def run_native_methods_archive(
         metadata=dataset.get("metadata"),
         require_explicit_sample_ids=True,
     )
-    seed = 12345 if random_state is None else random_state
+    dag_ml, core = _require_archive_runtime()
+    methods_library_path = _resolve_methods_library_path(methods_library_override)
     contracts = lower_raw_array_training_contracts(
-        pipeline,
+        portable_pipeline,
         features,
         targets,
         identity_frame=identity,
@@ -225,12 +272,12 @@ def run_native_methods_archive(
         portable_methods=True,
         target_names=target_names,
     )
+    if hpo is not None:
+        contracts = _attach_portable_methods_hpo(contracts, hpo)
     prepared = contracts.to_prepared()
     requirement_keys = sorted(prepared.data_envelopes)
     if len(requirement_keys) != 1:
-        raise NativeArchiveTrainingError(
-            "portable Methods PLS requires exactly one signed data requirement"
-        )
+        raise NativeArchiveTrainingError("portable Methods PLS requires exactly one signed data requirement")
     target_matrix = targets.reshape(-1, 1) if targets.ndim == 1 else targets
     methods_inputs = {
         requirement_keys[0]: {
@@ -256,7 +303,7 @@ def run_native_methods_archive(
             warnings=prepared.warnings,
             diagnostics={
                 **dict(prepared.diagnostics or {}),
-                "nirs4all_execution": "methods_callback_free_archive_v2",
+                "nirs4all_execution": ("methods_controller_owned_hpo_archive_v2" if hpo is not None else "methods_callback_free_archive_v2"),
             },
         )
         package_object = training_result.export_portable_predictor_package(
@@ -270,9 +317,7 @@ def run_native_methods_archive(
         score_set = outcome.get("score_set")
         fingerprint = outcome.get("outcome_fingerprint")
         if not isinstance(score_set, Mapping) or not isinstance(fingerprint, str) or not fingerprint:
-            raise NativeArchiveTrainingError(
-                "native Methods training omitted score/archive identity evidence"
-            )
+            raise NativeArchiveTrainingError("native Methods training omitted score/archive identity evidence")
         projected = _scores_to_run_result(
             dict(score_set),
             name or "native",
@@ -305,9 +350,7 @@ def _require_archive_runtime() -> tuple[Any, Any]:
         dag_ml = importlib.import_module("dag_ml")
         core = importlib.import_module("nirs4all_core")
     except ImportError as error:
-        raise NativeArchiveTrainingError(
-            "engine='native' requires matching dag-ml and nirs4all-core native wheels"
-        ) from error
+        raise NativeArchiveTrainingError("engine='native' requires matching dag-ml and nirs4all-core native wheels") from error
     required_dagml = (
         "compile_pipeline_dsl_artifact_with_controllers",
         "sign_training_request",
@@ -316,14 +359,190 @@ def _require_archive_runtime() -> tuple[Any, Any]:
     )
     missing = [name for name in required_dagml if not callable(getattr(dag_ml, name, None))]
     if missing:
-        raise NativeArchiveTrainingError(
-            "installed dag-ml lacks native Archive V2 producer capabilities: " + ", ".join(missing)
-        )
+        raise NativeArchiveTrainingError("installed dag-ml lacks native Archive V2 producer capabilities: " + ", ".join(missing))
     if not callable(getattr(core, "write_archive_v2_from_native_payloads", None)):
-        raise NativeArchiveTrainingError(
-            "installed nirs4all-core lacks the Archive V2 writer"
-        )
+        raise NativeArchiveTrainingError("installed nirs4all-core lacks the Archive V2 writer")
     return dag_ml, core
+
+
+def _extract_portable_methods_hpo(
+    pipeline: list[Any],
+    *,
+    seed: int,
+    feature_count: int,
+) -> tuple[list[Any], _PortableMethodsHpo | None]:
+    """Extract the first executable API-001 HPO slice from a Methods pipeline.
+
+    Python only validates and translates the public request. DAG-ML owns folds,
+    OOF scoring, selection and refit; the official Methods controller owns the
+    optimizer state machine.
+    """
+
+    model_steps = [(index, step) for index, step in enumerate(pipeline) if isinstance(step, Mapping) and "finetune_params" in step]
+    if not model_steps:
+        return list(pipeline), None
+    if len(model_steps) != 1:
+        raise ValueError("native Methods HPO requires exactly one finetune_params model step")
+    index, step = model_steps[0]
+    if set(step) != {"model", "finetune_params"}:
+        raise ValueError("native Methods HPO model step supports only model and finetune_params")
+    params = step["finetune_params"]
+    if not isinstance(params, Mapping):
+        raise TypeError("native Methods HPO finetune_params must be a mapping")
+    allowed = {
+        "approach",
+        "direction",
+        "engine",
+        "metric",
+        "model_params",
+        "n_trials",
+        "pruner",
+        "sampler",
+        "seed",
+    }
+    unknown = sorted(set(params) - allowed)
+    if unknown:
+        raise ValueError(f"native Methods HPO does not support finetune_params keys {unknown}")
+    if str(params.get("engine", "n4m")).strip().lower() not in {"n4m", "methods", "libn4m"}:
+        raise ValueError("native Methods HPO requires finetune_params.engine='n4m'")
+    if params.get("approach", "grouped") != "grouped":
+        raise ValueError("native Methods HPO supports only approach='grouped'")
+    if str(params.get("metric", "rmse")).strip().lower() != "rmse":
+        raise ValueError("native Methods HPO currently selects only the native OOF RMSE")
+    if str(params.get("direction", "minimize")).strip().lower() != "minimize":
+        raise ValueError("native Methods HPO RMSE requires direction='minimize'")
+    if str(params.get("sampler", "random")).strip().lower() != "random":
+        raise ValueError("native Methods HPO first slice supports only sampler='random'")
+    if str(params.get("pruner", "none")).strip().lower() != "none":
+        raise ValueError("native Methods HPO first slice supports only pruner='none'")
+
+    trials = params.get("n_trials", 20)
+    hpo_seed = params.get("seed", seed)
+    if not isinstance(trials, int) or isinstance(trials, bool) or not 1 <= trials <= 256:
+        raise ValueError("native Methods HPO n_trials must be an integer in 1..256")
+    if not isinstance(hpo_seed, int) or isinstance(hpo_seed, bool) or hpo_seed < 0:
+        raise ValueError("native Methods HPO seed must be a non-negative integer")
+    space = params.get("model_params")
+    if not isinstance(space, Mapping) or set(space) != {"n_components"}:
+        raise ValueError("native Methods HPO first slice requires exactly model_params.n_components")
+    low, high, step_size = _normalize_n_components_space(space["n_components"])
+    if high > feature_count:
+        raise ValueError(f"native Methods HPO n_components high={high} exceeds X feature count {feature_count}")
+
+    stripped = list(pipeline)
+    stripped[index] = {"model": step["model"]}
+    return stripped, _PortableMethodsHpo(
+        trials=trials,
+        seed=hpo_seed,
+        low=low,
+        high=high,
+        step=step_size,
+    )
+
+
+def _normalize_n_components_space(value: Any) -> tuple[int, int, int]:
+    """Normalize the existing public integer-range spellings, nothing broader."""
+
+    if isinstance(value, Mapping):
+        unknown = set(value) - {"type", "min", "max", "low", "high", "step", "log"}
+        if unknown or value.get("type") != "int" or value.get("log", False) is not False:
+            raise ValueError("native Methods HPO n_components requires a linear integer range")
+        low = value.get("low", value.get("min"))
+        high = value.get("high", value.get("max"))
+        step = value.get("step", 1)
+    elif isinstance(value, Sequence) and not isinstance(value, (str, bytes)):
+        if len(value) not in (3, 4) or value[0] != "int":
+            raise ValueError("native Methods HPO n_components requires ['int', low, high, step?]")
+        low, high = value[1], value[2]
+        step = value[3] if len(value) == 4 else 1
+    else:
+        raise ValueError("native Methods HPO n_components requires an integer range")
+    if any(not isinstance(item, int) or isinstance(item, bool) for item in (low, high, step)):
+        raise ValueError("native Methods HPO n_components bounds and step must be integers")
+    if low < 1 or high < low or step < 1:
+        raise ValueError("native Methods HPO n_components requires 1 <= low <= high and step >= 1")
+    return low, high, step
+
+
+def _attach_portable_methods_hpo(contracts: Any, hpo: _PortableMethodsHpo) -> Any:
+    """Attach the public request to Dag-ML's signed scheduler HPO operation."""
+
+    spec = contracts.request_spec
+    graph = copy.deepcopy(dict(spec.graph))
+    model_nodes = [node for node in graph.get("nodes", []) if node.get("kind") == "model"]
+    if len(model_nodes) != 1:
+        raise NativeArchiveTrainingError("native Methods HPO requires exactly one model node")
+    target = model_nodes[0]
+    target["operator"] = "pls"
+
+    manifests = [copy.deepcopy(dict(manifest)) for manifest in spec.controller_manifests]
+    model_manifests = [manifest for manifest in manifests if manifest.get("controller_id") == "controller:methods.pls"]
+    if len(model_manifests) != 1:
+        raise NativeArchiveTrainingError("native Methods HPO requires the Methods PLS controller")
+    tuner = copy.deepcopy(model_manifests[0])
+    tuner.update(
+        {
+            "controller_id": "controller:tuner.methods",
+            "operator_kind": "tuner",
+            "input_ports": [],
+            "output_ports": [],
+        }
+    )
+    manifests.append(tuner)
+
+    campaign = copy.deepcopy(dict(spec.campaign))
+    generation = campaign.get("generation")
+    if not isinstance(generation, dict) or generation.get("dimensions"):
+        raise NativeArchiveTrainingError("native Methods HPO requires one unexpanded base variant")
+    metadata = campaign.setdefault("metadata", {})
+    if not isinstance(metadata, dict) or "methods_hpo_operation" in metadata:
+        raise NativeArchiveTrainingError("native Methods HPO campaign metadata is ambiguous")
+    metadata["methods_hpo_operation"] = {
+        "operation_id": "hpo:nirs4all.native.methods",
+        "study": {
+            "controller_id": "controller:tuner.methods",
+            "study_id": "study:nirs4all.native.methods",
+            "methods_abi": "n4m-abi-2.2",
+            "search_space": {
+                "parameters": [
+                    {
+                        "kind": "int",
+                        "name": "n_components",
+                        "low": hpo.low,
+                        "high": hpo.high,
+                        "step": hpo.step,
+                        "log": False,
+                    }
+                ]
+            },
+            "optimizer": {
+                "sampler": "random",
+                "pruner": "none",
+                "direction": "minimize",
+                "metric": "rmse",
+                "seed": hpo.seed,
+                "n_startup_trials": 0,
+                "max_resource": 0,
+                "reduction_factor": 0,
+            },
+        },
+        "trials": hpo.trials,
+        "target_node_id": target["id"],
+        "parameter_paths": {"n_components": "n_components"},
+    }
+    return replace(
+        contracts,
+        request_spec=replace(
+            spec,
+            graph=graph,
+            campaign=campaign,
+            controller_manifests=manifests,
+        ),
+        diagnostics={
+            **dict(contracts.diagnostics or {}),
+            "nirs4all_execution": "methods_controller_owned_hpo_archive_v2",
+        },
+    )
 
 
 def _normalize_training_arrays(
@@ -351,15 +570,11 @@ def _normalize_target_names(value: Any, target_width: int) -> tuple[str, ...]:
     if value is None:
         if target_width == 1:
             return ("y",)
-        raise ValueError(
-            "engine='native' multi-target y requires explicit target_names"
-        )
+        raise ValueError("engine='native' multi-target y requires explicit target_names")
     if not isinstance(value, Sequence) or isinstance(value, (str, bytes)):
         raise TypeError("engine='native' target_names must be a sequence of strings")
     if len(value) != target_width:
-        raise ValueError(
-            f"engine='native' target_names length must match y width {target_width}"
-        )
+        raise ValueError(f"engine='native' target_names length must match y width {target_width}")
     names = tuple(value)
     if not all(isinstance(name, str) and name.strip() for name in names):
         raise ValueError("engine='native' target_names must be non-empty strings")
@@ -379,7 +594,7 @@ def _to_mapping(value: Any, label: str) -> Mapping[str, Any]:
 
 def _native_model_name(pipeline: list[Any]) -> str:
     final = pipeline[-1] if pipeline else None
-    if isinstance(final, Mapping) and set(final) == {"model"}:
+    if isinstance(final, Mapping) and "model" in final:
         final = final["model"]
     name = getattr(final, "__name__", None) or type(final).__name__
     return name if isinstance(name, str) and name else "MethodsPLS"
