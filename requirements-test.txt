@@ -35,9 +35,6 @@ pydantic>=2.0.0
 # NIRS-specific splitting methods
 kennard-stone>=2.2.0
 
-# Legacy DuckDB migration (for migration tests)
-duckdb>=1.0.0
-
 # Testing
 build>=1.0.0
 pytest>=7.4.0

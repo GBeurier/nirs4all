@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import logging
 import sqlite3
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -333,106 +332,6 @@ TABLE_NAMES: list[str] = [
 ]
 
 
-def _auto_migrate_prediction_arrays(conn: sqlite3.Connection, workspace_path: Path) -> None:
-    """Auto-migrate legacy ``prediction_arrays`` table to Parquet sidecar files.
-
-    Called during schema migration when a workspace still has the legacy
-    table.  Streams all rows to per-dataset Parquet files via
-    :class:`ArrayStore`, then drops the table.
-
-    Args:
-        conn: An open SQLite connection.
-        workspace_path: Workspace root directory for the ArrayStore.
-    """
-    import json as _json
-
-    import numpy as np
-
-    from nirs4all.pipeline.storage.array_store import ArrayStore
-
-    def _parse_array(val: object) -> list[float] | None:
-        """Parse a value that may be a list, JSON string, or None."""
-        if val is None:
-            return None
-        if isinstance(val, list):
-            return val
-        if isinstance(val, str):
-            parsed: list[float] = _json.loads(val)
-            return parsed
-        return list(val)  # type: ignore[call-overload,no-any-return]
-
-    has_table = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='prediction_arrays'").fetchone()
-    if has_table is None:
-        return
-
-    row = conn.execute("SELECT COUNT(*) FROM prediction_arrays").fetchone()
-    total = row[0] if row else 0
-    if total == 0:
-        logger.info("Empty prediction_arrays table — dropping.")
-        conn.execute("DROP TABLE prediction_arrays")
-        return
-
-    logger.info("Auto-migrating %d rows from prediction_arrays to Parquet sidecar files.", total)
-    array_store = ArrayStore(workspace_path)
-
-    # Get distinct datasets with arrays
-    dataset_rows = conn.execute("SELECT DISTINCT p.dataset_name FROM predictions p INNER JOIN prediction_arrays pa ON p.prediction_id = pa.prediction_id ORDER BY p.dataset_name").fetchall()
-
-    batch_size = 10_000
-    for (dataset_name,) in dataset_rows:
-        offset = 0
-        while True:
-            rows = conn.execute(
-                "SELECT pa.prediction_id, pa.y_true, pa.y_pred, pa.y_proba, "
-                "       pa.sample_indices, pa.weights, "
-                "       p.model_name, p.fold_id, p.partition, p.metric, "
-                "       p.val_score, p.task_type "
-                "FROM prediction_arrays pa "
-                "INNER JOIN predictions p ON pa.prediction_id = p.prediction_id "
-                "WHERE p.dataset_name = ? "
-                "ORDER BY pa.prediction_id "
-                "LIMIT ? OFFSET ?",
-                [dataset_name, batch_size, offset],
-            ).fetchall()
-
-            if not rows:
-                break
-
-            records = []
-            for row in rows:
-                (prediction_id, y_true, y_pred, y_proba, sample_indices, weights, model_name, fold_id, partition, metric, val_score, task_type) = row
-
-                _yt = _parse_array(y_true)
-                _yp = _parse_array(y_pred)
-                _ypr = _parse_array(y_proba)
-                _si = _parse_array(sample_indices)
-                _wt = _parse_array(weights)
-
-                records.append(
-                    {
-                        "prediction_id": prediction_id,
-                        "dataset_name": dataset_name,
-                        "model_name": model_name or "",
-                        "fold_id": fold_id or "",
-                        "partition": partition or "",
-                        "metric": metric or "",
-                        "val_score": val_score,
-                        "task_type": task_type or "",
-                        "y_true": np.array(_yt, dtype=np.float64) if _yt is not None else None,
-                        "y_pred": np.array(_yp, dtype=np.float64) if _yp is not None else None,
-                        "y_proba": np.array(_ypr, dtype=np.float64) if _ypr is not None else None,
-                        "sample_indices": np.array(_si, dtype=np.int32) if _si is not None else None,
-                        "weights": np.array(_wt, dtype=np.float64) if _wt is not None else None,
-                    }
-                )
-
-            array_store.save_batch(records)
-            offset += batch_size
-
-    conn.execute("DROP TABLE prediction_arrays")
-    logger.info("Auto-migration complete. Dropped prediction_arrays table.")
-
-
 def _backfill_chain_summaries(conn: sqlite3.Connection) -> None:
     """Backfill chain summary columns from existing prediction data.
 
@@ -634,7 +533,7 @@ def _backfill_chain_summaries(conn: sqlite3.Connection) -> None:
             )
 
 
-def create_schema(conn: sqlite3.Connection, workspace_path: Path | None = None) -> None:
+def create_schema(conn: sqlite3.Connection) -> None:
     """Create all tables, views, and indexes in the given SQLite connection.
 
     Safe to call multiple times -- every DDL statement uses
@@ -642,9 +541,6 @@ def create_schema(conn: sqlite3.Connection, workspace_path: Path | None = None) 
 
     Args:
         conn: An open SQLite connection.
-        workspace_path: Optional workspace root directory.  When provided,
-            any legacy ``prediction_arrays`` table is automatically migrated
-            to Parquet sidecar files and dropped.
     """
     # Forward-incompatibility guard: refuse to touch a workspace stamped with a
     # newer schema version than this library understands. Checked FIRST, before
@@ -663,7 +559,7 @@ def create_schema(conn: sqlite3.Connection, workspace_path: Path | None = None) 
         if statement:
             conn.execute(statement)
 
-    _migrate_schema(conn, workspace_path=workspace_path)
+    _migrate_schema(conn)
 
     for statement in INDEX_DDL.strip().split(";"):
         statement = statement.strip()
@@ -723,7 +619,7 @@ def _get_index_names(conn: sqlite3.Connection, table_name: str) -> set[str]:
     return {row[1] for row in conn.execute(f"PRAGMA index_list('{table_name}')").fetchall()}
 
 
-def _migrate_schema(conn: sqlite3.Connection, *, workspace_path: Path | None = None) -> None:
+def _migrate_schema(conn: sqlite3.Connection) -> None:
     """Apply incremental schema migrations to existing databases.
 
     Adds columns that may be missing from older database versions.
@@ -731,8 +627,6 @@ def _migrate_schema(conn: sqlite3.Connection, *, workspace_path: Path | None = N
 
     Args:
         conn: An open SQLite connection with tables already created.
-        workspace_path: Optional workspace root directory for auto-migrating
-            legacy ``prediction_arrays`` to Parquet.
     """
     # Migration: add original_template column to pipelines table
     if _table_exists(conn, "pipelines"):
@@ -854,7 +748,3 @@ def _migrate_schema(conn: sqlite3.Connection, *, workspace_path: Path | None = N
     # Backfill chain summary from existing predictions
     if added_chain_cols:
         _backfill_chain_summaries(conn)
-
-    # Migration: auto-migrate prediction_arrays from legacy table to Parquet sidecar files
-    if workspace_path is not None:
-        _auto_migrate_prediction_arrays(conn, workspace_path)

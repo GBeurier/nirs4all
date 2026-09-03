@@ -407,14 +407,15 @@ class WorkspaceStore:
         self._atexit_callback: Callable[[], None] | None = None
 
         sqlite_path = self._workspace_path / "store.sqlite"
-        duckdb_path = self._workspace_path / "store.duckdb"
 
-        # Runtime opens never mutate legacy DuckDB stores. Conversion is an
-        # explicit nirs4all-tools operation into a distinct output path.
-        if not sqlite_path.exists() and duckdb_path.exists():
-            from nirs4all.workspace.compat import ConversionRequired, inspect_workspace_format
+        # Runtime opens never mutate any legacy workspace format. Detection is
+        # read-only; conversion belongs exclusively to nirs4all-tools and must
+        # target a distinct output path.
+        from nirs4all.workspace.compat import ConversionRequired, inspect_workspace_format
 
-            raise ConversionRequired(inspect_workspace_format(self._workspace_path))
+        format_info = inspect_workspace_format(self._workspace_path)
+        if format_info.conversion_required:
+            raise ConversionRequired(format_info)
 
         self._conn: sqlite3.Connection | None = sqlite3.connect(
             str(sqlite_path),
@@ -428,9 +429,8 @@ class WorkspaceStore:
         # too-new workspace is never mutated (WAL writes -wal/-shm sidecars).
         self._conn.execute("PRAGMA busy_timeout=5000")
 
-        # Create schema (checks schema version, then sets WAL/foreign_keys and
-        # auto-migrates legacy prediction_arrays if present)
-        create_schema(self._conn, workspace_path=self._workspace_path)
+        # Create or incrementally upgrade the supported SQLite schema.
+        create_schema(self._conn)
 
         # Ensure artifacts directory exists
         self._artifacts_dir = self._workspace_path / "artifacts"

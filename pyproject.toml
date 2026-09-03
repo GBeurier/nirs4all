@@ -117,9 +117,6 @@ viz = ["matplotlib>=3.7.0"]
 # without [viz] fails on import). Also pulls numba + llvmlite transitively.
 explain = ["shap>=0.42.0", "matplotlib>=3.7.0"]
 
-# Legacy DuckDB workspace migration (only needed for pre-v0.9 workspaces)
-migration = ["duckdb>=1.0.0"]
-
 # Transition-release workspace converter wrapper. The runtime detects legacy
 # workspaces without this dependency; install this extra to run
 # ``nirs4all workspace convert`` from the library CLI. The DuckDB/Parquet
