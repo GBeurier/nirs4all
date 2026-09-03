@@ -232,7 +232,7 @@ def test_load_v2_session_validates_core_and_predicts_without_runner(
     with pytest.raises(RtError) as run_caught:
         session.run(object())
     assert run_caught.value.cause == "unsupported_capability"
-    assert run_caught.value.unsupported_capability == "native_session_legacy_engine"
+    assert run_caught.value.unsupported_capability == "core_archive_v2_prediction_only"
     with pytest.raises(RtError) as caught:
         session.retrain(object(), engine="legacy")
     assert caught.value.cause == "unsupported_capability"
