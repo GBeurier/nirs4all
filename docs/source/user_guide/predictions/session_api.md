@@ -1,6 +1,15 @@
 # Session API - Stateful Workflows
 
-The Session API provides a stateful interface for multi-step machine learning workflows. Unlike the functional `nirs4all.run()` API, sessions maintain state across multiple operations, making them ideal for production pipelines, iterative experimentation, and model deployment workflows.
+The Session API provides a stateful interface for multi-step machine learning workflows. Unlike the functional `nirs4all.run()` API, sessions maintain state across multiple operations, making them useful for iterative experimentation and model deployment workflows.
+
+```{important}
+Sessions follow the package default engine, `native`. Native session state uses
+the bounded portable Core Archive V2 path and does not instantiate a
+`PipelineRunner`. That runner exists only for direct-Python rollback selected
+with `engine="legacy"`. Convert a legacy `.n4a` archive before using it on the
+default path, or select the rollback engine explicitly. See
+{doc}`../../reference/native_capability_preflight`.
+```
 
 ## When to Use Sessions
 
@@ -10,7 +19,7 @@ Choose the Session API when you need:
 - **Interactive experimentation**: Keep a trained model in memory for quick predictions
 - **Production pipelines**: Consistent configuration across training and prediction phases
 - **Model persistence**: Save/load trained models with their complete state
-- **Resource efficiency**: Share a PipelineRunner across multiple operations
+- **Resource efficiency**: Reuse session state and workspace context across operations
 
 For one-off experiments or quick analysis, use the simpler `nirs4all.run()` functional API.
 
@@ -331,7 +340,8 @@ with nirs4all.session(verbose=1, workspace_path="shared_workspace/") as shared:
     print(f"PLS(15): RMSE = {r3.best_rmse:.4f}")
 ```
 
-This shares the PipelineRunner instance, reducing overhead for multiple runs.
+This shares session context. A `PipelineRunner` is created only if the caller
+selects `engine="legacy"` explicitly.
 
 ## API Reference
 
@@ -369,7 +379,8 @@ Load a session from a saved `.n4a` bundle.
 **Parameters:**
 - `path` (str|Path): Path to `.n4a` bundle file
 
-**Returns:** Session object ready for prediction
+**Returns:** Session object ready for prediction when its bundle is supported by
+the selected engine. Default-native prediction requires Core Archive V2 state.
 
 ### Session Methods
 
@@ -399,7 +410,9 @@ Make predictions using the trained pipeline.
 
 **Returns:** PredictResult with predictions
 
-**Raises:** ValueError if session not trained
+**Raises:** `ValueError` if the session is not trained; native prediction of a
+legacy archive raises a structured `RtError` with capability
+`legacy_archive_conversion_required`
 
 ---
 
@@ -449,7 +462,8 @@ Save the trained session to a `.n4a` bundle file.
 - Path to the workspace directory
 
 **`session.runner`** → PipelineRunner
-- The shared PipelineRunner instance (created lazily)
+- Legacy-only rollback surface. Access is refused for native session state; it
+  is created lazily only after explicit `engine="legacy"` selection.
 
 ## Session Lifecycle
 
