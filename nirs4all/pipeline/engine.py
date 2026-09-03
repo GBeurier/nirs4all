@@ -25,7 +25,10 @@ compatibility lane available until the R4 removal decision.
 
 from __future__ import annotations
 
+import json
 import os
+import threading
+import warnings
 from collections.abc import Mapping
 from typing import Any, Literal, cast
 
@@ -35,8 +38,12 @@ ExecutionProfile = Literal["rollback-capable", "strict"]
 DEFAULT_ENGINE: Engine = "native"
 DEFAULT_EXECUTION_PROFILE: ExecutionProfile = "rollback-capable"
 ENGINE_ENV_VAR = "N4A_ENGINE"
+LEGACY_USAGE_COUNTER_ENV_VAR = "N4A_LEGACY_USAGE_COUNTER"
 ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "native", "dual")
 EXECUTION_PROFILES: tuple[ExecutionProfile, ...] = ("rollback-capable", "strict")
+_LEGACY_USAGE_COUNTER_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_LEGACY_USAGE_COUNTS: dict[str, int] = {"legacy": 0, "dual": 0}
+_LEGACY_USAGE_COUNTS_LOCK = threading.Lock()
 
 
 class ExecutionProfileError(ValueError):
@@ -62,6 +69,53 @@ class DualRunMismatchError(RuntimeError):
         self.report = dict(report)
         mismatches = self.report.get("mismatches", [])
         super().__init__(f"engine='dual' detected {len(mismatches)} native/legacy mismatch(es): {mismatches}")
+
+
+class LegacyEngineUsageWarning(UserWarning):
+    """Stable structured warning for an explicit legacy-bearing API request."""
+
+    def __init__(self, *, engine: Engine, operation: str) -> None:
+        self.diagnostic: dict[str, str | int] = {
+            "schema_version": 1,
+            "code": "nirs4all.explicit_legacy_engine",
+            "engine": engine,
+            "operation": operation,
+        }
+        super().__init__(json.dumps(self.diagnostic, sort_keys=True, separators=(",", ":")))
+
+
+def report_explicit_legacy_engine(
+    requested_engine: str | None,
+    selected_engine: Engine,
+    *,
+    operation: str,
+) -> None:
+    """Make an explicit legacy-bearing public request visible and optionally count it.
+
+    The counter is process-local and disabled unless
+    ``N4A_LEGACY_USAGE_COUNTER`` is set to a conventional true value. It records
+    only the selected engine, never request inputs, scientific data, paths, or
+    network telemetry.
+    """
+    if requested_engine is None or selected_engine not in {"legacy", "dual"}:
+        return
+
+    if os.environ.get(LEGACY_USAGE_COUNTER_ENV_VAR, "").strip().lower() in _LEGACY_USAGE_COUNTER_TRUE_VALUES:
+        with _LEGACY_USAGE_COUNTS_LOCK:
+            _LEGACY_USAGE_COUNTS[selected_engine] += 1
+
+    warnings.warn(
+        LegacyEngineUsageWarning(engine=selected_engine, operation=operation),
+        stacklevel=3,
+    )
+
+
+def get_legacy_engine_usage_counts() -> dict[str, int]:
+    """Return a data-free snapshot of the opt-in process-local support counter."""
+    with _LEGACY_USAGE_COUNTS_LOCK:
+        legacy = _LEGACY_USAGE_COUNTS["legacy"]
+        dual = _LEGACY_USAGE_COUNTS["dual"]
+    return {"legacy": legacy, "dual": dual, "total": legacy + dual}
 
 
 def resolve_engine(
