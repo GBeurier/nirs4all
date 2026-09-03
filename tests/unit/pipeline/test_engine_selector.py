@@ -1,9 +1,15 @@
-"""Unit tests for the backend-engine selector (default is dag-ml, legacy is explicit compatibility)."""
+"""Focused cutover tests: native default, fail-closed refusal, explicit legacy."""
 
 from __future__ import annotations
 
+import importlib
+from pathlib import Path
+
+import numpy as np
 import pytest
 
+from nirs4all.api.session import Session
+from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import (
     DEFAULT_ENGINE,
     DEFAULT_EXECUTION_PROFILE,
@@ -13,12 +19,11 @@ from nirs4all.pipeline.engine import (
 )
 
 
-def test_defaults_to_dagml(monkeypatch: pytest.MonkeyPatch) -> None:
-    # V1 default is dag-ml; legacy stays available only through an explicit selector/env override.
+def test_defaults_to_native(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(ENGINE_ENV_VAR, raising=False)
-    assert DEFAULT_ENGINE == "dag-ml"
+    assert DEFAULT_ENGINE == "native"
     assert DEFAULT_EXECUTION_PROFILE == "rollback-capable"
-    assert resolve_engine() == "dag-ml"
+    assert resolve_engine() == "native"
 
 
 def test_explicit_legacy_case_insensitive() -> None:
@@ -71,18 +76,116 @@ def test_strict_profile_refuses_environment_selected_legacy(monkeypatch: pytest.
     assert caught.value.code == "legacy_execution_forbidden"
 
 
+def test_rollback_profile_refuses_environment_selected_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(ENGINE_ENV_VAR, "legacy")
+    with pytest.raises(ExecutionProfileError) as caught:
+        resolve_engine()
+    assert caught.value.code == "ambient_legacy_execution_forbidden"
+
+
 def test_strict_profile_refuses_legacy_fallback() -> None:
     with pytest.raises(ExecutionProfileError) as caught:
         resolve_engine("dag-ml", execution_profile="strict", allow_fallback=True)
     assert caught.value.code == "legacy_fallback_forbidden"
 
 
-def test_rollback_profile_retains_explicit_legacy_and_fallback() -> None:
+def test_rollback_profile_retains_only_explicit_legacy() -> None:
     assert resolve_engine("legacy") == "legacy"
-    assert resolve_engine("dag-ml", allow_fallback=True) == "dag-ml"
+    with pytest.raises(ExecutionProfileError) as caught:
+        resolve_engine("native", allow_fallback=True)
+    assert caught.value.code == "legacy_fallback_forbidden"
 
 
 def test_unknown_execution_profile_is_typed_and_fail_closed() -> None:
     with pytest.raises(ExecutionProfileError) as caught:
         resolve_engine("dag-ml", execution_profile="studio-ish")
     assert caught.value.code == "profile_unknown"
+
+
+def test_run_and_session_run_default_to_native_without_pipeline_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_module = importlib.import_module("nirs4all.api.run")
+    native_module = importlib.import_module("nirs4all.api.native_archive_training")
+    sentinel = object()
+    calls: list[tuple[object, object, object]] = []
+
+    class LegacyPathReached:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("default native run constructed PipelineRunner")
+
+    def native_run(pipeline: object, dataset: object, **kwargs: object) -> object:
+        calls.append((pipeline, dataset, kwargs.get("session")))
+        return sentinel
+
+    monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
+    monkeypatch.setattr(native_module, "run_native_methods_archive", native_run)
+
+    pipeline: list[object] = []
+    dataset: dict[str, object] = {}
+    assert run_module.run(pipeline, dataset) is sentinel
+
+    session = Session(pipeline=pipeline)
+    assert session.run(dataset) is sentinel
+    assert session._runner is None
+    assert calls == [(pipeline, dataset, None), (pipeline, dataset, session)]
+
+
+def test_default_native_refuses_unsupported_shape_without_pipeline_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    run_module = importlib.import_module("nirs4all.api.run")
+
+    class LegacyPathReached:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("unsupported native run constructed PipelineRunner")
+
+    monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
+    with pytest.raises(TypeError, match="requires a list pipeline"):
+        run_module.run({"legacy": "shape"}, object())
+
+
+def test_predict_defaults_to_core_v2_and_legacy_archive_refuses_without_runner(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    predict_module = importlib.import_module("nirs4all.api.predict")
+    replay_module = importlib.import_module("nirs4all.pipeline.dagml.core_archive_replay")
+
+    class LegacyPathReached:
+        def __init__(self, *_args: object, **_kwargs: object) -> None:
+            raise AssertionError("default native prediction constructed PipelineRunner")
+
+    monkeypatch.setattr(predict_module, "PipelineRunner", LegacyPathReached)
+    monkeypatch.setattr(replay_module, "detect_core_archive_version", lambda _model: 2)
+    monkeypatch.setattr(
+        replay_module,
+        "predict_core_methods_archive_v2",
+        lambda *_args, **_kwargs: (np.asarray([1.5]), {"engine": "core"}),
+    )
+    result = predict_module.predict(model=Path("portable.n4a"), data=np.asarray([[1.0]]))
+    np.testing.assert_array_equal(result.y_pred, np.asarray([1.5]))
+
+    monkeypatch.setattr(replay_module, "detect_core_archive_version", lambda _model: None)
+    with pytest.raises(RtError) as caught:
+        predict_module.predict(model=Path("legacy.n4a"), data=np.asarray([[1.0]]))
+    assert caught.value.cause == "unsupported_capability"
+    assert caught.value.unsupported_capability == "legacy_archive_conversion_required"
+
+
+def test_predict_explicit_legacy_remains_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    predict_module = importlib.import_module("nirs4all.api.predict")
+    sentinel = object()
+    monkeypatch.setattr(predict_module, "_predict_from_model", lambda **_kwargs: sentinel)
+
+    assert predict_module.predict(model={"model": "legacy"}, data=object(), engine="legacy") is sentinel
+
+
+def test_legacy_session_prediction_requires_explicit_selector_before_runner() -> None:
+    session = Session()
+    session._status = "trained"
+    session._bundle_path = Path("legacy.n4a")
+
+    with pytest.raises(RtError) as caught:
+        session.predict(object())
+    assert caught.value.unsupported_capability == "legacy_archive_conversion_required"
+    assert session._runner is None

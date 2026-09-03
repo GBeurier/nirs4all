@@ -41,6 +41,8 @@ import numpy as np
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
+from nirs4all.pipeline.dagml.rt import RtError
+from nirs4all.pipeline.engine import resolve_engine
 
 from .result import PredictResult
 from .session import Session
@@ -206,7 +208,10 @@ def predict(
         - :func:`nirs4all.explain`: Generate SHAP explanations
         - :class:`nirs4all.api.result.PredictResult`: Result class
     """
-    engine = runner_kwargs.pop("engine", None)
+    engine = resolve_engine(
+        runner_kwargs.pop("engine", None),
+        allow_fallback=bool(runner_kwargs.pop("allow_fallback", False)),
+    )
     if engine == "legacy" and isinstance(session, Session):
         session._prepare_legacy_access("predict")
 
@@ -229,7 +234,7 @@ def predict(
     if core_archive_version is not None:
         assert isinstance(model, (str, Path))
         methods_library_path = runner_kwargs.pop("methods_library_path", None)
-        if engine not in (None, "native", "dag-ml"):
+        if engine not in ("native", "dag-ml"):
             raise CoreArchiveReplayError(
                 "recognized Core archives cannot be replayed with the legacy engine"
             )
@@ -286,8 +291,15 @@ def predict(
         )
 
     if coverage is not None and _is_conformal_attached_bundle_request(model):
-        if engine not in (None, "legacy"):
-            raise NotImplementedError("predict() model-bundle replay currently requires engine='legacy'")
+        if engine != "legacy":
+            raise RtError(
+                "predict",
+                "unsupported_capability",
+                "this legacy .n4a model requires conversion to a portable Core Archive V2",
+                mitigation="convert the archive explicitly, or pass engine='legacy' for the rollback lane",
+                unsupported_capability="legacy_archive_conversion_required",
+                portable_level="legacy",
+            )
         result = _predict_from_conformal_attached_model_bundle(
             model=model,
             data=data,
@@ -317,8 +329,28 @@ def predict(
             "conformal sidecar and data={'X': ..., 'sample_ids': ...}."
         )
 
-    if engine not in (None, "legacy"):
-        raise NotImplementedError("predict() store/model replay currently requires engine='legacy'")
+    if engine != "legacy":
+        legacy_archive = isinstance(model, (str, Path)) and Path(model).suffix.lower() == ".n4a"
+        raise RtError(
+            "predict",
+            "unsupported_capability",
+            (
+                "this legacy .n4a model requires conversion to a portable Core Archive V2"
+                if legacy_archive
+                else "native prediction does not support this non-portable model or workspace chain"
+            ),
+            mitigation=(
+                "convert the archive explicitly, or pass engine='legacy' for the rollback lane"
+                if legacy_archive
+                else "use a portable Core Archive V2, or pass engine='legacy' explicitly"
+            ),
+            unsupported_capability=(
+                "legacy_archive_conversion_required"
+                if legacy_archive
+                else "native_model_replay_unavailable"
+            ),
+            portable_level="legacy" if legacy_archive else None,
+        )
 
     # ---- Store-based path (chain_id) ----
     if chain_id is not None:

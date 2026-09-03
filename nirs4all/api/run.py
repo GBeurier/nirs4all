@@ -20,7 +20,6 @@ import json
 import math
 import tempfile
 import time
-import warnings
 from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAlias, cast
@@ -808,15 +807,16 @@ def run(
             Affects column headers in final summary tables. Internal variable names
             use ML conventions regardless of this setting.
 
-        engine: Execution backend selector. ``None`` (default) resolves to ``"dag-ml"`` and runs the
-            pipeline on the dag-ml backend. Explicit ``"native"`` selects the fail-closed portable
+        engine: Execution backend selector. ``None`` (default) resolves to ``"native"`` and selects
+            the fail-closed portable
             Methods Archive V2 producer; explicit ``"legacy"`` runs the pure-Python orchestrator as a
             compatibility path. Explicit ``"dual"`` runs a bounded, native-first parity oracle for
             exact NumPy ``(X, y)`` regression, ``KFold(shuffle=False)``, and one
             ``PLSRegression`` model. It validates native OOF evidence before invoking the temporary
             legacy oracle, compares ledger-governed scores/predictions, removes the legacy workspace,
             and returns the native result. Every other dual shape fails closed before execution.
-            Override the default per-process with ``$N4A_ENGINE`` (e.g. ``$N4A_ENGINE=legacy``).
+            Native engine overrides remain available through ``$N4A_ENGINE``; legacy rollback always
+            requires the explicit public ``engine="legacy"`` selector.
 
         tuning: Typed native tuning specification for the currently supported
             DAG-ML subset. With ``engine="dag-ml"``, this supports explicit
@@ -846,13 +846,9 @@ def run(
             an explicit ``results_path`` is threaded as a named ``run()`` parameter (not a runner_kwarg),
             so it bypasses the dag-ml runner_kwarg allowlist. It has no effect on ``engine="legacy"``.
 
-        allow_fallback: dag-ml fallback policy (``engine="dag-ml"`` only; B-018). ``False`` (default)
-            is the V1 strict mode: a shape dag-ml cannot run / a missing backend raises a structured
-            :class:`~nirs4all.pipeline.dagml.rt.RtError` instead of silently degrading. ``True`` is the
-            explicit compatibility opt-in: the same condition warns, re-runs on legacy, and attaches the
-            ``RtError`` diagnostic to the returned result (``result.to_rt_result().diagnostics``), so
-            callers can see *"ran legacy because <cause>"*. No effect on ``engine="legacy"`` (legacy
-            never falls back). ``engine="dual"`` refuses ``allow_fallback=True``.
+        allow_fallback: Frozen compatibility parameter. ``False`` is required for native engines;
+            ``True`` is rejected before input inspection. Select ``engine="legacy"`` explicitly to use
+            the rollback lane (where this parameter has no effect).
 
         **runner_kwargs: Additional PipelineRunner parameters. See
             PipelineRunner.__init__ for full list. Common options:
@@ -961,7 +957,7 @@ def run(
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
 
-    selected_engine = resolve_engine(engine)
+    selected_engine = resolve_engine(engine, allow_fallback=allow_fallback)
     if selected_engine == "legacy" and isinstance(session, Session):
         session._prepare_legacy_access("run")
     if selected_engine == "native" and isinstance(session, Session):
@@ -1258,11 +1254,9 @@ def run(
         setattr(native_result, "_dual_run_report", report)  # noqa: B010 - private diagnostic seam
         return native_result
 
-    # ADR-17 backend selector (nirs4all-core -> dag-ml migration). The V1 default engine is dag-ml:
-    # a plain `run()` dispatches to the dag-ml backend, which runs the pipeline natively (Rust,
-    # IN-PROCESS by default via the PyO3 extension) and returns a RunResult of dag-ml's native scores.
-    # Legacy remains available only as the explicit compatibility path (`engine="legacy"` /
-    # `$N4A_ENGINE=legacy`), which runs the in-process legacy orchestrator (`_run_legacy`).
+    # ADR-17 backend selector. A plain run() now dispatches to the fail-closed native Archive V2
+    # producer above. The dag-ml selector remains available explicitly for its broader native subset.
+    # Legacy remains available only as the explicit compatibility path (`engine="legacy"`).
     #
     # FALLBACK POLICY. By default dag-ml fails closed via two catchable signals:
     #   * SHAPE not yet covered — the catchable coverage-boundary shapes (no splitter, .n4a export,
@@ -1271,8 +1265,7 @@ def run(
     #   * BACKEND not installed — the dag-ml preflight raises DagMlUnavailable when NEITHER mechanism
     #     is present (no in-process extension AND no dag-ml-cli). dag-ml is a HARD dependency, and a
     #     wheel install missing the native backend now refuses with a structured RtError by default.
-    # In either case the default raises a structured RtError. Only an explicit `allow_fallback=True`
-    # warns and re-runs on the legacy engine (run_via_dagml cleans its own temp dir in a finally).
+    # In either case the boundary raises a structured RtError and never re-runs on legacy.
     # ONLY DagMlUnsupported/NotImplementedError/DagMlUnavailable are caught — a GENUINE dag-ml
     # runtime/operator bug propagates untouched (never silently swallowed into legacy).
     if selected_engine == "dag-ml":
@@ -1280,24 +1273,10 @@ def run(
         from nirs4all.pipeline.dagml.rt import RtError
         from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
-        def _fallback(exc: Exception) -> RunResult:
-            """Resolve a caught dag-ml fallback signal: RAISE a structured RtError (default) or degrade (opt-in).
-
-            Classifies ``exc`` into an :class:`~nirs4all.pipeline.dagml.rt.RtError` (the RT-003 cause vocab,
-            B-018). ``allow_fallback=False`` (default) re-raises it (the "no silent fallback" boundary);
-            ``allow_fallback=True`` re-runs legacy and ATTACHES the RtError as a diagnostic so callers see
-            *"ran legacy because <cause>"* via ``result.to_rt_result().diagnostics``.
-            The diagnostic is a dynamic attribute carried ONLY by fallback results; ``to_rt_result()`` reads it
-            with an empty default. The distinct per-cause WARNING is emitted by the caller (degrade path only).
-            """
+        def _native_error(exc: Exception) -> RunResult:
+            """Map a native capability/backend refusal to the public typed error envelope."""
             rt_error = RtError.from_dagml_error(exc, verb="run")
-            if not allow_fallback:
-                raise rt_error from exc
-            result = _run_legacy()
-            # Dynamic attribute (carried ONLY by fallback results); to_rt_result() reads it via getattr with an
-            # empty default. setattr keeps api/result.py free of a new field (method-level seam only).
-            setattr(result, "_rt_diagnostics", [rt_error])  # noqa: B010 — surfaced via to_rt_result().diagnostics
-            return result
+            raise rt_error from exc
 
         try:
             # Forward EVERY run() kwarg that affects the dag-ml run so engine='dag-ml' honors the same
@@ -1307,12 +1286,11 @@ def run(
             #     `{name}_p0_{hash}` named, `_refit` on the refit rows — and carried on the dag-ml
             #     RunResult predictions; a generator pipeline's winner-only projection carries no
             #     config_name rather than a wrong one, #55).
-            #   VALIDATED, refuse unless fallback is allowed if un-honorable — `refit`, `session`,
+            #   VALIDATED, refuse when un-honorable — `refit`, `session`,
             #     `cache`, `project`, and the
             #     workspace/persistence runner_kwargs are checked against what the scores-only in-memory
             #     dag-ml path can deliver; a non-default value it cannot satisfy raises DagMlUnsupported
-            #     (caught below → RtError by default, legacy fallback only with `allow_fallback=True`), so
-            #     no user option is ever silently dropped.
+            #     (caught below → RtError), so no user option is ever silently dropped.
             # Defaults are honored natively and never trigger a fallback, so a plain engine='dag-ml' run
             # runs natively. The remaining kwargs are presentation/logging-only for the current
             # score-only path: `save_artifacts=True` (the default) runs natively — the dag-ml run keeps no
@@ -1336,21 +1314,11 @@ def run(
                 results_path=results_path,
             )
         except DagMlUnavailable as e:
-            if allow_fallback:
-                warnings.warn(
-                    f"the dag-ml backend is not available ({e}); falling back to the legacy engine",
-                    stacklevel=2,
-                )
-            return _fallback(e)
+            return _native_error(e)
         except (DagMlUnsupported, NotImplementedError) as e:
-            if allow_fallback:
-                warnings.warn(
-                    f"engine='dag-ml' does not support this pipeline shape ({e}); "
-                    "falling back to the legacy engine",
-                    stacklevel=2,
-                )
-            return _fallback(e)
+            return _native_error(e)
 
+    assert selected_engine == "legacy"
     return _run_legacy()
 
 

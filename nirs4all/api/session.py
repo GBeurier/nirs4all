@@ -312,9 +312,15 @@ class Session:
             ValueError: If no pipeline was provided to the session.
         """
         self._ensure_open()
-        selected_engine = kwargs.pop("engine", None)
-        if selected_engine == "native":
-            self._prepare_native_run()
+        from nirs4all.pipeline.engine import resolve_engine
+
+        selected_engine = resolve_engine(
+            kwargs.pop("engine", None),
+            allow_fallback=bool(kwargs.get("allow_fallback", False)),
+        )
+        if selected_engine != "legacy":
+            if selected_engine == "native":
+                self._prepare_native_run()
             if self._pipeline is None:
                 raise ValueError(
                     "No pipeline defined for this session. "
@@ -337,15 +343,12 @@ class Session:
                     dataset,
                     name=self._name,
                     session=self,
-                    engine="native",
+                    engine=selected_engine,
                     plots_visible=plots_visible or configured_plots_visible,
                     **native_options,
                 ),
             )
-        if selected_engine not in (None, "legacy"):
-            raise NotImplementedError(
-                "Session.run supports explicit engine='native' or the historical legacy lane"
-            )
+        assert selected_engine == "legacy"
         self._prepare_legacy_access("run")
         if self._pipeline is None:
             raise ValueError(
@@ -428,6 +431,12 @@ class Session:
             ValueError: If session has not been trained.
         """
         self._ensure_open()
+        from nirs4all.pipeline.engine import resolve_engine
+
+        selected_engine = resolve_engine(
+            kwargs.pop("engine", None),
+            allow_fallback=bool(kwargs.pop("allow_fallback", False)),
+        )
         if not self.is_trained:
             raise ValueError(
                 "Session must be trained before prediction. "
@@ -442,8 +451,7 @@ class Session:
             )
 
             methods_library_path = kwargs.pop("methods_library_path", None)
-            engine = kwargs.pop("engine", None)
-            if engine not in (None, "native", "dag-ml"):
+            if selected_engine not in ("native", "dag-ml"):
                 raise CoreArchiveReplayError(
                     "Core Archive V2 sessions cannot use the legacy engine"
                 )
@@ -464,6 +472,33 @@ class Session:
                 model_name="MethodsN4MM",
                 preprocessing_steps=[],
             )
+
+        if selected_engine != "legacy":
+            from nirs4all.pipeline.dagml.rt import RtError
+
+            conversion_required = self._bundle_path is not None and self._bundle_path.suffix.lower() == ".n4a"
+            raise RtError(
+                "predict",
+                "unsupported_capability",
+                (
+                    "this legacy .n4a Session requires conversion to a portable Core Archive V2"
+                    if conversion_required
+                    else "native Session prediction requires a portable Core Archive V2"
+                ),
+                mitigation=(
+                    "convert the archive explicitly, or pass engine='legacy' for the rollback lane"
+                    if conversion_required
+                    else "export a portable Core Archive V2, or pass engine='legacy' explicitly"
+                ),
+                unsupported_capability=(
+                    "legacy_archive_conversion_required"
+                    if conversion_required
+                    else "native_session_prediction_unavailable"
+                ),
+                portable_level="legacy" if conversion_required else None,
+            )
+
+        self._prepare_legacy_access("predict")
 
         import numpy as np
 

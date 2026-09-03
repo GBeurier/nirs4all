@@ -1,10 +1,10 @@
-"""Execution-engine selector for the nirs4all core (V1 dag-ml cutover posture).
+"""Execution-engine selector for the nirs4all core (V1 native cutover posture).
 
-Seam for the **nirs4all-core → dag-ml** migration. The default production engine is **dag-ml**:
-:func:`nirs4all.run` runs through the native dag-ml backend
-(:mod:`nirs4all.pipeline.dagml.run_backend`) unless another engine is selected. The in-process
+Seam for the **nirs4all-core → native** migration. The default production engine is **native**:
+:func:`nirs4all.run` runs through the fail-closed Archive V2/N4MM producer unless another engine
+is selected. The in-process
 *legacy* orchestrator (:class:`~nirs4all.pipeline.PipelineRunner`) remains available as an explicit
-compatibility path via ``engine="legacy"`` or ``$N4A_ENGINE=legacy``.
+compatibility path via the public ``engine="legacy"`` selector only.
 The explicit ``engine="native"`` lane is the fail-closed Archive V2/N4MM producer for the
 portable Methods subset; it never falls back to :class:`~nirs4all.pipeline.PipelineRunner`.
 
@@ -12,7 +12,8 @@ The side-by-side comparison mode (``"dual"``) is intentionally limited to the st
 :func:`nirs4all.run` oracle subset; other public operations remain unavailable.
 
 Selection precedence: explicit argument > ``$N4A_ENGINE`` env var > :data:`DEFAULT_ENGINE`
-(``dag-ml``). Pass ``engine="legacy"`` (or ``$N4A_ENGINE=legacy``) only for compatibility runs. See
+(``native``). Ambient legacy/dual selection is rejected: pass ``engine="legacy"`` explicitly for
+compatibility runs. See
 ``dag-ml/docs/migration-nirs4all/``.
 
 Product-owned internal boundaries resolve with ``execution_profile="strict"``.  That profile is
@@ -31,7 +32,7 @@ from typing import Any, Literal, cast
 Engine = Literal["legacy", "dag-ml", "native", "dual"]
 ExecutionProfile = Literal["rollback-capable", "strict"]
 
-DEFAULT_ENGINE: Engine = "dag-ml"
+DEFAULT_ENGINE: Engine = "native"
 DEFAULT_EXECUTION_PROFILE: ExecutionProfile = "rollback-capable"
 ENGINE_ENV_VAR = "N4A_ENGINE"
 ENGINES: tuple[Engine, ...] = ("legacy", "dag-ml", "native", "dual")
@@ -69,11 +70,10 @@ def resolve_engine(
     execution_profile: str = DEFAULT_EXECUTION_PROFILE,
     allow_fallback: bool = False,
 ) -> Engine:
-    """Resolve the requested execution engine, defaulting to ``dag-ml``.
+    """Resolve the requested execution engine, defaulting to ``native``.
 
-    The V1 default is the dag-ml backend. The pure-Python legacy orchestrator remains available only
-    when selected explicitly via ``engine="legacy"`` or ``$N4A_ENGINE=legacy``. The ``"native"``
-    engine explicitly selects the fail-closed portable Methods Archive V2 producer.
+    The V1 default is the fail-closed portable Methods Archive V2 producer. The pure-Python legacy
+    orchestrator remains available only when selected explicitly via ``engine="legacy"``.
 
     Args:
         engine: Explicit engine name. When ``None``, falls back to the
@@ -84,7 +84,7 @@ def resolve_engine(
             rejects this before dataset access or meaningful computation.
 
     Returns:
-        The validated engine name. ``"dag-ml"`` (the default), ``"native"``, ``"legacy"``, and
+        The validated engine name. ``"native"`` (the default), ``"dag-ml"``, ``"legacy"``, and
         the narrow ``"dual"`` oracle are dispatched by :func:`nirs4all.run`.
 
     Raises:
@@ -102,7 +102,8 @@ def resolve_engine(
             "profile_unknown",
             f"unknown nirs4all execution profile {normalized_profile!r}; valid profiles: {list(EXECUTION_PROFILES)}",
         )
-    name = (engine or os.environ.get(ENGINE_ENV_VAR) or DEFAULT_ENGINE).strip().lower()
+    requested = engine if engine is not None else os.environ.get(ENGINE_ENV_VAR, DEFAULT_ENGINE)
+    name = requested.strip().lower()
     if name not in ENGINES:
         raise ValueError(f"unknown nirs4all engine {name!r}; valid engines: {list(ENGINES)}")
     if normalized_profile == "strict":
@@ -116,4 +117,15 @@ def resolve_engine(
                 "legacy_fallback_forbidden",
                 "execution_profile='strict' forbids allow_fallback=True",
             )
+    if engine is None and name in {"legacy", "dual"}:
+        raise ExecutionProfileError(
+            "ambient_legacy_execution_forbidden",
+            f"ambient {ENGINE_ENV_VAR}={name!r} cannot select a legacy execution path; "
+            "pass engine='legacy' explicitly for the rollback-capable compatibility lane",
+        )
+    if allow_fallback and name != "legacy":
+        raise ExecutionProfileError(
+            "legacy_fallback_forbidden",
+            "allow_fallback=True is no longer an execution path; pass engine='legacy' explicitly",
+        )
     return cast(Engine, name)
