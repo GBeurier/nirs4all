@@ -97,7 +97,9 @@ It is not the current product roadmap: R4 deliberately retains explicit
 removal remains separately user-gated and must first account for legacy users
 and archives.
 
-1. **Flip the default — completed** — `DEFAULT_ENGINE = "dag-ml"` in `engine.py`; the selector tests certify the unqualified dag-ml path. This did not remove the explicit rollback lane.
+1. **Historical default flip — superseded** — ADR-17 temporarily set
+   `DEFAULT_ENGINE = "dag-ml"`; the current default is `native`. This did not
+   remove the explicit rollback lane.
 2. **Remove the legacy execution engine** — the legacy orchestrator path (`PipelineRunner` / `PipelineOrchestrator` / `PipelineExecutor` legacy branch) that `engine="legacy"` selects. Decide what (if any) of that machinery dag-ml still reuses (e.g. controllers, operators, the dataset layer **stay** — they are engine-agnostic; only the legacy *scheduling/execution* path is removed).
 3. **Remove the engine selector & fallback** — collapse `engine.py` to a no-op (or remove `engine=`/`$N4A_ENGINE`); remove the `DagMlUnavailable` → legacy fallback (no fallback target once legacy is gone). Decide the public `run(engine=...)` contract (drop the kwarg, or keep it accepting only `"dag-ml"`).
 4. **Collapse the dual-engine test layer** — `test_conformance_dual_engine.py`, `test_parity_baseline.py` (+ the `baselines/` legacy gold), `test_dagml_run_selector.py`, `test_engine_selector.py`, the `engine="legacy"` legs of export-roundtrip/examples-smoke. These exist **only** to prove legacy↔dag-ml parity; once legacy is gone they are dead weight. Keep the *single-engine* dag-ml oracle (`cases_generators_conformance.py`, `test_dagml_operator_generation_phase7.py`).
