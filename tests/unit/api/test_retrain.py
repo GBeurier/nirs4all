@@ -46,6 +46,10 @@ def _never_runner(*args: Any, **kwargs: Any) -> None:
         ({"mode": "finetune"}, "native_finetune_retrain"),
         ({"mode": "full", "engine": "native"}, "core_archive_v3_retrain"),
         ({"mode": "full", "plugin": "hpo-controller"}, "retrain_plugin"),
+        (
+            {"mode": "finetune", "plugin": "nirs4all-python-library"},
+            "retrain_plugin",
+        ),
         ({"mode": "full", "allow_fallback": True}, "implicit_legacy_fallback"),
     ],
 )
@@ -190,7 +194,7 @@ def test_missing_training_spec_refuses_before_run_data_or_legacy_loader(
     assert caught.value.unsupported_capability == "dagml_full_retrain_training_spec"
 
 
-def test_explicit_legacy_is_the_only_pipeline_runner_lane(
+def test_explicit_legacy_preserves_pipeline_runner_rollback_lane(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """The frozen rollback selector preserves the historical retrainer contract."""
@@ -225,8 +229,44 @@ def test_explicit_legacy_is_the_only_pipeline_runner_lane(
     assert "engine" not in observed["retrain"]
 
 
+def test_transfer_executes_only_through_explicit_python_library_plugin(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The CAP-001 transfer plugin disposition is a callable bounded route."""
+    observed: dict[str, Any] = {}
+
+    class _FakeRunner:
+        def __init__(self, **kwargs: Any) -> None:
+            observed["constructor"] = kwargs
+
+        def retrain(self, **kwargs: Any) -> tuple[object, dict[str, Any]]:
+            observed["retrain"] = kwargs
+            return object(), {"plugin": {"id": "nirs4all-python-library"}}
+
+    monkeypatch.setattr(pipeline_module, "PipelineRunner", _FakeRunner)
+    source = {"model_name": "PLS"}
+    data = object()
+    result = retrain(
+        source,
+        data,
+        mode="transfer",
+        plugin="nirs4all-python-library",
+        new_model="new-estimator",
+        verbose=0,
+        save_artifacts=False,
+    )
+
+    assert result.per_dataset == {"plugin": {"id": "nirs4all-python-library"}}
+    assert observed["constructor"] == {"verbose": 0, "save_artifacts": False}
+    assert observed["retrain"]["source"] is source
+    assert observed["retrain"]["dataset"] is data
+    assert observed["retrain"]["mode"] == "transfer"
+    assert observed["retrain"]["new_model"] == "new-estimator"
+    assert "plugin" not in observed["retrain"]
+
+
 def test_preflight_and_capability_ledger_are_honest_and_detached() -> None:
-    """Discovery reports only the concrete full DAG-ML and legacy adapters."""
+    """Discovery reports the concrete native, plugin, and legacy adapters."""
     assert nirs4all.retrain.preflight is retrain_preflight
     native_full = retrain_preflight()
     assert native_full.lane == "dag-ml"
@@ -237,6 +277,11 @@ def test_preflight_and_capability_ledger_are_honest_and_detached() -> None:
     assert ledger["full"]["dag-ml"]["executable"] is True
     assert ledger["full"]["native"]["executable"] is False
     assert ledger["transfer"]["dag-ml"]["executable"] is False
+    assert ledger["transfer"]["plugin"] == {
+        "executable": True,
+        "contract": "nirs4all.python-library.retrain-transfer.v1",
+        "capability": "retrain_plugin",
+    }
     assert ledger["finetune"]["plugin"]["executable"] is False
     ledger["full"]["dag-ml"]["executable"] = False
     assert retrain_capability_ledger()["full"]["dag-ml"]["executable"] is True

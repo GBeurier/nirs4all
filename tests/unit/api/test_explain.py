@@ -83,7 +83,7 @@ def test_explain_native_default_refuses_before_runner_or_session_access(monkeypa
     assert caught.value.to_dict() == {
         "verb": "explain",
         "cause": "unsupported_capability",
-        "message": "engine='dag-ml' has no callable explain contract in the installed nirs4all Core/DAG-ML adapter",
+        "message": "engine='native' has no callable explain contract in the installed nirs4all Core/DAG-ML adapter",
         "mitigation": "select a supported explain plugin when one is installed, or select engine='legacy' explicitly",
         "unsupported_capability": "native_explain",
     }

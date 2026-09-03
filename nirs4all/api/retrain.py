@@ -32,6 +32,7 @@ from nirs4all.pipeline.dagml.rt import RtError
 
 from .result import RunResult
 from .retrain_capabilities import (
+    PYTHON_LIBRARY_RETRAIN_PLUGIN,
     RetrainCapabilityDecision,
     preflight_retrain,
     require_dagml_retrain_backend,
@@ -316,8 +317,10 @@ def retrain(
             Default: True
 
         **kwargs: Additional retraining parameters and the frozen API-004
-            controls ``engine``, ``plugin``, and ``allow_fallback``.  The
-            Python retrainer requires ``engine="legacy"`` explicitly.
+            controls ``engine``, ``plugin``, and ``allow_fallback``. Transfer
+            through the bounded Python-library adapter requires
+            ``plugin="nirs4all-python-library"`` explicitly. Historical
+            rollback execution requires ``engine="legacy"`` explicitly.
             - learning_rate: Learning rate for fine-tuning
             - freeze_layers: List of layers to freeze during fine-tuning
             - step_modes: Per-step mode overrides (advanced)
@@ -338,17 +341,12 @@ def retrain(
 
         >>> import nirs4all
         >>>
-        >>> # Original training
-        >>> original = nirs4all.run(pipeline, train_data)
-        >>>
-        >>> # Retrain on new data with same pipeline
+        >>> # Retrain the training contract stored in a native bundle
         >>> retrained = nirs4all.retrain(
-        ...     source=original.best,
+        ...     source="exports/original_model.n4a",
         ...     data=new_train_data,
-        ...     mode="full",
-        ...     engine="legacy"
+        ...     mode="full"
         ... )
-        >>> print(f"Original: {original.best_rmse:.4f}")
         >>> print(f"Retrained: {retrained.best_rmse:.4f}")
 
         Transfer learning with new model:
@@ -360,7 +358,7 @@ def retrain(
         ...     data=new_data,
         ...     mode="transfer",
         ...     new_model=RandomForestRegressor(n_estimators=100),
-        ...     engine="legacy"
+        ...     plugin="nirs4all-python-library"
         ... )
 
         Fine-tune a neural network:
@@ -419,10 +417,19 @@ def retrain(
             options=options,
         )
 
-    # Only the explicitly selected ADR-24 rollback lane reaches PipelineRunner.
-    if decision.lane != "legacy":
+    # PipelineRunner is reachable only through the explicit Python-library
+    # transfer plugin or the explicitly selected ADR-24 rollback lane.
+    if decision.lane not in ("legacy", "plugin"):
         raise AssertionError(f"unexpected executable retrain lane: {decision.lane}")
-    if session is not None:
+    if decision.lane == "plugin":
+        if decision.plugin != PYTHON_LIBRARY_RETRAIN_PLUGIN or mode != "transfer":
+            raise AssertionError(f"unexpected retrain plugin decision: {decision!r}")
+        if session is not None:
+            raise AssertionError("plugin retrain preflight accepted a Session")
+        from nirs4all.pipeline import PipelineRunner
+
+        runner = PipelineRunner(verbose=verbose, save_artifacts=save_artifacts)
+    elif session is not None:
         runner = session.runner
     else:
         from nirs4all.pipeline import PipelineRunner

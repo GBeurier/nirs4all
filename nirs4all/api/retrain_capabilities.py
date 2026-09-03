@@ -2,9 +2,10 @@
 
 The executable native subset is deliberately narrow: a concrete DAG-ML
 ``.n4a`` bundle carrying ``train_pipeline.json`` can replay that training spec
-through the real ``run(engine="dag-ml")`` adapter.  Core Archive V2 is
-prediction-only, Archive V3 is not exposed here, and the native HPO controller
-does not implement transfer learning or continuation of an existing artifact.
+through the real ``run(engine="dag-ml")`` adapter. Transfer remains an explicit
+Python-library plugin capability. Core Archive V2 is prediction-only, Archive
+V3 is not exposed here, and the native HPO controller does not implement
+continuation of an existing artifact.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ from nirs4all.pipeline.engine import resolve_engine
 
 RetrainModeName = Literal["full", "transfer", "finetune"]
 RetrainLane = Literal["dag-ml", "native", "plugin", "legacy", "refused"]
+PYTHON_LIBRARY_RETRAIN_PLUGIN = "nirs4all-python-library"
 
 RETRAIN_CAPABILITIES_V1: dict[str, dict[str, dict[str, Any]]] = {
     "full": {
@@ -54,8 +56,8 @@ RETRAIN_CAPABILITIES_V1: dict[str, dict[str, dict[str, Any]]] = {
             "capability": "native_transfer_retrain",
         },
         "plugin": {
-            "executable": False,
-            "contract": None,
+            "executable": True,
+            "contract": "nirs4all.python-library.retrain-transfer.v1",
             "capability": "retrain_plugin",
         },
         "legacy": {
@@ -185,6 +187,34 @@ def preflight_retrain(
                 reason=f"retrain received both engine={engine!r} and plugin={plugin_name!r}",
                 mitigation="select exactly one execution lane",
             )
+        record = RETRAIN_CAPABILITIES_V1[mode_name]["plugin"]
+        if (
+            plugin_name == PYTHON_LIBRARY_RETRAIN_PLUGIN
+            and bool(record["executable"])
+        ):
+            if session_present:
+                return RetrainCapabilityDecision(
+                    mode=mode_name,
+                    requested_engine=None,
+                    lane="refused",
+                    executable=False,
+                    contract=None,
+                    plugin=plugin_name,
+                    unsupported_capability="plugin_retrain_session",
+                    reason="the Python-library transfer plugin cannot share a Session runner",
+                    mitigation="omit session when selecting the transfer plugin",
+                )
+            return RetrainCapabilityDecision(
+                mode=mode_name,
+                requested_engine=None,
+                lane="plugin",
+                executable=True,
+                contract=str(record["contract"]),
+                plugin=plugin_name,
+                unsupported_capability=None,
+                reason=None,
+                mitigation=None,
+            )
         return RetrainCapabilityDecision(
             mode=mode_name,
             requested_engine=None,
@@ -193,11 +223,21 @@ def preflight_retrain(
             contract=None,
             plugin=plugin_name,
             unsupported_capability="retrain_plugin",
-            reason=f"the explicitly selected retrain plugin {plugin_name!r} has no callable V1 adapter",
-            mitigation="install and wire a plugin implementing the retrain V1 contract, or select engine='legacy' explicitly",
+            reason=f"the explicitly selected retrain plugin {plugin_name!r} cannot execute retrain(mode={mode_name!r})",
+            mitigation=(
+                f"select plugin={PYTHON_LIBRARY_RETRAIN_PLUGIN!r} for transfer, "
+                "or select engine='legacy' explicitly during the rollback window"
+            ),
         )
 
     selected_engine = resolve_engine(engine)
+    # ``native`` is the package-wide default profile, while API-004's only
+    # qualified full-retrain implementation is the native DAG-ML controller.
+    # Preserve an explicit ``engine="native"`` as the (currently unavailable)
+    # Core Archive V3 request, but route an omitted selector to the qualified
+    # DAG-ML implementation.
+    if engine is None and selected_engine == "native":
+        selected_engine = "dag-ml"
     if selected_engine == "legacy":
         record = RETRAIN_CAPABILITIES_V1[mode_name]["legacy"]
         return RetrainCapabilityDecision(
@@ -273,6 +313,7 @@ def require_dagml_retrain_backend() -> None:
 
 
 __all__ = [
+    "PYTHON_LIBRARY_RETRAIN_PLUGIN",
     "RETRAIN_CAPABILITIES_V1",
     "RetrainCapabilityDecision",
     "preflight_retrain",
