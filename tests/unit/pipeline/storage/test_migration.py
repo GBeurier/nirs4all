@@ -10,6 +10,7 @@ when DuckDB is not installed.  Tests for the SQLite-based auto-migration
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
@@ -26,6 +27,7 @@ from nirs4all.pipeline.storage.migration import (
     migrate_duckdb_to_sqlite,
 )
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+from nirs4all.workspace.compat import ConversionRequired, inspect_workspace_format
 
 try:
     import duckdb
@@ -538,6 +540,66 @@ class TestMigrationNoDuckDB:
 # Tests: DuckDB -> SQLite migration
 # =========================================================================
 
+
+def test_workspace_open_requires_explicit_conversion_and_preserves_source(tmp_path: Path) -> None:
+    """WorkspaceStore refuses DuckDB without renames, sidecars, or byte changes."""
+    from nirs4all.data.predictions import Predictions
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source = workspace / "store.duckdb"
+    source.write_bytes(b"legacy-duckdb-placeholder")
+    before_stat = source.stat()
+    before_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+    before_entries = {path.name for path in workspace.iterdir()}
+
+    with pytest.raises(ConversionRequired) as caught:
+        WorkspaceStore(workspace)
+    with pytest.raises(ConversionRequired):
+        Predictions(source)
+
+    error = caught.value
+    assert error.cause == "unsupported_capability"
+    assert error.unsupported_capability == "workspace_conversion_required"
+    assert error.path == workspace
+    assert error.detected_format == "duckdb-workspace"
+    assert error.conversion_command.startswith("nirs4all-tools workspace convert ")
+    assert str(workspace) in error.conversion_command
+    assert source.exists()
+    assert source.stat().st_ino == before_stat.st_ino
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == before_hash
+    assert {path.name for path in workspace.iterdir()} == before_entries
+    assert not (workspace / "store.sqlite").exists()
+    assert not (workspace / "store.duckdb.bak").exists()
+
+
+def test_inspect_and_explicit_legacy_run_leave_duckdb_read_only(tmp_path: Path) -> None:
+    """Diagnostic inspection and legacy rollback selection never convert implicitly."""
+    from nirs4all.api.run import run
+
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    source = workspace / "store.duckdb"
+    source.write_bytes(b"legacy-duckdb-placeholder")
+    before_stat = source.stat()
+    before_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    info = inspect_workspace_format(workspace)
+    assert info.format == "duckdb-workspace"
+    assert info.conversion_required is True
+    assert info.conversion_command is not None
+    assert info.conversion_command.startswith("nirs4all-tools workspace convert ")
+    assert source.stat().st_ino == before_stat.st_ino
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == before_hash
+
+    with pytest.raises(ConversionRequired):
+        run([], {}, engine="legacy", workspace_path=workspace)
+    assert source.stat().st_ino == before_stat.st_ino
+    assert hashlib.sha256(source.read_bytes()).hexdigest() == before_hash
+    assert not (workspace / "store.sqlite").exists()
+    assert not (workspace / "store.duckdb.bak").exists()
+
+
 @pytest.mark.skipif(not HAS_DUCKDB, reason="DuckDB not installed")
 class TestDuckDBToSQLiteMigration:
     """Verify one-time migration from store.duckdb to store.sqlite."""
@@ -578,7 +640,7 @@ class TestDuckDBToSQLiteMigration:
         assert sqlite_counts["predictions"] == len(info["prediction_ids"])
 
     def test_workspace_open_fails_when_lock_is_active(self, tmp_path: Path) -> None:
-        """WorkspaceStore must not silently create an empty SQLite store."""
+        """Runtime open ignores migration machinery and leaves its state untouched."""
         workspace = tmp_path / "workspace"
         _create_legacy_duckdb_store(workspace, n_predictions=2)
 
@@ -588,11 +650,13 @@ class TestDuckDBToSQLiteMigration:
             encoding="utf-8",
         )
 
-        with pytest.raises(RuntimeError, match="migration is already in progress"):
+        lock_contents = lock_path.read_bytes()
+        with pytest.raises(ConversionRequired):
             WorkspaceStore(workspace)
 
         assert not (workspace / "store.sqlite").exists()
         assert (workspace / "store.duckdb").exists()
+        assert lock_path.read_bytes() == lock_contents
 
     def test_migration_recovers_from_stale_lock_and_tmp(self, tmp_path: Path) -> None:
         """Crash leftovers are removed only when the lock is stale."""
@@ -617,13 +681,13 @@ class TestDuckDBToSQLiteMigration:
         tmp_path: Path,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        """Opening a legacy workspace without duckdb raises cleanly."""
+        """Runtime refusal does not depend on importing the DuckDB converter."""
         workspace = tmp_path / "workspace"
         _create_legacy_duckdb_store(workspace, n_predictions=2)
 
         monkeypatch.setattr(migration_module, "HAS_DUCKDB", False)
 
-        with pytest.raises(ImportError, match="duckdb"):
+        with pytest.raises(ConversionRequired):
             WorkspaceStore(workspace)
 
         assert not (workspace / "store.sqlite").exists()
@@ -656,25 +720,6 @@ class TestDuckDBToSQLiteMigration:
         conn.close()
 
         assert counts2 == counts1
-
-    def test_auto_migration_on_workspace_open(self, tmp_path: Path) -> None:
-        """WorkspaceStore.__init__ triggers migration if store.duckdb exists."""
-        workspace = tmp_path / "workspace"
-        info = _create_legacy_duckdb_store(workspace, n_predictions=4)
-
-        # Opening WorkspaceStore should auto-migrate
-        store = WorkspaceStore(workspace)
-
-        assert (workspace / "store.sqlite").exists()
-        assert not (workspace / "store.duckdb").exists()
-        assert (workspace / "store.duckdb.bak").exists()
-
-        # Verify data is accessible via the new store
-        for pred_id in info["prediction_ids"]:
-            pred = store.get_prediction(pred_id)
-            assert pred is not None
-
-        store.close()
 
     def test_migration_handles_empty_tables(self, tmp_path: Path) -> None:
         """Migration works on a workspace with empty tables."""

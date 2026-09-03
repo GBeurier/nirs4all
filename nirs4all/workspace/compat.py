@@ -8,6 +8,8 @@ import warnings
 from dataclasses import dataclass
 from pathlib import Path
 
+from nirs4all.pipeline.dagml.rt import RtError
+
 TARGET_WORKSPACE_FORMAT = "nirs4all-workspace-v2"
 
 
@@ -20,6 +22,24 @@ class WorkspaceFormatInfo:
     conversion_required: bool
     message: str
     conversion_command: str | None = None
+
+
+class ConversionRequired(RtError):
+    """A legacy workspace must be converted by an explicit Tools command."""
+
+    def __init__(self, info: WorkspaceFormatInfo) -> None:
+        command = info.conversion_command or build_conversion_command(info.path)
+        self.path = info.path
+        self.detected_format = info.format
+        self.conversion_command = command
+        super().__init__(
+            "replay",
+            "unsupported_capability",
+            f"workspace at {info.path} uses detected format {info.format!r} and cannot be opened implicitly",
+            mitigation=f"leave the source intact and convert it explicitly with: {command}",
+            unsupported_capability="workspace_conversion_required",
+            portable_level="legacy",
+        )
 
 
 def _quote_path(path: Path | str) -> str:
@@ -35,7 +55,7 @@ def build_conversion_command(path: Path | str, output: Path | str | None = None)
     """Build the recommended no-in-place conversion command."""
     source = Path(path)
     target = Path(output) if output is not None else default_conversion_output(source)
-    return "nirs4all workspace convert " f"{_quote_path(source)} --output {_quote_path(target)} --verify"
+    return "nirs4all-tools workspace convert " f"{_quote_path(source)} --output {_quote_path(target)} --verify"
 
 
 def _sqlite_has_prediction_arrays(path: Path) -> bool:
@@ -80,9 +100,8 @@ def inspect_workspace_format(path: Path | str) -> WorkspaceFormatInfo:
             format="duckdb-workspace",
             conversion_required=True,
             message=(
-                "Legacy DuckDB workspace detected. This transition build can still "
-                "open it after migration, but users should convert it into a fresh "
-                f"{TARGET_WORKSPACE_FORMAT} workspace before switching runtimes."
+                "Legacy DuckDB workspace detected. Runtime opens are read-only with respect "
+                f"to this source; convert it explicitly into a fresh {TARGET_WORKSPACE_FORMAT} workspace."
             ),
             conversion_command=command,
         )
@@ -127,6 +146,7 @@ def warn_if_legacy_workspace(path: Path | str) -> WorkspaceFormatInfo:
 
 
 __all__ = [
+    "ConversionRequired",
     "TARGET_WORKSPACE_FORMAT",
     "WorkspaceFormatInfo",
     "build_conversion_command",
