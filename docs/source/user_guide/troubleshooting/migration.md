@@ -212,31 +212,41 @@ nirs4all v0.8 moved prediction arrays from DuckDB to Parquet sidecar files for b
 | Array management | `WorkspaceStore.save_prediction_arrays()` | `ArrayStore.save_batch()` |
 | Database tables | 7 (including `prediction_arrays`) | 7 (replaced with `projects`) |
 
-### Automatic Migration
+### Explicit conversion
 
-Migration is **fully automatic**. When you open a workspace with a legacy `prediction_arrays` table, nirs4all auto-migrates all rows to Parquet sidecar files and drops the DuckDB table. No manual action required.
+Opening a legacy workspace never migrates it. Detection is read-only and
+`WorkspaceStore` raises `ConversionRequired` before opening a `store.duckdb` or
+a SQLite store containing the historical `prediction_arrays` table. The
+runtime does not rename, delete, or write the source and creates no `.bak` file.
 
-### Manual Migration (Optional)
+Use the separately installed `nirs4all-tools` console command and a distinct
+output path:
 
-For explicit control, use the migration tool:
-
-```python
-from nirs4all.pipeline.storage import migrate_arrays_to_parquet, verify_migrated_store
-
-# Run migration
-report = migrate_arrays_to_parquet("workspace/")
-print(f"Migrated {report.rows_migrated} rows across {report.datasets_migrated} datasets")
-
-# Verify migration
-verify_migrated_store("workspace/")
+```bash
+nirs4all-tools workspace inspect /data/workspace
+nirs4all-tools workspace convert /data/workspace \
+  --output /data/workspace-r2 --verify
 ```
+
+The candidate Tools package is currently **unpublished**; install the candidate
+wheel supplied through the release process, not an assumed registry version.
+The commands return `0` for a clean conversion, `10` for best-effort completion
+with unsupported content preserved opaque, and `20` for unsupported input or a
+strict refusal. The original source remains byte-for-byte intact.
+
+The explicit `engine="legacy"` runtime remains supported for its agreed
+workflows until after R4, but it does not enable implicit DuckDB conversion.
+To roll back from R2 to R1, reinstall the signed R1 artifact and reopen the
+original source. There is no reverse conversion; retain the R2-native output at
+its separate path.
 
 ### Migration Checklist
 
-- [ ] Backup your workspace before upgrading (optional but recommended)
-- [ ] Open workspace with nirs4all v0.8+ (auto-migration happens automatically)
-- [ ] Verify `workspace/arrays/` directory contains per-dataset `.parquet` files
-- [ ] Verify `prediction_arrays` table no longer exists in the database
+- [ ] Keep the original workspace unchanged at its original path
+- [ ] Run `workspace inspect` and record its domain code/report
+- [ ] Convert into a new, disjoint output directory with `--verify`
+- [ ] Review any code `10` opaque-preservation warning before using the output
+- [ ] Keep the original source available for signed-R1 rollback
 
 ---
 
