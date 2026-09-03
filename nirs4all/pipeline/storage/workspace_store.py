@@ -409,14 +409,12 @@ class WorkspaceStore:
         sqlite_path = self._workspace_path / "store.sqlite"
         duckdb_path = self._workspace_path / "store.duckdb"
 
-        # Auto-detect and migrate legacy DuckDB stores
+        # Runtime opens never mutate legacy DuckDB stores. Conversion is an
+        # explicit nirs4all-tools operation into a distinct output path.
         if not sqlite_path.exists() and duckdb_path.exists():
-            from nirs4all.pipeline.storage.migration import migrate_duckdb_to_sqlite
+            from nirs4all.workspace.compat import ConversionRequired, inspect_workspace_format
 
-            report = migrate_duckdb_to_sqlite(self._workspace_path)
-            if not sqlite_path.exists():
-                reason = "; ".join(report.errors) or "migration did not produce store.sqlite"
-                raise RuntimeError(f"Cannot open legacy workspace at {self._workspace_path}: {reason}")
+            raise ConversionRequired(inspect_workspace_format(self._workspace_path))
 
         self._conn: sqlite3.Connection | None = sqlite3.connect(
             str(sqlite_path),
