@@ -205,7 +205,7 @@ if (run.status !== 0) process.exit(run.status);
 
 | Engine | Meaning |
 | --- | --- |
-| `None` | Use the package default resolved by `resolve_engine(...)`. |
+| `None` | Use the package default, `native`, resolved by `resolve_engine(...)`. |
 | `"legacy"` | Explicitly use the in-process Python compatibility orchestrator outside Studio during the ADR-24 rollback window. |
 | `"dag-ml"` | Request the dag-ml backend for covered shapes. Unsupported or unavailable native execution fails closed by default. |
 | `"native"` | Produce a portable Methods Archive V2 for the strict supported training subset; install `nirs4all[native]` and unsupported shapes fail closed without legacy fallback. |
@@ -214,9 +214,10 @@ if (run.status !== 0) process.exit(run.status);
 The pipeline language is broader than current dag-ml native coverage. Requesting
 `engine="dag-ml"` is fail-closed by default: unsupported shapes and unavailable
 native dependencies raise structured errors. Direct Python callers may opt into
-the ADR-24 compatibility path with `engine="legacy"` or
-`allow_fallback=True`; genuine native runtime or operator failures always
-propagate. Studio cannot select either compatibility route.
+the ADR-24 rollback path only with `engine="legacy"` explicitly.
+`allow_fallback=True` is no longer an execution route and is refused for native
+selectors; genuine native runtime or operator failures always propagate.
+Studio cannot select the compatibility route.
 
 The frozen public `nirs4all.run(...)` signature deliberately has no product
 execution-profile parameter. It remains the rollback-capable Python API through
@@ -326,8 +327,10 @@ Environment switches:
 
 | Variable | Effect |
 | --- | --- |
-| `N4A_ENGINE=dag-ml` | Request dag-ml for calls that do not pass `engine=` explicitly. |
+| `N4A_ENGINE=native` or `dag-ml` | Select a native engine for calls that do not pass `engine=` explicitly. The package default is `native`; ambient `legacy` and `dual` are refused. |
 | `N4A_LEGACY_USAGE_COUNTER=1` | Opt into the data-free, process-local explicit legacy/dual support counter. |
+
+See {doc}`native_capability_preflight` for the limitation-to-preflight matrix.
 | `N4A_NATIVE_RESULTS=/path/to/results` | For dag-ml runs, request native result output. |
 
 ## CLI Commands

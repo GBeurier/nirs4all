@@ -1,24 +1,25 @@
-# ADR-17 — dag-ml replacement of nirs4all core: state & legacy-DROP handoff
+# ADR-17 — historical dag-ml handoff and current rollback status
 
 **Date:** 2026-06-30 · **Branch:** `core/dagml` · **Tag:** `dagml-adr17-complete-2026-06-30`
 **Companion engine branch:** dag-ml `feat/native-scoring` @ `f58d7bf` · **Migration war-room:** `dag-ml/docs/migration-nirs4all/`
 
-> **V1 status update (2026-09-02):** this handoff originally recorded a temporary
-> legacy-default posture. The current default is `dag-ml`. The public Python profile remains
-> `rollback-capable`, so `engine="legacy"`, `$N4A_ENGINE=legacy`, and
-> `allow_fallback=True` remain explicit rollback controls until the R4 removal decision.
-> Product-owned strict execution rejects every legacy and fallback path.
+> **Current R4 status (2026-09-02):** this is a historical ADR-17 handoff, not
+> the current product architecture. The Python package default is `native`.
+> `engine="legacy"` remains an explicit direct-Python rollback selector, but
+> ambient `N4A_ENGINE=legacy|dual` and `allow_fallback=True` are not rollback
+> routes. Studio's Rust-owned product boundary cannot select legacy execution.
 
 ---
 
 ## TL;DR
 
-dag-ml is **fully implemented** and **fully integrated** into nirs4all as a selectable execution backend. Every
-ADR-17 work item *except the final legacy-DROP cutover* is done, Codex-reviewed, committed, and validated. The
-backend is **selectable** (`engine="legacy" | "dag-ml"`, or `$N4A_ENGINE`) and the current default is
-**dag-ml**. Legacy remains available only through the public `rollback-capable` profile's explicit controls until
-R4. The legacy-DROP (remove legacy and its rollback controls) is **deferred and user-gated** — it is the only
-remaining step and is detailed in §3.
+This document records the earlier dag-ml migration evidence. It is superseded
+for current engine selection and product topology by
+`docs/source/reference/public_interfaces.md` and the native capability preflight
+page. Dag-ml remains explicitly selectable, the default portable Archive V2
+route is `native`, and legacy remains only as `engine="legacy"` for bounded
+rollback through R4. There is no automatic fallback, and legacy removal is not
+a current product-path prerequisite.
 
 ---
 
@@ -26,20 +27,19 @@ remaining step and is detailed in §3.
 
 | Aspect | State |
 |---|---|
-| Engine selector | `nirs4all/pipeline/engine.py` — `resolve_engine()`, precedence: explicit arg > `$N4A_ENGINE` > `DEFAULT_ENGINE` |
-| **Default engine** | **`dag-ml`**. An unqualified `nirs4all.run()` selects it when `$N4A_ENGINE` is unset. |
+| Engine selector | `nirs4all/pipeline/engine.py` — `resolve_engine()`, precedence: explicit arg > `$N4A_ENGINE` > `DEFAULT_ENGINE`; ambient legacy/dual selection is refused. |
+| **Default engine** | **`native`**. An unqualified `nirs4all.run()` selects the portable Archive V2 path. |
 | dag-ml availability | **Default and explicitly selectable** — `nirs4all.run(..., engine="dag-ml")` or `N4A_ENGINE=dag-ml`. In-process (Mechanism B) by default; subprocess CLI available. |
 | Dependencies | `dag-ml>=0.2.1`, `dag-ml-data>=0.2.1` are **hard deps** (installed, so dag-ml is selectable out-of-the-box). Not moved to extras. |
-| Fallback | Fail-closed by default. The public `rollback-capable` profile permits legacy fallback only when `allow_fallback=True` is explicit; the strict product profile rejects it. |
+| Fallback | No automatic fallback. Native selectors reject `allow_fallback=True`; direct Python rollback requires `engine="legacy"`. The strict product profile rejects legacy entirely. |
 | Public API contract | The 0.9.x surface (`run/predict/explain/retrain/session/generate`, `RunResult`, workspace SQLite+Parquet, `.n4a`) is preserved on **both** engines. |
 
-The original 2026-06-30 handoff temporarily restored `legacy` as the default pending the global refactoring. That
-historical interim step has since been superseded: `nirs4all/pipeline/engine.py` now defines
-`DEFAULT_ENGINE = "dag-ml"`, while retaining explicit rollback controls through R4.
+The original 2026-06-30 default transitions below are retained only as migration
+history. `nirs4all/pipeline/engine.py` now defines `DEFAULT_ENGINE = "native"`.
 
 ---
 
-## 2. What is DONE (inventory)
+## 2. Historical ADR-17 inventory
 
 All items below are **committed on `core/dagml`**, **Codex-reviewed (SHIP)**, and covered by the parity/test gates.
 
@@ -89,10 +89,13 @@ All items below are **committed on `core/dagml`**, **Codex-reviewed (SHIP)**, an
 
 ---
 
-## 3. The LEGACY-DROP — what remains (the cutover)
+## 3. Archived legacy-DROP proposal
 
-This is the **only remaining ADR-17 work**, and it is **user-gated** (verify backups + legacy users first). It is a
-**deliberate, irreversible** removal of the legacy engine. Recommended order:
+The sequence below is preserved as the original irreversible removal proposal.
+It is not the current product roadmap: R4 deliberately retains explicit
+`engine="legacy"` rollback while keeping it unreachable from Studio. Any future
+removal remains separately user-gated and must first account for legacy users
+and archives.
 
 1. **Flip the default — completed** — `DEFAULT_ENGINE = "dag-ml"` in `engine.py`; the selector tests certify the unqualified dag-ml path. This did not remove the explicit rollback lane.
 2. **Remove the legacy execution engine** — the legacy orchestrator path (`PipelineRunner` / `PipelineOrchestrator` / `PipelineExecutor` legacy branch) that `engine="legacy"` selects. Decide what (if any) of that machinery dag-ml still reuses (e.g. controllers, operators, the dataset layer **stay** — they are engine-agnostic; only the legacy *scheduling/execution* path is removed).
