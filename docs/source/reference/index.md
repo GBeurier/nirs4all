@@ -21,6 +21,7 @@ metrics
 predictions_api
 api/session
 public_interfaces
+native_capability_preflight
 native_conformal_finetuning_release_audit
 cli
 workspace
@@ -174,6 +175,16 @@ Stateful Session workflows and model persistence.
 
 +++
 {bdg-info}`Stateful`
+:::
+
+:::{grid-item-card} Native Capability Preflight
+:link: native_capability_preflight
+:link-type: doc
+
+Fail-closed R2/R4 limitations and machine-readable preflight routes.
+
++++
+{bdg-warning}`Capability matrix`
 :::
 
 :::{grid-item-card} CLI Reference

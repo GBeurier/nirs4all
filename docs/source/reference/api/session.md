@@ -2,6 +2,15 @@
 
 Complete API reference for the Session class and related functions.
 
+```{important}
+An unqualified session uses the `native` engine. Native sessions persist and
+predict from the bounded portable Core Archive V2 state; they do not construct
+or share a `PipelineRunner`. A runner is created only after explicit
+`engine="legacy"` selection. A legacy `.n4a` bundle is not silently replayed by
+the native path: convert it first or choose that rollback engine explicitly.
+See {doc}`../native_capability_preflight`.
+```
+
 ## Session Class
 
 ```{eval-rst}
@@ -36,7 +45,7 @@ nirs4all.session(
 **Parameters:**
 - `pipeline` (list, optional): Pipeline definition for stateful mode. If provided, the session can use `run()`, `predict()`, `retrain()`, and `save()` methods.
 - `name` (str): Session name for identification. Default: `""`.
-- `**kwargs`: Additional arguments passed to the Session constructor and ultimately to PipelineRunner.
+- `**kwargs`: Additional session/run options. Runner-specific options apply only when `engine="legacy"` is selected explicitly.
 
 **Common kwargs:**
 - `verbose` (int): Verbosity level (0-3). Default: 1
@@ -88,7 +97,7 @@ nirs4all.load_session(path: Union[str, Path]) -> Session
 - `path` (str|Path): Path to the `.n4a` bundle file to load
 
 **Returns:**
-- Session object ready for prediction, with status set to `"trained"`
+- Session object ready for prediction, with status set to `"trained"`. Native prediction requires a portable Core Archive V2 state.
 
 **Raises:**
 - `FileNotFoundError`: If the bundle file does not exist
@@ -110,7 +119,7 @@ predictions = session.predict(X_new)
 
 **Notes:**
 - The loaded session maintains a reference to the bundle file for predictions
-- The session can predict, retrain, or be saved to a new location
+- The session can predict, retrain, or be saved to a new location when the selected engine supports the loaded bundle; use `retrain_preflight()` before retraining
 - The original bundle file is not modified by the loaded session
 
 ## Session Methods
@@ -131,15 +140,15 @@ Session(
 **Parameters:**
 - `pipeline` (list, optional): Pipeline definition for stateful mode. If provided, enables `run()`, `predict()`, `retrain()`, and `save()` methods.
 - `name` (str): Name for the session/pipeline. Default: `"Session"`
-- `**runner_kwargs`: Arguments passed to the underlying PipelineRunner
+- `**runner_kwargs`: Session/run options; runner-specific values are consumed only by the explicit legacy engine
 
-**Runner kwargs:**
+**Common session options:**
 - `verbose` (int): Verbosity level (0-3)
 - `save_artifacts` (bool): Save artifacts to workspace
 - `workspace_path` (str|Path): Workspace directory
 - `random_state` (int): Random seed
 - `plots_visible` (bool): Show plots during training
-- See PipelineRunner documentation for complete list
+- Engine-specific options are validated when `run()` resolves its engine
 
 **Example:**
 ```python
