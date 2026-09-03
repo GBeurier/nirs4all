@@ -1,65 +1,57 @@
-# Migration DuckDB to SQLite (v0.9)
+# Explicit DuckDB workspace conversion
 
-Starting with v0.9, nirs4all uses **SQLite WAL** instead of DuckDB as the
-metadata storage engine.  This resolves multi-process locking issues and
-removes the ~50 MB `duckdb` binary dependency.
+Current nirs4all workspaces use `store.sqlite`. A workspace containing
+`store.duckdb`, or a SQLite store containing the historical
+`prediction_arrays` table, is a legacy source and is never migrated when the
+runtime opens it.
 
-## What changes
+## Runtime behaviour
 
-### Workspace file
+Detection is read-only. `WorkspaceStore` raises `ConversionRequired` with
+conversion guidance before it opens a recognized legacy store. It does not
+rename, delete, or write the source, and it never creates a `.bak` file.
 
-- The metadata file changes from `store.duckdb` to `store.sqlite`.
-- Migration is **automatic**: the first time you open a pre-v0.9 workspace,
-  nirs4all converts `store.duckdb` to `store.sqlite` and renames the
-  original to `store.duckdb.bak`.
+The explicit `engine="legacy"` runtime remains available through the agreed
+rollback window, until after R4, for its supported workflows. It does not
+enable DuckDB workspace conversion or make migration implicit.
 
-### duckdb dependency
+## Convert into a separate output
 
-- `duckdb` is no longer a required dependency.
-- To migrate an existing workspace that still has `store.duckdb`:
-  `pip install nirs4all[migration]`.
-- New workspaces do not need duckdb at all.
-
-### Identical behaviour
-
-- All public APIs are unchanged: `run()`, `predict()`, `explain()`, etc.
-- `WorkspaceStore` method signatures and return types (`pl.DataFrame`) are
-  identical.
-- `ArrayStore` (Parquet) and `artifacts/` (joblib) are unaffected.
-
-## What does NOT change
-
-| Component | Change |
-|-----------|--------|
-| `nirs4all.run()` | None |
-| `nirs4all.predict()` | None |
-| `nirs4all.explain()` | None |
-| `Predictions` API | None |
-| `WorkspaceStore` public signatures | None |
-| `ArrayStore` (Parquet) | None |
-| `artifacts/` (joblib) | None |
-| Pipeline syntax | None |
-
-## Required actions
-
-### Python library users
-
-No action for new workspaces.
-
-For an existing workspace that still contains `store.duckdb`, migration is
-transparent **if** duckdb is available in your environment.  Otherwise
-install the migration extra once:
+The `nirs4all-tools` candidate package provides the installed console command;
+a source checkout is not required. Candidate packages are currently
+**unpublished**, so install the locally supplied candidate wheel rather than
+assuming a package registry version exists. Include the `duckdb` and `parquet`
+extras when converting a DuckDB workspace.
 
 ```bash
-pip install nirs4all[migration]
+python -m pip install "./nirs4all_tools-<candidate>-py3-none-any.whl[duckdb,parquet]"
+
+nirs4all-tools workspace inspect /data/workspace
+nirs4all-tools workspace convert /data/workspace \
+  --output /data/workspace-r2 --verify
 ```
 
-### Developers importing WorkspaceStore directly
+`inspect` and `convert` leave the source path, inode, and bytes intact. The
+output must be new and disjoint from the source; conversion is one-way and
+never performed in place.
 
-`WorkspaceStore` keeps exactly the same methods and signatures.  The only
-visible change is the database filename (`store.sqlite` instead of
-`store.duckdb`).
+The conversion domain codes are:
 
-### Webapp developers
+| Code | Meaning |
+|---:|---|
+| `0` | Fully converted without warnings |
+| `10` | Best-effort conversion completed, with unsupported content preserved opaque |
+| `20` | Input is unsupported or refused in strict mode; no usable conversion was produced |
 
-See [storage_migration_webapp.md](storage_migration_webapp.md) for details.
+Other operational failures have distinct codes; consult the converter report
+and `nirs4all-tools --help` before retrying.
+
+## Roll back from R2 to R1
+
+There is no reverse converter. Reinstall the signed R1 artifact and reopen the
+original, unchanged source workspace. Keep the new R2-native output separately;
+do not replace the original with it. This is why conversion requires a distinct
+output path and preserves the source exactly.
+
+Web application maintainers should also read
+[Storage Migration Guide -- Webapp Developers](storage_migration_webapp.md).

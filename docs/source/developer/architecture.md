@@ -196,7 +196,7 @@ nirs4all/
 │   └── storage/                 # Persistence layer
 │       ├── workspace_store.py   # SQLite-backed metadata (runs, pipelines, chains)
 │       ├── array_store.py       # Parquet-backed prediction arrays
-│       ├── migration.py         # Legacy DuckDB→Parquet array migration tool
+│       ├── workspace/compat.py  # Read-only legacy detection and ConversionRequired guidance
 │       ├── chain_builder.py     # Operator chain construction
 │       ├── chain_replay.py      # Chain replay for prediction
 │       ├── library.py           # Pipeline template library

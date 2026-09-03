@@ -1,57 +1,51 @@
 # Storage Migration Guide -- Webapp Developers
 
-## Summary of changes
+## Supported runtime boundary
 
-| Before (v0.8) | After (v0.9) |
-|---|---|
-| `store.duckdb` | `store.sqlite` |
-| `duckdb` required dependency | `sqlite3` (stdlib) |
-| `duckdb.connect()` | `sqlite3.connect()` |
-| Exclusive file locking | WAL: concurrent readers + 1 writer |
-| Parameters `$1, $2, $3` | Parameters `?, ?, ?` |
+Current nirs4all workspaces use `store.sqlite`. The runtime may identify a
+historical `store.duckdb` or a SQLite store containing the legacy
+`prediction_arrays` table, but that identification is read-only.
 
-## Impact on the webapp
+`WorkspaceStore` raises `ConversionRequired` before opening a recognized
+legacy store. It does not fall back to DuckDB, invoke a converter, rename the
+source, or create a `.bak` file. A web application should surface the exception
+and its operator guidance; it must not retry the source through another backend.
 
-### No change to StoreAdapter
+The explicit `engine="legacy"` runtime remains supported for its agreed
+workflows until after R4. This rollback lane does not open or convert a DuckDB
+workspace implicitly.
 
-`StoreAdapter` only uses the public methods of `WorkspaceStore`.  All
-methods are identical (same names, same arguments, same return types).
+## Operator action
 
-### File detection
+Conversion belongs to the separately installed `nirs4all-tools` console
+command and always writes a new, disjoint output:
 
-The webapp searches for `store.sqlite` first, then `store.duckdb` as a
-legacy fallback.  When an old `store.duckdb` is found,
-`WorkspaceStore.__init__` automatically triggers migration to
-`store.sqlite`.
+```bash
+nirs4all-tools workspace inspect /data/workspace
+nirs4all-tools workspace convert /data/workspace \
+  --output /data/workspace-r2 --verify
+```
 
-### Polars DataFrame
+The Tools packages are candidate artifacts and are currently **unpublished**.
+Operators must install the candidate wheel supplied through the release process;
+the application must not assume a registry URL or automatically install Tools.
 
-`WorkspaceStore` query methods still return `pl.DataFrame`.  The internal
-implementation changed (no more DuckDB zero-copy `.pl()`; Polars
-DataFrames are now built from SQLite result rows), but the return type is
-identical.
+The workspace commands use stable domain codes: `0` means a clean conversion,
+`10` means best-effort completion with unsupported content preserved opaque,
+and `20` means unsupported or strict refusal. The source path, inode, and bytes
+remain intact for all three outcomes.
 
-### Error messages and docstrings
+## Application behaviour
 
-All references to "DuckDB" in webapp error messages and docstrings have
-been replaced with "workspace store" or "SQLite".
+- Open `store.sqlite` only through the supported runtime store.
+- Catch `ConversionRequired` and display the source path plus the two commands
+  above; do not invoke them from a request handler.
+- Open the converted output only after the command returns `0` or an operator
+  explicitly accepts a documented `10` result.
+- Keep the original source and converted output at separate paths.
 
-## Modified webapp files
+## R2 to R1 rollback
 
-| File | Nature of change |
-|---|---|
-| `api/workspace_manager.py` | Detection: `store.sqlite` + fallback `store.duckdb` |
-| `api/aggregated_predictions.py` | Same + updated docstrings |
-| `api/workspace.py` | Updated docstrings |
-| `api/predictions.py` | Updated deprecation messages |
-| `api/store_adapter.py` | No change (already database-agnostic) |
-| `tests/test_aggregated_predictions_api.py` | `store.duckdb` -> `store.sqlite` in fixtures |
-| `tests/test_store_integration.py` | Same |
-| `docs/_internals/CONCEPTS_RUN_RESULTS_PRED.md` | ~50 references updated |
-
-## What the webapp does NOT need to do
-
-- Install duckdb (was never a direct webapp dependency)
-- Modify API endpoints (same routes, same responses)
-- Modify the frontend (no visible UI change)
-- Modify Pydantic models (same schemas)
+Rollback has no reverse-conversion step. Reinstall the signed R1 artifact and
+reopen the original, unchanged source. Retain the R2-native output separately.
+This preserves both auditability and the ability to resume on R2 later.

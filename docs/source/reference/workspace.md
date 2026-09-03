@@ -67,7 +67,21 @@ Dense prediction arrays (`y_true`, `y_pred`, `y_proba`, optional spectral replay
 - **Lazy deletion**: Tombstone-based deletes with periodic compaction
 - **Self-describing**: Each Parquet file embeds metadata columns (model_name, fold_id, partition, metric, val_score, task_type)
 
-Legacy workspaces with a `prediction_arrays` table from the former DuckDB backend are auto-migrated to Parquet on first access.
+Legacy workspaces are detected read-only. A former `store.duckdb`, or a SQLite
+store that still contains `prediction_arrays`, raises `ConversionRequired`
+instead of being opened or changed. Convert explicitly with the separately
+installed, currently unpublished candidate Tools wheel:
+
+```bash
+nirs4all-tools workspace inspect /data/workspace
+nirs4all-tools workspace convert /data/workspace \
+  --output /data/workspace-r2 --verify
+```
+
+Codes `0`, `10`, and `20` respectively mean clean conversion, best-effort
+conversion with opaque-preserved content, and unsupported/refused input. The
+source remains intact; no rename or `.bak` copy is performed. Keep it for R1
+rollback and retain the new R2-native output separately.
 
 ---
 
