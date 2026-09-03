@@ -6,13 +6,22 @@ on:
     types: [ published ]     # clicking "Publish Release" triggers real PyPI
   # Manual runs are deliberately dry-runs: tests, docs, and distributions only.
   workflow_dispatch:
+    inputs:
+      publish:
+        description: "Publish an immutable-tag repair after the full gate"
+        type: boolean
+        default: false
+      release_tag:
+        description: "Existing immutable release tag rebuilt by this repair"
+        required: false
+        default: ""
 
 jobs:
   # Run full test suite before publishing
   run-tests:
     runs-on: ${{ matrix.os }}
     strategy:
-      fail-fast: true        # Stop immediately if any test fails
+      fail-fast: false       # Preserve all OS/Python evidence when one leg fails
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ['3.11', '3.13']
@@ -23,6 +32,19 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
+
+      - name: Guard immutable-tag repair source
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ inputs.release_tag }}" = "0.13.0"
+          git fetch --force --tags origin
+          test "$(git rev-parse '${{ inputs.release_tag }}^{}')" = "61a66d1bd0157dd9422facc4b32fca33989d4035"
+          unexpected="$(git diff --name-only '${{ inputs.release_tag }}^{}'..HEAD -- \
+            ':(exclude).github/workflows/publish.yml' \
+            ':(exclude)tests/integration/parity/test_dagml_dataplane.py')"
+          test -z "$unexpected" || { echo "::error::unexpected repair files: $unexpected"; exit 1; }
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
@@ -152,13 +174,13 @@ jobs:
           cache: 'pip'
 
       - name: Verify version consistency
-        if: github.event_name == 'release'
+        if: github.event_name == 'release' || inputs.publish
         shell: bash
         run: |
           # Version is single-sourced from nirs4all/__init__.py (pyproject declares it
           # dynamically via attr:), so read __version__ directly rather than pyproject.
           PKG_VERSION=$(grep -E '^__version__' nirs4all/__init__.py | cut -d'"' -f2)
-          TAG_VERSION="${{ github.event.release.tag_name }}"
+          TAG_VERSION="${{ github.event.release.tag_name || inputs.release_tag }}"
           TAG_VERSION="${TAG_VERSION#v}"
           if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
             echo "::error::Version mismatch: nirs4all.__version__=$PKG_VERSION tag=$TAG_VERSION"
@@ -179,7 +201,7 @@ jobs:
   # Publish to PyPI (only after build succeeds, which requires tests + docs)
   publish-pypi:
     needs: build
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || inputs.publish
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -197,7 +219,7 @@ jobs:
   # Build and push Docker image to GHCR after the release tag/version check.
   publish-docker:
     needs: [run-tests, build]
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || inputs.publish
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -219,7 +241,7 @@ jobs:
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
-            type=semver,pattern={{version}}
+            type=semver,pattern={{version}},value=${{ github.event.release.tag_name || inputs.release_tag }}
             type=raw,value=latest
 
       - uses: docker/build-push-action@v7
@@ -235,7 +257,7 @@ jobs:
   notify-conda-forge:
     needs: publish-pypi
     runs-on: ubuntu-latest
-    if: github.event_name == 'release'
+    if: github.event_name == 'release' || inputs.publish
     steps:
       - uses: actions/checkout@v6
 
@@ -246,7 +268,7 @@ jobs:
       - name: Fetch SHA256 and generate conda-forge update instructions
         shell: bash
         run: |
-          VERSION="${{ github.event.release.tag_name }}"
+          VERSION="${{ github.event.release.tag_name || inputs.release_tag }}"
           VERSION="${VERSION#v}"
 
           # Wait for PyPI to index the new version (up to 5 minutes)
