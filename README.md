@@ -33,11 +33,13 @@ nirs4all comes in two flavors — pick the one that fits your workflow:
 | | **nirs4all Studio** (Desktop App) | **nirs4all** (Python Library) |
 |---|---|---|
 | **Best for** | Researchers, technicians, and anyone who prefers a visual interface | Developers, data scientists, and anyone who writes Python scripts |
-| **What it is** | A desktop application with drag-and-drop pipelines, interactive charts, and one-click model training | A `pip install` Python package with a declarative API for building NIRS pipelines in code |
-| **Install** | [Download the installer](https://github.com/GBeurier/nirs4all-webapp/releases/latest) | `pip install nirs4all` |
-| **Repository** | [GBeurier/nirs4all-webapp](https://github.com/GBeurier/nirs4all-webapp) | **You are here** |
+| **What it is** | A Rust-owned desktop control plane with drag-and-drop pipelines, interactive charts, and bounded native training; CPython is embedded over stdio only for explicit libraries/plugins | A `pip install` Python package with a declarative API for building NIRS pipelines in code |
+| **Install** | [Download the installer](https://github.com/GBeurier/nirs4all-studio/releases/latest) | `pip install nirs4all` |
+| **Repository** | [GBeurier/nirs4all-studio](https://github.com/GBeurier/nirs4all-studio) | **You are here** |
 
-> **Not sure?** If you've never written Python code, start with **nirs4all Studio**. It uses this library under the hood and gives you all the same capabilities through a graphical interface.
+> **Not sure?** If you've never written Python code, start with **nirs4all Studio**.
+> Studio exposes a deliberately bounded product surface; it does not mirror every
+> Python-library capability or run a Python HTTP control plane.
 
 ---
 
