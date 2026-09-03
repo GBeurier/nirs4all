@@ -27,6 +27,7 @@ def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> 
     verification = verification_steps[0]
     assert verification["if"] == "github.event_name == 'release'"
     assert "github.event.release.tag_name" in verification["run"]
+    assert 'TAG_VERSION="${TAG_VERSION//-rc./rc}"' in verification["run"]
     assert 'if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]' in verification["run"]
 
     for job_name in ("publish-pypi", "publish-docker"):
