@@ -312,10 +312,11 @@ class Session:
             ValueError: If no pipeline was provided to the session.
         """
         self._ensure_open()
-        from nirs4all.pipeline.engine import resolve_engine
+        from nirs4all.pipeline.engine import report_explicit_legacy_engine, resolve_engine
 
+        requested_engine = kwargs.pop("engine", None)
         selected_engine = resolve_engine(
-            kwargs.pop("engine", None),
+            requested_engine,
             allow_fallback=bool(kwargs.get("allow_fallback", False)),
         )
         if selected_engine != "legacy":
@@ -349,6 +350,7 @@ class Session:
                 ),
             )
         assert selected_engine == "legacy"
+        report_explicit_legacy_engine(requested_engine, selected_engine, operation="Session.run")
         self._prepare_legacy_access("run")
         if self._pipeline is None:
             raise ValueError(
@@ -431,12 +433,14 @@ class Session:
             ValueError: If session has not been trained.
         """
         self._ensure_open()
-        from nirs4all.pipeline.engine import resolve_engine
+        from nirs4all.pipeline.engine import report_explicit_legacy_engine, resolve_engine
 
+        requested_engine = kwargs.pop("engine", None)
         selected_engine = resolve_engine(
-            kwargs.pop("engine", None),
+            requested_engine,
             allow_fallback=bool(kwargs.pop("allow_fallback", False)),
         )
+        report_explicit_legacy_engine(requested_engine, selected_engine, operation="Session.predict")
         if not self.is_trained:
             raise ValueError(
                 "Session must be trained before prediction. "

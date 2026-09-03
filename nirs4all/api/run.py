@@ -31,7 +31,12 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline import PipelineConfigs, PipelineRunner
-from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, resolve_engine
+from nirs4all.pipeline.engine import (
+    DualRunMismatchError,
+    DualRunUnsupported,
+    report_explicit_legacy_engine,
+    resolve_engine,
+)
 
 from .result import RunResult
 from .session import Session
@@ -958,6 +963,7 @@ def run(
     """
 
     selected_engine = resolve_engine(engine, allow_fallback=allow_fallback)
+    report_explicit_legacy_engine(engine, selected_engine, operation="run")
     if selected_engine == "legacy" and isinstance(session, Session):
         session._prepare_legacy_access("run")
     if selected_engine == "native" and isinstance(session, Session):

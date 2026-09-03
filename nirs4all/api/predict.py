@@ -42,7 +42,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.dagml.rt import RtError
-from nirs4all.pipeline.engine import resolve_engine
+from nirs4all.pipeline.engine import report_explicit_legacy_engine, resolve_engine
 
 from .result import PredictResult
 from .session import Session
@@ -208,10 +208,12 @@ def predict(
         - :func:`nirs4all.explain`: Generate SHAP explanations
         - :class:`nirs4all.api.result.PredictResult`: Result class
     """
+    requested_engine = runner_kwargs.pop("engine", None)
     engine = resolve_engine(
-        runner_kwargs.pop("engine", None),
+        requested_engine,
         allow_fallback=bool(runner_kwargs.pop("allow_fallback", False)),
     )
+    report_explicit_legacy_engine(requested_engine, engine, operation="predict")
     if engine == "legacy" and isinstance(session, Session):
         session._prepare_legacy_access("predict")
 
