@@ -248,7 +248,12 @@ def test_v2_terminal_relations_extend_the_cv_authority(regression_dataset, monke
     )
 
 
-def test_v2_terminal_relations_require_a_negotiated_core(regression_dataset) -> None:
+def test_v2_terminal_relations_require_a_negotiated_core(regression_dataset, monkeypatch) -> None:
+    monkeypatch.setattr(
+        envelope_module,
+        "supports_terminal_prediction_relation_authority",
+        lambda: False,
+    )
     identity = mint_identity(regression_dataset)
     train = regression_dataset.index_column("sample", {"partition": "train"})
     with pytest.raises(RuntimeError, match="terminal prediction relation authority V2"):
