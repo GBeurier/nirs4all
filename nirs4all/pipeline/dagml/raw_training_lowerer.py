@@ -18,8 +18,11 @@ from dataclasses import dataclass
 from typing import Any, cast
 
 import numpy as np
+from sklearn.cross_decomposition import PLSRegression
 
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.operators.transforms.nirs import SavitzkyGolay
+from nirs4all.operators.transforms.scalers import StandardNormalVariate
 from nirs4all.pipeline.dagml_bridge import controller_manifests
 
 from .cli_runner import assemble_cv_refit_dsl
@@ -121,8 +124,7 @@ def lower_raw_array_training_contracts(
     """Lower a linear raw-array pipeline into executable DAG-ML contracts."""
 
     steps, splitter, finetune_overrides = _supported_linear_steps(pipeline)
-    if portable_methods:
-        _validate_portable_methods_pipeline(steps)
+    native_pls_params = _portable_methods_pls_params(steps) if portable_methods else {}
     selection_metric = finetune_overrides.get("selection_metric", selection_metric)
     selection_objective = finetune_overrides.get("selection_objective", selection_objective)
     dataset = raw_arrays_to_spectro_dataset(X, y, identity_frame=identity_frame)
@@ -144,10 +146,11 @@ def lower_raw_array_training_contracts(
         else _array_content_fingerprint("X", X)
     )
     envelope["target_content_fingerprint"] = _array_content_fingerprint("y", y)
-    dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-raw-fit", n_splits=len(folds))
+    dsl_steps = [steps[-1]] if portable_methods else steps
+    dsl = assemble_cv_refit_dsl(dsl_steps, identity, envelope, folds, dsl_id="nirs4all-raw-fit", n_splits=len(folds))
     manifests = controller_manifests()
     if portable_methods:
-        _lower_portable_methods_pls_dsl(dsl)
+        _lower_portable_methods_pls_dsl(dsl, native_pls_params)
         manifests = [_portable_methods_pls_manifest()]
     artifact = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, manifests)
     graph = artifact.graph.to_dict()
@@ -256,42 +259,123 @@ def _supported_linear_steps(pipeline: Any) -> tuple[list[Any], Any, dict[str, st
     return steps, splitter, finetune_overrides
 
 
-def _validate_portable_methods_pipeline(steps: list[Any]) -> None:
-    """Refuse every fit shape the callback-free Methods PLS lane cannot encode."""
+def _portable_methods_pls_params(steps: list[Any]) -> dict[str, Any]:
+    """Normalize only raw PLS or canonical SNV -> SG smooth -> PLS."""
 
-    if len(steps) != 1 or not isinstance(steps[0], Mapping) or set(steps[0]) != {"model"}:
+    pipeline: dict[str, Any] | None = None
+    if len(steps) == 1:
+        model_step = steps[0]
+    elif len(steps) == 3:
+        snv = _exact_public_operator(
+            steps[0],
+            StandardNormalVariate,
+            "StandardNormalVariate",
+        )
+        savgol = _exact_public_operator(
+            steps[1],
+            SavitzkyGolay,
+            "SavitzkyGolay",
+        )
+        if (
+            type(snv.axis) is not int
+            or snv.axis != 1
+            or snv.with_mean is not True
+            or snv.with_std is not True
+            or type(snv.ddof) is not int
+            or snv.ddof != 0
+            or snv.copy is not True
+        ):
+            raise ValueError(
+                "portable Methods StandardNormalVariate requires exactly "
+                "axis=1, with_mean=True, with_std=True, ddof=0, copy=True"
+            )
+        window = savgol.window_length
+        polyorder = savgol.polyorder
+        if (
+            type(window) is not int
+            or not 3 <= window <= 501
+            or window % 2 == 0
+            or type(polyorder) is not int
+            or not 0 <= polyorder < window
+            or type(savgol.deriv) is not int
+            or savgol.deriv != 0
+            or isinstance(savgol.delta, bool)
+            or not isinstance(savgol.delta, (int, float))
+            or float(savgol.delta) != 1.0
+            or savgol.copy is not True
+        ):
+            raise ValueError(
+                "portable Methods SavitzkyGolay requires an odd window_length in 3..501, "
+                "0 <= polyorder < window_length, deriv=0, delta=1.0, copy=True "
+                "(public defaults are window_length=11, polyorder=3; native mode is interp)"
+            )
+        pipeline = {
+            "schema_version": 1,
+            "pipeline_type": "n4m.snv_savgol_smooth.v1",
+            "savgol_window": window,
+            "savgol_poly_degree": polyorder,
+        }
+        model_step = steps[2]
+    else:
         raise ValueError(
-            "portable Methods Archive V2 training currently supports exactly one "
-            "PLSRegression model step after the splitter; native preprocessing "
-            "such as SNV or Savitzky-Golay requires an upstream DAG-ML Methods "
-            "controller and replay contract before Python can expose it"
+            "portable Methods Archive V2 training supports only PLSRegression or the exact "
+            "StandardNormalVariate -> SavitzkyGolay smooth -> PLSRegression order"
         )
-    model = steps[0]["model"]
+
+    if not isinstance(model_step, Mapping) or set(model_step) != {"model"}:
+        raise ValueError(
+            "portable Methods Archive V2 training requires exactly one terminal model step"
+        )
+    model = model_step["model"]
     cls = model if isinstance(model, type) else type(model)
-    if (
-        getattr(cls, "__name__", None) != "PLSRegression"
-        or not str(getattr(cls, "__module__", "")).startswith(
-            "sklearn.cross_decomposition"
-        )
-    ):
+    if cls is not PLSRegression:
         raise ValueError(
             "portable Methods training supports sklearn.cross_decomposition.PLSRegression only"
         )
+    if isinstance(model, type):
+        model = model()
+    default_model = PLSRegression()
+    for parameter in ("scale", "max_iter", "tol", "copy"):
+        value = getattr(model, parameter)
+        default = getattr(default_model, parameter)
+        if type(value) is not type(default) or value != default:
+            raise ValueError(
+                "portable Methods PLS supports only n_components; "
+                f"{parameter} must retain its public default {default!r}"
+            )
     components = getattr(model, "n_components", None)
-    if not isinstance(components, int) or isinstance(components, bool) or components < 1:
+    if type(components) is not int or components < 1:
         raise ValueError("portable Methods PLS requires a positive integer n_components")
+    params: dict[str, Any] = {"n_components": components}
+    if pipeline is not None:
+        params["pipeline"] = pipeline
+    return params
 
 
-def _lower_portable_methods_pls_dsl(dsl: dict[str, Any]) -> None:
-    """Bind the one model node to the Rust Methods controller."""
+def _exact_public_operator(value: Any, expected: type[Any], label: str) -> Any:
+    """Return one exact public operator instance, materializing its defaults."""
+
+    if value is expected:
+        return expected()
+    if type(value) is expected:
+        return value
+    raise ValueError(
+        "portable Methods Archive V2 training requires the exact "
+        f"StandardNormalVariate -> SavitzkyGolay smooth -> PLSRegression order; got {label} mismatch"
+    )
+
+
+def _lower_portable_methods_pls_dsl(
+    dsl: dict[str, Any],
+    native_params: Mapping[str, Any],
+) -> None:
+    """Bind one raw-X model node to the dual-format Methods controller."""
 
     pipeline = dsl.get("pipeline")
     if not isinstance(pipeline, list) or len(pipeline) != 1 or not isinstance(pipeline[0], dict):
         raise ValueError("portable Methods DSL must contain exactly one model step")
     step = pipeline[0]
-    params = step.get("params")
-    if not isinstance(params, Mapping) or not isinstance(params.get("n_components"), int):
-        raise ValueError("portable Methods DSL requires integer PLS n_components")
+    step["params"] = copy.deepcopy(dict(native_params))
     step["metadata"] = {"controller_id": "controller:methods.pls"}
 
 
@@ -320,7 +404,7 @@ def _portable_methods_pls_manifest() -> dict[str, Any]:
     }
     return {
         "controller_id": "controller:methods.pls",
-        "controller_version": "n4m-abi-2.2",
+        "controller_version": "n4m-abi-2.5",
         "operator_kind": "model",
         "priority": 100,
         "supported_phases": ["FIT_CV", "REFIT", "PREDICT"],
