@@ -524,7 +524,7 @@ class DatasetExporter:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
 
-        arrays = {"X": X, "y": y}
+        arrays: dict[str, Any] = {"X": X, "y": y}
         if wavelengths is not None:
             arrays["wavelengths"] = wavelengths
 

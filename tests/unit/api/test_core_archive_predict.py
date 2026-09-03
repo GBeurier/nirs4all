@@ -14,6 +14,7 @@ import pytest
 
 from nirs4all.api.result import PredictResult
 from nirs4all.pipeline.dagml import core_archive_replay
+from nirs4all.pipeline.dagml.rt import RtError
 
 predict_module = importlib.import_module("nirs4all.api.predict")
 
@@ -410,23 +411,17 @@ def test_core_v3_is_refused_as_full_refit_not_serialized_predict(
         )
 
 
-def test_non_core_model_keeps_historical_model_path(
+def test_non_core_archive_requires_explicit_legacy_rollback(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = tmp_path / "legacy.n4a"
     with ZipFile(path, "w") as archive:
         archive.writestr("manifest.json", json.dumps({"bundle_format_version": "1.0"}))
-    expected = PredictResult(y_pred=np.asarray([7.0]), model_name="legacy")
-    observed: dict[str, Any] = {}
+    monkeypatch.setattr(predict_module, "PipelineRunner", _never_runner)
 
-    def legacy(**kwargs: Any) -> PredictResult:
-        observed.update(kwargs)
-        return expected
+    with pytest.raises(RtError, match="requires conversion") as caught:
+        predict_module.predict(model=path, data=np.asarray([[1.0]]))
 
-    monkeypatch.setattr(predict_module, "_predict_from_model", legacy)
-
-    result = predict_module.predict(model=path, data=np.asarray([[1.0]]))
-
-    assert result is expected
-    assert observed["model"] == path
+    assert caught.value.verb == "predict"
+    assert caught.value.cause == "unsupported_capability"

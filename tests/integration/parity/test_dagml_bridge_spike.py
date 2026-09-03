@@ -93,14 +93,19 @@ def test_vertical_slice_controller_manifests_validate() -> None:
     import dag_ml
 
     manifests = controller_manifests()
-    # Two model-kind manifests: the base model controller (generic catch-all) + the stacking meta-model
-    # controller (bound by metadata.controller_id, declaring consumes_oof_predictions); the others are
-    # one each. Distinguished by controller_id (the kind alone is no longer unique for model).
-    assert sorted(m["operator_kind"] for m in manifests) == ["model", "model", "prediction_join", "transform", "y_transform"]
-    assert sorted(m["controller_id"] for m in manifests) == [
-        "controller:nirs4all.merge_concat", "controller:nirs4all.meta_model", "controller:nirs4all.model",
-        "controller:nirs4all.transform", "controller:nirs4all.y_transform",
-    ]
+    # Four model-kind manifests: targeted PyTorch and TensorFlow controllers,
+    # the generic base-model catch-all, and the stacking meta-model. The latter
+    # binds via metadata.controller_id and consumes OOF predictions. The other
+    # node kinds each have one controller.
+    assert {(m["controller_id"], m["operator_kind"]) for m in manifests} == {
+        ("controller:nirs4all.merge_concat", "prediction_join"),
+        ("controller:nirs4all.meta_model", "model"),
+        ("controller:nirs4all.model", "model"),
+        ("controller:nirs4all.pytorch_model", "model"),
+        ("controller:nirs4all.tensorflow_model", "model"),
+        ("controller:nirs4all.transform", "transform"),
+        ("controller:nirs4all.y_transform", "y_transform"),
+    }
     for manifest in manifests:
         dag_ml.ControllerManifest(manifest)  # raises on an invalid manifest
     dag_ml.ControllerManifests(manifests)  # raises on an invalid list / duplicate controller_id
@@ -110,6 +115,14 @@ def test_vertical_slice_controller_manifests_validate() -> None:
     # The meta-model controller declares it consumes OOF (so the base→meta requires_oof edge is permitted).
     meta = next(m for m in manifests if m["controller_id"] == "controller:nirs4all.meta_model")
     assert "consumes_oof_predictions" in meta["capabilities"]
+    base = next(m for m in manifests if m["controller_id"] == "controller:nirs4all.model")
+    model_port = base["data_requirements"]["ports"][0]
+    assert model_port["multi_source"] is True
+    assert "tabular_numeric" in model_port["accepted_representations"]
+    assert "feature_block_set" in model_port["accepted_representations"]
+    assert "table" in model_port["accepted_types"]
+    assert "multi_block" in model_port["accepted_types"]
+    assert base["data_requirements"]["default_fusion"]["mode"] == "concatenate_features"
 
 
 def test_vertical_slice_builds_execution_plan() -> None:
@@ -174,3 +187,24 @@ def test_bare_scaler_x_step_binds_as_transform_not_y_transform() -> None:
         "transform": "controller:nirs4all.transform",
         "model": "controller:nirs4all.model",
     }
+
+
+def test_multi_source_baseline_builds_data_requirement_plan() -> None:
+    """The generic model manifest accepts source-concat bindings for the multi-source corpus."""
+    from . import cases_multi_source  # noqa: F401 - registers multi-source cases
+
+    case = get("multi_source_baseline_snv_plsr")
+    plan = build_dagml_plan(case.pipeline, plan_id=f"plan:{case.name}", dsl_id=case.name)
+    d = plan.to_dict()
+
+    model_plans = [
+        node_plan
+        for node_plan in d["node_plans"].values()
+        if node_plan["kind"] == "model" and node_plan["controller_id"] == "controller:nirs4all.model"
+    ]
+    assert model_plans
+    model_manifest = d["controller_manifests"]["controller:nirs4all.model"]
+    model_port = model_manifest["data_requirements"]["ports"][0]
+    assert model_port["multi_source"] is True
+    assert "feature_block_set" in model_port["accepted_representations"]
+    assert model_manifest["data_requirements"]["default_fusion"]["mode"] == "concatenate_features"

@@ -227,6 +227,24 @@ def _shape_of(value: Any) -> list[int]:
     return list(arr.shape)
 
 
+def _physical_sample_ids(entry: dict[str, Any], expected_size: int) -> list[str]:
+    """Return native identities only when the row proves exact coverage.
+
+    Older native result directories did not persist these identities. They stay
+    readable, but must never acquire identities from positional indices.
+    """
+    metadata = entry.get("metadata")
+    candidate = metadata.get("physical_sample_id") if isinstance(metadata, dict) else None
+    if not isinstance(candidate, (list, tuple)):
+        return []
+    values = list(candidate)
+    if len(values) != expected_size or not all(isinstance(value, str) and value for value in values):
+        return []
+    if len(set(values)) != len(values):
+        return []
+    return values
+
+
 def _projection_rows(predictions: Predictions) -> list[dict[str, Any]]:
     """Project the in-memory prediction rows into flat, parquet-writable dicts (carrying shape).
 
@@ -243,6 +261,7 @@ def _projection_rows(predictions: Predictions) -> list[dict[str, Any]]:
         y_pred = entry.get("y_pred")
         y_proba = entry.get("y_proba")
         sample_indices = entry.get("sample_indices") or []
+        sample_ids = _physical_sample_ids(entry, len(sample_indices))
         # Target width from the 2D array shape (1 for single-target / score-only rows); target_names are
         # not carried on the projected rows, so derive them from the width so the names are CONSISTENT with
         # the persisted shape (``["y"]`` single / ``["y0", ...]`` multi) — the SHAPE columns are the
@@ -262,6 +281,7 @@ def _projection_rows(predictions: Predictions) -> list[dict[str, Any]]:
             "fold_id": str(entry.get("fold_id") or ""),
             "refit_context": str(entry.get("refit_context") or ""),
             "sample_indices": [int(i) for i in (sample_indices.tolist() if isinstance(sample_indices, np.ndarray) else sample_indices)],
+            "sample_ids": sample_ids,
             "y_true": [float(v) for v in _as_list(y_true)],
             "y_pred": [float(v) for v in _as_list(y_pred)],
             "y_proba": [float(v) for v in _as_list(y_proba)],
@@ -459,6 +479,7 @@ def write_native_results(
         "dataset": pl.Utf8, "config_name": pl.Utf8, "variant_id": pl.Utf8, "model_name": pl.Utf8,
         "partition": pl.Utf8, "fold_id": pl.Utf8, "refit_context": pl.Utf8,
         "sample_indices": pl.List(pl.Int64),
+        "sample_ids": pl.List(pl.Utf8),
         "y_true": pl.List(pl.Float64), "y_pred": pl.List(pl.Float64), "y_proba": pl.List(pl.Float64),
         "y_true_shape": pl.List(pl.Int64), "y_pred_shape": pl.List(pl.Int64), "y_proba_shape": pl.List(pl.Int64),
         "weights": pl.List(pl.Float64), "arrays_present": pl.Boolean,
@@ -509,6 +530,9 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
 
     predictions = Predictions()
     df = pl.read_parquet(run_dir / "predictions.parquet")
+    # V1 native result directories did not carry stable sample IDs. Preserve
+    # backward readability but do not fabricate them from row positions.
+    has_sample_ids = "sample_ids" in df.columns
     for row in df.iter_rows(named=True):
         predictions.add_prediction(
             dataset_name=row["dataset"],
@@ -518,6 +542,16 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
             fold_id=row["fold_id"] or None,
             refit_context=row["refit_context"] or None,
             sample_indices=[int(i) for i in row["sample_indices"]] if row["sample_indices"] else None,
+            metadata=(
+                {"physical_sample_id": list(row["sample_ids"])}
+                if has_sample_ids
+                and isinstance(row["sample_ids"], list)
+                and row["sample_ids"]
+                and len(row["sample_ids"]) == len(row["sample_indices"] or [])
+                and all(isinstance(sample_id, str) and sample_id for sample_id in row["sample_ids"])
+                and len(set(row["sample_ids"])) == len(row["sample_ids"])
+                else None
+            ),
             weights=[float(w) for w in row["weights"]] if row["weights"] else None,
             y_true=_restore_array(row["y_true"], row["y_true_shape"]),
             y_pred=_restore_array(row["y_pred"], row["y_pred_shape"]),

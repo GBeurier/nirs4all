@@ -19,14 +19,14 @@ jobs:
           # macOS only needs one Python version for platform compatibility
           - os: macos-latest
             python-version: '3.11'
-    timeout-minutes: 30
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
 
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: 'pip'
@@ -44,7 +44,13 @@ jobs:
             grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-win.txt
             python -m pip install numpy -r requirements-test-win.txt
           else
-            python -m pip install numpy -r requirements-test.txt
+            # PyPI's Linux wheel pulls CUDA/Triton dependencies even on a CPU
+            # runner. Install the official CPU wheel so eager Torch tests do
+            # not initialize the unsupported Triton runtime.
+            grep -v '^torch' requirements-test.txt > requirements-test-linux.txt
+            python -m pip install numpy -r requirements-test-linux.txt
+            python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+              'torch==2.13.0+cpu'
           fi
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
@@ -65,16 +71,23 @@ jobs:
               --cov=nirs4all --cov-append --cov-report=xml \
               tests/
           else
-            # Serial subset with known write-contention under heavy xdist load
+            # Keep write-contention and native PyTorch/DAG-ML initialisation
+            # out of xdist workers (CPython 3.13 Linux can crash otherwise).
             python -m pytest -v \
               tests/integration/pipeline/test_merge_mixed.py \
               tests/integration/pipeline/test_merge_per_branch.py \
+              tests/unit/operators/models/test_pytorch.py \
+              tests/unit/pipeline/dagml/test_raw_training_lowerer.py \
+              tests/integration/parity/test_dagml_run_selector.py \
               --cov=nirs4all --cov-append
 
             # Parallel remainder
             python -m pytest -v -n auto --dist worksteal tests/ \
               --ignore=tests/integration/pipeline/test_merge_mixed.py \
               --ignore=tests/integration/pipeline/test_merge_per_branch.py \
+              --ignore=tests/unit/operators/models/test_pytorch.py \
+              --ignore=tests/unit/pipeline/dagml/test_raw_training_lowerer.py \
+              --ignore=tests/integration/parity/test_dagml_run_selector.py \
               --cov=nirs4all --cov-append --cov-report=xml
           fi
 
@@ -95,7 +108,7 @@ jobs:
         uses: ./.github/actions/free-disk-space
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.11'
           cache: 'pip'
@@ -132,7 +145,7 @@ jobs:
       - name: Free disk space
         uses: ./.github/actions/free-disk-space
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
           cache: 'pip'
@@ -191,7 +204,7 @@ jobs:
 
       - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v4
+      - uses: docker/login-action@v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -223,7 +236,7 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      - uses: actions/setup-python@v6
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.12'
 

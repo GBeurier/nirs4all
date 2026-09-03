@@ -66,6 +66,20 @@ _CV_PARTITIONS = ("train", "val", "test")
 _MISSING = object()
 
 
+def _audit_node_results(
+    results: list[dict[str, Any]] | None,
+    results_by_variant: dict[Any, list[dict[str, Any]]] | None,
+) -> list[dict[str, Any]]:
+    if results is not None:
+        return results
+    if not results_by_variant:
+        return []
+    frames: list[dict[str, Any]] = []
+    for variant_frames in results_by_variant.values():
+        frames.extend(variant_frames)
+    return frames
+
+
 def _index_sample_blocks(results: list[dict[str, Any]] | None) -> dict[tuple[str, str, str | None], tuple[dict[str, Any], dict[str, Any] | None]]:
     """Index the node_results' per-sample prediction blocks for the direct-block row projection (2a-i).
 
@@ -177,7 +191,7 @@ def _legacy_fold_id(native_fold_id: str) -> str:
     webapp / ``PredictionAggregator`` that key on it) uses the bare zero-based index ``"0"`` / ``"1"`` /
     …. Any non-``foldN`` id (defensive) is returned unchanged.
     """
-    return native_fold_id[len("fold"):] if native_fold_id.startswith("fold") and native_fold_id[len("fold"):].isdigit() else native_fold_id
+    return native_fold_id[len("fold") :] if native_fold_id.startswith("fold") and native_fold_id[len("fold") :].isdigit() else native_fold_id
 
 
 def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_names: list[str], winner_config_name: str | None = None) -> dict[Any, str]:
@@ -201,13 +215,7 @@ def _native_variant_config_map(scores: dict[str, Any] | None, ordered_config_nam
     Returns ``{fold_variant_id: config_name}`` keyed by the variant's own (non-``None``) fold-level id —
     the avg's native ``None`` tag is not a key.
     """
-    cv_variant_ids = list(
-        dict.fromkeys(
-            report.get("variant_id")
-            for report in (scores or {}).get("reports", [])
-            if report["partition"] == "validation" and report.get("fold_id") != "avg"
-        )
-    )
+    cv_variant_ids = list(dict.fromkeys(report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "validation" and report.get("fold_id") != "avg"))
     if winner_config_name is not None and cv_variant_ids and winner_config_name in ordered_config_names:
         # Winner-first: pair cv_variant_ids[0] (the SELECTED variant, whose reports lead) with the
         # content-recovered winner name; the losers take the remaining names in expand order (winner removed
@@ -370,7 +378,28 @@ def _scores_to_run_result(
     # Key on (variant_id, partition, fold_id): native generation surfaces every variant's reports and
     # ScoreSet.validate guarantees this triple (per producer) is unique, so distinct variants never
     # collide (the pre-#55 (partition, fold_id) key let later variants overwrite earlier ones).
-    by_key = {(report.get("variant_id"), report["partition"], report.get("fold_id")): {name: float(value) for name, value in report["metrics"].items()} for report in reports}
+    # A node may retain the raw row-grain score alongside an aggregate score for
+    # the same terminal block.  The compatibility table intentionally keeps
+    # row-grain validation/OOF evidence (legacy selection semantics), while a
+    # held-out/refit terminal block must expose the native physical-sample
+    # reducer — notably repetition-group classification vote.  Select that
+    # level explicitly instead of relying on report emission order.
+    def _report_priority(report: dict[str, Any]) -> int:
+        level = report.get("level")
+        terminal = report.get("partition") in {"test", "final"}
+        if terminal:
+            return 2 if level in {"group", "target"} else 1
+        return 2 if level == "sample" else 1
+
+    by_key: dict[tuple[Any, str, str | None], dict[str, float]] = {}
+    priorities: dict[tuple[Any, str, str | None], int] = {}
+    for report in reports:
+        key = (report.get("variant_id"), report["partition"], report.get("fold_id"))
+        priority = _report_priority(report)
+        if priority < priorities.get(key, -1):
+            continue
+        priorities[key] = priority
+        by_key[key] = {name: float(value) for name, value in report["metrics"].items()}
 
     predictions = Predictions()
 
@@ -396,7 +425,7 @@ def _scores_to_run_result(
         row_config_name: str,
         row_model_name: str,
         refit_context: str | None = None,
-        arrays: tuple[list[int], np.ndarray, np.ndarray] | None = None,
+        arrays: tuple[list[int], list[str], np.ndarray, np.ndarray] | None = None,
     ) -> None:
         """Emit one legacy row for a (role, partition) with its full train/val/test ``scores`` dict.
 
@@ -406,7 +435,7 @@ def _scores_to_run_result(
         verbatim — no metric is perturbed — so every reported value (and every accessor that reads it)
         is the true native score.
 
-        ``arrays`` (``(sample_indices, y_true, y_pred)``) FILLS the per-sample prediction buffer for the
+        ``arrays`` (``(sample_indices, sample_ids, y_true, y_pred)``) FILLS the per-sample prediction buffer for the
         strict direct-block rows (2a-i): the per-fold ``val`` rows, the refit ``(final, train)`` row, and
         the refit ``(final, test)`` row; the ``avg``/``w_avg`` validation rows carry the native OOF average
         (2a-iii item A). It is ``None`` (empty arrays, score-only) for the per-fold train rows and any
@@ -427,8 +456,12 @@ def _scores_to_run_result(
             score_dict[part] = block
             kwargs[f"{part}_score"] = block.get(metric)
         if arrays is not None:
-            sample_indices, y_true, y_pred = arrays
+            sample_indices, sample_ids, y_true, y_pred = arrays
             kwargs["sample_indices"] = sample_indices
+            # Native wire IDs are authoritative; positional indices are not.
+            # Preserve them in the legacy-shaped buffer for native archive
+            # persistence and later conformal presentation attachment.
+            kwargs["metadata"] = {"physical_sample_id": sample_ids}
             kwargs["y_true"] = y_true
             kwargs["y_pred"] = y_pred
         predictions.add_prediction(
@@ -444,8 +477,12 @@ def _scores_to_run_result(
             **kwargs,
         )
 
-    def _row_arrays(variant_id: Any, partition: str, fold_id: str | None) -> tuple[list[int], np.ndarray, np.ndarray] | None:
-        """``(sample_indices, y_true, y_pred)`` for one VARIANT's direct sample block, BY SAMPLE ID (2a-i/ii).
+    def _row_arrays(
+        variant_id: Any,
+        partition: str,
+        fold_id: str | None,
+    ) -> tuple[list[int], list[str], np.ndarray, np.ndarray] | None:
+        """``(sample_indices, sample_ids, y_true, y_pred)`` for one direct block, BY SAMPLE ID (2a-i/ii).
 
         Looks up the ``(partition, fold_id)`` prediction block + its paired y_true block from
         ``variant_id``'s OWN frames (never another variant's — no cross-variant y_pred leakage), maps each
@@ -467,7 +504,7 @@ def _scores_to_run_result(
             return None
         y_true = np.asarray(target["values"], dtype=float)
         y_true = y_true.ravel() if y_true.ndim == 2 and y_true.shape[1] == 1 else y_true
-        return sample_indices, y_true, y_pred
+        return sample_indices, list(block["sample_ids"]), y_true, y_pred
 
     # The refit-train / held-out test blocks are looked up PER-VARIANT below (`(variant_id, final/test,
     # None)`), NOT once globally — a LOSER must NOT borrow the winner's test/train under its own
@@ -484,11 +521,20 @@ def _scores_to_run_result(
     cv_partitions = _CV_PARTITIONS if run_has_test else ("train", "val")
 
     # Order the CV variants WINNER-first (the variant owning the refit `(final, None)`; its cross-fold
-    # avg is the native `None`-tagged row), then the losers in the order dag-ml emitted them. A single
-    # (non-sweep) pipeline has exactly one CV variant — `variant:base`, which is also the winner — so the
-    # loop runs once and reproduces the pre-#55 winner-only shape. The winner's avg key is the `None`
-    # variant_id; each loser's avg key is its own variant_id.
+    # avg is normally the native `None`-tagged row), then the losers in the order dag-ml emitted them. A
+    # single (non-sweep) pipeline has exactly one CV variant — `variant:base`, which is also the winner —
+    # so the loop runs once and reproduces the pre-#55 winner-only shape. The generic DAG-ML route tags
+    # the winner's avg with `None`; the portable Methods controller keeps the sole concrete
+    # `variant:base` identity instead. Both are the same single-producer OOF evidence, so the lookup
+    # below accepts the latter only when the former is absent.
     cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id != "avg"))
+    # Scheduler-owned Methods HPO deliberately persists only one terminal
+    # sample-level OOF-average report per candidate.  It does not invent
+    # fold-grain reports merely for the legacy compatibility table.  Preserve
+    # that exact evidence by projecting its average-only candidates directly;
+    # the normal fold path above remains authoritative whenever it exists.
+    if not cv_variant_ids:
+        cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id == "avg" and variant_id is not None))
     if final_variant_id is not _MISSING and final_variant_id in cv_variant_ids:
         cv_variant_ids = [final_variant_id] + [variant_id for variant_id in cv_variant_ids if variant_id != final_variant_id]
 
@@ -503,16 +549,26 @@ def _scores_to_run_result(
         variant_model_name = variant_model_names.get(variant_id, model_name) if variant_model_names is not None else model_name
 
         # The native validation folds for THIS variant, in dag-ml's emitted order (foldN, excluding avg).
-        fold_keys = [fold_id for (other_variant_id, partition, fold_id) in by_key if other_variant_id == variant_id and partition == "validation" and fold_id != "avg"]
+        fold_keys = [
+            fold_id
+            for (other_variant_id, partition, fold_id) in by_key
+            if other_variant_id == variant_id
+            and partition == "validation"
+            and fold_id is not None
+            and fold_id != "avg"
+        ]
         # The cross-fold OOF average for THIS variant. dag-ml emits the avg with `variant_id = None` for
         # the SOLE producer (a single concrete pipeline or a merge node) and for the SWEEP WINNER; a sweep
-        # LOSER's avg carries its own variant_id. So the `None`-tagged avg belongs to the winner, or to the
-        # lone variant when there is only one. A single-fold splitter (KennardStone/SPXY, n_splits=1) emits
-        # NO "avg" — just the one validation fold — so there is no ensemble block (the legacy 5-row
+        # LOSER's avg carries its own variant_id. The portable Methods controller retains `variant:base`
+        # for its sole producer instead of rewriting it to `None`, so we accept that exact fallback only
+        # when there is no `None` row. A single-fold splitter (KennardStone/SPXY, n_splits=1) emits NO
+        # "avg" — just the one validation fold — so there is no ensemble block (the legacy 5-row
         # single-split shape) and the lone fold's OOF is the CV score.
         avg_variant_id = None if (is_winner or len(cv_variant_ids) == 1) else variant_id
-        has_avg = by_key.get((avg_variant_id, "validation", "avg")) is not None
         avg = by_key.get((avg_variant_id, "validation", "avg"))
+        if avg is None and avg_variant_id is None:
+            avg = by_key.get((variant_id, "validation", "avg"))
+        has_avg = avg is not None
         if avg is None and len(fold_keys) == 1:
             avg = by_key[(variant_id, "validation", fold_keys[0])]
 
@@ -601,6 +657,10 @@ def _scores_to_run_result(
     # in-memory metadata only, OFF by default (the writer fires solely when native results are enabled),
     # so a plain run is untouched.
     run_result._dagml_refit_artifacts = refit_artifacts or []  # noqa: SLF001
+    # Keep the native NodeResult frames as an audit trail for controller-level
+    # attestations such as process-local training losses. This is the same
+    # in-memory-only posture as the ScoreSet/refit artifact captures above.
+    run_result._dagml_node_results = _audit_node_results(results, results_by_variant)  # noqa: SLF001
     return run_result
 
 

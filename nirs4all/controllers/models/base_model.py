@@ -248,6 +248,62 @@ class BaseModelController(OperatorController, ABC):
         import joblib
         return joblib.load(filepath)
 
+    def _get_xy_from_materialized_sample_partition(
+        self,
+        dataset: 'SpectroDataset',
+        context: 'ExecutionContext',
+        layout: 'Layout',
+        partition_sample_ids: list[int],
+    ) -> tuple[Any, Any, Any, Any, Any, Any]:
+        """Extract splits when branch-local features have already been materialized.
+
+        Separation-branch preprocessing can rewrite the feature block to contain
+        only the branch rows while targets and folds remain addressed by the
+        original global sample IDs. In that state, features must be sliced by
+        local positions and targets by global sample IDs.
+        """
+        branch_sample_ids = [int(sid) for sid in partition_sample_ids]
+        id_to_local_pos = {sid: pos for pos, sid in enumerate(branch_sample_ids)}
+
+        train_context = context.with_partition('train')
+        test_context = context.with_partition('test')
+
+        train_sample_ids = dataset._indexer.x_indices(  # noqa: SLF001
+            train_context.selector, include_augmented=True, include_excluded=False
+        )
+        test_sample_ids = dataset._indexer.x_indices(  # noqa: SLF001
+            test_context.selector, include_augmented=True, include_excluded=False
+        )
+
+        train_positions = [id_to_local_pos[int(sid)] for sid in train_sample_ids if int(sid) in id_to_local_pos]
+        test_positions = [id_to_local_pos[int(sid)] for sid in test_sample_ids if int(sid) in id_to_local_pos]
+
+        feature_context = context.with_partition(None)
+        feature_context.selector["sample"] = list(range(len(branch_sample_ids)))
+        X_all_raw = dataset.x(feature_context.selector, layout=layout)
+        assert isinstance(X_all_raw, np.ndarray)
+        X_all = X_all_raw
+        X_train = X_all[train_positions]
+        X_test = X_all[test_positions]
+
+        target_context = context.with_partition(None)
+        target_context.selector["sample"] = branch_sample_ids
+        target_context.selector['y'] = target_context.state.y_processing
+        y_all = dataset.y(target_context.selector)
+        y_train = y_all[train_positions]
+        y_test = y_all[test_positions]
+
+        if dataset.task_type and dataset.task_type.is_classification:
+            y_train_unscaled = y_train
+            y_test_unscaled = y_test
+        else:
+            target_context.selector['y'] = 'numeric'
+            y_all_unscaled = dataset.y(target_context.selector)
+            y_train_unscaled = y_all_unscaled[train_positions]
+            y_test_unscaled = y_all_unscaled[test_positions]
+
+        return X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled
+
     def get_xy(self, dataset: 'SpectroDataset', context: 'ExecutionContext') -> tuple[Any, Any, Any, Any, Any, Any]:
         """Extract train/test splits with scaled and unscaled targets.
 
@@ -296,7 +352,7 @@ class BaseModelController(OperatorController, ABC):
                 all_sample_ids = dataset._indexer.x_indices(
                     pred_context.selector, include_augmented=True, include_excluded=False
                 )
-                mask = np.array([int(sid) in partition_sample_indices for sid in all_sample_ids])
+                mask = np.array([int(sid) in partition_sample_indices for sid in all_sample_ids], dtype=bool)
                 X_all = X_all[mask]
                 y_all = y_all[mask]
 
@@ -320,6 +376,15 @@ class BaseModelController(OperatorController, ABC):
         train_context = context.with_partition('train')
         test_context = context.with_partition('test')
 
+        if partition_sample_indices and dataset.num_samples == len(partition_sample_indices):
+            assert sample_partition is not None
+            return self._get_xy_from_materialized_sample_partition(
+                dataset,
+                context,
+                layout,
+                [int(sid) for sid in sample_partition.get("sample_indices", [])],
+            )
+
         X_train_raw = dataset.x(train_context.selector, layout=layout)
         X_test_raw = dataset.x(test_context.selector, layout=layout)
         assert isinstance(X_train_raw, np.ndarray) and isinstance(X_test_raw, np.ndarray)
@@ -339,7 +404,7 @@ class BaseModelController(OperatorController, ABC):
             train_sample_ids = dataset._indexer.x_indices(
                 train_context.selector, include_augmented=True, include_excluded=False
             )
-            train_mask = np.array([int(sid) in partition_sample_indices for sid in train_sample_ids])
+            train_mask = np.array([int(sid) in partition_sample_indices for sid in train_sample_ids], dtype=bool)
             X_train = X_train[train_mask]
             y_train = y_train[train_mask]
 
@@ -347,7 +412,7 @@ class BaseModelController(OperatorController, ABC):
             test_sample_ids = dataset._indexer.x_indices(
                 test_context.selector, include_augmented=True, include_excluded=False
             )
-            test_mask = np.array([int(sid) in partition_sample_indices for sid in test_sample_ids])
+            test_mask = np.array([int(sid) in partition_sample_indices for sid in test_sample_ids], dtype=bool)
             X_test = X_test[test_mask]
             y_test = y_test[test_mask]
 
@@ -873,6 +938,31 @@ class BaseModelController(OperatorController, ABC):
         # Store dataset reference for model building
 
         self.dataset = dataset
+
+        # Engine selection: the native libn4m optimizer runs the same DSL as Optuna
+        # but is portable across bindings. Optuna stays the default. An unknown value
+        # is rejected (a typo must not silently fall back to a different optimizer).
+        engine = str((finetune_params or {}).get("engine", "optuna")).strip().lower()
+        if engine in ("n4m", "native", "methods", "libn4m"):
+            if getattr(self, "_n4m_manager", None) is None:
+                from nirs4all.optimization.n4m_engine import N4MFinetuneManager
+                self._n4m_manager = N4MFinetuneManager()
+            return self._n4m_manager.finetune(
+                dataset,
+                model_config=model_config,
+                X_train=X_train,
+                y_train=y_train,
+                X_test=X_test,
+                y_test=y_test,
+                folds=folds,
+                finetune_params=finetune_params,
+                context=context,
+                controller=self,
+            )
+
+        if engine not in ("optuna", ""):
+            raise ValueError(
+                f"Unknown finetuning engine '{engine}'. Use 'optuna' (default) or 'n4m'.")
 
         result: FinetuneResult | list[FinetuneResult] = self.optuna_manager.finetune(
             dataset,

@@ -182,6 +182,30 @@ def _repetition_groups_for_pool(spectro: Any, pool: list[int]) -> np.ndarray:
     return np.array([group_of_sample[sample_int] for sample_int in pool], dtype=object)
 
 
+def _repetition_refit_order(spectro: Any, pool: list[int]) -> list[int]:
+    """Return legacy's full-train repetition ordering.
+
+    ``SpectroDataset`` refit groups all stored repetitions of one physical
+    sample together, ordering groups by their first stored row and retaining
+    storage order inside each group.  A FoldSet's ``sample_ids`` is the native
+    full-train materialization order; preserving this permutation is essential
+    for deterministic order-sensitive estimators such as random forests.
+    """
+    group_by_sample = _repetition_grain(spectro, pool)
+    first_group_position: dict[str, int] = {}
+    storage_position: dict[int, int] = {}
+    for position, sample_int in enumerate(pool):
+        storage_position[sample_int] = position
+        first_group_position.setdefault(group_by_sample[sample_int], position)
+    return sorted(
+        pool,
+        key=lambda sample_int: (
+            first_group_position[group_by_sample[sample_int]],
+            storage_position[sample_int],
+        ),
+    )
+
+
 def _repetition_grain(spectro: Any, pool: list[int]) -> dict[int, str]:
     """``{sample_int: group_value}`` for ``pool`` — the ``group_id`` emitted onto the relations.
 
