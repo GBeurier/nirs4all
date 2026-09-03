@@ -4,7 +4,7 @@ name: Build & Publish
 on:
   release:
     types: [ published ]     # clicking "Publish Release" triggers real PyPI
-  # Manual runs are deliberately dry-runs: tests, docs, and distributions only.
+  # Manual runs are dry-runs unless the bounded immutable-tag repair is requested.
   workflow_dispatch:
     inputs:
       publish:
@@ -43,7 +43,8 @@ jobs:
           test "$(git rev-parse '${{ inputs.release_tag }}^{}')" = "61a66d1bd0157dd9422facc4b32fca33989d4035"
           unexpected="$(git diff --name-only '${{ inputs.release_tag }}^{}'..HEAD -- \
             ':(exclude).github/workflows/publish.yml' \
-            ':(exclude)tests/integration/parity/test_dagml_dataplane.py')"
+            ':(exclude)tests/integration/parity/test_dagml_dataplane.py' \
+            ':(exclude)tests/unit/workflows/test_publish_workflow.py')"
           test -z "$unexpected" || { echo "::error::unexpected repair files: $unexpected"; exit 1; }
 
       - name: Free disk space
