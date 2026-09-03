@@ -36,7 +36,11 @@ LICENSE_FILES = [
 ]
 # sole-license phrasings that contradict the dual license (CeCILL as the ONLY license)
 SOLE_CECILL = re.compile(r"licensed under the\s+CeCILL[- ]?2\.1\s+License", re.IGNORECASE)
-VERSION_TOKEN = re.compile(r"(?:version\s*=\s*\{|[*_]*Version[*_]*\s*[:=]\s*)\s*v?(\d+\.\d+\.\d+)", re.IGNORECASE)
+VERSION_TOKEN = re.compile(
+    r"(?:version\s*=\s*\{|[*_]*Version[*_]*\s*[:=]\s*)"
+    r"\s*v?(\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?(?:\.post\d+)?(?:\.dev\d+)?)",
+    re.IGNORECASE,
+)
 
 
 def package_version() -> str:

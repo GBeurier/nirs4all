@@ -11,7 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [0.13.0] — 2026-09-03
+## [1.0.0-rc.1] — 2026-09-03
 
 ### ⚙️ Changed
 
@@ -954,6 +954,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a metric's validation-rank differs from the selection rank may now report different
   `best_rmse` / `best_r2` / `best_accuracy` values** (webapp dashboards reading these
   shortcuts may see changed numbers for such runs).
+
+---
+
+## [0.13.0] — 2026-09-03
+
+### Changed
+
+- Keep the public Python runtime legacy-default while constraining the selectable
+  native integration to compatible DAG-ML, Core, and Methods release lines.
+
+### Fixed
+
+- Make manual publication workflow runs build-only; PyPI and Docker publication
+  now require a GitHub Release whose tag matches the package version.
+
+---
 
 ## [0.12.10] — 2026-08-27
 

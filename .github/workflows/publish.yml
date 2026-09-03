@@ -160,6 +160,9 @@ jobs:
           PKG_VERSION=$(grep -E '^__version__' nirs4all/__init__.py | cut -d'"' -f2)
           TAG_VERSION="${{ github.event.release.tag_name }}"
           TAG_VERSION="${TAG_VERSION#v}"
+          # Product RC tags use SemVer spelling (1.0.0-rc.1), while Python
+          # package metadata uses the equivalent PEP 440 spelling (1.0.0rc1).
+          TAG_VERSION="${TAG_VERSION//-rc./rc}"
           if [[ "$PKG_VERSION" != "$TAG_VERSION" ]]; then
             echo "::error::Version mismatch: nirs4all.__version__=$PKG_VERSION tag=$TAG_VERSION"
             exit 1
