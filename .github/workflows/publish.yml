@@ -4,7 +4,8 @@ name: Build & Publish
 on:
   release:
     types: [ published ]     # clicking "Publish Release" triggers real PyPI
-  workflow_dispatch:         # manual button in the Actions tab
+  # Manual runs are deliberately dry-runs: tests, docs, and distributions only.
+  workflow_dispatch:
 
 jobs:
   # Run full test suite before publishing
@@ -178,6 +179,7 @@ jobs:
   # Publish to PyPI (only after build succeeds, which requires tests + docs)
   publish-pypi:
     needs: build
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -192,9 +194,10 @@ jobs:
       - name: Upload to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
-  # Build and push Docker image to GHCR (runs in parallel with build/publish-pypi)
+  # Build and push Docker image to GHCR after the release tag/version check.
   publish-docker:
-    needs: [run-tests]
+    needs: [run-tests, build]
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     permissions:
       contents: read
