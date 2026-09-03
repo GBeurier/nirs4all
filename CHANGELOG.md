@@ -31,6 +31,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### ✨ Added
 
+- **Canonical spectral preprocessing in native Archive V2 training.**
+  `engine="native"` now accepts either raw PLS or the exact
+  `StandardNormalVariate(ddof=0) -> SavitzkyGolay(deriv=0, mode="interp") ->
+  PLSRegression(scale=True)` order after KFold. Raw PLS remains N4MM format 1;
+  the embedded preprocessing pipeline is N4MM format 2. Unsupported ordering,
+  parameters, or operators fail closed before the legacy runner and never
+  trigger a Python preprocessing fallback. Multi-target regression retains
+  explicit target names.
 - **Public replayed-array conformal calibration surface.**
   `nirs4all.calibrate()` now supports the narrow V1 split-conformal path for
   already replayed calibration predictions and prediction outputs with explicit

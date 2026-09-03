@@ -24,6 +24,7 @@ The public Python API runs that contract directly. The CLI currently validates a
 | `nirs4all.TUNING_ENGINES` / `TUNING_DIRECTIONS` | Discover optimizer engines and objective directions accepted by the strict native tuning contract | None | Tuples aligned with `DagMLTuningSpec` validation and registry schema |
 | `nirs4all.TUNING_CONTRACT_KEYS` / `TUNING_OPTIMIZER_PERSISTENCE_KEYS` / `TUNING_RUNTIME_KEYS` | Separate deterministic tuning-contract keys, optimizer persistence keys, and `run(tuning=...)` runtime wrapper keys | None | Tuples for validators, bindings, CLIs and Studio forms |
 | `nirs4all.NativeTuning(..., force_params=...)` | Warm-start native HPO with an explicit first trial | Public decoded parameter values keyed by `tuning.space` paths | Deterministic contract entry that can change trial order and selected predictor |
+| `nirs4all.run(..., tuning={..., "resume": True})` | Resume the supported native HPO lanes | Matching workspace result, Optuna storage, or n4m file checkpoint plus the same search-space contract | Validated completed evidence followed by only the remaining work; `n_trials` is the target total |
 | `nirs4all.inspect_tuning_space(...)` | Inspect canonical ordered tuning-space patches for forms, bindings and Studio | `NativeTuning`, `DagMLTuningSpec`, or mapping tuning payload | JSON-native `nirs4all.tuning.ordered_search_space` artifact with `ParameterPatch` force params and fingerprints |
 | `nirs4all.get_tuning_space_schema()` / `tuning_space_schema_json(...)` | Publish the ordered tuning-space JSON Schema | None or optional JSON indentation | Stable schema for bindings, CLI validators and Studio tuning forms |
 | `TuningResult.summary_artifact()` / `save_summary(...)` | Publish a lightweight HPO summary for CI, release indexes, bindings and Studio cards | `TuningResult` | `nirs4all.tuning.summary` payload or `summary.json` path, including safe persistence flags without raw storage URIs |
@@ -222,10 +223,22 @@ execution-profile parameter. It remains the rollback-capable Python API through
 the R4 removal decision. Product integrations use a private strict boundary
 inside the package instead of widening or weakening that public contract.
 
-Install `nirs4all[native]` to use the strict Archive V2 path. The release extra
-selects the compatible Core 0.3.25 and Methods 1.0.13 release families; source
-commit identities and artifact digests remain release-receipt concerns rather
-than Python package metadata.
+Install `nirs4all[native]` to use the strict Archive V2 path. The extra permits
+the published Core 0.3.25 and Methods 1.0.13+ release families; this final local
+candidate is qualified against Methods 1.0.15. Exact source identities and
+artifact digests remain release-receipt/lock concerns rather than Python
+package metadata.
+
+The native archive training compiler accepts only KFold followed by either a
+terminal `PLSRegression` or the exact
+`StandardNormalVariate -> SavitzkyGolay -> PLSRegression` sequence. SNV is
+row-wise with `ddof=0`; Savitzky-Golay is smoothing-only (`deriv=0`,
+`delta=1.0`) with native `mode="interp"` and defaults `window_length=11`,
+`polyorder=3`; PLS keeps `scale=True` and its other public defaults. Raw PLS is
+serialized as N4MM format 1 and the embedded pipeline as format 2. Both scalar
+and multi-target regression are supported when target names are explicit.
+Anything outside this profile is refused before execution, with no legacy,
+pickle, plugin, or Python preprocessing fallback.
 
 The explicit dual oracle returns the native `RunResult` after comparing its
 winner, OOF identities/predictions, validation scores, and split evidence with
