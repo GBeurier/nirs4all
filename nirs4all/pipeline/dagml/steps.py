@@ -219,6 +219,14 @@ def _assert_supported_operators(steps: list[Any]) -> None:
             # A keyword dict the bridge handles structurally (model / y_processing / …) is validated by its
             # own lowering path; but concat_transform / feature_augmentation CARRY X-side transforms that
             # FeatureConcat fits — recurse into those.
+            if "preprocessing" in operator:
+                # The plain legacy alias ``{"preprocessing": transform}`` is
+                # lowered as a normal X transform.  Policy-bearing variants
+                # remain a bridge boundary and must not bypass this routability
+                # check on their way to a native execution.
+                if set(operator) <= {"preprocessing", "force_layout", "fit_on_all"} and operator.get("force_layout", "2d") == "2d":
+                    _check_x_operator(operator["preprocessing"])
+                continue
             if "concat_transform" in operator or "feature_augmentation" in operator:
                 for nested in _nested_x_operators(operator):
                     _check_x_operator(nested)

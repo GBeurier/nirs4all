@@ -100,6 +100,7 @@ def _arr_to_list(arr: np.ndarray | None, dtype: str = "float") -> list | None:
     return [float(value) for value in flat.astype(np.float64)]
 
 
+
 def _json_default(obj: Any) -> Any:
     """Handle numpy scalars for json.dumps."""
     if isinstance(obj, (np.integer,)):

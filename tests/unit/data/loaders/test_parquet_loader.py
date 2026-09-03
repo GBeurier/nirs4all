@@ -6,6 +6,7 @@ Requires pyarrow or fastparquet to be installed.
 """
 
 import tempfile
+from importlib.util import find_spec
 from pathlib import Path
 
 import numpy as np
@@ -15,10 +16,9 @@ import pytest
 from nirs4all.data.loaders.parquet_loader import ParquetLoader, load_parquet
 
 # Skip all tests if no Parquet engine is available
+HAS_PARQUET_ENGINE = find_spec("pyarrow") is not None or find_spec("fastparquet") is not None
 pytestmark = pytest.mark.skipif(
-    not any([
-        pytest.importorskip("pyarrow", reason="pyarrow not installed"),
-    ]),
+    not HAS_PARQUET_ENGINE,
     reason="No Parquet engine available"
 )
 

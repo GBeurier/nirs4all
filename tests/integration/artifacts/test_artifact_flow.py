@@ -178,8 +178,7 @@ class TestPredictionArtifactLoading:
 
         # Get a prediction to replay
         test_preds = predictions.filter_predictions(partition="test")
-        if len(test_preds) == 0:
-            pytest.skip("No test predictions available")
+        assert len(test_preds) > 0, "training should produce at least one test prediction to replay"
 
         best_pred = test_preds[0]
 
@@ -210,8 +209,7 @@ class TestPredictionArtifactLoading:
         )
 
         test_preds = predictions.filter_predictions(partition="test")
-        if len(test_preds) == 0:
-            pytest.skip("No test predictions available")
+        assert len(test_preds) > 0, "training should produce at least one test prediction to replay"
 
         best_pred = test_preds[0]
 
@@ -421,8 +419,8 @@ class TestMultiplePipelinesArtifactFlow:
         test_preds1 = predictions1.filter_predictions(partition="test")
         test_preds2 = predictions2.filter_predictions(partition="test")
 
-        if len(test_preds1) == 0 or len(test_preds2) == 0:
-            pytest.skip("Insufficient predictions")
+        assert len(test_preds1) > 0, "first training run should produce test predictions"
+        assert len(test_preds2) > 0, "second training run should produce test predictions"
 
         # Predict from first pipeline
         y_pred1, _ = runner.predict(

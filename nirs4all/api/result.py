@@ -1096,6 +1096,7 @@ class RunResult:
     # projection time so the native-results writer (P3 Slice 2b-i, OFF by default) can persist it
     # VERBATIM. In-memory metadata only; ``None`` for a legacy result.
     _dagml_score_set: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_node_results: list[dict[str, Any]] = field(default_factory=list, repr=False)
 
     # The fitted REFIT estimators the dag-ml run produced (P3 Slice 2c-i), captured host-side from the
     # in-process model store at projection time so the native-results writer can joblib-persist them as

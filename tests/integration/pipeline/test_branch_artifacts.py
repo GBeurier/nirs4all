@@ -280,8 +280,7 @@ class TestBranchArtifactIsolation:
 
         # Predict with branch 0 only
         branch_0_preds = predictions.filter_predictions(branch_id=0, partition="test")
-        if len(branch_0_preds) == 0:
-            pytest.skip("No branch 0 predictions")
+        assert len(branch_0_preds) > 0, "branch 0 should produce test predictions for artifact isolation"
 
         target_pred = branch_0_preds[0]
 
@@ -463,4 +462,3 @@ class TestArtifactLoaderBranchSupport:
         info = loader.get_cache_info()
         assert "total_artifacts" in info
         assert info["total_artifacts"] == 4
-

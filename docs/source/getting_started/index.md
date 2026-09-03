@@ -7,6 +7,7 @@ Welcome to NIRS4ALL! This section will help you get up and running quickly.
 :hidden:
 
 installation
+hello_world
 quickstart
 tutorial
 ```
@@ -16,7 +17,7 @@ tutorial
 NIRS4ALL is designed to make Near-Infrared Spectroscopy data analysis accessible to everyone. Whether you're a spectroscopy expert or new to the field, this guide will help you:
 
 1. **Install** the library and its dependencies
-2. **Run** your first pipeline in minutes
+2. **Run** your first config-first pipeline in minutes
 3. **Understand** the core concepts
 4. **Explore** what's possible
 
@@ -34,10 +35,10 @@ Install NIRS4ALL and verify your setup.
 :::
 
 :::{grid-item-card} Quickstart
-:link: quickstart
+:link: hello_world
 :link-type: doc
 
-Your first pipeline in 5 minutes.
+Your first dataset YAML + pipeline YAML workflow.
 
 +++
 {bdg-success}`5 Minutes`
@@ -109,7 +110,30 @@ nirs4all --test-install
 
 ## Quick Start (5 Minutes)
 
-Here's a complete example to get you started:
+The recommended first workflow is config-first:
+
+```bash
+nirs4all dataset validate dataset.yaml
+nirs4all config validate pipeline.yaml --type pipeline
+```
+
+```python
+import nirs4all
+
+result = nirs4all.run(
+    pipeline="pipeline.yaml",
+    dataset="dataset.yaml",
+    name="first_run",
+    random_state=42,
+)
+
+print(result.best_score)
+result.export("exports/first_run.n4a")
+```
+
+See {doc}`hello_world` for the complete YAML/JSON files and language tabs.
+
+Python users can also build the pipeline directly with objects:
 
 ```python
 import nirs4all

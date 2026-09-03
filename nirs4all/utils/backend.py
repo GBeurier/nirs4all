@@ -59,7 +59,9 @@ _PACKAGE_MAPPING: dict[str, str] = {
     'catboost': 'catboost',
     'optuna': 'optuna',
     'shap': 'shap',
-    'ikpls': 'ikpls',
+    # The IKPLS wrapper's default NumPy backend imports this submodule. Some
+    # ikpls releases expose the root package without the NumPy implementation.
+    'ikpls': 'ikpls.numpy_ikpls',
 }
 
 # =============================================================================
@@ -456,9 +458,9 @@ def is_jax_available() -> bool:
     return is_available('jax')
 
 def is_ikpls_available() -> bool:
-    """Check if ikpls is installed.
+    """Check if ikpls' NumPy backend is installed.
 
     Returns:
-        True if ikpls is available.
+        True if the IKPLS NumPy backend used by :class:`IKPLS` is available.
     """
     return is_available('ikpls')

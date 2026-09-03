@@ -288,7 +288,8 @@ class TestBundleLoader:
             pipeline_uid="0001_test_abc123",
             model_step=4,
             include_trace=True,
-            include_relation_manifest=False
+            include_relation_manifest=False,
+            bundle_version="1.0",
         ):
             import joblib
 
@@ -297,7 +298,7 @@ class TestBundleLoader:
             with zipfile.ZipFile(bundle_path, 'w') as zf:
                 # Write manifest
                 manifest = {
-                    "bundle_format_version": "1.0",
+                    "bundle_format_version": bundle_version,
                     "nirs4all_version": "0.9.0",
                     "created_at": "2024-12-14T10:00:00",
                     "pipeline_uid": pipeline_uid,
@@ -392,6 +393,13 @@ class TestBundleLoader:
         assert loader.relation_replay_manifest["staging_manifest"]["fingerprint"] == "table_fp"
         resolved = loader.to_resolved_prediction()
         assert resolved.manifest["relation_replay_manifest"]["fingerprint"] == "rel_fp"
+
+    def test_future_bundle_format_version_refused(self, create_test_bundle):
+        """Future bundle formats must fail with an explicit upgrade message."""
+        bundle_path = create_test_bundle(bundle_version="99.0")
+
+        with pytest.raises(ValueError, match="newer than supported.*Upgrade nirs4all"):
+            BundleLoader(bundle_path)
 
     def test_predict_replays_relation_materialization_for_raw_multisource_input(self, tmp_path):
         """A relation-aware bundle can materialize RawMultiSourceDataset input before predict."""
