@@ -35,3 +35,14 @@ def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> 
         assert job["if"] == "github.event_name == 'release'"
         needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
         assert "build" in needs
+
+    metadata_steps = [
+        step
+        for step in jobs["publish-docker"]["steps"]
+        if step.get("uses") == "docker/metadata-action@v6"
+    ]
+    assert len(metadata_steps) == 1
+    assert (
+        "type=raw,value=latest,enable=${{ github.event.release.prerelease == false }}"
+        in metadata_steps[0]["with"]["tags"]
+    )
