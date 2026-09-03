@@ -245,6 +245,16 @@ winner, OOF identities/predictions, validation scores, and split evidence with
 a temporary `engine="legacy"` oracle under the packaged compatibility ledger.
 It never enables `allow_fallback` and does not expose the legacy workspace.
 
+Every explicit `engine="legacy"` or `engine="dual"` request emits a
+`LegacyEngineUsageWarning`. Its message is stable compact JSON with
+`schema_version`, `code`, `engine`, and `operation` fields. Support counting is
+separate and opt-in: set `N4A_LEGACY_USAGE_COUNTER=1`, then read the current
+process snapshot with
+`nirs4all.pipeline.engine.get_legacy_engine_usage_counts()`. The snapshot has
+`legacy`, `dual`, and `total` counts only; it performs no network access, writes
+nothing persistently, and records no paths, request inputs, or scientific data.
+Counts exist only for the lifetime of the current Python process.
+
 ```python
 result = nirs4all.run(
     pipeline="pipeline.yaml",
@@ -317,6 +327,7 @@ Environment switches:
 | Variable | Effect |
 | --- | --- |
 | `N4A_ENGINE=dag-ml` | Request dag-ml for calls that do not pass `engine=` explicitly. |
+| `N4A_LEGACY_USAGE_COUNTER=1` | Opt into the data-free, process-local explicit legacy/dual support counter. |
 | `N4A_NATIVE_RESULTS=/path/to/results` | For dag-ml runs, request native result output. |
 
 ## CLI Commands
