@@ -12,15 +12,19 @@ import sys
 import textwrap
 import zipfile
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 
-from nirs4all.api.native_archive_training import NativeArchiveTrainingError
+from nirs4all.api.native_archive_training import (
+    NativeArchiveTrainingError,
+    NativeMethodsArchiveRunResult,
+)
 from nirs4all.api.session import Session, SessionClosedError
-from nirs4all.operators.transforms import SNV, SavitzkyGolay
+from nirs4all.operators.transforms import SavitzkyGolay, StandardNormalVariate
 from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveReplayError
 
 _REQUIRE_ENV = "NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2"
@@ -34,7 +38,7 @@ def _pipeline() -> list[object]:
 def _portable_roadmap_pipeline() -> list[object]:
     return [
         KFold(n_splits=3),
-        SNV(),
+        StandardNormalVariate(),
         SavitzkyGolay(window_length=3, polyorder=1),
         {"model": PLSRegression(n_components=1)},
     ]
@@ -43,12 +47,12 @@ def _portable_roadmap_pipeline() -> list[object]:
 def _dataset() -> dict[str, object]:
     features = np.asarray(
         [
-            [0.0, 1.0],
-            [1.0, 0.0],
-            [2.0, 1.0],
-            [3.0, 0.0],
-            [4.0, 1.0],
-            [5.0, 0.0],
+            [0.0, 1.0, 4.0, 9.0],
+            [1.0, 0.0, 3.0, 8.0],
+            [2.0, 1.0, 5.0, 7.0],
+            [3.0, 1.0, 4.0, 8.0],
+            [4.0, 2.0, 6.0, 9.0],
+            [5.0, 3.0, 7.0, 11.0],
         ],
         dtype=float,
     )
@@ -90,11 +94,12 @@ def test_native_archive_training_refuses_a_missing_runtime_before_pipeline_runne
         run_module.run(_pipeline(), _dataset(), engine="native", save_charts=False)
 
 
-def test_native_archive_training_refuses_unreplayable_preprocessing_without_legacy_runner(
+def test_native_archive_training_lowers_defaults_and_refuses_unsupported_pipeline_without_legacy_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     native_module = importlib.import_module("nirs4all.api.native_archive_training")
     run_module = importlib.import_module("nirs4all.api.run")
+    lowerer = importlib.import_module("nirs4all.pipeline.dagml.raw_training_lowerer")
 
     class LegacyPathReached:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
@@ -104,16 +109,48 @@ def test_native_archive_training_refuses_unreplayable_preprocessing_without_lega
     monkeypatch.setattr(native_module, "_require_archive_runtime", lambda: (object(), object()))
     monkeypatch.setattr(native_module, "_resolve_methods_library_path", lambda _path: "/opt/lib/libn4m.so")
 
-    with pytest.raises(
-        ValueError,
-        match="SNV or Savitzky-Golay requires an upstream DAG-ML Methods controller and replay contract",
-    ):
-        run_module.run(
-            _portable_roadmap_pipeline(),
-            _dataset(),
-            engine="native",
-            save_charts=False,
-        )
+    defaults = lowerer._portable_methods_pls_params(  # noqa: SLF001 - focused lowering contract
+        [
+            StandardNormalVariate,
+            SavitzkyGolay,
+            {"model": PLSRegression(n_components=1)},
+        ]
+    )
+    assert defaults["pipeline"] == {
+        "schema_version": 1,
+        "pipeline_type": "n4m.snv_savgol_smooth.v1",
+        "savgol_window": 11,
+        "savgol_poly_degree": 3,
+    }
+
+    unsupported = (
+        [
+            KFold(n_splits=3),
+            SavitzkyGolay(window_length=3, polyorder=1),
+            StandardNormalVariate(),
+            {"model": PLSRegression(n_components=1)},
+        ],
+        [
+            KFold(n_splits=3),
+            StandardNormalVariate(),
+            SavitzkyGolay(window_length=3, polyorder=1, deriv=1),
+            {"model": PLSRegression(n_components=1)},
+        ],
+        [
+            KFold(n_splits=3),
+            StandardNormalVariate(),
+            SavitzkyGolay(window_length=3, polyorder=1),
+            {"model": PLSRegression(n_components=1, scale=False)},
+        ],
+    )
+    for pipeline in unsupported:
+        with pytest.raises(ValueError, match="exact|requires|supports only"):
+            run_module.run(
+                pipeline,
+                _dataset(),
+                engine="native",
+                save_charts=False,
+            )
 
 
 def test_native_archive_training_refuses_closed_session_before_runtime_or_runner(
@@ -267,37 +304,48 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
         def __init__(self, *_args: object, **_kwargs: object) -> None:
             raise AssertionError("native Archive V2 lifecycle constructed PipelineRunner")
 
-    prediction_features = [[8.0, 0.0], [-1.0, 4.0]]
+    prediction_features = [[8.0, 5.0, 9.0, 14.0], [-1.0, 4.0, 2.0, 7.0]]
     prediction_ids = ["predict.z", "predict.a"]
-    original_runner = run_module.PipelineRunner
-    run_module.PipelineRunner = LegacyPathReached
+    training_dataset = _multi_target_dataset()
+    public_pipeline = _portable_roadmap_pipeline()
+    original_runner = getattr(run_module, "PipelineRunner")
+    setattr(run_module, "PipelineRunner", LegacyPathReached)
     try:
-        result = nirs4all.run(
-            _pipeline(),
-            _multi_target_dataset(),
-            engine="native",
-            save_charts=False,
-            methods_library_path=library_path,
+        result = cast(
+            NativeMethodsArchiveRunResult,
+            nirs4all.run(
+                public_pipeline,
+                training_dataset,
+                engine="native",
+                save_charts=False,
+                methods_library_path=library_path,
+            ),
         )
         archive_path = result.export(tmp_path / "native-methods-v2.n4a")
         reference = result.native_archive_reference
         assert reference is not None
         assert reference["archive_id"].startswith("archive:")
         assert len(reference["archive_sha256"]) == 64
+        with zipfile.ZipFile(archive_path) as archive:
+            manifest = json.loads(archive.read("manifest.json"))
+        assert manifest["payloads"]["methods"]["n4mm"][0]["format_version"] == 2
         result.close()
         result.close()
         assert result.native_execution_is_live is False
 
         owned_session = Session(
-            pipeline=_pipeline(),
+            pipeline=public_pipeline,
             name="native-session",
             methods_library_path=library_path,
         )
         owned_archive: Path | None = None
         try:
-            owned_result = owned_session.run(
-                _multi_target_dataset(),
-                engine="native",
+            owned_result = cast(
+                NativeMethodsArchiveRunResult,
+                owned_session.run(
+                    _multi_target_dataset(),
+                    engine="native",
+                ),
             )
             owned_archive = owned_session._core_archive_path
             assert owned_result.native_execution_is_live is False
@@ -325,7 +373,7 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
             atol=0.0,
         )
     finally:
-        run_module.PipelineRunner = original_runner
+        setattr(run_module, "PipelineRunner", original_runner)
 
     revalidation_archive = tmp_path / "native-methods-v2-revalidation.n4a"
     shutil.copyfile(archive_path, revalidation_archive)
@@ -438,6 +486,22 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
     assert all(len(row) == 2 for row in observed["direct_values"])
     assert "Session is closed" in observed["closed_refusal"]
     assert all(math.isfinite(value) for row in observed["direct_values"] for value in row)
+    transformed_train = SavitzkyGolay(window_length=3, polyorder=1).fit_transform(
+        StandardNormalVariate().fit_transform(np.asarray(training_dataset["X"]))
+    )
+    transformed_predict = SavitzkyGolay(window_length=3, polyorder=1).fit_transform(
+        StandardNormalVariate().fit_transform(np.asarray(prediction_features))
+    )
+    oracle = PLSRegression(n_components=1).fit(
+        transformed_train,
+        np.asarray(training_dataset["y"]),
+    )
+    np.testing.assert_allclose(
+        np.asarray(observed["direct_values"]),
+        oracle.predict(transformed_predict),
+        rtol=1e-12,
+        atol=1e-12,
+    )
 
     tampered = tmp_path / "tampered.n4a"
     _tamper_n4mm(archive_path, tampered)
