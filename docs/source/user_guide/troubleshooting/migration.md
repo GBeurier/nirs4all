@@ -228,8 +228,9 @@ nirs4all-tools workspace convert /data/workspace \
   --output /data/workspace-r2 --verify
 ```
 
-The candidate Tools package is currently **unpublished**; install the candidate
-wheel supplied through the release process, not an assumed registry version.
+Install the published `nirs4all-tools` `0.0.7` release for this support
+contract. Its component publication does not promote the still-held V1 product
+train.
 The commands return `0` for a clean conversion, `10` for best-effort completion
 with unsupported content preserved opaque, and `20` for unsupported input or a
 strict refusal. The original source remains byte-for-byte intact.
