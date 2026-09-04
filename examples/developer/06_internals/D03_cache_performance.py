@@ -48,6 +48,7 @@ def _measure_run(pipeline, dataset_path, cache_config, label, verbose=0):
     t0 = time.perf_counter()
 
     result = nirs4all.run(
+        engine="legacy",
         pipeline=pipeline,
         dataset=dataset_path,
         verbose=verbose,

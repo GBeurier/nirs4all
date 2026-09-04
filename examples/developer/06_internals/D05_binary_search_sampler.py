@@ -71,6 +71,7 @@ print("-" * 80)
 
 start_time = time.time()
 result_binary = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
         MinMaxScaler(),
@@ -120,6 +121,7 @@ if args.comparison:
 
     start_time = time.time()
     result_tpe = nirs4all.run(
+        engine="legacy",
         pipeline=[
             StandardNormalVariate(),
             MinMaxScaler(),
@@ -183,6 +185,7 @@ print("Running Multi-Phase Optimization (8 binary + 5 TPE = 13 trials)...")
 print("-" * 80)
 
 result_multiphase = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
         MinMaxScaler(),
