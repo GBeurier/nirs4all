@@ -94,12 +94,13 @@ def test_round_trip_bundle_export_load_predict(case: PipelineCase, tmp_path) -> 
         pipeline=case.pipeline,
         dataset=dataset,
         verbose=0,
+        engine="legacy",
     )
     bundle_path = tmp_path / f"{case.name}.n4a"
     _export_bundle_for_smoke(result, bundle_path)
     assert bundle_path.exists(), f"{case.name}: bundle was not exported"
 
-    preds = nirs4all.predict(str(bundle_path), dataset)
+    preds = nirs4all.predict(str(bundle_path), dataset, engine="legacy")
     assert preds is not None, f"{case.name}: predict returned None"
 
 
@@ -114,6 +115,7 @@ def test_explain_path(case: PipelineCase, tmp_path) -> None:
         pipeline=case.pipeline,
         dataset=dataset,
         verbose=0,
+        engine="legacy",
     )
     bundle_path = tmp_path / f"{case.name}.n4a"
     _export_bundle_for_smoke(result, bundle_path)
@@ -130,6 +132,7 @@ def test_retrain_path(case: PipelineCase, tmp_path) -> None:
         pipeline=case.pipeline,
         dataset=dataset,
         verbose=0,
+        engine="legacy",
     )
     bundle_path = tmp_path / f"{case.name}.n4a"
     _export_bundle_for_smoke(result, bundle_path)
@@ -148,5 +151,5 @@ def test_session_api(case: PipelineCase, tmp_path) -> None:
         pipeline=case.pipeline,
         name=case.name,
     ) as sess:
-        result = sess.run(dataset)
+        result = sess.run(dataset, engine="legacy")
         assert result is not None
