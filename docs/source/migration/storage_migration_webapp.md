@@ -26,9 +26,9 @@ nirs4all-tools workspace convert /data/workspace \
   --output /data/workspace-r2 --verify
 ```
 
-The Tools packages are candidate artifacts and are currently **unpublished**.
-Operators must install the candidate wheel supplied through the release process;
-the application must not assume a registry URL or automatically install Tools.
+`nirs4all-tools` `0.0.7` is published. Operators should install that exact
+version for this support contract; the application must not automatically
+install Tools or treat its component publication as V1 product promotion.
 
 The workspace commands use stable domain codes: `0` means a clean conversion,
 `10` means best-effort completion with unsupported content preserved opaque,

@@ -17,14 +17,13 @@ enable DuckDB workspace conversion or make migration implicit.
 
 ## Convert into a separate output
 
-The `nirs4all-tools` candidate package provides the installed console command;
-a source checkout is not required. Candidate packages are currently
-**unpublished**, so install the locally supplied candidate wheel rather than
-assuming a package registry version exists. Include the `duckdb` and `parquet`
-extras when converting a DuckDB workspace.
+The published `nirs4all-tools` `0.0.7` package provides the installed console
+command; a source checkout is not required. Include the `duckdb` and `parquet`
+extras when converting a DuckDB workspace. Publishing Tools does not promote
+the still-held nirs4all V1 product train.
 
 ```bash
-python -m pip install "./nirs4all_tools-<candidate>-py3-none-any.whl[duckdb,parquet]"
+python -m pip install "nirs4all-tools[duckdb,parquet]==0.0.7"
 
 nirs4all-tools workspace inspect /data/workspace
 nirs4all-tools workspace convert /data/workspace \
