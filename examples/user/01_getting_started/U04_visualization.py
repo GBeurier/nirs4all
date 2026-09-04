@@ -83,6 +83,7 @@ print("\n📋 Training pipeline with 5 models on 2 datasets...")
 
 # Train on multiple datasets for more visualization options
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline,
     dataset=['sample_data/regression', 'sample_data/regression_2'],
     name="VisualizationDemo",
