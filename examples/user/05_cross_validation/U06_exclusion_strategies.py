@@ -77,6 +77,7 @@ Simplest exclusion: one filter, one criterion.
 
 
 result_single = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -113,6 +114,7 @@ Use when you want to remove samples with ANY outlier characteristic.
 
 
 result_any = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -156,6 +158,7 @@ by MULTIPLE criteria (high confidence outliers).
 
 
 result_all = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -200,6 +203,7 @@ Compare Y-based (target outliers) vs X-based (spectral outliers):
 # X-based exclusion only
 
 result_y = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -215,6 +219,7 @@ result_y = nirs4all.run(
 )
 
 result_x = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -266,6 +271,7 @@ pipeline_combined = [
 ]
 
 result_combined = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_combined,
     dataset="sample_data/regression",
     name="CombinedTagExclude",
@@ -286,6 +292,7 @@ print("-" * 60)
 # No exclusion baseline
 
 result_none = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),

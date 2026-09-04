@@ -87,6 +87,7 @@ Train with nirs4all.run(), wrap with NIRSPipeline.from_result().
 
 # Train
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),

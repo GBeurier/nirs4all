@@ -142,6 +142,7 @@ The ``exclude`` keyword:
 
 
 result_filtered = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Show Y distribution before exclusion
         "chart_y",
@@ -264,6 +265,7 @@ pipeline_visual = [
 ]
 
 result_visual = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_visual,
     dataset="sample_data/regression",
     name="VisualFilter",
@@ -290,6 +292,7 @@ Compare model performance with and without filtering.
 # With exclusion
 
 result_no = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
         KFold(n_splits=3),
@@ -301,6 +304,7 @@ result_no = nirs4all.run(
 )
 
 result_yes = nirs4all.run(
+    engine="legacy",
     pipeline=[
         {"exclude": YOutlierFilter(method="iqr", threshold=1.5)},
         StandardNormalVariate(),
