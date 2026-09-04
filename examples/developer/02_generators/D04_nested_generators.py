@@ -296,6 +296,7 @@ print("  Option 1: SNV only")
 print("  Option 2: SNV → FirstDerivative")
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline,
     dataset="sample_data/regression",
     name="NestedGenerator",

@@ -306,6 +306,7 @@ pipeline = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline,
     dataset="sample_data/regression",
     name="GeneratorDemo",

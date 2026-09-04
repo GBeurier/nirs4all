@@ -311,6 +311,7 @@ The generator API works directly with nirs4all.run():
 
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
