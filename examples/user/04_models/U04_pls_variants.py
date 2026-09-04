@@ -134,6 +134,7 @@ else:
     print("  (Skipping IKPLS models - ikpls package not installed)")
 
 result_ikpls = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_ikpls,
     dataset="sample_data/regression",
     name="IKPLS",
@@ -177,6 +178,7 @@ pipeline_opls = [
 ]
 
 result_opls = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_opls,
     dataset="sample_data/regression",
     name="OPLS",
@@ -215,6 +217,7 @@ pipeline_sparse = [
 ]
 
 result_sparse = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_sparse,
     dataset="sample_data/regression",
     name="SparsePLS",
@@ -243,6 +246,7 @@ Modes:
 
 
 result_ipls = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -284,6 +288,7 @@ Weighting schemes:
 
 
 result_robust = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -323,6 +328,7 @@ Kernels:
 
 
 result_kernel = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -369,6 +375,7 @@ pipeline_plsda = [
 ]
 
 result_plsda = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_plsda,
     dataset="sample_data/classification",
     name="PLSDA",
@@ -421,6 +428,7 @@ if IKPLS_AVAILABLE:
     pipeline_all.insert(6, {"model": IKPLS(n_components=10, backend='numpy'), "name": "IKPLS"})
 
 result_all = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_all,
     dataset="sample_data/regression",
     name="AllPLS",
