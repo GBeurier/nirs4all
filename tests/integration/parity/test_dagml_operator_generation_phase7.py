@@ -38,6 +38,7 @@ from nirs4all.operators.transforms import Detrend, FirstDerivative, Resampler
 from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.pipeline.dagml.rt import RtError
+from nirs4all.pipeline.engine import ExecutionProfileError
 
 from ._datasets import dataset_path
 
@@ -667,8 +668,8 @@ def test_runtime_dagml_unsupported_from_outcome_is_not_swallowed_by_inner_fallba
     past the inner branch — it must NOT be silently reclassified as a lowering gap and re-run on the dag-ml
     Python-expand path (which would report ``dagml_native=True`` and hide the runtime boundary). It is the
     OUTER ``run()`` boundary that raises a structured ``RtError`` by default (V1 strict fallback). With
-    explicit ``allow_fallback=True`` it redirects to LEGACY, so the run is LEGACY (``dagml_native=False``),
-    NOT a dag-ml Python-expand success.
+    ``allow_fallback=True`` is rejected by the engine selector; callers that
+    need compatibility must choose ``engine="legacy"`` independently.
 
     The probe distinguishes the two outcomes: the monkeypatched ``run_cv_refit_bundle`` returns the
     nonzero-unsupported outcome ONLY for the native-operator workdir (``native_op``); the Python-expand path
@@ -701,23 +702,14 @@ def test_runtime_dagml_unsupported_from_outcome_is_not_swallowed_by_inner_fallba
     assert payload["cause"] == "unsupported_shape"
     assert "simulated runtime unsupported shape" in payload["message"]
 
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
-        result = nirs4all.run(pipeline=pipeline, dataset=_dataset(), verbose=0, engine="dag-ml", allow_fallback=True)
-    # The runtime DagMlUnsupported propagated past the inner branch → the explicit OUTER fallback redirected
-    # to LEGACY (fallback warning fired), NOT a silent dag-ml Python-expand re-run (which would be native).
-    fell_back = any(_FALLBACK_FRAGMENT in str(w.message) for w in caught)
-    assert fell_back
-    assert not result._is_dagml_engine()  # noqa: SLF001
-    assert result.num_predictions >= 1
-    fallback_payload = result.to_rt_result().to_dict()
-    assert fallback_payload["manifest"]["engine"] == "legacy"
-    diagnostics = fallback_payload.get("diagnostics", [])
-    assert any(
-        diagnostic.get("cause") == "unsupported_shape"
-        and "simulated runtime unsupported shape" in diagnostic.get("message", "")
-        for diagnostic in diagnostics
-    )
+    with pytest.raises(ExecutionProfileError, match="engine='legacy' explicitly"):
+        nirs4all.run(
+            pipeline=pipeline,
+            dataset=_dataset(),
+            verbose=0,
+            engine="dag-ml",
+            allow_fallback=True,
+        )
 
 
 @pytest.mark.slow

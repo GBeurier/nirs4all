@@ -387,16 +387,15 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 })
 
 
-# EXPECTED-FALLBACK allowlist: the cases the dag-ml path LEGITIMATELY rejects
-# today, so the conformance harness explicitly opts into the ADR-24 legacy
-# compatibility lane with engine="dag-ml", allow_fallback=True.
-# A case that falls back but is NOT on this allowlist is a native-coverage REGRESSION
+# EXPECTED-REFUSAL allowlist: the cases the dag-ml path LEGITIMATELY rejects
+# today. The conformance harness never falls back to legacy.
+# A case that refuses but is NOT on this allowlist is a native-coverage REGRESSION
 # (a shape that used to run native now rejects) and MUST FAIL — never silently pass
 # as a boundary. When dag-ml gains native coverage for one of these, it leaves the
 # allowlist (the test then demands native parity). W21 pins these as explicit
 # coverage-boundary rejects in `run_backend._unsupported_fallback_reason`, so they
 # no longer fall through to the generic concrete route and crash at native setup.
-EXPECTED_FALLBACK: frozenset[str] = frozenset({
+EXPECTED_REFUSAL: frozenset[str] = frozenset({
     # Classification repetition vote is intentionally rejected until the native
     # final-test surface can score at the legacy sample-vote grain (backlog #21).
     "aggregation_classification_vote",
@@ -454,8 +453,8 @@ def _runnable_cases() -> list:
 
 
 @pytest.mark.parametrize("case", _runnable_cases())
-def test_native_fallback_boundary(case: PipelineCase) -> None:
-    """The dag-ml native/fallback status EXACTLY matches the EXPECTED_FALLBACK allowlist.
+def test_native_refusal_boundary(case: PipelineCase) -> None:
+    """The dag-ml native/refusal status EXACTLY matches the allowlist.
 
     NEVER xfailed (and NOT wrapped by any KNOWN_DIVERGENCES marker): this test
     runs for EVERY runnable case — INCLUDING the KNOWN_DIVERGENCES ones — so the
@@ -465,23 +464,23 @@ def test_native_fallback_boundary(case: PipelineCase) -> None:
     * a case that fell back but is NOT on the allowlist → native-coverage
       REGRESSION → FAIL;
     * a case that ran NATIVE but IS on the allowlist → STALE allowlist entry
-      (the shape gained native coverage) → FAIL (drop it from EXPECTED_FALLBACK).
+      (the shape gained native coverage) → FAIL (drop it from EXPECTED_REFUSAL).
 
     Runs only the dag-ml leg (no legacy run) via :func:`dagml_native_status`.
     """
     dataset = H.make_dataset(case)
     native = H.dagml_native_status(case, dataset)
-    on_allowlist = case.name in EXPECTED_FALLBACK
+    on_allowlist = case.name in EXPECTED_REFUSAL
 
     if native:
         assert not on_allowlist, (
-            f"{case.name}: ran NATIVE on dag-ml but is on the EXPECTED_FALLBACK allowlist — "
-            "STALE entry; the shape gained native coverage, remove it from EXPECTED_FALLBACK "
+            f"{case.name}: ran NATIVE on dag-ml but is on the EXPECTED_REFUSAL allowlist — "
+            "STALE entry; the shape gained native coverage, remove it from EXPECTED_REFUSAL "
             "(the parity test will then demand native parity)"
         )
     else:
         assert on_allowlist, (
-            f"{case.name}: dag-ml fell back to legacy but is NOT on the EXPECTED_FALLBACK allowlist "
+            f"{case.name}: dag-ml refused but is NOT on the EXPECTED_REFUSAL allowlist "
             "— native-coverage regression (a shape that used to run native now rejects), or a new "
             "fallback that must be triaged + allowlisted with a reason"
         )
@@ -492,7 +491,7 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
     """Run ``case`` on both engines and assert PARITY for its disposition.
 
     The native/fallback BOUNDARY is owned by the never-xfailed
-    :func:`test_native_fallback_boundary`; here a fallback case simply returns
+    :func:`test_native_refusal_boundary`; here a refused case simply returns
     (its boundary is asserted there), and a native case asserts full parity.
     Keeping the boundary out of this strict-xfail-marked body is what prevents a
     KNOWN_DIVERGENCES/legacy_bug marker from masking a boundary regression.
@@ -502,8 +501,8 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
     legacy, dagml, native = run["legacy"], run["dag-ml"], run["dagml_native"]
 
     if not native:
-        # FALLBACK: parity is N/A (legacy-vs-legacy). The boundary (allowlist
-        # membership) is enforced by test_native_fallback_boundary, NEVER here —
+        # REFUSAL: parity is N/A. The boundary (allowlist membership) is
+        # enforced by test_native_refusal_boundary, NEVER here —
         # so this test's strict-xfail marker cannot mask a boundary regression.
         return
 
