@@ -317,8 +317,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
     export_path = Path(tmpdir) / "synthetic_dataset"
 
     path = nirs4all.generate.to_folder(
-        engine="legacy",
         export_path,
+        engine="legacy",
         n_samples=200,
         train_ratio=0.8,
         complexity="simple",
@@ -346,8 +346,8 @@ with tempfile.TemporaryDirectory() as tmpdir:
     csv_path = Path(tmpdir) / "synthetic_data.csv"
 
     path = nirs4all.generate.to_csv(
-        engine="legacy",
         csv_path,
+        engine="legacy",
         n_samples=100,
         complexity="simple",
         random_state=42
@@ -379,8 +379,8 @@ assert isinstance(X_real, np.ndarray)
 
 # Now generate synthetic data that matches its characteristics
 dataset_fitted = nirs4all.generate.from_template(
-    engine="legacy",
     X_real,
+    engine="legacy",
     n_samples=500,
     random_state=42
 )
