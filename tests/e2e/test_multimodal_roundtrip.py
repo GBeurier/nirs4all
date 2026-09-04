@@ -377,6 +377,7 @@ def test_generate_oracle(artifacts_dir: Path) -> None:
     result = nirs4all.run(
         pipeline,
         _spectro_dataset(dataset),
+        engine="legacy",
         name=PIPELINE_NAME,
         verbose=0,
         save_charts=False,
