@@ -68,6 +68,18 @@ Architecture, internals, the controller pattern, and contribution guidelines.
 {bdg-danger}`Advanced` {bdg-info}`Contribute`
 :::
 
+:::{grid-item-card} Native V1 migration
+:link: migration/native_v1
+:link-type: doc
+:class-card: sd-bg-light
+
+Candidate architecture, workspace conversion, API/ABI/schema identities,
+support window, examples, and FAQ.
+
++++
+{bdg-warning}`Candidate` {bdg-info}`Migration`
+:::
+
 ::::
 
 ---
@@ -133,6 +145,7 @@ reference/index
 developer/index
 examples/index
 api/modules
+migration/native_v1
 ```
 
 ## What is Near-Infrared Spectroscopy (NIRS)?
