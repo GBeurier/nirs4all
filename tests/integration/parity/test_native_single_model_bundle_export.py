@@ -30,7 +30,7 @@ def _dagml_cli() -> Path:
 def test_native_single_model_bundle_export_never_refits_legacy(tmp_path, monkeypatch) -> None:
     cli = _dagml_cli()
     if not cli.exists():
-        pytest.skip(f"dag-ml-cli binary unavailable: {cli}")
+        pytest.skip(f"dag-ml-cli binary not built at {cli}")
     pipeline = [SNV(), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
         pipeline,
