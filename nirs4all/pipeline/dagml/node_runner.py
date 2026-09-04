@@ -733,9 +733,10 @@ def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None)
     """The meta-node's base specs in canonical producer order, selecting one delivery kind.
 
     dag-ml keys each base producer's Validation OOF under ``"{producer}.{port}"`` and its off-fold
-    (REFIT-test / PREDICT) block under ``"{producer}.{port}:refit"`` / ``":predict"`` (see runtime
-    ``collect_off_fold_prediction_input``). ``suffix=None`` selects the Validation OOF inputs (FIT_CV
-    training + the REFIT fit pool); ``suffix="refit"`` / ``"predict"`` selects the off-fold inputs.
+    (REFIT-test / PREDICT) block under ``"{producer}.{port}:refit"`` / ``":predict"`` and an
+    outer-fold evaluation block under ``"{producer}.{port}:outer"``. ``suffix=None`` selects only
+    unsuffixed Validation OOF inputs (FIT_CV inner training + the REFIT fit pool); a suffix selects
+    the corresponding delivery class.
 
     Ordering is by the **base OOF key** (the suffix stripped) so the meta-feature columns line up
     one-for-one with the FIT_CV matrix regardless of which delivery kind is selected — the column for
@@ -745,7 +746,11 @@ def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None)
     selected: dict[str, dict[str, Any]] = {}
     for key, spec in prediction_inputs.items():
         if tag is None:
-            if not (key.endswith(":refit") or key.endswith(":predict")):
+            if not (
+                key.endswith(":outer")
+                or key.endswith(":refit")
+                or key.endswith(":predict")
+            ):
                 selected[key] = spec
         elif key.endswith(tag):
             selected[key[: -len(tag)]] = spec
@@ -766,7 +771,10 @@ def run_meta_model_node(
     (:func:`_ordered_oof_specs`):
 
     * ``"{producer}.{port}"`` — the base producer's **Validation OOF** (the ``requires_oof`` edge
-      refuses any train block, so it is leakage-safe). This is what the meta-learner trains on.
+      refuses any train block, so it is leakage-safe). In FIT_CV this is inner-fold OOF over the
+      outer training universe, and is what the meta-learner trains on.
+    * ``"{producer}.{port}:outer"`` — the base producer's outer-fold validation block. It is used
+      only to evaluate the fitted meta-learner, never as a fit row.
     * ``"{producer}.{port}:refit"`` / ``":predict"`` — the base producer's **off-fold** block (REFIT
       held-out Test / PREDICT new-data Final, ``fold_id=None``), delivered ONLY in REFIT/PREDICT and
       used ONLY to PREDICT the holdout, never to train.
@@ -774,8 +782,8 @@ def run_meta_model_node(
     The meta-feature matrix has one column block per base producer in **deterministic producer order**
     (sorted base key), aligned by ``sample_id``, mirroring dag-ml's ``join_oof_features``.
 
-    * FIT_CV (fold K): build ``X_meta`` from the fold-K Validation OOF, fit the MetaModel on
-      ``(X_meta, y_train)``, predict those rows, emit the meta-model's own OOF
+    * FIT_CV (fold K): build ``X_meta`` from inner-fold OOF, fit the MetaModel on
+      ``(X_meta, y_train)``, then predict the separate ``:outer`` matrix and emit the meta-model's OOF
       (``partition=validation``, ``fold_id=foldK``) + targets. The cross-fold OOF average of the meta
       producer is ``cv_best_score``.
     * REFIT: fit + persist the meta-model on the FULL Validation OOF (all folds), then build the TEST
@@ -813,8 +821,8 @@ def run_meta_model_node(
         regression_targets = [_meta_target_block(sample_ids, [float(value) for value in true_y])]
         return _build_result(task, predictions, [], {}, regression_targets)
 
-    # FIT_CV + REFIT both fit on Validation OOF. The OOF specs (no `:refit`/`:predict` suffix) are the
-    # meta-learner's training features; in FIT_CV they are this fold's OOF, in REFIT the full OOF.
+    # FIT_CV + REFIT both fit on Validation OOF. The unsuffixed OOF specs are the
+    # meta-learner's training features; in FIT_CV they are inner OOF, in REFIT the full OOF.
     oof_specs = _ordered_oof_specs(prediction_inputs, suffix=None)
     if not oof_specs:
         raise ValueError(f"meta-model node {node_id!r} received no Validation OOF inputs to fit on")
@@ -829,10 +837,20 @@ def run_meta_model_node(
     fold_predictions: list[dict[str, Any]] = []
     fold_targets: list[dict[str, Any]] = []
     if phase == "FIT_CV":
-        # The meta-model's own OOF for this fold's samples (scored → cv_best_score).
-        pred = np.asarray(fit_estimator.predict(x_meta), dtype=float).reshape(len(sample_ids), -1)
-        fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), sample_ids, pred))
-        fold_targets.append(_meta_target_block(sample_ids, [float(value) for value in y_meta]))
+        # The outer rows must be distinct from the inner rows just used to fit.
+        # Refuse a direct/old lowering rather than silently emitting optimistic
+        # same-fold predictions.
+        outer_specs = _ordered_oof_specs(prediction_inputs, suffix="outer")
+        if not outer_specs:
+            raise ValueError(
+                f"meta-model node {node_id!r} FIT_CV received no `:outer` OOF evaluation inputs; "
+                "nested scheduler evidence is required"
+            )
+        outer_ids, x_outer = _meta_feature_matrix(outer_specs, node_id)
+        pred = np.asarray(fit_estimator.predict(x_outer), dtype=float).reshape(len(outer_ids), -1)
+        fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), outer_ids, pred))
+        outer_y = resolver.resolve_targets(outer_ids)["values"]
+        fold_targets.append(_meta_target_block(outer_ids, [float(value) for value in outer_y]))
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
