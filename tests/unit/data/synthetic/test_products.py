@@ -534,10 +534,6 @@ class TestConvenienceFunctions:
 class TestGenerateAPIIntegration:
     """Tests for integration with nirs4all.generate API."""
 
-    @pytest.fixture(autouse=True)
-    def _explicit_legacy_generate(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("N4A_ENGINE", "legacy")
-
     def test_generate_product(self):
         """Test nirs4all.generate.product() function."""
         import nirs4all
@@ -546,7 +542,8 @@ class TestGenerateAPIIntegration:
             "milk_variable_fat",
             n_samples=50,
             target="lipid",
-            random_state=42
+            random_state=42,
+            engine="legacy",
         )
 
         assert dataset is not None
@@ -561,7 +558,8 @@ class TestGenerateAPIIntegration:
             n_samples=100,
             target="protein",
             target_range=(0, 100),
-            random_state=42
+            random_state=42,
+            engine="legacy",
         )
 
         y = dataset.y({})
@@ -576,7 +574,8 @@ class TestGenerateAPIIntegration:
             ["milk_variable_fat", "meat_variable_fat"],
             n_samples=100,
             target="lipid",
-            random_state=42
+            random_state=42,
+            engine="legacy",
         )
 
         assert dataset is not None
