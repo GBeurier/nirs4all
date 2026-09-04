@@ -81,7 +81,7 @@ def example_basic_denoising():
         {"model": PLSRegression(n_components=5)},
     ]
 
-    result = nirs4all.run(pipeline=pipeline, dataset=(X, y, {"train": 75}), verbose=1)
+    result = nirs4all.run(engine="legacy", pipeline=pipeline, dataset=(X, y, {"train": 75}), verbose=1)
 
     print(f"\nBest RMSE: {result.best_rmse:.4f}")
     print(f"Best R²: {result.best_r2:.4f}")
@@ -116,7 +116,7 @@ def example_compare_methods():
             {"model": PLSRegression(n_components=5)},
         ]
 
-        result = nirs4all.run(pipeline=pipeline, dataset=(X, y, {"train": 75}), verbose=0)
+        result = nirs4all.run(engine="legacy", pipeline=pipeline, dataset=(X, y, {"train": 75}), verbose=0)
         results[f"{wavelet}_{threshold_mode}"] = result.best_rmse
 
     # Display comparison
@@ -152,7 +152,7 @@ def example_with_cartesian():
         {"model": PLSRegression(n_components=5)},
     ]
 
-    result = nirs4all.run(pipeline=pipeline, dataset=(X, y, {"train": 75}), verbose=1)
+    result = nirs4all.run(engine="legacy", pipeline=pipeline, dataset=(X, y, {"train": 75}), verbose=1)
 
     print(f"\nBest RMSE: {result.best_rmse:.4f}")
     print(f"Best R²: {result.best_r2:.4f}")

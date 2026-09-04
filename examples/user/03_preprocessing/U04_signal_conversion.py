@@ -265,6 +265,7 @@ Signal converters are sklearn-compatible and work in nirs4all pipelines.
 
 # Run with synthetic data
 result_r = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardScaler(),
         ShuffleSplit(n_splits=2, random_state=42),
@@ -276,6 +277,7 @@ result_r = nirs4all.run(
 )
 
 result_a = nirs4all.run(
+    engine="legacy",
     pipeline=[
         ToAbsorbance(source_type="reflectance"),
         StandardScaler(),
@@ -288,6 +290,7 @@ result_a = nirs4all.run(
 )
 
 result_km = nirs4all.run(
+    engine="legacy",
     pipeline=[
         KubelkaMunk(source_type="reflectance"),
         StandardScaler(),
