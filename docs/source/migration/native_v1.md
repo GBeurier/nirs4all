@@ -2,9 +2,10 @@
 
 :::{warning}
 This page documents the R4/V1 contract being qualified. R1 `0.13.0` is
-published; R2 `1.0.0rc1` and R3 `1.0.0rc2` are distinct unpublished
-candidates, and R4 `1.0.0` has not been created. Do not read this candidate
-guide as a stable-release announcement.
+published; R2 `1.0.0rc1` and R3 `1.0.0rc2` are distinct release candidates,
+and R4 `1.0.0` has not been created. This pre-receipt guide does not assert
+registry publication for either candidate and is not a stable-release
+announcement.
 :::
 
 ## Runtime boundary
