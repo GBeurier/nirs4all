@@ -356,6 +356,7 @@ pipeline = [
 print("Pipeline has: 2 preprocessing × 2 n_components = 4 variants")
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline,
     dataset="sample_data/regression",
     name="AdvancedGenerator",

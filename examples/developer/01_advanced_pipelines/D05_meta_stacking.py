@@ -106,6 +106,7 @@ pipeline_basic = [
 ]
 
 result_basic = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_basic,
     dataset="sample_data/regression",
     name="MetaModelBasic",
@@ -199,6 +200,7 @@ pipeline_cross = [
 ]
 
 result_cross = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_cross,
     dataset="sample_data/regression",
     name="CrossBranchStacking",
@@ -242,6 +244,7 @@ pipeline_coverage = [
 ]
 
 result_coverage = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_coverage,
     dataset="sample_data/regression",
     name="CoverageStrategy",
@@ -286,6 +289,7 @@ pipeline_3level = [
 ]
 
 result_3level = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_3level,
     dataset="sample_data/regression",
     name="ThreeLevelStacking",
@@ -405,6 +409,7 @@ pipeline_heterogeneous = [
 ]
 
 result_heterogeneous = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_heterogeneous,
     dataset="sample_data/regression",
     name="HeterogeneousStacking",
