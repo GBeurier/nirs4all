@@ -137,6 +137,7 @@ pipeline_stacking = [
 ]
 
 result_stacking = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_stacking,
     dataset="sample_data/regression",
     name="StackingReg",
@@ -168,6 +169,7 @@ voting_regressor = VotingRegressor(
 
 
 result_voting = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -219,6 +221,7 @@ Stacking for classification with Logistic Regression meta-learner.
 
 
     result_stacking_clf = nirs4all.run(
+        engine="legacy",
         pipeline=[
             StandardScaler(),
             StandardNormalVariate(),
@@ -270,6 +273,7 @@ VotingClassifier supports:
 
 
     result_voting_clf = nirs4all.run(
+        engine="legacy",
         pipeline=[
             StandardScaler(),
             StandardNormalVariate(),
@@ -324,6 +328,7 @@ Customize ensemble parameters:
 
 
     result_custom = nirs4all.run(
+        engine="legacy",
         pipeline=[
             MinMaxScaler(),
             StandardNormalVariate(),

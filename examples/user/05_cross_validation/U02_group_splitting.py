@@ -93,6 +93,7 @@ All samples from the same group stay together.
 
 
 result_groupkfold = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Visualize samples by Sample_ID before split
         "fold_Sample_ID",
@@ -131,6 +132,7 @@ StratifiedGroupKFold combines:
 
 
 result_strat_group = nirs4all.run(
+    engine="legacy",
     pipeline=[
         "fold_Sample_ID",
     
@@ -171,6 +173,7 @@ How it works:
 # KFold with repetition - automatic group awareness
 
 result_auto = nirs4all.run(
+    engine="legacy",
     pipeline=[
         "fold_Sample_ID",
     
@@ -204,6 +207,7 @@ With repetition defined, nirs4all automatically makes it group-aware!
 
 
 result_shuffle_group = nirs4all.run(
+    engine="legacy",
     pipeline=[
         ShuffleSplit(n_splits=5, test_size=0.25, random_state=42),
     
@@ -234,6 +238,7 @@ Use y_aggregation to specify how to aggregate targets within groups.
 
 
 result_strat_auto = nirs4all.run(
+    engine="legacy",
     pipeline=[
         {"split": StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
          "y_aggregation": "mode"},  # Use mode for classification targets
@@ -266,6 +271,7 @@ Without group splitting: often overly optimistic!
 # WITHOUT group splitting (leakage possible)
 
 result_no_group = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
         KFold(n_splits=3, shuffle=True, random_state=42),  # No group awareness
@@ -279,6 +285,7 @@ result_no_group = nirs4all.run(
 # WITH group splitting via repetition
 
 result_with_group = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
         KFold(n_splits=3, shuffle=True, random_state=42),

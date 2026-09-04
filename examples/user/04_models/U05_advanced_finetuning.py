@@ -85,6 +85,7 @@ exploits promising regions (TPE with prior knowledge).
 
 
 result_multiphase = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
     
@@ -133,6 +134,7 @@ for a different objective:
 
 
 result_r2 = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
     
@@ -176,6 +178,7 @@ then improves upon it.
 
 
 result_force = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
     
@@ -221,6 +224,7 @@ Dict-format parameters offer the most control:
 
 
 result_dict = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
     
@@ -280,6 +284,7 @@ useful for models that accept nested configuration dicts
 # GBR with nested subsample_config to demonstrate the pattern
 
 result_nested = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
     
@@ -348,6 +353,7 @@ except ImportError:
 if TORCH_AVAILABLE:
 
     result_torch = nirs4all.run(
+        engine="legacy",
         pipeline=[
             MinMaxScaler(),
     
@@ -448,6 +454,7 @@ pipeline_stacking = [
 ]
 
 result_stacking = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_stacking,
     dataset="sample_data/regression",
     name="StackingTuning",
@@ -471,6 +478,7 @@ Each model can use its own approach, sampler, and metric.
 
 
 result_complex = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Try multiple preprocessings
         MinMaxScaler(),

@@ -92,6 +92,7 @@ Each fold is used once as validation.
 
 
 result_kfold = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -122,6 +123,7 @@ Flexible: control test_size and number of splits independently.
 
 
 result_shuffle = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -152,6 +154,7 @@ More robust estimates, especially for small datasets.
 
 
 result_repeated = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -187,6 +190,7 @@ y_classif = np.array([0]*20 + [1]*20 + [2]*20)  # 3 classes, 20 each
 
 
 result_stratified = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -219,6 +223,7 @@ Flexible test_size while preserving class balance.
 # Reuse balanced synthetic data from Section 5
 
 result_strat_shuffle = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -251,6 +256,7 @@ Prevents data leakage from future to past.
 
 
 result_timeseries = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -289,6 +295,7 @@ y_small = np.random.randn(30)
 
 
 result_loo = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
     
@@ -323,6 +330,7 @@ cv_strategies = [
 print("\nComparing CV strategies on same data:")
 for name, cv in cv_strategies:
     result = nirs4all.run(
+        engine="legacy",
         pipeline=[
             MinMaxScaler(),
             StandardNormalVariate(),
