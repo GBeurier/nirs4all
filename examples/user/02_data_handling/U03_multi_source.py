@@ -40,6 +40,7 @@ from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
 from nirs4all.operators.transforms import Gaussian, Haar, SavitzkyGolay, StandardNormalVariate
 from nirs4all.visualization.predictions import PredictionAnalyzer
+from nirs4all.workspace import get_active_workspace
 
 # Parse command-line arguments
 parser = argparse.ArgumentParser(description='U03 Multi-Source Example')
@@ -73,6 +74,7 @@ print("-" * 60)
 
 # Multi-source data has multiple X files per partition
 dataset_config = DatasetConfigs('sample_data/multi')
+workspace_path = get_active_workspace()
 
 print("   Loading: sample_data/multi/")
 print("   This contains multiple X sources per sample")
@@ -137,7 +139,8 @@ result = nirs4all.run(
     verbose=1,
     save_artifacts=True,
     save_charts=args.plots or args.show,
-    plots_visible=args.show
+    plots_visible=args.show,
+    workspace_path=workspace_path,
 )
 
 predictions = result.predictions
@@ -205,7 +208,12 @@ print(f"Reference predictions (first 5): {reference_predictions}")
 # Predict using saved model ID
 from nirs4all.pipeline import PipelineRunner
 
-predictor = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
+predictor = PipelineRunner(
+    workspace_path=workspace_path,
+    save_artifacts=False,
+    save_charts=False,
+    verbose=0,
+)
 test_dataset = DatasetConfigs({
     'X_test': [
         'sample_data/multi/Xval_1.csv.gz',
