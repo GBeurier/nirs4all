@@ -1,4 +1,4 @@
-"""Strict dag-ml public-API roundtrip: run(results_path) → export() → predict() → retrain(mode="full").
+"""Explicit dag-ml training roundtrip with visible legacy-bundle replay compatibility.
 
 RC-D runtime gate evidence (2026-07-02). The V1 native persistence surface is ``run(results_path=...)``
 (NOT the legacy ``workspace_path`` workspace, which the strict dag-ml engine refuses by design). This file
@@ -9,7 +9,8 @@ pins the verbs the production flip needs on that supported native path, under th
 * export() builds the native ``.n4a`` from the captured refit artifact — including the ADDITIVE
   ``train_pipeline.json`` replayable training spec (fully-qualified classes + params) for a concrete
   (non-generator) pipeline;
-* predict() from that bundle returns finite values of the right shape;
+* predict(engine="legacy") from that non-portable bundle keeps the explicit
+  rollback lane usable while strict native replay requires Core Archive V2;
 * explain() keeps exercising the explicit Python SHAP rollback lane until an
   API-005 native/plugin contract is wired (never an implicit fallback);
 * retrain(mode="full") from that bundle RE-TRAINS the ORIGINAL pipeline structure on new data — the
@@ -57,7 +58,7 @@ def _pipeline() -> list:
 def test_native_results_run_export_predict_retrain_roundtrip(regression_xy, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     x, y = regression_xy
 
-    result = nirs4all.run(pipeline=_pipeline(), dataset=(x, y), verbose=0, results_path=tmp_path, random_state=0)
+    result = nirs4all.run(pipeline=_pipeline(), dataset=(x, y), engine="dag-ml", verbose=0, results_path=tmp_path, random_state=0)
     assert result.num_predictions > 0
 
     bundle_path = tmp_path / "model.n4a"
@@ -74,7 +75,7 @@ def test_native_results_run_export_predict_retrain_roundtrip(regression_xy, tmp_
     assert steps[2]["model"]["class"].endswith("PLSRegression")
     assert steps[2]["model"]["params"] == {"n_components": 3}
 
-    pred = nirs4all.predict(model=str(bundle_path), data=x[:10], verbose=0)
+    pred = nirs4all.predict(model=str(bundle_path), data=x[:10], engine="legacy", verbose=0)
     assert len(pred.y_pred) == 10
     assert np.all(np.isfinite(pred.y_pred))
 
@@ -156,7 +157,7 @@ def test_native_results_run_export_predict_retrain_roundtrip(regression_xy, tmp_
     retrained.export(retrained_bundle)
     loaded_retrained = BundleLoader(retrained_bundle)
     assert loaded_retrained.metadata.retrain_lineage == lineage
-    retrained_prediction = nirs4all.predict(retrained_bundle, x[:5], verbose=0)
+    retrained_prediction = nirs4all.predict(retrained_bundle, x[:5], engine="legacy", verbose=0)
     assert np.all(np.isfinite(retrained_prediction.y_pred))
 
     validation = retrained.validate(raise_on_failure=False)
@@ -173,14 +174,14 @@ def test_generator_pipeline_native_bundle_stays_predict_only(regression_xy, tmp_
         {"model": {"_or_": [PLSRegression(n_components=2), PLSRegression(n_components=4)]}},
     ]
 
-    result = nirs4all.run(pipeline=sweep, dataset=(x, y), verbose=0, results_path=tmp_path, random_state=0)
+    result = nirs4all.run(pipeline=sweep, dataset=(x, y), engine="dag-ml", verbose=0, results_path=tmp_path, random_state=0)
     bundle_path = tmp_path / "winner.n4a"
     result.export(bundle_path)
 
     with zipfile.ZipFile(bundle_path) as zf:
         assert "train_pipeline.json" not in zf.namelist()
 
-    pred = nirs4all.predict(model=str(bundle_path), data=x[:5], verbose=0)
+    pred = nirs4all.predict(model=str(bundle_path), data=x[:5], engine="legacy", verbose=0)
     assert np.all(np.isfinite(pred.y_pred))
 
     with pytest.raises(RtError) as caught:
