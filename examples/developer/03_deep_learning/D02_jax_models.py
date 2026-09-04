@@ -115,6 +115,7 @@ JaxMLPRegressor is a JIT-compiled MLP. Use it with the 'model' + 'train_params' 
 from nirs4all.operators.models.jax import JaxMLPRegressor
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -219,6 +220,7 @@ nicon architecture implemented in JAX:
 from nirs4all.operators.models.jax.nicon import nicon as nicon_jax
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -271,6 +273,7 @@ pipeline_compare = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_compare,
     dataset="sample_data/regression",
     name="JAXComparison",
