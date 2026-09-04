@@ -112,6 +112,7 @@ for complexity_level in _complexities:
     start = time.perf_counter()
     for _ in range(10):
         dataset = nirs4all.generate(
+            engine="legacy",
             n_samples=100,
             complexity=complexity_level,
             random_state=42
@@ -183,7 +184,7 @@ with tempfile.TemporaryDirectory() as tmpdir_str:
     tmpdir = Path(tmpdir_str)
 
     # Create base data
-    X, y = nirs4all.generate(n_samples=50, as_dataset=False, random_state=42)
+    X, y = nirs4all.generate(engine="legacy", n_samples=50, as_dataset=False, random_state=42)
     y = y[:, 0]  # Single target for loader compatibility
     wavelengths = np.linspace(1000, 2500, X.shape[1])
 
@@ -280,6 +281,7 @@ print("-" * 60)
 
 # Generate "real-like" data
 real_like = nirs4all.generate(
+    engine="legacy",
     n_samples=200,
     complexity="realistic",
     random_state=99
@@ -322,6 +324,7 @@ print(f"   {'-'*12} {'-'*10} {'-'*15}")
 for n_samples in [100, 1000, 5000, 10000]:
     start = time.perf_counter()
     X, y = nirs4all.generate(
+        engine="legacy",
         n_samples=n_samples,
         complexity="realistic",
         as_dataset=False,

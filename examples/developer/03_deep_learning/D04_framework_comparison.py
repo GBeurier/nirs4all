@@ -109,6 +109,7 @@ timings = {}
 print("\n📊 Running PLS baseline...")
 t0 = time.time()
 result_pls = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -137,6 +138,7 @@ if TF_AVAILABLE:
     print("Running TensorFlow nicon...")
     t0 = time.time()
     result_tf = nirs4all.run(
+        engine="legacy",
         pipeline=[
             MinMaxScaler(),
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -170,6 +172,7 @@ if TORCH_AVAILABLE:
     print("Running PyTorch nicon...")
     t0 = time.time()
     result_pt = nirs4all.run(
+        engine="legacy",
         pipeline=[
             MinMaxScaler(),
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -203,6 +206,7 @@ if JAX_AVAILABLE:
     print("Running JAX nicon...")
     t0 = time.time()
     result_jax = nirs4all.run(
+        engine="legacy",
         pipeline=[
             MinMaxScaler(),
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),

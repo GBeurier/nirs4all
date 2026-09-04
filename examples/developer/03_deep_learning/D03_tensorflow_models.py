@@ -110,6 +110,7 @@ nicon is a specialized CNN for NIRS data. Use it with 'model' + 'train_params':
 from nirs4all.operators.models.tensorflow.nicon import nicon
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -161,6 +162,7 @@ decon uses depthwise separable convolutions:
 from nirs4all.operators.models.tensorflow.nicon import decon
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -210,6 +212,7 @@ pipeline_compare = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_compare,
     dataset="sample_data/regression",
     name="PLSvsNicon",
