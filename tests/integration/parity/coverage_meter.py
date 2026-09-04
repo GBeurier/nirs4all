@@ -1,11 +1,11 @@
-"""PYREF native-vs-fallback coverage meter (B-010 / DML-003).
+"""PYREF native-vs-refusal coverage meter (B-010 / DML-003).
 
 Classifies every registered :class:`PipelineCase` into exactly one disposition
 bucket and rolls the partition up into the ``coverage_meter`` summary that
 ``docs/compatibility.json`` publishes. That summary is the **LOCK-DROP D1
-instrument**: the cutover to ``DEFAULT_ENGINE="dag-ml"`` requires
-``coverage_meter.fallback == 0`` (every shape the dag-ml path rejects today has
-gained native coverage). Each PR therefore shows the fallback count moving.
+instrument**: unsupported native shapes are explicit refusals and can never be
+silently re-executed by the legacy engine. Each PR therefore shows the refusal
+count moving toward zero.
 
 Disposition buckets (the per-case partition — every case lands in exactly one):
 
@@ -16,28 +16,25 @@ Disposition buckets (the per-case partition — every case lands in exactly one)
 * ``python_pre_materialized`` — a rep-fusion / augmentation shape the host
   reshapes / materializes in Python before the native CV/scoring phases (A3
   coverage matrix).
-* ``expected_fallback`` — on the :data:`EXPECTED_FALLBACK` allowlist: the dag-ml
-  path legitimately rejects the shape today and re-runs legacy (owner L5).
-* ``unexpected`` — observed to fall back but NOT on the allowlist: a
+* ``expected_refusal`` — on the :data:`EXPECTED_REFUSAL` allowlist: the dag-ml
+  path legitimately rejects the shape today without running legacy (owner L5).
+* ``unexpected_refusal`` — observed to refuse but NOT on the allowlist: a
   native-coverage REGRESSION. Always empty in this STATIC meter (see below).
 * ``xfail`` — a strict-xfail: either a ``KNOWN_DIVERGENCES`` cross-engine
   divergence (runs native, diverges) or a registry ``legacy_bug`` case (no
   legacy oracle, non-runnable).
 * ``skip`` — a registry ``fixture`` / ``unknown_semantics`` skip (non-runnable).
 
-The roll-up ``legacy_fallback = expected_fallback + unexpected`` is reported
-alongside the leaves (it is a sum, not a leaf).
-
 STATIC vs DYNAMIC
 -----------------
 This meter is **static**: it classifies from the declared parity structures (the
-case registry + the :data:`EXPECTED_FALLBACK` allowlist + ``KNOWN_DIVERGENCES``
+case registry + the :data:`EXPECTED_REFUSAL` allowlist + ``KNOWN_DIVERGENCES``
 + the registry skip kinds) WITHOUT running either engine. The DYNAMIC truth —
-that no runnable case actually falls back OFF the allowlist — is enforced
-per-case by ``test_conformance_dual_engine.py::test_native_fallback_boundary``,
+that no runnable case refuses OFF the allowlist — is enforced
+per-case by ``test_conformance_dual_engine.py::test_native_refusal_boundary``,
 which runs the real dag-ml leg. The static meter trusts that guard, so
-``unexpected`` is 0 here. A caller that already has dynamic observations (e.g.
-the boundary test) may pass ``observed_fallback=`` to compute ``unexpected``
+``unexpected_refusal`` is 0 here. A caller that already has dynamic observations
+(e.g. the boundary test) may pass ``observed_refusal=`` to compute it
 without this module running anything itself.
 
 CLI::
@@ -72,7 +69,7 @@ from . import (  # noqa: F401
 )
 from ._registry import CANONICAL_KEYWORDS, PipelineCase, all_cases
 from .test_conformance_dual_engine import (
-    EXPECTED_FALLBACK,
+    EXPECTED_REFUSAL,
     KNOWN_DIVERGENCES,
     NUM_PREDICTIONS_DIVERGENCE,
     UNSEEDED_NONDETERMINISTIC_CASES,
@@ -87,8 +84,8 @@ COMPATIBILITY_JSON = REPO_ROOT / "docs" / "compatibility.json"
 NATIVE = "native"
 PYTHON_EXPANDED = "python_expanded"
 PYTHON_PRE_MATERIALIZED = "python_pre_materialized"
-EXPECTED_FALLBACK_BUCKET = "expected_fallback"
-UNEXPECTED = "unexpected"
+EXPECTED_REFUSAL_BUCKET = "expected_refusal"
+UNEXPECTED_REFUSAL = "unexpected_refusal"
 XFAIL = "xfail"
 SKIP = "skip"
 
@@ -97,14 +94,11 @@ LEAF_BUCKETS: tuple[str, ...] = (
     NATIVE,
     PYTHON_EXPANDED,
     PYTHON_PRE_MATERIALIZED,
-    EXPECTED_FALLBACK_BUCKET,
-    UNEXPECTED,
+    EXPECTED_REFUSAL_BUCKET,
+    UNEXPECTED_REFUSAL,
     XFAIL,
     SKIP,
 )
-
-#: Roll-up name (a sum of two leaves, reported but NOT a partition member).
-LEGACY_FALLBACK = "legacy_fallback"
 
 #: The exact key set of ``compatibility.json["coverage_meter"]`` — the summary
 #: face the ledger publishes and ``_authority.py`` validates.
@@ -112,13 +106,13 @@ LEDGER_SUMMARY_KEYS: tuple[str, ...] = (
     "registered",
     "non_runnable",
     "runnable",
-    "fallback",
+    "refusal",
     "native",
     "xfail_strict",
     "skip",
     "num_predictions_divergence",
     "run_only_nondeterministic",
-    "expected_fallback_target",
+    "expected_refusal_target",
 )
 
 # Keywords that mark a runnable native-route case as Python-pre-materialized:
@@ -167,7 +161,7 @@ class CaseClassification:
 
 
 def _native_route(case: PipelineCase) -> tuple[str, str]:
-    """Sub-classify a runnable, non-divergent, non-fallback case by its shape.
+    """Sub-classify a runnable, non-divergent, non-refusal case by its shape.
 
     Pre-materialization wins over expansion: a generator over an augmented
     dataset is still gated on the host materialization.
@@ -182,14 +176,14 @@ def _native_route(case: PipelineCase) -> tuple[str, str]:
     return NATIVE, "concrete native dag-ml route"
 
 
-def classify_case(case: PipelineCase, observed_fallback: frozenset[str] | None = None) -> CaseClassification:
+def classify_case(case: PipelineCase, observed_refusal: frozenset[str] | None = None) -> CaseClassification:
     """Assign ``case`` to exactly one leaf bucket (precedence-ordered).
 
     Precedence: registry skip (legacy_bug → xfail, else skip) ▸ KNOWN_DIVERGENCES
-    (xfail) ▸ observed off-allowlist fallback (unexpected) ▸ EXPECTED_FALLBACK
-    (expected_fallback) ▸ native route. ``observed_fallback`` is only consulted
-    for the ``unexpected`` decision; when ``None`` (static mode) the meter trusts
-    the allowlist and ``unexpected`` stays empty.
+    (xfail) ▸ observed off-allowlist refusal (unexpected_refusal) ▸
+    EXPECTED_REFUSAL (expected_refusal) ▸ native route. ``observed_refusal``
+    is only consulted for the unexpected decision; when ``None`` (static mode)
+    the meter trusts the allowlist and ``unexpected_refusal`` stays empty.
     """
     name = case.name
     if case.skip_reason:
@@ -198,10 +192,10 @@ def classify_case(case: PipelineCase, observed_fallback: frozenset[str] | None =
         return CaseClassification(name, SKIP, case.skip_kind or "unknown", False, f"registry {case.skip_kind or 'unknown'} skip: {case.skip_reason}")
     if name in KNOWN_DIVERGENCES:
         return CaseClassification(name, XFAIL, "known_divergence", True, f"KNOWN_DIVERGENCES strict-xfail: {KNOWN_DIVERGENCES[name]}")
-    if observed_fallback is not None and name in observed_fallback and name not in EXPECTED_FALLBACK:
-        return CaseClassification(name, UNEXPECTED, "", True, "dag-ml fell back OFF the EXPECTED_FALLBACK allowlist — native-coverage regression")
-    if name in EXPECTED_FALLBACK:
-        return CaseClassification(name, EXPECTED_FALLBACK_BUCKET, "", True, "EXPECTED_FALLBACK allowlist (explicit dag-ml coverage boundary)")
+    if observed_refusal is not None and name in observed_refusal and name not in EXPECTED_REFUSAL:
+        return CaseClassification(name, UNEXPECTED_REFUSAL, "", True, "dag-ml refused OFF the EXPECTED_REFUSAL allowlist — native-coverage regression")
+    if name in EXPECTED_REFUSAL:
+        return CaseClassification(name, EXPECTED_REFUSAL_BUCKET, "", True, "EXPECTED_REFUSAL allowlist (explicit fail-closed dag-ml boundary)")
     bucket, basis = _native_route(case)
     return CaseClassification(name, bucket, "", True, basis)
 
@@ -222,10 +216,8 @@ class CoverageReport:
         return counts
 
     def bucket_counts(self) -> dict[str, int]:
-        """Leaf counts plus the ``legacy_fallback`` roll-up."""
-        counts = self.leaf_counts()
-        counts[LEGACY_FALLBACK] = counts[EXPECTED_FALLBACK_BUCKET] + counts[UNEXPECTED]
-        return counts
+        """Return the mutually exclusive disposition counts."""
+        return self.leaf_counts()
 
     def summary(self) -> dict[str, int]:
         """The ``coverage_meter`` ledger face (exactly :data:`LEDGER_SUMMARY_KEYS`)."""
@@ -233,18 +225,18 @@ class CoverageReport:
         registered = len(self.cases)
         non_runnable = sum(1 for c in self.cases if not c.runnable)
         runnable = registered - non_runnable
-        fallback = leaves[EXPECTED_FALLBACK_BUCKET] + leaves[UNEXPECTED]
+        refusal = leaves[EXPECTED_REFUSAL_BUCKET] + leaves[UNEXPECTED_REFUSAL]
         return {
             "registered": registered,
             "non_runnable": non_runnable,
             "runnable": runnable,
-            "fallback": fallback,
-            "native": runnable - fallback,
+            "refusal": refusal,
+            "native": runnable - refusal,
             "xfail_strict": leaves[XFAIL],
             "skip": leaves[SKIP],
             "num_predictions_divergence": len(NUM_PREDICTIONS_DIVERGENCE),
             "run_only_nondeterministic": len(UNSEEDED_NONDETERMINISTIC_CASES),
-            "expected_fallback_target": 0,
+            "expected_refusal_target": 0,
         }
 
     def to_inventory(self) -> dict[str, object]:
@@ -260,22 +252,22 @@ class CoverageReport:
         summary = self.summary()
         buckets = self.bucket_counts()
         lines = [
-            "# PYREF native-vs-fallback coverage meter",
+            "# PYREF native-vs-refusal coverage meter",
             "",
-            "LOCK-DROP D1 instrument (B-010 / DML-003): cutover requires `fallback == 0`.",
+            "Fail-closed boundary instrument (B-010 / DML-003): unsupported shapes refuse without legacy execution.",
             "",
             "| metric | count |",
             "|---|---|",
             f"| registered | {summary['registered']} |",
             f"| runnable | {summary['runnable']} |",
             f"| native (reach) | {summary['native']} |",
-            f"| fallback | {summary['fallback']} |",
-            f"| — expected_fallback | {buckets[EXPECTED_FALLBACK_BUCKET]} |",
-            f"| — unexpected | {buckets[UNEXPECTED]} |",
+            f"| refusal | {summary['refusal']} |",
+            f"| — expected_refusal | {buckets[EXPECTED_REFUSAL_BUCKET]} |",
+            f"| — unexpected_refusal | {buckets[UNEXPECTED_REFUSAL]} |",
             f"| xfail_strict | {summary['xfail_strict']} |",
             f"| skip | {summary['skip']} |",
             f"| run_only_nondeterministic | {summary['run_only_nondeterministic']} |",
-            f"| expected_fallback_target | {summary['expected_fallback_target']} |",
+            f"| expected_refusal_target | {summary['expected_refusal_target']} |",
             "",
             "## Disposition partition (one bucket per case)",
             "",
@@ -283,20 +275,20 @@ class CoverageReport:
             "|---|---|",
         ]
         lines.extend(f"| {bucket} | {buckets[bucket]} |" for bucket in LEAF_BUCKETS)
-        fallback_names = self.names_in(EXPECTED_FALLBACK_BUCKET)
-        if fallback_names:
-            lines.extend(["", "## expected_fallback (shrink target, owner L5)", ""])
-            lines.extend(f"- {name}" for name in fallback_names)
-        unexpected_names = self.names_in(UNEXPECTED)
+        refusal_names = self.names_in(EXPECTED_REFUSAL_BUCKET)
+        if refusal_names:
+            lines.extend(["", "## expected_refusal (shrink target, owner L5)", ""])
+            lines.extend(f"- {name}" for name in refusal_names)
+        unexpected_names = self.names_in(UNEXPECTED_REFUSAL)
         if unexpected_names:
-            lines.extend(["", "## unexpected fallback (native-coverage REGRESSION)", ""])
+            lines.extend(["", "## unexpected refusal (native-coverage REGRESSION)", ""])
             lines.extend(f"- {name}" for name in unexpected_names)
         return "\n".join(lines) + "\n"
 
 
-def build_report(observed_fallback: Iterable[str] | None = None) -> CoverageReport:
+def build_report(observed_refusal: Iterable[str] | None = None) -> CoverageReport:
     """Classify the whole registry into a :class:`CoverageReport`."""
-    observed = frozenset(observed_fallback) if observed_fallback is not None else None
+    observed = frozenset(observed_refusal) if observed_refusal is not None else None
     return CoverageReport(tuple(classify_case(case, observed) for case in all_cases()))
 
 
@@ -307,7 +299,7 @@ def load_ledger_coverage_meter(path: Path = COMPATIBILITY_JSON) -> dict[str, int
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="PYREF native-vs-fallback coverage meter (B-010 / DML-003).")
+    parser = argparse.ArgumentParser(description="PYREF native-vs-refusal coverage meter (B-010 / DML-003).")
     parser.add_argument("--json", type=Path, default=None, help="write the full inventory JSON to this path")
     parser.add_argument("--md", type=Path, default=None, help="write the markdown summary to this path")
     parser.add_argument("--check", action="store_true", help="compare the meter summary to the ledger; exit 1 on drift")
@@ -329,7 +321,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"  ledger = {published}")
             exit_code = 1
         else:
-            print(f"coverage_meter OK (fallback={live['fallback']}, target={live['expected_fallback_target']})")
+            print(f"coverage_meter OK (refusal={live['refusal']}, target={live['expected_refusal_target']})")
 
     if args.json is None and args.md is None and not args.check:
         print(report.to_markdown())

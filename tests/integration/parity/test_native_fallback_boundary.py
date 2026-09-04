@@ -1,14 +1,14 @@
-"""STATIC native-vs-fallback boundary + coverage-meter gate (B-010 / DML-003).
+"""STATIC native-vs-refusal boundary + coverage-meter gate (B-010 / DML-003).
 
-The companion to ``test_conformance_dual_engine.py::test_native_fallback_boundary``
+The companion to ``test_conformance_dual_engine.py::test_native_refusal_boundary``
 (the DYNAMIC per-case guard that runs the real dag-ml leg). This file gates the
 STATIC meter in :mod:`coverage_meter`:
 
 * the meter's summary IS ``docs/compatibility.json["coverage_meter"]`` (so the
   published ledger face can never drift from the live registry/allowlist);
 * every registered case partitions into exactly one disposition bucket;
-* the ``expected_fallback`` / ``unexpected`` boundary matches the live
-  :data:`EXPECTED_FALLBACK` allowlist (the LOCK-DROP D1 instrument);
+* the ``expected_refusal`` / ``unexpected_refusal`` boundary matches the live
+  :data:`EXPECTED_REFUSAL` fail-closed allowlist;
 * the partition leaves roll up to the summary identities.
 
 Fast and engine-free (no ``slow`` marker): it reads declared structures only.
@@ -23,7 +23,7 @@ import pytest
 from . import coverage_meter as M
 from ._registry import CANONICAL_KEYWORDS, all_cases
 from .test_conformance_dual_engine import (
-    EXPECTED_FALLBACK,
+    EXPECTED_REFUSAL,
     KNOWN_DIVERGENCES,
     NUM_PREDICTIONS_DIVERGENCE,
     UNSEEDED_NONDETERMINISTIC_CASES,
@@ -46,13 +46,13 @@ def _authority_style_summary() -> dict[str, int]:
         "registered": len(cases),
         "non_runnable": non_runnable,
         "runnable": len(cases) - non_runnable,
-        "fallback": len(EXPECTED_FALLBACK),
-        "native": len(cases) - non_runnable - len(EXPECTED_FALLBACK),
+        "refusal": len(EXPECTED_REFUSAL),
+        "native": len(cases) - non_runnable - len(EXPECTED_REFUSAL),
         "xfail_strict": len(KNOWN_DIVERGENCES) + legacy_bug,
         "skip": skip,
         "num_predictions_divergence": len(NUM_PREDICTIONS_DIVERGENCE),
         "run_only_nondeterministic": len(UNSEEDED_NONDETERMINISTIC_CASES),
-        "expected_fallback_target": 0,
+        "expected_refusal_target": 0,
     }
 
 
@@ -82,14 +82,14 @@ def test_every_case_partitions_into_one_leaf_bucket() -> None:
     assert len(names) == len(set(names)) == len(all_cases())
 
 
-def test_expected_fallback_boundary_matches_allowlist_and_ledger() -> None:
-    """The meter's fallback boundary == the live allowlist == the ledger rows; unexpected is empty (static)."""
+def test_expected_refusal_boundary_matches_allowlist_and_ledger() -> None:
+    """The refusal boundary equals the live allowlist and ledger; unexpected is empty statically."""
     report = M.build_report()
-    assert set(report.names_in(M.EXPECTED_FALLBACK_BUCKET)) == set(EXPECTED_FALLBACK)
-    assert report.names_in(M.UNEXPECTED) == []
+    assert set(report.names_in(M.EXPECTED_REFUSAL_BUCKET)) == set(EXPECTED_REFUSAL)
+    assert report.names_in(M.UNEXPECTED_REFUSAL) == []
 
-    ledger_rows = {row["case"] for row in json.loads(M.COMPATIBILITY_JSON.read_text())["expected_fallback"]}
-    assert ledger_rows == set(EXPECTED_FALLBACK)
+    ledger_rows = {row["case"] for row in json.loads(M.COMPATIBILITY_JSON.read_text())["expected_refusal"]}
+    assert ledger_rows == set(EXPECTED_REFUSAL)
 
 
 def test_partition_leaves_roll_up_to_summary() -> None:
@@ -103,17 +103,12 @@ def test_partition_leaves_roll_up_to_summary() -> None:
 
     # native REACH (summary["native"]) = native-family + the native-but-divergent xfails.
     assert summary["native"] == native_family + xfail_divergence
-    assert summary["fallback"] == leaves[M.EXPECTED_FALLBACK_BUCKET] + leaves[M.UNEXPECTED]
+    assert summary["refusal"] == leaves[M.EXPECTED_REFUSAL_BUCKET] + leaves[M.UNEXPECTED_REFUSAL]
     assert summary["xfail_strict"] == leaves[M.XFAIL] == xfail_divergence + xfail_legacy_bug
     assert summary["skip"] == leaves[M.SKIP]
     assert summary["non_runnable"] == leaves[M.SKIP] + xfail_legacy_bug
-    assert summary["runnable"] == native_family + xfail_divergence + summary["fallback"]
+    assert summary["runnable"] == native_family + xfail_divergence + summary["refusal"]
     assert summary["runnable"] + summary["non_runnable"] == summary["registered"]
-
-
-def test_legacy_fallback_is_expected_plus_unexpected() -> None:
-    buckets = M.build_report().bucket_counts()
-    assert buckets[M.LEGACY_FALLBACK] == buckets[M.EXPECTED_FALLBACK_BUCKET] + buckets[M.UNEXPECTED]
 
 
 def test_route_keyword_sets_are_canonical_dsl() -> None:
@@ -123,28 +118,27 @@ def test_route_keyword_sets_are_canonical_dsl() -> None:
     assert not (M._PRE_MATERIALIZED_KEYWORDS & M._GENERATOR_KEYWORDS)
 
 
-def test_unexpected_bucket_flags_off_allowlist_fallback() -> None:
-    """A dynamic observation of an off-allowlist fallback surfaces as a regression."""
+def test_unexpected_bucket_flags_off_allowlist_refusal() -> None:
+    """A dynamic observation of an off-allowlist refusal surfaces as a regression."""
     report = M.build_report()
     victim = next(c.name for c in report.cases if c.bucket == M.NATIVE)
 
-    observed = M.build_report(observed_fallback={victim})
+    observed = M.build_report(observed_refusal={victim})
     classified = {c.name: c.bucket for c in observed.cases}
-    assert classified[victim] == M.UNEXPECTED
-    assert observed.names_in(M.UNEXPECTED) == [victim]
-    # The regression inflates fallback but never moves the gate target off 0.
-    assert observed.summary()["fallback"] == report.summary()["fallback"] + 1
-    assert observed.summary()["expected_fallback_target"] == 0
+    assert classified[victim] == M.UNEXPECTED_REFUSAL
+    assert observed.names_in(M.UNEXPECTED_REFUSAL) == [victim]
+    assert observed.summary()["refusal"] == report.summary()["refusal"] + 1
+    assert observed.summary()["expected_refusal_target"] == 0
 
 
-def test_observed_fallback_on_allowlist_stays_expected() -> None:
+def test_observed_refusal_on_allowlist_stays_expected() -> None:
     """Allowlisted observations stay expected; an empty allowlist is a passing closed-boundary assertion."""
-    report = M.build_report(observed_fallback=EXPECTED_FALLBACK)
+    report = M.build_report(observed_refusal=EXPECTED_REFUSAL)
     classified = {c.name: c.bucket for c in report.cases}
-    for allowlisted in EXPECTED_FALLBACK:
-        assert classified[allowlisted] == M.EXPECTED_FALLBACK_BUCKET
-    assert set(report.names_in(M.EXPECTED_FALLBACK_BUCKET)) == set(EXPECTED_FALLBACK)
-    assert report.names_in(M.UNEXPECTED) == []
+    for allowlisted in EXPECTED_REFUSAL:
+        assert classified[allowlisted] == M.EXPECTED_REFUSAL_BUCKET
+    assert set(report.names_in(M.EXPECTED_REFUSAL_BUCKET)) == set(EXPECTED_REFUSAL)
+    assert report.names_in(M.UNEXPECTED_REFUSAL) == []
 
 
 def test_known_divergence_outranks_native_route() -> None:
@@ -163,11 +157,11 @@ def test_inventory_is_json_serializable_and_complete() -> None:
     assert inventory["schema"] == "nirs4all.pyref.coverage_meter.v1"
     assert inventory["summary"] == report.summary()
     assert len(inventory["cases"]) == len(all_cases())
-    assert set(inventory["buckets"]) == set(M.LEAF_BUCKETS) | {M.LEGACY_FALLBACK}
+    assert set(inventory["buckets"]) == set(M.LEAF_BUCKETS)
 
     markdown = report.to_markdown()
     assert "coverage meter" in markdown
-    assert "fallback" in markdown
+    assert "refusal" in markdown
 
 
 def test_cli_check_reports_zero_drift_and_emits_artifacts(tmp_path) -> None:
@@ -178,4 +172,4 @@ def test_cli_check_reports_zero_drift_and_emits_artifacts(tmp_path) -> None:
     assert M.main(["--json", str(json_path), "--md", str(md_path)]) == 0
     loaded = json.loads(json_path.read_text())
     assert loaded["summary"] == M.build_report().summary()
-    assert md_path.read_text().startswith("# PYREF native-vs-fallback coverage meter")
+    assert md_path.read_text().startswith("# PYREF native-vs-refusal coverage meter")
