@@ -84,6 +84,33 @@ class TestGenerateFunction:
         with pytest.raises(NotImplementedError, match="nirs4all.generate"):
             call(nirs4all.generate, tmp_path)
 
+    @pytest.mark.parametrize(
+        "call",
+        [
+            lambda api, path: api.regression(n_samples=1, engine="native"),
+            lambda api, path: api.classification(n_samples=1, engine="native"),
+            lambda api, path: api.builder(n_samples=1, engine="native"),
+            lambda api, path: api.multi_source(n_samples=1, engine="native"),
+            lambda api, path: api.to_folder(path / "dataset", n_samples=1, engine="native"),
+            lambda api, path: api.to_csv(path / "dataset.csv", n_samples=1, engine="native"),
+            lambda api, path: api.product("dairy", n_samples=1, engine="native"),
+            lambda api, path: api.category(["dairy"], n_samples=1, engine="native"),
+            lambda api, path: api.from_template(np.zeros((1, 1)), n_samples=1, engine="native"),
+        ],
+    )
+    def test_generate_convenience_paths_propagate_explicit_engine(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        tmp_path,
+        call,
+    ) -> None:
+        """An explicit helper engine selection overrides the environment."""
+        import nirs4all
+
+        monkeypatch.setenv("N4A_ENGINE", "legacy")
+        with pytest.raises(RtError, match="engine='native'"):
+            call(nirs4all.generate, tmp_path)
+
     def test_generate_as_arrays(self):
         """Test generation returning arrays."""
         import nirs4all
