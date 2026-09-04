@@ -105,6 +105,7 @@ pipeline_basic = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_basic,
     dataset="sample_data/regression",
     name="BasicMulti",
@@ -150,6 +151,7 @@ pipeline_or = [
 ]
 
 result_or = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_or,
     dataset="sample_data/regression",
     name="OrSyntax",
@@ -206,6 +208,7 @@ pipeline_comprehensive = [
 ]
 
 result_comp = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_comprehensive,
     dataset="sample_data/regression",
     name="Comprehensive",
@@ -240,6 +243,7 @@ from nirs4all.operators.transforms import (
 )
 
 result_combined = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Explore preprocessing options
         {"feature_augmentation": [
@@ -303,6 +307,7 @@ pipeline_classif = [
 ]
 
 result_classif = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_classif,
     dataset="sample_data/classification",
     name="ClassifMulti",

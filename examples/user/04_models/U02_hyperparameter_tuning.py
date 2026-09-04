@@ -102,6 +102,7 @@ Good for small parameter spaces.
 
 
 result_grid = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
         MinMaxScaler(),
@@ -146,6 +147,7 @@ More efficient than grid search for larger spaces.
 
 
 result_tpe = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
         FirstDerivative(),
@@ -193,6 +195,7 @@ exploration probability:
 from sklearn.linear_model import Ridge
 
 result_log = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
     
@@ -243,6 +246,7 @@ Seed ensures reproducible optimization results.
 
 
 result_pruning = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
     
@@ -292,6 +296,7 @@ accuracy (classification). Use 'metric' and 'direction' to customize:
 
 
 result_metric = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardNormalVariate(),
     
@@ -339,6 +344,7 @@ Different approaches for multi-preprocessing scenarios:
 # Generate preprocessing variants
 
 result_grouped = nirs4all.run(
+    engine="legacy",
     pipeline=[
         {"feature_augmentation": [
             StandardNormalVariate,
@@ -384,6 +390,7 @@ to find the best preprocessing + hyperparameters together.
 
 
 result_combined = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
     

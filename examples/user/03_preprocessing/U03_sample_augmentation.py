@@ -115,6 +115,7 @@ Each original sample generates 'count' augmented samples.
 
 
 result_basic = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Show original data
         "fold_chart",
@@ -161,6 +162,7 @@ Use special chart keywords to visualize augmentation:
 
 
 result_visual = nirs4all.run(
+    engine="legacy",
     pipeline=[
         {"sample_augmentation": {
             "transformers": [
@@ -208,6 +210,7 @@ split_step = {"split": GroupKFold(n_splits=2), "group": "Sample_ID"}
 
 
 result_balanced = nirs4all.run(
+    engine="legacy",
     pipeline=[
         "fold_chart",
     
@@ -248,6 +251,7 @@ Control augmentation intensity with:
 # Option 1: Fixed target size
 
 result_fixed = nirs4all.run(
+    engine="legacy",
     pipeline=[
         {"sample_augmentation": {
             "transformers": [Rotate_Translate],
@@ -268,6 +272,7 @@ print(f"   target_size=30 → Result: Accuracy = {100*accuracy_fixed:.1f}%" if n
 # Option 2: Max factor
 
 result_maxfactor = nirs4all.run(
+    engine="legacy",
     pipeline=[
         {"sample_augmentation": {
             "transformers": [Rotate_Translate],
@@ -300,6 +305,7 @@ For regression, use bins to create pseudo-classes for balancing.
 
 
 result_reg_balanced = nirs4all.run(
+    engine="legacy",
     pipeline=[
         "fold_chart",
     
@@ -337,6 +343,7 @@ print("-" * 60)
 
 
 result_comprehensive = nirs4all.run(
+    engine="legacy",
     pipeline=[
         {"sample_augmentation": {
             "transformers": [
