@@ -116,6 +116,7 @@ Use when: Completely new dataset with different distribution.
 
 # Retrain on same data (demonstration)
 result_full = nirs4all.retrain(
+    engine="legacy",
     source=result.best,
     data="sample_data/regression",
     mode='full',
@@ -144,6 +145,7 @@ Use when: New instrument, similar samples.
 """)
 
 result_transfer = nirs4all.retrain(
+    engine="legacy",
     source=result.best,
     data="sample_data/regression",
     mode='transfer',
@@ -174,6 +176,7 @@ For neural networks, uses lower learning rate.
 """)
 
 result_finetune = nirs4all.retrain(
+    engine="legacy",
     source=result.best,
     data="sample_data/regression",
     mode='finetune',
@@ -204,6 +207,7 @@ This is useful for sharing models between teams.
 
 # Retrain from the exported bundle
 result_from_bundle = nirs4all.retrain(
+    engine="legacy",
     source=str(export_path),
     data="sample_data/regression",
     mode='transfer',
@@ -269,6 +273,7 @@ Keeps preprocessing, uses different model.
 from sklearn.ensemble import RandomForestRegressor
 
 result_new_model = nirs4all.retrain(
+    engine="legacy",
     source=result.best,
     data="sample_data/regression",
     mode='transfer',

@@ -147,6 +147,7 @@ before passing data to the model.
 
 # Predict on new data (using same dataset for demo)
 predictions = session.predict(
+    engine="legacy",
     dataset="sample_data/regression"
 )
 
@@ -240,6 +241,7 @@ Retrain a session on new data:
 """)
 
 retrain_result = session.retrain(
+    engine="legacy",
     dataset="sample_data/regression",
     mode='transfer'
 )
