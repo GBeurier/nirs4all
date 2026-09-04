@@ -367,7 +367,7 @@ def test_dual_ledger_is_resolved_from_an_installed_wheel(tmp_path: Path) -> None
         text=True,
     )
     assert create_venv.returncode == 0, create_venv.stdout + create_venv.stderr
-    wheel_python = venv / "bin" / "python"
+    wheel_python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     install = subprocess.run(
         [str(wheel_python), "-m", "pip", "install", "--force-reinstall", "--no-deps", str(wheel)],
         check=False,
@@ -474,7 +474,10 @@ def test_dual_mismatch_removes_the_isolated_legacy_workspace(monkeypatch: pytest
             return str(transient)
 
         def __exit__(self, exc_type: object, exc: object, traceback: object) -> None:
+            from nirs4all.core.logging import get_config
+
             observed.extend(transient.rglob("*"))
+            assert get_config()._file_handler is None
             shutil.rmtree(transient)
 
     native = _Result(
