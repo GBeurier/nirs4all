@@ -20,7 +20,7 @@ from sklearn.model_selection import KFold
 
 from nirs4all.api.run import _dual_comparison_report, _resolve_dual_tolerances
 from nirs4all.pipeline.dagml.errors import DagMlUnsupported
-from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported
+from nirs4all.pipeline.engine import DualRunMismatchError, DualRunUnsupported, ExecutionProfileError
 
 try:
     importlib.import_module("dag_ml._dag_ml")
@@ -546,14 +546,14 @@ def test_dual_refuses_unproven_public_shape_before_native_dispatch() -> None:
 
 
 @pytest.mark.parametrize(
-    ("pipeline_change", "dataset_change", "extra_kwargs", "message"),
+    ("pipeline_change", "dataset_change", "extra_kwargs", "error_type", "message"),
     [
-        (lambda pipeline: pipeline, lambda dataset: (np.zeros((4_097, 3)), np.linspace(0.0, 1.0, 4_097)), {}, "at most 4096 samples"),
-        (lambda pipeline: pipeline, lambda dataset: (np.zeros((12, 2_049)), dataset[1]), {}, "2048 features"),
-        (lambda pipeline: [KFold(n_splits=21), pipeline[1]], lambda dataset: (np.zeros((21, 3)), np.linspace(0.0, 1.0, 21)), {}, "2..20 concrete KFold splits"),
-        (lambda pipeline: [pipeline[0], {"model": PLSRegression(n_components=65)}], lambda dataset: dataset, {}, "1..3 PLS components"),
-        (lambda pipeline: [pipeline[0], {"model": PLSRegression(max_iter=1_001)}], lambda dataset: dataset, {}, "bounds PLS max_iter"),
-        (lambda pipeline: pipeline, lambda dataset: dataset, {"allow_fallback": True}, "allow_fallback"),
+        (lambda pipeline: pipeline, lambda dataset: (np.zeros((4_097, 3)), np.linspace(0.0, 1.0, 4_097)), {}, DualRunUnsupported, "at most 4096 samples"),
+        (lambda pipeline: pipeline, lambda dataset: (np.zeros((12, 2_049)), dataset[1]), {}, DualRunUnsupported, "2048 features"),
+        (lambda pipeline: [KFold(n_splits=21), pipeline[1]], lambda dataset: (np.zeros((21, 3)), np.linspace(0.0, 1.0, 21)), {}, DualRunUnsupported, "2..20 concrete KFold splits"),
+        (lambda pipeline: [pipeline[0], {"model": PLSRegression(n_components=65)}], lambda dataset: dataset, {}, DualRunUnsupported, "1..3 PLS components"),
+        (lambda pipeline: [pipeline[0], {"model": PLSRegression(max_iter=1_001)}], lambda dataset: dataset, {}, DualRunUnsupported, "bounds PLS max_iter"),
+        (lambda pipeline: pipeline, lambda dataset: dataset, {"allow_fallback": True}, ExecutionProfileError, "allow_fallback"),
     ],
 )
 def test_dual_refuses_resource_or_fallback_overrides_before_native_dispatch(
@@ -561,6 +561,7 @@ def test_dual_refuses_resource_or_fallback_overrides_before_native_dispatch(
     pipeline_change: object,
     dataset_change: object,
     extra_kwargs: dict[str, object],
+    error_type: type[Exception],
     message: str,
 ) -> None:
     run_module = importlib.import_module("nirs4all.api.run")
@@ -572,7 +573,7 @@ def test_dual_refuses_resource_or_fallback_overrides_before_native_dispatch(
         lambda *_args, **_kwargs: pytest.fail("bounded refusal reached native dispatch"),
     )
     pipeline, dataset = _supported_request()
-    with pytest.raises(DualRunUnsupported, match=message):
+    with pytest.raises(error_type, match=message):
         run_module.run(
             pipeline_change(pipeline),  # type: ignore[operator]
             dataset_change(dataset),  # type: ignore[operator]

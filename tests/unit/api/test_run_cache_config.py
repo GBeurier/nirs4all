@@ -2263,6 +2263,7 @@ def test_run_top_level_calibration_fails_closed_without_tuning() -> None:
         run_module.run(
             pipeline=[{"model": _RunTuningEstimator()}],
             dataset=(np.asarray([[1.0], [2.0]]), np.asarray([1.0, 2.0])),
+            engine="dag-ml",
             calibration={"y_pred": [1.0], "prediction_sample_ids": ["pred-a"]},
             verbose=0,
         )
