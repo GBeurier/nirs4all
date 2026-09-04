@@ -60,6 +60,7 @@ def generate(
     train_ratio: float = ...,
     as_dataset: Literal[True] = ...,
     name: str = ...,
+    engine: str | None = ...,
     **kwargs: Any,
 ) -> SpectroDataset: ...
 
@@ -75,6 +76,7 @@ def generate(
     train_ratio: float = ...,
     as_dataset: Literal[False],
     name: str = ...,
+    engine: str | None = ...,
     **kwargs: Any,
 ) -> tuple[np.ndarray, np.ndarray]: ...
 
@@ -230,6 +232,7 @@ def regression(
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_regression",
+    engine: str | None = None,
 ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate a synthetic NIRS dataset for regression tasks.
@@ -267,7 +270,7 @@ def regression(
         ...     random_state=42
         ... )
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
@@ -303,6 +306,7 @@ def classification(
     train_ratio: float = ...,
     as_dataset: Literal[True] = ...,
     name: str = ...,
+    engine: str | None = ...,
 ) -> SpectroDataset: ...
 
 @overload
@@ -317,6 +321,7 @@ def classification(
     train_ratio: float = ...,
     as_dataset: Literal[False],
     name: str = ...,
+    engine: str | None = ...,
 ) -> tuple[np.ndarray, np.ndarray]: ...
 
 def classification(
@@ -330,6 +335,7 @@ def classification(
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "synthetic_classification",
+    engine: str | None = None,
 ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate a synthetic NIRS dataset for classification tasks.
@@ -368,7 +374,7 @@ def classification(
         ...     random_state=42
         ... )
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
@@ -393,6 +399,8 @@ def builder(
     n_samples: int = 1000,
     random_state: int | None = None,
     name: str = "synthetic_nirs",
+    *,
+    engine: str | None = None,
 ) -> SyntheticDatasetBuilder:
     """
     Create a SyntheticDatasetBuilder for fine-grained control.
@@ -429,7 +437,7 @@ def builder(
         ...     .build()
         ... )
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
@@ -448,6 +456,7 @@ def multi_source(
     train_ratio: float = 0.8,
     as_dataset: bool = True,
     name: str = "multi_source_synthetic",
+    engine: str | None = None,
 ) -> Any:
     """
     Generate a synthetic multi-source NIRS dataset.
@@ -496,7 +505,7 @@ def multi_source(
         ...     ]
         ... )
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import generate_multi_source as _generate_multi_source
 
@@ -528,6 +537,7 @@ def to_folder(
     wavelength_range: tuple[float, float] | None = None,
     components: list[str] | None = None,
     target_range: tuple[float, float] | None = None,
+    engine: str | None = None,
 ) -> Path:
     """
     Generate synthetic data and export to a folder.
@@ -558,7 +568,7 @@ def to_folder(
         ...     random_state=42
         ... )
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
@@ -592,6 +602,7 @@ def to_csv(
     complexity: Literal["simple", "realistic", "complex"] = "simple",
     wavelength_range: tuple[float, float] | None = None,
     target_range: tuple[float, float] | None = None,
+    engine: str | None = None,
 ) -> Path:
     """
     Generate synthetic data and export to a single CSV file.
@@ -611,7 +622,7 @@ def to_csv(
         >>> import nirs4all
         >>> path = nirs4all.generate.to_csv("data.csv", n_samples=500)
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import SyntheticDatasetBuilder
 
@@ -644,6 +655,7 @@ def product(
     complexity: Literal["simple", "realistic", "complex"] = "realistic",
     train_ratio: float = 0.8,
     target_range: tuple[float, float] | None = None,
+    engine: str | None = None,
 ) -> SpectroDataset:
     """
     Generate synthetic NIRS dataset from a product template.
@@ -696,7 +708,7 @@ def product(
         generate.category: Generate from multiple product templates.
         list_product_templates: List available templates.
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import ProductGenerator
 
@@ -739,6 +751,7 @@ def category(
     complexity: Literal["simple", "realistic", "complex"] = "realistic",
     train_ratio: float = 0.8,
     shuffle: bool = True,
+    engine: str | None = None,
 ) -> SpectroDataset:
     """
     Generate synthetic NIRS dataset from multiple product templates.
@@ -784,7 +797,7 @@ def category(
     See Also:
         generate.product: Generate from a single product template.
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import CategoryGenerator
 
@@ -815,6 +828,7 @@ def from_template(
     random_state: int | None = ...,
     wavelengths: np.ndarray | None = ...,
     as_dataset: Literal[True] = ...,
+    engine: str | None = ...,
 ) -> SpectroDataset: ...
 
 @overload
@@ -825,6 +839,7 @@ def from_template(
     random_state: int | None = ...,
     wavelengths: np.ndarray | None = ...,
     as_dataset: Literal[False],
+    engine: str | None = ...,
 ) -> tuple[np.ndarray, np.ndarray]: ...
 
 def from_template(
@@ -834,6 +849,7 @@ def from_template(
     random_state: int | None = None,
     wavelengths: np.ndarray | None = None,
     as_dataset: bool = True,
+    engine: str | None = None,
 ) -> SpectroDataset | tuple[np.ndarray, np.ndarray]:
     """
     Generate synthetic data mimicking a real dataset template.
@@ -870,7 +886,7 @@ def from_template(
         ...     wavelengths=wavelengths
         ... )
     """
-    generate_preflight().require()
+    generate_preflight(engine=engine).require()
 
     from nirs4all.synthesis import RealDataFitter, SyntheticDatasetBuilder
 
