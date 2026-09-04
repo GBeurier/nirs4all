@@ -10,7 +10,11 @@ NIRS4ALL parses each pipeline entry as one of these node types:
 - a direct Python object, when you build the pipeline in Python instead of YAML/JSON.
 
 :::{note}
-This table describes the full NIRS4ALL pipeline language. The `dag-ml` engine currently covers a subset of pipeline shapes natively. When you request `engine="dag-ml"`, catchable unsupported shapes or unavailable runtime dependencies warn and fall back to the legacy Python engine. Genuine dag-ml runtime errors are not silently swallowed.
+This table describes the full NIRS4ALL pipeline language. The `dag-ml` engine
+currently covers a subset of pipeline shapes natively. Unsupported shapes and
+unavailable runtime dependencies fail closed; they do not fall back to the
+legacy Python engine. Direct Python callers may select `engine="legacy"`
+explicitly only for the rollback-capable compatibility lane.
 :::
 
 ```{toctree}

@@ -8,6 +8,7 @@ Complete reference documentation for NIRS4ALL APIs, syntax, and operators.
 pipeline_syntax
 pipeline_keywords
 operator_catalog
+nodes/index
 transforms
 augmentations
 models
