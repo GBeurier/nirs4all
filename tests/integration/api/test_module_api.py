@@ -40,7 +40,8 @@ class TestRunFunction:
             pipeline=pipeline,
             dataset=sample_regression_data_path,
             verbose=0,
-            save_artifacts=False
+            save_artifacts=False,
+            engine="legacy",
         )
 
         # Verify result type
@@ -72,7 +73,8 @@ class TestRunFunction:
             pipeline=pipeline,
             dataset=(X, y),
             verbose=0,
-            save_artifacts=False
+            save_artifacts=False,
+            engine="legacy",
         )
 
         assert result.num_predictions > 0
@@ -93,7 +95,8 @@ class TestRunFunction:
             dataset=sample_regression_data_path,
             name="CustomPipelineName",
             verbose=0,
-            save_artifacts=False
+            save_artifacts=False,
+            engine="legacy",
         )
 
         assert result.num_predictions > 0
@@ -112,7 +115,8 @@ class TestRunFunction:
             pipeline=pipeline,
             dataset=sample_regression_data_path,
             verbose=0,
-            save_artifacts=False
+            save_artifacts=False,
+            engine="legacy",
         )
 
         # Test all accessors exist and work
@@ -154,7 +158,7 @@ class TestRunFunction:
             ShuffleSplit(n_splits=3, random_state=42),
             {"model": PLSRegression(n_components=10)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=sample_regression_data_path, verbose=0, save_artifacts=False)
+        result = nirs4all.run(pipeline=pipeline, dataset=sample_regression_data_path, verbose=0, save_artifacts=False, engine="legacy")
 
         best = result.best
         assert best, "expected a selected model"
@@ -187,7 +191,7 @@ class TestRunFunction:
             StratifiedKFold(n_splits=3, shuffle=True, random_state=42),
             {"model": RandomForestClassifier(n_estimators=30, max_depth=6, random_state=42, n_jobs=1)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=sample_classification_data_path, verbose=0, save_artifacts=False)
+        result = nirs4all.run(pipeline=pipeline, dataset=sample_classification_data_path, verbose=0, save_artifacts=False, engine="legacy")
 
         best = result.best
         assert best, "expected a selected model"
@@ -256,7 +260,8 @@ class TestRunFunction:
             dataset=sample_regression_data_path,
             verbose=0,
             save_artifacts=False,
-            random_state=42
+            random_state=42,
+            engine="legacy",
         )
 
         result2 = nirs4all.run(
@@ -264,7 +269,8 @@ class TestRunFunction:
             dataset=sample_regression_data_path,
             verbose=0,
             save_artifacts=False,
-            random_state=42
+            random_state=42,
+            engine="legacy",
         )
 
         # With same random state, results should be similar
@@ -360,7 +366,8 @@ class TestResultClasses:
             pipeline=pipeline,
             dataset=sample_regression_data_path,
             verbose=0,
-            save_artifacts=False
+            save_artifacts=False,
+            engine="legacy",
         )
 
         summary = result.summary()
@@ -381,7 +388,8 @@ class TestResultClasses:
             pipeline=pipeline,
             dataset=sample_regression_data_path,
             verbose=0,
-            save_artifacts=False
+            save_artifacts=False,
+            engine="legacy",
         )
 
         # __repr__ should work
