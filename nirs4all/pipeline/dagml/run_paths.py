@@ -3652,7 +3652,6 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
-    _require_partitioned_outer_stacking(identity, folds)
 
     if named_duplication:
         # The current dag-ml runtime still validates stacking refit coverage before honoring the
@@ -3669,6 +3668,12 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             config_name=config_name,
             scores=None,
         )
+
+    # List-form stacking enters the nested dag-ml scheduler and therefore needs
+    # exactly one outer validation prediction per sample. Named-dict stacking
+    # returned above through its documented CV-only replay and supports the
+    # legacy resampled (for example ShuffleSplit) row surface.
+    _require_partitioned_outer_stacking(identity, folds)
 
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
 

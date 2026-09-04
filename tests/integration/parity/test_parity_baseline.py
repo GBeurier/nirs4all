@@ -86,5 +86,18 @@ def test_legacy_gold_baseline(case: PipelineCase, request: pytest.FixtureRequest
     # test_conformance_dual_engine; this is the legacy-only alarm.
     result = nirs4all.run(pipeline=pipeline, dataset=dataset, verbose=0, engine="legacy")
     observed = _oracle.observe(result, case.task)
+    if "nondeterministic" in case.tags:
+        # Unseeded generator cases have no stable numeric observation by
+        # construction. Their seeded twin owns strict numeric parity; this
+        # baseline still pins the pipeline shape and deterministic result
+        # structure so the run-only lane cannot silently lose coverage.
+        structural_keys = ("datasets", "models", "num_predictions")
+        violations = [
+            f"{key}: expected {gold.get(key)!r}, got {observed.get(key)!r}"
+            for key in structural_keys
+            if gold.get(key) != observed.get(key)
+        ]
+        assert not violations, f"{case.name}: structural baseline violations:\n  " + "\n  ".join(violations)
+        return
     violations = _oracle.compare(gold, observed, case.metric_tolerances)
     assert not violations, f"{case.name}: parity violations:\n  " + "\n  ".join(violations)
