@@ -149,6 +149,7 @@ target_wl_model = np.linspace(11012, 5966, 50)  # 50 evenly spaced
 # per-source structure when the pipeline is reconstructed.
 
 result4 = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Downsample
         Resampler(target_wavelengths=[target_wl_model], method='linear'),
