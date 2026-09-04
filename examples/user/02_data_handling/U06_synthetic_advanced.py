@@ -135,6 +135,7 @@ print("-" * 60)
 # Generate dataset with multiple data sources
 # Common scenario: NIR spectra + chemical markers
 dataset_multi = nirs4all.generate.multi_source(
+    engine="legacy",
     n_samples=400,
     sources=[
         {
@@ -316,6 +317,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     export_path = Path(tmpdir) / "synthetic_dataset"
 
     path = nirs4all.generate.to_folder(
+        engine="legacy",
         export_path,
         n_samples=200,
         train_ratio=0.8,
@@ -344,6 +346,7 @@ with tempfile.TemporaryDirectory() as tmpdir:
     csv_path = Path(tmpdir) / "synthetic_data.csv"
 
     path = nirs4all.generate.to_csv(
+        engine="legacy",
         csv_path,
         n_samples=100,
         complexity="simple",
@@ -366,6 +369,7 @@ print("-" * 60)
 
 # First, create some "real" data to mimic
 real_like = nirs4all.generate(
+    engine="legacy",
     n_samples=200,
     complexity="realistic",
     random_state=99
@@ -375,6 +379,7 @@ assert isinstance(X_real, np.ndarray)
 
 # Now generate synthetic data that matches its characteristics
 dataset_fitted = nirs4all.generate.from_template(
+    engine="legacy",
     X_real,
     n_samples=500,
     random_state=42
@@ -465,6 +470,7 @@ dataset_test = (
 assert isinstance(dataset_test, SpectroDataset)
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardScaler(),
         ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),

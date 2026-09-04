@@ -90,6 +90,7 @@ Good for exploring different preprocessing approaches.
 
 
 result_extend = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Start with scaling
         MinMaxScaler(),
@@ -128,6 +129,7 @@ Good for ablation studies where you need baselines for comparison.
 
 
 result_add = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Base preprocessing
         StandardNormalVariate(),
@@ -164,6 +166,7 @@ Good for multi-stage preprocessing pipelines without intermediate bloat.
 
 
 result_replace = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Stage 1: Smoothing (extend to explore options)
         {"feature_augmentation": [Gaussian(sigma=2), SavitzkyGolay(deriv=0)], "action": "extend"},
@@ -202,6 +205,7 @@ Combine extend and add to explore a large preprocessing space efficiently.
 
 
 result_search = nirs4all.run(
+    engine="legacy",
     pipeline=[
         # Stage 1: Scatter correction options (extend)
         {"feature_augmentation": [
@@ -301,19 +305,19 @@ transforms = [FirstDerivative, SecondDerivative]
 
 # REPLACE: Chain, discard original
 
-res_ext = nirs4all.run(pipeline=[
+res_ext = nirs4all.run(engine="legacy", pipeline=[
     MinMaxScaler(),
     {"feature_augmentation": transforms, "action": "extend"},
     ShuffleSplit(n_splits=1),
     {"model": PLSRegression(n_components=5)},
 ], dataset="sample_data/regression", name="ext", verbose=0)
-res_add = nirs4all.run(pipeline=[
+res_add = nirs4all.run(engine="legacy", pipeline=[
     MinMaxScaler(),
     {"feature_augmentation": transforms, "action": "add"},
     ShuffleSplit(n_splits=1),
     {"model": PLSRegression(n_components=5)},
 ], dataset="sample_data/regression", name="add", verbose=0)
-res_rep = nirs4all.run(pipeline=[
+res_rep = nirs4all.run(engine="legacy", pipeline=[
     MinMaxScaler(),
     {"feature_augmentation": transforms, "action": "replace"},
     ShuffleSplit(n_splits=1),

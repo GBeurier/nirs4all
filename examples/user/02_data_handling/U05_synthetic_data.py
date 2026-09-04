@@ -66,7 +66,7 @@ print("Section 1: Basic Generation")
 print("-" * 60)
 
 # Generate a simple dataset
-dataset = nirs4all.generate(n_samples=500, random_state=42)
+dataset = nirs4all.generate(engine="legacy", n_samples=500, random_state=42)
 
 print("\n📊 Generated dataset:")
 print(f"   Type: {type(dataset).__name__}")
@@ -88,7 +88,7 @@ print("Section 2: Get Raw Arrays")
 print("-" * 60)
 
 # For quick experiments, get numpy arrays directly
-X, y = nirs4all.generate(n_samples=300, as_dataset=False, random_state=42)
+X, y = nirs4all.generate(engine="legacy", n_samples=300, as_dataset=False, random_state=42)
 
 print("\n📊 Generated arrays:")
 print(f"   Features shape: {X.shape}")
@@ -105,6 +105,7 @@ print("-" * 60)
 # Generate regression dataset with specific configuration
 # Note: When setting target_range, we need a single target (component 0)
 dataset_reg = nirs4all.generate.regression(
+    engine="legacy",
     n_samples=500,
     target_range=(0, 100),           # Scale targets to 0-100
     target_component=0,              # Use first component as target
@@ -119,6 +120,7 @@ print(f"   Target range: [{y_all.min():.1f}, {y_all.max():.1f}]")
 
 # Run a quick pipeline
 result_reg = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardScaler(),
         ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
@@ -140,6 +142,7 @@ print("-" * 60)
 
 # Binary classification
 dataset_binary = nirs4all.generate.classification(
+    engine="legacy",
     n_samples=400,
     n_classes=2,
     class_separation=2.0,            # Well-separated classes
@@ -154,6 +157,7 @@ print(f"   Counts: {counts.tolist()}")
 
 # Multiclass with imbalanced classes
 dataset_multi = nirs4all.generate.classification(
+    engine="legacy",
     n_samples=600,
     n_classes=3,
     class_weights=[0.5, 0.3, 0.2],   # Imbalanced
@@ -169,6 +173,7 @@ print(f"   Counts: {counts.tolist()}")
 
 # Run classification pipeline
 result_clf = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardScaler(),
         KFold(n_splits=3, shuffle=True, random_state=42),
@@ -194,6 +199,7 @@ _complexities: list[Literal["simple", "realistic", "complex"]] = ["simple", "rea
 for complexity_level in _complexities:
     # Use regression() with explicit target_component for sklearn models
     dataset_cx = nirs4all.generate.regression(
+        engine="legacy",
         n_samples=300,
         complexity=complexity_level,
         target_component=0,          # Single target for sklearn
@@ -201,6 +207,7 @@ for complexity_level in _complexities:
     )
 
     result = nirs4all.run(
+        engine="legacy",
         pipeline=[
             StandardScaler(),
             ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
@@ -221,6 +228,7 @@ print("-" * 60)
 
 # Generate with specific chemical components
 dataset_food = nirs4all.generate(
+    engine="legacy",
     n_samples=400,
     components=["water", "protein", "lipid", "starch"],
     complexity="realistic",
@@ -242,6 +250,7 @@ print("-" * 60)
 print("\nDirect generation in nirs4all.run()...")
 
 result_direct = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardScaler(),
         ShuffleSplit(n_splits=5, test_size=0.2, random_state=42),
@@ -249,6 +258,7 @@ result_direct = nirs4all.run(
     ],
     # Generate dataset inline with single target!
     dataset=nirs4all.generate.regression(
+        engine="legacy",
         n_samples=600,
         complexity="realistic",
         target_range=(0, 50),
@@ -318,7 +328,7 @@ ax3.grid(True, alpha=0.3)
 ax4 = axes[1, 1]
 _cx_colors: list[tuple[Literal["simple", "realistic", "complex"], str]] = [("simple", "green"), ("realistic", "blue"), ("complex", "red")]
 for cx_level, color in _cx_colors:
-    X_cx, _ = nirs4all.generate(n_samples=50, complexity=cx_level, as_dataset=False, random_state=42)
+    X_cx, _ = nirs4all.generate(engine="legacy", n_samples=50, complexity=cx_level, as_dataset=False, random_state=42)
     mean_spectrum = X_cx.mean(axis=0)
     ax4.plot(wavelengths, mean_spectrum, label=cx_level, color=color, linewidth=2)
 ax4.set_xlabel("Wavelength (nm)")
