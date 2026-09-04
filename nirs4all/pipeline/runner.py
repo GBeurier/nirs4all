@@ -5,13 +5,14 @@ for executing ML pipelines on spectroscopic datasets. It delegates execution to
 PipelineOrchestrator and provides prediction/explanation capabilities via
 Predictor and Explainer classes.
 """
+import logging
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Optional, Union
 
 import numpy as np
 
-from nirs4all.core.logging import configure_logging
+from nirs4all.core.logging import configure_logging, get_config
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
 from nirs4all.data.predictions import Predictions
@@ -222,6 +223,7 @@ class PipelineRunner:
             show_progress_bar=show_progress_bar,
             json_output=json_output,
         )
+        self._logging_file_handler = get_config()._file_handler
 
         # Create orchestrator
         self.orchestrator = PipelineOrchestrator(
@@ -431,11 +433,19 @@ class PipelineRunner:
         return self.orchestrator.store
 
     def close(self) -> None:
-        """Close the underlying WorkspaceStore to release DB resources."""
+        """Close workspace resources, including this runner's file logger."""
         if hasattr(self, "orchestrator") and self.orchestrator is not None:
             store = self.orchestrator.store
             if store is not None:
                 store.close()
+        handler = getattr(self, "_logging_file_handler", None)
+        if handler is not None:
+            handler.close()
+            logging.getLogger("nirs4all").removeHandler(handler)
+            config = get_config()
+            if config._file_handler is handler:
+                config._file_handler = None
+            self._logging_file_handler = None
 
     def show_figures(self, *, block: bool = True, close: bool = False) -> bool:
         """Show figures registered during pipeline execution."""
