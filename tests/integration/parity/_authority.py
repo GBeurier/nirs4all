@@ -24,7 +24,7 @@ from . import (  # noqa: F401
 from ._marker_audit import validate_marker_policy
 from ._registry import all_cases
 from .test_conformance_dual_engine import (
-    EXPECTED_FALLBACK,
+    EXPECTED_REFUSAL,
     KNOWN_DIVERGENCES,
     LEGACY_CV_SCORE_DIVERGENCE,
     NUM_PREDICTIONS_DIVERGENCE,
@@ -46,7 +46,7 @@ def validate_compatibility_ledger(ledger: dict[str, Any] | None = None) -> None:
     data = ledger or load_compatibility_ledger()
     _validate_tolerance_bands(data)
     _validate_authority_entries(data)
-    _validate_expected_fallback(data)
+    _validate_expected_refusal(data)
     _validate_num_prediction_divergences(data)
     _validate_legacy_cv_score_divergences(data)
     _validate_ypred_overrides(data)
@@ -159,16 +159,16 @@ def _validate_authority_entries(data: dict[str, Any]) -> None:
             )
 
 
-def _validate_expected_fallback(data: dict[str, Any]) -> None:
-    actual = {row["case"] for row in data["expected_fallback"]}
-    expected = set(EXPECTED_FALLBACK)
+def _validate_expected_refusal(data: dict[str, Any]) -> None:
+    actual = {row["case"] for row in data["expected_refusal"]}
+    expected = set(EXPECTED_REFUSAL)
     if actual != expected:
         raise AssertionError(
-            f"EXPECTED_FALLBACK ledger drift: expected={sorted(expected)} actual={sorted(actual)}"
+            f"EXPECTED_REFUSAL ledger drift: expected={sorted(expected)} actual={sorted(actual)}"
         )
-    bad_owner = [row["case"] for row in data["expected_fallback"] if row.get("owner_lane") != "L5"]
+    bad_owner = [row["case"] for row in data["expected_refusal"] if row.get("owner_lane") != "L5"]
     if bad_owner:
-        raise AssertionError(f"expected_fallback entries must be owned by L5: {bad_owner}")
+        raise AssertionError(f"expected_refusal entries must be owned by L5: {bad_owner}")
 
 
 def _validate_num_prediction_divergences(data: dict[str, Any]) -> None:
@@ -240,13 +240,13 @@ def _validate_coverage_meter(data: dict[str, Any]) -> None:
         "registered": len(cases),
         "non_runnable": non_runnable,
         "runnable": len(cases) - non_runnable,
-        "fallback": len(EXPECTED_FALLBACK),
-        "native": len(cases) - non_runnable - len(EXPECTED_FALLBACK),
+        "refusal": len(EXPECTED_REFUSAL),
+        "native": len(cases) - non_runnable - len(EXPECTED_REFUSAL),
         "xfail_strict": len(KNOWN_DIVERGENCES) + legacy_bug_count,
         "skip": skip_count,
         "num_predictions_divergence": len(NUM_PREDICTIONS_DIVERGENCE),
         "run_only_nondeterministic": len(UNSEEDED_NONDETERMINISTIC_CASES),
-        "expected_fallback_target": 0,
+        "expected_refusal_target": 0,
     }
     if data["coverage_meter"] != expected:
         raise AssertionError(
