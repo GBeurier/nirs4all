@@ -11,6 +11,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.0] — 2026-09-04
+
+### Changed
+
+- Promote the package metadata from RC2 to the stable 1.0.0 candidate without
+  functional changes.
+
+### Release status
+
+- Metadata preparation only: tagging and artifact, package, container, and
+  documentation publication remain on hold pending the required receipts,
+  soak, and recorded go/no-go decision.
+
+---
+
 ## [1.0.0-rc.2] — 2026-09-03
 
 ### Changed
