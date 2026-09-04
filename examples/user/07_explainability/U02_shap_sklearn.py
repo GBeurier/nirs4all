@@ -99,6 +99,7 @@ print("-" * 60)
 # Train a model
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         StandardNormalVariate(),
@@ -206,6 +207,7 @@ TreeExplainer for faster SHAP computation.
 # Train a tree model
 
 result_tree = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.25),
