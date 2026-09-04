@@ -12,9 +12,8 @@ from nirs4all.pipeline.dagml.rt import RtError
 
 
 @pytest.fixture(autouse=True)
-def _explicit_legacy_generate_profile(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Existing synthesis assertions exercise the explicit V1 rollback lane."""
-    monkeypatch.setenv("N4A_ENGINE", "legacy")
+def _clean_generate_plugin(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep plugin selection isolated while each rollback call stays explicit."""
     monkeypatch.delenv("N4A_GENERATE_PLUGIN", raising=False)
 
 
@@ -25,7 +24,7 @@ class TestGenerateFunction:
         """Test basic dataset generation."""
         import nirs4all
 
-        dataset = nirs4all.generate(n_samples=100, random_state=42)
+        dataset = nirs4all.generate(n_samples=100, random_state=42, engine="legacy")
 
         from nirs4all.data import SpectroDataset
         assert isinstance(dataset, SpectroDataset)
@@ -43,7 +42,7 @@ class TestGenerateFunction:
             lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("generator was constructed")),
         )
 
-        with pytest.raises((NotImplementedError, ValueError), match="nirs4all.generate|dual"):
+        with pytest.raises(RtError, match=f"engine='{engine}'"):
             nirs4all.generate(n_samples=1, engine=engine)
 
     @pytest.mark.parametrize(
@@ -81,7 +80,7 @@ class TestGenerateFunction:
         import nirs4all
 
         monkeypatch.setenv("N4A_ENGINE", "native")
-        with pytest.raises(NotImplementedError, match="nirs4all.generate"):
+        with pytest.raises(RtError, match="engine='native'"):
             call(nirs4all.generate, tmp_path)
 
     @pytest.mark.parametrize(
@@ -115,7 +114,7 @@ class TestGenerateFunction:
         """Test generation returning arrays."""
         import nirs4all
 
-        X, y = nirs4all.generate(n_samples=100, as_dataset=False, random_state=42)
+        X, y = nirs4all.generate(n_samples=100, as_dataset=False, random_state=42, engine="legacy")
 
         assert isinstance(X, np.ndarray)
         assert isinstance(y, np.ndarray)
@@ -125,8 +124,8 @@ class TestGenerateFunction:
         """Test reproducibility with random_state."""
         import nirs4all
 
-        X1, y1 = nirs4all.generate(n_samples=50, as_dataset=False, random_state=42)
-        X2, y2 = nirs4all.generate(n_samples=50, as_dataset=False, random_state=42)
+        X1, y1 = nirs4all.generate(n_samples=50, as_dataset=False, random_state=42, engine="legacy")
+        X2, y2 = nirs4all.generate(n_samples=50, as_dataset=False, random_state=42, engine="legacy")
 
         np.testing.assert_allclose(X1, X2)
         np.testing.assert_allclose(y1, y2)
@@ -140,6 +139,7 @@ class TestGenerateFunction:
             complexity="simple",
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert np.all(np.isfinite(X))
@@ -154,6 +154,7 @@ class TestGenerateFunction:
             complexity="realistic",
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert np.all(np.isfinite(X))
@@ -167,6 +168,7 @@ class TestGenerateFunction:
             complexity="complex",
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert np.all(np.isfinite(X))
@@ -180,6 +182,7 @@ class TestGenerateFunction:
             wavelength_range=(1200, 2000),
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         # Fewer wavelengths in narrower range
@@ -194,6 +197,7 @@ class TestGenerateFunction:
             components=["water", "protein"],
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         # Should have 2 targets (one per component)
@@ -208,6 +212,7 @@ class TestGenerateFunction:
             target_range=(0, 100),
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert y.min() >= 0
@@ -221,6 +226,7 @@ class TestGenerateFunction:
             n_samples=100,
             train_ratio=0.7,
             random_state=42,
+            engine="legacy",
         )
 
         partition_values = dataset._indexer.get_column_values("partition")
@@ -238,6 +244,7 @@ class TestGenerateFunction:
             n_samples=50,
             name="my_synthetic_data",
             random_state=42,
+            engine="legacy",
         )
 
         assert dataset.name == "my_synthetic_data"
@@ -249,7 +256,7 @@ class TestGenerateRegression:
         """Test basic regression dataset generation."""
         import nirs4all
 
-        dataset = nirs4all.generate.regression(n_samples=100, random_state=42)
+        dataset = nirs4all.generate.regression(n_samples=100, random_state=42, engine="legacy")
 
         from nirs4all.data import SpectroDataset
         assert isinstance(dataset, SpectroDataset)
@@ -263,6 +270,7 @@ class TestGenerateRegression:
             n_samples=100,
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert isinstance(X, np.ndarray)
@@ -277,6 +285,7 @@ class TestGenerateRegression:
             target_range=(0, 100),
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert y.min() >= 0
@@ -291,6 +300,7 @@ class TestGenerateRegression:
             target_component=0,
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         # Single target should be 1D
@@ -305,6 +315,7 @@ class TestGenerateRegression:
             distribution="lognormal",
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert np.all(np.isfinite(y))
@@ -316,7 +327,7 @@ class TestGenerateClassification:
         """Test basic classification dataset generation."""
         import nirs4all
 
-        dataset = nirs4all.generate.classification(n_samples=100, random_state=42)
+        dataset = nirs4all.generate.classification(n_samples=100, random_state=42, engine="legacy")
 
         from nirs4all.data import SpectroDataset
         assert isinstance(dataset, SpectroDataset)
@@ -331,6 +342,7 @@ class TestGenerateClassification:
             n_classes=2,
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert set(np.unique(y)) == {0, 1}
@@ -344,6 +356,7 @@ class TestGenerateClassification:
             n_classes=4,
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert len(np.unique(y)) == 4
@@ -358,6 +371,7 @@ class TestGenerateClassification:
             class_weights=[0.6, 0.3, 0.1],
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         counts = np.bincount(y.astype(int))
@@ -374,6 +388,7 @@ class TestGenerateClassification:
             class_separation=2.0,
             as_dataset=False,
             random_state=42,
+            engine="legacy",
         )
 
         assert X.shape[0] == 100
@@ -387,7 +402,7 @@ class TestGenerateBuilder:
         import nirs4all
         from nirs4all.synthesis import SyntheticDatasetBuilder
 
-        builder = nirs4all.generate.builder(n_samples=100, random_state=42)
+        builder = nirs4all.generate.builder(n_samples=100, random_state=42, engine="legacy")
 
         assert isinstance(builder, SyntheticDatasetBuilder)
 
@@ -396,7 +411,7 @@ class TestGenerateBuilder:
         import nirs4all
 
         dataset = (
-            nirs4all.generate.builder(n_samples=100, random_state=42)
+            nirs4all.generate.builder(n_samples=100, random_state=42, engine="legacy")
             .with_features(complexity="realistic")
             .with_targets(distribution="lognormal")
             .with_partitions(train_ratio=0.8)
@@ -412,7 +427,7 @@ class TestGenerateBuilder:
         import nirs4all
 
         dataset = (
-            nirs4all.generate.builder(n_samples=200, random_state=42)
+            nirs4all.generate.builder(n_samples=200, random_state=42, engine="legacy")
             .with_features(
                 wavelength_range=(1100, 2400),
                 complexity="realistic",
@@ -437,7 +452,7 @@ class TestGenerateNamespace:
         import nirs4all
 
         # Should not raise - generate should be callable
-        dataset = nirs4all.generate(n_samples=50, random_state=42)
+        dataset = nirs4all.generate(n_samples=50, random_state=42, engine="legacy")
         assert dataset is not None
 
     def test_generate_has_methods(self):
@@ -483,12 +498,14 @@ class TestIntegrationWithPipeline:
             target_component=0,  # Single target for regression
             complexity="simple",
             random_state=42,
+            engine="legacy",
         )
 
         # Run a simple pipeline with cross-validation
         result = nirs4all.run(
             pipeline=[MinMaxScaler(), ShuffleSplit(n_splits=2, test_size=0.2, random_state=42), PLSRegression(n_components=3)],
             dataset=dataset,
+            engine="legacy",
             verbose=0,
         )
 
@@ -508,6 +525,7 @@ class TestIntegrationWithPipeline:
             n_classes=2,
             complexity="simple",
             random_state=42,
+            engine="legacy",
         )
 
         # Run classification pipeline with cross-validation
@@ -527,7 +545,7 @@ class TestEdgeCases:
         """Test with very small sample count."""
         import nirs4all
 
-        X, y = nirs4all.generate(n_samples=10, as_dataset=False, random_state=42)
+        X, y = nirs4all.generate(n_samples=10, as_dataset=False, random_state=42, engine="legacy")
 
         assert X.shape[0] == 10
 
@@ -535,7 +553,7 @@ class TestEdgeCases:
         """Test with larger sample count."""
         import nirs4all
 
-        X, y = nirs4all.generate(n_samples=1000, as_dataset=False, random_state=42)
+        X, y = nirs4all.generate(n_samples=1000, as_dataset=False, random_state=42, engine="legacy")
 
         assert X.shape[0] == 1000
         assert np.all(np.isfinite(X))
@@ -548,6 +566,7 @@ class TestEdgeCases:
             n_samples=100,
             train_ratio=1.0,
             random_state=42,
+            engine="legacy",
         )
 
         partition_values = dataset._indexer.get_column_values("partition")

@@ -26,9 +26,8 @@ class TestAutoMergeDuplicationBranch:
     """Full pipeline with duplication branches and auto merge."""
 
     @pytest.fixture
-    def dataset(self, monkeypatch):
-        monkeypatch.setenv("N4A_ENGINE", "legacy")
-        return nirs4all.generate.regression(n_samples=50, random_state=42)
+    def dataset(self):
+        return nirs4all.generate.regression(n_samples=50, random_state=42, engine="legacy")
 
     def test_merge_auto_string(self, dataset):
         """{"merge": "auto"} resolves to predictions merge for duplication."""
