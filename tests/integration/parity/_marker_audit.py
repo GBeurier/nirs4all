@@ -250,7 +250,7 @@ def classify_skip(*, kind: str, reason: str, func: str, condition_src: str) -> s
         return "optional_env_dependency"
     if "runtime schemas not checked out" in reason:
         return "optional_env_sibling"
-    if "EXPECTED_FALLBACK is empty" in reason:
+    if "EXPECTED_REFUSAL is empty" in reason:
         return "lockdrop_empty"
     if "captured legacy baseline" in reason or "no gold baseline" in reason:
         return "baseline_capture"

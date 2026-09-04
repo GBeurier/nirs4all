@@ -153,7 +153,7 @@ def test_gate_classifies_each_sanctioned_skip_shape() -> None:
         "def test_cap():\n"
         "    pytest.skip('no gold baseline for c; run with --parity-capture')\n"
         "def test_lock():\n"
-        "    pytest.skip('EXPECTED_FALLBACK is empty; LOCK-DROP D1 is closed')\n"
+        "    pytest.skip('EXPECTED_REFUSAL is empty; native coverage is complete')\n"
         "def _require_methods_snv_available():\n"
         "    pytest.skip(message)\n"
     )
