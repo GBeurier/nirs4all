@@ -47,6 +47,7 @@ from sklearn.model_selection import ShuffleSplit  # noqa: E402
 from sklearn.preprocessing import MinMaxScaler  # noqa: E402
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         {"y_processing": MinMaxScaler()},
@@ -58,7 +59,7 @@ result = nirs4all.run(
             {"model": ElasticNet(alpha=0.1), "name": "ElasticNet"},
         ]},
     ],
-    dataset=nirs4all.generate.regression(n_samples=300, random_state=42),
+    dataset=nirs4all.generate.regression(engine="legacy", n_samples=300, random_state=42),
     name="R04_visualization",
     verbose=0,
     plots_visible=False,

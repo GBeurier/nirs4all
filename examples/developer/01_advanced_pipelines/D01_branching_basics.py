@@ -94,6 +94,7 @@ print("  3. Branch: [SNV | MSC | FirstDerivative]")
 print("  4. PLSRegression (runs 3 times, once per branch)")
 
 result_basic = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_basic,
     dataset="sample_data/regression",
     name="BasicBranching",
@@ -131,6 +132,7 @@ pipeline_named = [
 ]
 
 result_named = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_named,
     dataset="sample_data/regression",
     name="NamedBranches",
@@ -166,6 +168,7 @@ pipeline_generator = [
 ]
 
 result_generator = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_generator,
     dataset="sample_data/regression",
     name="GeneratorBranches",
@@ -208,6 +211,7 @@ pipeline_multistep = [
 ]
 
 result_multistep = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_multistep,
     dataset="sample_data/regression",
     name="MultiStepBranches",
@@ -242,6 +246,7 @@ pipeline_in_branch = [
 ]
 
 result_in_branch = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_in_branch,
     dataset="sample_data/regression",
     name="InBranchModels",

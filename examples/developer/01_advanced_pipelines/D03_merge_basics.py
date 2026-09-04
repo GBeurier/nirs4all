@@ -109,6 +109,7 @@ pipeline_feature_merge = [
 ]
 
 result_feature = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_feature_merge,
     dataset="sample_data/regression",
     name="FeatureMerge",
@@ -157,6 +158,7 @@ pipeline_prediction_merge = [
 ]
 
 result_prediction = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_prediction_merge,
     dataset="sample_data/regression",
     name="PredictionMerge",
@@ -197,6 +199,7 @@ pipeline_mixed_merge = [
 ]
 
 result_mixed = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_mixed_merge,
     dataset="sample_data/regression",
     name="MixedMerge",
@@ -237,6 +240,7 @@ pipeline_selection = [
 ]
 
 result_selection = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_selection,
     dataset="sample_data/regression",
     name="BranchSelection",
@@ -276,6 +280,7 @@ pipeline_aggregation = [
 ]
 
 result_aggregation = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_aggregation,
     dataset="sample_data/regression",
     name="FeatureAggregation",
@@ -324,6 +329,7 @@ pipeline_nested = [
 ]
 
 result_nested = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_nested,
     dataset="sample_data/regression",
     name="NestedBranching",
@@ -361,6 +367,7 @@ pipeline_with_original = [
 ]
 
 result_with_original = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_with_original,
     dataset="sample_data/regression",
     name="MergeWithOriginal",
