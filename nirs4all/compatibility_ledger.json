@@ -138,7 +138,7 @@
     }
   ],
   "coverage_skips": [],
-  "expected_fallback": [
+  "expected_refusal": [
     {
       "case": "aggregation_classification_vote",
       "owner_lane": "L5",
@@ -309,13 +309,13 @@
     "registered": 95,
     "non_runnable": 0,
     "runnable": 95,
-    "fallback": 3,
+    "refusal": 3,
     "native": 92,
     "xfail_strict": 0,
     "skip": 0,
     "num_predictions_divergence": 2,
     "run_only_nondeterministic": 1,
-    "expected_fallback_target": 0
+    "expected_refusal_target": 0
   },
   "marker_policy": {
     "schema": "nirs4all.pyref.marker_policy.v1",
@@ -332,9 +332,9 @@
       {"id": "optional_env_dependency", "kind": "optional_env", "note": "an example requires an optional dependency that is not installed."},
       {"id": "optional_env_sibling", "kind": "optional_env", "note": "sibling nirs4all-ecosystem runtime schemas not checked out."},
       {"id": "optional_env_methods", "kind": "optional_env", "note": "the nirs4all-methods SNV / n4m binding is unavailable (hard fail only under NIRS4ALL_REQUIRE_N4M=1)."},
-      {"id": "runtime_na", "kind": "runtime_precondition", "note": "a cross-engine comparison is N/A on this build: dag-ml ran an allowlisted legacy fallback, wrote no native results, or the case is not a single-artifact native run. The live boundary rejects any fallback outside EXPECTED_FALLBACK."},
+      {"id": "runtime_na", "kind": "runtime_precondition", "note": "a cross-engine comparison is N/A on this build: dag-ml returned an allowlisted structured refusal, wrote no native results, or the case is not a single-artifact native run. The live boundary rejects any refusal outside EXPECTED_REFUSAL."},
       {"id": "baseline_capture", "kind": "workflow", "note": "gold-baseline capture / absent-baseline guard in test_parity_baseline (--parity-capture)."},
-      {"id": "lockdrop_empty", "kind": "workflow", "note": "collection-only category for the empty-allowlist branch; currently inactive while the three L5-owned EXPECTED_FALLBACK cases keep LOCK-DROP D1 open."}
+      {"id": "lockdrop_empty", "kind": "workflow", "note": "collection-only category for the empty-allowlist branch; currently inactive while the three L5-owned EXPECTED_REFUSAL cases remain explicit native coverage gaps."}
     ],
     "tolerance": {
       "allowlist_source": "tolerance_bands[].abs_tol (positive values)",
