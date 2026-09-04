@@ -447,10 +447,6 @@ class TestBuilderExport:
 class TestGenerateExportFunctions:
     """Tests for generate.to_folder and generate.to_csv."""
 
-    @pytest.fixture(autouse=True)
-    def _explicit_legacy_generate(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("N4A_ENGINE", "legacy")
-
     def test_generate_to_folder(self, tmp_path):
         """Test nirs4all.generate.to_folder."""
         from nirs4all.api.generate import to_folder
@@ -460,6 +456,7 @@ class TestGenerateExportFunctions:
             n_samples=50,
             random_state=42,
             complexity="simple",
+            engine="legacy",
         )
 
         assert path.exists()
@@ -474,6 +471,7 @@ class TestGenerateExportFunctions:
             n_samples=50,
             random_state=42,
             complexity="simple",
+            engine="legacy",
         )
 
         assert path.exists()

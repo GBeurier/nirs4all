@@ -30,10 +30,9 @@ class TestMergeAutoDetectsBranchType:
     """Tests for branch type auto-detection in merge."""
 
     @pytest.fixture
-    def simple_dataset(self, monkeypatch):
+    def simple_dataset(self):
         """Create a simple dataset for testing."""
-        monkeypatch.setenv("N4A_ENGINE", "legacy")
-        return nirs4all.generate.regression(n_samples=50, random_state=42)
+        return nirs4all.generate.regression(n_samples=50, random_state=42, engine="legacy")
 
     def test_features_merge_with_duplication_branch(self, simple_dataset):
         """Test features merge with standard duplication branches."""
@@ -124,10 +123,9 @@ class TestMergeModesCombination:
     """Tests for combining different merge modes."""
 
     @pytest.fixture
-    def dataset(self, monkeypatch):
+    def dataset(self):
         """Create a simple dataset."""
-        monkeypatch.setenv("N4A_ENGINE", "legacy")
-        return nirs4all.generate.regression(n_samples=50, random_state=42)
+        return nirs4all.generate.regression(n_samples=50, random_state=42, engine="legacy")
 
     def test_features_and_predictions_merge(self, dataset):
         """Test merge with both features and predictions."""
@@ -182,10 +180,9 @@ class TestMergeDictConfig:
     """Tests for dict-style merge configuration."""
 
     @pytest.fixture
-    def dataset(self, monkeypatch):
+    def dataset(self):
         """Create a simple dataset."""
-        monkeypatch.setenv("N4A_ENGINE", "legacy")
-        return nirs4all.generate.regression(n_samples=50, random_state=42)
+        return nirs4all.generate.regression(n_samples=50, random_state=42, engine="legacy")
 
     def test_dict_features_config(self, dataset):
         """Test dict config for features merge."""
