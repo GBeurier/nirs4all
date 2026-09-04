@@ -116,6 +116,7 @@ print("Training Pipeline")
 print("-" * 60)
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline,
     dataset="sample_data/regression",
     name="BasicRegression",

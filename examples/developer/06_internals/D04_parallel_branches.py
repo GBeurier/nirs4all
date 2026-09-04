@@ -50,6 +50,7 @@ pipeline_basic = [
 
 # This will execute 3 branches in parallel (auto-detected: min(3, cpu_count))
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_basic,
     dataset=DATASET_PATH,
     verbose=2,
@@ -82,6 +83,7 @@ pipeline_explicit = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_explicit,
     dataset=DATASET_PATH,
     verbose=2,
@@ -135,6 +137,7 @@ pipeline_optuna = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_optuna,
     dataset=DATASET_PATH,
     verbose=2,
@@ -166,6 +169,7 @@ pipeline_smart = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_smart,
     dataset=DATASET_PATH,
     verbose=2,
@@ -195,6 +199,7 @@ pipeline_named = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_named,
     dataset=DATASET_PATH,
     verbose=2,
@@ -233,6 +238,7 @@ pipeline_mixed = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_mixed,
     dataset=DATASET_PATH,
     verbose=2,

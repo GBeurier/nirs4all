@@ -63,6 +63,7 @@ print("-" * 60)
 
 # Run the pipeline with one simple call
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),                              # Feature scaling
         {"y_processing": MinMaxScaler()},            # Target scaling
