@@ -207,6 +207,7 @@ print("Example 7: Using nirs4all.run()")
 print("-" * 60)
 
 result7 = nirs4all.run(
+    engine="legacy",
     pipeline=[
         StandardScaler(),
         KFold(n_splits=3, shuffle=True, random_state=42),
