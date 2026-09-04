@@ -3678,6 +3678,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # meta-model controller via metadata.controller_id.
     canonical_dsl: dict[str, Any] = {
         "id": "nirs4all-stacking",
+        "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
         "steps": [
             {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch(branch, index) for index, branch in enumerate(branches)]},
             {
@@ -3687,6 +3688,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 "params": _json_safe_params(meta_learner),
                 "metadata": {
                     "controller_id": _META_MODEL_CONTROLLER_ID,
+                    "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": refit_policy},
                 },
             },
@@ -3728,4 +3730,15 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             config_name=config_name,
             scores=outcome["scores"],
         )
-    return _scores_to_run_result(outcome["scores"], spectro.name, model_label, metric, task_type, producer=_META_NODE_ID, config_name=config_name, refit_artifacts=outcome["refit_artifacts"])
+    return _scores_to_run_result(
+        outcome["scores"],
+        spectro.name,
+        model_label,
+        metric,
+        task_type,
+        producer=_META_NODE_ID,
+        config_name=config_name,
+        results=outcome["results"],
+        identity=identity,
+        refit_artifacts=outcome["refit_artifacts"],
+    )
