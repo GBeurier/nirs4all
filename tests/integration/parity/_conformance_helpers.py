@@ -10,17 +10,12 @@ dag-ml bridge in isolation (``test_dagml_*``). None ran the SAME case on BOTH
 engines and asserted equality — these helpers fill that gap and the
 ``test_conformance_*`` modules consume them.
 
-LOAD-BEARING fallback detection
--------------------------------
-``run(engine="dag-ml", allow_fallback=True)`` explicitly re-runs on the LEGACY
-engine for a pipeline shape the dag-ml path cannot honor yet (the P1b/P0
-reject→fallback), emitting a ``"falling back to the legacy engine"`` warning
-(:mod:`nirs4all.api.run`). A fallback run is legacy-under-the-hood, so
-asserting "dag-ml == legacy" on it would be a trivially-true legacy-vs-legacy
-claim. :func:`dual_engine_runner` therefore records ``dagml_native`` from TWO
-independent signals — the fallback warning text AND the ``per_dataset`` engine
-marker (:meth:`RunResult._is_dagml_engine`) — and the conformance tests only
-make a real parity claim when ``dagml_native`` is ``True``.
+LOAD-BEARING refusal detection
+------------------------------
+The dag-ml leg is always selected explicitly and never requests legacy
+fallback. Unsupported shapes therefore return a structured ``RtError`` to the
+conformance harness; they cannot become a trivially-true legacy-vs-legacy
+comparison. The boundary test owns the small, explicit refusal allowlist.
 
 Tolerances
 ----------
@@ -36,22 +31,17 @@ none). Per-sample ``y_pred`` parity defaults to :data:`_DEFAULT_YPRED_TOL`
 
 from __future__ import annotations
 
-import warnings
 from typing import Any
 
 import numpy as np
 
 import nirs4all
 from nirs4all.data import DatasetConfigs
+from nirs4all.pipeline.dagml.rt import RtError
 
 from ._datasets import dataset_path
 from ._oracle import compare, observe
 from ._registry import PipelineCase
-
-# The dag-ml→legacy fallback warning fragment, shared by both fallback paths
-# (DagMlUnavailable + DagMlUnsupported) in nirs4all/api/run.py. Matching this
-# fragment is the primary fallback signal.
-_FALLBACK_WARNING_FRAGMENT = "falling back to the legacy engine"
 
 # Engine-parity standard used across the parity registry (e.g.
 # baseline_vertical_slice records rmse/r2 tol 1e-3): absorbs sklearn-vs-Rust PLS
@@ -117,18 +107,16 @@ def _run_dagml_leg(case: PipelineCase, dataset: DatasetConfigs) -> tuple[Any, bo
     in one place. The explicit engine is load-bearing — see
     :func:`dual_engine_runner`.
     """
-    with warnings.catch_warnings(record=True) as caught:
-        warnings.simplefilter("always")
+    try:
         dagml = nirs4all.run(
             pipeline=case.pipeline,
             dataset=dataset,
             verbose=0,
             engine="dag-ml",
-            allow_fallback=True,
         )
-        fell_back = any(_FALLBACK_WARNING_FRAGMENT in str(w.message) for w in caught)
-    dagml_native = (not fell_back) and bool(dagml._is_dagml_engine())  # noqa: SLF001
-    return dagml, dagml_native
+    except RtError as exc:
+        return exc, False
+    return dagml, bool(dagml._is_dagml_engine())  # noqa: SLF001
 
 
 def dagml_native_status(case: PipelineCase, dataset: DatasetConfigs) -> bool:

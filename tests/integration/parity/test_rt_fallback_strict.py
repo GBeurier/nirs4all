@@ -1,13 +1,10 @@
-"""Gate: dag-ml fallback is explicit and structured (B-018 / L10).
+"""Gate: dag-ml refuses legacy fallback (B-018 / L10).
 
 The V1 "no silent fallback" boundary is now the default. A dag-ml coverage/backend refusal raises a
-structured ``RtError`` unless the caller explicitly passes ``allow_fallback=True``; opt-in fallback still
-attaches the same diagnostic to the returned legacy result.
+structured ``RtError``. Compatibility callers select ``engine="legacy"`` explicitly.
 """
 
 from __future__ import annotations
-
-import warnings
 
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -15,6 +12,7 @@ from sklearn.cross_decomposition import PLSRegression
 import nirs4all
 from nirs4all.pipeline.dagml.errors import DagMlUnavailable
 from nirs4all.pipeline.dagml.rt import RtError
+from nirs4all.pipeline.engine import ExecutionProfileError
 
 from ._dagml_cli import dagml_cli_path
 from ._datasets import dataset_path
@@ -47,16 +45,16 @@ def test_allow_fallback_false_raises_rterror() -> None:
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_allow_fallback_true_degrades_and_attaches_diagnostic() -> None:
-    """Explicit ``allow_fallback=True`` degrades to legacy and attaches the RtError diagnostic."""
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")  # the "falling back to the legacy engine" warning still fires
-        result = nirs4all.run(pipeline=_unsupported_pipeline(), dataset=dataset_path("regression"), engine="dag-ml", allow_fallback=True, verbose=0)
-
-    # The fallback ran legacy, but the result now carries the structured "ran legacy because <cause>" envelope.
-    rt = result.to_rt_result()
-    assert rt.manifest["engine"] == "legacy"
-    assert [d.cause for d in rt.diagnostics] == ["unsupported_shape"]
+def test_allow_fallback_true_is_rejected() -> None:
+    """``allow_fallback=True`` cannot silently select the legacy engine."""
+    with pytest.raises(ExecutionProfileError, match="engine='legacy' explicitly"):
+        nirs4all.run(
+            pipeline=_unsupported_pipeline(),
+            dataset=dataset_path("regression"),
+            engine="dag-ml",
+            allow_fallback=True,
+            verbose=0,
+        )
 
 
 def test_allow_fallback_false_raises_unavailable_backend_rterror(monkeypatch: pytest.MonkeyPatch) -> None:
