@@ -2,7 +2,9 @@
 
 **Version**: 1.0.0 | **Python**: 3.11+ | **License**: AGPL-3.0-or-later (dual; GPL-3.0/CeCILL-2.1 variants + commercial — see LICENSE)
 
-Since **0.9.0** the public API (`run/predict/explain/retrain/session/generate`), result objects (`RunResult/PredictResult/ExplainResult`), workspace SQLite/Parquet schemas, run manifest layout, and `.n4a` bundle format are **stable contracts** within the 0.9.x line (used by the nirs4all webapp). Avoid breaking those signatures or on-disk schemas without a major bump.
+The published **1.0.0** tag is the V1 baseline. Read `docs/source/reference/public_interfaces.md` and `docs/source/migration/native_v1.md` before changing execution or persistence. The default engine is `native` (portable Archive V2); `dag-ml` is explicitly selectable and `legacy` is an explicit direct-Python rollback lane. The controller architecture and execution flow below describe that legacy lane, not the default native path. Preserve published APIs and artifact contracts.
+
+Developer documentation is indexed in `docs/development.md`. Historical private specifications, implementation plans and reviews live in the ignored `docs/_private/` archive; they are not current requirements or release evidence. Do not force-add private notes or local native binaries.
 
 ## Commands
 
