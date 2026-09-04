@@ -4,9 +4,8 @@ import sqlite3
 
 import pytest
 
-from nirs4all.pipeline.storage.migration import MigrationReport
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
-from nirs4all.workspace.compat import build_conversion_command, inspect_workspace_format, warn_if_legacy_workspace
+from nirs4all.workspace.compat import ConversionRequired, build_conversion_command, inspect_workspace_format, warn_if_legacy_workspace
 
 
 def test_inspect_new_or_empty_workspace(tmp_path):
@@ -28,7 +27,8 @@ def test_inspect_duckdb_workspace_reports_conversion_command(tmp_path):
 
     assert info.format == "duckdb-workspace"
     assert info.conversion_required is True
-    assert "nirs4all workspace convert" in (info.conversion_command or "")
+    assert "nirs4all-tools workspace convert" in (info.conversion_command or "")
+    assert "--output" in (info.conversion_command or "")
     assert "--target" not in (info.conversion_command or "")
 
 
@@ -61,7 +61,7 @@ def test_warn_if_legacy_workspace_includes_command(tmp_path):
     workspace.mkdir()
     (workspace / "store.duckdb").touch()
 
-    with pytest.warns(RuntimeWarning, match="nirs4all workspace convert"):
+    with pytest.warns(RuntimeWarning, match="nirs4all-tools workspace convert"):
         info = warn_if_legacy_workspace(workspace)
 
     assert info.format == "duckdb-workspace"
@@ -73,29 +73,8 @@ def test_workspace_store_refuses_filesystem_legacy_workspace(tmp_path):
     manifest.parent.mkdir(parents=True)
     manifest.write_text("run_id: run-1\n", encoding="utf-8")
 
-    with pytest.warns(RuntimeWarning, match="Conversion command"):
-        with pytest.raises(RuntimeError, match="nirs4all workspace convert"):
-            WorkspaceStore(workspace)
+    with pytest.raises(ConversionRequired) as caught:
+        WorkspaceStore(workspace)
 
+    assert caught.value.conversion_command.startswith("nirs4all-tools workspace convert ")
     assert not (workspace / "store.sqlite").exists()
-
-
-def test_workspace_store_warns_with_command_before_duckdb_migration(monkeypatch, tmp_path):
-    workspace = tmp_path / "legacy-duckdb"
-    workspace.mkdir()
-    (workspace / "store.duckdb").touch()
-
-    def fake_migrate(path):
-        assert path == workspace
-        (workspace / "store.sqlite").touch()
-        return MigrationReport()
-
-    import nirs4all.pipeline.storage.migration as migration
-
-    monkeypatch.setattr(migration, "migrate_duckdb_to_sqlite", fake_migrate)
-
-    with pytest.warns(RuntimeWarning, match="nirs4all workspace convert"):
-        store = WorkspaceStore(workspace)
-
-    store.close()
-    assert (workspace / "store.sqlite").exists()
