@@ -87,6 +87,7 @@ Sessions share configuration across multiple runs.
 # Without session - each run is independent
 print("Without session (independent runs):")
 result_no_session = nirs4all.run(
+    engine="legacy",
     pipeline=[MinMaxScaler(), PLSRegression(n_components=10)],
     dataset="sample_data/regression",
     name="NoSession_PLS",
@@ -100,6 +101,7 @@ print("\nWith session (shared configuration):")
 with nirs4all.session(verbose=0, save_artifacts=True, plots_visible=False) as s:
     # Run 1: PLS
     result1 = nirs4all.run(
+        engine="legacy",
         pipeline=[MinMaxScaler(), PLSRegression(n_components=10)],
         dataset="sample_data/regression",
         name="Session_PLS",
@@ -109,6 +111,7 @@ with nirs4all.session(verbose=0, save_artifacts=True, plots_visible=False) as s:
 
     # Run 2: Ridge
     result2 = nirs4all.run(
+        engine="legacy",
         pipeline=[MinMaxScaler(), Ridge(alpha=1.0)],
         dataset="sample_data/regression",
         name="Session_Ridge",
@@ -149,6 +152,7 @@ with nirs4all.session(verbose=0, save_artifacts=False, plots_visible=False) as s
         ]
 
         result = nirs4all.run(
+            engine="legacy",
             pipeline=pipeline,
             dataset="sample_data/regression",
             name=f"Preproc_{name}",
@@ -181,6 +185,7 @@ with nirs4all.session(verbose=0, save_artifacts=False, plots_visible=False) as s
 
     for n_comp in n_components_range:
         result = nirs4all.run(
+            engine="legacy",
             pipeline=[
                 MinMaxScaler(),
                 StandardNormalVariate(),
@@ -223,6 +228,7 @@ with nirs4all.session(
     plots_visible=False
 ) as s:
     result = nirs4all.run(
+        engine="legacy",
         pipeline=[MinMaxScaler(), PLSRegression(n_components=10)],
         dataset="sample_data/regression",
         name="WorkspaceDemo",
@@ -273,6 +279,7 @@ all_results = []
 with nirs4all.session(verbose=0, save_artifacts=False, plots_visible=False) as s:
     for n in [5, 10, 15]:
         result = nirs4all.run(
+            engine="legacy",
             pipeline=[MinMaxScaler(), PLSRegression(n)],
             dataset="sample_data/regression",
             name=f"Collect_{n}",
@@ -293,6 +300,7 @@ print("\nPattern 2: Override settings per run")
 with nirs4all.session(verbose=0, plots_visible=False) as s:
     # Quiet run
     result_quiet = nirs4all.run(
+        engine="legacy",
         pipeline=[MinMaxScaler(), PLSRegression(5)],
         dataset="sample_data/regression",
         name="Quiet",
@@ -302,6 +310,7 @@ with nirs4all.session(verbose=0, plots_visible=False) as s:
 
     # Verbose run (override session)
     result_verbose = nirs4all.run(
+        engine="legacy",
         pipeline=[MinMaxScaler(), PLSRegression(10)],
         dataset="sample_data/regression",
         name="Verbose",

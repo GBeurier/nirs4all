@@ -81,6 +81,7 @@ Tagged samples are STILL used for training.
 
 
 result_tagged = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -118,6 +119,7 @@ Each tag creates a separate column in predictions.
 
 
 result_multi = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -160,6 +162,7 @@ This helps determine if outliers negatively impact the model.
 # Pipeline with exclusion (outliers removed)
 
 result_with = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
@@ -175,6 +178,7 @@ result_with = nirs4all.run(
 )
 
 result_without = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),
