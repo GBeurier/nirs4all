@@ -118,6 +118,7 @@ Run the session to train the pipeline:
 """)
 
 result = session.run(
+    engine="legacy",
     dataset="sample_data/regression",
     save_charts=args.plots or args.show,
     plots_visible=args.show
@@ -267,12 +268,14 @@ Use session as context manager for multiple runs:
 with nirs4all.session(verbose=0, save_artifacts=False) as s:
     # Multiple runs share the same runner
     r1 = nirs4all.run(
+        engine="legacy",
         pipeline=[MinMaxScaler(), ShuffleSplit(n_splits=2, random_state=42),
                   PLSRegression(n_components=5)],
         dataset="sample_data/regression",
         session=s
     )
     r2 = nirs4all.run(
+        engine="legacy",
         pipeline=[MinMaxScaler(), ShuffleSplit(n_splits=2, random_state=42),
                   PLSRegression(n_components=10)],
         dataset="sample_data/regression",

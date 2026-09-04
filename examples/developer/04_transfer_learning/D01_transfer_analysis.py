@@ -234,6 +234,7 @@ pipeline_transfer = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_transfer,
     dataset="sample_data/regression",
     name="TransferEvaluation",
