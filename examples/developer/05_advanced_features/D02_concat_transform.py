@@ -98,6 +98,7 @@ pipeline_basic = [
 ]
 
 result = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_basic,
     dataset="sample_data/regression",
     name="BasicConcat",
@@ -138,6 +139,7 @@ pipeline_chained = [
 ]
 
 result_chained = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_chained,
     dataset="sample_data/regression",
     name="ChainedConcat",
@@ -178,6 +180,7 @@ pipeline_multi = [
 ]
 
 result_multi = nirs4all.run(
+    engine="legacy",
     pipeline=pipeline_multi,
     dataset="sample_data/regression",
     name="MultiConcat",
@@ -246,6 +249,7 @@ Result:
 
 
 result_augment = nirs4all.run(
+    engine="legacy",
     pipeline=[
         MinMaxScaler(),
         ShuffleSplit(n_splits=3, test_size=0.2, random_state=42),

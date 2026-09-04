@@ -194,6 +194,7 @@ Use custom operators in pipelines:
 
 print("\nRunning pipeline with custom controller:")
 result = nirs4all.run(
+    engine="legacy",
     pipeline=[
         PrintDatasetInfo("Data info"),
         MinMaxScaler(),
