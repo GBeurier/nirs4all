@@ -22,7 +22,7 @@ from nirs4all.pipeline.dagml_bridge import controller_manifests
 
 from .cli_runner import assemble_constrained_cv_refit_dsl, assemble_cv_refit_dsl
 from .detect import _generation_kind, _is_augmentation_step, _is_constrained_operator_generator, _is_rep_fusion_step, _is_unconstrained_operator_generator
-from .envelope import build_envelope
+from .envelope import build_envelope, build_fold_set
 from .errors import DagMlUnsupported, _raise_run_failure, _reject_multi_model
 from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_group_grain, _split_pool
 from .identity import mint_identity
@@ -3597,6 +3597,16 @@ def _named_dict_stacking_legacy_projection(
     return run_result
 
 
+def _require_partitioned_outer_stacking(identity: Any, folds: list[tuple[list[int], list[int]]]) -> None:
+    """Reject nested stacking over repeated or incomplete validation folds."""
+    fold_set = build_fold_set(identity, folds, set_id="folds.stacking.outer")
+    if fold_set.get("partition_mode") == "resampled":
+        raise DagMlUnsupported(
+            "native nested stacking requires an outer CV partition with exactly one validation prediction "
+            "per sample (for example KFold); ShuffleSplit and repeated CV are not portable yet"
+        )
+
+
 def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
@@ -3642,6 +3652,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
+    _require_partitioned_outer_stacking(identity, folds)
 
     if named_duplication:
         # The current dag-ml runtime still validates stacking refit coverage before honoring the
