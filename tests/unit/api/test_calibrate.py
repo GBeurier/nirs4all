@@ -2010,6 +2010,7 @@ def test_public_predict_routes_attached_conformal_model_bundle(tmp_path, monkeyp
         model=str(attached),
         data={"X": np.ones((2, 3)), "sample_ids": ["p1", "p2"]},
         coverage=0.8,
+        engine="legacy",
     )
 
     assert result.model_name == "moisture"
@@ -2045,6 +2046,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_invalid_sidecar(
             model=str(attached),
             data={"X": np.ones((1, 3)), "sample_ids": ["p1"]},
             coverage=0.8,
+            engine="legacy",
         )
 
 
@@ -2085,6 +2087,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_missing_predicti
             model=str(corrupted),
             data={"X": np.ones((1, 3)), "sample_ids": ["p1"]},
             coverage=0.8,
+            engine="legacy",
         )
 
 
@@ -2100,6 +2103,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_incomplete_sidec
             model=str(model_bundle),
             data={"X": np.ones((1, 3)), "sample_ids": ["p1"]},
             coverage=0.8,
+            engine="legacy",
         )
 
 
@@ -2126,6 +2130,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_duplicate_sideca
             model=str(attached),
             data={"X": np.ones((1, 3)), "sample_ids": ["p1"]},
             coverage=0.8,
+            engine="legacy",
         )
 
 
@@ -2140,6 +2145,7 @@ def test_public_predict_model_bundle_without_conformal_sidecar_stays_outside_cov
             model=str(model_bundle),
             data={"X": np.ones((1, 3)), "sample_ids": ["p1"]},
             coverage=0.8,
+            engine="legacy",
         )
 
 
@@ -2170,6 +2176,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_unmaterialized_c
             model=str(attached),
             data={"X": np.ones((1, 3)), "sample_ids": ["p1"]},
             coverage=0.9,
+            engine="legacy",
         )
 
 
@@ -2195,6 +2202,7 @@ def test_public_predict_attached_conformal_model_bundle_rejects_all_predictions(
             data={"X": np.ones((2, 3)), "sample_ids": ["p1", "p2"]},
             coverage=0.8,
             all_predictions=True,
+            engine="legacy",
         )
 
 

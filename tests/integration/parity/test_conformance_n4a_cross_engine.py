@@ -16,8 +16,9 @@ For each representative native single-model regression shape:
   scored pipeline — A3 §8 — so this pins the BRIDGE round-trip today and
   tightens to ``native_export_reproduce`` when native ``.n4a`` export lands,
   DML-008/W3);
-* load BOTH bundles via the public ``nirs4all.predict(model="...n4a", data=X)``
-  path (detached, no workspace) and predict on the raw held-out test X;
+* load BOTH legacy-format bundles via the explicit rollback form
+  ``nirs4all.predict(model="...n4a", data=X, engine="legacy")`` (detached,
+  no workspace) and predict on the raw held-out test X;
 * assert the two engines' bundle predictions agree within band
   ``cross_impl_ypred`` (``1e-3``) — the INTERCHANGE leg;
 * assert the dag-ml bundle's predictions reproduce the dag-ml NATIVE run's
@@ -78,11 +79,11 @@ def _test_x(dataset_key: str) -> tuple[list[int], np.ndarray]:
 def _bundle_predict(bundle_path: Path, x_test: np.ndarray) -> np.ndarray:
     """Load a ``.n4a`` bundle via the public predict path and predict on raw X.
 
-    ``nirs4all.predict(model=path, data=X)`` is the documented detached
-    (no-workspace) bundle prediction surface; the bundle embeds preprocessing,
-    so it predicts on RAW test X and returns y_pred in test-sample order.
+    ``nirs4all.predict(model=path, data=X, engine="legacy")`` is the explicit
+    rollback surface for these legacy-format bundles. The bundle embeds
+    preprocessing, so it predicts on RAW test X in test-sample order.
     """
-    result = nirs4all.predict(model=str(bundle_path), data=x_test)
+    result = nirs4all.predict(model=str(bundle_path), data=x_test, engine="legacy")
     return np.asarray(result.y_pred, dtype=float).ravel()
 
 

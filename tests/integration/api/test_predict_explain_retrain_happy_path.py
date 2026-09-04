@@ -1,5 +1,5 @@
 """
-Strict happy-path integration tests for predict(), explain(), and retrain() (F-01, NF-API-01).
+Strict explicit-rollback happy-path tests for predict(), explain(), and retrain() (F-01, NF-API-01).
 
 These tests exercise the full end-to-end path and NEVER swallow exceptions.
 Any failure in the pipeline path (run → export → predict/explain/retrain) will
@@ -57,14 +57,15 @@ class TestPredictHappyPath:
         X_new = X[:10]
 
         with tempfile.TemporaryDirectory(**_tmpdir_kwargs) as tmpdir:
-            # Train on the strict V1 dag-ml persistence path. The native engine
-            # writes results_path artifacts, not the legacy workspace_path store.
+            # This sklearn bundle exercises the supported rollback lane; the
+            # native default intentionally refuses this non-portable model.
             result = nirs4all.run(
                 pipeline=simple_pipeline,
                 dataset=(X, y),
                 verbose=0,
                 save_artifacts=True,
                 results_path=tmpdir,
+                engine="legacy",
             )
 
             assert result.num_predictions > 0
@@ -79,6 +80,7 @@ class TestPredictHappyPath:
                 model=str(bundle_path),
                 data=X_new,
                 verbose=0,
+                engine="legacy",
             )
 
             # Assert result type and shape
@@ -104,6 +106,7 @@ class TestPredictHappyPath:
                 verbose=0,
                 save_artifacts=True,
                 results_path=tmpdir,
+                engine="legacy",
             )
 
             bundle_path = Path(tmpdir) / "model.n4a"
@@ -113,6 +116,7 @@ class TestPredictHappyPath:
                 model=str(bundle_path),
                 data=X,
                 verbose=0,
+                engine="legacy",
             )
 
             # PredictResult contract
@@ -139,6 +143,7 @@ class TestPredictHappyPath:
                 verbose=0,
                 save_artifacts=True,
                 results_path=tmpdir,
+                engine="legacy",
             )
 
             bundle_path = Path(tmpdir) / "model.n4a"
@@ -149,6 +154,7 @@ class TestPredictHappyPath:
                     model=str(bundle_path),
                     data=X[:n_samples],
                     verbose=0,
+                    engine="legacy",
                 )
                 assert len(pred.y_pred) == n_samples
 
@@ -178,6 +184,7 @@ class TestRetrainHappyPath:
                 verbose=0,
                 save_artifacts=True,
                 results_path=tmpdir,
+                engine="legacy",
             )
 
             bundle_path = Path(tmpdir) / "model.n4a"
@@ -191,6 +198,7 @@ class TestRetrainHappyPath:
                 mode="full",
                 verbose=0,
                 save_artifacts=False,
+                engine="legacy",
             )
 
             assert isinstance(retrain_result, nirs4all.RunResult)
@@ -213,6 +221,7 @@ class TestRetrainHappyPath:
                 verbose=0,
                 save_artifacts=True,
                 results_path=tmpdir,
+                engine="legacy",
             )
 
             bundle_path = Path(tmpdir) / "model.n4a"
@@ -224,6 +233,7 @@ class TestRetrainHappyPath:
                 mode="full",
                 verbose=0,
                 save_artifacts=False,
+                engine="legacy",
             )
 
             validation = retrain_result.validate(raise_on_failure=False)
@@ -252,6 +262,7 @@ class TestRunResultValidateAfterRun:
             dataset=(X, y),
             verbose=0,
             save_artifacts=False,
+            engine="legacy",
         )
 
         report = result.validate()  # Raises on failure

@@ -35,6 +35,7 @@ def test_public_predict_can_publish_workspace_prediction_evidence(monkeypatch, t
         workspace_path=tmp_path / "workspace",
         save_to_workspace=True,
         workspace_result_metadata={"robustness_evidence": {"predictor_bundle": "model.n4a"}},
+        engine="legacy",
     )
     prediction_id = result.metadata["workspace_prediction_id"]
     restored = nirs4all.load_workspace_predict_result(tmp_path / "workspace", prediction_id)
@@ -73,6 +74,7 @@ def test_public_predict_workspace_metadata_is_strict_json_native(monkeypatch, tm
                 workspace_path=tmp_path / "workspace",
                 save_to_workspace=True,
                 workspace_metadata=payload,
+                engine="legacy",
             )
         with pytest.raises(ValueError, match=r"save_workspace_predict_result.result_metadata"):
             nirs4all.predict(
@@ -81,6 +83,7 @@ def test_public_predict_workspace_metadata_is_strict_json_native(monkeypatch, tm
                 workspace_path=tmp_path / "workspace",
                 save_to_workspace=True,
                 workspace_result_metadata=payload,
+                engine="legacy",
             )
 
 
@@ -128,6 +131,7 @@ def test_public_predict_publish_with_chain_id_uses_existing_pipeline(monkeypatch
         data=np.asarray([[1.0, 2.0], [3.0, 4.0]], dtype=float),
         workspace_path=workspace,
         save_to_workspace=True,
+        engine="legacy",
     )
 
     store = WorkspaceStore(workspace)
