@@ -31,7 +31,7 @@ none). Per-sample ``y_pred`` parity defaults to :data:`_DEFAULT_YPRED_TOL`
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -116,7 +116,7 @@ def _run_dagml_leg(case: PipelineCase, dataset: DatasetConfigs) -> tuple[Any, bo
         )
     except RtError as exc:
         return exc, False
-    return dagml, bool(dagml._is_dagml_engine())  # noqa: SLF001
+    return dagml, bool(cast(Any, dagml)._is_dagml_engine())  # noqa: SLF001
 
 
 def dagml_native_status(case: PipelineCase, dataset: DatasetConfigs) -> bool:
@@ -245,6 +245,17 @@ def _close_or_both_nan(a: float, b: float, tol: float) -> bool:
     return bool(abs(a - b) <= tol)
 
 
+def _top_distinct_model_names(result: Any, n: int) -> set[Any]:
+    """Return the model classes of the top ``n`` distinct models.
+
+    ``RunResult.top(n)`` ranks prediction rows, not model classes. A CV-only
+    result can therefore spend all ``n`` slots on different folds and aggregate
+    rows from the same few models. Grouping first keeps each model's best-ranked
+    row, so the structural comparison is independent of fold multiplicity.
+    """
+    return {row.get("model_name") for row in result.top(1, group_by="model_name")[:n]}
+
+
 def assert_runresult_contract(legacy: Any, dagml: Any, case: PipelineCase, num_predictions_exempt: bool = False) -> None:
     """Assert the public ``RunResult`` surface matches across engines.
 
@@ -256,15 +267,15 @@ def assert_runresult_contract(legacy: Any, dagml: Any, case: PipelineCase, num_p
       have an equal plain ``best_accuracy`` while the selected ``balanced_accuracy``
       differs (RF row-order divergence), so ``best_score`` is what must match.
     * ``best_rmse`` / ``best_r2`` (regression) for completeness.
-    * the selected metric NAME, ``num_predictions``, and the top-n model set.
+    * the selected metric NAME, ``num_predictions``, and the top-n distinct-model set.
 
     Float scalars compare within the case's score tolerance (the same cross-engine
     noise ``assert_score_parity`` absorbs); ``_close_or_both_nan`` handles a
-    no-score (NaN-on-both) run; the metric name + top-n model set match exactly.
+    no-score (NaN-on-both) run; the metric name + top-n distinct-model set match exactly.
 
     ``num_predictions_exempt`` (default ``False``) drops ONLY the ``num_predictions``
     equality check — every OTHER field (best_score / best_rmse / best_r2 / the
-    selected-metric name / the top-n model set) is STILL asserted. Set it for a
+    selected-metric name / the top-n distinct-model set) is STILL asserted. Set it for a
     documented :data:`NUM_PREDICTIONS_DIVERGENCE` case whose num_predictions diverges
     BY DESIGN (operator-SELECT refits the winner only); the EXACT documented counts
     are asserted separately by :func:`assert_num_predictions_divergence`, so the count
@@ -299,11 +310,12 @@ def assert_runresult_contract(legacy: Any, dagml: Any, case: PipelineCase, num_p
         f"{case.name}: selected metric legacy={legacy.best.get('metric')!r} dag-ml={dagml.best.get('metric')!r}"
     )
 
-    # top(n) model identities (the leaderboard the public API exposes) must agree
-    # as a SET — both engines must surface the same model classes, order aside.
+    # Compare the top DISTINCT model identities. ``top(n)`` counts prediction rows,
+    # so CV fold/avg duplicates can otherwise consume the five slots and make the
+    # apparent class set depend on tiny platform-specific score-order changes.
     n = 5
-    legacy_models = {r.get("model_name") for r in legacy.top(n)}
-    dagml_models = {r.get("model_name") for r in dagml.top(n)}
+    legacy_models = _top_distinct_model_names(legacy, n)
+    dagml_models = _top_distinct_model_names(dagml, n)
     assert legacy_models == dagml_models, (
         f"{case.name}: top({n}) models diverged: legacy={sorted(legacy_models)} dag-ml={sorted(dagml_models)}"
     )
