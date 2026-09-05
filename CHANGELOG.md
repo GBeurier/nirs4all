@@ -9,30 +9,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
-
-- Add an audit-only, process-local live Methods execution observation on
-  `NativeMethodsRunResult`. Close/detach invalidates that live observation;
-  the retained witness/result are non-serializable, and the claim does not
-  replace the signed outcome or portable package. Core Archive V2 export
-  remains available after release of the live facade.
-- Update the installed-wheel Methods gate to released `dag-ml==0.3.22` and
-  `nirs4all-methods==1.0.13`, proving strict terminal lowerer preflight plus
-  the live claim → close → Archive V2 lifecycle without `N4M_LIB_PATH`.
-
-### Fixed
-
-- Promote only the exact plain `PLSRegression` `refit_params`
-  `{'use_all_partitions': True}` compatibility no-op from the conformance
-  fallback allowlist to native DAG-ML; nearby `refit_params` forms remain
-  fail-closed on the fallback boundary.
-
-The public default engine remains `legacy`; this evidence does not promote the
-native lane or alter the explicit rollback boundary.
-
 ---
 
 ## [1.0.1] — 2026-09-05
+
+### Added
+
+- Added an audit-only, process-local live Methods execution observation on
+  `NativeMethodsRunResult`. Close/detach invalidates that observation; the
+  signed outcome and portable package remain the durable evidence, and Core
+  Archive V2 export remains available after the live façade is released.
+- Added the strict callback-free terminal prediction form with explicit
+  prediction arrays and stable sample identities. Its receipt is process-local
+  and is never serialized into an Archive V2 package.
 
 ### Fixed
 
@@ -43,6 +32,12 @@ native lane or alter the explicit rollback boundary.
 - Restored the bounded Playground analysis and synthetic-dataset façades used
   by Studio, and aligned the release dependency floor with the corrected
   native V1 stack.
+- Closed the installed Playground dataset path on `nirs4all-io>=0.1.18`, and
+  qualified the final stack against `dag-ml==0.3.25`,
+  `dag-ml-data==0.2.11`, `nirs4all-core==0.3.29`, and
+  `nirs4all-methods==1.0.18`.
+- Kept step-level `refit_params` fail-closed in the one remaining explicitly
+  ledgered native coverage refusal; no compatibility fallback is implied.
 
 ---
 

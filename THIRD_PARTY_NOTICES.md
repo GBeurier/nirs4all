@@ -23,6 +23,7 @@ always ships with each upstream project (linked).
 | `optuna` | MIT | Copyright (c) 2018 Preferred Networks, Inc. | https://github.com/optuna/optuna |
 | `joblib` | BSD-3-Clause | Copyright (c) 2008-2021 Gael Varoquaux | https://github.com/joblib/joblib |
 | `jsonschema` | MIT | Copyright (c) 2013 Julian Berman | https://github.com/python-jsonschema/jsonschema |
+| `referencing` | MIT | Copyright (c) 2022 Julian Berman | https://github.com/python-jsonschema/referencing |
 | `pyyaml` | MIT | Copyright (c) 2006-2025 PyYAML contributors | https://github.com/yaml/pyyaml |
 | `packaging` | Apache-2.0 OR BSD-2-Clause | Copyright (c) Donald Stufft and individual contributors | https://github.com/pypa/packaging |
 | `pydantic` | MIT | Copyright (c) 2017-present Pydantic Services Inc. and contributors | https://github.com/pydantic/pydantic |

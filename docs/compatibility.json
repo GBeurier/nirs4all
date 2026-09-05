@@ -3,10 +3,10 @@
   "owner": "nirs4all compatibility ledger",
   "consumer_of": "dag-ml.nirs4all.parity_oracle.v1",
   "last_reconciled": {
-    "date": "2026-07-02",
-    "nirs4all_commit": "3d568abe",
-    "dag_ml_commit": "7f86a9b",
-    "dag_ml_data_commit": "e681685"
+    "date": "2026-09-05",
+    "nirs4all_commit": "1e644457",
+    "dag_ml_commit": "233d4ec",
+    "dag_ml_data_commit": "ffe5337"
   },
   "tolerance_bands": [
     {
