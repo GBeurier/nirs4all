@@ -60,7 +60,6 @@ from .errors import DagMlUnavailable, DagMlUnsupported, _OperatorLoweringUnsuppo
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .finetune_lowering import (
     PUBLIC_DAGML_SELECTION_METRICS,
-    _has_nested_structural_refit_params,
     _is_supported_native_refit_params_noop,
     lower_deterministic_finetune_params_to_generators,
     reject_native_training_param_overrides,
@@ -795,13 +794,8 @@ def _dispatch_run(
     reject_native_training_param_overrides(
         list(pipeline),
         context="engine='dag-ml'",
-        allowed_keys=frozenset({"refit_params"}) if refit_params_noop else frozenset(),
+        allowed_keys=frozenset({"train_params", "refit_params"}),
     )
-    if not refit_params_noop and _has_nested_structural_refit_params(pipeline):
-        raise NotImplementedError(
-            "engine='dag-ml' does not support nested step-level refit_params; "
-            "running natively would ignore refit arguments"
-        )
     from .training_controls import validate_training_control_declarations
 
     validation_pipeline = [
@@ -810,7 +804,12 @@ def _dispatch_run(
         else step
         for step in pipeline
     ]
-    validate_training_control_declarations(validation_pipeline)
+    try:
+        validate_training_control_declarations(validation_pipeline)
+    except (TypeError, ValueError) as exc:
+        raise NotImplementedError(
+            f"engine='dag-ml' rejected invalid train_params/refit_params declarations: {exc}"
+        ) from exc
     config_name = resolved_config_name if resolved_config_name is not None else _derive_config_name(pipeline, name)
     # The ordered legacy per-variant config names for a SWEEP (empty for a single concrete pipeline). The
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
