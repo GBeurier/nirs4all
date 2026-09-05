@@ -27,6 +27,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from nirs4all.pipeline.dagml.operator_parameters import decode_constructor_value
+
 # Short model name → fully-qualified class. Covers the parity baseline models; extend as
 # cases land. No fuzzy lookup: an unknown name fails loudly rather than mis-resolving.
 _MODEL_TABLE: dict[str, str] = {
@@ -155,7 +157,7 @@ def route_operator(
         params: operator constructor params.
         variant_overrides: per-variant params that win over ``params`` (generator sweeps).
     """
-    merged = {**(params or {}), **(variant_overrides or {})}
+    merged = decode_constructor_value({**(params or {}), **(variant_overrides or {})})
     if operator_kind == "model":
         # Short aliases stay supported; otherwise the model id IS a fully-qualified class (the bridge
         # now emits FQNs), so any sklearn-style estimator — regressor or classifier — is imported.
@@ -169,7 +171,13 @@ def route_operator(
     if fqn in _METHODS_SNV_FQNS:
         _assert_methods_snv_available()
     cls = _import_class(fqn)
-    return cls(**_coerce_json_params(cls, merged))
+    nested = {key: value for key, value in merged.items() if "__" in key} if callable(getattr(cls, "set_params", None)) else {}
+    constructor = {key: value for key, value in merged.items() if key not in nested}
+    instance = cls(**_coerce_json_params(cls, constructor))
+    if nested:
+        defaults = instance.get_params(deep=True)
+        instance.set_params(**{key: _coerce_one(value, defaults.get(key)) for key, value in nested.items()})
+    return instance
 
 
 def _coerce_one(value: Any, default: Any) -> Any:
