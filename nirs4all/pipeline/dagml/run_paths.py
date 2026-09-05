@@ -9,6 +9,7 @@ into a :class:`~nirs4all.api.result.RunResult`.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -1929,111 +1930,20 @@ def _run_duplication_merge_all_branch_result(
     task_type: str,
     config_name: str,
 ) -> RunResult:
-    """Project legacy-shaped branch-local model rows for duplication ``merge='all'``."""
+    """Project branch rows with preprocessing fitted only on each fold's train."""
     train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
     test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
     folds = _build_folds(splitter, spectro, train_pool, set())
-    transforms, model_template, X_train_all = _fit_global_branch_transforms(branch, spectro, train_pool)
-    X_test = _transform_branch_matrix(spectro, test_pool, transforms) if test_pool else np.empty((0, X_train_all.shape[1]))
-    y_train_all = _dataset_y_rows(spectro, train_pool)
-    y_test = _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1))
-    train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
-
-    predictions = Predictions()
-    fold_models: list[Any] = []
-    fold_val_samples: list[list[int]] = []
-    fold_val_scores: list[float] = []
-    model_name = type(model_template).__name__
-    n_features = int(X_train_all.shape[1]) if X_train_all.ndim > 1 else 1
-
-    for fold_index, (fold_train, fold_val) in enumerate(folds):
-        train_rows = [train_position[int(sample_int)] for sample_int in fold_train]
-        val_rows = [train_position[int(sample_int)] for sample_int in fold_val]
-        model = _clone_operator_instance(model_template)
-        model.fit(X_train_all[train_rows], _dataset_y_rows(spectro, fold_train))
-        fold_models.append(model)
-        fold_val_samples.append([int(sample_int) for sample_int in fold_val])
-
-        pred_by_partition = {
-            "train": np.asarray(model.predict(X_train_all[train_rows])),
-            "val": np.asarray(model.predict(X_train_all[val_rows])),
-            "test": np.asarray(model.predict(X_test)) if len(test_pool) else np.array([]),
-        }
-        y_by_partition = {
-            "train": _dataset_y_rows(spectro, fold_train),
-            "val": _dataset_y_rows(spectro, fold_val),
-            "test": y_test,
-        }
-        scores = {partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type) for partition in pred_by_partition if len(y_by_partition[partition]) and len(pred_by_partition[partition])}
-        fold_val_scores.append(float(scores["val"][metric]))
-        _add_scored_prediction_rows(
-            predictions,
-            spectro=spectro,
-            config_name=config_name,
-            model_name=model_name,
-            model_classname=model_name,
-            fold_id=str(fold_index),
-            scores=scores,
-            y_by_partition=y_by_partition,
-            pred_by_partition=pred_by_partition,
-            samples_by_partition={"train": [int(sample_int) for sample_int in fold_train], "val": [int(sample_int) for sample_int in fold_val], "test": test_pool},
-            metric=metric,
-            task_type=task_type,
-            n_features=n_features,
-            branch_id=branch_index,
-            branch_name=branch_name,
-        )
-
-    if len(fold_models) > 1:
-        weights = EnsembleUtils._scores_to_weights(np.asarray(fold_val_scores, dtype=float), higher_is_better=is_higher_better(metric))
-        all_train_preds = [np.asarray(model.predict(X_train_all)) for model in fold_models]
-        all_test_preds = [np.asarray(model.predict(X_test)) for model in fold_models] if len(test_pool) else []
-        oof_val_preds = [
-            np.asarray(model.predict(X_train_all[[train_position[int(sample_int)] for sample_int in fold_val]]))
-            for model, fold_val in zip(fold_models, fold_val_samples, strict=True)
-        ]
-        y_val_oof = np.vstack([_dataset_y_rows(spectro, fold_val) for fold_val in fold_val_samples])
-        val_samples = [sample_int for fold_val in fold_val_samples for sample_int in fold_val]
-
-        avg_pred_by_partition = {
-            "train": np.mean(all_train_preds, axis=0),
-            "val": np.concatenate(oof_val_preds) if oof_val_preds else np.array([]),
-            "test": np.mean(all_test_preds, axis=0) if all_test_preds else np.array([]),
-        }
-        w_avg_pred_by_partition = {
-            "train": np.sum([weight * pred for weight, pred in zip(weights, all_train_preds, strict=False)], axis=0),
-            "val": avg_pred_by_partition["val"],
-            "test": np.sum([weight * pred for weight, pred in zip(weights, all_test_preds, strict=False)], axis=0) if all_test_preds else np.array([]),
-        }
-        y_by_partition = {"train": y_train_all, "val": y_val_oof, "test": y_test}
-        samples_by_partition = {"train": train_pool, "val": val_samples, "test": test_pool}
-        for fold_id, pred_by_partition, row_weights in (("avg", avg_pred_by_partition, None), ("w_avg", w_avg_pred_by_partition, weights)):
-            scores = {
-                partition: _score_block(y_by_partition[partition], pred_by_partition[partition], task_type)
-                for partition in pred_by_partition
-                if len(y_by_partition[partition]) and len(pred_by_partition[partition])
-            }
-            _add_scored_prediction_rows(
-                predictions,
-                spectro=spectro,
-                config_name=config_name,
-                model_name=model_name,
-                model_classname=model_name,
-                fold_id=fold_id,
-                scores=scores,
-                y_by_partition=y_by_partition,
-                pred_by_partition=pred_by_partition,
-                samples_by_partition=samples_by_partition,
-                metric=metric,
-                task_type=task_type,
-                n_features=n_features,
-                branch_id=branch_index,
-                branch_name=branch_name,
-                weights=row_weights,
-            )
-
-    predictions.flush()
-    return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+    model_step, X_train, X_test, preprocessing = _prepare_named_branch_feature_matrix(branch, spectro, train_pool, test_pool)
+    return _run_model_on_precomputed_matrix(
+        X_train, X_test,
+        _dataset_y_rows(spectro, train_pool),
+        _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1)),
+        train_pool, test_pool, folds, model_step["model"], spectro,
+        metric, task_type, config_name,
+        branch_id=branch_index, branch_name=branch_name,
+        preprocessing=preprocessing,
+    )
 
 
 def _run_model_on_precomputed_matrix(
@@ -2054,6 +1964,7 @@ def _run_model_on_precomputed_matrix(
     branch_name: str,
     include_refit: bool = False,
     preprocessing: list[Any] | None = None,
+    matrix_for_fit: Callable[[list[int]], tuple[np.ndarray, np.ndarray]] | None = None,
 ) -> RunResult:
     """Run legacy-shaped CV rows for a model over an already materialized feature matrix."""
     train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
@@ -2065,19 +1976,22 @@ def _run_model_on_precomputed_matrix(
     model_name = type(model_template).__name__
     model_template = _with_fold_preprocessing(model_template, preprocessing)
     n_features = int(X_train_all.shape[1]) if X_train_all.ndim > 1 else 1
+    fold_matrices: list[tuple[np.ndarray, np.ndarray]] = []
 
     for fold_index, (fold_train, fold_val) in enumerate(folds):
         train_rows = [train_position[int(sample_int)] for sample_int in fold_train]
         val_rows = [train_position[int(sample_int)] for sample_int in fold_val]
+        fold_X, fold_test_X = matrix_for_fit(fold_train) if matrix_for_fit is not None else (X_train_all, X_test)
+        fold_matrices.append((fold_X, fold_test_X))
         model = _clone_operator_instance(model_template)
-        model.fit(X_train_all[train_rows], _dataset_y_rows(spectro, fold_train))
+        model.fit(fold_X[train_rows], _dataset_y_rows(spectro, fold_train))
         fold_models.append(model)
         fold_val_samples.append([int(sample_int) for sample_int in fold_val])
 
         pred_by_partition = {
-            "train": np.asarray(model.predict(X_train_all[train_rows])),
-            "val": np.asarray(model.predict(X_train_all[val_rows])),
-            "test": np.asarray(model.predict(X_test)) if len(test_pool) else np.array([]),
+            "train": np.asarray(model.predict(fold_X[train_rows])),
+            "val": np.asarray(model.predict(fold_X[val_rows])),
+            "test": np.asarray(model.predict(fold_test_X)) if len(test_pool) else np.array([]),
         }
         y_by_partition = {
             "train": _dataset_y_rows(spectro, fold_train),
@@ -2106,11 +2020,11 @@ def _run_model_on_precomputed_matrix(
 
     if len(fold_models) > 1:
         weights = EnsembleUtils._scores_to_weights(np.asarray(fold_val_scores, dtype=float), higher_is_better=is_higher_better(metric))
-        all_train_preds = [np.asarray(model.predict(X_train_all)) for model in fold_models]
-        all_test_preds = [np.asarray(model.predict(X_test)) for model in fold_models] if len(test_pool) else []
+        all_train_preds = [np.asarray(model.predict(matrices[0])) for model, matrices in zip(fold_models, fold_matrices, strict=True)]
+        all_test_preds = [np.asarray(model.predict(matrices[1])) for model, matrices in zip(fold_models, fold_matrices, strict=True)] if len(test_pool) else []
         oof_val_preds = [
-            np.asarray(model.predict(X_train_all[[train_position[int(sample_int)] for sample_int in fold_val]]))
-            for model, fold_val in zip(fold_models, fold_val_samples, strict=True)
+            np.asarray(model.predict(matrices[0][[train_position[int(sample_int)] for sample_int in fold_val]]))
+            for model, fold_val, matrices in zip(fold_models, fold_val_samples, fold_matrices, strict=True)
         ]
         y_val_oof = np.vstack([_dataset_y_rows(spectro, fold_val) for fold_val in fold_val_samples])
         val_samples = [sample_int for fold_val in fold_val_samples for sample_int in fold_val]
@@ -2158,6 +2072,8 @@ def _run_model_on_precomputed_matrix(
             )
 
     if include_refit:
+        if matrix_for_fit is not None:
+            X_train_all, X_test = matrix_for_fit(train_pool)
         model = _clone_operator_instance(model_template)
         model.fit(X_train_all, y_train_all)
         pred_by_partition = {
@@ -2257,7 +2173,7 @@ def _filter_y_arg(values: np.ndarray) -> np.ndarray:
     return values.flatten() if values.ndim > 1 else values
 
 
-def _tag_branch_values(pipeline: list[Any], spectro: Any, key: str) -> dict[int, str]:
+def _tag_branch_values(pipeline: list[Any], spectro: Any, key: str, fit_pool: list[int]) -> dict[int, str]:
     """Compute the boolean tag values produced by the matching top-level tag step."""
     from nirs4all.pipeline.dagml.steps import _taggers_from_step
 
@@ -2279,7 +2195,7 @@ def _tag_branch_values(pipeline: list[Any], spectro: Any, key: str) -> dict[int,
     filter_obj = _clone_operator_instance(filter_obj)
     x_rows = np.asarray(spectro.x_rows(sample_ints, layout="2d"))
     y_rows = _filter_y_arg(_dataset_y_rows(spectro, sample_ints))
-    filter_obj.fit(x_rows, y_rows)
+    filter_obj.fit(np.asarray(spectro.x_rows(fit_pool, layout="2d")), _filter_y_arg(_dataset_y_rows(spectro, fit_pool)))
     mask = np.asarray(filter_obj.get_mask(x_rows, y_rows), dtype=bool)
     if mask.shape[0] != len(sample_ints):
         raise ValueError(f"tag filter {filter_obj.__class__.__name__} returned {mask.shape[0]} masks for {len(sample_ints)} samples")
@@ -2321,7 +2237,7 @@ def _separation_branch_values(
         values = spectro.metadata_column(key, {})
         return {sample_int: str(value) for sample_int, value in zip(sample_ints, values, strict=True)}
     if "by_tag" in criterion:
-        return _tag_branch_values(pipeline, spectro, str(criterion["by_tag"]))
+        return _tag_branch_values(pipeline, spectro, str(criterion["by_tag"]), train_pool)
     if "by_filter" in criterion:
         return _filter_branch_values(criterion, spectro, train_pool)
     raise DagMlUnsupported("separation preprocessing concat requires by_metadata, by_tag, or by_filter")
@@ -2373,9 +2289,11 @@ def _separation_preproc_train_test_matrices(
     steps: Any,
     train_pool: list[int],
     test_pool: list[int],
+    fit_pool: list[int] | None = None,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Apply branch preprocessing once per branch and reassemble train/test rows."""
-    value_by_sample = _separation_branch_values(pipeline, spectro, criterion, train_pool)
+    """Fit on the designated fold only, then reassemble all requested rows."""
+    fit_pool = train_pool if fit_pool is None else fit_pool
+    value_by_sample = _separation_branch_values(pipeline, spectro, criterion, fit_pool)
     out_train: np.ndarray | None = None
     out_test: np.ndarray | None = None
     assigned_train: set[int] = set()
@@ -2389,13 +2307,12 @@ def _separation_preproc_train_test_matrices(
         if not train_samples and not test_samples:
             continue
         body_steps = _separation_preproc_steps_for_branch(steps, branch_name)
-        # Legacy branch transforms fit against the branch context's train selector,
-        # which is the full train partition; sample membership is applied later by
-        # concat merge when it selects rows from each branch snapshot.
-        current_fit = np.asarray(spectro.x_rows(train_pool, layout="2d"))
+        # Membership selects rows at concat time, as in the public branch
+        # contract, but fitted state must observe only the current fold-train.
+        current_fit = np.asarray(spectro.x_rows(fit_pool, layout="2d"))
         current_train = np.asarray(spectro.x_rows(train_samples, layout="2d"))
         current_test = np.asarray(spectro.x_rows(test_samples, layout="2d")) if test_samples else np.empty((0, current_fit.shape[1]))
-        y_fit = _dataset_y_rows(spectro, train_pool)
+        y_fit = _dataset_y_rows(spectro, fit_pool)
         for step in body_steps:
             transform = _clone_operator_instance(step)
             transform.fit(current_fit, y_fit)
@@ -2450,14 +2367,14 @@ def _run_separation_preproc_concat(
     train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
     test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
     folds = _build_folds(splitter, spectro, train_pool, set())
-    X_train, X_test = _separation_preproc_train_test_matrices(
-        pipeline,
-        spectro,
-        criterion=criterion,
-        steps=preproc_body,
-        train_pool=train_pool,
-        test_pool=test_pool,
-    )
+    X_train = np.asarray(spectro.x_rows(train_pool, layout="2d"))
+    X_test = np.asarray(spectro.x_rows(test_pool, layout="2d")) if test_pool else np.empty((0, X_train.shape[1]))
+
+    def matrix_for_fit(fit_pool: list[int]) -> tuple[np.ndarray, np.ndarray]:
+        return _separation_preproc_train_test_matrices(
+            pipeline, spectro, criterion=criterion, steps=preproc_body,
+            train_pool=train_pool, test_pool=test_pool, fit_pool=fit_pool,
+        )
 
     return _run_model_on_precomputed_matrix(
         X_train,
@@ -2475,6 +2392,7 @@ def _run_separation_preproc_concat(
         branch_id=None,
         branch_name="",
         include_refit=True,
+        matrix_for_fit=matrix_for_fit,
     )
 
 

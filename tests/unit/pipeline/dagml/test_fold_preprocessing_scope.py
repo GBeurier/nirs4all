@@ -43,7 +43,12 @@ class FoldData:
     def index_column(self, column: str, selector: dict[str, Any]) -> list[int]:
         if "sample" in selector:
             return sorted(selector["sample"])
+        if not selector:
+            return list(range(7))
         return list(range(6)) if selector["partition"] == "train" else [6]
+
+    def metadata_column(self, column: str, selector: dict[str, Any]) -> np.ndarray:
+        return np.asarray(["a", "b", "a", "b", "a", "b", "a"])
 
 
 @pytest.fixture
@@ -78,6 +83,33 @@ def test_validation_changes_do_not_change_first_fold_preprocessing_fit(fold_scop
     second = run_paths._run_concat_transform_prematerialized(pipeline, data, "rmse", "regression")
     assert RecordingTransform.fits[0] == initial_fit
     second.close()
+
+
+def test_duplication_branch_preprocessing_fits_each_fold_only(fold_scope: Any) -> None:
+    data, folds = fold_scope
+    result = run_paths._run_duplication_merge_all_branch_result(
+        [RecordingTransform(), {"model": Ridge()}], 0, "branch", KFold(3), data, "rmse", "regression", "scope",
+    )
+    assert RecordingTransform.fits == [
+        (tuple(data.X[train, 0]), tuple(data.targets[train].ravel())) for train, _ in folds
+    ]
+    result.close()
+
+
+def test_separation_preprocessing_is_fitted_again_for_each_fold(fold_scope: Any) -> None:
+    data, folds = fold_scope
+    branch = {"branch": {"by_metadata": "group", "steps": [RecordingTransform()]}}
+    pipeline = [KFold(3), branch, {"merge": "concat"}, {"model": Ridge()}]
+    result = run_paths._run_separation_preproc_concat(
+        pipeline, branch, [RecordingTransform()], [{"model": Ridge()}], data, "rmse", "regression",
+    )
+    expected = [
+        (tuple(data.X[train, 0]), tuple(data.targets[train].ravel()))
+        for train, _ in folds for _branch in range(2)
+    ]
+    assert RecordingTransform.fits[:6] == expected
+    assert RecordingTransform.fits[6:] == [(tuple(data.X[:6, 0]), tuple(data.targets[:6].ravel()))] * 2
+    result.close()
 
 
 def test_named_branch_keeps_transform_unfitted_until_fold_training(fold_scope: Any) -> None:
