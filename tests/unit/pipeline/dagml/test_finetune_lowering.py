@@ -77,6 +77,20 @@ def test_native_refit_noop_proof_is_exact_and_preserves_original_config() -> Non
     assert _derive_config_name(pipeline, "") == "config_b2d6a46d"
 
 
+def test_native_refit_noop_is_not_serialized_as_pls_fit_metadata() -> None:
+    """The admitted controller no-op must not leak into ``PLSRegression.fit``."""
+
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    refit_params = {"use_all_partitions": True}
+    model_step = {"model": PLSRegression(n_components=2), "refit_params": refit_params}
+
+    dsl_step = _step_to_dsl(model_step)
+
+    assert "metadata" not in dsl_step
+    assert model_step["refit_params"] is refit_params
+
+
 def test_public_dispatch_routes_proven_refit_noop_without_mutating_config(monkeypatch: pytest.MonkeyPatch) -> None:
     """The accepted key reaches native lowering unchanged and retains its legacy hash."""
 
