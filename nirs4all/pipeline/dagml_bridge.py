@@ -1017,36 +1017,51 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
 
     After single-source ``feature_augmentation``, ordinary X transforms append
     to EACH channel's chain before flattening for a 2D model. They must never
-    run on the already-concatenated matrix. All channel estimators still fit on
-    fold-training rows through the normal DAG X-chain. Nested augmentation and
-    concat processing-axis changes require a separately qualified lowering.
+    run on the already-concatenated matrix. Repeated augmentations retain the
+    stored layers separately from the active processing selection: ``replace``
+    changes that selection but legacy 2D model materialization retains all layers.
+    All channel estimators fit on fold-training rows through the normal DAG X-chain.
 
     Raises:
         NotImplementedError: if a step uses a construct the spike does not yet cover.
     """
     lowered: list[dict[str, Any]] = []
     channels: dict[str, Any] | None = None
+    active_channels: list[int] = []
     channel_model_seen = False
     for step in pipeline:
         if channels is not None and _is_x_node_step(step):
             if channel_model_seen:
                 raise NotImplementedError("Expand sequential model checkpoints before lowering later per-channel transforms")
             if isinstance(step, dict):
-                raise NotImplementedError(
-                    "dag-ml bridge does not lower a `feature_augmentation` followed by "
-                    "`concat_transform` or a second `feature_augmentation`; these processing-axis "
-                    "changes need a qualified channel lowering (backlog #29/#31)"
-                )
+                if "feature_augmentation" not in step:
+                    raise NotImplementedError("concat_transform after feature_augmentation needs a qualified processing-axis lowering")
+                additions = _lower_feature_augmentation(step)["params"]["operations"][1:]
+                layers = channels["params"]["operations"]
+                action = step.get("action", "add")
+                source_indices = active_channels[:1] if action == "extend" else active_channels
+                new_layers = [
+                    [*(layers[index] if isinstance(layers[index], list) else [] if layers[index] is None else [layers[index]]),
+                     *(operation if isinstance(operation, list) else [operation])]
+                    for operation in additions for index in source_indices
+                ]
+                layers.extend(new_layers)
+                # The historical replace controller excludes its former active
+                # selection, not all previously stored channels. Inactive layers
+                # remain materialized and may become active again at this step.
+                active_channels = [index for index in range(len(layers)) if action != "replace" or index not in active_channels]
+                continue
             operation = _concat_operation_spec(step)
             channels["params"]["operations"] = [
-                [*(layer if isinstance(layer, list) else [] if layer is None else [layer]), operation]
-                for layer in channels["params"]["operations"]
+                [*(layer if isinstance(layer, list) else [] if layer is None else [layer]), operation] if index in active_channels else layer
+                for index, layer in enumerate(channels["params"]["operations"])
             ]
             continue
         node = _step_to_dsl(step)
         lowered.append(node)
         if isinstance(step, dict) and "feature_augmentation" in step:
             channels = node
+            active_channels = list(range(1 if step.get("action") == "replace" else 0, len(node["params"]["operations"])))
         elif channels is not None and isinstance(step, dict) and "model" in step:
             channel_model_seen = True
     return {"id": dsl_id, "pipeline": lowered}
