@@ -497,7 +497,7 @@ class DatasetConfigs:
         # no base_dir to re-load it. Reuse the from_io override-threading path so
         # io-side inference can still be overridden identically.
         configs = cls.from_io(
-            plan,
+            plan.resolved_spec,
             task_type=task_type,
             signal_type=signal_type,
             repetition=repetition,
@@ -778,4 +778,3 @@ class DatasetConfigs:
 
     def get_datasets(self) -> list[SpectroDataset]:
         return list(self.iter_datasets())
-
