@@ -145,6 +145,181 @@ def test_execute_training_forwards_to_facade_without_contract_reimplementation(
     ]
 
 
+def test_execute_methods_training_forwards_without_a_python_operator_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_methods_training"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    sentinel = object()
+
+    def execute_methods_training(*args: Any, **kwargs: Any) -> object:
+        calls.append((args, kwargs))
+        return sentinel
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(module_name, execute_methods_training=execute_methods_training),
+    )
+
+    result = DagMLNativeClient(module_name).execute_methods_training(
+        {"request": True},
+        {"model:base.x": {"envelope": True}},
+        {"relations": True},
+        {"influence": True},
+        {"model:base.x": {"x": [[1.0]], "y": [[2.0]]}},
+        methods_library_path="/absolute/libn4m.so",
+        outcome_id="outcome-1",
+        run_id="run-1",
+        bundle_id="bundle-1",
+    )
+
+    assert result is sentinel
+    assert calls == [
+        (
+            (
+                {"request": True},
+                {"model:base.x": {"envelope": True}},
+                {"relations": True},
+                {"influence": True},
+                {"model:base.x": {"x": [[1.0]], "y": [[2.0]]}},
+            ),
+            {
+                "methods_library_path": "/absolute/libn4m.so",
+                "outcome_id": "outcome-1",
+                "run_id": "run-1",
+                "bundle_id": "bundle-1",
+                "warnings": (),
+                "diagnostics": None,
+            },
+        )
+    ]
+
+
+def test_execute_methods_terminal_predict_forwards_without_a_callback_or_generic_training(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_methods_terminal"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+    sentinel = object()
+
+    def terminal_predict(*args: Any, **kwargs: Any) -> object:
+        calls.append((args, kwargs))
+        return sentinel
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(
+            module_name,
+            execute_methods_cv_refit_terminal_predict=terminal_predict,
+            execute_methods_training=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("strict terminal client selected generic Methods training")
+            ),
+        ),
+    )
+
+    result = DagMLNativeClient(module_name).execute_methods_cv_refit_terminal_predict(
+        {"request": "strict"},
+        {"model:terminal.x": {"envelope": "fit"}},
+        {"records": []},
+        {"entries": []},
+        {"model:terminal.x": {"sample_ids": ["fit-a"], "x": [[1.0]], "y": [[2.0]]}},
+        {"schema_version": 2, "predict_cohort": {"role": "inference"}},
+        {"sample_ids": ["predict-a"], "x": [[3.0]], "target_names": ["y"]},
+        methods_library_path="/absolute/libn4m.so",
+        outcome_id="outcome:terminal",
+        run_id="run:terminal",
+        bundle_id="bundle:terminal",
+        package_id="package:terminal",
+        terminal_node_id="model:terminal",
+        terminal_port="oof",
+    )
+
+    assert result is sentinel
+    assert calls == [
+        (
+            (
+                {"request": "strict"},
+                {"model:terminal.x": {"envelope": "fit"}},
+                {"records": []},
+                {"entries": []},
+                {"model:terminal.x": {"sample_ids": ["fit-a"], "x": [[1.0]], "y": [[2.0]]}},
+                {"schema_version": 2, "predict_cohort": {"role": "inference"}},
+                {"sample_ids": ["predict-a"], "x": [[3.0]], "target_names": ["y"]},
+            ),
+            {
+                "methods_library_path": "/absolute/libn4m.so",
+                "outcome_id": "outcome:terminal",
+                "run_id": "run:terminal",
+                "bundle_id": "bundle:terminal",
+                "package_id": "package:terminal",
+                "terminal_node_id": "model:terminal",
+                "terminal_port": "oof",
+                "warnings": (),
+                "diagnostics": None,
+            },
+        )
+    ]
+
+
+def test_portable_full_refit_and_v3_replay_forward_without_python_sidecars(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_methods_v3"
+    calls: list[tuple[str, tuple[Any, ...], dict[str, Any]]] = []
+    package = {"schema_version": 2}
+    child = {"schema_version": 3}
+
+    def refit(*args: Any, **kwargs: Any) -> object:
+        calls.append(("refit", args, kwargs))
+        return child
+
+    def replay(*args: Any, **kwargs: Any) -> object:
+        calls.append(("replay", args, kwargs))
+        return {"outcome": "v3"}
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(
+            module_name,
+            execute_methods_portable_full_refit=refit,
+            replay_loaded_methods_portable_refit_package_v3=replay,
+        ),
+    )
+    client = DagMLNativeClient(module_name)
+    assert client.module_name == module_name
+    assert client.execute_methods_portable_full_refit(
+        package,
+        {"request": "target"},
+        {"model.x": {"envelope": True}},
+        {"relations": True},
+        {"influence": True},
+        {"model.x": {"x": [[1.0]], "y": [[2.0]]}},
+        methods_library_path="/absolute/libn4m.so",
+        recipe_id="recipe:target",
+        package_id="package:target",
+        outcome_id="outcome:target",
+        run_id="run:target",
+        bundle_id="bundle:target",
+    ) is child
+    assert client.replay_loaded_methods_portable_refit_package_v3(
+        child,
+        {"phase": "PREDICT"},
+        {"model.x": {"envelope": True}},
+        {"model.x": {"x": [[1.0]]}},
+        methods_library_path="/absolute/libn4m.so",
+        outcome_id="outcome:replay",
+        run_id="run:replay",
+    ) == {"outcome": "v3"}
+    assert [name for name, _args, _kwargs in calls] == ["refit", "replay"]
+    assert calls[0][1][0] is package
+    assert calls[0][2]["recipe_id"] == "recipe:target"
+    assert calls[1][1][0] is child
+    assert calls[1][2]["methods_library_path"] == "/absolute/libn4m.so"
+
+
 def test_replay_loaded_predictor_package_forwards_to_facade(monkeypatch: pytest.MonkeyPatch) -> None:
     module_name = "_n4a_fake_dag_ml_replay"
     calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
@@ -198,6 +373,35 @@ def test_replay_loaded_predictor_package_forwards_to_facade(monkeypatch: pytest.
             },
         )
     ]
+
+
+def test_replay_loaded_predictor_package_forwards_opt_in_artifact_callback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    module_name = "_n4a_fake_dag_ml_replay_artifact"
+    calls: list[tuple[tuple[Any, ...], dict[str, Any]]] = []
+
+    def replay_loaded_predictor_package(*args: Any, **kwargs: Any) -> object:
+        calls.append((args, kwargs))
+        return object()
+
+    monkeypatch.setitem(
+        sys.modules,
+        module_name,
+        _fake_module(module_name, replay_loaded_predictor_package=replay_loaded_predictor_package),
+    )
+    artifact_callback = lambda event: None  # noqa: E731
+    DagMLNativeClient(module_name).replay_loaded_predictor_package(
+        {"package": True},
+        {"phase": "PREDICT"},
+        {"envelope": True},
+        {},
+        lambda task: {"task": task},
+        outcome_id="replay-outcome",
+        run_id="replay-run",
+        artifact_callback=artifact_callback,
+    )
+    assert calls[0][1]["artifact_callback"] is artifact_callback
 
 
 def test_non_object_contract_manifest_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:

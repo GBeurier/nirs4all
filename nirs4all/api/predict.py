@@ -45,8 +45,11 @@ from nirs4all.pipeline import PipelineRunner
 from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import report_explicit_legacy_engine, resolve_engine
 
+from .native_refit_result import NativeMethodsRefitResult
+from .native_result import NativeMethodsRunResult
+from .native_session import NativeMethodsSession
 from .result import PredictResult
-from .session import Session
+from .session import NativeArchiveSession, Session
 
 # Type aliases for clarity
 ModelSpec: TypeAlias = (
@@ -210,10 +213,21 @@ def predict(
         - :class:`nirs4all.api.result.PredictResult`: Result class
     """
     requested_engine = runner_kwargs.pop("engine", None)
-    engine = resolve_engine(
-        requested_engine,
-        allow_fallback=bool(runner_kwargs.pop("allow_fallback", False)),
+    native_source = isinstance(session, (NativeArchiveSession, NativeMethodsSession)) or isinstance(
+        model, (NativeMethodsRunResult, NativeMethodsRefitResult)
     )
+    engine = (
+        "native"
+        if native_source and requested_engine is None
+        else resolve_engine(
+            requested_engine,
+            allow_fallback=bool(runner_kwargs.pop("allow_fallback", False)),
+        )
+    )
+    if native_source and engine != "native":
+        raise ValueError(
+            "a native Methods result or session selects native prediction; an explicit non-native engine is refused"
+        )
     report_explicit_legacy_engine(requested_engine, engine, operation="predict")
     if engine == "legacy" and isinstance(session, Session):
         session._prepare_legacy_access("predict")
@@ -221,10 +235,62 @@ def predict(
     # ---- Validate mutually exclusive arguments ----
     if model is not None and chain_id is not None:
         raise ValueError("Provide either 'model' or 'chain_id', not both.")
-    if model is None and chain_id is None:
+    if model is None and chain_id is None and not isinstance(session, (NativeArchiveSession, NativeMethodsSession)):
         raise ValueError("Provide either 'model' or 'chain_id'.")
     if data is None:
         raise ValueError("'data' is required.")
+
+    explicit_sample_ids = runner_kwargs.pop("sample_ids", None)
+    methods_library_path = runner_kwargs.get("methods_library_path")
+    if explicit_sample_ids is not None:
+        if isinstance(data, Mapping):
+            if "sample_ids" in data:
+                raise ValueError("native prediction receives sample_ids either in data or as a keyword, not both")
+            data = {**data, "sample_ids": explicit_sample_ids}
+        else:
+            data = {"X": data, "sample_ids": explicit_sample_ids}
+
+    published_native_object = isinstance(model, (NativeMethodsRunResult, NativeMethodsRefitResult))
+    published_native_session = isinstance(session, (NativeArchiveSession, NativeMethodsSession))
+    if published_native_object or published_native_session:
+        if engine != "native":
+            raise ValueError("native Methods results and sessions require engine='native'")
+        if published_native_session and model is not None:
+            raise ValueError("engine='native' accepts either model or NativeMethodsSession, not both")
+        if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
+            raise TypeError("engine='native' prediction requires data={'X': matrix, 'sample_ids': explicit_ids}")
+        if all_predictions or coverage is not None:
+            raise NotImplementedError(
+                "in-memory native Methods prediction exposes one selected point output without interval selection"
+            )
+        if published_native_session:
+            assert isinstance(session, (NativeArchiveSession, NativeMethodsSession))
+            return session.predict(
+                data["X"],
+                sample_ids=data["sample_ids"],
+                groups=data.get("groups"),
+                metadata=data.get("metadata"),
+            )
+        if isinstance(model, NativeMethodsRefitResult):
+            return model.predict(
+                data["X"],
+                sample_ids=data["sample_ids"],
+                groups=data.get("groups"),
+                metadata=data.get("metadata"),
+            )
+        assert isinstance(model, NativeMethodsRunResult)
+        values = model.native_estimator.predict_with_identity(
+            data["X"],
+            sample_ids=data["sample_ids"],
+            groups=data.get("groups"),
+            metadata=data.get("metadata"),
+        )
+        return PredictResult(
+            y_pred=np.asarray(values),
+            metadata={"engine": "native", "sample_ids": list(data["sample_ids"])},
+            model_name="MethodsN4MM",
+            preprocessing_steps=[],
+        )
 
     core_archive_version: int | None = None
     if isinstance(model, (str, Path)):
@@ -242,9 +308,17 @@ def predict(
                 "recognized Core archives cannot be replayed with the legacy engine"
             )
         if core_archive_version == 3:
-            raise NotImplementedError(
-                "Core Archive V3 is a target-bound full-refit/retrain package, "
-                "not a serialized-model prediction artifact"
+            if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
+                raise TypeError("Core Archive V3 prediction requires data={'X': matrix, 'sample_ids': explicit_ids}")
+            native_refit = NativeMethodsRefitResult.load_archive(
+                model,
+                methods_library_path=methods_library_path,
+            )
+            return native_refit.predict(
+                data["X"],
+                sample_ids=data["sample_ids"],
+                groups=data.get("groups"),
+                metadata=data.get("metadata"),
             )
         if session is not None:
             raise ValueError("Core Archive V2 prediction does not accept a legacy Session")
@@ -274,6 +348,27 @@ def predict(
             metadata=metadata,
             model_name="MethodsN4MM",
             preprocessing_steps=[],
+        )
+
+    if engine == "native" and isinstance(model, (str, Path)) and Path(model).suffix.lower() == ".n4a":
+        if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
+            raise TypeError("native archive prediction requires data={'X': matrix, 'sample_ids': explicit_ids}")
+        from nirs4all.pipeline.dagml.native_archive_replay import predict_methods_archive_v2_raw_result
+
+        native = predict_methods_archive_v2_raw_result(
+            model,
+            data["X"],
+            sample_ids=data["sample_ids"],
+            groups=data.get("groups"),
+            metadata=data.get("metadata"),
+            methods_library_path=methods_library_path,
+        )
+        return PredictResult(
+            y_pred=native.values,
+            metadata={"engine": "native", "sample_ids": list(native.sample_ids)},
+            model_name="MethodsN4MM",
+            preprocessing_steps=[],
+            intervals=dict(native.intervals),
         )
 
     from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, predict_general_archive

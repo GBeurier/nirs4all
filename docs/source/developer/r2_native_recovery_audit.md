@@ -7,14 +7,33 @@ une déclaration que R2 est prêt.
 ## Point de départ
 
 L'audit a été réalisé depuis `main` au commit `25a4d652` (`feat(native): close
-R2 API safety boundaries (#111)`). La référence produit reste le roadmap
-racine `ROADMAP_BACKEND_NATIF_V1.md`, en particulier les lots `API-001` à
-`API-005`, `DAG-001` et `HPO-001`.
+R2 API safety boundaries (#111)`). La référence produit disponible est la
+feuille de route racine [`Roadmap.md`](../../../Roadmap.md). Les identifiants
+`API-001` à `API-005`, `DAG-001` et `HPO-001` sont conservés dans le présent
+audit comme repères historiques de portage ; ils ne désignent pas des sections
+de cette feuille de route.
 
 Le défaut est encore `legacy`. Le chemin `dag-ml` est sélectionnable et
 fail-closed par défaut ; un rollback legacy demande explicitement
 `allow_legacy_fallback=True`. Cette frontière ne doit pas être inversée avant
 que toutes les capacités déclarées R2 disposent d'une preuve native.
+
+## Évidence de cycle intégrée après l'audit historique
+
+Le lot #122 (merge `0f612509`) ajoute une preuve locale pour le sous-ensemble
+Methods strict déjà déclaré : le résultat expose un témoin vivant, lié à la
+façade `dag_ml.TrainingResult`, qui observe l'appel callback-free
+`dag_ml.execute_methods_training`. Ce témoin est volontairement non
+sérialisable et cesse d'être utilisable après `close()`/`detach()` ; l'outcome
+signé et le package portable restent les seules preuves durables, et permettent
+l'export Archive V2 après cette fermeture.
+
+À l'instant historique du lot #122, la CI `methods-installed.yml` installait
+les roues publiées `dag-ml==0.3.19` et `nirs4all-methods==1.0.13`, retirait
+`N4M_LIB_PATH`, puis vérifiait le cycle réel claim → close → Archive V2. Cette
+preuve renforce la forme `run(..., engine="native")` déjà supportée ; elle ne rend
+pas R2 complet,
+ne change pas le défaut `legacy` et ne justifie aucune bascule de moteur.
 
 ## Méthode
 

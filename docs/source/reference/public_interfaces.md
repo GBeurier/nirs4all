@@ -266,6 +266,22 @@ result = nirs4all.run(
 )
 ```
 
+## Native lifecycle capability matrix
+
+`engine="native"` is a fail-closed portable Methods lane, distinct from the
+general `engine="dag-ml"` host runtime. The authoritative machine-readable
+contract is `nirs4all.api.native_capabilities.get_native_capability_matrix()`.
+It records each lifecycle form as `native`, `plugin`, or `refused`, with every
+implicit fallback forbidden. The compatibility ledger remains
+parity-tolerance context only; it is not semantic authority for capability
+selection.
+
+The native lifecycle covers portable training, identity-bound prediction,
+Archive V2/V3 replay and explicit native sessions. Nested PLS-to-Ridge stacking
+requires partitioned outer CV so every sample has exactly one outer OOF row.
+Unsupported transfer, finetune, explanation, generation, archive, or workspace
+forms fail before execution and never instantiate a legacy `PipelineRunner`.
+
 ## Studio Scientific CPython Host Boundary
 
 The additive `studio_scientific_job_v2(request)` general contract uses schema

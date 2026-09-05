@@ -20,6 +20,7 @@ Two usage patterns:
     >>> session.save("model.n4a")
 """
 
+import os
 from collections.abc import Generator, Mapping
 from contextlib import contextmanager, suppress
 from pathlib import Path
@@ -30,6 +31,114 @@ if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult, RunResult
     from nirs4all.pipeline import PipelineRunner
     from nirs4all.pipeline.dagml.core_archive_replay import CoreArchiveValidation
+
+
+class NativeArchiveSession:
+    """Reusable fail-closed prediction session for a published Methods Archive V2/V3."""
+
+    def __init__(self, archive_path: str | Path, *, methods_library_path: str | Path | None = None) -> None:
+        self._archive_path = Path(archive_path)
+        self._methods_library_path = None if methods_library_path is None else str(methods_library_path)
+        self._refit_result: Any | None = None
+        self._closed = False
+
+    @property
+    def archive_path(self) -> Path:
+        return self._archive_path
+
+    @property
+    def archive_schema_version(self) -> int:
+        return 3 if self._refit_result is not None else 2
+
+    @property
+    def closed(self) -> bool:
+        return self._closed
+
+    def predict(
+        self,
+        X: Any,
+        *,
+        sample_ids: Any,
+        groups: Any = None,
+        metadata: Any = None,
+    ) -> "PredictResult":
+        """Replay one explicitly identified cohort without allocating a legacy runner."""
+        if self._closed:
+            raise RuntimeError("NativeArchiveSession is closed")
+        if self._refit_result is not None:
+            return cast(
+                "PredictResult",
+                self._refit_result.predict(
+                    X,
+                    sample_ids=sample_ids,
+                    groups=groups,
+                    metadata=metadata,
+                ),
+            )
+        from nirs4all.api.result import PredictResult
+        from nirs4all.pipeline.dagml.native_archive_replay import predict_methods_archive_v2_raw_result
+
+        native = predict_methods_archive_v2_raw_result(
+            self._archive_path,
+            X,
+            sample_ids=sample_ids,
+            groups=groups,
+            metadata=metadata,
+            methods_library_path=self._methods_library_path,
+        )
+        result_metadata: dict[str, Any] = {
+            "engine": "native",
+            "archive_path": str(self._archive_path),
+            "sample_ids": list(native.sample_ids),
+        }
+        if native.conformal_guarantee_status is not None:
+            result_metadata["conformal_guarantee_status"] = dict(native.conformal_guarantee_status)
+        if native.conformal_presentation is not None:
+            result_metadata["conformal_presentation"] = dict(native.conformal_presentation)
+            result_metadata["selected_interval_coverages"] = sorted(native.intervals)
+        return PredictResult(
+            y_pred=native.values,
+            metadata=result_metadata,
+            model_name="MethodsN4MM",
+            preprocessing_steps=[],
+            intervals=dict(native.intervals),
+        )
+
+    def close(self) -> None:
+        self._closed = True
+
+    def __enter__(self) -> "NativeArchiveSession":
+        if self._closed:
+            raise RuntimeError("NativeArchiveSession is closed")
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self.close()
+
+
+def load_native_archive_session(
+    path: str | Path,
+    *,
+    methods_library_path: str | Path | None = None,
+) -> NativeArchiveSession:
+    """Open a validated portable Archive V2/V3 session without a legacy fallback."""
+    archive_path = Path(path)
+    from nirs4all.pipeline.dagml.native_archive_replay import validate_methods_archive_v2
+
+    session = NativeArchiveSession(archive_path, methods_library_path=methods_library_path)
+    try:
+        validate_methods_archive_v2(archive_path)
+    except Exception as v2_error:
+        from .native_refit_result import NativeMethodsRefitResult
+
+        try:
+            session._refit_result = NativeMethodsRefitResult.load_archive(
+                archive_path,
+                methods_library_path=None if methods_library_path is None else str(methods_library_path),
+            )
+        except Exception:
+            raise v2_error from None
+    return session
 
 
 class SessionClosedError(RuntimeError):
@@ -75,6 +184,33 @@ class Session:
         >>> session.save("exports/my_model.n4a")
     """
 
+    def __new__(
+        cls,
+        pipeline: list[Any] | None = None,
+        name: str = "",
+        **runner_kwargs: Any,
+    ) -> "Session":
+        """Select an explicitly or environmentally requested native session."""
+
+        requested = runner_kwargs.get("engine")
+        if requested is None and "N4A_ENGINE" not in os.environ:
+            return super().__new__(cls)
+        from nirs4all.pipeline.engine import resolve_engine
+
+        selected = resolve_engine(requested)
+        if cls is Session and selected == "native":
+            if pipeline is None:
+                raise ValueError("engine='native' session requires an explicit portable pipeline")
+            from .native_session import NativeMethodsSession
+
+            native_kwargs = {key: value for key, value in runner_kwargs.items() if key != "engine"}
+            return cast("Session", NativeMethodsSession(pipeline, name=name, **native_kwargs))
+        if selected != "legacy":
+            from nirs4all.pipeline.engine import require_legacy_engine
+
+            require_legacy_engine("Session", selected)
+        return super().__new__(cls)
+
     def __init__(
         self,
         pipeline: list[Any] | None = None,
@@ -91,6 +227,7 @@ class Session:
                 Common options: verbose, save_artifacts, workspace_path,
                 random_state, plots_visible, etc.
         """
+        runner_kwargs.pop("engine", None)
         self._pipeline = pipeline
         self._name = name or "Session"
         self._runner_kwargs = runner_kwargs
@@ -796,7 +933,12 @@ def _validated_core_archive(
     return (path, validation), source_fingerprint
 
 
-def load_session(path: str | Path, *, methods_library_path: str | Path | None = None) -> Session:
+def load_session(
+    path: str | Path,
+    *,
+    engine: str | None = None,
+    methods_library_path: str | Path | None = None,
+) -> Session | NativeArchiveSession:
     """Load a session from a saved bundle file.
 
     Args:
@@ -821,6 +963,18 @@ def load_session(path: str | Path, *, methods_library_path: str | Path | None = 
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(f"Bundle not found: {path}")
+
+    explicit_selection = engine is not None or "N4A_ENGINE" in os.environ
+    if explicit_selection:
+        from nirs4all.pipeline.engine import require_legacy_engine, resolve_engine
+
+        selected = resolve_engine(engine)
+        if selected == "native":
+            if path.suffix.lower() != ".n4a":
+                raise ValueError("engine='native' load_session requires a Core Archive V2/V3 .n4a path")
+            return load_native_archive_session(path, methods_library_path=methods_library_path)
+        if selected != "legacy":
+            require_legacy_engine("load_session", selected)
 
     from nirs4all.pipeline.dagml.core_archive_replay import detect_core_archive_version
 

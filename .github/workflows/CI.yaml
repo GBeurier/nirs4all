@@ -107,6 +107,10 @@ jobs:
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
 
+      - name: Run R2 DAG-ML shadow-default gate
+        if: ${{ runner.os == 'Linux' && matrix.python-version == '3.11' }}
+        run: python -m pytest -q --timeout=300 tests/integration/parity/test_r2_dagml_shadow_default.py
+
       - name: Run unit tests
         shell: bash
         env:

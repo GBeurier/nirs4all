@@ -119,6 +119,17 @@ def get_legacy_engine_usage_counts() -> dict[str, int]:
     return {"legacy": legacy, "dual": dual, "total": legacy + dual}
 
 
+def legacy_fallback_metrics() -> dict[str, int]:
+    """Return the frozen fallback telemetry shape for compatibility checks.
+
+    V1 has no implicit fallback path, so these counters deliberately remain at
+    zero.  Keeping the published snapshot API lets migration preflights prove
+    that a refusal did not silently execute a legacy retry.
+    """
+
+    return {"total": 0, "backend_unavailable": 0, "unsupported_shape": 0}
+
+
 def resolve_engine(
     engine: str | None = None,
     *,
@@ -184,3 +195,23 @@ def resolve_engine(
             "allow_fallback=True is no longer an execution path; pass engine='legacy' explicitly",
         )
     return cast(Engine, name)
+
+
+def require_legacy_engine(operation: str, engine: str | None = None) -> Engine:
+    """Resolve ``engine`` and require the explicit compatibility lane.
+
+    This helper preserves the published transition API without weakening the
+    V1 native default or introducing any implicit fallback.
+    """
+
+    selected = resolve_engine(engine)
+    if selected == "legacy":
+        return selected
+    if selected == "dual":
+        raise DualRunUnsupported(
+            f"nirs4all.{operation} does not support engine='dual'; select engine='legacy' explicitly"
+        )
+    raise NotImplementedError(
+        f"nirs4all.{operation} does not have an execution path for engine={selected!r}; "
+        "select engine='legacy' explicitly for the compatibility implementation"
+    )

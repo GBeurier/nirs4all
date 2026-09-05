@@ -72,6 +72,10 @@ from .explain import explain
 
 # Synthetic data generation
 from .generate import generate_namespace as generate
+from .native_refit_result import NativeMethodsRefitResult
+from .native_result import NativeMethodsRunResult
+from .native_session import NativeMethodsSession
+from .native_training import fit_native_pipeline
 from .predict import predict
 from .result import (
     ExplainResult,
@@ -176,6 +180,10 @@ from .tuning import (
 __all__ = [
     # Module-level API functions
     "run",
+    "fit_native_pipeline",
+    "NativeMethodsRunResult",
+    "NativeMethodsRefitResult",
+    "NativeMethodsSession",
     "studio_scientific_job_v1",
     "studio_scientific_job_v2",
     "StudioScientificJobError",

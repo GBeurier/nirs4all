@@ -64,7 +64,7 @@ _VALID_INVALIDATIONS = {
     "not_applicable",
 }
 _VALID_ENGINE_SUPPORT = {"supported", "partial", "planned", "unsupported", "legacy_fallback", "not_applicable"}
-EXPECTED_PUBLISHED_REGISTRY_SHA256 = "ee987eec467523d31def7e55baeeced73caad9f9a61d522f7aa36a06147a05f8"
+EXPECTED_PUBLISHED_REGISTRY_SHA256 = "bdbf554755652b3c148ca377bea4ce6480ef6c2ce5a194f45e371d75794d0a73"
 
 
 def _entries_by_id() -> dict[str, KeywordEntry]:
@@ -76,7 +76,7 @@ def test_registry_document_has_versioned_stable_shape() -> None:
 
     assert registry["schema_id"] == KEYWORD_REGISTRY_SCHEMA_ID
     assert registry["schema_version"] == KEYWORD_REGISTRY_SCHEMA_VERSION == 1
-    assert registry["registry_version"] == KEYWORD_REGISTRY_VERSION == "1.0.0"
+    assert registry["registry_version"] == KEYWORD_REGISTRY_VERSION == "1.0.1"
     assert registry["scope"] == "lifecycle-v1"
     assert registry["entries"]
     assert public_get_keyword_registry() == registry
@@ -190,10 +190,8 @@ def test_execution_engine_and_optimizer_engines_are_distinct() -> None:
     assert execution_engine["engine_support"]["dag-ml"] == "partial"
     assert local_driver["canonical_term"] == "hpo_or_generation_driver"
     assert dag_optimizer["canonical_term"] == "optimizer_engine"
-    assert execution_engine["value_schema"]["enum"] == [None, "legacy", "dag-ml", "native", "dual"]
-    assert execution_engine["engine_support"]["native"] == "partial"
+    assert execution_engine["value_schema"]["enum"] == [None, "legacy", "dag-ml", "dual"]
     assert execution_engine["engine_support"]["dual"] == "partial"
-    assert "bounded native-first, no-fallback oracle" in execution_engine["summary"]
     assert local_driver["value_schema"]["enum"] == ["optuna", "n4m", "dag-ml", "grid"]
     assert local_driver["status"] == "partial"
     assert local_driver["engine_support"]["n4m"] == "partial"
@@ -396,9 +394,12 @@ def test_partial_hpo_behaviors_and_dag_training_limits_are_not_overclaimed() -> 
     assert entries["pipeline.step.finetune_params.train_params"]["engine_support"]["dag-ml"] == "unsupported"
     assert "rejects it until optimizer adapters" in entries["pipeline.step.finetune_params.train_params"]["summary"]
     assert entries["pipeline.step.train_params"]["engine_support"]["dag-ml"] == "unsupported"
-    assert entries["pipeline.step.refit_params"]["engine_support"]["dag-ml"] == "unsupported"
+    refit_params = entries["pipeline.step.refit_params"]
+    assert refit_params["engine_support"]["dag-ml"] == "partial"
     assert "rejects it before native execution" in entries["pipeline.step.train_params"]["summary"]
-    assert "rejects it before native execution" in entries["pipeline.step.refit_params"]["summary"]
+    assert "exact {'use_all_partitions': True} no-op" in refit_params["summary"]
+    assert "one top-level exact PLSRegression model step" in refit_params["summary"]
+    assert "every other refit_params shape is rejected before native execution" in refit_params["summary"]
 
 
 def test_planned_python_surfaces_are_absent_or_fail_closed_in_current_public_api() -> None:
