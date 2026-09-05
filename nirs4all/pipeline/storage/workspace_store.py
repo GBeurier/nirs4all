@@ -1187,7 +1187,7 @@ class WorkspaceStore:
                 "  COUNT(DISTINCT fold_id) AS fold_count "
                 "FROM predictions "
                 "WHERE chain_id = ? AND refit_context IS NULL "
-                "  AND SUBSTR(fold_id, -4) != '_agg'",
+                "  AND SUBSTR(fold_id, -4) != '_agg' AND fold_id NOT IN ('avg', 'w_avg')",
                 [chain_id],
             ).fetchone()
 
@@ -1224,7 +1224,7 @@ class WorkspaceStore:
             # --- CV multi-metric averages (cv_scores JSON) ---
             cv_scores_json: str | None = None
             cv_metrics_rows = conn.execute(
-                "SELECT partition, scores FROM predictions WHERE chain_id = ? AND refit_context IS NULL AND partition IN ('val', 'test') AND SUBSTR(fold_id, -4) != '_agg'",
+                "SELECT partition, scores FROM predictions WHERE chain_id = ? AND refit_context IS NULL AND partition IN ('val', 'test') AND SUBSTR(fold_id, -4) != '_agg' AND fold_id NOT IN ('avg', 'w_avg')",
                 [chain_id],
             ).fetchall()
             if cv_metrics_rows:
@@ -1398,6 +1398,7 @@ class WorkspaceStore:
                     WHERE p.chain_id = chains.chain_id
                       AND p.refit_context IS NULL
                       AND SUBSTR(p.fold_id, -4) != '_agg'
+                      AND p.fold_id NOT IN ('avg', 'w_avg')
                 ),
                 cv_test_score = (
                     SELECT AVG(p.test_score)
@@ -1405,6 +1406,7 @@ class WorkspaceStore:
                     WHERE p.chain_id = chains.chain_id
                       AND p.refit_context IS NULL
                       AND SUBSTR(p.fold_id, -4) != '_agg'
+                      AND p.fold_id NOT IN ('avg', 'w_avg')
                 ),
                 cv_train_score = (
                     SELECT AVG(p.train_score)
@@ -1412,6 +1414,7 @@ class WorkspaceStore:
                     WHERE p.chain_id = chains.chain_id
                       AND p.refit_context IS NULL
                       AND SUBSTR(p.fold_id, -4) != '_agg'
+                      AND p.fold_id NOT IN ('avg', 'w_avg')
                 ),
                 cv_fold_count = COALESCE((
                     SELECT COUNT(DISTINCT p.fold_id)
@@ -1419,6 +1422,7 @@ class WorkspaceStore:
                     WHERE p.chain_id = chains.chain_id
                       AND p.refit_context IS NULL
                       AND SUBSTR(p.fold_id, -4) != '_agg'
+                      AND p.fold_id NOT IN ('avg', 'w_avg')
                 ), 0),
                 final_test_score = (
                     SELECT p.test_score
@@ -1492,7 +1496,7 @@ class WorkspaceStore:
         import json as _json
 
         rows = conn.execute(
-            "SELECT chain_id, partition, scores FROM predictions WHERE refit_context IS NULL AND partition IN ('val', 'test') AND SUBSTR(fold_id, -4) != '_agg' AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
+            "SELECT chain_id, partition, scores FROM predictions WHERE refit_context IS NULL AND partition IN ('val', 'test') AND SUBSTR(fold_id, -4) != '_agg' AND fold_id NOT IN ('avg', 'w_avg') AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
         ).fetchall()
 
         if rows:
