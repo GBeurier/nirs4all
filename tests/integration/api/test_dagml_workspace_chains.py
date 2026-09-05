@@ -194,3 +194,73 @@ def test_workspace_replay_refuses_active_journals_before_loading(tmp_path, monke
     with pytest.raises(RuntimeError, match="active SQLite journal"):
         load_general_workspace_chain(tmp_path, chain_id)
     assert sidecar.read_bytes() == b"writer-owned journal"
+
+
+def test_workspace_replay_waits_for_closed_owner_sidecar_unlink(tmp_path):
+    import threading
+    import time
+
+    import nirs4all
+    from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain
+
+    X = np.arange(120.0).reshape(30, 4)
+    result = nirs4all.run([KFold(3), Ridge()], (X, X[:, 0] + 0.12), workspace_path=tmp_path)
+    chain_id = result.best["chain_id"]
+    result.close()
+    sidecar = tmp_path / "store.sqlite-journal"
+    sidecar.write_bytes(b"closed owner awaiting unlink visibility")
+
+    def finish_close() -> None:
+        time.sleep(0.03)
+        sidecar.unlink()
+
+    closer = threading.Thread(target=finish_close)
+    closer.start()
+    try:
+        loaded = load_general_workspace_chain(tmp_path, chain_id)
+    finally:
+        closer.join()
+    assert loaded is not None
+    assert not sidecar.exists()
+
+
+def test_workspace_replay_refuses_sidecar_appearing_during_read(tmp_path, monkeypatch):
+    import sqlite3
+
+    import joblib
+
+    import nirs4all
+    import nirs4all.pipeline.dagml.general_workspace as workspace_replay
+
+    X = np.arange(120.0).reshape(30, 4)
+    result = nirs4all.run([KFold(3), Ridge()], (X, X[:, 0] + 0.12), workspace_path=tmp_path)
+    chain_id = result.best["chain_id"]
+    result.close()
+    sidecar = tmp_path / "store.sqlite-wal"
+    original_connect = sqlite3.connect
+
+    class SidecarOnClose:
+        def __init__(self, connection):
+            self.connection = connection
+
+        @property
+        def row_factory(self):
+            return self.connection.row_factory
+
+        @row_factory.setter
+        def row_factory(self, value):
+            self.connection.row_factory = value
+
+        def execute(self, *args, **kwargs):
+            return self.connection.execute(*args, **kwargs)
+
+        def close(self):
+            self.connection.close()
+            sidecar.write_bytes(b"writer appeared during immutable read")
+
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: SidecarOnClose(original_connect(*args, **kwargs)))
+    monkeypatch.setattr(workspace_replay, "_SQLITE_SIDECAR_SETTLE_SECONDS", 0)
+    monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("raced database deserialized a model"))
+    with pytest.raises(RuntimeError, match="active SQLite journal"):
+        workspace_replay.load_general_workspace_chain(tmp_path, chain_id)
+    assert sidecar.read_bytes() == b"writer appeared during immutable read"

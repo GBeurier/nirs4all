@@ -1,0 +1,52 @@
+{
+  "format": "n4m_pp_snv_v1",
+  "numpy_version": "2.4.6",
+  "nirs4all_version": "1.0.1",
+  "encoding": "ieee754_binary64_be_hex",
+  "rows": 3,
+  "cols": 5,
+  "source": "repository-local compact witness generated from the row-wise NumPy SNV reference",
+  "input_hex": [
+    "3ff0000000000000", "4000000000000000", "4010000000000000", "4020000000000000", "4030000000000000",
+    "c008000000000000", "3fe0000000000000", "4002000000000000", "4022000000000000", "bff0000000000000",
+    "3fc0000000000000", "3fe0000000000000", "3ff8000000000000", "400c000000000000", "401d000000000000"
+  ],
+  "cases": [
+    {
+      "name": "default",
+      "params": {"with_mean": true, "with_std": true, "ddof": 0},
+      "output_hex": [
+        "bfee80aa637e72bf", "bfe8a2ffc683ab73", "bfd9cf55191c39b6", "3fd51dffceba00ab", "3ffcbe2a67999d5c",
+        "bff1bad0d946d2cd", "bfd05dad1755115b", "3fc5d23c1f1c1723", "3ffd07affbac3a36", "bfe3df76c0e74bee",
+        "bfedfcea67b58155", "bfe965e0a633d8a3", "bfda50e299b42d94", "3fd6a4dacbb2d9d1", "3ffc9c677a7501ec"
+      ]
+    },
+    {
+      "name": "sample_std",
+      "params": {"with_mean": true, "with_std": true, "ddof": 1},
+      "output_hex": [
+        "bfeb484866f10f62", "bfe60926c94c8c6d", "bfd715c71c070d04", "3fd2e345d11d0aa5", "3ff9b557ead94e7f",
+        "bfefb747d2cef048", "bfcd46b873d2b66a", "3fc3847af7e1cef1", "3ff9f71a72ea1ebd", "bfe1c65db4091352",
+        "bfead2712d320678", "bfe6b774c0667331", "bfd789a73c8f2a40", "3fd440dd4bec4e05", "3ff9972572f4f3e2"
+      ]
+    },
+    {
+      "name": "center_only",
+      "params": {"with_mean": true, "with_std": false, "ddof": 0},
+      "output_hex": [
+        "c014cccccccccccd", "c010cccccccccccd", "c00199999999999a", "3ffccccccccccccc", "402399999999999a",
+        "c012333333333333", "bff0cccccccccccd", "3fe6666666666666", "401dcccccccccccd", "c004666666666666",
+        "c00399999999999a", "c00099999999999a", "bff1333333333334", "3fed999999999998", "4012b33333333333"
+      ]
+    },
+    {
+      "name": "scale_only",
+      "params": {"with_mean": false, "with_std": true, "ddof": 0},
+      "output_hex": [
+        "3fc776aa73eb1d30", "3fd776aa73eb1d30", "3fe776aa73eb1d30", "3ff776aa73eb1d30", "400776aa73eb1d30",
+        "bfe761406a798681", "3fbf2c55e34cb357", "3fe188f04fdb24e1", "400188f04fdb24e1", "bfcf2c55e34cb357",
+        "3fa87adeb2b383b3", "3fc87adeb2b383b3", "3fe25c270606a2c6", "3ff56b82dc5d133c", "40062f59d1f2af5a"
+      ]
+    }
+  ]
+}
