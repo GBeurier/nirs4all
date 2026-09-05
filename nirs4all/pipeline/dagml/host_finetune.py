@@ -108,6 +108,7 @@ def run_scoped_finetune(
     model: Any, upstream: list[Any], x: np.ndarray, y: np.ndarray,
     config: dict[str, Any], *, scope: dict[str, Any], task_type: Any,
     y_transform: Any = None, inner_cv: dict[str, Any] | None = None,
+    training_controls: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Tune raw rows from one outer-training scope; no external targets enter.
 
@@ -149,7 +150,10 @@ def run_scoped_finetune(
     pipeline = [*upstream]
     if y_transform is not None:
         pipeline.append({"y_processing": clone(y_transform)})
-    pipeline.append({"model": clone(model)})
+    model_step = {"model": clone(model)}
+    if training_controls:
+        model_step["train_params"] = training_controls
+    pipeline.append(model_step)
     envelope = build_envelope(dataset, identity, sample_ints=pool, group_by_sample=inner_cv["group_by_sample"] if inner_cv is not None else None)
     dsl = assemble_cv_refit_dsl(pipeline, identity, envelope, folds, dsl_id="nirs4all-host-hpo", n_splits=len(folds))
     graph = json.loads(dag_ml.compile_pipeline_dsl_graph_json(json.dumps(dsl)))
@@ -207,6 +211,14 @@ def run_scoped_finetune(
         op_callback, optimizer_callback,
     )
     evidence["scope"] = scope
+    if training_controls:
+        from .training_controls import encode_training_controls
+
+        evidence["training_controls"] = encode_training_controls(training_controls, name="training controls")
+        model_overrides = {key: value for key, value in evidence["training_controls"].items() if key != "verbose"}
+        for candidate in evidence["trials"]:
+            candidate["effective_model_params"] = {**candidate["params"], **model_overrides}
+        evidence["effective_selected_model_params"] = {**evidence["selected_params"], **model_overrides}
     evidence["evaluation"] = {"role": "inner_parameter_selection", "outer_validation_used": False, "test_used": False}
     evidence["evaluation"].update({"approach": params.get("approach", "grouped"),
                                   "inner_fold_count": len(folds),
