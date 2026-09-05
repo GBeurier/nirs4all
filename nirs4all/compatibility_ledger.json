@@ -129,6 +129,30 @@
       "mechanism": "operator-select refits the winner only; legacy stores loser final rows"
     },
     {
+      "case": "branch_dup_three_way_merge_predictions",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "native nested OOF fits three fold-local base branches and exposes the terminal meta refit; legacy skips stacking refit"
+    },
+    {
+      "case": "branch_dup_named_with_metamodel",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "named branch selection is scored over the complete identity-disjoint OOF vector after fold-local preprocessing, not legacy global preprocessing or held-out test targets"
+    },
+    {
+      "case": "multi_source_per_source_models_stacking",
+      "tier": 2,
+      "disposition": "pass_parity_note",
+      "authoritative_engine": "dag-ml",
+      "tolerance_band": "n/a_semantic",
+      "mechanism": "native source branches keep explicit source layout, fit fold-local base models and expose the terminal meta refit; legacy concatenates spectra and skips stacking refit"
+    },
+    {
       "case": "generator_sample_log_uniform_alpha",
       "tier": 3,
       "disposition": "run_only_nondeterministic",
@@ -140,9 +164,10 @@
   "coverage_skips": [],
   "expected_refusal": [
     {
-      "case": "refit_params_use_all_partitions",
+      "case": "concat_transform_pca_svd_plsr",
       "owner_lane": "L5",
-      "reason": "Native execution does not yet preserve step-level refit_params semantics."
+      "reason": "Stateful PCA/SVD after concat must be compiled inside each outer training scope before native execution can preserve the feature without validation leakage.",
+      "exception": "DagMlStatefulConcatTransformMigrationRequired"
     }
   ],
   "num_predictions_divergence": [
@@ -156,6 +181,18 @@
       "case": "generator_chain_model_configs",
       "legacy": 49,
       "dagml": 47,
+      "disposition": "pass_parity_note"
+    },
+    {
+      "case": "branch_dup_three_way_merge_predictions",
+      "legacy": 60,
+      "dagml": 67,
+      "disposition": "pass_parity_note"
+    },
+    {
+      "case": "multi_source_per_source_models_stacking",
+      "legacy": 90,
+      "dagml": 67,
       "disposition": "pass_parity_note"
     }
   ],
@@ -303,7 +340,7 @@
     "native": 94,
     "xfail_strict": 0,
     "skip": 0,
-    "num_predictions_divergence": 2,
+    "num_predictions_divergence": 4,
     "run_only_nondeterministic": 1,
     "expected_refusal_target": 0
   },

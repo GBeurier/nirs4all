@@ -115,6 +115,9 @@ def test_documented_compatibility_counts_follow_the_packaged_ledger() -> None:
     assert ledger["coverage_meter"]["refusal"] == 1
     assert ledger["coverage_meter"]["native"] == 94
     assert ledger["coverage_meter"]["expected_refusal_target"] == 0
-    assert {entry["case"] for entry in ledger["expected_refusal"]} == {"refit_params_use_all_partitions"}
+    assert {entry["case"] for entry in ledger["expected_refusal"]} == {"concat_transform_pca_svd_plsr"}
+    refusal = ledger["expected_refusal"][0]
+    assert refusal["exception"] == "DagMlStatefulConcatTransformMigrationRequired"
+    assert ledger["coverage_meter"]["num_predictions_divergence"] == 4
     methods_installed = next(entry for entry in ledger["cross_engine_surfaces"] if entry["surface"] == "methods_installed")
     assert methods_installed["status"] == "exists"

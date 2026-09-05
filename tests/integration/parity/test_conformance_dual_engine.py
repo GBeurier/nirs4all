@@ -35,7 +35,10 @@ from __future__ import annotations
 import math
 from typing import Any, TypedDict
 
+import numpy as np
 import pytest
+
+from nirs4all.pipeline.dagml.errors import DagMlStatefulConcatTransformMigrationRequired
 
 from . import _conformance_helpers as H
 from ._registry import PipelineCase, all_cases
@@ -177,6 +180,23 @@ NUM_PREDICTIONS_DIVERGENCE: dict[str, _NumPredDivergence] = {
         "reason": "multi-model `_chain_` operator-SELECT refits the WINNER only (47) — legacy refits every "
         "loser model and stores its (train,final)+(test,final) rows (49); winner/best_score/winner-y_pred all match (slice F)",
     },
+    "branch_dup_three_way_merge_predictions": {
+        "legacy": 60,
+        "dagml": 67,
+        "reason": "native nested OOF persists three base refits plus the terminal meta refit; legacy skips stacking refit",
+    },
+    "multi_source_per_source_models_stacking": {
+        "legacy": 90,
+        "dagml": 67,
+        "reason": "native by-source stacking uses three explicit source branches and one terminal meta refit; legacy uses spectral concatenation and skips stacking refit",
+    },
+}
+
+
+STACKING_SEMANTIC_DIVERGENCE: dict[str, dict[str, Any]] = {
+    "branch_dup_three_way_merge_predictions": {"legacy": 60, "dagml": 67, "source_layout": False},
+    "branch_dup_named_with_metamodel": {"legacy": 75, "dagml": 75, "named_oof": True},
+    "multi_source_per_source_models_stacking": {"legacy": 90, "dagml": 67, "source_layout": True},
 }
 
 
@@ -395,7 +415,73 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 # allowlist (the test then demands native parity). W21 pins these as explicit
 # coverage-boundary rejects in `run_backend._unsupported_fallback_reason`, so they
 # no longer fall through to the generic concrete route and crash at native setup.
-EXPECTED_REFUSAL: frozenset[str] = frozenset()
+EXPECTED_MIGRATION_REFUSAL: dict[str, type[Exception]] = {
+    "concat_transform_pca_svd_plsr": DagMlStatefulConcatTransformMigrationRequired,
+}
+EXPECTED_REFUSAL: frozenset[str] = frozenset(EXPECTED_MIGRATION_REFUSAL)
+
+
+def _assert_stacking_semantic_contract(
+    legacy: Any,
+    dagml: Any,
+    case: PipelineCase,
+    expected: dict[str, Any],
+) -> None:
+    """Pin scientifically correct fold-local stacking instead of legacy scores."""
+    assert legacy.num_predictions == expected["legacy"]
+    assert dagml.num_predictions == expected["dagml"]
+    rows = dagml.predictions.filter_predictions(load_arrays=True)
+
+    if expected.get("named_oof"):
+        # Named selection has no historical refit row. Its public avg validation
+        # score must be the metric over the complete, identity-disjoint OOF
+        # vector, not the first outer fold and never the held-out test target.
+        selected = dagml.best
+        fold_rows = [
+            row for row in rows
+            if row.get("model_name") == selected.get("model_name")
+            and row.get("partition") == "val"
+            and str(row.get("fold_id", "")).isdigit()
+        ]
+        assert len(fold_rows) == 3
+        sample_ids = [int(sample_id) for row in fold_rows for sample_id in row["sample_indices"]]
+        assert len(sample_ids) == len(set(sample_ids)) == 130
+        residuals = np.concatenate([
+            np.asarray(row["y_true"], dtype=float).ravel()
+            - np.asarray(row["y_pred"], dtype=float).ravel()
+            for row in fold_rows
+        ])
+        assert float(selected["val_score"]) == float(np.sqrt(np.mean(residuals ** 2)))
+        assert not any(row.get("fold_id") == "final" for row in rows)
+        assert {row.get("branch_name") for row in rows} == {"pls_latent", "rf_path", ""}
+        return
+
+    final_rows = [row for row in rows if row.get("fold_id") == "final"]
+    base_rows = [row for row in final_rows if row.get("stacking_role") == "base"]
+    meta_rows = [row for row in final_rows if row.get("stacking_role") == "meta"]
+    assert len(base_rows) == 6  # train+test for each of three base branches
+    assert len(meta_rows) == 1  # the deployable terminal test prediction
+    assert dagml.best.get("stacking_role") == "meta"
+    assert dagml.best.get("model_name") == "Ridge"
+    assert dagml.best.get("partition") == "test"
+    assert all(
+        metadata.get("stacking_oof_execution") == "nested_oof_v1"
+        for child in dagml.runs
+        for metadata in child.per_dataset.values()
+    )
+    for child in dagml.runs:
+        for metadata in child.per_dataset.values():
+            evaluation = metadata.get("stacking_evaluation")
+            if evaluation is not None:
+                assert evaluation["refit_oof"] == "partitioned_inner_v1"
+                assert evaluation["refit_oof_is_selection_evidence"] is False
+
+    if expected.get("source_layout"):
+        source = next(iter(dagml.per_dataset.values()))["source_stacking"]
+        assert source["execution"] == "native_nested_oof_v1"
+        assert source["legacy_spectral_concatenation"] is False
+        assert [item["source_index"] for item in source["layout"]["sources"]] == [0, 1, 2]
+        assert sum(item["column_count"] for item in source["layout"]["sources"]) == source["layout"]["total_columns"]
 
 
 def _params() -> list:
@@ -460,6 +546,10 @@ def test_native_refusal_boundary(case: PipelineCase) -> None:
     Runs only the dag-ml leg (no legacy run) via :func:`dagml_native_status`.
     """
     dataset = H.make_dataset(case)
+    if case.name in EXPECTED_MIGRATION_REFUSAL:
+        with pytest.raises(EXPECTED_MIGRATION_REFUSAL[case.name]):
+            H.dagml_native_status(case, dataset)
+        return
     native = H.dagml_native_status(case, dataset)
     on_allowlist = case.name in EXPECTED_REFUSAL
 
@@ -488,6 +578,10 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
     KNOWN_DIVERGENCES/legacy_bug marker from masking a boundary regression.
     """
     dataset = H.make_dataset(case)
+    if case.name in EXPECTED_MIGRATION_REFUSAL:
+        with pytest.raises(EXPECTED_MIGRATION_REFUSAL[case.name]):
+            H.dagml_native_status(case, dataset)
+        return
     run = H.dual_engine_runner(case, dataset)
     legacy, dagml, native = run["legacy"], run["dag-ml"], run["dagml_native"]
 
@@ -503,6 +597,12 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
         # select different winners. Assert only that both runs are meaningful
         # native executions. The seeded parity twin carries the equality claim.
         _assert_unseeded_nondeterministic_contract(legacy, dagml, case)
+        return
+
+    if case.name in STACKING_SEMANTIC_DIVERGENCE:
+        _assert_stacking_semantic_contract(
+            legacy, dagml, case, STACKING_SEMANTIC_DIVERGENCE[case.name]
+        )
         return
 
     if case.name in NUM_PREDICTIONS_DIVERGENCE:
