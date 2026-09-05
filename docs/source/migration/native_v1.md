@@ -106,8 +106,19 @@ clones retaining source estimators are refused. There is no new CV score for
 this full-training operation. Lineage records the source fingerprint, integrity
 status and training contract. Existing concrete bundles with a training
 specification retain their published specification-replay behavior, including
-its explicit splitter. Prediction-only fusion wrappers, transfer learning and
-fine-tuning remain separate unqualified retrain paths.
+its explicit splitter. Prediction-only fusion wrappers and fine-tuning remain
+separate unqualified retrain paths.
+
+General `retrain(mode="transfer")` accepts those captured workspace predictors
+and host archives, including archives with a training specification. It freezes
+the captured X/y preprocessing in private copies and trains only a fresh final
+model on the new training rows, optionally replacing it with `new_model`.
+It never replays the original search, refits the captured transforms or invents
+a CV score. Export/replay retain that frozen preprocessing, and lineage marks
+its deliberate state reuse separately from the fresh model. A subsequent full
+retrain removes these transfer freezes and trains all steps afresh. The explicit
+portable `native` selector and the historical opt-in transfer plugin keep their
+separate contracts; neither is an implicit fallback from this DAG host path.
 
 When Studio supplies `store_run_id`, the library attaches its pipeline results
 to that existing running workspace run without completing or failing the parent
@@ -240,7 +251,7 @@ are the lower-level authorities. This guide does not redefine them.
 |---|---|
 | `run`, `predict`, `session`, save/load/export | Native for the qualified V1 matrix; unsupported shapes refuse before significant work. |
 | Full retrain | DAG-ML for concrete archive specs and captured trainable winners (workspace prediction or archive); other modes remain under qualification. |
-| Transfer | Explicit Python-library plugin only when its preflight succeeds. |
+| Transfer | DAG-ML for captured trainable host winners; the explicit historical Python-library plugin retains its separate preflight. |
 | Finetune, unavailable explain/generate shapes | Explicit refusal in the strict profile; no implicit legacy execution. |
 | Existing Python workflow during rollback | Direct Python call with explicit `engine="legacy"`; never Studio/Web. |
 
