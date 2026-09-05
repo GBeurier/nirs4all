@@ -450,14 +450,11 @@ def _run_concrete(
 
 
 def _is_concat_transform_prematerialized_pipeline(pipeline: list[Any]) -> bool:
-    """Whether this concrete single-model pipeline needs legacy concat prematerialization.
+    """Whether the fold-local concat adapter supports this concrete pipeline.
 
-    Legacy executes top-level X steps before the splitter: each transform is fit on the full training
-    partition, then applied to train+test in one batch. The generic dag-ml X-chain instead fits/applies
-    upstream transforms inside each model task. Row-independent transforms tolerate that, but
-    dimensionality reducers inside ``concat_transform`` can shift float32 projections across batch
-    boundaries enough for PLS to diverge. Keep this predicate deliberately narrow: one concrete model,
-    one splitter, and X steps limited to bare transforms plus ``concat_transform``.
+    One concrete model, one splitter, and bare/concatenated feature transforms
+    are supported. Transformers are fitted independently in each training fold;
+    reproducing historical full-pool fitting would leak validation information.
     """
     if _generation_kind(pipeline) != "none":
         return False
@@ -484,32 +481,6 @@ def _prematerialized_transform_operator(step: Any) -> Any:
     return _clone_operator_instance(step)
 
 
-def _prematerialized_concat_matrices(
-    x_steps: list[Any],
-    spectro: Any,
-    train_pool: list[int],
-    test_pool: list[int],
-) -> tuple[np.ndarray, np.ndarray]:
-    """Apply top-level X steps once over the legacy train+test batch and split the result."""
-    sample_pool = [*train_pool, *test_pool]
-    current_all = np.asarray(spectro.x_rows(sample_pool, layout="2d"))
-    y_train = _dataset_y_rows(spectro, train_pool)
-    train_count = len(train_pool)
-
-    for step in x_steps:
-        transform = _prematerialized_transform_operator(step)
-        current_train = current_all[:train_count]
-        if isinstance(step, dict) and "concat_transform" in step:
-            # The legacy concat controller fits each sub-operation with X only, then transforms all rows
-            # in one call. This preserves both its supervised-argument contract and float32 batch boundary.
-            transform.fit(current_train)
-        else:
-            transform.fit(current_train, y_train)
-        current_all = np.asarray(transform.transform(current_all))
-
-    return current_all[:train_count], current_all[train_count:]
-
-
 def _run_concat_transform_prematerialized(
     pipeline: list[Any],
     spectro: Any,
@@ -517,7 +488,7 @@ def _run_concat_transform_prematerialized(
     task_type: str,
     config_name: str = "",
 ) -> RunResult:
-    """Run a top-level ``concat_transform`` pipeline against the legacy prematerialized X matrix."""
+    """Run concatenated preprocessing with independent fitting inside each CV fold."""
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
@@ -532,7 +503,8 @@ def _run_concat_transform_prematerialized(
     train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
     test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
     folds = _build_folds(splitter, spectro, train_pool, set())
-    X_train, X_test = _prematerialized_concat_matrices(x_steps, spectro, train_pool, test_pool)
+    X_train = np.asarray(spectro.x_rows(train_pool, layout="2d"))
+    X_test = np.asarray(spectro.x_rows(test_pool, layout="2d")) if test_pool else np.empty((0, X_train.shape[1]))
 
     return _run_model_on_precomputed_matrix(
         X_train,
@@ -550,6 +522,7 @@ def _run_concat_transform_prematerialized(
         branch_id=None,
         branch_name="",
         include_refit=not _legacy_skips_refit(splitter),
+        preprocessing=[_prematerialized_transform_operator(step) for step in x_steps],
     )
 
 
@@ -2080,6 +2053,7 @@ def _run_model_on_precomputed_matrix(
     branch_id: int | None,
     branch_name: str,
     include_refit: bool = False,
+    preprocessing: list[Any] | None = None,
 ) -> RunResult:
     """Run legacy-shaped CV rows for a model over an already materialized feature matrix."""
     train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
@@ -2089,6 +2063,7 @@ def _run_model_on_precomputed_matrix(
     fold_val_scores: list[float] = []
     cv_refit_score: float | None = None
     model_name = type(model_template).__name__
+    model_template = _with_fold_preprocessing(model_template, preprocessing)
     n_features = int(X_train_all.shape[1]) if X_train_all.ndim > 1 else 1
 
     for fold_index, (fold_train, fold_val) in enumerate(folds):
@@ -2523,17 +2498,21 @@ def _branch_transform_operator(step: dict[str, Any]) -> Any:
     return route_operator("transform", lowered["class"], lowered.get("params") or {})
 
 
-def _fit_named_branch_feature_matrix(branch: list[Any], spectro: Any, train_pool: list[int], test_pool: list[int]) -> tuple[dict[str, Any], np.ndarray, np.ndarray]:
-    """Fit legacy named-branch preprocessing on the full train pool, then expose branch features.
+def _with_fold_preprocessing(model: Any, preprocessing: list[Any] | None) -> Any:
+    """Keep each fitted transform attached to its fold's estimator for all replay."""
+    if not preprocessing:
+        return model
+    from sklearn.pipeline import Pipeline
 
-    Legacy applies branch preprocessing before the branch-local model's CV, so the preprocessing scope is
-    the full training pool, not each fold's train side. This projection intentionally mirrors that row
-    surface for the named MetaModel compatibility case.
-    """
+    return Pipeline([*((f"transform_{index}", transform) for index, transform in enumerate(preprocessing)), ("model", model)])
+
+
+def _prepare_named_branch_feature_matrix(branch: list[Any], spectro: Any, train_pool: list[int], test_pool: list[int]) -> tuple[dict[str, Any], np.ndarray, np.ndarray, list[Any]]:
+    """Keep raw rows and unfitted branch transforms until the fold is selected."""
     current_train = np.asarray(spectro.x_rows(train_pool, layout="2d"))
     current_test = np.asarray(spectro.x_rows(test_pool, layout="2d")) if test_pool else np.empty((0, current_train.shape[1]))
-    y_train = _dataset_y_rows(spectro, train_pool)
     model_steps: list[dict[str, Any]] = []
+    preprocessing: list[Any] = []
 
     for step in _supported_body_steps([part for part in branch if not _is_split_step(part)]):
         if isinstance(step, dict) and "model" in step:
@@ -2542,12 +2521,11 @@ def _fit_named_branch_feature_matrix(branch: list[Any], spectro: Any, train_pool
         if model_steps:
             raise DagMlUnsupported("named MetaModel prediction-feature stack does not support branch transforms after a branch model")
         transform = _branch_transform_operator(step) if isinstance(step, dict) else _clone_operator_instance(step)
-        current_train = np.asarray(transform.fit_transform(current_train, y_train))
-        current_test = np.asarray(transform.transform(current_test)) if len(test_pool) else np.empty((0, current_train.shape[1]))
+        preprocessing.append(transform)
 
     if len(model_steps) != 1:
         raise DagMlUnsupported("named MetaModel prediction-feature stack requires exactly one model per branch")
-    return model_steps[0], current_train, current_test
+    return model_steps[0], current_train, current_test, preprocessing
 
 
 def _project_cv_model_rows(
@@ -2568,9 +2546,11 @@ def _project_cv_model_rows(
     metric: str,
     task_type: str,
     config_name: str,
+    preprocessing: list[Any] | None = None,
 ) -> dict[str, Any]:
     """Emit legacy CV/avg/w_avg rows and return OOF/test features for downstream stacking."""
     train_position = {sample_int: position for position, sample_int in enumerate(train_pool)}
+    model_template = _with_fold_preprocessing(model_template, preprocessing)
     y_train_all = _dataset_y_rows(spectro, train_pool)
     y_test = _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1))
     fold_models: list[Any] = []
@@ -2722,7 +2702,7 @@ def _run_named_metamodel_feature_stack(
     results_by_branch: dict[int, list[dict[str, Any]]] = {}
 
     for branch_index, (branch_name, branch) in enumerate(zip(branch_names, branches, strict=True)):
-        model_step, X_branch_train, X_branch_test = _fit_named_branch_feature_matrix(branch, spectro, train_pool, test_pool)
+        model_step, X_branch_train, X_branch_test, preprocessing = _prepare_named_branch_feature_matrix(branch, spectro, train_pool, test_pool)
         base_model_name = _model_name([model_step])
         base_result = _project_cv_model_rows(
             predictions,
@@ -2733,6 +2713,7 @@ def _run_named_metamodel_feature_stack(
             folds=folds,
             model_template=model_step["model"],
             model_name=base_model_name,
+            preprocessing=preprocessing,
             model_classname=type(model_step["model"]).__name__,
             step_idx=branch_step_idx,
             branch_id=branch_index,
