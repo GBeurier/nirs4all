@@ -1,8 +1,9 @@
 """Execution-engine selector for the nirs4all core (V1 native cutover posture).
 
-Seam for the **nirs4all-core → native** migration. The default production engine is **native**:
-:func:`nirs4all.run` runs through the fail-closed Archive V2/N4MM producer unless another engine
-is selected. The in-process
+Seam for the **nirs4all-core → native** migration. The default strict/product profile is
+**native**. The general :func:`nirs4all.run` API additionally performs declaration-only
+capability selection when no selector is supplied: portable requests use native,
+other requests use DAG-ML. It never retries execution on another engine. The in-process
 *legacy* orchestrator (:class:`~nirs4all.pipeline.PipelineRunner`) remains available as an explicit
 compatibility path via the public ``engine="legacy"`` selector only.
 The explicit ``engine="native"`` lane is the fail-closed Archive V2/N4MM producer for the

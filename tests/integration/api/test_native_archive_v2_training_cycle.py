@@ -91,7 +91,7 @@ def test_native_archive_training_refuses_a_missing_runtime_before_pipeline_runne
     monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
     monkeypatch.setattr(native_module.importlib, "import_module", unavailable)
     with pytest.raises(NativeArchiveTrainingError, match="matching dag-ml and nirs4all-core"):
-        run_module.run(_pipeline(), _dataset(), engine="native", save_charts=False)
+        run_module.run(_pipeline(), _dataset())
 
 
 def test_native_archive_training_lowers_defaults_and_refuses_unsupported_pipeline_without_legacy_runner(
@@ -288,6 +288,24 @@ def test_native_archive_training_requires_unambiguous_multi_target_names() -> No
     os.environ.get(_REQUIRE_ENV) != "1",
     reason=f"set {_REQUIRE_ENV}=1 with installed native wheels to run",
 )
+@pytest.mark.parametrize("verbose", [0, 1, 2, 3])
+def test_real_native_verbosity_is_honored(verbose: int, capsys: pytest.CaptureFixture[str]) -> None:
+    import nirs4all
+
+    library = os.environ.get(_LIBRARY_ENV)
+    assert library and Path(library).is_file(), f"{_LIBRARY_ENV} must identify the exact release runtime"
+    with nirs4all.run(_pipeline(), _dataset(), verbose=verbose, methods_library_path=library) as result:
+        assert result.execution_engine == "native"
+        assert np.isfinite(result.cv_best_score)
+    output = capsys.readouterr().out
+    assert ("Native Methods training complete" in output) == (verbose > 0)
+
+
+@pytest.mark.methods
+@pytest.mark.skipif(
+    os.environ.get(_REQUIRE_ENV) != "1",
+    reason=f"set {_REQUIRE_ENV}=1 with installed native wheels to run",
+)
 def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -> None:
     import nirs4all
 
@@ -316,8 +334,6 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
             nirs4all.run(
                 public_pipeline,
                 training_dataset,
-                engine="native",
-                save_charts=False,
                 methods_library_path=library_path,
             ),
         )
@@ -361,7 +377,7 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
             owned_session.close()
         assert owned_archive is not None
         assert not owned_archive.exists()
-        with nirs4all.load_session(session_archive) as resumed_session:
+        with nirs4all.load_session(session_archive, methods_library_path=library_path) as resumed_session:
             resumed_prediction = resumed_session.predict(
                 {"X": prediction_features, "sample_ids": prediction_ids},
                 methods_library_path=library_path,
@@ -378,7 +394,7 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
     revalidation_archive = tmp_path / "native-methods-v2-revalidation.n4a"
     shutil.copyfile(archive_path, revalidation_archive)
     replacement = tmp_path / "native-methods-v2-revalidation-tampered.n4a"
-    with nirs4all.load_session(revalidation_archive) as revalidated_session:
+    with nirs4all.load_session(revalidation_archive, methods_library_path=library_path) as revalidated_session:
         before_tamper = revalidated_session.predict(
             {"X": prediction_features, "sample_ids": prediction_ids},
             methods_library_path=library_path,
@@ -417,7 +433,7 @@ def test_real_native_run_saves_and_replays_after_process_close(tmp_path: Path) -
             "X": list(reversed(data["X"])),
             "sample_ids": list(reversed(data["sample_ids"])),
         }
-        with nirs4all.load_session(os.environ["N4A_ARCHIVE"]) as loaded:
+        with nirs4all.load_session(os.environ["N4A_ARCHIVE"], methods_library_path=os.environ["NIRS4ALL_CORE_LIVE_METHODS_LIBRARY"]) as loaded:
             from_session = loaded.predict(
                 data,
                 methods_library_path=os.environ["N4A_METHODS_LIBRARY"],

@@ -703,6 +703,7 @@ class Session:
 
 def _validated_core_archive(
     path: Path,
+    methods_library_path: str | Path | None = None,
 ) -> tuple[tuple[Path, "CoreArchiveValidation"], str]:
     """Create the one-entry Session cache while binding it to exact bytes."""
     from nirs4all.pipeline.dagml.core_archive_replay import (
@@ -712,7 +713,11 @@ def _validated_core_archive(
     )
 
     source_fingerprint = _archive_fingerprint(path)
-    validation = validate_core_methods_archive_v2(path)
+    validation = (
+        validate_core_methods_archive_v2(path)
+        if methods_library_path is None
+        else validate_core_methods_archive_v2(path, methods_library_path=methods_library_path)
+    )
     if _archive_fingerprint(path) != source_fingerprint:
         raise CoreArchiveReplayError(
             "Core Archive V2 changed while the Session cache was created"
@@ -720,11 +725,14 @@ def _validated_core_archive(
     return (path, validation), source_fingerprint
 
 
-def load_session(path: str | Path) -> Session:
+def load_session(path: str | Path, *, methods_library_path: str | Path | None = None) -> Session:
     """Load a session from a saved bundle file.
 
     Args:
         path: Path to a legacy .n4a bundle or Core Archive V2.
+        methods_library_path: Optional exact Methods runtime used by a Core
+            Archive V2 session. Use the same runtime path for training and
+            loading within a process; native identity checks remain enforced.
 
     Returns:
         Session ready for prediction.
@@ -752,8 +760,8 @@ def load_session(path: str | Path) -> Session:
             "not a serialized-model prediction session"
         )
     if core_archive_version == 2:
-        validation, source_fingerprint = _validated_core_archive(path)
-        loaded = Session(name=path.stem)
+        validation, source_fingerprint = _validated_core_archive(path, methods_library_path)
+        loaded = Session(name=path.stem) if methods_library_path is None else Session(name=path.stem, methods_library_path=methods_library_path)
         loaded._status = "trained"
         loaded._core_archive_path = path
         loaded._core_archive_validation = validation
@@ -761,6 +769,9 @@ def load_session(path: str | Path) -> Session:
         return loaded
 
     from nirs4all.pipeline.bundle import BundleLoader
+
+    if methods_library_path is not None:
+        raise ValueError("methods_library_path is supported only for Core Archive V2 sessions")
 
     # Load the bundle to get pipeline info
     loader = BundleLoader(path)

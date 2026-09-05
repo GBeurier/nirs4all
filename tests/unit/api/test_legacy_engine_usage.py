@@ -109,7 +109,10 @@ def test_native_defaults_and_strict_preflight_are_silent_and_never_fallback(
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         with pytest.raises(_StoppedBeforeExecution, match="native failure"):
-            run_api.run(object(), object())
+            # Arbitrary objects are not a portable request. Keep this test on
+            # the explicit strict profile; automatic capability selection is
+            # covered by test_run_selection.py with valid declarations.
+            run_api.run(object(), object(), engine="native")
         with pytest.raises(ValueError, match="either 'model' or 'chain_id'"):
             predict_api.predict()
         with pytest.raises(ValueError, match="No pipeline defined"):

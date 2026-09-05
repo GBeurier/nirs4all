@@ -1,18 +1,21 @@
 # Native V1 migration and compatibility guide
 
 :::{warning}
-This page documents the R4/V1 contract being qualified. R1 `0.13.0` is
-published; R2 `1.0.0rc1` and R3 `1.0.0rc2` are distinct release candidates,
-and R4 `1.0.0` has not been created. This pre-receipt guide does not assert
-registry publication for either candidate and is not a stable-release
-announcement.
+Version `1.0.0` is published and is the compatibility baseline. Corrective
+V1 qualification is in progress; this page distinguishes the general Python
+API from the explicitly selected portable profile. A supported portable
+subset alone does not establish general Python or Studio feature parity.
 :::
 
 ## Runtime boundary
 
 The R3/R4 product architecture is unchanged:
 
-- the Python library selects the native engine by default and fails closed;
+- the general Python `run()` API chooses a DAG-ML execution profile before
+  execution: portable requests use `native`; other requests use `dag-ml`;
+- an explicit `engine=` or `N4A_ENGINE` selector is respected unchanged;
+- the explicit `engine="native"` portable profile fails closed; no execution
+  failure is retried through another engine;
 - `engine="legacy"` remains available only when a direct Python caller selects
   the rollback profile explicitly, through the end of R4;
 - Studio owns HTTP, WebSocket, store, jobs and scheduling in Rust;
@@ -53,8 +56,19 @@ and [support SLA](https://github.com/GBeurier/nirs4all-tools/blob/codex/r4-sup00
 
 ## Public API examples
 
-The candidate default is native, so an ordinary run does not need an engine
-selector:
+An ordinary general Python run does not need an engine selector. The actual
+engine is available as `result.execution_engine` and in `result.per_dataset`.
+For a strict portable request, select `engine="native"` explicitly. Its current
+training contract requires a list pipeline, a splitter, a supported Methods
+model and `dataset={"X": X, "y": y, "sample_ids": ids}`. Chart generation,
+workspace/project/cache integration and broader host operators are separate
+general-profile capabilities, not portable archive guarantees.
+
+An omitted `save_charts` uses the selected profile's default (false for
+portable, true for general DAG-ML/explicit legacy). Explicit options are never
+silently discarded. Both profiles accept `verbose=0..3`.
+
+For a qualified request:
 
 ```python
 import nirs4all
