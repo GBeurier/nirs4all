@@ -172,13 +172,13 @@ def test_native_export_model_applies_y_inverse(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (3) NO native dir → stable refusal, no legacy refit.
+# (3) NO configured native dir → memory capture persists on explicit export.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_no_native_dir_refuses_without_legacy_refit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """export_model on a dag-ml run WITHOUT a native results dir refuses and does not call legacy."""
+def test_no_native_dir_exports_memory_capture_without_legacy_refit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A memory-only dag-ml run persists its captured refit model only on export."""
     monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
     pipeline = [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
@@ -189,11 +189,16 @@ def test_no_native_dir_refuses_without_legacy_refit(tmp_path: Path, monkeypatch:
     assert result._dagml_results_dir is None  # noqa: SLF001 -- no native dir was written
 
     _poison_legacy_run(monkeypatch)
-    out = tmp_path / "model_refused.joblib"
-    with pytest.raises(RtError) as excinfo:
-        result.export_model(out)
-    _assert_export_refusal(excinfo)
-    assert not out.exists()
+    out = tmp_path / "model_captured.joblib"
+    result.export_model(out)
+    assert out.exists()
+    assert result._dagml_results_dir is not None  # noqa: SLF001 -- export owns a temporary native directory
+    loaded = joblib.load(out)
+    np.testing.assert_allclose(
+        np.asarray(loaded.predict(_refit_x("regression")), dtype=float).ravel(),
+        _final_test_pred(result),
+        atol=1e-6,
+    )
     assert result._dagml_legacy_result is None  # noqa: SLF001
 
 
