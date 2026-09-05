@@ -259,8 +259,11 @@ class FolderParser(BaseParser):
         """Check if pattern matches filename using word-boundary-aware matching.
 
         Pattern matches if:
-        - It appears as a substring in the filename
-        - For short patterns (1-2 chars), require word boundary (start of name or after delimiter)
+        - It occupies a filename token, optionally with prefix/source tokens.
+        - Both edges are a delimiter or the beginning/end of the filename.
+
+        A substring inside a role/source token is not another role: for
+        example ``Xcal_MIR.csv`` must not also match metadata pattern ``Cal_M``.
 
         Args:
             filename: Lowercase filename to check.
@@ -269,8 +272,8 @@ class FolderParser(BaseParser):
         Returns:
             True if pattern matches.
         """
-        if len(pattern) <= 2:
-            # Short patterns need word boundary matching to avoid false positives
+        if pattern:
+            # Every role token needs boundaries to avoid source-name collisions.
             # Check if filename starts with pattern followed by delimiter or extension
             delimiters = ['.', '_', '-', ' ']
             if filename.startswith(pattern):
@@ -280,15 +283,14 @@ class FolderParser(BaseParser):
                     return True
             # Check if pattern appears after a delimiter
             for delim in delimiters:
-                idx = filename.find(delim + pattern)
-                if idx >= 0:
+                start = 0
+                while (idx := filename.find(delim + pattern, start)) >= 0:
                     end_idx = idx + len(delim) + len(pattern)
                     if end_idx >= len(filename) or filename[end_idx] in delimiters:
                         return True
+                    start = idx + 1
             return False
-        else:
-            # Longer patterns use simple substring matching
-            return pattern in filename
+        return False
 
     def _get_stem(self, filename: str) -> str:
         """Get filename stem (without extension).
