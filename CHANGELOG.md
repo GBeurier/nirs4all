@@ -11,6 +11,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.1] — 2026-09-05
+
+### Fixed
+
+- Restored V1 transfer and retraining workflows, including correct public label
+  decoding for classifiers without coercing numeric regression predictions.
+- Restored leakage-safe per-source stacking replay and flat public inference
+  for source-concatenated models.
+- Restored the bounded Playground analysis and synthetic-dataset façades used
+  by Studio, and aligned the release dependency floor with the corrected
+  native V1 stack.
+
+---
+
 ## [1.0.0] — 2026-09-04
 
 ### Changed

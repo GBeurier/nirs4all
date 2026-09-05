@@ -95,11 +95,11 @@ dependencies = [
 
     # DAG-ML owns execution for both general host and portable Methods profiles.
     # These runtimes are base dependencies; neither profile retries on legacy.
-    "dag-ml>=0.3.23,<0.4",
-    "dag-ml-data>=0.2.9,<0.3",
+    "dag-ml>=0.3.25,<0.4",
+    "dag-ml-data>=0.2.11,<0.3",
     # The default portable execution lane must work after a base installation.
-    "nirs4all-core>=0.3.25,<0.4",
-    "nirs4all-methods>=1.0.13,<2",
+    "nirs4all-core>=0.3.29,<0.4",
+    "nirs4all-methods>=1.0.17,<2",
 ]
 
 [project.optional-dependencies]
@@ -126,7 +126,7 @@ transition = ["nirs4all-tools[duckdb,parquet]>=0.0.5"]
 
 # Retained installation extra for existing native deployment commands. The
 # same native runtime dependencies are now included in a base installation.
-native = ["nirs4all-core>=0.3.25,<0.4", "nirs4all-methods>=1.0.13,<2"]
+native = ["nirs4all-core>=0.3.29,<0.4", "nirs4all-methods>=1.0.17,<2"]
 
 # AutoML
 autogluon = ["autogluon>=1.0.0"]

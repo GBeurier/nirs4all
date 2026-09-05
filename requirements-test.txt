@@ -60,5 +60,5 @@ trendfitter>=0.0.6
 
 # dag-ml execution core — native execution fails closed by default; legacy
 # compatibility requires an explicit allow_fallback=True.
-dag-ml>=0.3.23,<0.4
-dag-ml-data>=0.2.9,<0.3
+dag-ml>=0.3.25,<0.4
+dag-ml-data>=0.2.11,<0.3
