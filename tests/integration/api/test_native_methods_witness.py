@@ -16,6 +16,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 
+from nirs4all.api.native_archive_training import NativeMethodsArchiveRunResult
 from nirs4all.pipeline.dagml.native_archive_replay import (
     predict_methods_archive_v2_raw_result,
     validate_methods_archive_v2,
@@ -48,11 +49,11 @@ def _require_installed_runtime() -> tuple[Any, Any]:
     return dag_ml, n4m
 
 
-def test_installed_methods_witness_claim_closes_through_the_public_dagml_lifecycle(
+def test_installed_methods_archive_closes_through_the_public_dagml_lifecycle(
     monkeypatch: pytest.MonkeyPatch,
     tmp_path: Path,
 ) -> None:
-    """The public native route yields a live claim and closes the real wheel facade."""
+    """The portable native route retains archive bytes while closing its facade."""
 
     monkeypatch.delenv("N4M_LIB_PATH", raising=False)
     assert "N4M_LIB_PATH" not in os.environ
@@ -73,31 +74,24 @@ def test_installed_methods_witness_claim_closes_through_the_public_dagml_lifecyc
         save_charts=False,
     )
 
-    assert type(result) is nirs4all.NativeMethodsRunResult
-    estimator = result.native_estimator
-    training_result = estimator.training_result_
+    assert type(result) is NativeMethodsArchiveRunResult
+    training_result = result._native_training_result  # noqa: SLF001 - verify the installed facade exactly.
     assert type(training_result) is dag_ml.TrainingResult
     assert training_result.is_attached is True
-    claim = result.native_execution_claim
-    assert claim.execution_entrypoint == "dag_ml.execute_methods_training"
-    assert claim.execution_mode == "methods_callback_free"
-    assert claim.methods_library_mode == "explicit_absolute"
-    assert claim.portable_artifacts_required is True
-    assert claim.outcome_fingerprint == training_result.outcome_fingerprint
-    assert claim.outcome_fingerprint == training_result.outcome.to_dict()["outcome_fingerprint"]
     assert result.native_execution_is_live is True
+
+    archive_path = result.export(tmp_path / "native-methods-witness.n4a")
+    assert archive_path.is_file()
+    reference = result.native_archive_reference
+    assert reference is not None
+    assert reference["archive_id"].startswith("archive:")
+    assert len(reference["archive_sha256"]) == 64
+    validate_methods_archive_v2(archive_path)
 
     result.close()
 
     assert training_result.is_attached is False
     assert result.native_execution_is_live is False
-    with pytest.raises(DagMLNativeCoverageError, match="no longer attached"):
-        _ = result.native_execution_claim
-    assert estimator.detach_native_training_result() is False
-
-    archive_path = result.export(tmp_path / "native-methods-witness.n4a")
-    assert archive_path.is_file()
-    validate_methods_archive_v2(archive_path)
 
 
 def test_installed_terminal_predict_is_callback_free_and_archives_without_a_receipt(
@@ -108,10 +102,10 @@ def test_installed_terminal_predict_is_callback_free_and_archives_without_a_rece
 
     monkeypatch.delenv("N4M_LIB_PATH", raising=False)
     dag_ml, n4m = _require_installed_runtime()
-    assert version("dag-ml") == "0.3.22"
-    assert version("nirs4all-methods") == "1.0.13"
-    assert dag_ml.version() == "0.3.22"
-    assert tuple(n4m.abi_version()) == (2, 3, 0)
+    assert version("dag-ml") == "0.3.25"
+    assert version("nirs4all-methods") == "1.0.18"
+    assert dag_ml.version() == "0.3.25"
+    assert tuple(n4m.abi_version()) == (2, 5, 0)
     assert callable(getattr(dag_ml, "execute_methods_cv_refit_terminal_predict", None))
     assert isinstance(getattr(dag_ml, "MethodsTerminalPredictionResult", None), type)
     assert isinstance(getattr(dag_ml, "MethodsTerminalPredictionReceipt", None), type)

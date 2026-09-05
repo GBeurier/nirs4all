@@ -18,7 +18,7 @@ from sklearn.model_selection import KFold
 import nirs4all
 from nirs4all.api.result import RunResult
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
-from nirs4all.pipeline.engine import LegacyFallbackWarning, legacy_fallback_metrics, resolve_engine
+from nirs4all.pipeline.engine import LegacyEngineUsageWarning, legacy_fallback_metrics, resolve_engine
 from nirs4all.pipeline.runner import PipelineRunner
 
 from ._datasets import dataset_path
@@ -52,7 +52,7 @@ def test_dagml_shadow_default_never_constructs_legacy_or_falls_back(monkeypatch:
     monkeypatch.setattr(PipelineRunner, "__init__", _forbid_legacy_runner)
 
     with warnings.catch_warnings():
-        warnings.simplefilter("error", LegacyFallbackWarning)
+        warnings.simplefilter("error", LegacyEngineUsageWarning)
         result = nirs4all.run(
             [SNV(), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}],
             dataset_path("regression"),

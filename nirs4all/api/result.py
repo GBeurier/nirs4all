@@ -1308,14 +1308,31 @@ class RunResult:
         """Get the best refit entry across all models.
 
         Filters predictions to ``fold_id="final"`` entries and ranks them
-        by their selection score (``selection_score``).
+        by their selection score (``selection_score``).  A sole unscored
+        final entry is also returned because its identity is unambiguous.
+        Multiple unscored finals remain unselected rather than choosing one
+        arbitrarily.
 
         Returns:
             Best refit prediction dict, or empty dict if no refit entries.
         """
         results = self.predictions.top(n=1, score_scope="refit")
-        top = cast(list, results)
-        return top[0] if top else {}
+        top = cast("list[dict[str, Any]]", results)
+        if top:
+            return top[0]
+
+        # Refit entries normally live in per-dataset stores and may have no
+        # holdout score for intentional full-training runs.  Only a singleton
+        # is safe to expose as ``best``; variants still require an explicit
+        # source selection from the caller.
+        final_entries: list[dict[str, Any]] = []
+        for ds_info in self.per_dataset.values():
+            ds_preds = ds_info.get("run_predictions")
+            if ds_preds is not None:
+                final_entries.extend(ds_preds.filter_predictions(fold_id="final"))
+        if not final_entries:
+            final_entries = self.predictions.filter_predictions(fold_id="final")
+        return dict(final_entries[0]) if len(final_entries) == 1 else {}
 
     @property
     def final(self) -> dict[str, Any] | None:

@@ -28,8 +28,12 @@ def test_full_training_model_choices_preserve_children_names_and_exports(tmp_pat
         assert child._dagml_score_set is not None
         assert {frame["lineage"]["phase"] for frame in child._dagml_node_results} == {"REFIT"}
         assert all(not item["evaluation"]["cross_validation"] for item in child.per_dataset.values())
-    selected = result._source_run(None)
+    with pytest.raises(ValueError, match="Cannot identify the source run"):
+        result._source_run(None)
+    source = result.runs[0].best
+    assert source["fold_id"] == "final"
+    selected = result._source_run(source)
     expected = selected._dagml_refit_artifacts[0]["estimator"].predict(X.astype(np.float32))
     monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("variant export retrained"))
-    path = result.export(tmp_path / "selected.n4a")
+    path = selected.export(tmp_path / "selected.n4a")
     np.testing.assert_array_equal(nirs4all.predict(path, X).y_pred, expected)

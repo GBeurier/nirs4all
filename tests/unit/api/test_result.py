@@ -153,6 +153,34 @@ class TestRunResult:
         result = RunResult(predictions=mock_predictions, per_dataset={})
         assert result.best == {}
 
+    def test_best_property_uses_a_unique_unscored_final(self, mock_predictions):
+        """A sole full-training final is unambiguous even without a score."""
+        mock_predictions.top.return_value = []
+        final_predictions = Mock()
+        final_predictions.filter_predictions.return_value = [{"id": "final-only", "fold_id": "final"}]
+        result = RunResult(
+            predictions=mock_predictions,
+            per_dataset={"train": {"run_predictions": final_predictions}},
+        )
+
+        assert result.best == {"id": "final-only", "fold_id": "final"}
+        final_predictions.filter_predictions.assert_called_once_with(fold_id="final")
+
+    def test_best_property_does_not_choose_between_unscored_finals(self, mock_predictions):
+        """Multiple scoreless variants remain fail-closed without a source."""
+        mock_predictions.top.return_value = []
+        final_predictions = Mock()
+        final_predictions.filter_predictions.return_value = [
+            {"id": "final-a", "fold_id": "final"},
+            {"id": "final-b", "fold_id": "final"},
+        ]
+        result = RunResult(
+            predictions=mock_predictions,
+            per_dataset={"train": {"run_predictions": final_predictions}},
+        )
+
+        assert result.best == {}
+
     def test_best_score(self, run_result, mock_predictions):
         """Test best_score extracts test_score from best."""
         mock_predictions.top.return_value = [{"test_score": 0.75}]
