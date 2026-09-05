@@ -424,18 +424,6 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
     }
 
 
-def _fit_transform_finetune_x(upstream: list[Any], x_train: np.ndarray, y_train: np.ndarray) -> np.ndarray:
-    """Apply the model node's upstream X-chain to the full train pool for Optuna."""
-    out = x_train
-    for step in upstream:
-        fitted = clone(step)
-        try:
-            out = np.asarray(fitted.fit_transform(out, y_train))
-        except TypeError:
-            out = np.asarray(fitted.fit_transform(out))
-    return out
-
-
 def _ordered_finetune_params(metadata: dict[str, Any]) -> dict[str, Any]:
     """Rebuild finetune_params with legacy model_params insertion order."""
     finetune_params = dict(metadata.get("nirs4all_finetune_params") or {})
@@ -457,45 +445,32 @@ def _resolve_finetune_best_params(
     upstream: list[Any],
     resolver: MaterializationResolver,
     model_store: MutableMapping[Any, Any],
+    task: dict[str, Any],
+    train_ids: list[str],
+    y_transform_node: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Run legacy Optuna finetuning once per model node/variant and cache best params."""
+    """Tune only the native task's train scope, with separate evidence per fold."""
     metadata = graph_node.get("metadata") or {}
     if not metadata.get("nirs4all_finetune_params"):
         return {}
     finetune_params = _ordered_finetune_params(metadata)
-    if str(finetune_params.get("approach", "grouped")) != "single":
-        raise NotImplementedError(
-            "dag-ml native finetune parity currently supports finetune_params approach='single' only"
-        )
-
-    cache_key = ("nirs4all_finetune_best_params", node_id, variant_label)
+    cache_key = ("nirs4all_finetune_best_params", node_id, variant_label, task["phase"], task.get("fold_id"), tuple(train_ids))
     cached = model_store.get(cache_key)
     if cached is not None:
         return dict(cached)
 
-    from nirs4all.controllers.models.sklearn_model import SklearnModelController
-    from nirs4all.optimization.optuna import FinetuneResult, OptunaManager
-    from nirs4all.pipeline.config.context import ExecutionContext
+    from .host_finetune import run_scoped_finetune
 
-    train_ids = resolver.partition_wire_ids("train")
-    x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=True)["values"])
+    x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=False)["values"])
     y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
-    x_tuned = _fit_transform_finetune_x(upstream, x_train, y_train) if upstream else x_train
-
-    result = OptunaManager().finetune(
-        resolver._dataset,  # noqa: SLF001 - host callback already owns the concrete dataset.
-        model_config={"model_instance": clone(model)},
-        X_train=x_tuned,
-        y_train=y_train,
-        X_test=None,
-        y_test=None,
-        folds=None,
-        finetune_params=dict(finetune_params),
-        context=ExecutionContext(),
-        controller=SklearnModelController(),
+    best_params, evidence = run_scoped_finetune(
+        model, upstream, x_train, y_train, finetune_params,
+        scope={"node_id": node_id, "variant_id": variant_label, "phase": task["phase"], "fold_id": task.get("fold_id"), "training_sample_ids": train_ids},
+        task_type=resolver._dataset.task_type,  # noqa: SLF001 -- host resolver owns this dataset
+        y_transform=route_graph_node(y_transform_node) if y_transform_node is not None else None,
     )
-    best_params = dict(result.best_params) if isinstance(result, FinetuneResult) else {}
     model_store[cache_key] = best_params
+    model_store[("host_hpo_evidence", node_id, variant_label, task["phase"], task.get("fold_id"))] = evidence
     return best_params
 
 
@@ -568,6 +543,9 @@ def run_model_node(
             upstream=upstream,
             resolver=resolver,
             model_store=model_store,
+            task=task,
+            train_ids=train_ids,
+            y_transform_node=y_transform_node,
         )
         if best_params and hasattr(model, "set_params"):
             model = clone(model)
@@ -623,6 +601,14 @@ def run_model_node(
         else:
             y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
         estimator.fit(x_train, y_fit)
+        evidence_key = ("host_hpo_evidence", node_id, variant_label, phase, task.get("fold_id"))
+        if evidence_key in model_store:
+            estimator._nirs4all_host_hpo = model_store[evidence_key]
+            if phase == "REFIT":
+                estimator._nirs4all_host_hpo_history = [
+                    evidence for key, evidence in model_store.items()
+                    if isinstance(key, tuple) and len(key) == 5 and key[:3] == ("host_hpo_evidence", node_id, variant_label)
+                ]
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
         # Predict X at the dataset's NATIVE storage dtype too (same parity reason as the fit X above):

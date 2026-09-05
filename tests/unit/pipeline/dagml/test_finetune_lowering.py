@@ -110,6 +110,8 @@ def test_public_dispatch_lowers_deterministic_finetune_to_native_generation(monk
     from nirs4all.pipeline.dagml import run_backend
 
     class FakeSpectro:
+        task_type = None
+
         def y(self, query: dict[str, str]) -> np.ndarray:
             assert query == {"partition": "train"}
             return np.asarray([0.1, 1.5, 2.7, 3.9])
@@ -185,6 +187,8 @@ def test_public_dispatch_rejects_direction_that_contradicts_metric() -> None:
     from nirs4all.pipeline.dagml import run_backend
 
     class FakeSpectro:
+        task_type = None
+
         def y(self, _query: dict[str, str]) -> np.ndarray:
             return np.asarray([0.1, 1.5, 2.7, 3.9])
 
@@ -218,6 +222,8 @@ def test_public_dispatch_rejects_metrics_not_supported_by_public_native_selectio
     from nirs4all.pipeline.dagml import run_backend
 
     class FakeSpectro:
+        task_type = None
+
         def y(self, _query: dict[str, str]) -> np.ndarray:
             return np.asarray([0.1, 1.5, 2.7, 3.9])
 
