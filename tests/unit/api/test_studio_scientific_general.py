@@ -43,6 +43,7 @@ def test_general_contract_executes_canonical_pipeline_and_real_workspace(tmp_pat
     assert response["engine"] == "dag-ml"
     assert response["result"]["native_score_sets_available"]
     assert response["result"]["prediction_count"] > 0
+    assert response["result"]["evaluations"] == []
     assert np.isfinite(response["result"]["validation_score"])
     with WorkspaceStore(tmp_path) as store:
         for run_id in response["result"]["run_ids"]:

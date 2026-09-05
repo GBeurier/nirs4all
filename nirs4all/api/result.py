@@ -779,6 +779,8 @@ def _dagml_native_bundle_provenance(
         provenance["dagml_native_export_shape"] = export_shape
     if retrain_lineage is not None:
         provenance["retrain_lineage"] = dict(retrain_lineage)
+    if native_manifest.get("evaluation"):
+        provenance["evaluation"] = native_manifest["evaluation"]
     return provenance
 
 

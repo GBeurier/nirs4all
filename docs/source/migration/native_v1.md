@@ -68,6 +68,23 @@ An omitted `save_charts` uses the selected profile's default (false for
 portable, true for general DAG-ML/explicit legacy). Explicit options are never
 silently discarded. Both profiles accept `verbose=0..3`.
 
+The general profile restores concrete pipelines without a splitter through a
+single native `REFIT` phase: all training rows are fitted once, and test rows
+are never fitted. There is no cross-validation score (`cv_best_score` is NaN).
+When a test partition exists, the historical validation alias points to this
+test partition, with a warning and persisted `evaluation` metadata; it is not
+an independent model-selection holdout. Generator/HPO variants of this
+no-splitter profile remain under qualification.
+
+Concrete pipeline chart commands are presentation-only. Spectra after a
+transform are generated from the captured full-training refit transform,
+without a new fit; they are explicitly not out-of-fold features. Saved charts
+include an adjacent HTML description, exact numeric CSV inputs, and scored
+fold membership JSON under `workspace/charts`. Visible-only charts print a
+text alternative. Branch/source/augmentation stage snapshots not yet captured
+are refused explicitly rather than rendered from a misleading raw substitute;
+this remains an open general-profile parity gap.
+
 For a qualified request:
 
 ```python

@@ -145,7 +145,12 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
                 native_results.append(str(child._dagml_results_dir))
         if not run_ids:
             raise StudioScientificJobError("missing_persistence", "general scientific result omitted durable run IDs")
-        selected = result.cv_best
+        selected = result.cv_best or result.best
+        evaluations = [
+            {"run_id": metadata.get("run_id"), "dataset": dataset_name, **metadata["evaluation"]}
+            for child in children for dataset_name, metadata in child.per_dataset.items()
+            if "evaluation" in metadata
+        ]
         response = {
             "schema": STUDIO_GENERAL_RESULT_SCHEMA,
             "job_id": job_id,
@@ -156,6 +161,8 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
                 "native_results_dirs": native_results,
                 "metric": selected.get("metric"),
                 "validation_score": _finite_or_none(result.cv_best_score),
+                "evaluations": evaluations,
+                "chart_reports": [path for child in children for metadata in child.per_dataset.values() for path in metadata.get("chart_reports", [])],
                 "prediction_count": result.num_predictions,
                 "model_names": result.get_models(),
                 "dataset_names": result.get_datasets(),

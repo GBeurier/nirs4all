@@ -94,6 +94,7 @@ def test_native_results_round_trip_preserves_explicit_physical_sample_ids(tmp_pa
         fold_id="final",
         sample_indices=[10, 3],
         metadata={"physical_sample_id": ["sample:ten", "sample:three"]},
+        result_metadata={"evaluation": {"cross_validation": False, "test_used_for_validation": True}},
         y_true=np.asarray([1.0, 2.0]),
         y_pred=np.asarray([1.1, 1.9]),
         metric="rmse",
@@ -109,6 +110,7 @@ def test_native_results_round_trip_preserves_explicit_physical_sample_ids(tmp_pa
     assert len(round_tripped) == 1
     assert round_tripped[0]["sample_indices"] == [10, 3]
     assert round_tripped[0]["metadata"]["physical_sample_id"] == ["sample:ten", "sample:three"]
+    assert round_tripped[0]["result_metadata"] == {"evaluation": {"cross_validation": False, "test_used_for_validation": True}}
 
 
 def test_native_results_reader_does_not_invent_ids_for_legacy_projection(tmp_path: Path) -> None:
@@ -133,7 +135,7 @@ def test_native_results_reader_does_not_invent_ids_for_legacy_projection(tmp_pat
     parquet_path = run_dir / "predictions.parquet"
     import polars as pl
 
-    frame = pl.read_parquet(parquet_path).drop("sample_ids")
+    frame = pl.read_parquet(parquet_path).drop("sample_ids", "result_metadata")
     frame.write_parquet(parquet_path)
 
     round_tripped = read_native_results(run_dir)["predictions"].filter_predictions(
@@ -142,6 +144,7 @@ def test_native_results_reader_does_not_invent_ids_for_legacy_projection(tmp_pat
     )
     assert len(round_tripped) == 1
     assert "physical_sample_id" not in round_tripped[0]["metadata"]
+    assert not round_tripped[0].get("result_metadata")
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")

@@ -294,6 +294,7 @@ def _projection_rows(predictions: Predictions) -> list[dict[str, Any]]:
             "test_score": _opt_float(entry.get("test_score")),
             "train_score": _opt_float(entry.get("train_score")),
             "scores": _canonical_json(entry.get("scores") or {}),
+            "result_metadata": _canonical_json(entry.get("result_metadata") or {}),
             "metric": entry.get("metric", ""),
             "task_type": entry.get("task_type", ""),
             "target_width": target_width,
@@ -436,6 +437,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
             "has_aggregate_predictions": False,
         },
         "artifacts": artifact_refs,
+        "evaluation": {dataset: metadata["evaluation"] for dataset, metadata in getattr(result, "per_dataset", {}).items() if "evaluation" in metadata},
         "files": {
             "score_set": "score_set.json",
             "predictions": "predictions.parquet",
@@ -484,7 +486,7 @@ def write_native_results(
         "y_true_shape": pl.List(pl.Int64), "y_pred_shape": pl.List(pl.Int64), "y_proba_shape": pl.List(pl.Int64),
         "weights": pl.List(pl.Float64), "arrays_present": pl.Boolean,
         "val_score": pl.Float64, "test_score": pl.Float64, "train_score": pl.Float64,
-        "scores": pl.Utf8, "metric": pl.Utf8, "task_type": pl.Utf8,
+        "scores": pl.Utf8, "metric": pl.Utf8, "task_type": pl.Utf8, "result_metadata": pl.Utf8,
         "target_width": pl.Int64, "target_names": pl.Utf8,
     }
     pl.DataFrame(rows, schema=schema).write_parquet(run_dir / "predictions.parquet")
@@ -534,6 +536,9 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
     # backward readability but do not fabricate them from row positions.
     has_sample_ids = "sample_ids" in df.columns
     for row in df.iter_rows(named=True):
+        result_metadata = json.loads(row.get("result_metadata") or "{}")
+        if not isinstance(result_metadata, dict):
+            raise ValueError("native prediction result_metadata must be a JSON object")
         predictions.add_prediction(
             dataset_name=row["dataset"],
             config_name=row["config_name"],
@@ -560,6 +565,7 @@ def read_native_results(run_dir: str | Path) -> dict[str, Any]:
             test_score=row["test_score"],
             train_score=row["train_score"],
             scores=json.loads(row["scores"]) if row["scores"] else None,
+            result_metadata=result_metadata,
             metric=row["metric"],
             task_type=row["task_type"],
         )
