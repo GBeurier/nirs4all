@@ -53,6 +53,42 @@ def test_transform_cannot_retroactively_change_a_preceding_model():
         ])
 
 
+@pytest.mark.parametrize("action", ["extend", "add", "replace"])
+def test_repeated_augmentation_keeps_stored_and_active_layers_distinct(action):
+    X = np.random.default_rng(17).normal(size=(30, 6)).astype(np.float32)
+    held_out = np.random.default_rng(18).normal(size=(8, 6)).astype(np.float32) + 40
+    pipeline = [
+        {"feature_augmentation": [StandardScaler()], "action": "extend"},
+        {"feature_augmentation": [RobustScaler()], "action": action}, MinMaxScaler(), {"model": Ridge()},
+    ]
+    # Operation-major insertion order, all stored layers reach the 2D model.
+    expected_chains = [[], [StandardScaler()], [RobustScaler()]]
+    if action != "extend":
+        expected_chains.append([StandardScaler(), RobustScaler()])
+    active = range(2, len(expected_chains)) if action == "replace" else range(len(expected_chains))
+    expected_blocks = []
+    for index, chain in enumerate(expected_chains):
+        operations = [*chain, *([MinMaxScaler()] if index in active else [])]
+        expected_blocks.append(make_pipeline(*operations).fit(X).transform(held_out) if operations else held_out)
+    node = pipeline_to_dsl(pipeline)["pipeline"][0]
+    actual = FeatureConcat(**node["params"]).fit(X).transform(held_out)
+    np.testing.assert_allclose(actual, np.hstack(expected_blocks), rtol=1e-6, atol=1e-6)
+
+
+def test_repeated_replace_reactivates_previously_inactive_stored_layer():
+    X = np.random.default_rng(19).normal(size=(30, 6))
+    pipeline = [
+        {"feature_augmentation": [StandardScaler()], "action": "replace"},
+        {"feature_augmentation": [RobustScaler()], "action": "replace"}, MinMaxScaler(), {"model": Ridge()},
+    ]
+    node = pipeline_to_dsl(pipeline)["pipeline"][0]
+    expected = np.hstack([
+        MinMaxScaler().fit_transform(X), StandardScaler().fit_transform(X),
+        make_pipeline(StandardScaler(), RobustScaler(), MinMaxScaler()).fit_transform(X),
+    ])
+    np.testing.assert_allclose(FeatureConcat(**node["params"]).fit_transform(X), expected, atol=1e-12)
+
+
 @pytest.mark.parametrize("with_cv", [False, True])
 def test_public_export_replay_matches_channel_local_oracle(tmp_path, with_cv):
     import nirs4all
