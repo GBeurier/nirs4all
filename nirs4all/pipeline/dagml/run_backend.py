@@ -88,7 +88,7 @@ from .run_paths import (
     _run_source_concat_merge,
     _run_stacking_branch,
 )
-from .steps import _expand_operator_generators
+from .steps import _expand_operator_generators, _is_split_step
 
 
 def _default_dagml_cli() -> Path:
@@ -308,6 +308,11 @@ def run_via_dagml(
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
     # skips the in-memory ones, so `_materialize_dataset` wraps them with the legacy normalization.
     spectro = _materialize_dataset(dataset)
+    requested_charts = isinstance(pipeline, list) and any(_is_chart_step(step) for step in pipeline)
+    if requested_charts and (save_charts or plots_visible):
+        from .chart_projection import validate_chart_projection
+
+        validate_chart_projection(pipeline, spectro)
     base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
     # `dataset_arg` is the reloadable path (clean file-path datasets, no pickle — fast); `host_pickle`
     # is set only when the adapter cannot faithfully reload from a path (in-memory inputs, or a path
@@ -335,10 +340,16 @@ def run_via_dagml(
         )
         _attach_export_spec(result, pipeline, dataset, name, random_state)
         workspace_path = None
-        if save_artifacts or project is not None or "workspace_path" in effective_runner_kwargs:
+        if save_artifacts or project is not None or "workspace_path" in effective_runner_kwargs or (requested_charts and save_charts):
             from nirs4all.pipeline.runner import _get_default_workspace_path
 
             workspace_path = Path(effective_runner_kwargs.get("workspace_path") or _get_default_workspace_path())
+        if requested_charts:
+            from .chart_projection import render_run_charts
+
+            chart_paths = render_run_charts(result, pipeline, spectro, workspace_path=workspace_path, save_charts=save_charts, plots_visible=plots_visible, verbose=verbose)
+            for metadata in result.per_dataset.values():
+                metadata["chart_reports"] = chart_paths
         if save_artifacts and result._dagml_score_set is not None and not native_results_enabled(results_path):
             assert workspace_path is not None
             result._dagml_results_dir = write_native_results(result, result._dagml_score_set, workspace_path / "native_results")
@@ -355,9 +366,13 @@ def run_via_dagml(
             session._adopt_dagml_result(result, dataset)
         from nirs4all.visualization.naming import get_metric_names
 
-        selected = result.cv_best
+        full_train = any(metadata.get("execution_profile") == "full_train" for metadata in result.per_dataset.values())
+        selected = result.best if full_train else result.cv_best
         metric_names = get_metric_names(cast(Any, report_naming), str(selected.get("task_type", "regression")), str(selected.get("metric", "rmse")))
-        logger.info("DAG-ML completed: %s=%s", metric_names["cv_score"], result.cv_best_score)
+        if full_train:
+            logger.info("DAG-ML completed without cross-validation: training_score=%s, %s=%s", selected.get("train_score"), metric_names["test_score"], selected.get("test_score"))
+        else:
+            logger.info("DAG-ML completed: %s=%s", metric_names["cv_score"], result.cv_best_score)
         return result
     finally:
         if workdir is None:
@@ -613,16 +628,8 @@ def _is_chart_step(step: Any) -> bool:
     return False
 
 
-def _strip_or_reject_chart_steps(pipeline: list[Any], *, save_charts: bool, plots_visible: bool) -> list[Any]:
-    """Drop disabled chart-only steps, or refuse when their side effects were requested."""
-    chart_steps = [step for step in pipeline if _is_chart_step(step)]
-    if not chart_steps:
-        return pipeline
-    if save_charts or plots_visible:
-        raise DagMlUnsupported(
-            "engine='dag-ml' returns in-memory scores only and cannot render legacy chart steps "
-            f"{chart_steps!r} when save_charts or plots_visible is enabled. Use the legacy engine."
-        )
+def _strip_chart_steps(pipeline: list[Any]) -> list[Any]:
+    """Separate presentation commands from the numerical DAG; render after scoring."""
     return [step for step in pipeline if not _is_chart_step(step)]
 
 
@@ -745,11 +752,15 @@ def _dispatch_run(
     # other unproven wrappers stay as dicts and still fall back loudly. `config_name` / `variant_config_names`
     # / `variant_model_params` were derived from the ORIGINAL pipeline above, so the dag-ml RunResult keeps
     # the legacy-matching name; `_attach_export_spec` likewise sees the original.
-    pipeline = _strip_or_reject_chart_steps(list(pipeline), save_charts=save_charts, plots_visible=plots_visible)
+    pipeline = _strip_chart_steps(list(pipeline))
     from .public_normalization import normalize_model_steps
 
     pipeline = normalize_model_steps(pipeline)
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
+    if not any(_is_split_step(step) for step in pipeline):
+        from .full_train import run_full_train
+
+        return run_full_train(pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name)
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
     # unsupported combination BEFORE any non-group dispatch path (branch/augmentation/exclude) runs.

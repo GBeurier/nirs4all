@@ -6,6 +6,7 @@ recalculates scores, or invents a native ScoreSet for host-only execution paths.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from pathlib import Path
 from typing import Any
@@ -84,7 +85,8 @@ def publish_workspace_result(
                     "num_predictions": result.num_predictions,
                     "native_score_set_available": result._dagml_score_set is not None,  # noqa: SLF001
                     "native_results_dir": str(result._dagml_results_dir) if result._dagml_results_dir else None,  # noqa: SLF001
-                    "cv_best_score": result.cv_best_score,
+                    "cv_best_score": result.cv_best_score if math.isfinite(result.cv_best_score) else None,
+                    "evaluation": {dataset: metadata["evaluation"] for dataset, metadata in result.per_dataset.items() if "evaluation" in metadata},
                 })
         except BaseException as error:
             store.fail_run(run_id, str(error))

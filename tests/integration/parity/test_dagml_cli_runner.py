@@ -108,9 +108,8 @@ def test_dagml_engine_coverage_boundary() -> None:
     assert dsl["pipeline"][0]["class"] == "nirs4all.operators.transforms.concat.FeatureConcat"
 
 
-def test_dagml_chart_steps_are_inert_only_when_disabled() -> None:
-    """Chart-only side effects are stripped only when the caller disabled chart rendering."""
-    from nirs4all.pipeline.dagml.errors import DagMlUnsupported
+def test_dagml_chart_steps_render_without_changing_scores(tmp_path) -> None:
+    """Enabled chart commands emit reports; disabled commands leave no visual outputs."""
     from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
     pipeline = [
@@ -123,8 +122,9 @@ def test_dagml_chart_steps_are_inert_only_when_disabled() -> None:
     result = run_via_dagml(pipeline, dataset_path("regression"), save_charts=False, plots_visible=False)
     assert result.num_predictions > 0
 
-    with pytest.raises(DagMlUnsupported, match="chart"):
-        run_via_dagml(pipeline, dataset_path("regression"), save_charts=True, plots_visible=False)
+    rendered = run_via_dagml(pipeline, dataset_path("regression"), save_charts=True, plots_visible=False, runner_kwargs={"workspace_path": tmp_path})
+    assert rendered.cv_best_score == result.cv_best_score
+    assert len(list((tmp_path / "charts").rglob("*.html"))) >= 2
 
 
 def test_assembled_dsl_binds_data_and_materializes_folds() -> None:
@@ -4334,21 +4334,23 @@ def test_multiple_models_fails_loud() -> None:
         run_via_dagml(u02, dataset_path("regression"))
 
 
-def test_no_splitter_fails_loud() -> None:
-    """A pipeline with NO cross-validator step FAILS LOUD catchably (cutover-safety) — not a bare ValueError.
+def test_no_splitter_uses_explicit_full_training_without_fabricated_cv(monkeypatch) -> None:
+    """The public no-splitter route executes REFIT only and labels test-as-validation."""
+    import nirs4all
+    from nirs4all.pipeline.dagml.full_train import NoSplitEvaluationWarning
 
-    The dag-ml CV+refit needs an outer fold set; a pipeline without a splitter (e.g. a bare model, or a
-    merge/features shape) used to raise a bare `ValueError` the `except NotImplementedError` fallback would
-    NOT catch (→ a hard production failure). It now raises a CATCHABLE `NotImplementedError`
-    (`DagMlUnsupported`), so the fallback redirects the pipeline to the legacy engine. No CLI needed.
-
-    Asserts on the dag-ml backend (`run_via_dagml`) directly: the public `nirs4all.run(engine="dag-ml")`
-    now wraps it in the cutover fallback (catches DagMlUnsupported → re-runs on legacy), so the loud
-    rejection is observable at the backend, not through the fallback-wrapped public `run`."""
-    from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
-
-    with pytest.raises(DagMlUnsupported, match="cross-validator"):
-        run_via_dagml([{"model": PLSRegression(n_components=5)}], dataset_path("regression"))
+    monkeypatch.setattr("nirs4all.pipeline.PipelineRunner.run", lambda *args, **kwargs: pytest.fail("legacy execution"))
+    with pytest.warns(NoSplitEvaluationWarning, match="No splitter"):
+        result = nirs4all.run(
+            [PLSRegression(n_components=5)], dataset_path("regression"),
+            engine="dag-ml", save_artifacts=False,
+        )
+    assert result.execution_engine == "dag-ml"
+    assert np.isnan(result.cv_best_score)
+    assert result._dagml_score_set is not None
+    assert {frame["lineage"]["phase"] for frame in result._dagml_node_results} == {"REFIT"}
+    assert all(not report.get("fold_id") for report in result._dagml_score_set["reports"])
+    assert all(not values["evaluation"]["cross_validation"] for values in result.per_dataset.values())
 
 
 def test_or_none_variant_is_handled_as_passthrough() -> None:
