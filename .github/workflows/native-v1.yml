@@ -1,0 +1,57 @@
+name: Native V1 lifecycle
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  native-lifecycle:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.13"]
+    env:
+      OPENBLAS_NUM_THREADS: "2"
+      OMP_NUM_THREADS: "2"
+      NIRS4ALL_REQUIRE_NATIVE_ARCHIVE_V2: "1"
+      NIRS4ALL_REQUIRE_NATIVE_METHODS_HPO: "1"
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Install base package and tests
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+      - name: Require installed runtime and record provenance
+        run: |
+          python - <<'PY'
+          import hashlib
+          import os
+          from importlib.metadata import version
+          from pathlib import Path
+          import dag_ml
+          import nirs4all_core
+          import n4m
+
+          library = Path(n4m.library_path()).resolve()
+          assert library.is_file(), library
+          print("Methods ABI:", n4m.abi_version())
+          print("Methods SHA256:", hashlib.sha256(library.read_bytes()).hexdigest())
+          for distribution in ("nirs4all", "dag-ml", "dag-ml-data", "nirs4all-core", "nirs4all-methods"):
+              print(distribution, version(distribution))
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as target:
+              target.write(f"NIRS4ALL_CORE_LIVE_METHODS_LIBRARY={library}\n")
+          PY
+      - name: Require real native training, HPO resume, export and fresh-process replay
+        run: |
+          python -m pytest -q \
+            tests/integration/api/test_native_archive_v2_training_cycle.py \
+            tests/integration/api/test_native_methods_hpo_cycle.py \
+            tests/integration/api/test_general_dag_run.py
