@@ -61,7 +61,7 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
         "dag-ml>=0.3.25,<0.4",
         "dag-ml-data>=0.2.11,<0.3",
         "nirs4all-io>=0.1.18,<0.2",
-        "nirs4all-core>=0.3.29,<0.4",
+        "nirs4all-core>=0.3.30,<0.4",
         "nirs4all-methods>=1.0.18,<2",
     } <= dependencies
     assert pyproject["project"]["license"] == "CeCILL-2.1 OR AGPL-3.0-or-later"

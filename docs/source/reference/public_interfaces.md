@@ -229,7 +229,7 @@ The strict Archive V2 path is available in the base V1 installation; the
 `nirs4all[native]` compatibility extra repeats the Core/Methods constraints for
 existing deployment commands. Release 1.0.1 is qualified against
 `dag-ml==0.3.25`, `dag-ml-data==0.2.11`, `nirs4all-io==0.1.18`,
-`nirs4all-core==0.3.29`, and `nirs4all-methods==1.0.18`. The package metadata
+`nirs4all-core==0.3.30`, and `nirs4all-methods==1.0.18`. The package metadata
 admits only the corresponding compatibility families and their next breaking
 version boundaries.
 

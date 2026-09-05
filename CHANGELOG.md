@@ -34,7 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   native V1 stack.
 - Closed the installed Playground dataset path on `nirs4all-io>=0.1.18`, and
   qualified the final stack against `dag-ml==0.3.25`,
-  `dag-ml-data==0.2.11`, `nirs4all-core==0.3.29`, and
+  `dag-ml-data==0.2.11`, `nirs4all-core==0.3.30`, and
   `nirs4all-methods==1.0.18`.
 - Restored validated step-level `train_params` and `refit_params`, including
   Optuna training controls; unknown or specialized controls still fail closed.

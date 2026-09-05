@@ -101,7 +101,7 @@ dependencies = [
     # bridge directly, so the published base wheel must close that runtime.
     "nirs4all-io>=0.1.18,<0.2",
     # The default portable execution lane must work after a base installation.
-    "nirs4all-core>=0.3.29,<0.4",
+    "nirs4all-core>=0.3.30,<0.4",
     "nirs4all-methods>=1.0.18,<2",
 ]
 
@@ -131,7 +131,7 @@ transition = ["nirs4all-tools[duckdb,parquet]>=0.0.5"]
 
 # Retained installation extra for existing native deployment commands. The
 # same native runtime dependencies are now included in a base installation.
-native = ["nirs4all-core>=0.3.29,<0.4", "nirs4all-methods>=1.0.18,<2"]
+native = ["nirs4all-core>=0.3.30,<0.4", "nirs4all-methods>=1.0.18,<2"]
 
 # AutoML
 autogluon = ["autogluon>=1.0.0"]

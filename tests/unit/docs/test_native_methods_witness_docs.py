@@ -83,7 +83,7 @@ def test_installed_methods_evidence_and_r2_release_record_are_published() -> Non
     assert "strict callback-free terminal prediction form" in changelog
     assert "`dag-ml==0.3.25`" in changelog
     assert "`dag-ml-data==0.2.11`" in changelog
-    assert "`nirs4all-core==0.3.29`" in changelog
+    assert "`nirs4all-core==0.3.30`" in changelog
     assert "`nirs4all-methods==1.0.18`" in changelog
     assert "`nirs4all-io>=0.1.18`" in changelog
     assert "one remaining explicitly ledgered native coverage refusal" in changelog
