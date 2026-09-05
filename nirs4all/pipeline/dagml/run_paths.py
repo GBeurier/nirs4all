@@ -3269,9 +3269,9 @@ def _named_dict_stacking_legacy_projection(
     during CV, but its refit pass only recognizes list-form duplication branches and therefore skips the
     final refit. The public table is consequently 3 base branch models plus the downstream Ridge
     meta-learner, each with 3 folds x train/val/test and avg/w_avg x train/val/test rows, and no
-    ``fold_id="final"`` rows. The dag-ml run above is still the native execution; this helper only maps
-    the named-dict legacy surface back to that CV-only table so the case can leave fallback without
-    changing list-form stacking semantics.
+    ``fold_id="final"`` rows. This historical oracle is retained for its dedicated regression tests;
+    production dispatch never calls it. Named and list-form stacking now share native nested
+    scheduling and captured final artifacts instead of this historical local execution.
 
     The meta rows are computed only from validation OOF branch predictions. Held-out test branch
     predictions are used as prediction inputs for scoring, never as training data.
@@ -3421,16 +3421,6 @@ def _named_dict_stacking_legacy_projection(
     return run_result
 
 
-def _require_partitioned_outer_stacking(identity: Any, folds: list[tuple[list[int], list[int]]]) -> None:
-    """Reject nested stacking over repeated or incomplete validation folds."""
-    fold_set = build_fold_set(identity, folds, set_id="folds.stacking.outer")
-    if fold_set.get("partition_mode") == "resampled":
-        raise DagMlUnsupported(
-            "native nested stacking requires an outer CV partition with exactly one validation prediction "
-            "per sample (for example KFold); ShuffleSplit and repeated CV are not portable yet"
-        )
-
-
 def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
@@ -3458,8 +3448,8 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     and never enter the FIT_CV meta-features.
 
     Named branches retain separate base/meta prediction views of this same native outcome, including
-    its captured REFIT artifacts. Resampled named branches still use the historical local projection;
-    that remaining ownership/scientific gap is not the nested partitioned execution described here.
+    its captured REFIT artifacts. Resampled outer folds use a separately declared partitioned inner
+    OOF preparation for the meta REFIT; that evidence never enters outer CV scoring.
     """
     import dag_ml
 
@@ -3477,26 +3467,8 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
 
-    if named_duplication and build_fold_set(identity, folds, set_id="folds.stacking.outer").get("partition_mode") == "resampled":
-        # The current dag-ml runtime still validates stacking refit coverage before honoring the
-        # cv_only metadata contract. Legacy named-dict stacking has no refit surface, so replay this
-        # narrow CV-only table locally inside the dag-ml backend, like the by-source stacking replay.
-        return _named_dict_stacking_legacy_projection(
-            pipeline=pipeline,
-            branches=branches,
-            meta_learner=meta_learner,
-            spectro=spectro,
-            folds=folds,
-            metric=metric,
-            task_type=task_type,
-            config_name=config_name,
-            scores=None,
-        )
-
-    # Both named and list partitioned forms enter the native nested scheduler.
-    # Resampled named branches returned above; their older local implementation
-    # is retained pending a properly qualified native resampled contract.
-    _require_partitioned_outer_stacking(identity, folds)
+    outer_partition_mode = build_fold_set(identity, folds, set_id="folds.stacking.outer").get("partition_mode")
+    refit_oof = {"stacking_refit_oof": "partitioned_inner_v1"} if outer_partition_mode == "resampled" else {}
 
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
 
@@ -3518,6 +3490,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                     "controller_id": _META_MODEL_CONTROLLER_ID,
                     "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": refit_policy},
+                    **refit_oof,
                 },
             },
         ],
@@ -3545,24 +3518,33 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
 
     # List form exposes the ensemble; named form also exposes each base producer.
     model_label = f"MetaModel_{type(meta_learner).__name__}"
+    result: RunResult
     if named_duplication:
         from .named_stacking import project_named_stacking
 
-        return project_named_stacking(
+        result = project_named_stacking(
             outcome, branches=branches, branch_names=_duplication_branch_names(pipeline, len(branches)),
             base_model_ids=base_model_ids, meta_node_id=_META_NODE_ID, meta_learner=meta_learner,
             spectro=spectro, identity=identity, metric=metric, task_type=task_type, config_name=config_name,
             pipeline=pipeline, random_state=random_state,
         )
-    return _scores_to_run_result(
-        outcome["scores"],
-        spectro.name,
-        model_label,
-        metric,
-        task_type,
-        producer=_META_NODE_ID,
-        config_name=config_name,
-        results=outcome["results"],
-        identity=identity,
-        refit_artifacts=outcome["refit_artifacts"],
-    )
+    else:
+        result = _scores_to_run_result(
+            outcome["scores"], spectro.name, model_label, metric, task_type,
+            producer=_META_NODE_ID, config_name=config_name, results=outcome["results"],
+            identity=identity, refit_artifacts=outcome["refit_artifacts"],
+        )
+    if refit_oof:
+        evidence = {
+            "schema": "nirs4all.nested-stacking-evaluation.v1",
+            "outer_partition_mode": outer_partition_mode,
+            "outer_validation_occurrences": sum(len(validation) for _, validation in folds),
+            "outer_validation_sample_count": len({sample for _, validation in folds for sample in validation}),
+            "training_sample_count": len(pool),
+            "refit_oof": "partitioned_inner_v1",
+            "refit_oof_is_selection_evidence": False,
+        }
+        for view in [result, *getattr(result, "runs", [])]:
+            for metadata in view.per_dataset.values():
+                metadata["stacking_evaluation"] = evidence
+    return result
