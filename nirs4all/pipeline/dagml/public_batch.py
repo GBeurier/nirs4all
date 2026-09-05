@@ -84,6 +84,20 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
 
     from .run_backend import run_via_dagml
 
+    def run_child(single_pipeline: Any, single_dataset: Any, child_options: dict[str, Any]) -> RunResult:
+        from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+        from .dataset import _materialize_dataset
+        from .sequential_models import sequential_model_pipelines, share_model_folds
+
+        successive = sequential_model_pipelines(deserialize_component(single_pipeline))
+        if successive is None:
+            return run_via_dagml(single_pipeline, single_dataset, **child_options)
+        spectro = _materialize_dataset(single_dataset)
+        # A request-local FoldSet is resolved once before any child executes.
+        # Recursion only expands the now single-model requests, never retries.
+        return run_dagml_public(share_model_folds(successive, spectro), spectro, **child_options)
+
     pipelines = _normalize_to_list(pipeline, _is_single_pipeline)
     datasets = _normalize_to_list(dataset, _is_single_dataset)
     if isinstance(dataset, DatasetConfigs) and len(dataset.configs) > 1:
@@ -106,7 +120,7 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
         else:
             pipeline_entries.append((single_pipeline, pipeline_name, None))
     if len(pipeline_entries) == len(datasets) == 1:
-        return run_via_dagml(pipelines[0], datasets[0], **options)
+        return run_child(pipelines[0], datasets[0], options)
     if not pipelines or not datasets:
         raise ValueError("A batch requires at least one pipeline and one dataset")
     results: list[RunResult] = []
@@ -119,7 +133,7 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
                     child_options["resolved_config_name"] = resolved_config_name
                 if scratch_root is not None:
                     child_options["workdir"] = scratch_root / f"pipeline-{index}-dataset-{dataset_index}"
-                results.append(run_via_dagml(single_pipeline, single_dataset, **child_options))
+                results.append(run_child(single_pipeline, single_dataset, child_options))
         aggregate = DagMLBatchResult(results)
         if options.get("session") is not None:
             # Keep the logical batch as the Session's result, not whichever

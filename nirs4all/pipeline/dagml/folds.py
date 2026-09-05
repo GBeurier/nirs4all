@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 
-from .steps import DagMlSplitStep
+from .steps import DagMlSplitStep, FrozenDagMlSplitStep
 
 
 def _pool_features(spectro: Any, pool: list[int]) -> np.ndarray:
@@ -228,6 +228,9 @@ def _build_group_folds(splitter: Any, spectro: Any, pool: list[int]) -> list[tup
     group is never split, every rep row is validated exactly once → a clean OOF partition that
     dag-ml-data accepts, with the group constraint enforced by the emitted ``group_id``.
     """
+    if isinstance(splitter, FrozenDagMlSplitStep):
+        return splitter.materialized_folds(pool, set())
+
     from nirs4all.controllers.splitters.split import _needs, get_split_grouping_capability
     from nirs4all.operators.splitters import GroupedSplitterWrapper
 
@@ -275,6 +278,8 @@ def _build_folds(splitter: Any, spectro: Any, pool: list[int], excluded: set[int
     adapter owns the split; dag-ml has no runtime splitter, so the FoldSet's ``train_sample_ids`` are
     authoritative for what the node trains on). The envelope still marks them ``excluded`` for lineage.
     """
+    if isinstance(splitter, FrozenDagMlSplitStep):
+        return splitter.materialized_folds(pool, excluded)
     return [
         ([pool[i] for i in train_idx if pool[i] not in excluded], [pool[i] for i in val_idx])
         for train_idx, val_idx in _split_pool(splitter, spectro, pool)

@@ -26,6 +26,20 @@ class DagMlSplitStep:
     y_aggregation: Any = None
 
 
+@dataclass(frozen=True)
+class FrozenDagMlSplitStep(DagMlSplitStep):
+    """Request-local, identity-keyed folds shared by successive model runs."""
+
+    sample_pool: tuple[int, ...] = ()
+    folds: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...] = ()
+
+    def materialized_folds(self, pool: list[int], excluded: set[int]) -> list[tuple[list[int], list[int]]]:
+        """Replay exactly the captured split; never silently address another pool."""
+        if tuple(pool) != self.sample_pool:
+            raise ValueError("A shared sequential-model FoldSet cannot be reused for a different sample pool")
+        return [([sample for sample in train if sample not in excluded], list(validation)) for train, validation in self.folds]
+
+
 def _needs_wavelength_injection(operator: Any) -> bool:
     """True when ``operator`` *requires* a ``wavelengths=`` injection the dag-ml X-chain cannot provide.
 
