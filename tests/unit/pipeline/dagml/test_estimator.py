@@ -240,10 +240,20 @@ def test_predict_and_predict_proba_use_native_replay_and_explicit_decoders() -> 
     client = _FakeNativeClient()
     replay_modes: list[str] = []
 
-    def replay_compiler(estimator: DagMLPipelineEstimator, X: Any, *, mode: str) -> DagMLReplayExecution:
+    def replay_compiler(
+        estimator: DagMLPipelineEstimator,
+        X: Any,
+        *,
+        mode: str,
+        identity_frame: Any,
+    ) -> DagMLReplayExecution:
         replay_modes.append(mode)
         assert estimator.predictor_package_ == {"package_id": "outcome-1-predictor"}
         assert np.asarray(X).shape == (2, 3)
+        assert len(identity_frame.sample_ids) == 2
+        assert identity_frame.sample_ids[0].endswith(".s0")
+        assert identity_frame.sample_ids[1].endswith(".s1")
+        assert len(set(identity_frame.sample_ids)) == 2
         return _replay_execution(mode)
 
     estimator = DagMLPipelineEstimator(

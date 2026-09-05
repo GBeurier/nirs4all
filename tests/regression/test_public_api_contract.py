@@ -65,6 +65,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "cache: typing.Any | None = None, project: str | None = None, "
         "report_naming: str = 'nirs', engine: str | None = None, "
         "tuning: typing.Any | None = None, calibration: typing.Any | None = None, "
+        "terminal_predict: collections.abc.Mapping[str, typing.Any] | None = None, "
         "results_path: str | pathlib.Path | None = None, allow_fallback: bool = False, "
         "**runner_kwargs: Any) -> "
         "'RunResult | TunedSingleEstimatorConformalResult'"
@@ -100,7 +101,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "save_artifacts: bool = True, **kwargs: Any) -> nirs4all.api.result.RunResult"
     ),
     "session": ("(pipeline: list[typing.Any] | None = None, name: str = '', **kwargs: Any) -> collections.abc.Generator[nirs4all.api.session.Session, None, None]"),
-    "load_session": ("(path: str | pathlib.Path, *, methods_library_path: str | pathlib.Path | None = None) -> nirs4all.api.session.Session"),
+    "load_session": ("(path: str | pathlib.Path, *, engine: str | None = None, methods_library_path: str | pathlib.Path | None = None) -> nirs4all.api.session.Session | nirs4all.api.session.NativeArchiveSession"),
     "generate": (
         "(n_samples: 'int' = 1000, *, random_state: 'int | None' = None, "
         "complexity: \"Literal['simple', 'realistic', 'complex']\" = 'simple', "
@@ -324,6 +325,9 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "FinetuneSampler",
     "MAX_STUDIO_SCIENTIFIC_REQUEST_BYTES",
     "MAX_STUDIO_SCIENTIFIC_RESPONSE_BYTES",
+    "NativeMethodsRefitResult",
+    "NativeMethodsRunResult",
+    "NativeMethodsSession",
     "NativeTuning",
     "Nirs4AllCalibrationNotImplementedError",
     "OrderedSearchSpaceSpec",
@@ -376,6 +380,7 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "conformal_metrics",
     "explain",
     "export_calibrated_result",
+    "fit_native_pipeline",
     "framework",
     "generate",
     "generate_run_id",
@@ -456,6 +461,9 @@ EXPECTED_API_ALL: list[str] = [
     "MAX_STUDIO_SCIENTIFIC_REQUEST_BYTES",
     "MAX_STUDIO_SCIENTIFIC_RESPONSE_BYTES",
     "ModelRefitResult",
+    "NativeMethodsRefitResult",
+    "NativeMethodsRunResult",
+    "NativeMethodsSession",
     "NativeTuning",
     "Nirs4AllCalibrationNotImplementedError",
     "OrderedSearchSpaceSpec",
@@ -503,6 +511,7 @@ EXPECTED_API_ALL: list[str] = [
     "conformal_metrics",
     "explain",
     "export_calibrated_result",
+    "fit_native_pipeline",
     "generate",
     "get_keyword_registry",
     "get_keyword_registry_schema",

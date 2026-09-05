@@ -374,7 +374,17 @@ def predict(
             preprocessing_steps=[],
         )
 
-    if engine == "native" and isinstance(model, (str, Path)) and Path(model).suffix.lower() == ".n4a":
+    # The unprofiled Archive V2 adapter is an explicit compatibility surface.
+    # Do not let the process default reinterpret every historical ``.n4a`` as
+    # that format: calibrated-result archives and legacy bundles have distinct
+    # routing/refusal contracts.
+    if (
+        requested_engine == "native"
+        and isinstance(model, (str, Path))
+        and Path(model).suffix.lower() == ".n4a"
+        and not _is_calibrated_replayed_prediction_request(model, data)
+        and not _is_conformal_attached_bundle_request(model)
+    ):
         if not isinstance(data, Mapping) or "X" not in data or "sample_ids" not in data:
             raise TypeError("native archive prediction requires data={'X': matrix, 'sample_ids': explicit_ids}")
         from nirs4all.pipeline.dagml.native_archive_replay import predict_methods_archive_v2_raw_result
@@ -387,13 +397,30 @@ def predict(
             metadata=data.get("metadata"),
             methods_library_path=methods_library_path,
         )
-        return PredictResult(
+        metadata: dict[str, Any] = {
+            "engine": "native",
+            "sample_ids": list(native.sample_ids),
+        }
+        if native.conformal_guarantee_status is not None:
+            metadata["conformal_guarantee_status"] = dict(
+                native.conformal_guarantee_status
+            )
+        result = PredictResult(
             y_pred=native.values,
-            metadata={"engine": "native", "sample_ids": list(native.sample_ids)},
+            metadata=metadata,
             model_name="MethodsN4MM",
             preprocessing_steps=[],
             intervals=dict(native.intervals),
         )
+        selected_coverages = _normalize_requested_coverages(coverage)
+        if selected_coverages is not None:
+            result.intervals = _select_materialized_intervals(
+                result, selected_coverages
+            )
+            result.metadata["selected_interval_coverages"] = list(
+                selected_coverages
+            )
+        return result
 
     # A general workspace chain names a captured REFIT artifact, never an
     # implicit legacy executor or a fabricated set of CV models. Inspect/load
