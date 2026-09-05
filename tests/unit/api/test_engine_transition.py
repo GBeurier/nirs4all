@@ -24,6 +24,7 @@ from nirs4all.pipeline.dagml.native_archive_replay import (
     NativeArchiveConformalInterval,
     NativeArchivePrediction,
 )
+from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import require_legacy_engine
 
 
@@ -74,77 +75,42 @@ def test_require_legacy_engine_accepts_legacy() -> None:
 def test_run_native_executes_the_methods_subset_without_constructing_a_legacy_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """The public native lane never constructs ``PipelineRunner``."""
+    """The public native lane delegates to the Archive V2 trainer only."""
 
     def legacy_runner(*_args, **_kwargs):  # noqa: ANN002, ANN003
         raise AssertionError("run(engine='native') constructed a legacy PipelineRunner")
 
     run_module = importlib.import_module("nirs4all.api.run")
     monkeypatch.setattr(run_module, "PipelineRunner", legacy_runner)
-
-    class Estimator:
-        training_outcome_ = {
-            "outcome_fingerprint": "a" * 64,
-            "score_set": {
-                "schema_version": 2,
-                "selection_metric": "rmse",
-                "reports": [
-                    {
-                        "producer_node": "model:methods",
-                        "producer_port": "oof",
-                        "partition": "validation",
-                        "fold_id": "fold0",
-                        "level": "sample",
-                        "metrics": {"rmse": 0.5},
-                        "row_count": 2,
-                        "target_names": ["y"],
-                        "target_width": 1,
-                        "variant_id": "variant:base",
-                    },
-                    {
-                        "producer_node": "model:methods",
-                        "producer_port": "oof",
-                        "partition": "validation",
-                        "fold_id": "avg",
-                        "level": "sample",
-                        "metrics": {"rmse": 0.5},
-                        "row_count": 2,
-                        "target_names": ["y"],
-                        "target_width": 1,
-                        "variant_id": "variant:base",
-                    },
-                ],
-            },
-        }
-
-        def export_native_archive(self, *_args, **_kwargs):  # noqa: ANN001
-            raise AssertionError("training must not export during run")
-
     observed: dict[str, object] = {}
+    expected = object()
 
-    def native_fit(pipeline, X, y, **kwargs):  # noqa: ANN001
-        observed.update(pipeline=pipeline, X=np.asarray(X), y=np.asarray(y), kwargs=kwargs)
-        return Estimator()
+    def native_train(pipeline, dataset, **kwargs):  # noqa: ANN001
+        observed.update(pipeline=pipeline, dataset=dataset, kwargs=kwargs)
+        return expected
 
-    monkeypatch.setattr("nirs4all.api.native_training.fit_native_pipeline", native_fit)
-    _patch_live_witness(monkeypatch)
+    monkeypatch.setattr(
+        "nirs4all.api.native_archive_training.run_native_methods_archive",
+        native_train,
+    )
+    pipeline = [KFold(n_splits=2), PLSRegression(n_components=1)]
+    dataset = {
+        "X": np.asarray([[1.0], [2.0]]),
+        "y": np.asarray([1.0, 2.0]),
+        "sample_ids": ["s1", "s2"],
+    }
 
     result = run(
-        [{"split": "stub"}, {"model": "stub"}],
-        {"X": np.asarray([[1.0], [2.0]]), "y": np.asarray([1.0, 2.0]), "sample_ids": ["s1", "s2"]},
+        pipeline,
+        dataset,
         engine="native",
         save_charts=False,
     )
 
-    assert isinstance(result, NativeMethodsRunResult)
-    assert nirs4all.NativeMethodsRunResult is NativeMethodsRunResult
-    assert result.cv_best_score == pytest.approx(0.5)
-    assert observed["kwargs"] == {
-        "sample_ids": ["s1", "s2"],
-        "groups": None,
-        "metadata": None,
-        "seed": 12345,
-    }
+    assert result is expected
+    assert observed["pipeline"] is pipeline
+    assert observed["dataset"] is dataset
+    assert observed["kwargs"]["save_charts"] is False
 
 
 def test_run_native_environment_selection_is_also_fail_closed_for_unsupported_requests(
@@ -493,8 +459,8 @@ def test_native_tpe_median_hpo_descriptor_is_closed_and_attested() -> None:
     ("pipeline", "dataset", "kwargs", "message"),
     [
         ({"model": "stub"}, {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}, {}, "list pipeline"),
-        ([], (np.asarray([[1.0]]), np.asarray([1.0])), {}, "explicit mapping dataset"),
-        ([], {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}, {"refit": {"mode": "full"}}, "requires refit=True"),
+        ([], (np.asarray([[1.0]]), np.asarray([1.0])), {}, "requires dataset="),
+        ([], {"X": [[1.0]], "y": [1.0], "sample_ids": ["s1"]}, {"refit": {"mode": "full"}}, "requires the native refit"),
     ],
 )
 def test_run_native_rejects_broad_legacy_shapes_before_native_execution(
@@ -535,87 +501,25 @@ def test_run_native_rejects_broad_legacy_shapes_before_native_execution(
     ],
 )
 def test_public_helpers_reject_dagml_until_native_paths_exist(operation: str, call) -> None:
-    with pytest.raises(NotImplementedError, match=rf"nirs4all\.{operation}.*dag-ml"):
+    with pytest.raises(RtError) as caught:
         call()
+    assert caught.value.verb == ("run" if operation == "retrain" else operation)
+    assert caught.value.cause in {"invalid_request", "unsupported_capability"}
 
 
-def test_retrain_native_refits_the_attested_selected_methods_variant_without_legacy_runner(
-    monkeypatch: pytest.MonkeyPatch,
+@pytest.mark.parametrize("source_type", [NativeMethodsRunResult, NativeMethodsRefitResult])
+def test_retrain_in_memory_native_results_fail_closed_before_execution(
+    source_type: type[object],
 ) -> None:
-    """Native full retrain delegates one V3 operation without a legacy runner."""
+    """Retrain consumes durable training specs, never ad-hoc result objects."""
 
-    class Estimator:
-        pass
-
-    source = object.__new__(NativeMethodsRunResult)
-    source._native_estimator = Estimator()  # noqa: SLF001
-    observed: dict[str, object] = {}
-    expected = object()
-
-    def native_retrain(source_arg, dataset, *, name):  # noqa: ANN001
-        observed.update(source=source_arg, dataset=dataset, name=name)
-        return expected
-
-    retrain_module = importlib.import_module("nirs4all.api.retrain")
-    monkeypatch.setattr(retrain_module, "refit_native_methods", native_retrain)
-    monkeypatch.setattr(
-        retrain_module,
-        "PipelineRunner",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("native retrain constructed PipelineRunner")),
-    )
-
-    dataset = {
-        "X": np.asarray([[1.0], [2.0], [3.0], [4.0]]),
-        "y": np.asarray([1.0, 2.0, 3.0, 4.0]),
-        "sample_ids": ["next-0", "next-1", "next-2", "next-3"],
-    }
-    assert retrain(source, dataset, name="next") is expected
-    assert observed["source"] is source
-    assert observed["dataset"] is dataset
-    assert observed["name"] == "next"
-
-
-
-
-@pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
-def test_retrain_native_source_refuses_explicit_non_native_engine(engine: str) -> None:
-    source = object.__new__(NativeMethodsRunResult)
-    with pytest.raises(ValueError, match="explicit non-native engine"):
-        retrain(source, {"X": [], "y": [], "sample_ids": []}, engine=engine)
-
-
-def test_retrain_native_refit_result_refuses_before_constructing_a_legacy_runner(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """A V3 child cannot silently become a legacy retrain parent."""
-
-    source = object.__new__(NativeMethodsRefitResult)
-    retrain_module = importlib.import_module("nirs4all.api.retrain")
-    monkeypatch.setattr(
-        retrain_module,
-        "PipelineRunner",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy runner constructed")),
-    )
-
-    with pytest.raises(NotImplementedError, match="NativeMethodsRefitResult as a new parent"):
+    source = object.__new__(source_type)
+    with pytest.raises(RtError) as caught:
         retrain(source, {"X": [], "y": [], "sample_ids": []})
 
-
-@pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
-def test_retrain_native_refit_result_refuses_explicit_non_native_engine(engine: str) -> None:
-    source = object.__new__(NativeMethodsRefitResult)
-    with pytest.raises(ValueError, match="explicit non-native engine"):
-        retrain(source, {"X": [], "y": [], "sample_ids": []}, engine=engine)
-
-
-@pytest.mark.parametrize(
-    ("mode", "message"),
-    [("transfer", "only mode='full'"), ("finetune", "only mode='full'")],
-)
-def test_retrain_native_refuses_unqualified_modes_before_execution(mode: str, message: str) -> None:
-    source = object.__new__(NativeMethodsRunResult)
-    with pytest.raises(NotImplementedError, match=message):
-        retrain(source, {"X": [], "y": [], "sample_ids": []}, engine="native", mode=mode)
+    assert caught.value.verb == "run"
+    assert caught.value.cause == "invalid_request"
+    assert caught.value.unsupported_capability == "dagml_full_retrain_source"
 
 
 def test_predict_native_archive_is_explicit_and_never_constructs_a_legacy_runner(
@@ -720,9 +624,10 @@ def test_predict_native_run_result_is_direct_and_never_constructs_a_legacy_runne
 def test_explain_native_run_result_refuses_before_constructing_a_legacy_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """SHAP is plugin-only for native artifacts and must never silently reroute."""
+    """General SHAP refuses a result without a captured DAG predictor."""
 
     result = object.__new__(NativeMethodsRunResult)
+    result.per_dataset = {}
     explain_module = importlib.import_module("nirs4all.api.explain")
     monkeypatch.setattr(
         explain_module,
@@ -730,15 +635,17 @@ def test_explain_native_run_result_refuses_before_constructing_a_legacy_runner(
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("legacy runner constructed")),
     )
 
-    with pytest.raises(NotImplementedError, match="explicitly installed native or host explanation plugin"):
+    with pytest.raises(ValueError, match="General explain requires a captured"):
         explain(model=result, data={"X": np.asarray([[2.0]])})
 
 
-@pytest.mark.parametrize("engine", ["legacy", "dag-ml", "dual"])
-def test_explain_native_run_result_refuses_explicit_non_native_engine(engine: str) -> None:
+@pytest.mark.parametrize("engine", ["native", "dag-ml", "dual"])
+def test_explain_native_run_result_refuses_unavailable_native_engines(engine: str) -> None:
     result = object.__new__(NativeMethodsRunResult)
-    with pytest.raises(ValueError, match="explicit non-native engine"):
+    with pytest.raises(RtError) as caught:
         explain(model=result, data={"X": np.asarray([[2.0]])}, engine=engine)
+    assert caught.value.verb == "explain"
+    assert caught.value.cause == "unsupported_capability"
 
 
 def test_predict_native_archive_accepts_raw_matrix_with_explicit_keyword_identities(
@@ -775,7 +682,7 @@ def test_predict_native_archive_accepts_raw_matrix_with_explicit_keyword_identit
 
 
 def test_predict_native_archive_refuses_two_identity_sources_before_replay() -> None:
-    with pytest.raises(ValueError, match="either in data or as an explicit keyword"):
+    with pytest.raises(ValueError, match="either in data or as a keyword"):
         predict(
             model="portable.n4a",
             data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]},
@@ -831,7 +738,7 @@ def test_predict_native_archive_selects_dagml_materialized_conformal_intervals(
     ("model", "data", "kwargs", "message"),
     [
         ("portable.n4a", np.zeros((1, 2)), {}, "data={'X': matrix, 'sample_ids': explicit_ids}"),
-        ("portable.joblib", {"X": [[1.0]], "sample_ids": ["p1"]}, {}, "Archive V2 .n4a"),
+        ("portable.joblib", {"X": [[1.0]], "sample_ids": ["p1"]}, {}, "non-portable model"),
         ("portable.n4a", {"X": [[1.0]], "sample_ids": ["p1"]}, {"coverage": 0.9}, "not materialized"),
     ],
 )
@@ -846,7 +753,7 @@ def test_predict_native_archive_fails_closed_before_execution(monkeypatch: pytes
                 conformal_guarantee_status=None,
             ),
         )
-    with pytest.raises((TypeError, ValueError, NotImplementedError), match=message):
+    with pytest.raises((TypeError, ValueError, NotImplementedError, RtError), match=message):
         predict(model=model, data=data, engine="native", **kwargs)
 
 
@@ -861,5 +768,5 @@ def test_predict_native_archive_fails_closed_before_execution(monkeypatch: pytes
 def test_public_helpers_refuse_dagml_env_without_legacy_fallback(monkeypatch: pytest.MonkeyPatch, operation: str) -> None:
     monkeypatch.setenv("N4A_ENGINE", "dag-ml")
 
-    with pytest.raises(NotImplementedError, match=rf"nirs4all\.{operation} does not have a dag-ml execution path"):
+    with pytest.raises(NotImplementedError, match=rf"nirs4all\.{operation} does not have an execution path for engine='dag-ml'"):
         require_legacy_engine(operation)

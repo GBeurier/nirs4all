@@ -397,14 +397,14 @@ def test_recognized_v2_old_core_wheel_fails_without_pipeline_runner(
         )
 
 
-def test_core_v3_is_refused_as_full_refit_not_serialized_predict(
+def test_invalid_core_v3_fails_closed_before_native_replay(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     path = _archive(tmp_path / "refit.n4a", 3)
     monkeypatch.setattr(predict_module, "PipelineRunner", _never_runner)
 
-    with pytest.raises(NotImplementedError, match="full-refit/retrain.*not a serialized-model"):
+    with pytest.raises(ValueError, match="Archive V3 validation refused"):
         predict_module.predict(
             model=path,
             data={"X": [[1.0]], "sample_ids": ["sample.one"]},
