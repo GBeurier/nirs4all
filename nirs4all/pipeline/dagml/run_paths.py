@@ -1513,6 +1513,8 @@ def _canonical_branch_step(step: Any, node_id: str) -> dict[str, Any]:
         out: dict[str, Any] = {"kind": "model", "id": node_id, "operator": {"class": compat["model"]}, "params": compat.get("params", {})}
         if "generators" in compat:
             out["generators"] = compat["generators"]
+        if "metadata" in compat:
+            out["metadata"] = compat["metadata"]
         return out
     if "y_processing" in compat:
         inner = compat["y_processing"]
@@ -2991,6 +2993,12 @@ def _run_by_source_stacking_branch(
     avg, and w_avg rows are emitted.
     """
     _ = (dataset_arg, cli, venv_python, run_dir, dataset_pickle, random_state)
+    if any(isinstance(step, dict) and {"train_params", "refit_params", "finetune_params"} & step.keys()
+           for step in [*pipeline, *branch_body]):
+        raise DagMlUnsupported(
+            "by_source prediction-stacking needs fold-local native control lowering; "
+            "the historical precomputed-matrix route would discard model controls"
+        )
     if task_type != "regression":
         raise DagMlUnsupported("by_source source-layout stacking replay currently supports regression parity only")
 
@@ -3433,6 +3441,16 @@ def _named_dict_stacking_legacy_projection(
     return run_result
 
 
+def _stacking_model_metadata(pipeline: list[Any]) -> dict[str, Any]:
+    """Retain model-step controls when extracting the bare meta estimator."""
+    from nirs4all.pipeline.dagml_bridge import _step_to_dsl
+
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(model_steps) != 1:
+        raise DagMlUnsupported("stacking needs exactly one downstream meta-model step")
+    return dict(_step_to_dsl(model_steps[0]).get("metadata") or {})
+
+
 def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
@@ -3499,6 +3517,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 "operator": {"class": _qualname(meta_learner), "ref": _META_MODEL_REF},
                 "params": _json_safe_params(meta_learner),
                 "metadata": {
+                    **_stacking_model_metadata(pipeline),
                     "controller_id": _META_MODEL_CONTROLLER_ID,
                     "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": refit_policy},
