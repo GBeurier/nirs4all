@@ -2473,6 +2473,7 @@ def _project_cv_model_rows(
     val_rows_in_fold_order = [train_position[int(sample_int)] for sample_int in val_samples]
     val_pred_oof = oof_predictions[val_rows_in_fold_order]
     y_val_oof = np.vstack([_dataset_y_rows(spectro, fold_val) for fold_val in fold_val_samples])
+    selection_score = float(_score_block(y_val_oof, val_pred_oof, task_type)[metric])
 
     avg_pred_by_partition = {
         "train": np.mean(all_train_preds, axis=0),
@@ -2517,7 +2518,7 @@ def _project_cv_model_rows(
         "model_name": model_name,
         "branch_id": branch_id,
         "branch_name": branch_name,
-        "selection_score": fold_val_scores[0] if fold_val_scores else float("nan"),
+        "selection_score": selection_score,
         "oof": oof_predictions,
         "test": test_mean,
     }
