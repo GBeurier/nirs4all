@@ -3440,12 +3440,11 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     (which declares ``consumes_oof_predictions``, so dag-ml's planner permits the base→meta ``requires_oof``
     edges). dag-ml runs ONE native CV+refit:
 
-    * each base branch model is FIT_CV on the full fold-train and predicts the full fold-validation
-      (held-out Validation OOF);
-    * the meta-node receives the base branches' **Validation OOF** per fold (Option A: the runtime delivers
-      ``prediction_inputs[*].values`` aligned by sample_id, sourced ONLY from Validation blocks — the
-      ``requires_oof`` edge refuses any train block), builds the per-fold meta-feature matrix (columns in
-      deterministic producer order), fits the meta-learner and emits its own scored Validation OOF.
+    * for each outer fold, the native nested scheduler fits base models in inner folds restricted to
+      outer training samples, then fits the meta-model on those inner OOF predictions;
+    * separately fitted outer base models predict the outer validation samples, which the already
+      fitted outer meta-model predicts without reading their targets. Producer columns and sample
+      identities are aligned by the native plan, not positional Python joins.
 
     The meta producer's cross-fold OOF average is ``cv_best_score`` — the stacking ensemble's CV score.
     ``best_rmse`` (final test) is also native: in REFIT dag-ml delivers each base producer's held-out
@@ -3453,13 +3452,14 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     ``fold_id=None``), alongside the full Validation OOF the meta fits on. The refit meta-model predicts
     the test set from those base TEST meta-features and emits a scored ``(test, fold_id=None)`` block.
 
-    LEAKAGE INVARIANT: the meta-learner is fit on Validation OOF ONLY (the ``requires_oof`` edge +
-    ``collect_oof_prediction_input`` enforce Validation-only); the TEST meta-features come from the base
+    LEAKAGE INVARIANT: outer validation samples never participate in their outer meta-model's inner
+    base fits or meta fit; the TEST meta-features come from the base
     models' TEST predictions (the ``:refit`` off-fold input, phase-gated to REFIT), never their OOF/train,
     and never enter the FIT_CV meta-features.
 
-    Legacy named-dict duplication stacking has no refit surface. For that syntax only, this path uses
-    dag-ml's explicit ``cv_only`` stacking policy and projects the result back to the legacy CV-only table.
+    Named branches retain separate base/meta prediction views of this same native outcome, including
+    its captured REFIT artifacts. Resampled named branches still use the historical local projection;
+    that remaining ownership/scientific gap is not the nested partitioned execution described here.
     """
     import dag_ml
 
@@ -3472,12 +3472,12 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
 
     identity = mint_identity(spectro)
     named_duplication = _uses_named_duplication_branch(pipeline)
-    refit_policy = "cv_only" if named_duplication else "require_full_coverage"
+    refit_policy = "require_full_coverage"
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
 
-    if named_duplication:
+    if named_duplication and build_fold_set(identity, folds, set_id="folds.stacking.outer").get("partition_mode") == "resampled":
         # The current dag-ml runtime still validates stacking refit coverage before honoring the
         # cv_only metadata contract. Legacy named-dict stacking has no refit surface, so replay this
         # narrow CV-only table locally inside the dag-ml backend, like the by-source stacking replay.
@@ -3493,10 +3493,9 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             scores=None,
         )
 
-    # List-form stacking enters the nested dag-ml scheduler and therefore needs
-    # exactly one outer validation prediction per sample. Named-dict stacking
-    # returned above through its documented CV-only replay and supports the
-    # legacy resampled (for example ShuffleSplit) row surface.
+    # Both named and list partitioned forms enter the native nested scheduler.
+    # Resampled named branches returned above; their older local implementation
+    # is retained pending a properly qualified native resampled contract.
     _require_partitioned_outer_stacking(identity, folds)
 
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
@@ -3544,20 +3543,16 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml stacking run failed")
 
-    # List-form stacking carries the meta-node's cross-fold OOF average plus refit-test block. Named-dict
-    # stacking is projected below to legacy's CV-only no-refit surface.
+    # List form exposes the ensemble; named form also exposes each base producer.
     model_label = f"MetaModel_{type(meta_learner).__name__}"
     if named_duplication:
-        return _named_dict_stacking_legacy_projection(
-            pipeline=pipeline,
-            branches=branches,
-            meta_learner=meta_learner,
-            spectro=spectro,
-            folds=folds,
-            metric=metric,
-            task_type=task_type,
-            config_name=config_name,
-            scores=outcome["scores"],
+        from .named_stacking import project_named_stacking
+
+        return project_named_stacking(
+            outcome, branches=branches, branch_names=_duplication_branch_names(pipeline, len(branches)),
+            base_model_ids=base_model_ids, meta_node_id=_META_NODE_ID, meta_learner=meta_learner,
+            spectro=spectro, identity=identity, metric=metric, task_type=task_type, config_name=config_name,
+            pipeline=pipeline, random_state=random_state,
         )
     return _scores_to_run_result(
         outcome["scores"],

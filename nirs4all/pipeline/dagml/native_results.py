@@ -334,7 +334,11 @@ def _stacking_replay_manifest(score_set: dict[str, Any] | None, artifact_refs: l
     exporter reconstruct the same meta-feature matrix from raw X using the captured base REFIT models,
     then replay the captured meta REFIT model without invoking the legacy bridge.
     """
-    if _STACKING_PRODUCER_NODE not in _score_set_producer_nodes(score_set, final_only=True):
+    # A no-test run can capture the meta REFIT estimator without emitting a
+    # final meta score (its training input is OOF, not raw-feature inference).
+    # The real REFIT artifact/controller identity below attests replayability;
+    # do not require a fabricated final score merely to export that estimator.
+    if _STACKING_PRODUCER_NODE not in _score_set_producer_nodes(score_set):
         return None
 
     meta_refs = [
