@@ -88,6 +88,9 @@ def run_full_train(
     dsl["data_bindings"] = data_bindings_for(model_id, envelope)
     resolver = MaterializationResolver(spectro, identity)
     nodes = {node["id"]: node for node in graph["nodes"]}
+    from nirs4all.api.general_transfer import bind_transfer_operators
+
+    bind_transfer_operators(nodes, steps)
     target_transform = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
     store: dict[int, Any] = {}
 
