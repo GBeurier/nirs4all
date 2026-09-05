@@ -549,7 +549,7 @@ class _DagmlExportedModel:
         pred = np.asarray(self.estimator.predict(X), dtype=float)
         if self.y_transform is None:
             return pred
-        return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)), dtype=float)
+        return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)))
 
 
 class _DagmlNativeFusionModel:

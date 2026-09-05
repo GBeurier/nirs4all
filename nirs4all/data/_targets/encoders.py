@@ -119,3 +119,19 @@ class FlexibleLabelEncoder(TransformerMixin):
         transform: Transform labels
         """
         return self.fit(y).transform(y)
+
+    def inverse_transform(self, y: np.ndarray) -> np.ndarray:
+        """Restore labels from their consecutive numeric representation."""
+        if self.classes_ is None:
+            raise ValueError("Encoder must be fitted before inverse_transform")
+        values = np.asarray(y)
+        original_shape = values.shape
+        flat = values.ravel()
+        if not np.issubdtype(flat.dtype, np.number):
+            raise ValueError("Encoded labels must be numeric")
+        if np.any(~np.isfinite(flat)) or np.any(flat != np.round(flat)):
+            raise ValueError("Encoded labels must be finite integers")
+        indices = flat.astype(np.int64)
+        if np.any(indices < 0) or np.any(indices >= len(self.classes_)):
+            raise ValueError("Encoded label is outside the fitted class axis")
+        return np.asarray(self.classes_)[indices].reshape(original_shape)

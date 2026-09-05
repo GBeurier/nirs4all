@@ -99,6 +99,18 @@ class MaterializationResolver:
         """
         return self._dataset.features_sources() > 1
 
+    def target_decoder(self) -> Any | None:
+        """Return the fitted numeric-to-raw label decoder for classification."""
+        from sklearn.preprocessing import FunctionTransformer
+
+        task_type = self._dataset.task_type
+        if task_type is None or not task_type.is_classification:
+            return None
+        decoder = self._dataset._targets._processing_chain.get_transformer("numeric")  # noqa: SLF001
+        if isinstance(decoder, FunctionTransformer):
+            return None
+        return decoder if callable(getattr(decoder, "inverse_transform", None)) else None
+
     def target_sample_ids(self, observation_ids: list[str]) -> list[str]:
         """Map observation ids to their target grain's ``sample_id`` (an augmented child → its origin).
 

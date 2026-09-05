@@ -77,6 +77,26 @@ class TestFlexibleLabelEncoder:
         assert len(encoder.classes_) == 3
         assert np.array_equal(np.unique(result), np.array([0., 1., 2.]))
 
+    def test_flexible_encoder_inverse_transform_preserves_shape_and_labels(self):
+        """Decode fitted numeric labels without changing array shape."""
+        encoder = FlexibleLabelEncoder().fit(np.array([7, 3, 7]))
+        encoded = np.array([[0.0], [1.0], [0.0]])
+
+        restored = encoder.inverse_transform(encoded)
+
+        assert restored.shape == encoded.shape
+        assert np.array_equal(restored.ravel(), np.array([3, 7, 3]))
+
+    @pytest.mark.parametrize(
+        "encoded",
+        [np.array([0.5]), np.array([2.0]), np.array([np.nan])],
+    )
+    def test_flexible_encoder_inverse_transform_rejects_invalid_axis(self, encoded):
+        """Reject probabilities, unknown classes, and missing encoded labels."""
+        encoder = FlexibleLabelEncoder().fit(np.array([3, 7]))
+        with pytest.raises(ValueError):
+            encoder.inverse_transform(encoded)
+
     def test_flexible_encoder_transform_without_fit(self):
         """Test that transform without fit raises error."""
         encoder = FlexibleLabelEncoder()

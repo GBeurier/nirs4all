@@ -14,7 +14,7 @@ from typing import Any
 from nirs4all.pipeline.dagml.rt import RtError
 
 
-def captured_training_spec(source: Any) -> tuple[list[Any], dict[str, Any]] | None:
+def captured_training_spec(source: Any, *, mode: str = "full", new_model: Any = None) -> tuple[list[Any], dict[str, Any]] | None:
     """Select a recorded host winner before execution, without a retry fallback.
 
     Existing bundles with a training specification retain their published
@@ -40,17 +40,20 @@ def captured_training_spec(source: Any) -> tuple[list[Any], dict[str, Any]] | No
         }
     elif isinstance(source, (str, Path)):
         path = Path(source)
-        if path.is_symlink() or general_archive_manifest(path) is None:
+        manifest = None if path.is_symlink() else general_archive_manifest(path)
+        if manifest is None:
             return None
+        lineage = manifest.get("retrain_lineage")
+        transfer_source = isinstance(lineage, dict) and lineage.get("training_contract") == "captured_preprocessing.transfer.v1"
         with zipfile.ZipFile(path) as archive:
-            if "train_pipeline.json" in archive.namelist():
+            if mode == "full" and not transfer_source and "train_pipeline.json" in archive.namelist():
                 return None
         loaded = load_general_archive(path)
         from .result import _DagmlExportedModel
 
         wrapper = loaded["artifact"]["estimator"]
         if not isinstance(wrapper, _DagmlExportedModel):
-            raise _unsupported("full retrain requires a captured trainable estimator, not a prediction-only fusion wrapper")
+            raise _unsupported("retrain requires a captured trainable estimator, not a prediction-only fusion wrapper", mode)
         estimator, target_transform = wrapper.estimator, wrapper.y_transform
         identity = {
             "source_kind": "n4a_bundle", "source_bundle": path.name,
@@ -61,15 +64,28 @@ def captured_training_spec(source: Any) -> tuple[list[Any], dict[str, Any]] | No
     else:
         return None
 
-    from sklearn.base import clone
+    from .general_transfer import fresh_training_estimator, transfer_training_steps
+
+    if mode == "transfer":
+        try:
+            steps = transfer_training_steps(estimator, target_transform, new_model)
+        except (TypeError, ValueError, RuntimeError) as error:
+            raise _unsupported(f"captured transfer cannot initialize a fresh model: {error}", mode) from error
+        return steps, {
+            "schema_version": 1, "operation": "retrain", "mode": mode, "engine": "dag-ml",
+            **identity, "training_contract": "captured_preprocessing.transfer.v1",
+            "learned_state_reused": True, "preprocessing_frozen": True,
+            "model_learned_state_reused": False, "parameter_search_repeated": False,
+            "model_replaced": new_model is not None,
+        }
 
     if not callable(getattr(estimator, "fit", None)):
         raise _unsupported("the captured predictor has no training interface")
     try:
-        fresh_model = clone(estimator)
-        fresh_target = clone(target_transform) if target_transform is not None else None
-    except (TypeError, RuntimeError) as error:
-        raise _unsupported("the captured estimator parameters cannot be cloned for a fresh full retrain") from error
+        fresh_model = fresh_training_estimator(estimator)
+        fresh_target = fresh_training_estimator(target_transform)
+    except (TypeError, ValueError, RuntimeError) as error:
+        raise _unsupported(f"the captured estimator parameters cannot be cloned for a fresh full retrain: {error}") from error
     original_objects = _estimator_ids(estimator) | _estimator_ids(target_transform)
     if original_objects & (_estimator_ids(fresh_model) | _estimator_ids(fresh_target)):
         raise _unsupported("cloning retained a captured estimator; full retrain requires fresh trainable objects")
@@ -92,5 +108,5 @@ def _estimator_ids(estimator: Any) -> set[int]:
     return {id(estimator), *(id(value) for value in parameters.values() if callable(getattr(value, "fit", None)))}
 
 
-def _unsupported(message: str) -> RtError:
-    return RtError.invalid_request(message, verb="run", unsupported_capability="dagml_full_retrain_captured_predictor")
+def _unsupported(message: str, mode: str = "full") -> RtError:
+    return RtError.invalid_request(message, verb="run", unsupported_capability=f"dagml_{mode}_retrain_captured_predictor")
