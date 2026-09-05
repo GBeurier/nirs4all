@@ -459,7 +459,7 @@ def _resolve_finetune_best_params(
     if cached is not None:
         return dict(cached)
 
-    from .host_finetune import run_scoped_finetune
+    from .host_finetune import run_scoped_finetune, scoped_inner_cv
 
     x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=False)["values"])
     y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
@@ -468,6 +468,7 @@ def _resolve_finetune_best_params(
         scope={"node_id": node_id, "variant_id": variant_label, "phase": task["phase"], "fold_id": task.get("fold_id"), "training_sample_ids": train_ids},
         task_type=resolver._dataset.task_type,  # noqa: SLF001 -- host resolver owns this dataset
         y_transform=route_graph_node(y_transform_node) if y_transform_node is not None else None,
+        inner_cv=scoped_inner_cv(finetune_params, resolver, train_ids),
     )
     model_store[cache_key] = best_params
     model_store[("host_hpo_evidence", node_id, variant_label, task["phase"], task.get("fold_id"))] = evidence

@@ -103,12 +103,18 @@ run; Studio retains that lifecycle. `should_stop` is cooperative cancellation:
 checked before execution, between native scientific tasks, and before publishing
 results. It does not interrupt an individual BLAS/estimator fit mid-call.
 
-General model-local `finetune_params` with `approach="single"` can use the
+General model-local `finetune_params` with `approach="single"`, `"grouped"`,
+or `"individual"` can use the
 host Optuna profile (`engine="optuna"` inside `finetune_params`, or inferred
 from historical sampler/trial controls). Optuna proposes parameters; DAG owns
 the bounded trial loop, native candidate scores and selection. Each outer
-training scope gets its own training-only 80/20 tuning holdout, and the final
-REFIT gets a separate search on the full training partition. Preprocessing and
+training scope gets its own inner parameter search, and the final
+REFIT gets a separate search on the full training partition. Single/individual
+searches use a training-only 80/20 holdout, with separate studies per outer fold.
+Grouped search clones the configured splitter inside each outer-training scope,
+including its explicit group constraints; its candidate parameters are shared
+across those inner folds. Without a configured splitter, historical grouped
+search uses the same training-only holdout. Preprocessing and
 target transforms are fitted inside each inner training split. This fixes the
 earlier global-preprocessing/global-parameter leakage, so selected parameters
 and CV values need not equal that historical implementation.
@@ -118,8 +124,12 @@ are honored. Its historical Grid-to-TPE conversion for noncategorical ranges
 remains visible; provenance records the effective sampler. General exports
 retain the searches and the selected fitted predictor, not a resumable Optuna
 study or a Methods checkpoint. They remain trusted Python artifacts, not
-portable Core packages. Adaptive grouped/individual search, progressive pruning,
-parallel trials, persistent studies and multi-phase host searches still require
+portable Core packages. Grouped `best`, `mean` (alias `avg`) and `robust_best`
+reduce the native per-fold scores explicitly: mean RMSE is not pooled OOF RMSE.
+Best honors the metric direction; robust_best never suppresses a failed trial
+or invents a penalty score. Source rows and the inner splitter remain in the
+search provenance. Progressive pruning, parallel trials, persistent studies and
+multi-phase host searches still require
 qualification; deterministic DAG parameter grids keep their separate contract.
 
 Classification repetition voting preserves the native raw/CV selection scores.
