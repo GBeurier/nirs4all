@@ -137,6 +137,10 @@ def test_native_environment_selects_archive_prediction(
             conformal_guarantee_status=None,
         ),
     )
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.core_archive_replay.detect_core_archive_version",
+        lambda _path: None,
+    )
 
     result = predict(
         model="portable.n4a",
@@ -145,6 +149,29 @@ def test_native_environment_selects_archive_prediction(
 
     assert result.y_pred.tolist() == [[3.0]]
     assert result.metadata["engine"] == "native"
+
+
+def test_native_environment_never_reinterprets_an_invalid_archive_as_legacy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Strict native validation failures propagate without legacy fallback."""
+    monkeypatch.setenv("N4A_ENGINE", "native")
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.core_archive_replay.detect_core_archive_version",
+        lambda _path: None,
+    )
+    monkeypatch.setattr(
+        "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            NativeArchiveReplayError("not a portable Archive V2")
+        ),
+    )
+
+    with pytest.raises(NativeArchiveReplayError, match="not a portable Archive V2"):
+        predict(
+            model="legacy.n4a",
+            data={"X": np.asarray([[1.0]]), "sample_ids": ["p1"]},
+        )
 
 
 def test_load_native_archive_session_refuses_a_bad_package_before_prediction(

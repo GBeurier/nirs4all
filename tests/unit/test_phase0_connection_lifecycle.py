@@ -369,6 +369,10 @@ class TestBatchArrayLoading:
         class _Store:
             array_store = _ArrayStore()
 
+            def get_pipeline(self, pipeline_id):
+                assert pipeline_id == "pipe-001"
+                return {"name": "spectral-replay"}
+
             def get_chains_for_pipeline(self, pipeline_id):
                 assert pipeline_id == "pipe-001"
                 return pl.DataFrame(
