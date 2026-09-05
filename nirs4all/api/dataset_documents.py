@@ -129,12 +129,19 @@ class _BoundedNormalizer(ConfigNormalizer):
         return super()._normalize_string(path_str)
 
     def _normalize_dict(self, config: dict[str, Any]) -> tuple[dict[str, Any] | None, str]:
-        canonical = self._apply_key_aliases(config)
+        # Expanded sources/variations are metadata, not declarations to parse
+        # again. Key alias normalization otherwise removes their underscore.
+        metadata = {key: value for key, value in config.items() if key.startswith("_")}
+        canonical = self._apply_key_aliases({key: value for key, value in config.items() if key not in metadata})
         if canonical.get("folder") is not None:
             folder = Path(canonical["folder"])
             canonical["folder"] = str((folder if folder.is_absolute() else self.base_dir / folder).resolve())
             self._check_directory(canonical["folder"])
-        return super()._normalize_dict(canonical)
+        normalized, name = super()._normalize_dict(canonical)
+        if normalized is not None:
+            for key, value in metadata.items():
+                normalized.setdefault(key, value)
+        return normalized, name
 
     def _load_config_file(self, file_path: str) -> tuple[dict[str, Any], str]:
         path = Path(file_path)
@@ -200,8 +207,7 @@ def normalize_dataset_document(
         raise ValueError("Dataset document must be a folder/config path or object")
     if normalized is None:
         raise ValueError("Dataset document could not be normalized")
-    # Normalization is not idempotent for expanded source/variation metadata:
-    # convert declarations exactly once through their existing owner.
+    # Expanded metadata is preserved without reparsing it as declarations.
     _plain_document(normalized, limits)
     result = cast(dict[str, Any], _explicit_paths(normalized, base))
     result.setdefault("name", name)
