@@ -1,0 +1,38 @@
+{
+  "schema_id": "nirs4all.workspace-store-run-history.v1",
+  "schema_version": 1,
+  "workspace_store_schema_version": 5,
+  "store": {
+    "open_mode": "sqlite_immutable_read_only",
+    "must_not_create_wal_or_shm": true,
+    "source_arrays_or_artifacts_opened": false
+  },
+  "parameters": {
+    "limit": {
+      "minimum": 1,
+      "maximum": 500,
+      "default": 100
+    },
+    "offset": {
+      "minimum": 0
+    },
+    "project_id": "exact_optional_string_filter_before_pagination"
+  },
+  "queries": {
+    "runs_page": "SELECT run_id, name, config, datasets, status, created_at, completed_at, summary, error, project_id, CAST(ROUND((julianday(completed_at) - julianday(created_at)) * 86400.0, 3) AS INTEGER) AS duration_seconds FROM runs WHERE (?1 IS NULL OR project_id = ?1) ORDER BY created_at DESC, run_id ASC LIMIT ?2 OFFSET ?3",
+    "runs_total": "SELECT COUNT(*) FROM runs WHERE (?1 IS NULL OR project_id = ?1)",
+    "run_counts": "SELECT COUNT(DISTINCT CASE WHEN pr.refit_context IS NOT NULL THEN pr.chain_id END) AS final_models_count, COUNT(DISTINCT CASE WHEN pr.refit_context IS NULL AND pr.fold_id NOT IN ('avg', 'w_avg') AND pr.fold_id NOT LIKE '%_agg' THEN pr.fold_id END) AS total_folds, COUNT(CASE WHEN pr.partition = 'val' AND pr.refit_context IS NULL AND pr.fold_id NOT IN ('avg', 'w_avg') AND pr.fold_id NOT LIKE '%_agg' THEN 1 END) AS total_models_trained, (SELECT COUNT(*) FROM pipelines WHERE run_id = ?1) AS pipeline_runs_count FROM predictions AS pr JOIN pipelines AS pl ON pl.pipeline_id = pr.pipeline_id WHERE pl.run_id = ?1",
+    "run_model_classes": "SELECT c.model_class AS name, COUNT(*) AS count FROM chains AS c JOIN pipelines AS pl ON pl.pipeline_id = c.pipeline_id WHERE pl.run_id = ?1 GROUP BY c.model_class ORDER BY count DESC, c.model_class ASC",
+    "run_artifact_size": "SELECT COALESCE(SUM(a.size_bytes), 0) FROM artifacts AS a WHERE a.artifact_id IN (SELECT j.value FROM chains AS c JOIN pipelines AS pl ON pl.pipeline_id = c.pipeline_id, json_tree(c.fold_artifacts) AS j WHERE pl.run_id = ?1 AND j.type = 'text' UNION SELECT j.value FROM chains AS c JOIN pipelines AS pl ON pl.pipeline_id = c.pipeline_id, json_tree(c.shared_artifacts) AS j WHERE pl.run_id = ?1 AND j.type = 'text')"
+  },
+  "semantics": {
+    "metadata": "same fields and null normalization as studio_run_detail_v1; names and project identities remain exact",
+    "duration_seconds": "whole elapsed seconds from stored timestamps, millisecond precision; null for absent or unparseable timestamps",
+    "counts": "stored prediction metadata only; no inferred folds or invented final models",
+    "artifact_size_bytes": "sum each distinct registered artifact once, including nested fold/shared references; no filesystem traversal",
+    "ordering": "created_at_desc_then_run_id_asc",
+    "total": "all_matching_runs_before_pagination",
+    "scores": "consume workspace-store-results-summary.v1 sources; never compute scientific metrics from prediction arrays",
+    "writes": "forbidden"
+  }
+}
