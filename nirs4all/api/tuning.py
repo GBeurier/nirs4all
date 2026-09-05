@@ -87,7 +87,7 @@ FINETUNE_DAGML_DETERMINISTIC_ENGINES: tuple[FinetuneEngine, ...] = ("dag-ml", "g
 FINETUNE_DAGML_META_KEYS: tuple[str, ...] = ("approach", "direction", "engine", "eval_mode", "metric", "model_params")
 FINETUNE_DAGML_SELECTION_METRICS: tuple[str, ...] = ("rmse", "accuracy", "balanced_accuracy")
 FINETUNE_DAGML_APPROACHES: tuple[FinetuneApproach, ...] = ("grouped",)
-FINETUNE_DAGML_EVAL_MODES: tuple[FinetuneEvalMode, ...] = ("mean", "best")
+FINETUNE_DAGML_EVAL_MODES: tuple[FinetuneEvalMode, ...] = ("mean",)
 
 TUNING_ENGINES: tuple[TuningEngine, ...] = ("optuna", "n4m")
 TUNING_DIRECTIONS: tuple[TuningDirection, ...] = ("minimize", "maximize")

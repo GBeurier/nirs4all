@@ -205,10 +205,12 @@ def lower_deterministic_finetune_params_to_generators(
     Supported:
         - plain JSON grids, lowered to a step-level ``_grid_``;
         - native ``_range_`` / ``_log_range_`` list-form per-parameter specs;
-        - optional ``metric`` and ``direction`` selection metadata.
+        - optional ``metric`` and ``direction`` selection metadata;
+        - mean fold evaluation (including the read-only ``avg`` alias).
 
     Refused:
         - adaptive engines such as n4m/Optuna;
+        - best-fold evaluation, which requires the host-HPO reduction contract;
         - trial counts, samplers, pruners and phases;
         - train/refit fit-argument sampling.
     """
@@ -239,8 +241,13 @@ def lower_deterministic_finetune_params_to_generators(
         eval_mode = finetune_params.get("eval_mode", "mean")
         if eval_mode == "avg":
             eval_mode = "mean"
-        if eval_mode not in {"mean", "best"}:
-            raise ValueError(f"{context} finetune_params currently supports only eval_mode='mean' or 'best'")
+        if eval_mode == "best":
+            raise NotImplementedError(
+                f"{context} deterministic finetune_params cannot honor eval_mode='best'; "
+                "best-fold reduction is available only through the explicit host Optuna HPO profile"
+            )
+        if eval_mode != "mean":
+            raise ValueError(f"{context} deterministic finetune_params supports only eval_mode='mean' (or its read-only 'avg' alias)")
         if "metric" in finetune_params:
             metric = str(finetune_params["metric"]).strip().lower() if isinstance(finetune_params["metric"], str) else finetune_params["metric"]
             if not isinstance(metric, str) or not metric:

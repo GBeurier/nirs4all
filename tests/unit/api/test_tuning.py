@@ -1278,7 +1278,7 @@ def test_public_finetune_vocabulary_constants_match_registry_and_runtimes() -> N
     assert set(nirs4all.FINETUNE_DAGML_META_KEYS) == SUPPORTED_FINETUNE_META_KEYS
     assert set(nirs4all.FINETUNE_DAGML_SELECTION_METRICS) == PUBLIC_DAGML_SELECTION_METRICS
     assert nirs4all.FINETUNE_DAGML_APPROACHES == ("grouped",)
-    assert nirs4all.FINETUNE_DAGML_EVAL_MODES == ("mean", "best")
+    assert nirs4all.FINETUNE_DAGML_EVAL_MODES == ("mean",)
 
     for engine in (*nirs4all.FINETUNE_DAGML_DETERMINISTIC_ENGINES, "dagml", "native"):
         steps, overrides = lower_deterministic_finetune_params_to_generators(

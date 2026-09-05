@@ -616,6 +616,22 @@ def test_deterministic_finetune_range_lowers_to_model_param_generator() -> None:
     assert _generation_kind(steps) == "param_model"
 
 
+def test_deterministic_finetune_refuses_silently_ignored_best_eval_mode() -> None:
+    with pytest.raises(NotImplementedError, match="cannot honor eval_mode='best'.*host Optuna"):
+        lower_deterministic_finetune_params_to_generators(
+            [
+                {
+                    "model": PLSRegression(),
+                    "finetune_params": {
+                        "engine": "dag-ml",
+                        "eval_mode": "best",
+                        "model_params": {"n_components": [2, 3]},
+                    },
+                }
+            ]
+        )
+
+
 @pytest.mark.parametrize("engine", ["dagml", "native", "grid"])
 def test_deterministic_finetune_engine_aliases_remain_read_only_compatibility(engine: str) -> None:
     steps, overrides = lower_deterministic_finetune_params_to_generators(
