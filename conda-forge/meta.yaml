@@ -8,10 +8,8 @@ package:
 
 source:
   url: https://pypi.org/packages/source/{{ name[0] }}/{{ name }}/{{ name }}-{{ version }}.tar.gz
-  # Pre-publication placeholder from the last published recipe. Replace with
-  # the exact 1.0.1 PyPI sdist digest immediately after trusted publication:
-  # python scripts/sync_conda_recipe.py --sha 1.0.1
-  sha256: 2e239673ae8c99df368d53f0c2ac5600510209284988667995eebd46248d884d
+  # Exact digest of the published 1.0.1 PyPI source distribution.
+  sha256: 7dbfae4b8790b37b3a7df25e4fb4fcd7abf558bd50d64297ae62f1721758e37a
 
 build:
   noarch: python
