@@ -580,12 +580,12 @@ class TestEdgeCases:
 class TestGenerateApi005Boundary:
     """Fail-closed native/plugin decisions for every public synthesis surface."""
 
-    def test_default_refuses_before_synthesis_import_or_write(
+    def test_explicit_native_refuses_before_synthesis_import_or_write(
         self,
         monkeypatch: pytest.MonkeyPatch,
         tmp_path,
     ) -> None:
-        """The default native profile performs no Python import or output write."""
+        """The explicit native profile performs no Python import or output write."""
         import nirs4all
 
         monkeypatch.delenv("N4A_ENGINE", raising=False)
@@ -600,7 +600,7 @@ class TestGenerateApi005Boundary:
         monkeypatch.setattr(builtins, "__import__", guarded_import)
 
         with pytest.raises(RtError) as caught:
-            nirs4all.generate.to_csv(output, n_samples=1)
+            nirs4all.generate.to_csv(output, n_samples=1, engine="native")
 
         assert caught.value.unsupported_capability == "native_generate"
         assert caught.value.verb == "generate"
@@ -631,7 +631,7 @@ class TestGenerateApi005Boundary:
 
         monkeypatch.delenv("N4A_ENGINE", raising=False)
         with pytest.raises(RtError) as caught:
-            getattr(nirs4all.generate, method)(*args)
+            getattr(nirs4all.generate, method)(*args, engine="native")
         assert caught.value.unsupported_capability == "native_generate"
 
     def test_main_surface_plugin_and_fallback_are_typed_refusals(self) -> None:
@@ -673,6 +673,7 @@ class TestGenerateApi005Boundary:
 
         ledger = advanced_api_capability_ledger()
         assert ledger["explain"]["native"]["executable"] is False
-        assert ledger["generate"]["plugin"]["executable"] is False
+        assert ledger["generate"]["plugin"]["executable"] is True
+        assert ledger["generate"]["plugin"]["contract"] == "nirs4all.python.synthesis.v1"
         ledger["generate"]["native"]["executable"] = True
         assert advanced_api_capability_ledger()["generate"]["native"]["executable"] is False
