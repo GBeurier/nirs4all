@@ -93,7 +93,9 @@ def predict_captured_artifact(
             return _build_result(task, [], [], {})
         _, ids = _train_predict_ids(task)
         source_index = _source_index(model_node)
-        if isinstance(estimator, (_MultiBlockEstimator, _SourceConcatEstimator)):
+        if isinstance(estimator, _MultiBlockEstimator) or (
+            isinstance(estimator, _SourceConcatEstimator) and resolver.is_multi_source()
+        ):
             x = resolver.resolve_feature_blocks(ids, include_augmented=False)["blocks"]
         elif source_index is not None:
             x = resolver.resolve_source_block(ids, source_index, include_augmented=False)["values"]
