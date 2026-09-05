@@ -253,10 +253,10 @@ def test_public_dispatch_rejects_metrics_not_supported_by_public_native_selectio
         )
 
 
-def test_public_dispatch_rejects_step_level_train_and_refit_params_before_native_routing() -> None:
+def test_public_dispatch_rejects_unrecognized_training_parameters_before_native_routing() -> None:
     from nirs4all.pipeline.dagml import run_backend
 
-    with pytest.raises(NotImplementedError, match=r"(?=.*train_params)(?=.*refit_params)"):
+    with pytest.raises(ValueError, match=r"unrecognized training parameters.*sample_weight"):
         run_backend._dispatch_run(
             [
                 KFold(n_splits=2),
