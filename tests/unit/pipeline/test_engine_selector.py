@@ -102,7 +102,7 @@ def test_unknown_execution_profile_is_typed_and_fail_closed() -> None:
     assert caught.value.code == "profile_unknown"
 
 
-def test_run_and_session_run_default_to_native_without_pipeline_runner(
+def test_portable_run_and_session_select_native_without_pipeline_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_module = importlib.import_module("nirs4all.api.run")
@@ -121,8 +121,13 @@ def test_run_and_session_run_default_to_native_without_pipeline_runner(
     monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
     monkeypatch.setattr(native_module, "run_native_methods_archive", native_run)
 
-    pipeline: list[object] = []
-    dataset: dict[str, object] = {}
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.model_selection import KFold
+
+    # Automatic selection requires an actual portable declaration. Empty
+    # placeholders are not evidence that the portable profile covers a request.
+    pipeline: list[object] = [KFold(n_splits=2), {"model": PLSRegression(n_components=1)}]
+    dataset: dict[str, object] = {"X": np.ones((8, 3)), "y": np.arange(8.0), "sample_ids": list(range(8))}
     assert run_module.run(pipeline, dataset) is sentinel
 
     session = Session(pipeline=pipeline)
@@ -131,7 +136,7 @@ def test_run_and_session_run_default_to_native_without_pipeline_runner(
     assert calls == [(pipeline, dataset, None), (pipeline, dataset, session)]
 
 
-def test_default_native_refuses_unsupported_shape_without_pipeline_runner(
+def test_explicit_native_refuses_unsupported_shape_without_pipeline_runner(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     run_module = importlib.import_module("nirs4all.api.run")
@@ -142,7 +147,7 @@ def test_default_native_refuses_unsupported_shape_without_pipeline_runner(
 
     monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
     with pytest.raises(TypeError, match="requires a list pipeline"):
-        run_module.run({"legacy": "shape"}, object())
+        run_module.run({"legacy": "shape"}, object(), engine="native")
 
 
 def test_predict_defaults_to_core_v2_and_legacy_archive_refuses_without_runner(
