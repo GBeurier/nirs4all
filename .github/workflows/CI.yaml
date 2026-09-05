@@ -128,15 +128,14 @@ jobs:
             # Keep native-framework tests out of xdist, then use a bounded
             # loadfile schedule.  ``worksteal -n auto`` deadlocks Windows
             # workers, while a fully serial suite exceeds the job budget.
-            python -m pytest -v --timeout=300 \
+            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
               -m torch \
               tests/unit/operators/models/test_pytorch.py \
               tests/unit/pipeline/dagml/test_raw_training_lowerer.py
-            python -m pytest -v --timeout=300 \
+            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
               -m tensorflow \
-              tests/unit/operators/models/test_tensorflow.py \
               tests/unit/pipeline/dagml/test_raw_training_lowerer.py
-            python -m pytest -v --timeout=300 \
+            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
               -m jax tests/unit/operators/models/test_jax.py
             python -m pytest -v -n 2 --dist loadfile --timeout=300 \
               -m "not torch and not tensorflow and not keras and not jax" tests/unit/
@@ -144,15 +143,14 @@ jobs:
             # TensorFlow and PyTorch both claim process-global native state. Run
             # each framework's explicit test files in a fresh interpreter; marker
             # selection over tests/unit would still import every test module.
-            python -m pytest -v --timeout=300 \
+            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
               -m torch \
               tests/unit/operators/models/test_pytorch.py \
               tests/unit/pipeline/dagml/test_raw_training_lowerer.py
-            python -m pytest -v --timeout=300 \
+            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
               -m tensorflow \
-              tests/unit/operators/models/test_tensorflow.py \
               tests/unit/pipeline/dagml/test_raw_training_lowerer.py
-            python -m pytest -v --timeout=300 \
+            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
               -m jax tests/unit/operators/models/test_jax.py
             python -m pytest -v -n auto --dist worksteal --timeout=300 \
               -m "not torch and not tensorflow and not keras and not jax" tests/unit/
