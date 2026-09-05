@@ -54,4 +54,5 @@ jobs:
           python -m pytest -q \
             tests/integration/api/test_native_archive_v2_training_cycle.py \
             tests/integration/api/test_native_methods_hpo_cycle.py \
+            tests/integration/api/test_installed_native_quickstart.py \
             tests/integration/api/test_general_dag_run.py
