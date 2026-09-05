@@ -57,14 +57,16 @@ class DagMLBatchResult(RunResult):
         chain_id: str | None = None, *, compatibility: str | None = None,
     ) -> Path:
         """Export from the selected child's actual artifacts, never refit a batch."""
-        return self._source_run(source, chain_id).export(output_path, format, source, chain_id, compatibility=compatibility)
+        selected = self._source_run(source, chain_id)
+        return selected.export(output_path, format, compatibility=compatibility)
 
     def export_model(
         self, output_path: str | Path, source: dict[str, Any] | None = None,
         format: str | None = None, fold: int | None = None, *, compatibility: str | None = None,
     ) -> Path:
         """Delegate lightweight export to the uniquely selected child result."""
-        return self._source_run(source).export_model(output_path, source, format, fold, compatibility=compatibility)
+        selected = self._source_run(source)
+        return selected.export_model(output_path, format=format, fold=fold, compatibility=compatibility)
 
     def close(self) -> None:
         """Release every child resource; session-owned resources remain shared."""

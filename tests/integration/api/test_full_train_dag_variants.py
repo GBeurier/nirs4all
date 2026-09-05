@@ -35,5 +35,5 @@ def test_full_training_model_choices_preserve_children_names_and_exports(tmp_pat
     selected = result._source_run(source)
     expected = selected._dagml_refit_artifacts[0]["estimator"].predict(X.astype(np.float32))
     monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("variant export retrained"))
-    path = selected.export(tmp_path / "selected.n4a")
+    path = result.export(tmp_path / "selected.n4a", source=source)
     np.testing.assert_array_equal(nirs4all.predict(path, X).y_pred, expected)
