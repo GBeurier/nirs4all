@@ -31,10 +31,17 @@ def _references(value: Any, is_path: bool = False) -> list[Path]:
     return []
 
 
-def _load_dataset(
+def load_dataset_for_analysis(
     config: dict[str, Any], *, load_limits: dict[str, int] | None = None,
     max_input_bytes: int = 512 * 1024 * 1024,
 ) -> tuple[Any, dict[str, Any]]:
+    """Load one authorized explicit config and return dataset/reader evidence.
+
+    Paths are normalized but must be authorized by the host before this call.
+    Native CSV/Parquet errors propagate; other formats are selected before
+    loading through the existing registered library loaders. The returned
+    dataset retains all sources, partitions, targets and metadata.
+    """
     config = normalize_dataset_document(config)
     paths = list(dict.fromkeys(_references(config)))
     if not paths:
@@ -149,7 +156,7 @@ def preview_dataset(
         raise ValueError("max_samples must be a positive integer")
     if type(max_response_bytes) is not int or max_response_bytes <= 0:
         raise ValueError("max_response_bytes must be a positive integer")
-    dataset, reader = _load_dataset(config, load_limits=load_limits, max_input_bytes=max_input_bytes)
+    dataset, reader = load_dataset_for_analysis(config, load_limits=load_limits, max_input_bytes=max_input_bytes)
     train, test = _sources(dataset, "train"), _sources(dataset, "test")
     # Admit presentation cardinality before duplicating partition/source arrays
     # into historical response aliases. This is not a process RSS guarantee;
@@ -209,7 +216,7 @@ def dataset_statistics(config: dict[str, Any], *, partition: str = "train", **lo
     """Compute historical first-source global statistics with reader evidence."""
     if partition not in {"train", "test", "all"}:
         raise ValueError("partition must be train, test or all")
-    dataset, reader = _load_dataset(config, **load_options)
+    dataset, reader = load_dataset_for_analysis(config, **load_options)
     sources = dataset.x({} if partition == "all" else {"partition": partition}, layout="2d", concat_source=False)
     values = np.asarray(sources[0] if isinstance(sources, list) else sources)
     if not len(values):

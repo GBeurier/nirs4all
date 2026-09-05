@@ -21,6 +21,8 @@ from .base import (
     register_loader,
 )
 
+_DEFAULT_HEADER = object()
+
 
 def _check_excel_engine(suffix: str) -> str:
     """Check if the appropriate Excel engine is available.
@@ -68,6 +70,8 @@ class ExcelLoader(FileLoader):
             Can be a string (sheet name), integer (0-indexed), or None (all sheets).
         header: Row number to use as header (default: 0).
             Use None for no header.
+        has_header: Shared dataset alias. True selects row 0 by default;
+            False selects no header. Conflicting explicit header is rejected.
         skip_rows: Number of rows to skip at the beginning.
         skip_footer: Number of rows to skip at the end.
         usecols: Columns to load (can be list of names, indices, or Excel-style range).
@@ -96,7 +100,7 @@ class ExcelLoader(FileLoader):
         self,
         path: Path,
         sheet_name: str | int | None = 0,
-        header: int | None = 0,
+        header: int | None | object = _DEFAULT_HEADER,
         skip_rows: int | None = None,
         skip_footer: int = 0,
         usecols: list[str] | list[int] | str | None = None,
@@ -140,6 +144,32 @@ class ExcelLoader(FileLoader):
         }
 
         try:
+            if "has_header" in params:
+                has_header = params.pop("has_header")
+                if type(has_header) is not bool:
+                    raise ValueError("has_header must be a boolean")
+                if header is _DEFAULT_HEADER:
+                    header = 0 if has_header else None
+                elif (header is None) == has_header:
+                    raise ValueError("Conflicting header and has_header options")
+            elif header is _DEFAULT_HEADER:
+                header = 0
+            # Dataset assembly injects these shared loading options. They are
+            # not pandas keywords; preserve Excel's numeric-X / typed-metadata
+            # policy and explicitly record format-inapplicable text options.
+            categorical_mode = params.pop("categorical_mode", "auto")
+            if categorical_mode not in {"auto", "preserve", "none"}:
+                raise ValueError("Invalid categorical_mode")
+            report["categorical_mode"] = categorical_mode
+            for key in ("delimiter", "encoding", "signal_type"):
+                if key in params:
+                    report["warnings"].append(f"{key} does not control Excel cell decoding")
+                    params.pop(key)
+            if "decimal_separator" in params:
+                decimal = params.pop("decimal_separator")
+                if "decimal" in params and params["decimal"] != decimal:
+                    raise ValueError("Conflicting decimal and decimal_separator options")
+                params["decimal"] = decimal
             if not path.exists():
                 raise FileNotFoundError(f"File not found: {path}")
 
@@ -215,7 +245,7 @@ class ExcelLoader(FileLoader):
                 )
 
             # Type conversion for X data
-            if data_type == "x":
+            if data_type == "x" and categorical_mode == "auto":
                 for col in data.columns:
                     if not pd.api.types.is_numeric_dtype(data[col]):
                         data[col] = pd.to_numeric(data[col], errors="coerce")
@@ -262,7 +292,7 @@ class ExcelLoader(FileLoader):
 def load_excel(
     path,
     sheet_name: str | int | None = 0,
-    header: int | None = 0,
+    header: int | None | object = _DEFAULT_HEADER,
     skip_rows: int | None = None,
     skip_footer: int = 0,
     usecols: list[str] | list[int] | str | None = None,
