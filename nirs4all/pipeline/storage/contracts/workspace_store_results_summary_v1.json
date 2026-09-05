@@ -126,6 +126,15 @@
     "empty_response": {"workspace_id": "$workspace_id", "datasets": []},
     "response": {"workspace_id": "$workspace_id", "datasets": "$serialized_nonempty_dataset_groups"}
   },
+  "extensions": {
+    "full_train_only_v1": {
+      "candidate": "meaningful_final_and_not_has_cv_payload_before_synthesis",
+      "append_to": "refit_only_candidates",
+      "preserve_scores": true,
+      "synthetic_refit": false,
+      "compatibility": "base_selection_and_existing_cv_test_results_unchanged"
+    }
+  },
   "excluded_surfaces": [
     "dataset_link_augmentation",
     "prediction_arrays",
