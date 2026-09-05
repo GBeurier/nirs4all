@@ -45,6 +45,7 @@ def load_general_workspace_chain(workspace_path: str | Path, chain_id: str) -> d
         raise ValueError("DAG workspace artifact is not a captured predictor")
     return {
         "artifact": artifact, "pipeline": [{"model": artifact["estimator"]}],
+        "manifest": {key: marker[key] for key in ("relation_replay_manifest", "relation_materialization_manifest") if key in marker},
         "target_names": marker.get("target_names", ["y"]), "chain": chain,
         "training_pipeline": pipeline_record.get("expanded_config") if pipeline_record else None,
         "metadata": {

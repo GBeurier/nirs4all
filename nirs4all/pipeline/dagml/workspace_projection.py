@@ -74,6 +74,10 @@ def publish_workspace_result(
                                 "scope": "full_training_refit", "cv_artifacts_available": False,
                             },
                         }
+                        for key in ("relation_replay_manifest", "relation_materialization_manifest"):
+                            recorded = [metadata[key] for metadata in result.per_dataset.values() if isinstance(metadata.get(key), dict)]
+                            if recorded and all(value == recorded[0] for value in recorded):
+                                captured_step["dagml_host_replay"][key] = recorded[0]
                 if project is not None:
                     store.set_run_project(run_id, store.get_or_create_project(project))
                 for (dataset_name, config_name), rows in groups.items():
