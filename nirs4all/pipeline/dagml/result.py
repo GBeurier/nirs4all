@@ -398,13 +398,21 @@ def _scores_to_run_result(
 
     by_key: dict[tuple[Any, str, str | None], dict[str, float]] = {}
     priorities: dict[tuple[Any, str, str | None], int] = {}
+    # Native scalar reports may include metrics from both task families. Keep
+    # the raw ScoreSet unchanged, but do not publish classification accuracy
+    # as a regression measurement (or regression error on class labels).
+    from nirs4all.core.metrics import get_available_metrics
+
+    regression_metrics = set(get_available_metrics("regression"))
+    classification_metrics = set(get_available_metrics("binary_classification")) | set(get_available_metrics("multiclass_classification"))
+    excluded_metrics = classification_metrics - regression_metrics if task_type == "regression" else regression_metrics - classification_metrics
     for report in reports:
         key = (report.get("variant_id"), report["partition"], report.get("fold_id"))
         priority = _report_priority(report)
         if priority < priorities.get(key, -1):
             continue
         priorities[key] = priority
-        by_key[key] = {name: float(value) for name, value in report["metrics"].items()}
+        by_key[key] = {name: float(value) for name, value in report["metrics"].items() if name.split(":", 1)[0] not in excluded_metrics}
 
     predictions = Predictions()
 
@@ -483,6 +491,13 @@ def _scores_to_run_result(
             task_type=task_type,
             scores=score_dict,
             refit_context=refit_context,
+            result_metadata={"dagml_projection": {
+                "schema": "nirs4all.dagml-result-projection.v1",
+                "config_name": variant_config_name,
+                "variant_id": variant_id,
+                "producer_node": producer,
+                "role": "refit" if refit_context == "standalone" else "crossval",
+            }},
             **kwargs,
         )
 

@@ -1,5 +1,7 @@
 """A persisted native run is visible to ordinary workspace result readers."""
 
+import json
+
 import numpy as np
 import pytest
 from sklearn.linear_model import Ridge
@@ -19,16 +21,54 @@ def test_general_run_populates_chain_summaries(tmp_path):
     )
     with WorkspaceStore(tmp_path) as store:
         chains = store.query_chain_summaries().to_dicts()
+        for chain in chains:
+            store.update_chain_summary(chain["chain_id"])
+        assert store.query_chain_summaries().to_dicts() == chains, "Single and bulk summaries must retain identical evidence"
     assert chains
     cv_chains = [chain for chain in chains if chain["cv_fold_count"] == 3]
     assert len(cv_chains) == 1, chains
+    assert len(chains) == 1, "CV and REFIT of the same native variant must share one chain"
     assert cv_chains[0]["model_name"] == "Ridge"
     assert cv_chains[0]["model_class"].endswith(".Ridge")
     assert cv_chains[0]["preprocessings"] == "StandardScaler"
     assert cv_chains[0]["metric"] == "rmse"
     assert cv_chains[0]["dataset_name"] == "array_dataset"
     assert np.isfinite(cv_chains[0]["cv_val_score"])
+    assert cv_chains[0]["final_train_score"] is not None
+    assert cv_chains[0]["final_test_score"] is None, "No independent test cohort exists"
+    assert "accuracy" not in str(cv_chains[0]["cv_scores"])
     assert result.execution_engine == "dag-ml"
+    result.close()
+
+
+def test_cv_and_independent_test_scores_share_the_selected_native_chain(tmp_path):
+    import nirs4all
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+    rng = np.random.default_rng(31)
+    X = rng.normal(size=(40, 5))
+    y = X @ np.arange(1.0, 6.0)
+    result = nirs4all.run(
+        [StandardScaler(), KFold(3), Ridge()], (X, y, {"train": 30}),
+        name="user_refit", workspace_path=tmp_path, save_artifacts=True,
+    )
+    final_rows = result.predictions.filter_predictions(fold_id="final", partition="test", load_arrays=True)
+    assert len(final_rows) == 1
+    with WorkspaceStore(tmp_path) as store:
+        chains = store.query_chain_summaries().to_dicts()
+        selected_chain = store.get_chain(result.best["chain_id"])
+        store.update_chain_summary(result.best["chain_id"])
+        updated = store.query_chain_summaries().to_dicts()
+        for key, value in chains[0].items():
+            if key.endswith("scores") and isinstance(value, str):
+                assert json.loads(updated[0][key]) == json.loads(value), key
+            else:
+                assert updated[0][key] == value, key
+    assert len(chains) == 1
+    assert chains[0]["cv_fold_count"] == 3
+    assert chains[0]["final_test_score"] == final_rows[0]["test_score"]
+    assert chains[0]["chain_id"] == result.best["chain_id"]
+    assert selected_chain is not None and selected_chain["fold_artifacts"].get("final")
     result.close()
 
 

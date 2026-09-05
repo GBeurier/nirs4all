@@ -1254,11 +1254,11 @@ class WorkspaceStore:
 
             # --- Final/refit scores ---
             final_row = conn.execute(
-                "SELECT test_score, train_score, scores FROM predictions WHERE chain_id = ? AND refit_context IS NOT NULL AND fold_id = 'final' AND partition = 'test' ORDER BY created_at ASC, prediction_id ASC LIMIT 1",
+                "SELECT test_score, train_score, scores, partition FROM predictions WHERE chain_id = ? AND refit_context IS NOT NULL AND fold_id = 'final' AND partition IN ('test', 'train') ORDER BY CASE partition WHEN 'test' THEN 0 ELSE 1 END, created_at ASC, prediction_id ASC LIMIT 1",
                 [chain_id],
             ).fetchone()
 
-            final_test = final_row[0] if final_row else None
+            final_test = final_row[0] if final_row and final_row[3] == "test" else None
             final_train = final_row[1] if final_row else None
             final_scores_json = final_row[2] if final_row else None
 
@@ -1440,8 +1440,8 @@ class WorkspaceStore:
                     WHERE p.chain_id = chains.chain_id
                       AND p.refit_context IS NOT NULL
                       AND p.fold_id = 'final'
-                      AND p.partition = 'test'
-                    ORDER BY p.created_at ASC, p.prediction_id ASC
+                      AND p.partition IN ('test', 'train')
+                    ORDER BY CASE p.partition WHEN 'test' THEN 0 ELSE 1 END, p.created_at ASC, p.prediction_id ASC
                     LIMIT 1
                 ),
                 final_scores = (
@@ -1450,8 +1450,8 @@ class WorkspaceStore:
                     WHERE p.chain_id = chains.chain_id
                       AND p.refit_context IS NOT NULL
                       AND p.fold_id = 'final'
-                      AND p.partition = 'test'
-                    ORDER BY p.created_at ASC, p.prediction_id ASC
+                      AND p.partition IN ('test', 'train')
+                    ORDER BY CASE p.partition WHEN 'test' THEN 0 ELSE 1 END, p.created_at ASC, p.prediction_id ASC
                     LIMIT 1
                 ),
                 final_agg_test_score = (
