@@ -75,6 +75,10 @@ def publish_workspace_result(
                     projection = Predictions()
                     projection._buffer = rows  # noqa: SLF001 -- exact existing rows, no score/array reconstruction
                     projection.flush(pipeline_id=pipeline_id, store=store, chain_id_resolver=chain_for)
+                    # Workspace readers consume the canonical denormalized chain
+                    # summary, not the raw prediction rows. The native runner
+                    # has no legacy executor to perform this publication step.
+                    store.bulk_update_chain_summaries(list(chain_ids.values()))
                     best = projection.top(1)
                     assert not isinstance(best, dict)
                     selected: Any = best[0] if best else rows[0]
