@@ -97,6 +97,18 @@ producers. Older DAG exports without a recorded digest retain a visible warning
 and do not claim verified integrity. Loaded Sessions are bound to their source
 archive fingerprint and refuse replacement after loading.
 
+General `retrain(mode="full")` also accepts a recorded workspace prediction
+dictionary, or a captured-winner archive without `train_pipeline.json`. It
+clones the selected estimator, its preprocessing pipeline and target transform,
+then fits them on all new training rows once through DAG-ML. It does not repeat
+the original generator/HPO search or reuse learned estimator objects; frozen
+clones retaining source estimators are refused. There is no new CV score for
+this full-training operation. Lineage records the source fingerprint, integrity
+status and training contract. Existing concrete bundles with a training
+specification retain their published specification-replay behavior, including
+its explicit splitter. Prediction-only fusion wrappers, transfer learning and
+fine-tuning remain separate unqualified retrain paths.
+
 When Studio supplies `store_run_id`, the library attaches its pipeline results
 to that existing running workspace run without completing or failing the parent
 run; Studio retains that lifecycle. `should_stop` is cooperative cancellation:
@@ -213,7 +225,7 @@ are the lower-level authorities. This guide does not redefine them.
 | Request | Strict product behavior |
 |---|---|
 | `run`, `predict`, `session`, save/load/export | Native for the qualified V1 matrix; unsupported shapes refuse before significant work. |
-| Full retrain | Native for the qualified archive path. |
+| Full retrain | DAG-ML for concrete archive specs and captured trainable winners (workspace prediction or archive); other modes remain under qualification. |
 | Transfer | Explicit Python-library plugin only when its preflight succeeds. |
 | Finetune, unavailable explain/generate shapes | Explicit refusal in the strict profile; no implicit legacy execution. |
 | Existing Python workflow during rollback | Direct Python call with explicit `engine="legacy"`; never Studio/Web. |

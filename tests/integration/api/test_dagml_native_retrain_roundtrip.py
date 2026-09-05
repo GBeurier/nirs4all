@@ -36,7 +36,6 @@ from sklearn.preprocessing import MinMaxScaler
 import nirs4all
 import nirs4all.pipeline as pipeline_module
 from nirs4all.pipeline.bundle import BundleLoader
-from nirs4all.pipeline.dagml.rt import RtError
 
 
 @pytest.fixture
@@ -164,7 +163,7 @@ def test_native_results_run_export_predict_retrain_roundtrip(regression_xy, tmp_
     assert validation["nan_count"] == 0, f"retrain() produced NaN scores: {validation['issues']}"
 
 
-def test_generator_pipeline_native_bundle_stays_predict_only(regression_xy, tmp_path: Path) -> None:
+def test_generator_bundle_retrains_only_the_captured_winner(regression_xy, tmp_path: Path) -> None:
     """A GENERATOR run exports winner-only; its bundle must NOT carry a training spec (retraining the
     frozen pipeline would re-run the WHOLE sweep, not the exported winner)."""
     x, y = regression_xy
@@ -184,6 +183,7 @@ def test_generator_pipeline_native_bundle_stays_predict_only(regression_xy, tmp_
     pred = nirs4all.predict(model=str(bundle_path), data=x[:5], engine="legacy", verbose=0)
     assert np.all(np.isfinite(pred.y_pred))
 
-    with pytest.raises(RtError) as caught:
-        nirs4all.retrain(bundle_path, (x, y), verbose=0)
-    assert caught.value.unsupported_capability == "dagml_full_retrain_training_spec"
+    with nirs4all.retrain(bundle_path, (x, y), verbose=0, save_charts=False, save_artifacts=False) as retrained:
+        assert len(retrained._dagml_refit_artifacts) == 1
+        assert retrained._retrain_lineage["parameter_search_repeated"] is False
+        assert retrained._retrain_lineage["learned_state_reused"] is False
