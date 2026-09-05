@@ -9,6 +9,85 @@ from uuid import uuid4
 from nirs4all.api.result import RunResult
 from nirs4all.data.predictions import Predictions
 
+from .errors import DagMlExportRefusal
+from .workspace_projection import _projection_group
+
+
+def _projection_identity(row: dict[str, Any]) -> tuple[str, str, str, str, str, str, str] | None:
+    """Return the artifact-owning DAG identity of one projected prediction."""
+    dataset_name = str(row.get("dataset_name") or "")
+    model_name = str(row.get("model_name") or "")
+    branch_id = str(row.get("branch_id") or "")
+    branch_name = str(row.get("branch_name") or "")
+    identity = (
+        *_projection_group(row, dataset_name),
+        model_name,
+        branch_id,
+        branch_name,
+    )
+    return identity if any(identity) else None
+
+
+def _validate_leaf_export_selection(
+    result: RunResult,
+    source: dict[str, Any] | None,
+    chain_id: str | None,
+) -> None:
+    """Refuse a selector that does not identify the leaf's captured refit artifact."""
+    if source is None and chain_id is None:
+        return
+
+    canonical = result.best
+    canonical_identity = _projection_identity(canonical)
+    if canonical_identity is None:
+        raise DagMlExportRefusal(
+            "batch export",
+            "the selected leaf has no unambiguous native artifact identity",
+            mitigation="Select an exportable refit row with its prediction id",
+        )
+
+    requested_identities: list[tuple[str, str, str, str, str, str, str]] = []
+    if source is not None:
+        identifier = source.get("id") or source.get("prediction_id")
+        resolved = result.predictions.get_prediction_by_id(identifier, load_arrays=False) if identifier else None
+        identity = _projection_identity(resolved) if resolved is not None else None
+        if identity is None:
+            raise DagMlExportRefusal(
+                "batch export",
+                "source does not resolve to one native prediction in the selected leaf",
+                mitigation="Pass a prediction row returned by this batch result",
+            )
+        requested_identities.append(identity)
+    if chain_id is not None:
+        chain_rows = result.predictions.filter_predictions(chain_id=chain_id, load_arrays=False)
+        identities = {_projection_identity(row) for row in chain_rows}
+        if not chain_rows or None in identities or len(identities) != 1:
+            raise DagMlExportRefusal(
+                "batch export",
+                "chain_id does not resolve to one native artifact identity in the selected leaf",
+                mitigation="Pass the prediction id of the exportable refit row",
+            )
+        requested_identities.extend(identity for identity in identities if identity is not None)
+
+    if any(identity != canonical_identity for identity in requested_identities):
+        raise DagMlExportRefusal(
+            "batch export",
+            "the requested prediction does not own the leaf's captured refit artifact",
+            mitigation="Export the selected refit winner or retrain the requested variant explicitly",
+        )
+
+    artifact_variants = {
+        str(artifact.get("artifact_id")).split(":nirs4all:refit:", 1)[1]
+        for artifact in result._dagml_refit_artifacts
+        if ":nirs4all:refit:" in str(artifact.get("artifact_id"))
+    }
+    if canonical_identity[2] and artifact_variants and artifact_variants != {canonical_identity[2]}:
+        raise DagMlExportRefusal(
+            "batch export",
+            "the canonical prediction identity does not match the captured refit artifact",
+            mitigation="Rerun training to produce a consistent native result",
+        )
+
 
 class DagMLBatchResult(RunResult):
     """A normal result view whose child runs retain their own artifact identities."""
@@ -66,6 +145,7 @@ class DagMLBatchResult(RunResult):
                 chain_id,
                 compatibility=compatibility,
             )
+        _validate_leaf_export_selection(selected, source, chain_id)
         return selected.export(output_path, format, compatibility=compatibility)
 
     def export_model(
@@ -82,6 +162,7 @@ class DagMLBatchResult(RunResult):
                 fold,
                 compatibility=compatibility,
             )
+        _validate_leaf_export_selection(selected, source, None)
         return selected.export_model(output_path, format=format, fold=fold, compatibility=compatibility)
 
     def close(self) -> None:

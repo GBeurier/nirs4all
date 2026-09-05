@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Lasso, Ridge
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 
@@ -24,9 +24,17 @@ def _named_stacking_leaf(name: str, role: str, score: float) -> RunResult:
         val_score=score,
         test_score=score,
         metric="rmse",
+        result_metadata={"dagml_projection": {
+            "schema": "nirs4all.dagml-result-projection.v1",
+            "config_name": name,
+            "variant_id": "variant:base",
+            "producer_node": name,
+        }},
     )
     predictions._buffer[-1]["stacking_role"] = role  # noqa: SLF001 - construct an exact composite fixture.
-    return RunResult(predictions, {})
+    result = RunResult(predictions, {})
+    result._dagml_refit_artifacts = [{"artifact_id": f"artifact:{name}:nirs4all:refit:variant:base"}]  # noqa: SLF001
+    return result
 
 
 def test_nested_batch_propagates_explicit_source_until_named_stacking_leaf(tmp_path, monkeypatch):
@@ -55,6 +63,41 @@ def test_nested_batch_propagates_explicit_source_until_named_stacking_leaf(tmp_p
     assert outer.export(tmp_path / "high.n4a", source=source) == tmp_path / "high.n4a"
     assert outer.export_model(tmp_path / "high.joblib", source=source) == tmp_path / "high.joblib"
     assert calls == [("archive", None, None), ("model", None, None)]
+
+
+def test_batch_refuses_a_non_winner_variant_without_substituting_its_artifact(tmp_path):
+    """A loser prediction id must never export the winner captured by its leaf run."""
+    import nirs4all
+
+    rng = np.random.default_rng(20260905)
+    X = rng.normal(size=(36, 5))
+    y = 3 * X[:, 0] - 2 * X[:, 1] + rng.normal(scale=0.01, size=36)
+    child = nirs4all.run(
+        [KFold(3, shuffle=True, random_state=42), {"model": {"_or_": [Ridge(alpha=0.1), Lasso(alpha=100.0)]}}],
+        (X, y),
+        engine="dag-ml",
+        verbose=0,
+        random_state=42,
+        workspace_path=tmp_path / "workspace",
+    )
+    batch = DagMLBatchResult([child])
+    loser_rows = child.predictions.filter_predictions(model_name="Lasso", load_arrays=False)
+    assert child.best["model_name"] == "Ridge"
+    assert loser_rows
+
+    from nirs4all.pipeline.dagml.errors import DagMlExportRefusal
+
+    with pytest.raises(DagMlExportRefusal, match="does not own the leaf's captured refit artifact"):
+        batch.export_model(tmp_path / "must-not-be-ridge.joblib", source=loser_rows[0])
+    assert not (tmp_path / "must-not-be-ridge.joblib").exists()
+
+    loser_ids = {row["id"] for row in loser_rows}
+    for row in child.predictions._buffer:  # noqa: SLF001 - attach the persisted chain selector to exact real rows.
+        if row["id"] in loser_ids:
+            row["chain_id"] = "loser-chain"
+    with pytest.raises(DagMlExportRefusal, match="does not own the leaf's captured refit artifact"):
+        batch.export(tmp_path / "must-not-be-ridge.n4a", chain_id="loser-chain")
+    assert not (tmp_path / "must-not-be-ridge.n4a").exists()
 
 
 @pytest.mark.parametrize("pipeline_count,dataset_count", [(1, 2), (2, 1), (2, 2)])
