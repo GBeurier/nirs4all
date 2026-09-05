@@ -29,6 +29,7 @@ from .test_conformance_dual_engine import (
     LEGACY_CV_SCORE_DIVERGENCE,
     NUM_PREDICTIONS_DIVERGENCE,
     SAME_WINNER_CASES,
+    STACKING_SEMANTIC_DIVERGENCE,
     UNSEEDED_NONDETERMINISTIC_CASES,
     Y_PRED_TOL_OVERRIDES,
 )
@@ -131,7 +132,11 @@ def _validate_authority_entries(data: dict[str, Any]) -> None:
         for row in data["authority"]
         if row["disposition"] == "pass_parity_note"
     }
-    expected_parity_notes = set(NUM_PREDICTIONS_DIVERGENCE) | set(LEGACY_CV_SCORE_DIVERGENCE)
+    expected_parity_notes = (
+        set(NUM_PREDICTIONS_DIVERGENCE)
+        | set(LEGACY_CV_SCORE_DIVERGENCE)
+        | set(STACKING_SEMANTIC_DIVERGENCE)
+    )
     if parity_note_rows != expected_parity_notes:
         raise AssertionError(
             "compatibility parity-note authority entries drifted: "
