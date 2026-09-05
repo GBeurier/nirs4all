@@ -826,6 +826,67 @@ class TestScoreScope:
             assert r1["model_name"] == r2["model_name"]
             assert r1["rank_score"] == r2["rank_score"]
 
+    def test_refit_scope_winner_is_independent_of_held_out_test_targets(self, base_prediction_params):
+        """Final artifact selection uses CV evidence, never test-set performance."""
+
+        predictions = Predictions()
+        y_true = np.array([0.0, 1.0, 2.0])
+        for model_name, selection_score, test_error in (
+            ("cv_winner", 0.1, 50.0),
+            ("test_winner", 0.2, 0.01),
+        ):
+            predictions.add_prediction(
+                partition="test",
+                y_true=y_true,
+                y_pred=y_true + test_error,
+                test_score=test_error,
+                val_score=selection_score,
+                model_name=model_name,
+                model_classname="Ridge",
+                fold_id="final",
+                refit_context=json.dumps({"refit": True}),
+                **{k: v for k, v in base_prediction_params.items()
+                   if k not in ["model_name", "model_classname", "fold_id"]},
+            )
+
+        before = predictions.top(n=1, rank_metric="rmse", score_scope="refit")
+        for row in predictions._buffer:
+            row["y_true"] = np.asarray(row["y_true"]) + 10000
+            row["y_pred"] = np.asarray(row["y_pred"]) - 10000
+        after = predictions.top(n=1, rank_metric="rmse", score_scope="refit")
+
+        assert before[0]["model_name"] == after[0]["model_name"] == "cv_winner"
+        assert before[0]["rank_score"] == after[0]["rank_score"] == 0.1
+
+    def test_refit_scope_prefers_terminal_stacking_meta_model(self, base_prediction_params):
+        """A deployable stack is represented by its terminal meta-model."""
+
+        predictions = Predictions()
+        y_true = np.array([0.0, 1.0, 2.0])
+        for model_name, role, selection_score in (
+            ("base", "base", 0.01),
+            ("meta", "meta", 0.2),
+        ):
+            predictions.add_prediction(
+                partition="test",
+                y_true=y_true,
+                y_pred=y_true,
+                test_score=0.0,
+                val_score=selection_score,
+                model_name=model_name,
+                model_classname="Ridge",
+                fold_id="final",
+                refit_context=json.dumps({"refit": True}),
+                **{k: v for k, v in base_prediction_params.items()
+                   if k not in ["model_name", "model_classname", "fold_id"]},
+            )
+            predictions._buffer[-1]["stacking_role"] = role
+
+        winner = predictions.top(n=1, rank_metric="rmse", score_scope="refit")
+
+        assert winner[0]["model_name"] == "meta"
+        assert winner[0]["rank_score"] == 0.2
+
     def test_mix_scope_unified_sort(self, base_prediction_params):
         """score_scope='all' sorts all entries by score, not grouped by type."""
         predictions = Predictions()

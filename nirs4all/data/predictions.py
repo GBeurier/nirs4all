@@ -1204,6 +1204,8 @@ class Predictions:
 
         # Phase 4: deduplicate refit (final) entries by model identity.
         candidates = self._dedupe_final_candidates(candidates, display_partition)
+        if effective_scope == "refit" and any(row.get("stacking_role") == "meta" for row in candidates):
+            candidates = [row for row in candidates if row.get("stacking_role") == "meta"]
 
         if not candidates:
             if return_grouped:
@@ -1234,6 +1236,7 @@ class Predictions:
             candidates,
             effective_metric,
             rank_partition,
+            effective_scope,
             ascending,
             effective_by_repetition,
             effective_repetition_method,
@@ -1474,6 +1477,7 @@ class Predictions:
         candidates: list[dict[str, Any]],
         effective_metric: str,
         rank_partition: str,
+        effective_scope: str,
         ascending: bool,
         effective_by_repetition: bool | str | None,
         effective_repetition_method: str | None,
@@ -1481,8 +1485,9 @@ class Predictions:
     ) -> list[dict[str, Any]]:
         """Compute ``rank_score`` per candidate, drop invalid, sort by score.
 
-        Finals score on their own partition (falling back to
-        ``selection_score``); non-finals score on ``rank_partition``.
+        Refit-scope finals rank on ``selection_score``/``val_score`` so held-out
+        test targets cannot select an artifact. Finals in mixed scopes keep the
+        historical own-partition display ranking; non-finals use ``rank_partition``.
         Candidates with ``None``/``NaN`` scores are dropped, then the survivors
         are sorted by ``rank_score`` (descending when ``not ascending``).
         Returns the filtered, sorted list.
@@ -1491,8 +1496,17 @@ class Predictions:
         by_rep_str = effective_by_repetition if isinstance(effective_by_repetition, str) else None
         for r in candidates:
             if r["is_final"]:
-                # For finals, compute from arrays using the entry's own partition
-                # so ranking matches displayed values. Fall back to selection_score.
+                # Selecting among refit artifacts must use evidence produced
+                # before the held-out test target is observed. Native rows use
+                # ``val_score`` as the selection-score compatibility field.
+                if effective_scope == "refit":
+                    score = r.get("selection_score")
+                    if score is None:
+                        score = r.get("val_score")
+                    r["rank_score"] = score
+                    continue
+                # Mixed display ranking retains the historical final-vs-CV
+                # comparison on each entry's own partition.
                 entry_part = r.get("partition", "test")
                 entry_part_key = f"{entry_part}_score" if entry_part in ("val", "test", "train") else "test_score"
                 score = self._get_rank_score(r, effective_metric, entry_part, entry_part_key, by_rep_str, effective_repetition_method, effective_repetition_exclude_outliers)

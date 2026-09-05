@@ -73,9 +73,11 @@ def project_named_stacking(
         child._dagml_target_names = target_names(spectro)
         _attach_export_spec(child, training_pipeline, spectro, config_name, random_state)
         for row in child.predictions._buffer:
+            stacking_role = "meta" if producer == meta_node_id else "base"
             row["branch_id"] = branch_id
             row["branch_name"] = branch_name
-            row["result_metadata"] = {**(row.get("result_metadata") or {}), "dagml_producer_node": producer, "stacking_role": "meta" if producer == meta_node_id else "base"}
+            row["stacking_role"] = stacking_role
+            row["result_metadata"] = {**(row.get("result_metadata") or {}), "dagml_producer_node": producer, "stacking_role": stacking_role}
         for metadata in child.per_dataset.values():
             metadata["producer_node"] = producer
             metadata["stacking_oof_execution"] = "nested_oof_v1"
