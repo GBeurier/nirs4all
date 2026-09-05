@@ -397,17 +397,17 @@ def predict(
             metadata=data.get("metadata"),
             methods_library_path=methods_library_path,
         )
-        metadata: dict[str, Any] = {
+        native_metadata: dict[str, Any] = {
             "engine": "native",
             "sample_ids": list(native.sample_ids),
         }
         if native.conformal_guarantee_status is not None:
-            metadata["conformal_guarantee_status"] = dict(
+            native_metadata["conformal_guarantee_status"] = dict(
                 native.conformal_guarantee_status
             )
         result = PredictResult(
             y_pred=native.values,
-            metadata=metadata,
+            metadata=native_metadata,
             model_name="MethodsN4MM",
             preprocessing_steps=[],
             intervals=dict(native.intervals),
