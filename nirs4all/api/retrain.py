@@ -200,7 +200,7 @@ def _native_full_retrain(
     save_artifacts: bool,
     options: dict[str, Any],
 ) -> RunResult:
-    """Replay a concrete bundle training spec through the real DAG-ML run."""
+    """Train a concrete bundle spec or a captured winner through real DAG-ML."""
     unknown = sorted(set(options) - _NATIVE_FULL_OPTIONS)
     if unknown:
         raise _native_retrain_request_error(
@@ -220,7 +220,19 @@ def _native_full_retrain(
             )
 
     require_dagml_retrain_backend()
-    source_path, steps, source_sha256, spec_sha256 = _bundle_training_spec(source)
+
+    from .general_retrain import captured_training_spec
+
+    captured = captured_training_spec(source)
+    if captured is not None:
+        steps, lineage = captured
+    else:
+        source_path, steps, source_sha256, spec_sha256 = _bundle_training_spec(source)
+        lineage = {
+            "schema_version": 1, "operation": "retrain", "mode": "full", "engine": "dag-ml",
+            "source_kind": "n4a_bundle", "source_bundle": source_path.name,
+            "source_bundle_sha256": source_sha256, "source_training_spec_sha256": spec_sha256,
+        }
 
     from .run import run
 
@@ -245,17 +257,7 @@ def _native_full_retrain(
             verb="run",
         )
 
-    lineage: dict[str, Any] = {
-        "schema_version": 1,
-        "operation": "retrain",
-        "mode": "full",
-        "engine": "dag-ml",
-        "source_kind": "n4a_bundle",
-        "source_bundle": source_path.name,
-        "source_bundle_sha256": source_sha256,
-        "source_training_spec_sha256": spec_sha256,
-        "new_artifact_count": len(artifacts),
-    }
+    lineage["new_artifact_count"] = len(artifacts)
     setattr(result, "_retrain_lineage", lineage)  # noqa: B010 - additive API-004 evidence
     for dataset_result in result.per_dataset.values():
         if isinstance(dataset_result, dict):
