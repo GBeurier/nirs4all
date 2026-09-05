@@ -4,8 +4,17 @@
 
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.7.x   | :white_check_mark: |
-| < 0.7   | :x:                |
+| 1.0.x   | :white_check_mark: |
+| < 1.0   | :x:                |
+
+## Model and artifact trust
+
+Core Archive V2/N4MM uses validated native formats. Historical Python `.n4a`
+bundles and host-estimator artifacts can contain pickle/joblib payloads.
+Loading these Python artifacts may execute code: only load artifacts from a
+trusted producer and a trusted delivery channel. Checksums detect alteration;
+they do not make an untrusted pickle safe. Never upload an unknown Python
+artifact to a privileged process for inspection or prediction.
 
 ## Reporting a Vulnerability
 

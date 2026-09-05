@@ -81,7 +81,9 @@ NIRS4ALL bridges the gap between spectroscopic data and machine learning by prov
 pip install nirs4all
 ```
 
-This installs the core library with scikit-learn support. Deep learning frameworks are optional.
+This installs the Python library, scikit-learn, DAG-ML, Core and Methods runtimes.
+The historical `[native]` extra remains accepted but is no longer required for
+portable execution. Deep learning frameworks are optional.
 
 ### With ML Backends
 

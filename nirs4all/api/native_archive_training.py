@@ -262,8 +262,10 @@ def run_native_methods_archive(
         raise ValueError(f"engine='native' dataset is missing required keys: {sorted(missing)}")
     if not save_artifacts:
         raise ValueError("engine='native' requires save_artifacts=True for its N4MM artifact")
-    if verbose != 1 or save_charts or plots_visible:
-        raise NotImplementedError("engine='native' does not expose legacy progress or chart controls")
+    if isinstance(verbose, bool) or not isinstance(verbose, int) or not 0 <= verbose <= 3:
+        raise ValueError("verbose must be an integer in 0..3")
+    if save_charts or plots_visible:
+        raise NotImplementedError("engine='native' does not expose chart controls")
     if refit is not True:
         raise NotImplementedError("engine='native' requires the native refit")
     if cache is not None or project is not None or results_path is not None:
@@ -329,6 +331,12 @@ def run_native_methods_archive(
         }
     }
     request = dag_ml.sign_training_request(prepared.request)
+    from nirs4all.core.logging import configure_logging, get_logger
+
+    configure_logging(verbose=verbose)
+    logger = get_logger(__name__)
+    logger.info("Training native Methods pipeline: %d samples, %d features", features.shape[0], features.shape[1])
+    logger.debug("Native runtime: %s; seed: %d; HPO: %s", methods_library_path, seed, hpo is not None)
     training_result: Any | None = None
     try:
         training_result = dag_ml.execute_methods_training(
@@ -382,6 +390,7 @@ def run_native_methods_archive(
         )
         if native_session is not None:
             native_session._adopt_native_result(result, dataset)
+        logger.info("Native Methods training complete")
         return result
     except BaseException:
         if training_result is not None and getattr(training_result, "is_attached", False):

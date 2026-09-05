@@ -42,6 +42,17 @@ def _materialize_dataset(dataset: Any) -> Any:
         raise NotImplementedError("engine='dag-ml' runs a single dataset; pass one dataset, not a list of datasets")
     if isinstance(dataset, (np.ndarray, tuple)):
         return _wrap_in_memory_arrays(dataset)
+    if isinstance(dataset, dict) and "X" in dataset:
+        # The public array mapping uses X/y; the file/config loader uses
+        # partition-prefixed keys. In particular an unnormalized lowercase y
+        # was ignored by that loader, producing an all-NaN target matrix.
+        normalized = dict(dataset)
+        if "train_x" in normalized or ("y" in normalized and "train_y" in normalized):
+            raise ValueError("dataset must not mix X/y and train_x/train_y declarations")
+        normalized["train_x"] = normalized.pop("X")
+        if "y" in normalized:
+            normalized["train_y"] = normalized.pop("y")
+        return DatasetConfigs(normalized).get_dataset_at(0)
     return DatasetConfigs(dataset).get_dataset_at(0)
 
 

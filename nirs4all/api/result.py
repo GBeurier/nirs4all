@@ -1166,6 +1166,16 @@ class RunResult:
     # --- Primary accessors ---
 
     @property
+    def execution_engine(self) -> str | None:
+        """Actual engine recorded in execution provenance, not the requested default.
+
+        Returns ``None`` for historical results without engine provenance and
+        ``"mixed"`` if a result aggregates multiple explicitly recorded engines.
+        """
+        engines = {info["engine"] for info in self.per_dataset.values() if isinstance(info, dict) and isinstance(info.get("engine"), str)}
+        return next(iter(engines)) if len(engines) == 1 else "mixed" if engines else None
+
+    @property
     def best(self) -> dict[str, Any]:
         """Get the best prediction entry, preferring refit (final) models.
 

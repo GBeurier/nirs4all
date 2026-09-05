@@ -132,6 +132,22 @@ def _never_bundle(*args: Any, **kwargs: Any) -> None:
     raise AssertionError(f"BundleLoader must not inspect a Core archive: {args!r} {kwargs!r}")
 
 
+def test_load_session_preserves_explicit_methods_runtime(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _archive(tmp_path / "explicit-runtime.n4a", 2)
+    expected = SimpleNamespace(methods_library_path="/opt/lib/libn4m.so.2.5.0")
+    observed: list[tuple[Path, str | Path | None]] = []
+
+    def validate(archive_path: Path, *, methods_library_path: str | Path | None = None) -> Any:
+        observed.append((archive_path, methods_library_path))
+        return expected
+
+    monkeypatch.setattr(core_archive_replay, "validate_core_methods_archive_v2", validate)
+    with load_session(path, methods_library_path=expected.methods_library_path) as loaded:
+        assert loaded._core_archive_validation == (path, expected)
+        assert loaded._runner is None
+    assert observed == [(path, expected.methods_library_path)]
+
+
 def test_load_v2_session_validates_core_and_predicts_without_runner(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

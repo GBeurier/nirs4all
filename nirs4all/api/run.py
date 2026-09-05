@@ -726,7 +726,7 @@ def run(
     # Common runner options (shortcuts for most-used parameters)
     verbose: int = 1,
     save_artifacts: bool = True,
-    save_charts: bool = True,
+    save_charts: bool | None = None,
     plots_visible: bool = False,
     random_state: int | None = None,
     refit: bool | dict[str, Any] | list[dict[str, Any]] | None = True,
@@ -779,8 +779,9 @@ def run(
         save_artifacts: Whether to save binary artifacts (models, transformers).
             Default: True
 
-        save_charts: Whether to save charts and visual outputs.
-            Default: True
+        save_charts: Whether to save charts and visual outputs. When omitted,
+            defaults to False for portable native execution and True for the
+            general DAG-ML and explicit legacy execution paths.
 
         plots_visible: Whether to display plots interactively.
             Default: False
@@ -812,9 +813,11 @@ def run(
             Affects column headers in final summary tables. Internal variable names
             use ML conventions regardless of this setting.
 
-        engine: Execution backend selector. ``None`` (default) resolves to ``"native"`` and selects
-            the fail-closed portable
-            Methods Archive V2 producer; explicit ``"legacy"`` runs the pure-Python orchestrator as a
+        engine: Execution backend selector. Without an explicit argument or ``N4A_ENGINE``,
+            capabilities are checked before execution: portable Methods Archive V2 requests use
+            ``"native"``; general Python requests use ``"dag-ml"``. An explicit ``"native"`` is
+            strict and never retries through another engine. ``result.execution_engine`` reports
+            the actual backend. Explicit ``"legacy"`` runs the pure-Python orchestrator as a
             compatibility path. Explicit ``"dual"`` runs a bounded, native-first parity oracle for
             exact NumPy ``(X, y)`` regression, ``KFold(shuffle=False)``, and one
             ``PLSRegression`` model. It validates native OOF evidence before invoking the temporary
@@ -962,7 +965,19 @@ def run(
         - :class:`nirs4all.PipelineRunner`: Direct runner access for advanced use
     """
 
-    selected_engine = resolve_engine(engine, allow_fallback=allow_fallback)
+    from .run_selection import select_run_engine
+
+    selected_engine = select_run_engine(
+        engine, pipeline, dataset, allow_fallback=allow_fallback,
+        save_artifacts=save_artifacts, save_charts=save_charts, plots_visible=plots_visible,
+        random_state=random_state, refit=refit, cache=cache, project=project,
+        report_naming=report_naming, tuning=tuning, calibration=calibration,
+        results_path=results_path, runner_kwargs=runner_kwargs,
+    )
+    if save_charts is None:
+        save_charts = selected_engine != "native"
+    elif not isinstance(save_charts, bool):
+        raise TypeError("save_charts must be a bool or None")
     report_explicit_legacy_engine(engine, selected_engine, operation="run")
     if selected_engine == "legacy" and isinstance(session, Session):
         session._prepare_legacy_access("run")
@@ -1033,8 +1048,8 @@ def run(
     ) -> RunResult:
         """Run the in-process legacy orchestrator path (the engine='legacy' behaviour).
 
-        Defined as a closure over ``run()``'s arguments so both the default path and the
-        dag-ml→legacy cutover fallback re-enter the SAME code without re-passing every parameter.
+        This closure is reached only by explicit legacy selection or the explicit
+        bounded dual oracle, never by automatic selection or backend failure.
         """
         # Normalize pipelines and datasets to lists
         pipelines = _normalize_to_list(pipeline_input, _is_single_pipeline)
