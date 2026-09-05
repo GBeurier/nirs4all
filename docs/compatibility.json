@@ -140,16 +140,6 @@
   "coverage_skips": [],
   "expected_refusal": [
     {
-      "case": "aggregation_classification_vote",
-      "owner_lane": "L5",
-      "reason": "Native final-test scoring does not yet preserve the legacy sample-vote grain for classification repetition datasets."
-    },
-    {
-      "case": "generator_finetune_params_optuna",
-      "owner_lane": "L5",
-      "reason": "Adaptive Optuna metadata is outside the deterministic native finetune_params lowering subset."
-    },
-    {
       "case": "refit_params_use_all_partitions",
       "owner_lane": "L5",
       "reason": "Native execution does not yet preserve step-level refit_params semantics."
@@ -309,8 +299,8 @@
     "registered": 95,
     "non_runnable": 0,
     "runnable": 95,
-    "refusal": 3,
-    "native": 92,
+    "refusal": 1,
+    "native": 94,
     "xfail_strict": 0,
     "skip": 0,
     "num_predictions_divergence": 2,
@@ -334,7 +324,7 @@
       {"id": "optional_env_methods", "kind": "optional_env", "note": "the nirs4all-methods SNV / n4m binding is unavailable (hard fail only under NIRS4ALL_REQUIRE_N4M=1)."},
       {"id": "runtime_na", "kind": "runtime_precondition", "note": "a cross-engine comparison is N/A on this build: dag-ml returned an allowlisted structured refusal, wrote no native results, or the case is not a single-artifact native run. The live boundary rejects any refusal outside EXPECTED_REFUSAL."},
       {"id": "baseline_capture", "kind": "workflow", "note": "gold-baseline capture / absent-baseline guard in test_parity_baseline (--parity-capture)."},
-      {"id": "lockdrop_empty", "kind": "workflow", "note": "collection-only category for the empty-allowlist branch; currently inactive while the three L5-owned EXPECTED_REFUSAL cases remain explicit native coverage gaps."}
+      {"id": "lockdrop_empty", "kind": "workflow", "note": "collection-only category for the empty-allowlist branch; currently inactive while the single L5-owned EXPECTED_REFUSAL case remains an explicit native coverage gap."}
     ],
     "tolerance": {
       "allowlist_source": "tolerance_bands[].abs_tol (positive values)",
