@@ -61,6 +61,7 @@ _RUN_DEFAULT_TRUE: Any = _RunOptionDefault(True)
 _RUN_DEFAULT_FALSE: Any = _RunOptionDefault(False)
 _RUN_DEFAULT_NONE: Any = _RunOptionDefault(None)
 _RUN_DEFAULT_NAMING: Any = _RunOptionDefault("nirs")
+_RUN_DEFAULT_SAVE_CHARTS: Any = _RunOptionDefault(True)
 
 
 def _session_run_option(session: Session | None, key: str, value: Any, default: Any) -> Any:
@@ -750,7 +751,7 @@ def run(
     # Common runner options (shortcuts for most-used parameters)
     verbose: int = _RUN_DEFAULT_VERBOSE,
     save_artifacts: bool = _RUN_DEFAULT_TRUE,
-    save_charts: bool | None = _RUN_DEFAULT_NONE,
+    save_charts: bool | None = _RUN_DEFAULT_SAVE_CHARTS,
     plots_visible: bool = _RUN_DEFAULT_FALSE,
     random_state: int | None = _RUN_DEFAULT_NONE,
     refit: bool | dict[str, Any] | list[dict[str, Any]] | None = _RUN_DEFAULT_TRUE,
@@ -1364,7 +1365,10 @@ def run(
 # the call implementation. Outside a configured Session these are exactly the
 # effective defaults; explicit arguments always override Session configuration.
 run.__signature__ = inspect.signature(run).replace(parameters=[  # type: ignore[attr-defined]
-    parameter.replace(default=parameter.default.displayed_default)
+    parameter.replace(
+        default=parameter.default.displayed_default,
+        annotation=bool if parameter.name == "save_charts" else parameter.annotation,
+    )
     if isinstance(parameter.default, _RunOptionDefault) else parameter
     for parameter in inspect.signature(run).parameters.values()
 ])

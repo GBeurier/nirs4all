@@ -42,9 +42,10 @@ def test_run_signature_retains_effective_default_representations():
     import nirs4all
 
     parameters = inspect.signature(nirs4all.run).parameters
-    expected = {"verbose": "1", "save_artifacts": "True", "save_charts": "None", "plots_visible": "False", "random_state": "None", "refit": "True", "cache": "None", "project": "None", "report_naming": "'nirs'"}
+    expected = {"verbose": "1", "save_artifacts": "True", "save_charts": "True", "plots_visible": "False", "random_state": "None", "refit": "True", "cache": "None", "project": "None", "report_naming": "'nirs'"}
     assert {name: repr(parameters[name].default) for name in expected} == expected
     assert parameters["refit"].default is True
     assert parameters["save_artifacts"].default is True
+    assert parameters["save_charts"].default is True
     assert parameters["plots_visible"].default is False
     assert parameters["random_state"].default is None

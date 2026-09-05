@@ -80,7 +80,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "**runner_kwargs: 'Any') -> 'PredictResult'"
     ),
     "explain": (
-        "(model: dict[str, typing.Any] | str | pathlib.Path, "
+        "(model: dict[str, typing.Any] | str | pathlib.Path | nirs4all.api.result.RunResult, "
         "data: str | pathlib.Path | numpy.ndarray | dict[str, typing.Any] | "
         "nirs4all.data.dataset.SpectroDataset | nirs4all.data.config.DatasetConfigs, *, "
         "name: str = 'explain_dataset', "
@@ -100,7 +100,7 @@ EXPECTED_SIGNATURES: dict[str, str] = {
         "save_artifacts: bool = True, **kwargs: Any) -> nirs4all.api.result.RunResult"
     ),
     "session": ("(pipeline: list[typing.Any] | None = None, name: str = '', **kwargs: Any) -> collections.abc.Generator[nirs4all.api.session.Session, None, None]"),
-    "load_session": ("(path: str | pathlib.Path) -> nirs4all.api.session.Session"),
+    "load_session": ("(path: str | pathlib.Path, *, methods_library_path: str | pathlib.Path | None = None) -> nirs4all.api.session.Session"),
     "generate": (
         "(n_samples: 'int' = 1000, *, random_state: 'int | None' = None, "
         "complexity: \"Literal['simple', 'realistic', 'complex']\" = 'simple', "
@@ -411,6 +411,7 @@ EXPECTED_PACKAGE_ALL: list[str] = [
     "save_workspace_tuning_result",
     "session",
     "studio_scientific_job_v1",
+    "studio_scientific_job_v2",
     "tune_single_estimator",
     "tuning_space_schema_json",
     "tuning_summary_schema_json",
@@ -532,6 +533,7 @@ EXPECTED_API_ALL: list[str] = [
     "save_workspace_tuning_result",
     "session",
     "studio_scientific_job_v1",
+    "studio_scientific_job_v2",
     "tune_single_estimator",
     "tuning_space_schema_json",
     "tuning_summary_schema_json",
