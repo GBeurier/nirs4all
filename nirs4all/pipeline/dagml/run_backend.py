@@ -60,9 +60,13 @@ from .errors import DagMlUnavailable, DagMlUnsupported, _OperatorLoweringUnsuppo
 from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .finetune_lowering import (
     PUBLIC_DAGML_SELECTION_METRICS,
+    _has_nested_structural_refit_params,
+    _is_supported_native_refit_params_noop,
     lower_deterministic_finetune_params_to_generators,
+    reject_native_training_param_overrides,
 )
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
+from .migration_preflight import preflight_dagml_pipeline_migration
 from .native_results import native_results_enabled, write_native_results
 from .result import _project_operator_sweep, _scores_to_run_result
 from .run_paths import (
@@ -156,6 +160,19 @@ __all__ = [
 def _has_finetune_params(pipeline: list[Any]) -> bool:
     """Whether a model step declares a deterministic or host parameter search."""
     return any(isinstance(step, dict) and "finetune_params" in step for step in pipeline)
+
+
+def _training_loss_generation_kind(pipeline: list[Any]) -> str:
+    """Classify generators while ignoring validated differentiable fit metadata."""
+
+    return _generation_kind(
+        [
+            {key: value for key, value in step.items() if key != "train_params"}
+            if isinstance(step, dict)
+            else step
+            for step in pipeline
+        ]
+    )
 
 
 def _metric_objective(metric: str) -> str:
@@ -282,6 +299,10 @@ def run_via_dagml(
     report_naming selects the existing NIRS/ML metric display labels. Remaining
     unsupported execution options are rejected before operators execute.
     """
+    # This configuration-only boundary precedes backend probing and dataset materialization. A stateful
+    # pre-CV concat in legacy is not equivalent to fold-local native fitting and may never auto-migrate.
+    preflight_dagml_pipeline_migration(pipeline)
+
     # Validate execution and presentation options before any operator runs.
     if isinstance(verbose, bool) or not isinstance(verbose, int) or verbose not in range(4):
         raise ValueError("verbose must be an integer from 0 through 3")
@@ -701,14 +722,6 @@ def _unsupported_fallback_reason(pipeline: list[Any]) -> str | None:
     unrelated runtime error. Return a catchable, explicit coverage-boundary reason instead.
     """
     for step in pipeline:
-        refit_params = step.get("refit_params") if isinstance(step, dict) else None
-        if isinstance(refit_params, dict) and "use_all_partitions" in refit_params:
-            return (
-                "engine='dag-ml' does not implement refit_params.use_all_partitions; "
-                "passing it to the estimator would silently change it into an unknown fit parameter."
-            )
-
-    for step in pipeline:
         if isinstance(step, dict) and "preprocessing" in step and set(step) != {"preprocessing"}:
             modifiers = sorted(set(step) - {"preprocessing"})
             return (
@@ -778,9 +791,26 @@ def _dispatch_run(
     from nirs4all.core import detect_task_type
 
     pipeline, finetune_overrides = _lower_public_finetune_params(pipeline)
+    refit_params_noop = _is_supported_native_refit_params_noop(pipeline)
+    reject_native_training_param_overrides(
+        list(pipeline),
+        context="engine='dag-ml'",
+        allowed_keys=frozenset({"refit_params"}) if refit_params_noop else frozenset(),
+    )
+    if not refit_params_noop and _has_nested_structural_refit_params(pipeline):
+        raise NotImplementedError(
+            "engine='dag-ml' does not support nested step-level refit_params; "
+            "running natively would ignore refit arguments"
+        )
     from .training_controls import validate_training_control_declarations
 
-    validate_training_control_declarations(pipeline)
+    validation_pipeline = [
+        {key: value for key, value in step.items() if key != "refit_params"}
+        if refit_params_noop and isinstance(step, dict) and "refit_params" in step
+        else step
+        for step in pipeline
+    ]
+    validate_training_control_declarations(validation_pipeline)
     config_name = resolved_config_name if resolved_config_name is not None else _derive_config_name(pipeline, name)
     # The ordered legacy per-variant config names for a SWEEP (empty for a single concrete pipeline). The
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
@@ -795,7 +825,7 @@ def _dispatch_run(
 
     pipeline = attach_host_finetune_splitter(pipeline)
 
-    resolved_task_type = spectro.task_type
+    resolved_task_type = getattr(spectro, "task_type", None)
     if resolved_task_type is None:
         resolved_task_type = detect_task_type(np.asarray(spectro.y({"partition": "train"})))
     is_classification = "classif" in str(resolved_task_type)

@@ -105,8 +105,8 @@ def _factory_refit_params() -> list[Any]:
 register(
     PipelineCase(
         name="refit_params_use_all_partitions",
-        description="`refit_params: {use_all_partitions: True}` forces refit on train + val + test. "
-        "Exercises the explicit refit-policy override the bridge must surface.",
+        description="Legacy `refit_params: {use_all_partitions: True}` compatibility no-op → PLSR. "
+        "The native DAG-ML path accepts exactly this no-op while retaining the original pipeline identity.",
         keywords=("refit_params", "model", "name"),
         capabilities=(
             "preprocessing_transform",

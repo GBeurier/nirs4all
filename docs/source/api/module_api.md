@@ -27,6 +27,73 @@ with nirs4all.session(verbose=1) as s:
 
 ## Functions
 
+### nirs4all.fit_native_pipeline()
+
+Run the deliberately narrow, fully-native raw-array training lane. This is the
+portable alternative when the pipeline is one splitter plus one supported model
+and every training and prediction row has a stable identity.
+
+```python
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+
+methods_library = "/opt/nirs4all/lib/libn4m.so"
+
+estimator = nirs4all.fit_native_pipeline(
+    [KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+    X_train,
+    y_train,
+    sample_ids=["train-0", "train-1", "train-2"],
+    methods_library_path=methods_library,
+)
+estimator.export_native_archive("model.n4a", archive_id="archive:demo.pls")
+prediction = estimator.predict_with_identity(
+    X_predict,
+    sample_ids=["predict-0", "predict-1"],
+)
+```
+
+The fit result retains the actual DAG-ML `TrainingResult`, `TrainingOutcome`,
+and Package V2. Export writes Archive V2 from those exact native objects; it
+does not invoke the compatibility `PipelineRunner` or refit. Unsupported
+pipeline shapes, implicit identities, non-finite arrays, absent native
+capabilities, and non-native probability decoding fail explicitly.
+``methods_library_path`` is an explicit deployment override. With
+``nirs4all[native]``, the compatible library from the installed
+``nirs4all-methods`` wheel is discovered automatically; the route never
+substitutes a Python backend.
+
+### Native full refit and Archive V3
+
+An in-memory `NativeMethodsRunResult` can produce one fresh full-refit child on
+a new, explicitly identified training cohort. The parent Package V2 remains the
+authority for the selected plan; the child Package V3 records only fresh REFIT
+evidence and its artifact. It never re-enters CV or SELECT and never invents a
+score for the new cohort.
+
+```python
+child = nirs4all.retrain(
+    result,
+    {"X": X_target, "y": y_target, "sample_ids": target_ids},
+    mode="full",
+    engine="native",
+)
+child.export("refit.n4a")  # Core Archive V3
+
+with nirs4all.load_session("refit.n4a", engine="native") as loaded:
+    prediction = nirs4all.predict(
+        data={"X": X_predict, "sample_ids": prediction_ids},
+        engine="native",
+        session=loaded,
+    )
+```
+
+This first retrain capability is intentionally narrow: it needs the in-memory,
+attested parent and `mode="full"`. Archive-parent retrain, transfer,
+fine-tuning, host-sidecars and implicit sample identities fail before native
+data execution. Archive V3 supports PREDICT only and carries no conformal
+presentation state.
+
 ### nirs4all.run()
 
 Execute a training pipeline on a dataset.
@@ -62,6 +129,80 @@ result = nirs4all.run(
 | `random_state` | `int` | Random seed for reproducibility |
 
 **Returns:** `RunResult` containing predictions and convenience accessors.
+
+#### Verified native Methods subset
+
+``engine="native"`` is currently a deliberately narrow, fail-closed route. It
+accepts a list containing one CV splitter and one supported Methods model, and
+a mapping with finite ``X``/``y`` arrays plus explicit stable ``sample_ids``.
+It returns ``NativeMethodsRunResult`` without creating a legacy
+``PipelineRunner``. Native sessions own the exact pipeline object and can be
+used with both ``run(..., session=session)`` and ``predict(..., session=session)``.
+
+```python
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.model_selection import KFold
+import nirs4all
+
+pipeline = [KFold(n_splits=2), {"model": PLSRegression(n_components=1)}]
+dataset = {"X": X_train, "y": y_train, "sample_ids": ["train-0", "train-1"]}
+
+with nirs4all.session(pipeline, engine="native") as native:
+    result = nirs4all.run(pipeline, dataset, engine="native", session=native, save_charts=False)
+    prediction = nirs4all.predict(
+        data={"X": X_predict, "sample_ids": ["predict-0", "predict-1"]},
+        session=native,
+        engine="native",
+    )
+    result.export("model.n4a")
+```
+
+##### Live Methods execution observation
+
+Before a strict native result is closed, `result.native_execution_claim` gives
+an immutable, audit-only description of the local callback-free
+`dag_ml.execute_methods_training` call and
+`result.native_execution_is_live` reports whether its exact DAG-ML facade is
+still attached. This is deliberately process-local rather than a portable
+receipt: `result.close()`, `result.detach()`, or closing the owning native
+session invalidates the claim. The signed outcome and portable package are the
+durable evidence, so `result.export("model.n4a")` remains valid after that
+live observation has been released.
+
+The native tuning request is ``{"engine": "methods-hpo", "trials": N}``.
+It may additionally select ``sampler="random"|"tpe"`` and
+``pruner="none"|"median"``. It uses the DAG-ML Methods controller with the
+attested V1 PLS ``n_components`` search space; no Python objective, callback,
+intermediate score or optimizer-specific setting can be injected. A session
+can bind that same request once:
+
+```python
+with nirs4all.session(
+    pipeline,
+    engine="native",
+    tuning={"engine": "methods-hpo", "trials": 8, "sampler": "tpe", "pruner": "median"},
+) as native:
+    result = native.run(dataset)
+```
+
+An in-memory native session can also full-refit its already attested selected
+Methods variant on a new explicitly identified cohort:
+
+```python
+with nirs4all.session(pipeline, engine="native") as native:
+    native.run(dataset)
+    refitted = native.retrain(
+        {"X": X_next, "y": y_next, "sample_ids": ["next-0", "next-1"]}
+    )
+```
+
+This is not transfer learning or finetuning: it preserves only the selected
+portable PLS recipe and its attested patch. Each supported full retrain writes
+the source outcome, request, plan, selected variant and seed into the signed
+outcome diagnostics of the new result; exporting that result preserves this
+parent-child lineage in the new native archive. Archive-based retraining,
+transfer/finetuning, calibration, generic branching/stacking and explanation
+remain explicit capability refusals; none is redirected to the legacy backend.
 
 **Example - Single pipeline:**
 

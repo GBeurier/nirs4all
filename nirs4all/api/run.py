@@ -67,7 +67,7 @@ _RUN_DEFAULT_SAVE_CHARTS: Any = _RunOptionDefault(True)
 def _session_run_option(session: Session | None, key: str, value: Any, default: Any) -> Any:
     if not isinstance(value, _RunOptionDefault):
         return value
-    return session._runner_kwargs.get(key, default) if session is not None else default
+    return session._runner_kwargs.get(key, default) if isinstance(session, Session) else default
 
 # Type aliases for a single pipeline or dataset (not lists)
 SinglePipelineSpec: TypeAlias = (
@@ -761,6 +761,7 @@ def run(
     engine: str | None = None,
     tuning: Any | None = None,
     calibration: Any | None = None,
+    terminal_predict: Mapping[str, Any] | None = None,
     results_path: str | Path | None = None,
     allow_fallback: bool = False,
     # All other PipelineRunner options
@@ -1005,7 +1006,7 @@ def run(
     cache = _session_run_option(session, "cache", cache, None)
     project = _session_run_option(session, "project", project, None)
     report_naming = _session_run_option(session, "report_naming", report_naming, "nirs")
-    if session is not None:
+    if isinstance(session, Session):
         public_keys = {"verbose", "save_artifacts", "save_charts", "plots_visible", "random_state", "refit", "cache", "project", "report_naming", "engine", "tuning", "calibration", "results_path"}
         runner_kwargs = {**{key: value for key, value in session._runner_kwargs.items() if key not in public_keys}, **runner_kwargs}
 
@@ -1016,6 +1017,10 @@ def run(
         report_naming=report_naming, tuning=tuning, calibration=calibration,
         results_path=results_path, runner_kwargs=runner_kwargs,
     )
+    if selected_engine == "dag-ml":
+        from nirs4all.pipeline.dagml.migration_preflight import preflight_dagml_pipeline_migration
+
+        preflight_dagml_pipeline_migration(pipeline)
     if save_charts is None:
         save_charts = selected_engine != "native"
     elif not isinstance(save_charts, bool):
@@ -1025,6 +1030,66 @@ def run(
         session._prepare_legacy_access("run")
     if selected_engine == "native" and isinstance(session, Session):
         session._prepare_native_run()
+    if terminal_predict is not None and selected_engine != "native":
+        raise ValueError("terminal_predict is available only with engine='native'")
+
+    # Keep main's published extended Methods lane alongside the V1 Core-archive minimum. The latter
+    # remains the default for plain portable PLS requests; only capabilities it does not represent
+    # (nested PLS→Ridge, controller-owned tuning/calibration, terminal predict, native sessions) enter
+    # the richer lane. Both paths are strict and callback-free, and neither can reach PipelineRunner.
+    from .native_session import NativeMethodsSession
+
+    native_methods_session = isinstance(session, NativeMethodsSession)
+    native_stacking = False
+    if selected_engine == "native" and isinstance(pipeline, list):
+        from nirs4all.pipeline.dagml.detect import _detect_stacking_branch
+
+        native_stacking = _detect_stacking_branch(pipeline) is not None
+    if selected_engine == "native" and (
+        native_methods_session
+        or native_stacking
+        or terminal_predict is not None
+        or tuning is not None
+        or calibration is not None
+    ):
+        if not isinstance(pipeline, list):
+            raise TypeError("engine='native' requires a list pipeline")
+        if not isinstance(dataset, Mapping):
+            raise TypeError("engine='native' requires an explicit mapping dataset")
+        if native_methods_session:
+            assert isinstance(session, NativeMethodsSession)
+            if terminal_predict is not None or tuning is not None or calibration is not None:
+                raise NotImplementedError(
+                    "native sessions cannot combine run-local terminal prediction, tuning, or calibration"
+                )
+            if pipeline is not session.pipeline:
+                raise ValueError("engine='native' run() requires the session's exact pipeline object")
+            if random_state is not None and random_state != session.random_state:
+                raise ValueError("engine='native' run() random_state must match the NativeMethodsSession")
+            return session.run(dataset)
+
+        from .native_training import run_native_methods
+
+        return run_native_methods(
+            pipeline,
+            dataset,
+            name=name,
+            save_artifacts=save_artifacts,
+            save_charts=save_charts,
+            plots_visible=plots_visible,
+            random_state=random_state,
+            refit=refit if isinstance(refit, bool) or refit is None else None,
+            cache=cache,
+            project=project,
+            report_naming=report_naming,
+            results_path=results_path,
+            runner_kwargs=runner_kwargs,
+            tuning=tuning,
+            calibration=calibration,
+            terminal_predict=terminal_predict,
+        )
+    if native_methods_session:
+        raise ValueError("NativeMethodsSession requires engine='native'; it never falls back to another engine")
     if selected_engine == "dual" and (tuning is not None or calibration is not None):
         raise DualRunUnsupported("engine='dual' does not support tuning or calibration; use the strict run() oracle subset")
     if selected_engine == "native" and (tuning is not None or calibration is not None):

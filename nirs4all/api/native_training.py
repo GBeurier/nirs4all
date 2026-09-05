@@ -1,0 +1,885 @@
+"""Explicit public entry point for the first fully-native training lane.
+
+The broad :func:`nirs4all.run` compatibility surface still contains legacy
+workflow features that are not expressible by the portable runtime.  This
+module deliberately exposes only the proven raw-array lane instead of silently
+re-running that workflow through :class:`PipelineRunner` during export.
+"""
+
+from __future__ import annotations
+
+import importlib
+from collections.abc import Mapping, Sequence
+from contextlib import suppress
+from dataclasses import dataclass
+from typing import Any, Protocol, cast
+
+import numpy as np
+
+from nirs4all.pipeline.dagml.estimator import DagMLPipelineEstimator
+from nirs4all.pipeline.dagml.methods_runtime import resolve_methods_library_path
+from nirs4all.pipeline.dagml.native_client import DagMLNativeClient, DagMLNativeCoverageError
+from nirs4all.pipeline.dagml.native_conformal_calibration import (
+    NativeConformalCalibrationError,
+    compile_methods_conformal_calibration_replay,
+)
+from nirs4all.pipeline.dagml.raw_replay_lowerer import (
+    RawArrayMethodsReplayCompiler,
+    RawArrayMethodsReplayError,
+    validate_native_methods_package,
+)
+from nirs4all.pipeline.dagml.raw_training_lowerer import (
+    RawArrayDagMLTrainingCompiler,
+    lower_raw_array_training_contracts,
+)
+from nirs4all.pipeline.dagml.terminal_predict_lowerer import (
+    StrictMethodsTerminalPredictionExecution,
+    lower_strict_methods_terminal_prediction,
+)
+
+from .native_refit_result import NativeMethodsRefitResult
+from .native_result import NativeMethodsRunResult
+from .native_retrain_lineage import (
+    DIAGNOSTIC_KEY as RETRAIN_LINEAGE_DIAGNOSTIC_KEY,
+)
+from .native_retrain_lineage import (
+    SEED_DIAGNOSTIC_KEY,
+    NativeRetrainLineage,
+)
+from .native_witness import (
+    _extract_terminal_native_result_components,
+    _TerminalNativeResultComponents,
+)
+
+
+def fit_native_pipeline(
+    pipeline: list[Any],
+    X: Any,
+    y: Any,
+    *,
+    sample_ids: Sequence[str],
+    groups: Sequence[Any] | None = None,
+    metadata: Mapping[str, Sequence[Any]] | None = None,
+    selection_metric: str = "rmse",
+    selection_objective: str = "minimize",
+    package_id: str | None = None,
+    dagml_module: str = "dag_ml",
+    native_client: Any = None,
+    training_losses: tuple[Mapping[str, Any], ...] = (),
+    local_implementations: Any = None,
+    methods_library_path: str | None = None,
+    methods_hpo_operation: Mapping[str, Any] | None = None,
+    seed: int = 12345,
+    retrain_lineage: NativeRetrainLineage | None = None,
+) -> DagMLPipelineEstimator:
+    """Fit the supported raw-array pipeline entirely through DAG-ML.
+
+    This is an intentionally narrow native API: either one KFold/PLS model or
+    an exact nested-OOF stack of two-or-more PLS branches followed by default
+    sklearn ``Ridge(alpha=...)``.  The Ridge features are scheduler-owned OOF
+    predictions; the raw matrix is retained only for identity/target
+    attestation.  Inputs remain finite 2-D ``X`` with finite targets.
+    ``sample_ids`` are mandatory because the resulting Package V2 and Archive
+    V2 require stable identities for every later PREDICT cohort.
+
+    The installed DAG-ML runtime must produce a ``portable_required`` Methods
+    Package V2 with one durable N4MM refit artifact.  Host-sidecar/joblib
+    results are refused before this function returns: they cannot be replayed
+    or exported as a native archive.  A successful estimator retains the exact
+    native ``TrainingResult``, ``TrainingOutcome`` and Package V2.  Its
+    :meth:`export_native_archive` method writes Archive V2 directly; it never
+    invokes the legacy runner or fits the model a second time.  With
+    ``nirs4all[native]``, the bundled ``nirs4all-methods`` runtime is discovered
+    automatically; ``methods_library_path`` remains an explicit deployment
+    override.
+    """
+
+    if not isinstance(pipeline, list):
+        raise TypeError("fit_native_pipeline requires a list pipeline")
+    if sample_ids is None:
+        raise ValueError("fit_native_pipeline requires explicit sample_ids")
+    if not isinstance(dagml_module, str) or not dagml_module:
+        raise ValueError("dagml_module must be a non-empty string")
+
+    # Fail before assembling the bridge when a caller passed an obviously
+    # non-portable matrix.  The lowerer repeats contract-level checks and
+    # DAG-ML remains authoritative for execution semantics.
+    features = np.asarray(X)
+    targets = np.asarray(y)
+    if features.ndim != 2 or targets.ndim not in (1, 2):
+        raise ValueError("fit_native_pipeline requires 2-D X and 1-D or 2-D y")
+    if features.shape[0] == 0 or features.shape[0] != targets.shape[0]:
+        raise ValueError("fit_native_pipeline requires aligned non-empty X and y")
+    if len(sample_ids) != features.shape[0]:
+        raise ValueError("fit_native_pipeline requires sample_ids length to match X")
+    if not np.issubdtype(features.dtype, np.number) or not np.issubdtype(targets.dtype, np.number):
+        raise TypeError("fit_native_pipeline requires numeric X and y")
+    if not np.isfinite(features).all() or not np.isfinite(targets).all():
+        raise ValueError("fit_native_pipeline requires finite X and y")
+    if isinstance(seed, bool) or not isinstance(seed, int) or seed < 0:
+        raise TypeError("fit_native_pipeline requires a non-negative integer seed")
+    if retrain_lineage is not None and not isinstance(retrain_lineage, NativeRetrainLineage):
+        raise TypeError("fit_native_pipeline retrain lineage must be internally attested")
+    resolved_methods_library_path = resolve_methods_library_path(methods_library_path)
+
+    diagnostics: dict[str, Any] = {SEED_DIAGNOSTIC_KEY: seed}
+    if retrain_lineage is not None:
+        diagnostics[RETRAIN_LINEAGE_DIAGNOSTIC_KEY] = retrain_lineage.to_dict()
+    estimator = DagMLPipelineEstimator(
+        pipeline=pipeline,
+        selection_output_id="output:prediction",
+        package_id=package_id,
+        dagml_module=dagml_module,
+        native_client=native_client,
+        training_compiler=RawArrayDagMLTrainingCompiler(
+            selection_metric=selection_metric,
+            selection_objective=selection_objective,
+            dagml_module=dagml_module,
+            training_losses=training_losses,
+            local_implementations=local_implementations,
+            methods_library_path=resolved_methods_library_path,
+            methods_hpo_operation=methods_hpo_operation,
+            seed=seed,
+            additional_diagnostics=diagnostics,
+        ),
+        require_explicit_sample_ids=True,
+    )
+    try:
+        estimator.fit(X, y, sample_ids=sample_ids, groups=groups, metadata=metadata)
+        if estimator.predictor_package_ is None:
+            raise DagMLNativeCoverageError("native DAG-ML training did not return an exportable Package V2")
+        validate_native_methods_package(estimator.predictor_package_)
+        estimator.prediction_compiler = RawArrayMethodsReplayCompiler(
+            estimator.predictor_package_,
+            dagml_module=dagml_module,
+            methods_library_path=resolved_methods_library_path,
+        )
+        estimator.prediction_identity_decoder = _decode_raw_methods_prediction
+        return estimator
+    except RawArrayMethodsReplayError as error:
+        with suppress(BaseException):
+            estimator.detach_native_training_result()
+        raise DagMLNativeCoverageError("native DAG-ML training did not return a replayable portable Methods Package V2") from error
+    except BaseException:
+        with suppress(BaseException):
+            estimator.detach_native_training_result()
+        raise
+
+
+@dataclass(frozen=True)
+class _StrictMethodsTerminalExecution:
+    """Runtime details retained for terminal lifecycle and later Package V2 replay.
+
+    This deliberately has no callback field.  The terminal lowerer and client
+    are separate from the generic native training compiler so no Python model
+    or node callback can enter the CV→REFIT→terminal-PREDICT operation.
+    """
+
+    methods_inputs: Mapping[str, Any]
+    methods_library_path: str
+    terminal_node_id: str
+    terminal_port: str
+    run_id: str
+    bundle_id: str
+    package_id: str
+
+
+class _StrictMethodsTerminalExecutionCarrier(Protocol):
+    """Post-terminal structural view of the estimator's execution record.
+
+    ``DagMLPipelineEstimator.fit`` records a generic
+    :class:`DagMLTrainingExecution`, whose callback field is deliberately
+    absent from the terminal facade.  The terminal route therefore mounts this
+    narrower, callback-free execution record without widening the generic
+    training contract or passing through ``Any``.
+    """
+
+    native_training_execution_: _StrictMethodsTerminalExecution
+
+
+def _run_strict_methods_terminal_prediction(
+    pipeline: list[Any],
+    dataset: Mapping[str, Any],
+    *,
+    terminal_predict: Mapping[str, Any],
+    name: str,
+    session: Any,
+    save_artifacts: bool,
+    save_charts: bool,
+    plots_visible: bool,
+    random_state: int | None,
+    refit: bool | None,
+    cache: Any,
+    project: str | None,
+    report_naming: str,
+    results_path: Any,
+    runner_kwargs: Mapping[str, Any] | None,
+    tuning: Any,
+    calibration: Any,
+    retrain_lineage: NativeRetrainLineage | None,
+) -> NativeMethodsRunResult:
+    """Run the one callback-free terminal facade after complete Python preflight."""
+
+    if not isinstance(dataset, Mapping):
+        raise TypeError("strict terminal prediction requires dataset={'X', 'y', 'sample_ids'}")
+    unknown = set(dataset) - {"X", "y", "sample_ids"}
+    if unknown:
+        raise ValueError(
+            "strict terminal prediction rejects groups/metadata and other dataset keys: "
+            f"{sorted(unknown)}"
+        )
+    missing = {"X", "y", "sample_ids"} - set(dataset)
+    if missing:
+        raise ValueError(f"strict terminal prediction dataset is missing required keys: {sorted(missing)}")
+    if session is not None:
+        raise NotImplementedError("strict terminal prediction is stateless and cannot use a NativeMethodsSession")
+    if save_artifacts is not True:
+        raise ValueError("strict terminal prediction requires save_artifacts=True for Package V2")
+    if save_charts or plots_visible:
+        raise NotImplementedError("strict terminal prediction does not support legacy charts or interactive plots")
+    if refit is not True:
+        raise NotImplementedError("strict terminal prediction requires refit=True (native refit_one)")
+    if cache is not None or project is not None or results_path is not None:
+        raise NotImplementedError("strict terminal prediction does not support cache, project, or results_path")
+    if report_naming != "nirs":
+        raise NotImplementedError("strict terminal prediction supports only report_naming='nirs'")
+    if runner_kwargs:
+        raise NotImplementedError(f"strict terminal prediction does not accept legacy runner kwargs: {sorted(runner_kwargs)}")
+    if tuning is not None or calibration is not None:
+        raise NotImplementedError("strict terminal prediction rejects HPO and calibration")
+    if retrain_lineage is not None:
+        raise NotImplementedError("strict terminal prediction rejects retrain lineage metadata")
+    if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
+        raise TypeError("strict terminal prediction random_state must be an integer or None")
+
+    seed = 12345 if random_state is None else random_state
+    # This lowerer finishes every input/policy/width validation and V2 cohort
+    # derivation before libn4m is resolved or any native operation can run.
+    execution = lower_strict_methods_terminal_prediction(
+        pipeline,
+        dataset["X"],
+        dataset["y"],
+        sample_ids=dataset["sample_ids"],
+        terminal_predict=terminal_predict,
+        seed=seed,
+    )
+    methods_library_path = resolve_methods_library_path()
+    terminal_result: Any | None = None
+    terminal_components: _TerminalNativeResultComponents | None = None
+    estimator: DagMLPipelineEstimator | None = None
+    try:
+        terminal_result = DagMLNativeClient().execute_methods_cv_refit_terminal_predict(
+            execution.request,
+            execution.data_envelopes,
+            execution.relations,
+            execution.training_influence,
+            execution.methods_inputs,
+            execution.predict_envelope,
+            execution.predict_input,
+            methods_library_path=methods_library_path,
+            outcome_id=execution.outcome_id,
+            run_id=execution.run_id,
+            bundle_id=execution.bundle_id,
+            package_id=execution.package_id,
+            terminal_node_id=execution.terminal_node_id,
+            terminal_port=execution.terminal_port,
+        )
+        terminal_components = _extract_terminal_native_result_components(terminal_result)
+        estimator = _terminal_result_estimator(
+            pipeline,
+            execution,
+            terminal_components,
+            methods_library_path=methods_library_path,
+        )
+        return NativeMethodsRunResult._from_terminal_components(
+            estimator,
+            terminal_components,
+            dataset_name=name or "native",
+            model_name=_native_model_name(pipeline),
+        )
+    except BaseException:
+        # The native terminal result owns an attached TrainingResult even when
+        # a Python projection or Package V2 validation fails.  Release only
+        # that lifecycle facade; never replace or decode its frozen receipt.
+        if terminal_components is not None:
+            with suppress(BaseException):
+                _detach_terminal_training_result(terminal_components.lifecycle_training_result)
+        elif terminal_result is not None:
+            with suppress(BaseException):
+                components = _extract_terminal_native_result_components(terminal_result)
+                _detach_terminal_training_result(components.lifecycle_training_result)
+        raise
+
+
+def _terminal_result_estimator(
+    pipeline: list[Any],
+    execution: StrictMethodsTerminalPredictionExecution,
+    terminal_components: _TerminalNativeResultComponents,
+    *,
+    methods_library_path: str,
+) -> DagMLPipelineEstimator:
+    """Attach direct native terminal components to the normal replay/export adapter."""
+
+    if type(terminal_components) is not _TerminalNativeResultComponents:
+        raise TypeError("strict terminal estimator requires verified native terminal components")
+    training_result = terminal_components.compatibility_training_result
+    package = terminal_components.portable_predictor_package
+    try:
+        validate_native_methods_package(package)
+    except RawArrayMethodsReplayError as error:
+        raise DagMLNativeCoverageError(
+            "strict terminal DAG-ML result did not retain a replayable portable Methods Package V2"
+        ) from error
+    estimator = DagMLPipelineEstimator(
+        pipeline=pipeline,
+        selection_output_id="output:prediction",
+        package_id=execution.package_id,
+        prediction_compiler=RawArrayMethodsReplayCompiler(
+            package,
+            methods_library_path=methods_library_path,
+        ),
+        prediction_identity_decoder=_decode_raw_methods_prediction,
+        require_explicit_sample_ids=True,
+    )
+    # sklearn's replay surface requires this fitted-state marker.  It is a
+    # separate public facade from the witness's private lifecycle facade, so
+    # rebinding it cannot forge a live terminal claim or redirect close().
+    estimator.training_result_ = training_result
+    estimator.training_outcome_ = getattr(training_result, "outcome", None)
+    estimator.outputs_ = list(getattr(training_result, "outputs", []) or [])
+    estimator.output_binding_ = estimator._select_output_binding(estimator.outputs_)
+    estimator.predictor_package_ = package
+    estimator.fit_identity_frame_ = execution.fit_identity_frame
+    estimator.n_features_in_ = execution.n_features
+    terminal_execution = _StrictMethodsTerminalExecution(
+        methods_inputs=execution.methods_inputs,
+        methods_library_path=methods_library_path,
+        terminal_node_id=execution.terminal_node_id,
+        terminal_port=execution.terminal_port,
+        run_id=execution.run_id,
+        bundle_id=execution.bundle_id,
+        package_id=execution.package_id,
+    )
+    # ``DagMLPipelineEstimator`` normally learns this dynamic fitted-state
+    # attribute from ``fit()``.  The strict terminal facade never calls that
+    # generic path, so retain its distinct callback-free record through the
+    # exact structural contract instead of an ``Any`` cast.
+    terminal_execution_carrier = cast(_StrictMethodsTerminalExecutionCarrier, estimator)
+    terminal_execution_carrier.native_training_execution_ = terminal_execution
+    return estimator
+
+
+def _detach_terminal_training_result(training_result: Any) -> None:
+    """Best-effort cleanup of the one private terminal lifecycle facade."""
+
+    if getattr(training_result, "is_attached", None) is not True:
+        return
+    detach = getattr(training_result, "detach", None)
+    if callable(detach):
+        detach()
+
+
+def run_native_methods(
+    pipeline: list[Any],
+    dataset: Mapping[str, Any],
+    *,
+    name: str = "",
+    session: Any = None,
+    save_artifacts: bool = True,
+    save_charts: bool = False,
+    plots_visible: bool = False,
+    random_state: int | None = None,
+    refit: bool | None = True,
+    cache: Any = None,
+    project: str | None = None,
+    report_naming: str = "nirs",
+    results_path: Any = None,
+    runner_kwargs: Mapping[str, Any] | None = None,
+    tuning: Any = None,
+    calibration: Any = None,
+    terminal_predict: Mapping[str, Any] | None = None,
+    retrain_lineage: NativeRetrainLineage | None = None,
+) -> NativeMethodsRunResult:
+    """Run the verified public Methods training subset without a legacy runner.
+
+    The accepted dataset is exactly ``{X, y, sample_ids}`` with optional
+    ``groups`` and ``metadata``.  Charts, workspaces, sessions, cache, tuning,
+    and non-native refit policies remain explicit capability refusals rather
+    than becoming ignored legacy arguments.
+
+    ``tuning`` is deliberately a separate, strict native operation rather
+    than the older Python objective adapter.  Its V1 shape is
+    ``{"engine": "methods-hpo", "trials": N}``, optionally selecting the
+    attested ``random``/``tpe`` sampler and ``none``/``median`` pruner.  A
+    later call may add ``resume_package_json`` obtained from
+    :meth:`NativeMethodsRunResult.hpo_resume_package_json`; it is the complete
+    signed package, never a caller-provided checkpoint.  DAG-ML owns all trial
+    execution, resume validation, SELECT, native incumbent attestation, and
+    the single selected rerun/refit.
+    """
+
+    if terminal_predict is not None:
+        return _run_strict_methods_terminal_prediction(
+            pipeline,
+            dataset,
+            terminal_predict=terminal_predict,
+            name=name,
+            session=session,
+            save_artifacts=save_artifacts,
+            save_charts=save_charts,
+            plots_visible=plots_visible,
+            random_state=random_state,
+            refit=refit,
+            cache=cache,
+            project=project,
+            report_naming=report_naming,
+            results_path=results_path,
+            runner_kwargs=runner_kwargs,
+            tuning=tuning,
+            calibration=calibration,
+            retrain_lineage=retrain_lineage,
+        )
+
+    if not isinstance(dataset, Mapping):
+        raise TypeError("engine='native' requires dataset={'X': matrix, 'y': targets, 'sample_ids': explicit_ids}")
+    unknown = set(dataset) - {"X", "y", "sample_ids", "groups", "metadata"}
+    if unknown:
+        raise ValueError(f"engine='native' dataset has unsupported keys: {sorted(unknown)}")
+    missing = {"X", "y", "sample_ids"} - set(dataset)
+    if missing:
+        raise ValueError(f"engine='native' dataset is missing required keys: {sorted(missing)}")
+    if session is not None:
+        raise NotImplementedError("engine='native' training sessions are not available yet; use the stateless native run subset")
+    if not save_artifacts:
+        raise ValueError("engine='native' requires save_artifacts=True to retain its portable N4MM artifact")
+    if save_charts:
+        raise NotImplementedError("engine='native' does not yet produce legacy charts; pass save_charts=False")
+    if plots_visible:
+        raise NotImplementedError("engine='native' does not yet produce interactive legacy plots")
+    if refit is not True:
+        raise NotImplementedError("engine='native' currently requires refit=True")
+    if cache is not None or project is not None or results_path is not None:
+        raise NotImplementedError("engine='native' does not yet support cache, project, or results_path")
+    if report_naming != "nirs":
+        raise NotImplementedError("engine='native' currently supports only report_naming='nirs'")
+    if runner_kwargs:
+        raise NotImplementedError(f"engine='native' does not accept legacy runner kwargs: {sorted(runner_kwargs)}")
+    if random_state is not None and (isinstance(random_state, bool) or not isinstance(random_state, int)):
+        raise TypeError("engine='native' random_state must be an integer or None")
+    if retrain_lineage is not None and not isinstance(retrain_lineage, NativeRetrainLineage):
+        raise TypeError("engine='native' retrain lineage must be internally attested")
+    methods_hpo_operation = _native_methods_hpo_operation(
+        tuning,
+        seed=12345 if random_state is None else random_state,
+    )
+    calibration_operation = _native_conformal_calibration_operation(calibration)
+
+    fit_kwargs: dict[str, Any] = {
+        "sample_ids": dataset["sample_ids"],
+        "groups": dataset.get("groups"),
+        "metadata": dataset.get("metadata"),
+        "seed": 12345 if random_state is None else random_state,
+    }
+    if methods_hpo_operation is not None:
+        fit_kwargs["methods_hpo_operation"] = methods_hpo_operation
+    if retrain_lineage is not None:
+        fit_kwargs["retrain_lineage"] = retrain_lineage
+    estimator = fit_native_pipeline(pipeline, dataset["X"], dataset["y"], **fit_kwargs)
+    try:
+        if calibration_operation is not None:
+            _attach_native_conformal_calibration(estimator, calibration_operation)
+        # Calibration mutates the retained TrainingResult/outcome and may change
+        # its fingerprint. ``from_estimator`` binds its internal live witness
+        # only after every optional native post-training operation has finalized.
+        return NativeMethodsRunResult.from_estimator(
+            estimator,
+            dataset_name=name or "native",
+            model_name=_native_model_name(pipeline),
+        )
+    except BaseException:
+        # A fitted native result owns process-local handles even if the later
+        # result projection fails. Preserve the original failure while making
+        # the public estimator lifecycle seam attempt a deterministic release.
+        with suppress(BaseException):
+            estimator.detach_native_training_result()
+        raise
+
+
+def refit_native_methods(
+    source: NativeMethodsRunResult,
+    dataset: Mapping[str, Any],
+    *,
+    name: str = "",
+) -> NativeMethodsRefitResult:
+    """Create one fresh native V3 REFIT child from a V2 parent package.
+
+    Only the selected, attested plan travels from the parent.  This code lowers
+    a new explicitly identified target cohort; it does not re-enter CV or
+    SELECT and never calls the legacy runner.
+    """
+
+    if not isinstance(source, NativeMethodsRunResult):
+        raise TypeError("native Methods full refit requires a NativeMethodsRunResult source")
+    if not isinstance(dataset, Mapping):
+        raise TypeError("native Methods full refit requires dataset={'X', 'y', 'sample_ids'}")
+    unknown = set(dataset) - {"X", "y", "sample_ids", "groups", "metadata"}
+    if unknown:
+        raise ValueError(f"native Methods full refit dataset has unsupported keys: {sorted(unknown)}")
+    missing = {"X", "y", "sample_ids"} - set(dataset)
+    if missing:
+        raise ValueError(f"native Methods full refit dataset is missing required keys: {sorted(missing)}")
+
+    estimator = source.native_estimator
+    source_package = getattr(estimator, "predictor_package_", None)
+    source_execution = getattr(estimator, "native_training_execution_", None)
+    pipeline = getattr(estimator, "pipeline", None)
+    if source_package is None or source_execution is None or not isinstance(pipeline, list):
+        raise DagMLNativeCoverageError(
+            "native Methods source does not retain the V2 package and signed training contracts required for full refit"
+        )
+    methods_library_path = getattr(source_execution, "methods_library_path", None)
+    if not isinstance(methods_library_path, str) or not methods_library_path:
+        raise DagMLNativeCoverageError(
+            "native Methods source does not retain its explicit libn4m path for full refit"
+        )
+    dagml_module = getattr(estimator, "dagml_module", "dag_ml")
+    if not isinstance(dagml_module, str) or not dagml_module:
+        raise DagMLNativeCoverageError("native Methods source has no DAG-ML module identity")
+
+    features = np.asarray(dataset["X"])
+    targets = np.asarray(dataset["y"])
+    if features.ndim != 2 or targets.ndim not in (1, 2):
+        raise ValueError("native Methods full refit requires 2-D X and 1-D or 2-D y")
+    if features.shape[0] == 0 or features.shape[0] != targets.shape[0]:
+        raise ValueError("native Methods full refit requires aligned non-empty X and y")
+    if not np.issubdtype(features.dtype, np.number) or not np.issubdtype(targets.dtype, np.number):
+        raise TypeError("native Methods full refit requires numeric X and y")
+    if not np.isfinite(features).all() or not np.isfinite(targets).all():
+        raise ValueError("native Methods full refit requires finite X and y")
+
+    from nirs4all.pipeline.dagml.fit_identity import normalize_fit_identity
+
+    identity_frame = normalize_fit_identity(
+        features,
+        targets,
+        sample_ids=dataset["sample_ids"],
+        groups=dataset.get("groups"),
+        metadata=dataset.get("metadata"),
+        require_explicit_sample_ids=True,
+    )
+    target_contracts = lower_raw_array_training_contracts(
+        pipeline,
+        features,
+        targets,
+        identity_frame=identity_frame,
+        request_id="training:nirs4all.native_full_refit",
+        plan_id="plan:nirs4all.native_full_refit",
+        outcome_id="outcome:nirs4all.native_full_refit",
+        run_id="run:nirs4all.native_full_refit",
+        bundle_id="bundle:nirs4all.native_full_refit",
+        dagml_module=dagml_module,
+        methods_library_path=methods_library_path,
+    ).to_prepared()
+    if target_contracts.methods_inputs is None:
+        raise RuntimeError("native Methods target lowering omitted Methods numeric inputs")
+    request_document = _contract_document(target_contracts.request, "training request")
+    dag_ml = importlib.import_module(dagml_module)
+    signer = getattr(dag_ml, "sign_training_request", None)
+    if not callable(signer):
+        raise DagMLNativeCoverageError(
+            "installed DAG-ML lacks native training-request signing required for full refit"
+        )
+    target_request = signer(dict(request_document))
+    signed_request = _contract_document(target_request, "signed training request")
+    fingerprint = signed_request.get("request_fingerprint")
+    if not isinstance(fingerprint, str) or len(fingerprint) != 64:
+        raise RuntimeError("native Methods target lowering did not produce a signed request")
+    suffix = fingerprint[:16]
+    package = estimator.native_runtime_client().execute_methods_portable_full_refit(
+        source_package,
+        target_request,
+        target_contracts.data_envelopes,
+        target_contracts.relations,
+        target_contracts.training_influence,
+        target_contracts.methods_inputs,
+        methods_library_path=methods_library_path,
+        recipe_id=f"recipe:nirs4all.full_refit.{suffix}",
+        package_id=f"package:nirs4all.full_refit.{suffix}",
+        outcome_id=f"outcome:nirs4all.full_refit.{suffix}",
+        run_id=f"run:nirs4all.full_refit.{suffix}",
+        bundle_id=f"bundle:nirs4all.full_refit.{suffix}",
+    )
+    _ = name  # Reserved for Archive/UI presentation, never passed to legacy code.
+    return NativeMethodsRefitResult(
+        package,
+        methods_library_path=methods_library_path,
+        dagml_module=dagml_module,
+        decoder=_decode_raw_methods_prediction,
+    )
+
+
+def _contract_document(contract: Any, label: str) -> Mapping[str, Any]:
+    """Return a mapping from one strict DAG-ML contract object."""
+
+    document = contract.to_dict() if hasattr(contract, "to_dict") else contract
+    if not isinstance(document, Mapping):
+        raise RuntimeError(f"native Methods target lowering did not produce a {label} object")
+    return document
+
+
+_NATIVE_METHODS_HPO_SAMPLERS = frozenset({"random", "tpe"})
+_NATIVE_METHODS_HPO_PRUNERS = frozenset({"none", "median"})
+_NATIVE_CONFORMAL_POLICIES = frozenset({"marginal", "joint_max"})
+_NATIVE_CONFORMAL_SMALL_SAMPLE_POLICIES = frozenset({"error", "unbounded"})
+
+
+def _native_conformal_calibration_operation(calibration: Any) -> dict[str, Any] | None:
+    """Parse the explicit raw-array conformal cohort accepted by native run.
+
+    This does not accept the broad legacy/tuning calibration aliases.  The
+    caller supplies the actual calibration measurements and stable sample
+    identities; the native DAG-ML coordinator derives every fingerprint,
+    residual and quantile from the resulting PREDICT replay.
+    """
+
+    if calibration is None:
+        return None
+    if not isinstance(calibration, Mapping):
+        raise TypeError("engine='native' calibration must be a mapping")
+    payload = dict(calibration)
+    allowed = {
+        "X",
+        "y",
+        "sample_ids",
+        "groups",
+        "metadata",
+        "coverages",
+        "multi_target_policy",
+        "small_sample_policy",
+    }
+    unknown = set(payload) - allowed
+    if unknown:
+        raise ValueError(f"engine='native' calibration has unsupported keys: {sorted(unknown)}")
+    missing = {"X", "y", "sample_ids", "coverages"} - set(payload)
+    if missing:
+        raise ValueError(f"engine='native' calibration is missing required keys: {sorted(missing)}")
+    coverages = payload["coverages"]
+    if isinstance(coverages, (str, bytes)) or not isinstance(coverages, Sequence):
+        raise TypeError("engine='native' calibration coverages must be a non-empty sequence")
+    normalized_coverages: list[float] = []
+    for coverage in coverages:
+        if isinstance(coverage, bool) or not isinstance(coverage, int | float):
+            raise TypeError("engine='native' calibration coverages must be finite numbers")
+        numeric_coverage = float(coverage)
+        if not np.isfinite(numeric_coverage) or not 0.0 < numeric_coverage < 1.0:
+            raise ValueError("engine='native' calibration coverages must lie strictly between zero and one")
+        normalized_coverages.append(numeric_coverage)
+    if not normalized_coverages or len(set(normalized_coverages)) != len(normalized_coverages):
+        raise ValueError("engine='native' calibration coverages must be non-empty and unique")
+    multi_target_policy = payload.get("multi_target_policy", "marginal")
+    if multi_target_policy not in _NATIVE_CONFORMAL_POLICIES:
+        raise ValueError(f"engine='native' calibration multi_target_policy is unsupported: {multi_target_policy!r}")
+    small_sample_policy = payload.get("small_sample_policy", "error")
+    if small_sample_policy not in _NATIVE_CONFORMAL_SMALL_SAMPLE_POLICIES:
+        raise ValueError(f"engine='native' calibration small_sample_policy is unsupported: {small_sample_policy!r}")
+    return {
+        "X": payload["X"],
+        "y": payload["y"],
+        "sample_ids": payload["sample_ids"],
+        "groups": payload.get("groups"),
+        "metadata": payload.get("metadata"),
+        "coverages": normalized_coverages,
+        "multi_target_policy": multi_target_policy,
+        "small_sample_policy": small_sample_policy,
+    }
+
+
+def _attach_native_conformal_calibration(
+    estimator: DagMLPipelineEstimator,
+    calibration: Mapping[str, Any],
+) -> None:
+    """Attach a native calibration replay and refresh the portable package.
+
+    The replay is compiled from the package emitted by the just-completed fit.
+    Its target-free PREDICT result and separately identity-bound truth cross
+    the Python boundary unchanged.  Only DAG-ML may derive calibration
+    provenance, residuals or interval quantiles.
+    """
+
+    package = estimator.predictor_package_
+    training_result = getattr(estimator, "training_result_", None)
+    if package is None or training_result is None:
+        raise DagMLNativeCoverageError("native conformal calibration requires a fitted portable Methods Package V2")
+    try:
+        replay = compile_methods_conformal_calibration_replay(
+            package,
+            calibration["X"],
+            calibration["y"],
+            sample_ids=calibration["sample_ids"],
+            groups=calibration.get("groups"),
+            metadata=calibration.get("metadata"),
+            methods_library_path=getattr(getattr(estimator, "prediction_compiler", None), "methods_library_path", None),
+            dagml_module=estimator.dagml_module,
+        )
+    except (KeyError, NativeConformalCalibrationError, TypeError, ValueError) as error:
+        raise DagMLNativeCoverageError("native conformal calibration cohort is not replayable") from error
+    replay_outcome = estimator.execute_compiled_replay(replay.execution)
+    attach = getattr(training_result, "attach_conformal_calibration", None)
+    export = getattr(training_result, "export_portable_predictor_package", None)
+    if not callable(attach) or not callable(export):
+        raise DagMLNativeCoverageError("installed DAG-ML lacks native conformal calibration attachment")
+    attach(
+        replay_outcome,
+        binding_id=replay.binding_id,
+        calibration_relations=replay.calibration_relations,
+        truth=replay.truth,
+        coverages=calibration["coverages"],
+        # The public DAG-ML facade serializes enum values to strict JSON at
+        # its boundary.  Passing raw enum strings prevents double encoding.
+        multi_target_policy=calibration["multi_target_policy"],
+        small_sample_policy=calibration["small_sample_policy"],
+    )
+    package_id = _portable_package_id(package)
+    estimator.training_outcome_ = getattr(training_result, "outcome", None)
+    estimator.predictor_package_ = export(
+        package_id,
+        fitted_artifact_mode="portable_required",
+        artifact_load_mode="native_portable",
+    )
+    try:
+        validate_native_methods_package(estimator.predictor_package_)
+    except RawArrayMethodsReplayError as error:
+        raise DagMLNativeCoverageError("native conformal calibration did not re-export a portable Methods Package V2") from error
+
+
+def _portable_package_id(package: Any) -> str:
+    """Read the durable Package V2 id without fabricating an export identity."""
+
+    document = package.to_dict() if hasattr(package, "to_dict") else package
+    if not isinstance(document, Mapping):
+        raise DagMLNativeCoverageError("native conformal calibration package is not a structured contract")
+    package_id = document.get("package_id")
+    if not isinstance(package_id, str) or not package_id:
+        raise DagMLNativeCoverageError("native conformal calibration package has no stable package_id")
+    return package_id
+
+
+def _native_methods_hpo_operation(tuning: Any, *, seed: int) -> dict[str, Any] | None:
+    """Parse the public, deliberately narrow Methods scheduler operation.
+
+    This parser does not accept generic nirs4all tuning settings such as
+    ``space``, ``score_data``, callbacks, or workspace resume fields: those
+    belong to the historical Python objective path.  The V1 native search
+    space is attested by DAG-ML and intentionally fixes PLS ``n_components``
+    to the portable 1..=3 integer domain.  TPE and the Median pruner remain
+    controller-owned: the public payload cannot provide an objective,
+    intermediate scores, callbacks, or optimiser-specific knobs.  A two-trial
+    startup budget is fixed whenever either needs historical observations.
+    """
+
+    if tuning is None:
+        return None
+    if not isinstance(tuning, Mapping):
+        raise TypeError("engine='native' tuning must be a mapping")
+    payload = dict(tuning)
+    allowed = {"engine", "trials", "sampler", "pruner", "resume_package_json"}
+    unknown = set(payload) - allowed
+    if unknown:
+        raise ValueError(f"engine='native' tuning has unsupported keys: {sorted(unknown)}")
+    if payload.get("engine") != "methods-hpo":
+        raise ValueError("engine='native' tuning requires engine='methods-hpo'")
+    trials = payload.get("trials")
+    if isinstance(trials, bool) or not isinstance(trials, int) or not 1 <= trials <= 64:
+        raise ValueError("engine='native' Methods HPO trials must be an integer in 1..64")
+    sampler = payload.get("sampler", "random")
+    pruner = payload.get("pruner", "none")
+    if sampler not in _NATIVE_METHODS_HPO_SAMPLERS:
+        raise ValueError(f"engine='native' Methods HPO sampler is unsupported: {sampler!r}")
+    if pruner not in _NATIVE_METHODS_HPO_PRUNERS:
+        raise ValueError(f"engine='native' Methods HPO pruner is unsupported: {pruner!r}")
+    resume_package_json = payload.get("resume_package_json")
+    if resume_package_json is not None and (
+        not isinstance(resume_package_json, str) or not resume_package_json.strip()
+    ):
+        raise TypeError(
+            "engine='native' Methods HPO resume_package_json must be a non-empty portable package JSON string"
+        )
+    n_startup_trials = 2 if sampler == "tpe" or pruner == "median" else 0
+    operation = {
+        "operation_id": "hpo:methods",
+        "study": {
+            "controller_id": "controller:methods.hpo",
+            "study_id": "study:nirs4all.native.pls",
+            "methods_abi": "n4m-abi-2.2",
+            "search_space": {
+                "parameters": [
+                    {
+                        "kind": "int",
+                        "name": "n_components",
+                        "low": 1,
+                        "high": 3,
+                        "step": 1,
+                        "log": False,
+                    }
+                ]
+            },
+            "optimizer": {
+                "sampler": sampler,
+                "pruner": pruner,
+                "direction": "minimize",
+                "metric": "rmse",
+                "seed": seed,
+                "n_startup_trials": n_startup_trials,
+                "max_resource": 0,
+                "reduction_factor": 0,
+            },
+        },
+        "trials": trials,
+        "parameter_paths": {"n_components": "n_components"},
+    }
+    if resume_package_json is not None:
+        # The complete package is the only resume carrier accepted by DAG-ML.
+        # It contains the opaque N4MOPT checkpoint together with the attested
+        # terminal ledger; Python never decodes, synthesizes, or merges either.
+        operation["resume_package_json"] = resume_package_json
+    return operation
+
+
+def _native_model_name(pipeline: list[Any]) -> str:
+    """Return a display name without changing native model selection semantics."""
+
+    if pipeline:
+        final = pipeline[-1]
+        if isinstance(final, Mapping) and set(final) == {"model"}:
+            final = final["model"]
+        name = getattr(final, "__name__", None) or type(final).__name__
+        if isinstance(name, str) and name:
+            return name
+    return "MethodsModel"
+
+
+def _decode_raw_methods_prediction(outcome: Any, identity_frame: Any) -> np.ndarray:
+    """Decode a replay only after checking its exact current sample ordering."""
+
+    document = outcome.to_dict() if hasattr(outcome, "to_dict") else outcome
+    if not isinstance(document, Mapping):
+        raise DagMLNativeCoverageError("native replay did not return an outcome object")
+    outputs = document.get("outputs")
+    if not isinstance(outputs, list) or len(outputs) != 1 or not isinstance(outputs[0], Mapping):
+        raise DagMLNativeCoverageError("native raw replay requires exactly one output")
+    blocks = outputs[0].get("predictions")
+    if not isinstance(blocks, list) or len(blocks) != 1 or not isinstance(blocks[0], Mapping):
+        raise DagMLNativeCoverageError("native raw replay requires exactly one prediction block")
+    block = blocks[0]
+    if block.get("sample_ids") != list(identity_frame.sample_ids):
+        raise DagMLNativeCoverageError("native replay prediction identities do not exactly match the current cohort")
+    try:
+        values = np.asarray(block.get("values"), dtype=float)
+    except (TypeError, ValueError) as error:
+        raise DagMLNativeCoverageError("native replay prediction values are not numeric") from error
+    if values.ndim != 2 or values.shape[0] != identity_frame.n_samples or not np.isfinite(values).all():
+        raise DagMLNativeCoverageError("native replay prediction values are not a finite aligned matrix")
+    return cast(np.ndarray, values)
+
+
+__all__ = ["fit_native_pipeline", "run_native_methods"]

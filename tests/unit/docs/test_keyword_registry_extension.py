@@ -38,8 +38,12 @@ def test_keyword_registry_extension_writes_static_json_artifact(tmp_path) -> Non
     tuning_summary_schema = json.loads((tmp_path / "html" / "_static" / "tuning-summary.schema.json").read_text(encoding="utf-8"))
     assert payload["schema_id"] == "https://nirs4all.org/schemas/keyword-effects/v1"
     assert any(entry["id"] == "robustness.scenarios.kind" for entry in payload["entries"])
-    assert hashlib.sha256(raw_payload.encode("utf-8")).hexdigest() == "ee987eec467523d31def7e55baeeced73caad9f9a61d522f7aa36a06147a05f8"
+    assert hashlib.sha256(raw_payload.encode("utf-8")).hexdigest() == "bdbf554755652b3c148ca377bea4ce6480ef6c2ce5a194f45e371d75794d0a73"
     entries = {entry["id"]: entry for entry in payload["entries"]}
+    refit_params = entries["pipeline.step.refit_params"]
+    assert refit_params["engine_support"]["dag-ml"] == "partial"
+    assert "exact {'use_all_partitions': True} no-op" in refit_params["summary"]
+    assert "one top-level exact PLSRegression model step" in refit_params["summary"]
     assert entries["calibrate.calibration_data.sample_ids"]["aliases"] == [
         {"kind": "token", "name": "calibration_sample_ids", "canonical": "sample_ids", "mode": "read_only"},
         {"kind": "token", "name": "prediction_sample_ids", "canonical": "sample_ids", "mode": "read_only"},

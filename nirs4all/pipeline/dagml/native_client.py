@@ -50,6 +50,43 @@ class _DagMLFacade(Protocol):
         diagnostics: Any = None,
     ) -> Any: ...
 
+    def execute_methods_training(
+        self,
+        request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any: ...
+
+    def execute_methods_cv_refit_terminal_predict(
+        self,
+        request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        predict_envelope: Any,
+        predict_input: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+        package_id: str,
+        terminal_node_id: str,
+        terminal_port: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any: ...
+
     def replay_loaded_predictor_package(
         self,
         package: Any,
@@ -58,6 +95,52 @@ class _DagMLFacade(Protocol):
         artifact_handles: Any,
         op_callback: Any,
         *,
+        outcome_id: str,
+        run_id: str,
+        artifact_callback: Any = None,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any: ...
+
+    def replay_loaded_methods_predictor_package(
+        self,
+        package: Any,
+        request: Any,
+        data_envelopes: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any: ...
+
+    def execute_methods_portable_full_refit(
+        self,
+        source_package: Any,
+        target_request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        recipe_id: str,
+        package_id: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+    ) -> Any: ...
+
+    def replay_loaded_methods_portable_refit_package_v3(
+        self,
+        package: Any,
+        request: Any,
+        data_envelopes: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
         outcome_id: str,
         run_id: str,
         warnings: Any = (),
@@ -86,6 +169,12 @@ class DagMLNativeClient:
     def __init__(self, module_name: str = "dag_ml") -> None:
         self._module_name = module_name
         self._facade: _DagMLFacade | None = None
+
+    @property
+    def module_name(self) -> str:
+        """The explicit DAG-ML Python module selected for this client."""
+
+        return self._module_name
 
     def capabilities(self) -> DagMLNativeCapabilities:
         """Return the installed native training/replay capability snapshot."""
@@ -137,6 +226,91 @@ class DagMLNativeClient:
             diagnostics=diagnostics,
         )
 
+    def execute_methods_training(
+        self,
+        request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any:
+        """Execute the no-callback portable Methods PLS lane.
+
+        This intentionally has a distinct facade method: routing a Methods
+        model through ``execute_training`` would install a Python callback and
+        silently turn a supposedly portable model into a host sidecar.
+        """
+
+        facade = self._require_callable("execute_methods_training")
+        return facade.execute_methods_training(
+            request,
+            data_envelopes,
+            relations,
+            training_influence,
+            methods_inputs,
+            methods_library_path=methods_library_path,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            bundle_id=bundle_id,
+            warnings=warnings,
+            diagnostics=diagnostics,
+        )
+
+    def execute_methods_cv_refit_terminal_predict(
+        self,
+        request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        predict_envelope: Any,
+        predict_input: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+        package_id: str,
+        terminal_node_id: str,
+        terminal_port: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any:
+        """Execute the closed callback-free Methods CV→REFIT→PREDICT facade.
+
+        This must stay separate from ``execute_methods_training``: the latter
+        produces only an attached training result, whereas this entry point
+        atomically validates the terminal V2 cohort, hydrates the refit
+        artifact and returns the native frozen result/receipt pair.
+        """
+
+        facade = self._require_callable("execute_methods_cv_refit_terminal_predict")
+        return facade.execute_methods_cv_refit_terminal_predict(
+            request,
+            data_envelopes,
+            relations,
+            training_influence,
+            methods_inputs,
+            predict_envelope,
+            predict_input,
+            methods_library_path=methods_library_path,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            bundle_id=bundle_id,
+            package_id=package_id,
+            terminal_node_id=terminal_node_id,
+            terminal_port=terminal_port,
+            warnings=warnings,
+            diagnostics=diagnostics,
+        )
+
     def replay_loaded_predictor_package(
         self,
         package: Any,
@@ -147,6 +321,7 @@ class DagMLNativeClient:
         *,
         outcome_id: str,
         run_id: str,
+        artifact_callback: Any = None,
         warnings: Any = (),
         diagnostics: Any = None,
     ) -> Any:
@@ -159,12 +334,107 @@ class DagMLNativeClient:
         """
 
         facade = self._require_callable("replay_loaded_predictor_package")
+        kwargs: dict[str, Any] = {
+            "outcome_id": outcome_id,
+            "run_id": run_id,
+            "warnings": warnings,
+            "diagnostics": diagnostics,
+        }
+        if artifact_callback is not None:
+            kwargs["artifact_callback"] = artifact_callback
         return facade.replay_loaded_predictor_package(
             package,
             request,
             data_envelopes,
             artifact_handles,
             op_callback,
+            **kwargs,
+        )
+
+    def replay_loaded_methods_predictor_package(
+        self,
+        package: Any,
+        request: Any,
+        data_envelopes: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any:
+        """Replay a native Methods package without callback or sidecar adapters."""
+
+        facade = self._require_callable("replay_loaded_methods_predictor_package")
+        return facade.replay_loaded_methods_predictor_package(
+            package,
+            request,
+            data_envelopes,
+            methods_inputs,
+            methods_library_path=methods_library_path,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            warnings=warnings,
+            diagnostics=diagnostics,
+        )
+
+    def execute_methods_portable_full_refit(
+        self,
+        source_package: Any,
+        target_request: Any,
+        data_envelopes: Any,
+        relations: Any,
+        training_influence: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        recipe_id: str,
+        package_id: str,
+        outcome_id: str,
+        run_id: str,
+        bundle_id: str,
+    ) -> Any:
+        """Execute one fresh Methods REFIT and return its V3 child."""
+
+        facade = self._require_callable("execute_methods_portable_full_refit")
+        return facade.execute_methods_portable_full_refit(
+            source_package,
+            target_request,
+            data_envelopes,
+            relations,
+            training_influence,
+            methods_inputs,
+            methods_library_path=methods_library_path,
+            recipe_id=recipe_id,
+            package_id=package_id,
+            outcome_id=outcome_id,
+            run_id=run_id,
+            bundle_id=bundle_id,
+        )
+
+    def replay_loaded_methods_portable_refit_package_v3(
+        self,
+        package: Any,
+        request: Any,
+        data_envelopes: Any,
+        methods_inputs: Any,
+        *,
+        methods_library_path: str,
+        outcome_id: str,
+        run_id: str,
+        warnings: Any = (),
+        diagnostics: Any = None,
+    ) -> Any:
+        """Replay one detached Package V3 child without a sidecar callback."""
+
+        facade = self._require_callable("replay_loaded_methods_portable_refit_package_v3")
+        return facade.replay_loaded_methods_portable_refit_package_v3(
+            package,
+            request,
+            data_envelopes,
+            methods_inputs,
+            methods_library_path=methods_library_path,
             outcome_id=outcome_id,
             run_id=run_id,
             warnings=warnings,

@@ -43,6 +43,8 @@ class DagMLPreparedTrainingContracts:
     bundle_id: str
     warnings: Sequence[str] = ()
     diagnostics: Mapping[str, Any] | None = None
+    methods_inputs: Mapping[str, Any] | None = None
+    methods_library_path: str | None = None
 
 
 @dataclass(frozen=True)
@@ -59,6 +61,8 @@ class DagMLTrainingRequestContracts:
     bundle_id: str
     warnings: Sequence[str] = ()
     diagnostics: Mapping[str, Any] | None = None
+    methods_inputs: Mapping[str, Any] | None = None
+    methods_library_path: str | None = None
 
     def to_prepared(self) -> DagMLPreparedTrainingContracts:
         """Assemble the signed request and return prepared execution contracts."""
@@ -74,6 +78,8 @@ class DagMLTrainingRequestContracts:
             bundle_id=self.bundle_id,
             warnings=self.warnings,
             diagnostics=self.diagnostics,
+            methods_inputs=self.methods_inputs,
+            methods_library_path=self.methods_library_path,
         )
 
 
