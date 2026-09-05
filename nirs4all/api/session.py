@@ -167,6 +167,17 @@ class Session:
         """Get run history for this session."""
         return self._run_history
 
+    @property
+    def execution_engine(self) -> str | None:
+        """Return the existing execution owner without allocating a runner."""
+        if self._has_native_state():
+            return "native"
+        if self._last_result is not None and self._last_result.execution_engine == "dag-ml":
+            return "dag-ml"
+        if self._runner is not None or self._bundle_path is not None:
+            return "legacy"
+        return None
+
     def _ensure_open(self) -> None:
         if self._closed:
             raise SessionClosedError("Session is closed; load or create a new session")
@@ -312,12 +323,18 @@ class Session:
             ValueError: If no pipeline was provided to the session.
         """
         self._ensure_open()
-        from nirs4all.pipeline.engine import report_explicit_legacy_engine, resolve_engine
+        from nirs4all.pipeline.engine import report_explicit_legacy_engine
+
+        from .run_selection import select_run_engine
 
         requested_engine = kwargs.pop("engine", None)
-        selected_engine = resolve_engine(
+        selected_engine = select_run_engine(
             requested_engine,
+            self._pipeline,
+            dataset,
             allow_fallback=bool(kwargs.get("allow_fallback", False)),
+            session=self,
+            **{key: value for key, value in {**self._runner_kwargs, **kwargs}.items() if key != "allow_fallback"},
         )
         if selected_engine != "legacy":
             if selected_engine == "native":
@@ -336,7 +353,8 @@ class Session:
                     f"native Session options contain reserved keys: {sorted(reserved)}"
                 )
             configured_plots_visible = native_options.pop("plots_visible", False)
-            native_options.setdefault("save_charts", False)
+            if selected_engine == "native":
+                native_options.setdefault("save_charts", False)
             return cast(
                 "RunResult",
                 run_api(

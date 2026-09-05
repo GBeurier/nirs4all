@@ -52,6 +52,44 @@ def test_environment_selector_is_respected(monkeypatch):
     assert select_run_engine(None, [], "data/folder") == "native"
 
 
+def test_session_workspace_configuration_participates_without_creating_runner(tmp_path):
+    from nirs4all.api.session import Session
+
+    with Session(workspace_path=tmp_path, verbose=0) as session:
+        assert select_run_engine(None, *portable_request(), session=session) == "dag-ml"
+        assert session._runner is None
+
+
+@pytest.mark.parametrize("owner", ["native", "dag-ml"])
+def test_existing_session_owner_is_not_changed_by_request_shape(owner):
+    from unittest.mock import Mock
+
+    session = Mock(execution_engine=owner)
+    assert select_run_engine(None, [], "general-data", session=session) == owner
+    assert select_run_engine("legacy", [], "general-data", session=session) == "legacy"
+
+
+def test_session_run_selects_general_profile_before_delegating(monkeypatch):
+    from nirs4all.api.session import Session
+
+    calls = []
+    run_module = importlib.import_module("nirs4all.api.run")
+    monkeypatch.setattr(run_module, "run", lambda *args, **kwargs: calls.append(kwargs))
+    with Session([MinMaxScaler(), *portable_request()[0]], verbose=0) as session:
+        session.run(portable_request()[1])
+    assert calls[0]["engine"] == "dag-ml"
+    assert "save_charts" not in calls[0]
+
+
+def test_closed_session_fails_during_selection():
+    from nirs4all.api.session import Session, SessionClosedError
+
+    session = Session()
+    session.close()
+    with pytest.raises(SessionClosedError):
+        select_run_engine(None, *portable_request(), session=session)
+
+
 def test_portable_runtime_failure_does_not_retry_on_general_or_legacy(monkeypatch):
     import nirs4all
 
