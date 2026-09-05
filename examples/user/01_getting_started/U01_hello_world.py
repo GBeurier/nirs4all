@@ -63,7 +63,6 @@ print("-" * 60)
 
 # Run the pipeline with one simple call
 result = nirs4all.run(
-    engine="legacy",
     pipeline=[
         MinMaxScaler(),                              # Feature scaling
         {"y_processing": MinMaxScaler()},            # Target scaling
@@ -87,8 +86,9 @@ print("-" * 60)
 
 # The result object provides convenient accessors
 print("\n📊 Pipeline Results:")
+print(f"   Execution engine: {result.execution_engine}")
 print(f"   Number of predictions: {result.num_predictions}")
-print(f"   Best Score (MSE): {result.best_score:.4f}")
+print(f"   Best primary score: {result.best_score:.4f}")
 print(f"   Best RMSE: {result.best_rmse:.4f}")
 print(f"   Best R²: {result.best_r2:.4f}")
 

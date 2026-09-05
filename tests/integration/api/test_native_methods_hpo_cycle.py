@@ -110,7 +110,7 @@ import json
 import sys
 import nirs4all
 
-session = nirs4all.load_session(sys.argv[1])
+session = nirs4all.load_session(sys.argv[1], methods_library_path=sys.argv[2])
 prediction = session.predict(
     {"X": [[0.2, -0.1, 0.4, 0.0], [-0.5, 0.3, 0.1, 0.2]],
      "sample_ids": ["fresh.0", "fresh.1"]},
