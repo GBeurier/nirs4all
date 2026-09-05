@@ -5,6 +5,7 @@ import pytest
 from nirs4all.utils.backend import TORCH_AVAILABLE
 
 
+@pytest.mark.torch
 @pytest.mark.xdist_group("gpu")
 @pytest.mark.skipif(not TORCH_AVAILABLE, reason="PyTorch not available")
 class TestPyTorchModels:
@@ -28,4 +29,3 @@ class TestPyTorchModels:
         x = torch.randn(1, 5)
         y = model(x)
         assert y.shape == (1, 1)
-
