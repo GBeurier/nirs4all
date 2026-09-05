@@ -142,12 +142,9 @@ from .api import (
     TuningScoreData,
     TuningWinner,
     attach_calibrated_result_to_bundle,
-    calibrate,
     conformal_metrics,
-    explain,
     export_calibrated_result,
     fit_native_pipeline,
-    generate,
     get_keyword_registry,
     get_keyword_registry_schema,
     get_robustness_summary_schema,
@@ -164,24 +161,27 @@ from .api import (
     load_workspace_predict_results,
     load_workspace_robustness_report,
     load_workspace_tuning_result,
-    predict,
     predict_calibrated,
-    retrain,
-    robustness,
     robustness_from_workspace_prediction,
     robustness_summary_schema_json,
-    run,
     save_workspace_calibrated_result,
     save_workspace_predict_result,
     save_workspace_robustness_report,
     save_workspace_tuning_result,
-    session,
     studio_scientific_job_v1,
     studio_scientific_job_v2,
     tune_single_estimator,
     tuning_space_schema_json,
     tuning_summary_schema_json,
 )
+from .api import calibrate as calibrate
+from .api import explain as explain
+from .api import generate as generate
+from .api import predict as predict
+from .api import retrain as retrain
+from .api import robustness as robustness
+from .api import run as run
+from .api import session as session
 from .controllers import CONTROLLER_REGISTRY, register_controller
 
 # Core pipeline components - for advanced usage
