@@ -2516,10 +2516,10 @@ def test_feature_augmentation_bridge_lowers_to_feature_concat() -> None:
 def test_feature_augmentation_3d_shapes_fail_loud() -> None:
     """The shapes that need the 3D data-plane (parallel processing channels) fail loud naming #29/#31.
 
-    A `feature_augmentation` followed by another X-side step (a bare transform, a `concat_transform`, or
-    a second `feature_augmentation`) would have the legacy path apply that step PER processing layer,
-    which the flat hstack cannot express; the generator dict form must be expanded upstream; a nested
-    concat_transform / dict operation is a multi-block construct. All must raise, never silently mis-lower.
+    Ordinary downstream X transforms now run in each channel before flattening
+    (numerical proofs in test_dagml_feature_channels). Nested concat or a second
+    augmentation still needs a qualified processing-axis lowering; unexpanded
+    generator forms must be handled upstream. These must not silently mis-lower.
     """
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.decomposition import PCA
@@ -2539,9 +2539,7 @@ def test_feature_augmentation_3d_shapes_fail_loud() -> None:
     # Stacked feature_augmentation (multiplicative processing-axis growth) → fail loud at pipeline level.
     with pytest.raises(NotImplementedError, match="#29/#31"):
         pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"feature_augmentation": [MinMaxScaler()]}, model], "boundary")
-    # feature_augmentation then a per-processing X-transform / concat_transform → fail loud.
-    with pytest.raises(NotImplementedError, match="#29/#31"):
-        pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, MinMaxScaler(), model], "boundary")
+    # A nested concat still changes the processing-axis contract.
     with pytest.raises(NotImplementedError, match="#29/#31"):
         pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"concat_transform": [MinMaxScaler()]}, model], "boundary")
 
@@ -3224,8 +3222,10 @@ def test_stacking_branch_detection() -> None:
     # lowering (no _apply_model_params / native generation runs for it) → fail loud, not a silent mis-run.
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": 0.2}]) is None
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 3]}}]) is None
-    # A top-level transform beside the branch (would be silently dropped).
-    assert _detect_stacking_branch([StandardNormalVariate(), splitter, branch, {"merge": "predictions"}, {"model": Ridge()}]) is None
+    # Shared transforms are lowered into each base's fold-local fitted chain.
+    shared = _detect_stacking_branch([StandardNormalVariate(), splitter, branch, {"merge": "predictions"}, {"model": Ridge()}])
+    assert shared is not None
+    assert all(isinstance(body[0], StandardNormalVariate) for body in shared[0])
     # A modelless base sub-pipeline (the base level needs a model to produce OOF).
     assert _detect_stacking_branch([splitter, {"branch": [[StandardNormalVariate()], [{"model": Ridge()}]]}, {"merge": "predictions"}, {"model": Ridge()}]) is None
     # The duplication (fusion) detector must NOT claim the stacking (predictions-merge) shape.
@@ -3269,25 +3269,7 @@ def test_public_run_engine_dagml_named_dict_stacking_branch_cv_only_matches_lega
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_public_run_engine_dagml_stacking_branch() -> None:
-    """A duplication branch (2 base models) + {"merge": "predictions"} + a meta-model scores natively (#10).
-
-    The native path runs each base branch model on the full fold data (held-out Validation OOF); the
-    meta-node consumes the base branches' Validation OOF (Option A — leakage-safe, the requires_oof edge
-    refuses any train block) and fits the meta-learner on the per-fold OOF meta-feature matrix. Asserts
-    `cv_best_score` == a DIRECT sklearn stacking OOF (per fold: base models fit on fold-train, predict
-    fold-val → meta-features; meta-model fit on that fold's assembled OOF, predict it; concat across folds;
-    scored) within 1e-3, AND that the stacked score DIFFERS from either base branch alone (the meta-model
-    genuinely combines).
-
-    `best_rmse` is now also native: in REFIT dag-ml delivers each base producer's held-out TEST
-    prediction to the meta-node as a SEPARATE off-fold input keyed `…oof:refit` (partition Test,
-    `fold_id=None`), alongside the full Validation OOF the meta fits on. The refit meta-model predicts
-    the test set from those base TEST meta-features and emits a scored `(test, fold_id=None)` block.
-    Asserts `best_rmse` == a DIRECT sklearn stacking TEST baseline (refit each base on FULL train,
-    predict test → meta-features; refit meta on the FULL OOF; predict test, score) within 1e-3.
-    LEAKAGE: the meta-model is fit on Validation OOF ONLY; the test meta-features come from the base
-    models' TEST predictions, never their OOF/train.
-    """
+    """Compare native nested stacking with independent sklearn fits, never val-on-val fitting."""
     from sklearn.linear_model import Ridge
     from sklearn.metrics import mean_squared_error
 
@@ -3303,15 +3285,22 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
     result = nirs4all.run(pipeline, dataset_path("regression"), engine="dag-ml")
 
     dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    from nirs4all.pipeline.dagml.identity import mint_identity
+
+    identity = mint_identity(dataset)
     train = dataset.index_column("sample", {"partition": "train"})
     test = dataset.index_column("sample", {"partition": "test"})
     folds = [([train[i] for i in tr], [train[i] for i in va]) for tr, va in KFold(n_splits=n_splits, shuffle=True, random_state=42).split(train)]
 
+    row_positions = {sample: index for index, sample in enumerate(dataset.index_column("sample"))}
+    all_x = np.asarray(dataset.x({}, layout="2d"))
+    all_y = np.asarray(dataset.y({}), dtype=float).ravel()
+
     def x(ints):  # noqa: ANN001, ANN202
-        return np.asarray(dataset.x({"sample": ints}, layout="2d"))
+        return all_x[[row_positions[sample] for sample in ints]]
 
     def y(ints):  # noqa: ANN001, ANN202
-        return np.asarray(dataset.y({"sample": ints}), dtype=float).ravel()
+        return all_y[[row_positions[sample] for sample in ints]]
 
     def base_oof(factory) -> dict[int, float]:  # noqa: ANN001
         oof: dict[int, float] = {}
@@ -3327,16 +3316,29 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
     ridge_oof = base_oof(lambda: Ridge(alpha=base_alpha))
     truth: dict[int, float] = {int(s): float(v) for _tr, va in folds for s, v in zip(va, y(va))}
 
-    # DIRECT stacking OOF: per fold, fit the meta-model on that fold's base-OOF meta-features and predict
-    # them (the per-fold delivery dag-ml's meta-node receives — only the fold's Validation OOF), concat.
+    # Each outer-train pool gets two disjoint inner folds. The Rust KFoldSpec
+    # contract is round-robin over sorted physical identities when shuffle=False.
+    # Independent sklearn models generate inner OOF for meta fitting; neither
+    # the meta fit nor any inner base fit sees an outer-validation target.
     meta_oof: dict[int, float] = {}
-    for _train_ints, val_ints in folds:
-        ints = [int(s) for s in val_ints]
-        x_meta = np.array([[pls_oof[s], ridge_oof[s]] for s in ints])
-        y_meta = np.array([truth[s] for s in ints])
-        mm = Ridge(alpha=meta_alpha).fit(x_meta, y_meta)
-        p = mm.predict(x_meta)
-        for position, sample_int in enumerate(ints):
+    factories = [lambda: PLSRegression(n_components=n_comp), lambda: Ridge(alpha=base_alpha)]
+    for train_ints, val_ints in folds:
+        ordered_train = sorted(train_ints, key=identity.to_wire)
+        inner_features = []
+        outer_features = []
+        for factory in factories:
+            inner_oof = {}
+            for inner_fold in range(2):
+                inner_val = ordered_train[inner_fold::2]
+                inner_train = ordered_train[1 - inner_fold::2]
+                inner_model = factory().fit(x(inner_train), y(inner_train))
+                inner_oof.update(zip(inner_val, np.asarray(inner_model.predict(x(inner_val))).ravel(), strict=True))
+            inner_features.append([inner_oof[sample] for sample in ordered_train])
+            outer_model = factory().fit(x(ordered_train), y(ordered_train))
+            outer_features.append(np.asarray(outer_model.predict(x(val_ints))).ravel())
+        mm = Ridge(alpha=meta_alpha).fit(np.column_stack(inner_features), y(ordered_train))
+        p = mm.predict(np.column_stack(outer_features))
+        for position, sample_int in enumerate(val_ints):
             meta_oof[sample_int] = float(p[position])
 
     keys = sorted(truth)

@@ -88,18 +88,35 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
     datasets = _normalize_to_list(dataset, _is_single_dataset)
     if isinstance(dataset, DatasetConfigs) and len(dataset.configs) > 1:
         datasets = dataset.get_datasets()
-    if len(pipelines) == len(datasets) == 1:
+    from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+    from .full_train_variants import expand_full_train_variants
+    from .steps import _is_split_step
+
+    pipeline_entries: list[tuple[Any, str, str | None]] = []
+    for index, single_pipeline in enumerate(pipelines):
+        base_name = options.get("name", "")
+        pipeline_name = f"{base_name}_p{index}" if base_name else f"pipeline_{index}" if len(pipelines) > 1 else base_name
+        runtime_steps = deserialize_component(single_pipeline)
+        variants = []
+        if isinstance(runtime_steps, list) and not any(_is_split_step(step) for step in runtime_steps):
+            variants = expand_full_train_variants(runtime_steps, name=pipeline_name)
+        if len(variants) > 1:
+            pipeline_entries.extend((steps, pipeline_name, variant_name) for steps, variant_name in variants)
+        else:
+            pipeline_entries.append((single_pipeline, pipeline_name, None))
+    if len(pipeline_entries) == len(datasets) == 1:
         return run_via_dagml(pipelines[0], datasets[0], **options)
     if not pipelines or not datasets:
         raise ValueError("A batch requires at least one pipeline and one dataset")
     results: list[RunResult] = []
     scratch_root = Path(options["workdir"]) / f"batch-{uuid4().hex}" if options.get("workdir") is not None else None
     try:
-        name = options.get("name", "")
-        for index, single_pipeline in enumerate(pipelines):
-            pipeline_name = f"{name}_p{index}" if name else f"pipeline_{index}" if len(pipelines) > 1 else name
+        for index, (single_pipeline, pipeline_name, resolved_config_name) in enumerate(pipeline_entries):
             for dataset_index, single_dataset in enumerate(datasets):
                 child_options = {**options, "name": pipeline_name}
+                if resolved_config_name is not None:
+                    child_options["resolved_config_name"] = resolved_config_name
                 if scratch_root is not None:
                     child_options["workdir"] = scratch_root / f"pipeline-{index}-dataset-{dataset_index}"
                 results.append(run_via_dagml(single_pipeline, single_dataset, **child_options))

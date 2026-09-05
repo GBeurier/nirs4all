@@ -79,3 +79,22 @@ def test_visible_only_chart_keeps_text_alternative_without_saving(tmp_path, monk
     assert result._dagml_score_set is not None
     assert not (tmp_path / "charts").exists()
     plt.close("all")
+
+
+def test_target_chart_after_processing_uses_captured_target_transform(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import nirs4all
+
+    X = np.arange(60, dtype=float).reshape(20, 3)
+    y = X[:, 0] + 0.123
+    result = nirs4all.run(
+        [{"y_processing": StandardScaler()}, "y_chart", KFold(n_splits=2), Ridge()],
+        (X, y), workspace_path=tmp_path, save_artifacts=False,
+    )
+    report = Path(next(iter(result.per_dataset.values()))["chart_reports"][0])
+    with report.with_suffix(".csv").open() as stream:
+        values = [float(row["target_0"]) for row in csv.DictReader(stream)]
+    expected = result._dagml_refit_artifacts[0]["y_transform"].transform(y.astype(np.float32).reshape(-1, 1)).ravel()
+    np.testing.assert_array_equal(np.asarray(values).reshape(20, 3)[:, 0], expected)

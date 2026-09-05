@@ -1219,8 +1219,8 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
       averaged;
     * a separation (``by_*`` dict-form) branch — handled by :func:`_detect_separation_branch`, not here;
     * a MetaModel or structured/per-branch merge config (left to W33);
-    * a top-level operator/transform/``tag``/``y_processing``/``exclude`` beside the branch (only each
-      branch body is lowered, so a top-level step would be silently dropped) — out-of-scope follow-up;
+    * a top-level ``tag``/``y_processing``/``exclude`` or a transform after the branch;
+      ordinary shared transforms before it are copied into each branch's fold-local fit chain;
     * more than one branch/merge/model, a model in the wrong place, or any unrecognized merge spelling.
     """
     branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
@@ -1513,15 +1513,21 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in model_step.items() if key != "model"):
         return None
 
-    # The merge must come BEFORE the model (the model is the meta-learner over the merged OOF), and the
-    # pipeline must be EXACTLY {splitter, branch, merge, model} — no other top-level steps (a top-level
-    # transform / tag / y_processing / exclude would be silently dropped, since only branch bodies are
-    # lowered). Order + membership are both enforced.
+    # The merge must precede the meta-model. Shared transforms may precede
+    # the branch only: they become part of each base's fold-local fit chain.
     order = [step for step in pipeline if step is branch_step or step is merge_step or step is model_step]
     if order != [branch_step, merge_step, model_step]:
         return None
+    shared_transforms = []
+    before_branch = True
     for step in pipeline:
-        if step is branch_step or step is merge_step or step is model_step or _is_split_step(step):
+        if step is branch_step:
+            before_branch = False
+            continue
+        if step is merge_step or step is model_step or _is_split_step(step):
+            continue
+        if before_branch and hasattr(step, "fit") and hasattr(step, "transform") and not hasattr(step, "predict"):
+            shared_transforms.append(step)
             continue
         return None
 
@@ -1533,6 +1539,10 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     meta_learner = _meta_learner(model_step)
     if meta_learner is None:
         return None
+    if shared_transforms:
+        # Do not materialize or fit a global matrix: each base estimator's
+        # native fold plan fits its own prefix on precisely its training view.
+        branches = [[*shared_transforms, *branch] for branch in branches]
     return branches, meta_learner
 
 
