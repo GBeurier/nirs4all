@@ -42,7 +42,7 @@ def _never_runner(*args: Any, **kwargs: Any) -> None:
 @pytest.mark.parametrize(
     ("kwargs", "capability"),
     [
-        ({"mode": "transfer"}, "native_transfer_retrain"),
+        ({"mode": "transfer", "engine": "native"}, "native_transfer_retrain"),
         ({"mode": "finetune"}, "native_finetune_retrain"),
         ({"mode": "full", "engine": "native"}, "core_archive_v3_retrain"),
         ({"mode": "full", "plugin": "hpo-controller"}, "retrain_plugin"),
@@ -276,7 +276,8 @@ def test_preflight_and_capability_ledger_are_honest_and_detached() -> None:
     ledger = retrain_capability_ledger()
     assert ledger["full"]["dag-ml"]["executable"] is True
     assert ledger["full"]["native"]["executable"] is False
-    assert ledger["transfer"]["dag-ml"]["executable"] is False
+    assert ledger["transfer"]["dag-ml"]["executable"] is True
+    assert retrain_preflight("transfer").contract == "nirs4all.captured_preprocessing.transfer.v1+dag-ml.run"
     assert ledger["transfer"]["plugin"] == {
         "executable": True,
         "contract": "nirs4all.python-library.retrain-transfer.v1",
@@ -306,6 +307,23 @@ def test_session_refuses_before_constructing_runner_or_reading_training_state(
 
     assert caught.value.unsupported_capability == "native_finetune_retrain"
     assert session._runner is None
+
+
+@pytest.mark.parametrize("mode", ["full", "transfer"])
+def test_explicit_native_environment_is_not_reinterpreted_as_general_transfer(monkeypatch, mode):
+    monkeypatch.setenv("N4A_ENGINE", "native")
+    monkeypatch.delenv("N4A_RETRAIN_PLUGIN", raising=False)
+    decision = retrain_preflight(mode)
+    assert decision.lane == "native"
+    assert decision.executable is False
+
+
+def test_transfer_epochs_refuse_before_backend_or_source(monkeypatch):
+    module = importlib.import_module("nirs4all.api.retrain")
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+    monkeypatch.setattr(module, "require_dagml_retrain_backend", lambda: pytest.fail("invalid options probed backend"))
+    with pytest.raises(RtError, match="epochs"):
+        retrain(_MustNotBeTouched(), _MustNotBeTouched(), mode="transfer", epochs=10)
 
 
 def test_public_retrain_refuses_native_session_sharing_before_runner(

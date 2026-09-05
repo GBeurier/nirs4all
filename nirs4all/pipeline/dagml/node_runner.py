@@ -717,7 +717,11 @@ def run_model_node(
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
-        model_store[artifact_handle] = {"estimator": estimator, "y_transform": y_transform}
+        model_store[artifact_handle] = {
+            "estimator": estimator,
+            "y_transform": y_transform,
+            "target_decoder": resolver.target_decoder(),
+        }
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 

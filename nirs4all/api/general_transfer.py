@@ -48,8 +48,12 @@ def fresh_training_estimator(estimator: Any) -> Any:
     """Remove our deliberate transfer freezes before a subsequent full retrain."""
     from sklearn.base import clone
 
+    from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+
     if estimator is None or isinstance(estimator, str) and estimator == "passthrough":
         return estimator
+    if isinstance(estimator, CapturedTargetTransform):
+        return fresh_training_estimator(estimator.transformer)
     if isinstance(estimator, FrozenTransferTransform):
         return fresh_training_estimator(estimator.fitted)
     if isinstance(estimator, Pipeline):
@@ -71,6 +75,8 @@ def transfer_training_steps(estimator: Any, target: Any, new_model: Any = None) 
     estimator from preprocessing. Prediction-only fusion wrappers are not
     guessed into a training graph.
     """
+    from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+
     preprocessing = None
     model = estimator
     if isinstance(estimator, Pipeline):
@@ -90,6 +96,8 @@ def transfer_training_steps(estimator: Any, target: Any, new_model: Any = None) 
             ("captured_preprocessing", FrozenTransferTransform(deepcopy(preprocessing))),
             ("model", fresh_model),
         ])
+    if isinstance(target, CapturedTargetTransform):
+        target = target.transformer
     steps = []
     if target is not None:
         if not callable(getattr(target, "transform", None)) or not callable(getattr(target, "inverse_transform", None)):

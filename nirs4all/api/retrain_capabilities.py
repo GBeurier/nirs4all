@@ -2,8 +2,10 @@
 
 The executable native subset is deliberately narrow: a concrete DAG-ML
 ``.n4a`` bundle carrying ``train_pipeline.json`` can replay that training spec
-through the real ``run(engine="dag-ml")`` adapter. Transfer remains an explicit
-Python-library plugin capability. Core Archive V2 is prediction-only, Archive
+through the real ``run(engine="dag-ml")`` adapter. Captured host winners also
+support full retrain and transfer with frozen preprocessing through DAG tasks.
+The explicitly selected historical transfer plugin remains available unchanged.
+Core Archive V2 is prediction-only, Archive
 V3 is not exposed here, and the native HPO controller does not implement
 continuation of an existing artifact.
 """
@@ -46,9 +48,9 @@ RETRAIN_CAPABILITIES_V1: dict[str, dict[str, dict[str, Any]]] = {
     },
     "transfer": {
         "dag-ml": {
-            "executable": False,
-            "contract": None,
-            "capability": "native_transfer_retrain",
+            "executable": True,
+            "contract": "nirs4all.captured_preprocessing.transfer.v1+dag-ml.run",
+            "capability": "dagml_transfer_retrain",
         },
         "native": {
             "executable": False,
@@ -236,7 +238,7 @@ def preflight_retrain(
     # Preserve an explicit ``engine="native"`` as the (currently unavailable)
     # Core Archive V3 request, but route an omitted selector to the qualified
     # DAG-ML implementation.
-    if engine is None and selected_engine == "native":
+    if engine is None and selected_engine == "native" and "N4A_ENGINE" not in os.environ:
         selected_engine = "dag-ml"
     if selected_engine == "legacy":
         record = RETRAIN_CAPABILITIES_V1[mode_name]["legacy"]
@@ -263,7 +265,7 @@ def preflight_retrain(
             contract=None,
             plugin=None,
             unsupported_capability="native_retrain_session",
-            reason="native full retrain cannot share a legacy PipelineRunner Session",
+            reason="native retrain cannot share a legacy PipelineRunner Session",
             mitigation="omit session for the native bundle replay, or select engine='legacy' explicitly",
         )
     if bool(record["executable"]):

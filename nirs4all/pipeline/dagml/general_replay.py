@@ -42,6 +42,17 @@ def predict_captured_artifact(
     import dag_ml
 
     estimator, y_transform = artifact["estimator"], artifact.get("y_transform")
+    from nirs4all.api.result import _DagmlExportedModel
+
+    # General ``.n4a`` archives store the public wrapper as their sole joblib
+    # member. Unwrap it before entering the numeric-only DAG callback; public
+    # label decoding is applied after the native result has been validated.
+    if isinstance(estimator, _DagmlExportedModel) and y_transform is None:
+        estimator, y_transform = estimator.estimator, estimator.y_transform
+    from .target_capture import CapturedTargetTransform
+
+    public_target_transform = y_transform if isinstance(y_transform, CapturedTargetTransform) else None
+    runtime_target_transform = public_target_transform.transformer if public_target_transform is not None else y_transform
     if not callable(getattr(estimator, "predict", None)):
         raise ValueError("captured artifact must contain a fitted prediction estimator")
     names = ["y"] if target_names is None else list(target_names)
@@ -89,8 +100,8 @@ def predict_captured_artifact(
         else:
             x = resolver.resolve_features(ids, include_augmented=False)["values"]
         values = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)
-        if y_transform is not None:
-            values = np.asarray(y_transform.inverse_transform(values), dtype=float)
+        if runtime_target_transform is not None:
+            values = np.asarray(runtime_target_transform.inverse_transform(values), dtype=float)
         if values.shape != (len(ids), len(names)):
             raise ValueError("captured prediction width disagrees with training target names")
         block = {
@@ -119,4 +130,6 @@ def predict_captured_artifact(
         "source_artifact_id": artifact.get("artifact_id"), "source_content_fingerprint": artifact.get("content_fingerprint"),
         "cross_validation": False, "training_performed": False,
     }
+    if public_target_transform is not None:
+        values = np.asarray(public_target_transform.decode(values))
     return (values.ravel() if len(names) == 1 else values), evidence

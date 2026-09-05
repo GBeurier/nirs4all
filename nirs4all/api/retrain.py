@@ -199,8 +199,10 @@ def _native_full_retrain(
     verbose: int,
     save_artifacts: bool,
     options: dict[str, Any],
+    mode: str = "full",
+    new_model: Any = None,
 ) -> RunResult:
-    """Train a concrete bundle spec or a captured winner through real DAG-ML."""
+    """Train a concrete spec or captured winner through real DAG-ML."""
     unknown = sorted(set(options) - _NATIVE_FULL_OPTIONS)
     if unknown:
         raise _native_retrain_request_error(
@@ -223,10 +225,15 @@ def _native_full_retrain(
 
     from .general_retrain import captured_training_spec
 
-    captured = captured_training_spec(source)
+    captured = captured_training_spec(source, mode=mode, new_model=new_model)
     if captured is not None:
         steps, lineage = captured
     else:
+        if mode == "transfer":
+            raise _native_retrain_request_error(
+                "transfer requires a recorded DAG workspace predictor or captured-host archive",
+                capability="dagml_transfer_retrain_source",
+            )
         source_path, steps, source_sha256, spec_sha256 = _bundle_training_spec(source)
         lineage = {
             "schema_version": 1, "operation": "retrain", "mode": "full", "engine": "dag-ml",
@@ -405,9 +412,9 @@ def retrain(
         session._prepare_legacy_access("run")
 
     if decision.lane == "dag-ml":
-        if new_model is not None or epochs is not None:
+        if (mode == "full" and new_model is not None) or epochs is not None:
             raise _native_retrain_request_error(
-                "native full retrain does not accept new_model or epochs",
+                "full retrain does not accept new_model; full/transfer retrain do not accept epochs",
                 capability="dagml_full_retrain_option",
             )
         return _native_full_retrain(
@@ -417,6 +424,8 @@ def retrain(
             verbose=verbose,
             save_artifacts=save_artifacts,
             options=options,
+            mode=mode,
+            new_model=new_model,
         )
 
     # PipelineRunner is reachable only through the explicit Python-library
