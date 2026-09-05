@@ -53,6 +53,14 @@ from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
 logger = logging.getLogger(__name__)
 
 
+class BundleArtifactLoadError(RuntimeError):
+    """An indexed Python artifact could not be read or deserialized.
+
+    An unavailable or damaged fitted transformer must never be treated as an
+    absent optional step: continuing could silently change model predictions.
+    """
+
+
 def _bundle_format_key(version: str) -> tuple[int, int, int]:
     """Parse a bundle format version for forward-compatibility checks."""
     raw_parts = str(version).split(".")
@@ -348,7 +356,15 @@ class BundleArtifactProvider(ArtifactProvider):
             key: Artifact key
 
         Returns:
-            Loaded artifact or None
+            Loaded artifact, or None only when the key is absent from the index.
+
+        Raises:
+            BundleArtifactLoadError: An indexed artifact is missing or cannot
+                be deserialized. The original exception is retained as cause.
+
+        Warning:
+            Python artifacts use joblib/pickle and may execute code. Only load
+            artifacts from a trusted producer and delivery channel.
         """
         # Check cache
         if key in self._cache:
@@ -373,9 +389,8 @@ class BundleArtifactProvider(ArtifactProvider):
             self._cache[key] = artifact
             return artifact
 
-        except Exception as e:
-            logger.warning(f"Failed to load artifact {key}: {e}")
-            return None
+        except Exception as error:
+            raise BundleArtifactLoadError(f"Cannot load indexed bundle artifact {key!r} ({filename!r})") from error
 
     def get_fold_weights(self) -> dict[int, float]:
         """Get fold weights for CV ensemble.
@@ -390,6 +405,12 @@ class BundleLoader:
 
     Provides functionality for loading .n4a bundles, extracting metadata,
     and running predictions.
+
+    Warning:
+        Historical Python bundles contain joblib/pickle artifacts. Loading or
+        predicting can execute producer-controlled Python code; only use a
+        trusted producer and delivery channel. Checksums do not establish trust.
+        Use validated Core Archive V2/N4MM for the non-pickle portable profile.
 
     Attributes:
         bundle_path: Path to the bundle file
