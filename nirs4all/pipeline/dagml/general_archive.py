@@ -33,7 +33,7 @@ def general_archive_manifest(path: str | Path) -> dict[str, Any] | None:
     return manifest if isinstance(manifest, dict) and manifest.get("source_type") == "dagml_native" else None
 
 
-def load_general_archive(path: str | Path) -> dict[str, Any]:
+def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str | None = None) -> dict[str, Any]:
     """Verify the exact archive member bytes before loading one trusted model."""
     import joblib
 
@@ -41,6 +41,8 @@ def load_general_archive(path: str | Path) -> dict[str, Any]:
     # One immutable byte snapshot prevents a manifest/payload replacement race.
     data = source.read_bytes()
     archive_fingerprint = "sha256:" + hashlib.sha256(data).hexdigest()
+    if expected_archive_fingerprint is not None and archive_fingerprint != expected_archive_fingerprint:
+        raise ValueError("general Session source archive changed after loading")
     with zipfile.ZipFile(io.BytesIO(data)) as archive:
         names = archive.namelist()
         if len(names) != len(set(names)):
@@ -82,13 +84,7 @@ def predict_general_archive(path: str | Path, data: Any, *, expected_archive_fin
     from .dataset import _materialize_dataset
     from .general_replay import predict_captured_artifact
 
-    if expected_archive_fingerprint is not None:
-        actual = "sha256:" + hashlib.sha256(Path(path).read_bytes()).hexdigest()
-        if actual != expected_archive_fingerprint:
-            raise ValueError("general Session source archive changed after loading")
-    loaded = load_general_archive(path)
-    if expected_archive_fingerprint is not None and loaded["archive_fingerprint"] != expected_archive_fingerprint:
-        raise ValueError("general Session source archive changed during loading")
+    loaded = load_general_archive(path, expected_archive_fingerprint=expected_archive_fingerprint)
     values, metadata = predict_captured_artifact(
         loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"],
         target_names=loaded["manifest"].get("target_names", ["y"]),
