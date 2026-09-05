@@ -85,6 +85,24 @@ text alternative. Branch/source/augmentation stage snapshots not yet captured
 are refused explicitly rather than rendered from a misleading raw substitute;
 this remains an open general-profile parity gap.
 
+Captured general-profile `.n4a` models replay through a native DAG `PREDICT`
+phase with a Python scientific host. Public `predict()` and trained/loaded
+`Session.predict()` do not train again; their metadata records the selected
+engine, input cohort, source artifact fingerprint and `training_performed=False`.
+Inference does not manufacture validation scores. An explicit `engine="native"`
+still requires a portable Core archive and never silently loads a host model.
+General archives contain trusted Python/joblib objects: load them only from a
+trusted producer. Recorded SHA-256 digests detect corruption, not malicious
+producers. Older DAG exports without a recorded digest retain a visible warning
+and do not claim verified integrity. Loaded Sessions are bound to their source
+archive fingerprint and refuse replacement after loading.
+
+When Studio supplies `store_run_id`, the library attaches its pipeline results
+to that existing running workspace run without completing or failing the parent
+run; Studio retains that lifecycle. `should_stop` is cooperative cancellation:
+checked before execution, between native scientific tasks, and before publishing
+results. It does not interrupt an individual BLAS/estimator fit mid-call.
+
 For a qualified request:
 
 ```python

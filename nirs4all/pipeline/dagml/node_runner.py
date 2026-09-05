@@ -919,6 +919,9 @@ def run_node(
     ``sample_metadata`` (``{wire_id: {col: value}}``) honors separation-branch ``branch_view``
     selectors so each fanned model node sees only its partition.
     """
+    from .cancellation import check_cancellation
+
+    check_cancellation()
     node_plan = task["node_plan"]
     kind = node_plan["kind"]
     if kind in ("model", "tuner"):

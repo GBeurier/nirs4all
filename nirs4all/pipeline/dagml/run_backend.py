@@ -184,7 +184,7 @@ def _lower_public_finetune_params(pipeline: Any) -> tuple[list[Any], dict[str, s
 
 # Residual options supported by this executor. Unknown options are rejected
 # before work; there is no implicit legacy execution.
-_HONORED_RUNNER_KWARGS: frozenset[str] = frozenset({"workspace_path"})
+_HONORED_RUNNER_KWARGS: frozenset[str] = frozenset({"workspace_path", "store_run_id", "should_stop"})
 
 _PERSISTENCE_REJECT_MESSAGES: dict[str, str] = {
     "store_run_id": "engine='dag-ml' cannot yet attach execution to an existing store_run_id.",
@@ -278,8 +278,25 @@ def run_via_dagml(
     if report_naming not in {"nirs", "ml", "auto"}:
         raise ValueError("report_naming must be 'nirs', 'ml', or 'auto'")
     effective_runner_kwargs = dict(runner_kwargs or {})
+    should_stop = effective_runner_kwargs.get("should_stop")
+    if should_stop is not None and not callable(should_stop):
+        raise TypeError("should_stop must be a zero-argument cancellation callback")
+    if should_stop is not None and should_stop():
+        from .cancellation import DagRunCancelled
+
+        raise DagRunCancelled("DAG run cancelled by caller")
     if session is not None and session.workspace_path is not None:
         effective_runner_kwargs.setdefault("workspace_path", session.workspace_path)
+    parent_run_id = effective_runner_kwargs.get("store_run_id")
+    if parent_run_id is not None:
+        from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+
+        if not isinstance(parent_run_id, str) or not parent_run_id or not effective_runner_kwargs.get("workspace_path"):
+            raise ValueError("store_run_id requires an existing run ID and its explicit workspace_path")
+        with WorkspaceStore(effective_runner_kwargs["workspace_path"]) as parent_store:
+            parent_run = parent_store.get_run(parent_run_id)
+            if parent_run is None or parent_run["status"] != "running":
+                raise ValueError("store_run_id must identify an existing running run in the supplied workspace")
     _reject_unsupported_run_options(refit=refit, project=project, session=session, cache=cache, runner_kwargs=effective_runner_kwargs)
     from nirs4all.core.logging import configure_logging, get_logger
 
@@ -324,6 +341,9 @@ def run_via_dagml(
     # Nothing in the returned RunResult points into it (scores are parsed in-memory by
     # `_scores_to_run_result`), so it is safe to delete on every dispatch return/raise path. A
     # caller-provided `workdir` is theirs — never delete it.
+    from .cancellation import SHOULD_STOP, check_cancellation
+
+    cancellation_token = SHOULD_STOP.set(should_stop)
     try:
         result = _dispatch_run(
             pipeline,
@@ -338,6 +358,10 @@ def run_via_dagml(
             save_charts=save_charts,
             plots_visible=plots_visible,
         )
+        from .envelope import target_names
+
+        result._dagml_target_names = target_names(spectro)
+        check_cancellation()
         _attach_export_spec(result, pipeline, dataset, name, random_state)
         workspace_path = None
         if save_artifacts or project is not None or "workspace_path" in effective_runner_kwargs or (requested_charts and save_charts):
@@ -361,7 +385,7 @@ def run_via_dagml(
         if workspace_path is not None:
             from .workspace_projection import publish_workspace_result
 
-            publish_workspace_result(result, pipeline, spectro, workspace_path, name=name, project=project, report_naming=report_naming)
+            publish_workspace_result(result, pipeline, spectro, workspace_path, name=name, project=project, report_naming=report_naming, store_run_id=parent_run_id)
         if session is not None:
             session._adopt_dagml_result(result, dataset)
         from nirs4all.visualization.naming import get_metric_names
@@ -375,6 +399,7 @@ def run_via_dagml(
             logger.info("DAG-ML completed: %s=%s", metric_names["cv_score"], result.cv_best_score)
         return result
     finally:
+        SHOULD_STOP.reset(cancellation_token)
         if workdir is None:
             shutil.rmtree(base_dir, ignore_errors=True)
 

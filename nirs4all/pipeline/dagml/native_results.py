@@ -423,6 +423,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         "config_names": config_names,
         "variant_names": config_names,
         "model_names": model_names,
+        "target_names": getattr(result, "_dagml_target_names", ["y"]),
         "metric": metrics[0] if len(metrics) == 1 else metrics,
         "task_type": task_types[0] if len(task_types) == 1 else task_types,
         "selected_variant": selected_variant,
@@ -644,7 +645,9 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
                 f"recorded {expected!r} but the bytes hash to {actual!r} (the artifact was edited or "
                 "corrupted) — refusing to joblib.load it."
             )
-        payload = joblib.load(path)  # uri + backend + fingerprint all verified above — trusted bytes
+        from io import BytesIO
+
+        payload = joblib.load(BytesIO(data))  # Deserialize the exact verified bytes, not a second path read.
         entry = {
             "artifact_id": ref.get("artifact_id"),
             "estimator": payload["estimator"],
@@ -653,6 +656,7 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
             "controller_id": ref.get("controller_id"),
             "backend": ref.get("backend"),
             "uri": uri,
+            "content_fingerprint": actual,
         }
         if ref.get("branch_index") is not None:
             entry["branch_index"] = int(ref["branch_index"])

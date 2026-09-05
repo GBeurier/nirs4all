@@ -155,17 +155,23 @@ def write_single_model_bundle(
         "model_step_index": 1,
     }
 
+    from hashlib import sha256
+
+    buffer = io.BytesIO()
+    joblib.dump(model, buffer)
+    model_bytes = buffer.getvalue()
+    artifact_member = f"artifacts/step_1_foldfinal_{safe_label}.joblib"
+    manifest["artifact_integrity"] = {artifact_member: "sha256:" + sha256(model_bytes).hexdigest()}
+
     compression = zipfile.ZIP_DEFLATED if compress else zipfile.ZIP_STORED
     with zipfile.ZipFile(output_path, "w", compression=compression) as zf:
         zf.writestr("manifest.json", json.dumps(manifest, indent=2))
         zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2))
         if train_steps is not None:
             zf.writestr("train_pipeline.json", json.dumps({"steps": train_steps}, indent=2))
-        buffer = io.BytesIO()
-        joblib.dump(model, buffer)
         # The ``foldfinal`` token makes BundleLoader resolve this as the single refit model
         # (``_get_refit_model``) and predict in one forward pass — see the loader's model-step path.
-        zf.writestr(f"artifacts/step_1_foldfinal_{safe_label}.joblib", buffer.getvalue())
+        zf.writestr(artifact_member, model_bytes)
 
     return output_path
 

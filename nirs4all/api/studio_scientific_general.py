@@ -78,6 +78,20 @@ def _finite_or_none(value: Any) -> float | None:
     return number if math.isfinite(number) else None
 
 
+def validate_studio_pipeline_config(value: Any) -> None:
+    """Validate canonical Studio declarations before any operator is imported.
+
+    Shared by the Rust-owned document adapter and scientific host. This is a
+    package authorization boundary for trusted scientific code, not a sandbox.
+    """
+    _validate_json(value)
+    if not isinstance(value, list) or not value:
+        raise StudioScientificJobError("invalid_pipeline", "pipeline must contain canonical steps or pipelines")
+    if len(json.dumps(value, ensure_ascii=False, allow_nan=False).encode("utf-8")) > MAX_GENERAL_REQUEST_BYTES:
+        raise StudioScientificJobError("request_too_large", "canonical pipeline exceeds 8 MiB")
+    _validate_operator_imports(value)
+
+
 def _inline_dataset_arrays(value: Any) -> Any:
     """Restore the ndarray wire representation; leave file configs untouched."""
     if isinstance(value, list):
@@ -125,7 +139,7 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
         raise StudioScientificJobError("invalid_pipeline", "pipeline must contain canonical steps or pipelines")
     if not isinstance(request["dataset"], (str, dict, list)):
         raise StudioScientificJobError("invalid_dataset", "dataset must be a canonical library path or config")
-    _validate_operator_imports(request["pipeline"])
+    validate_studio_pipeline_config(request["pipeline"])
     _ambient_runtime_preflight()
     pipeline = deserialize_component(request["pipeline"])
     result = cast(RunResult, _run_strict_product(
