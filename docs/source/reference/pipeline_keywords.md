@@ -145,7 +145,7 @@ closed.
 | `sampler` | Selects adaptive trial sequence and may change the winner. | Supported. | Partial: some names remap internally. | Unsupported. |
 | `pruner` | Selects adaptive pruning/early stopping and may change the winner. | Supported. | Partial: overlapping but not identical pruner vocabulary. | Unsupported. |
 | `approach` | Controls fold search strategy and may change trial ranking/winner. | Supported. | Partial. | Partial: only `grouped`. |
-| `eval_mode` | Aggregates trial scores and may change ranking/winner. | Partial. | Partial. | Partial: only `mean` and `best`. |
+| `eval_mode` | Aggregates trial scores and may change ranking/winner. | Partial. | Partial. | Deterministic lowering: `mean` only (`avg` is read-only); `best` requires the explicit host Optuna HPO profile. |
 | `train_params` | Configures trial-fit kwargs, not terminal refit kwargs. | Supported. | Supported. | Unsupported until optimizer adapters preserve trial fit kwargs. |
 
 (execution-engine-versus-optimizer-engine)=
