@@ -261,9 +261,16 @@ def preview_dataset(
     target_distributions: dict[str, dict[str, Any]] = {}
     has_targets = dataset.describe()["has_targets"]
     if has_targets:
-        for partition in ("train", "test"):
+        for partition, sources in (("train", train), ("test", test)):
+            partition_count = len(sources[0])
+            # Targets' legacy empty-index selection means "all targets".
+            # An absent X cohort must never acquire the training targets.
+            if partition_count == 0:
+                continue
             values = np.asarray(dataset.y({"partition": partition}))
             if values.size:
+                if len(values) != partition_count:
+                    raise ValueError(f"Target rows do not match the {partition} observation cohort")
                 values = values.reshape(len(values), -1)
                 targets[partition] = _target_distribution(values[:, 0], dataset.is_regression)
         values = np.asarray(dataset.y({})).reshape(dataset.num_samples, -1)
