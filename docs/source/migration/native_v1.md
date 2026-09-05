@@ -122,6 +122,17 @@ portable Core packages. Adaptive grouped/individual search, progressive pruning,
 parallel trials, persistent studies and multi-phase host searches still require
 qualification; deterministic DAG parameter grids keep their separate contract.
 
+Classification repetition voting preserves the native raw/CV selection scores.
+Each fitted CV/REFIT task captures its real class probabilities, when the
+classifier provides them, with explicit class and sample identities. The
+library's existing ensemble and repetition aggregators produce the additional
+train/test/aggregate presentation rows without fitting again. These rows carry
+`classification_evidence` or `aggregate_evidence` metadata; their display scores
+are not new native selection reports. A classifier without `predict_proba`
+uses its real hard predictions, never fabricated one-hot probabilities.
+In subprocess execution the same evidence travels in a host-only capture
+sidecar, separate from the coordinator's native result protocol.
+
 General `generate()` and its convenience methods select the installed
 `nirs4all.python.synthesis.v1` library adapter when no engine/plugin selector
 is supplied. This reuses the scientific synthesis builder, without a legacy

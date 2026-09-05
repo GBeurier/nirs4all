@@ -149,8 +149,8 @@ def _build_handler() -> NodeHandler:
     fold_children: dict[str, dict[int, list[int]]] | None = None
     pickle_path = os.environ.get("N4A_DAGML_DATASET_PICKLE")
     if pickle_path:
-        with open(pickle_path, "rb") as handle:
-            payload = pickle.load(handle)  # noqa: S301 - host-written augmented dataset for this run
+        with open(pickle_path, "rb") as pickle_file:
+            payload = pickle.load(pickle_file)  # noqa: S301 - host-written augmented dataset for this run
         if isinstance(payload, dict):
             dataset = payload["dataset"]
             fold_children = payload.get("fold_children")
@@ -159,8 +159,8 @@ def _build_handler() -> NodeHandler:
     else:
         dataset = DatasetConfigs(os.environ["N4A_DAGML_DATASET_PATH"]).get_dataset_at(0)
     resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children)
-    with open(os.environ["N4A_DAGML_GRAPH_PATH"], encoding="utf-8") as handle:
-        graph = json.load(handle)
+    with open(os.environ["N4A_DAGML_GRAPH_PATH"], encoding="utf-8") as graph_file:
+        graph = json.load(graph_file)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = graph.get("edges", [])
     # Linear-pipeline y_processing: a single floating y_transform node applies to the model.
@@ -171,10 +171,26 @@ def _build_handler() -> NodeHandler:
     sample_metadata = None
     meta_path = os.environ.get("N4A_DAGML_SAMPLE_META_PATH")
     if meta_path:
-        with open(meta_path, encoding="utf-8") as handle:
-            sample_metadata = json.load(handle)
+        with open(meta_path, encoding="utf-8") as metadata_file:
+            sample_metadata = json.load(metadata_file)
     store: dict[int, Any] = {}
-    return lambda task: run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)
+    def handle_task(task: dict[str, Any]) -> dict[str, Any]:
+        result = run_node(task, resolver, nodes.__getitem__, store, edges, y_transform_node, sample_metadata)
+        _capture_vote_sidecar(task, store, os.environ.get("N4A_DAGML_RESULT_CAPTURE"))
+        return result
+
+    return handle_task
+
+
+def _capture_vote_sidecar(task: dict[str, Any], store: dict[Any, Any], capture_path: str | None) -> None:
+    """Write host evidence only to the host capture, never to the DAG protocol."""
+    from .native_vote import EVIDENCE_KEY
+
+    key = (EVIDENCE_KEY, task["node_plan"]["node_id"], task.get("variant_id"), task["phase"], task.get("fold_id"))
+    records = store.pop(key, None)
+    if records and capture_path:
+        with open(capture_path, "a", encoding="utf-8") as capture_file:
+            _emit(capture_file, {"type": "nirs4all_classification_evidence", "schema_version": 1, "records": records})
 
 
 class _Tee:

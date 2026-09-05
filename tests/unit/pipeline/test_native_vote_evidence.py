@@ -91,6 +91,57 @@ def test_projection_refuses_evidence_disagreeing_with_native_block():
         project_vote_evidence(result, [record], SimpleNamespace(to_int=lambda _: 4))
 
 
+def test_subprocess_sidecar_stays_out_of_protocol_and_is_drained_once(tmp_path):
+    import io
+    import json
+
+    from nirs4all.pipeline.dagml.process_adapter import _capture_vote_sidecar, run_jsonl_loop
+
+    task = {"node_plan": {"node_id": "model"}, "phase": "FIT_CV", "fold_id": "fold0"}
+    record = _record([0., 2.], [[.1, .9]])
+    store = {("classification_evidence", "model", None, "FIT_CV", "fold0"): [record], 7: "artifact"}
+    capture = tmp_path / "capture.jsonl"
+
+    def handler(current):
+        _capture_vote_sidecar(current, store, str(capture))
+        return {"node_id": "model", "predictions": []}
+
+    output = io.StringIO()
+    run_jsonl_loop(io.StringIO(json.dumps({"type": "task", "task": task}) + "\n"), output, handler)
+    assert json.loads(output.getvalue())["type"] == "result"
+    assert "classification_evidence" not in output.getvalue()
+    assert json.loads(capture.read_text())["records"] == [record]
+    _capture_vote_sidecar(task, store, str(capture))
+    assert len(capture.read_text().splitlines()) == 1
+    assert store == {7: "artifact"}
+
+
+@pytest.mark.parametrize("version", [1, 2])
+def test_subprocess_router_separates_host_evidence_from_native_results(tmp_path, monkeypatch, version):
+    import json
+
+    from nirs4all.pipeline.dagml import cli_runner, in_process_runner
+
+    record = _record([0., 2.], [[.1, .9]])
+    native = {"node_id": "model", "predictions": []}
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0")
+    cli = tmp_path / "cli"
+    cli.touch()
+    (tmp_path / "bundle.json").write_text(json.dumps({"scores": {"reports": []}}))
+    monkeypatch.setattr(cli_runner, "run_cv_refit_bundle", lambda **kwargs: {
+        "returncode": 0, "results": [native, {"type": "nirs4all_classification_evidence", "schema_version": version, "records": [record]}],
+    })
+    kwargs = {"dsl": {}, "envelope": {}, "graph": {}, "dataset_path": "", "workdir": tmp_path, "dagml_cli": str(cli), "venv_python": "unused"}
+    if version != 1:
+        with pytest.raises(ValueError, match="invalid classification evidence sidecar"):
+            in_process_runner.run_cv_refit_bundle_router(**kwargs)
+    else:
+        outcome = in_process_runner.run_cv_refit_bundle_router(**kwargs)
+        assert outcome["results"] == [native]
+        assert outcome["classification_evidence"] == [record]
+        assert outcome["scores"] == {"reports": []}
+
+
 def test_real_native_vote_preserves_all_fold_and_final_arrays_without_extra_fits(tmp_path, monkeypatch):
     import copy
     import sys

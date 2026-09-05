@@ -307,6 +307,20 @@ def run_cv_refit_bundle_router(
         dataset_pickle=dataset_pickle,
         random_state=random_state,
     )
+    # Host-only frames share the run-local capture file, not the coordinator
+    # protocol. Keep them out of the native NodeResult audit trail.
+    evidence = []
+    native_frames = []
+    for frame in outcome["results"]:
+        if frame.get("type") == "nirs4all_classification_evidence":
+            records = frame.get("records")
+            if frame.get("schema_version") != 1 or not isinstance(records, list) or not all(isinstance(record, dict) for record in records):
+                raise ValueError("invalid classification evidence sidecar")
+            evidence.extend(records)
+        else:
+            native_frames.append(frame)
+    outcome["results"] = native_frames
+    outcome["classification_evidence"] = evidence
     # Lift the native ScoreSet from the bundle the CLI wrote, so the outcome shape matches the
     # in-process branch (the call sites read outcome["scores"], not bundle.json). Only on success;
     # a non-zero returncode is handled by the caller's guard before scores are ever consumed.
