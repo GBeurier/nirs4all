@@ -97,6 +97,28 @@ def test_compile_prepared_contracts_warns_for_compatibility_ids() -> None:
     assert execution.diagnostics["nirs4all_fit_identity_explicit_sample_ids"] is False
 
 
+def test_compile_prepared_contracts_accepts_callback_free_portable_methods() -> None:
+    """The Methods provider is native numeric input, never a host callback."""
+    identity_frame = normalize_fit_identity(
+        np.ones((2, 2)),
+        np.arange(2),
+        sample_ids=["s1", "s2"],
+    )
+
+    execution = compile_prepared_training_contracts(
+        _contracts(
+            op_callback=None,
+            methods_inputs={"fit.data": {"features": [[1.0, 1.0]], "targets": [[0.0]]}},
+            methods_library_path="/qualified/libn4m.so",
+        ),
+        identity_frame=identity_frame,
+    )
+
+    assert execution.op_callback is None
+    assert execution.methods_inputs is not None
+    assert execution.methods_library_path == "/qualified/libn4m.so"
+
+
 def test_prepared_compiler_integrates_with_estimator_fit() -> None:
     client = _FakeNativeClient()
     compiler = PreparedDagMLTrainingCompiler(
@@ -288,7 +310,13 @@ def test_training_request_compiler_uses_dagml_signer_when_available(monkeypatch:
     ("overrides", "error", "match"),
     [
         ({"data_envelopes": {1: {"rows": 1}}}, ValueError, "data_envelopes keys"),
+        ({"op_callback": None}, TypeError, "host training op_callback"),
         ({"op_callback": object()}, TypeError, "op_callback"),
+        (
+            {"methods_inputs": {"fit.data": {}}, "op_callback": lambda _task: None},
+            TypeError,
+            "portable Methods training must not provide an op_callback",
+        ),
         ({"outcome_id": ""}, ValueError, "outcome_id"),
         ({"run_id": ""}, ValueError, "run_id"),
         ({"bundle_id": ""}, ValueError, "bundle_id"),
