@@ -2516,10 +2516,9 @@ def test_feature_augmentation_bridge_lowers_to_feature_concat() -> None:
 def test_feature_augmentation_3d_shapes_fail_loud() -> None:
     """The shapes that need the 3D data-plane (parallel processing channels) fail loud naming #29/#31.
 
-    Ordinary downstream X transforms now run in each channel before flattening
-    (numerical proofs in test_dagml_feature_channels). Nested concat or a second
-    augmentation still needs a qualified processing-axis lowering; unexpanded
-    generator forms must be handled upstream. These must not silently mis-lower.
+    Ordinary downstream X transforms and repeated augmentation run in each
+    channel before flattening (independent proofs in test_repeated_feature_augmentation).
+    Nested concat and unexpanded generators still require explicit lowering.
     """
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.decomposition import PCA
@@ -2536,11 +2535,11 @@ def test_feature_augmentation_3d_shapes_fail_loud() -> None:
         _step_to_dsl({"feature_augmentation": [{"concat_transform": [PCA(n_components=3)]}]})
 
     model = {"model": PLSRegression(n_components=5)}
-    # Stacked feature_augmentation (multiplicative processing-axis growth) → fail loud at pipeline level.
-    with pytest.raises(NotImplementedError, match="#29/#31"):
-        pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"feature_augmentation": [MinMaxScaler()]}, model], "boundary")
+    # Repeated augmentation has a qualified channel lowering, not an implicit fallback.
+    lowered = pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"feature_augmentation": [MinMaxScaler()]}, model], "boundary")
+    assert lowered["pipeline"], "repeated augmentation must retain an executable model path"
     # A nested concat still changes the processing-axis contract.
-    with pytest.raises(NotImplementedError, match="#29/#31"):
+    with pytest.raises(NotImplementedError, match="concat_transform.*processing-axis"):
         pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"concat_transform": [MinMaxScaler()]}, model], "boundary")
 
 
@@ -2756,8 +2755,8 @@ def test_repetition_classification_vote_aggregation_executes_without_fallback() 
     assert len(result.predictions) > 0
 
 
-def test_adaptive_finetune_params_remain_fail_closed_boundary() -> None:
-    """Adaptive finetune_params must stay outside native DAG-ML until optimizer adapters exist."""
+def test_adaptive_finetune_params_execute_with_native_inner_fold_scores() -> None:
+    """General Optuna proposals retain native grouped inner-CV ownership."""
     from sklearn.ensemble import RandomForestRegressor
     from sklearn.model_selection import ShuffleSplit
 
@@ -2777,8 +2776,12 @@ def test_adaptive_finetune_params_remain_fail_closed_boundary() -> None:
             },
         },
     ]
-    with pytest.raises(NotImplementedError, match=r"finetune_params"):
-        run_via_dagml(pipeline, configs, dagml_cli=str(_DAGML_CLI))
+    result = run_via_dagml(pipeline, configs, dagml_cli=str(_DAGML_CLI))
+    assert np.isfinite(result.cv_best_score)
+    evidence = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo
+    assert evidence["evaluation"]["approach"] == "grouped"
+    assert all(len(trial["objective_fold_scores"]) == 3 for trial in evidence["trials"])
+    result.close()
 
 
 # ---------------------------------------------------------------------------
@@ -4717,13 +4720,8 @@ def test_subprocess_error_classification_host_propagates_vs_falls_back_by_struct
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_dagml_result_export_refuses_without_native_artifacts(tmp_path: Path) -> None:
-    """Default `.export()` / `.export_model()` on a dag-ml RunResult refuse without native artifacts.
-
-    This run does not pass ``results_path`` and therefore has no captured native artifacts to export. The V1
-    contract is native artifacts or stable refusal; the default path must not re-run the pipeline through
-    ``engine="legacy"`` implicitly.
-    """
+def test_dagml_result_export_uses_captured_refit_without_results_path(tmp_path: Path, monkeypatch) -> None:
+    """Default exports reuse the real REFIT artifact, never a legacy rerun."""
     import nirs4all
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
 
@@ -4732,24 +4730,18 @@ def test_dagml_result_export_refuses_without_native_artifacts(tmp_path: Path) ->
         dataset_path("regression"),
         engine="dag-ml",
     )
-    # This must be a native dag-ml result (no silent legacy fallback) for the export refusal to be exercised.
     assert [info.get("engine") for info in result.per_dataset.values()] == ["dag-ml"]
-
-    for call, out in (
-        (result.export, tmp_path / "model.n4a"),
-        (result.export_model, tmp_path / "model.joblib"),
-    ):
-        with pytest.raises(RtError) as excinfo:
-            call(out)
-        payload = excinfo.value.to_dict()
-        assert payload["verb"] == "export"
-        assert payload["cause"] == "unsupported_capability"
-        assert payload["unsupported_capability"] == "dagml_native_export"
-        assert "does not rerun the pipeline with engine='legacy'" in payload["message"]
-        assert "nirs4all-tools" in payload["mitigation"]
-        assert "compatibility='legacy-refit'" in payload["mitigation"]
-        assert not out.exists()
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    X = np.asarray(dataset.x({"partition": "test"}, layout="2d"))[:5]
+    expected = np.asarray(result._dagml_refit_artifacts[0]["estimator"].predict(X)).ravel()
+    monkeypatch.setattr(PLSRegression, "fit", lambda *args, **kwargs: pytest.fail("export/replay cannot fit"))
+    monkeypatch.setattr("nirs4all.pipeline.PipelineRunner.run", lambda *args, **kwargs: pytest.fail("legacy rerun"))
+    archive = result.export(tmp_path / "model.n4a")
+    np.testing.assert_array_equal(nirs4all.predict(archive, X).y_pred, expected)
+    exported = result.export_model(tmp_path / "model.joblib")
+    assert Path(exported).is_file()
     assert result._dagml_legacy_result is None  # noqa: SLF001
+    result.close()
 
 
 # ---------------------------------------------------------------------------------------------------

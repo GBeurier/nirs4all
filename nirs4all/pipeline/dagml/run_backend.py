@@ -155,7 +155,7 @@ __all__ = [
 
 
 def _has_finetune_params(pipeline: list[Any]) -> bool:
-    """Whether any pipeline step asks legacy Optuna finetuning to mutate model params."""
+    """Whether a model step declares a deterministic or host parameter search."""
     return any(isinstance(step, dict) and "finetune_params" in step for step in pipeline)
 
 
@@ -166,7 +166,7 @@ def _metric_objective(metric: str) -> str:
 
 
 def _lower_public_finetune_params(pipeline: Any) -> tuple[list[Any], dict[str, str]]:
-    """Lower public deterministic ``finetune_params`` before dag-ml routing."""
+    """Select and validate the parameter-search profile before DAG routing."""
 
     steps = list(pipeline)
     if not _has_finetune_params(steps):
@@ -781,6 +781,10 @@ def _dispatch_run(
     # matches the winner's refit model params against these to recover the WINNING variant's config_name
     # (a non-degenerate `_grid_` selects the true CV-best, not index 0). Empty for a non-sweep pipeline.
     variant_model_params = _native_param_variant_model_params(pipeline, name)
+
+    from .host_finetune import attach_host_finetune_splitter
+
+    pipeline = attach_host_finetune_splitter(pipeline)
 
     resolved_task_type = spectro.task_type
     if resolved_task_type is None:
