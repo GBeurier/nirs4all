@@ -1,9 +1,9 @@
 """The engine selector is wired into the public run() entry point.
 
-These assert the public API resolves the engine before execution. The default engine is the strict
-Archive V2/Methods ``native`` path, while the legacy orchestrator remains available only through an
-explicit ``engine="legacy"`` request. ``dag-ml`` remains explicitly selectable. Unsupported or unavailable
-native paths fail closed: ``allow_fallback=True`` is rejected rather than silently running legacy.
+These assert the public API resolves the engine before execution. Automatic selection chooses the strict
+Archive V2/Methods ``native`` path only for its portable subset and otherwise chooses the general
+``dag-ml`` profile. The legacy orchestrator remains available only through explicit ``engine="legacy"``.
+Unsupported or unavailable selected paths fail closed: ``allow_fallback=True`` never runs legacy.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from sklearn.model_selection import KFold
 import nirs4all
 from nirs4all.api.result import RunResult
 from nirs4all.config import CacheConfig
+from nirs4all.data.predictions import Predictions
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import ExecutionProfileError, resolve_engine
@@ -55,49 +56,62 @@ def test_runtime_dagml_cli_discovery_matches_parity_helper(monkeypatch: pytest.M
     assert _default_dagml_cli() == override
 
 
-def test_default_run_dispatches_to_native_archive(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A plain ``run()`` reaches Archive V2 directly and never constructs the legacy runner."""
+def test_default_general_run_dispatches_to_dagml(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A non-portable plain ``run()`` selects the general DAG without constructing the legacy runner."""
     run_module = importlib.import_module("nirs4all.api.run")
     native_module = importlib.import_module("nirs4all.api.native_archive_training")
+    run_backend = importlib.import_module("nirs4all.pipeline.dagml.run_backend")
     sentinel = object()
 
     class LegacyPathReached:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
-            raise AssertionError("default native run constructed PipelineRunner")
+            raise AssertionError("default general DAG run constructed PipelineRunner")
 
     monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
-    monkeypatch.setattr(native_module, "run_native_methods_archive", lambda *_args, **_kwargs: sentinel)
+    monkeypatch.setattr(native_module, "run_native_methods_archive", lambda *_args, **_kwargs: pytest.fail("general request selected Archive V2"))
+    monkeypatch.setattr(run_backend, "run_via_dagml", lambda *_args, **_kwargs: sentinel)
     monkeypatch.delenv("N4A_ENGINE", raising=False)
     assert nirs4all.run([], {}) is sentinel
 
 
-def test_default_native_refuses_legacy_dataset_shape_without_fallback(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A legacy-shaped dataset fails at the native boundary without constructing ``PipelineRunner``."""
+def test_default_general_dataset_selects_dagml_without_legacy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A DatasetConfigs request selects dag-ml directly, never by post-failure fallback."""
     run_module = importlib.import_module("nirs4all.api.run")
+    run_backend = importlib.import_module("nirs4all.pipeline.dagml.run_backend")
+    sentinel = object()
 
     class LegacyPathReached:
         def __init__(self, *_args: object, **_kwargs: object) -> None:
-            raise AssertionError("default native refusal constructed PipelineRunner")
+            raise AssertionError("default general DAG run constructed PipelineRunner")
 
     monkeypatch.setattr(run_module, "PipelineRunner", LegacyPathReached)
+    monkeypatch.setattr(run_backend, "run_via_dagml", lambda *_args, **_kwargs: sentinel)
     monkeypatch.delenv("N4A_ENGINE", raising=False)
     case = _case("baseline_vertical_slice")
     dataset = H.make_dataset(case)
-    with pytest.raises(TypeError, match="engine='native' requires dataset"):
-        nirs4all.run(pipeline=case.pipeline, dataset=dataset)
+    assert nirs4all.run(pipeline=case.pipeline, dataset=dataset) is sentinel
 
 
-@pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_run_dagml_rejects_unsupported_shape_by_default() -> None:
-    """A no-splitter dag-ml shape raises structured ``RtError`` by default instead of degrading to legacy."""
-    with pytest.raises(RtError) as excinfo:
-        nirs4all.run(
-            [{"model": PLSRegression(n_components=2)}],
-            dataset_path("regression"),
-            engine="dag-ml",
-        )
-    assert excinfo.value.cause == "unsupported_shape"
-    assert excinfo.value.verb == "run"
+def test_run_dagml_supports_full_train_without_splitter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A no-splitter model executes the explicit native full-train profile."""
+    run_backend = importlib.import_module("nirs4all.pipeline.dagml.run_backend")
+    full_train = importlib.import_module("nirs4all.pipeline.dagml.full_train")
+    calls: list[list[object]] = []
+    sentinel = RunResult(predictions=Predictions(), per_dataset={"fixture": {"engine": "dag-ml"}})
+
+    def _full_train(pipeline: list[object], *_args: object, **_kwargs: object) -> RunResult:
+        calls.append(pipeline)
+        return sentinel
+
+    monkeypatch.setattr(run_backend, "preflight_dagml_backend", lambda _cli: None)
+    monkeypatch.setattr(full_train, "run_full_train", _full_train)
+    result = nirs4all.run(
+        [{"model": PLSRegression(n_components=2)}],
+        dataset_path("regression"),
+        engine="dag-ml",
+    )
+    assert result is sentinel
+    assert len(calls) == 1
 
 
 def test_run_dagml_rejects_legacy_fallback_on_unsupported_shape() -> None:
@@ -200,21 +214,12 @@ def test_dagml_run_rejects_legacy_fallback_when_backend_unavailable(monkeypatch:
     "option",
     [
         pytest.param({"refit": False}, id="refit-disabled"),
-        pytest.param({"project": "adr17_fallback_proj"}, id="project-tag"),
-        pytest.param({"workspace_path": None}, id="workspace_path-runner-kwarg"),
         pytest.param({"cache": CacheConfig()}, id="cache-config"),
     ],
 )
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_dagml_run_unsupported_run_option_refuses_by_default(option: dict[str, object]) -> None:
-    """Under an explicit ``engine="dag-ml"``, run() options the scores-only dag-ml path cannot honor
-    (non-default ``refit``, ``project`` tag, a persistence ``runner_kwarg`` like ``workspace_path``) must
-    REJECT -> raise ``RtError`` by default. Pins the no-silent-degrade boundary for non-run-able options
-    on the dag-ml path.
-
-    A workspace_path of ``None`` (legacy's own default) is still a PRESENT runner_kwarg the dag-ml path
-    does not honor, so it triggers the same generic-key refusal — exercising the path without writing a
-    throwaway workspace dir."""
+    """Unsupported execution controls fail closed instead of selecting another engine."""
     with pytest.raises(RtError) as excinfo:
         nirs4all.run(
             [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
@@ -223,6 +228,20 @@ def test_dagml_run_unsupported_run_option_refuses_by_default(option: dict[str, o
             **option,  # type: ignore[arg-type]
         )
     assert excinfo.value.cause == "unsupported_shape"
+
+
+@pytest.mark.parametrize("option_name", ["project", "workspace_path"])
+def test_dagml_run_supports_persistence_options(option_name: str, tmp_path: Path) -> None:
+    """Project and workspace persistence are honored by the general DAG profile."""
+    option = {"project": "v1-project"} if option_name == "project" else {"workspace_path": tmp_path / "workspace"}
+    with nirs4all.run(
+        [SNV(), KFold(n_splits=3), {"model": PLSRegression(n_components=2)}],
+        dataset_path("regression"),
+        engine="dag-ml",
+        **option,
+    ) as result:
+        assert result._is_dagml_engine()  # noqa: SLF001
+        assert result.num_predictions > 0
 
 
 def test_dagml_run_unsupported_option_rejects_legacy_fallback() -> None:
@@ -238,16 +257,20 @@ def test_dagml_run_unsupported_option_rejects_legacy_fallback() -> None:
     assert caught.value.code == "legacy_fallback_forbidden"
 
 
-def test_dagml_rejects_session_and_cache() -> None:
-    """Pins the session + cache REJECTION that drives run()'s RtError/fallback policy on the dag-ml path:
-    the scores-only dag-ml path cannot share a Session's runner/workspace nor install a CacheConfig on a
-    runner it never builds, so a non-None ``session`` OR ``cache`` raises ``DagMlUnsupported`` (which
-    run() catches -> RtError by default, or legacy only with explicit fallback)."""
+def test_dagml_prepares_session_and_rejects_cache() -> None:
+    """General sessions are prepared explicitly; unsupported StepCache remains a strict refusal."""
     from nirs4all.pipeline.dagml.errors import DagMlUnsupported
     from nirs4all.pipeline.dagml.run_backend import _reject_unsupported_run_options
 
-    with pytest.raises(DagMlUnsupported):
-        _reject_unsupported_run_options(refit=True, project=None, session=object(), cache=None, runner_kwargs={})
+    class SessionProbe:
+        prepared = False
+
+        def _prepare_dagml_run(self) -> None:
+            self.prepared = True
+
+    session = SessionProbe()
+    _reject_unsupported_run_options(refit=True, project=None, session=session, cache=None, runner_kwargs={})
+    assert session.prepared is True
     with pytest.raises(DagMlUnsupported):
         _reject_unsupported_run_options(refit=True, project=None, session=None, cache=CacheConfig(), runner_kwargs={})
 
