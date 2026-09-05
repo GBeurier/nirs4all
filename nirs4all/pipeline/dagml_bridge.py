@@ -931,6 +931,15 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                     host_metadata["nirs4all_finetune_model_param_order"] = list(model_params)
             for control_key in ("train_params", "refit_params"):
                 if control_key in step:
+                    if control_key == "refit_params":
+                        from nirs4all.pipeline.dagml.finetune_lowering import _is_supported_native_refit_params_noop
+
+                        # The public dispatcher admits this one exact legacy controller no-op.
+                        # Do not serialize it as an estimator fit kwarg: PLSRegression never
+                        # accepted ``use_all_partitions`` and the historical controller did not
+                        # forward it either.
+                        if _is_supported_native_refit_params_noop([step]):
+                            continue
                     from nirs4all.pipeline.dagml.training_controls import encode_training_controls
 
                     host_metadata[f"nirs4all_{control_key}"] = encode_training_controls(step[control_key], name=control_key)

@@ -27,7 +27,7 @@ def _unsupported_pipeline() -> list[object]:
         KFold(n_splits=3),
         {
             "model": PLSRegression(n_components=2),
-            "refit_params": {"use_all_partitions": True},
+            "refit_params": {"use_all_partitions": False},
         },
     ]
 

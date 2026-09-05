@@ -395,11 +395,7 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 # allowlist (the test then demands native parity). W21 pins these as explicit
 # coverage-boundary rejects in `run_backend._unsupported_fallback_reason`, so they
 # no longer fall through to the generic concrete route and crash at native setup.
-EXPECTED_REFUSAL: frozenset[str] = frozenset({
-    # use_all_partitions has no historical runtime implementation; it is not
-    # an estimator parameter and is now diagnosed rather than silently ignored.
-    "refit_params_use_all_partitions",
-})
+EXPECTED_REFUSAL: frozenset[str] = frozenset()
 
 
 def _params() -> list:
