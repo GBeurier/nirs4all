@@ -1413,7 +1413,14 @@ def test_run_tuning_dataset_and_score_data_config_paths_transport_identities(tmp
     )
 
     assert _DummyRunner.instances == []
-    assert result.tuning_best_params == {"alpha": 0.0}
+    # Explicit regression preserves the observed numeric target 5.0; it must
+    # not be label-encoded to zero even when this selected cohort is constant.
+    from nirs4all.api.dataset_inspection import load_dataset_for_analysis
+
+    score_dataset, _ = load_dataset_for_analysis(score_config)
+    np.testing.assert_array_equal(np.asarray(score_dataset.y({"partition": "train"})).ravel(), [5.0, 5.0])
+    assert result.tuning_best_params == {"alpha": 5.0}
+    assert result.tuning_best_value == pytest.approx(0.0)
 
 
 def test_run_tuning_score_data_spectro_dataset_requires_selector() -> None:
