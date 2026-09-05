@@ -58,6 +58,14 @@ class DagMLBatchResult(RunResult):
     ) -> Path:
         """Export from the selected child's actual artifacts, never refit a batch."""
         selected = self._source_run(source, chain_id)
+        if isinstance(selected, DagMLBatchResult):
+            return selected.export(
+                output_path,
+                format,
+                source,
+                chain_id,
+                compatibility=compatibility,
+            )
         return selected.export(output_path, format, compatibility=compatibility)
 
     def export_model(
@@ -66,6 +74,14 @@ class DagMLBatchResult(RunResult):
     ) -> Path:
         """Delegate lightweight export to the uniquely selected child result."""
         selected = self._source_run(source)
+        if isinstance(selected, DagMLBatchResult):
+            return selected.export_model(
+                output_path,
+                source,
+                format,
+                fold,
+                compatibility=compatibility,
+            )
         return selected.export_model(output_path, format=format, fold=fold, compatibility=compatibility)
 
     def close(self) -> None:
