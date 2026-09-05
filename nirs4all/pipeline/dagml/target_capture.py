@@ -64,8 +64,25 @@ class CapturedTargetTransform(TransformerMixin, BaseEstimator):
         raise AttributeError("captured target decoder has no single class axis")
 
 
-def captured_target_transform(transformer: Any, decoder: Any) -> Any:
-    """Return the public capture transform, avoiding identity/double wrappers."""
-    if decoder is None or isinstance(transformer, CapturedTargetTransform):
+def _predicts_encoded_classes(estimator: Any) -> bool:
+    """Whether a fitted estimator's ``predict`` output is a class index."""
+    from sklearn.base import is_classifier
+
+    candidates = [estimator]
+    seen: set[int] = set()
+    while candidates:
+        candidate = candidates.pop()
+        if candidate is None or id(candidate) in seen:
+            continue
+        seen.add(id(candidate))
+        if is_classifier(candidate):
+            return True
+        candidates.extend(getattr(candidate, name, None) for name in ("model", "_model"))
+    return False
+
+
+def captured_target_transform(transformer: Any, decoder: Any, estimator: Any) -> Any:
+    """Attach public label decoding only to estimators that emit class indices."""
+    if decoder is None or isinstance(transformer, CapturedTargetTransform) or not _predicts_encoded_classes(estimator):
         return transformer
     return CapturedTargetTransform(transformer, decoder)

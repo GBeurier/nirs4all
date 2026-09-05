@@ -89,6 +89,9 @@ def test_explicit_export_after_memory_only_run_preserves_captured_model(tmp_path
     result = session.run((X, X[:, 0]))
     assert result._dagml_results_dir is None
     assert result.artifacts_path is None
+    # Integer-like numeric targets may be detected as classification, but Ridge
+    # emits continuous numeric predictions and must not acquire a label decoder.
+    assert result._dagml_refit_artifacts[0]["y_transform"] is None
     monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("export retrained"))
     live = session.predict(X).y_pred
     archive = session.save(tmp_path / "on-demand.n4a")

@@ -211,7 +211,7 @@ def _capture_refit_artifacts(node_results: list[dict[str, Any]], store: dict[int
                     "artifact_id": artifact_id,
                     "estimator": bundle["estimator"],
                     "y_transform": captured_target_transform(
-                        bundle["y_transform"], bundle.get("target_decoder")
+                        bundle["y_transform"], bundle.get("target_decoder"), bundle["estimator"]
                     ),
                     "kind": descriptor.get("kind"),
                     "controller_id": descriptor.get("controller_id"),
