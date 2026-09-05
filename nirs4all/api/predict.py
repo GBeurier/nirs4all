@@ -378,8 +378,8 @@ def predict(
     # Do not let the process default reinterpret every historical ``.n4a`` as
     # that format: calibrated-result archives and legacy bundles have distinct
     # routing/refusal contracts.
-    explicit_native_archive_replay = requested_engine == "native" or (
-        requested_engine is None and os.environ.get("N4A_ENGINE") == "native"
+    explicit_native_archive_replay = engine == "native" and (
+        requested_engine is not None or "N4A_ENGINE" in os.environ
     )
     if (
         explicit_native_archive_replay
