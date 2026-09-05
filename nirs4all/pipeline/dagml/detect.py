@@ -1001,6 +1001,11 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> tuple[list[
     return body, aggregate
 
 
+def _is_source_concat_merge_step(step: Any) -> bool:
+    """Recognize feature-source concatenation without admitting row merges."""
+    return _is_concat_merge_step(step) or (isinstance(step, dict) and step.get("merge") == {"sources": "concat"})
+
+
 def _detect_by_source_concat_shared_preproc(pipeline: list[Any], n_sources: int) -> tuple[list[Any], list[Any]] | None:
     """Detect shared by_source preprocessing + concat features + one downstream model.
 
@@ -1010,7 +1015,7 @@ def _detect_by_source_concat_shared_preproc(pipeline: list[Any], n_sources: int)
     * a multi-source dataset (``n_sources >= 2``);
     * one by_source branch with a shared LIST ``steps`` body that contains X preprocessing only
       (no model, no per-source dict, no extra branch options);
-    * one ``{"merge": "concat"}`` immediately before one top-level downstream model;
+    * one concat merge (string or ``{"sources": "concat"}``) before a downstream model;
     * no other top-level operator/keyword beside the splitter, branch, merge, and model.
 
     The existing :func:`_detect_by_source_branch` owns by_source MODEL fusion
@@ -1018,7 +1023,7 @@ def _detect_by_source_concat_shared_preproc(pipeline: list[Any], n_sources: int)
     ``(preproc_body, downstream_body)`` for the dedicated runner.
     """
     branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
-    merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
+    merge_steps = [step for step in pipeline if _is_source_concat_merge_step(step)]
     model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
     if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1 or n_sources < 2:
         return None
@@ -1052,7 +1057,7 @@ def _detect_by_source_distinct_preproc_concat(pipeline: list[Any], n_sources: in
     * a multi-source dataset (``n_sources >= 2``);
     * one by_source branch whose ``steps`` body is a DICT of per-source preprocessing lists;
     * no model/y_processing inside any per-source body;
-    * one ``{"merge": "concat"}`` followed immediately by one downstream model step;
+    * one concat merge (string or ``{"sources": "concat"}``) before a downstream model;
     * no other top-level step except the splitter.
 
     Source-key validation is intentionally left to the runner, which consumes the explicit
@@ -1060,7 +1065,7 @@ def _detect_by_source_distinct_preproc_concat(pipeline: list[Any], n_sources: in
     those legacy keys exactly.
     """
     branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
-    merge_steps = [step for step in pipeline if _is_concat_merge_step(step)]
+    merge_steps = [step for step in pipeline if _is_source_concat_merge_step(step)]
     model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
     if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1 or n_sources < 2:
         return None

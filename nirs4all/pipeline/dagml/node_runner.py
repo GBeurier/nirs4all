@@ -174,12 +174,20 @@ class _SourceConcatEstimator:
         source_chain_templates = self._templates_for(blocks)
         if len(blocks) != len(source_chain_templates):
             raise ValueError(f"by_source concat received {len(blocks)} blocks for {len(source_chain_templates)} source chain(s)")
+        self._source_widths = tuple(np.asarray(block).shape[1] for block in blocks)
         self._source_chains = [[clone(step) for step in chain] for chain in source_chain_templates]
         transformed = [self._fit_transform_chain(steps, block) for steps, block in zip(self._source_chains, blocks, strict=True)]
         self._model.fit(self._assemble_blocks(transformed), y)
         return self
 
-    def predict(self, blocks: list[np.ndarray]) -> np.ndarray:
+    def predict(self, blocks: list[np.ndarray] | np.ndarray) -> np.ndarray:
+        if isinstance(blocks, np.ndarray):
+            # General archive replay supplies the original sources in one flat matrix.
+            # Restore only the layout captured at fit time; never guess equal widths.
+            widths = getattr(self, "_source_widths", None)
+            if widths is None or blocks.ndim != 2 or blocks.shape[1] != sum(widths):
+                raise ValueError("by_source concat replay requires the fitted source layout and matching feature count")
+            blocks = list(np.split(blocks, np.cumsum(widths)[:-1], axis=1))
         if len(blocks) != len(self._source_chains):
             raise ValueError(f"by_source concat predict received {len(blocks)} blocks for {len(self._source_chains)} fitted source chain(s)")
         transformed = [self._transform_chain(steps, block) for steps, block in zip(self._source_chains, blocks, strict=True)]
