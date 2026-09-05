@@ -28,7 +28,7 @@ jobs:
       - name: Install base package and tests
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -e ".[dev]"
+          python -m pip install ".[dev]"
       - name: Require installed runtime and record provenance
         run: |
           python - <<'PY'
@@ -55,4 +55,5 @@ jobs:
             tests/integration/api/test_native_archive_v2_training_cycle.py \
             tests/integration/api/test_native_methods_hpo_cycle.py \
             tests/integration/api/test_installed_native_quickstart.py \
+            tests/integration/api/test_installed_studio_general.py \
             tests/integration/api/test_general_dag_run.py
