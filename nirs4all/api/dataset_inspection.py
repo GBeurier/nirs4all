@@ -21,6 +21,81 @@ _NATIVE_SUFFIXES = (".csv", ".tsv", ".txt", ".csv.gz", ".csv.zip", ".parquet", "
 _DATA_KEYS = frozenset(f"{partition}_{role}" for partition in ("train", "test") for role in ("x", "y", "group"))
 
 
+def load_prediction_file(
+    path: str | Path, *, params: dict[str, Any] | None = None,
+    load_limits: dict[str, int] | None = None, max_input_bytes: int = 512 * 1024 * 1024,
+) -> tuple[Any, dict[str, Any], list[str] | None]:
+    """Load an authorized prediction upload through its existing reader owner.
+
+    All numeric columns remain features in file order; the first string column
+    supplies optional display labels, never scientific sample identifiers.
+    CSV/Parquet use an explicit IO DatasetSpec, not target-column inference.
+    Excel uses the registered Excel loader with typed cells preserved. No
+    training, target synthesis, parser retry or implicit legacy execution occurs.
+
+    The host must authorize the path and provide confirmed CSV parsing options
+    (for example from IO's bounded text detector and a header checkbox). Without
+    overrides IO's defaults apply, including a header and semicolon delimiter.
+    Native limits are rejected for Excel because its loader cannot guarantee
+    them; its separate raw-file admission budget remains effective.
+    """
+    path = Path(path).resolve(strict=True)
+    if type(max_input_bytes) is not int or max_input_bytes <= 0:
+        raise ValueError("max_input_bytes must be a positive integer")
+    if not path.is_file():
+        raise ValueError("Prediction input must be a regular file")
+    size = path.stat().st_size
+    if size > max_input_bytes:
+        raise ValueError("Prediction file exceeds raw input byte budget")
+    if params is not None and not isinstance(params, dict):
+        raise TypeError("params must be a mapping")
+    options = dict(params or {})
+    reader: dict[str, Any] = {"raw_input_bytes": size, "max_input_bytes": max_input_bytes}
+    if str(path).lower().endswith(_NATIVE_SUFFIXES):
+        nio = importlib.import_module("nirs4all_io")
+        importlib.import_module("nirs4all_io._native")
+        spec = {"name": path.stem, "params": options, "sources": [{
+            "id": "upload", "role": "mixed", "input": str(path), "strict_columns": False,
+            "columns": {"features": {"dtype": "numeric"}, "metadata": {"dtype": "string"}},
+        }]}
+        dataset = nio.load(spec, target="spectrodataset", limits=load_limits)
+        reader.update({"backend": "nirs4all-io.native", "version": nio.__version__,
+                       "native_load_limits_applied": True, "load_limits": load_limits or "native_defaults"})
+    elif path.suffix.lower() in {".xlsx", ".xls"}:
+        if load_limits is not None:
+            raise ValueError("Native LoadLimits cannot be guaranteed by non-native format loaders")
+        from nirs4all.data.dataset import SpectroDataset
+        from nirs4all.data.loaders.excel_loader import ExcelLoader
+        if options.get("categorical_mode", "preserve") != "preserve":
+            raise ValueError("Prediction uploads require categorical_mode='preserve' for display labels")
+        options["categorical_mode"] = "preserve"
+        result = ExcelLoader().load(path, **options)
+        if result.report.get("error") or result.data is None:
+            raise ValueError(result.report.get("error") or "Excel reader returned no data")
+        frame = result.data
+        numeric = frame.select_dtypes(include=["number"])
+        if numeric.shape[1] == 0:
+            raise ValueError("Prediction input contains no numeric feature columns")
+        dataset = SpectroDataset(path.stem)
+        dataset.add_samples(numeric.to_numpy(), {"partition": "train"},
+                            headers=[str(column) for column in numeric.columns], header_unit=result.header_unit)
+        labels = frame.select_dtypes(include=["object", "string"])
+        if labels.shape[1]:
+            dataset.add_metadata(labels, headers=[str(column) for column in labels.columns])
+        reader.update({"backend": "nirs4all.loaders", "loader": ExcelLoader.name,
+                       "native_load_limits_applied": False, "load_limits": None,
+                       "limitations": ["native decompression/shape budgets do not cover this format route"],
+                       "loading_report": result.report})
+    else:
+        raise ValueError("Prediction file must be CSV, Parquet or Excel")
+    if np.asarray(dataset.x({"partition": "train"}, layout="2d")).shape[1] == 0:
+        raise ValueError("Prediction input contains no numeric feature columns")
+    columns = dataset.metadata_columns
+    sample_labels = [str(value) for value in dataset.metadata_column(columns[0])] if columns else None
+    reader["sample_labels_are_identifiers"] = False
+    return dataset, reader, sample_labels
+
+
 def _references(value: Any, is_path: bool = False) -> list[Path]:
     if isinstance(value, str) and is_path:
         return [Path(value)]
