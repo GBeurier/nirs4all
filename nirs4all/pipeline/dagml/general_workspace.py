@@ -10,8 +10,27 @@ import hashlib
 import io
 import json
 import sqlite3
+import time
 from pathlib import Path
 from typing import Any
+
+_SQLITE_SIDECAR_SETTLE_SECONDS = 0.5
+_SQLITE_SIDECAR_POLL_SECONDS = 0.01
+
+
+def _wait_for_sqlite_sidecars(sidecars: list[Path]) -> None:
+    """Wait briefly for a just-closed SQLite owner to finish unlinking sidecars.
+
+    SQLite closes and checkpoints the workspace synchronously, but visibility of
+    its sidecar unlink can lag the connection close on macOS and Windows.  This
+    bounded, read-only settle period never removes a journal: a persistent WAL,
+    SHM, or rollback journal still fails closed before trusted bytes are loaded.
+    """
+    deadline = time.monotonic() + _SQLITE_SIDECAR_SETTLE_SECONDS
+    while any(path.exists() for path in sidecars):
+        if time.monotonic() >= deadline:
+            raise RuntimeError("DAG workspace replay refuses an active SQLite journal")
+        time.sleep(_SQLITE_SIDECAR_POLL_SECONDS)
 
 
 def load_general_workspace_chain(workspace_path: str | Path, chain_id: str) -> dict[str, Any] | None:
@@ -28,8 +47,7 @@ def load_general_workspace_chain(workspace_path: str | Path, chain_id: str) -> d
     sidecars = [Path(f"{database}{suffix}") for suffix in ("-wal", "-shm", "-journal")]
 
     def signature() -> tuple[int, int, int, int]:
-        if any(path.exists() for path in sidecars):
-            raise RuntimeError("DAG workspace replay refuses an active SQLite journal")
+        _wait_for_sqlite_sidecars(sidecars)
         stat = database.stat()
         return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
 

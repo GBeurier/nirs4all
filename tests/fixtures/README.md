@@ -15,6 +15,9 @@ This directory contains test data and fixtures used across the test suite.
     `nirs4all.tuning.ordered_search_space`. UI/Studio/Web consumers may copy
     this exact JSON for independent package tests, but changes should originate
     from the Python generator and its fixture test.
+- `methods/` - Small, repository-local native-method parity witnesses. These
+  deliberately travel with the test suite instead of assuming a sibling
+  `nirs4all-methods` source checkout.
 
 ## Usage
 
