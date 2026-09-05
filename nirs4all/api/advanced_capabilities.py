@@ -3,7 +3,7 @@
 Explicit native profiles remain strict. General synthesis selects the built-in
 scientific library host before execution: it does not use PipelineRunner or a
 legacy ML coordinator. Unknown plugins and execution-error retries are refused.
-Explain's independent adapter is still qualified separately.
+Explanations use the captured complete predictor without training it again.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ _PLUGIN_ENV_VARS: dict[AdvancedApiVerb, str] = {
 
 _BUILTIN_LIBRARY_PLUGINS: dict[AdvancedApiVerb, str] = {
     "generate": "nirs4all.python.synthesis.v1",
+    "explain": "nirs4all.python.shap.v1",
 }
 
 # API-005 capability ledger.  This describes executable adapters in this
@@ -39,8 +40,8 @@ ADVANCED_API_CAPABILITIES_V1: dict[str, dict[str, dict[str, Any]]] = {
             "capability": "native_explain",
         },
         "plugin": {
-            "executable": False,
-            "contract": None,
+            "executable": True,
+            "contract": "nirs4all.python.shap.v1",
             "capability": "explain_plugin",
         },
         "legacy": {
@@ -115,7 +116,7 @@ def preflight_advanced_api(
     """Decide one advanced verb without importing its Python implementation.
 
     Only a named built-in adapter is executable. With no selector, general
-    synthesis chooses its installed library adapter before touching inputs.
+    synthesis and explanation choose their installed adapters before touching inputs.
     Explicit native/legacy selectors remain unchanged; errors never retry.
     """
     if verb not in ("explain", "generate"):

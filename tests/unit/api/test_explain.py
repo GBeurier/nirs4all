@@ -53,10 +53,11 @@ def test_explain_preserves_relation_lineage_from_runner(tmp_path: Path) -> None:
     assert result.feature_names == ["MIR:1000", "NIRS:1000"]
     assert result.get_feature_lineage("MIR:1000")["source_id"] == "MIR"
     assert result.lineage_warning == "Explained features are per-source aggregates."
+    assert result.base_value == 0.0
 
 
-def test_explain_native_default_refuses_before_runner_or_session_access(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The default profile never reaches the Python SHAP runner or user data."""
+def test_explain_explicit_native_refuses_before_runner_or_session_access(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The explicit native profile never reaches the SHAP runner or user data."""
     monkeypatch.delenv("N4A_ENGINE", raising=False)
     monkeypatch.delenv("N4A_EXPLAIN_PLUGIN", raising=False)
     explain_module = importlib.import_module("nirs4all.api.explain")
@@ -78,6 +79,7 @@ def test_explain_native_default_refuses_before_runner_or_session_access(monkeypa
             {"X": object()},
             session=_SessionMustNotBeRead(),
             plots_visible=False,
+            engine="native",
         )
 
     assert caught.value.to_dict() == {
