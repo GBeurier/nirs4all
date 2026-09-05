@@ -460,6 +460,7 @@ def _resolve_finetune_best_params(
         return dict(cached)
 
     from .host_finetune import run_scoped_finetune, scoped_inner_cv
+    from .training_controls import effective_training_controls
 
     x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=False)["values"])
     y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
@@ -469,6 +470,7 @@ def _resolve_finetune_best_params(
         task_type=resolver._dataset.task_type,  # noqa: SLF001 -- host resolver owns this dataset
         y_transform=route_graph_node(y_transform_node) if y_transform_node is not None else None,
         inner_cv=scoped_inner_cv(finetune_params, resolver, train_ids),
+        training_controls=effective_training_controls(metadata, task["phase"]),
     )
     model_store[cache_key] = best_params
     model_store[("host_hpo_evidence", node_id, variant_label, task["phase"], task.get("fold_id"))] = evidence
@@ -535,6 +537,14 @@ def run_model_node(
         source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
         model = route_graph_node(graph_node, variant_overrides=_variant_overrides(task, node_id))
+        from .training_controls import apply_model_training_controls, report_model_training_controls
+
+        training_metadata = graph_node.get("metadata") or {}
+        has_training_controls = any(key in training_metadata for key in ("nirs4all_train_params", "nirs4all_refit_params"))
+        if has_training_controls:
+            # Reject invalid controls before an HPO trial or upstream fit. The
+            # real estimator receives the same overrides after HPO selection.
+            apply_model_training_controls(clone(model), training_metadata, phase)
         upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
         best_params = _resolve_finetune_best_params(
             graph_node=graph_node,
@@ -551,12 +561,9 @@ def run_model_node(
         if best_params and hasattr(model, "set_params"):
             model = clone(model)
             model.set_params(**best_params)
-        from .training_controls import apply_model_training_controls, report_model_training_controls
-
-        training_metadata = graph_node.get("metadata") or {}
         training_controls = (
             apply_model_training_controls(model, training_metadata, phase)
-            if any(key in training_metadata for key in ("nirs4all_train_params", "nirs4all_refit_params")) else None
+            if has_training_controls else None
         )
         source_chains = _source_concat_chains(graph_node)
         source_concat = source_chains is not None or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
@@ -843,7 +850,17 @@ def run_meta_model_node(
     artifact_id = _artifact_id(node_id, variant_label)
     artifact_handle = _stable_handle(artifact_id)
     fit_estimator: Any = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+    from .training_controls import apply_model_training_controls, report_model_training_controls
+
+    metadata = node_lookup(node_id).get("metadata") or {}
+    training_controls = (
+        apply_model_training_controls(fit_estimator, metadata, phase)
+        if any(key in metadata for key in ("nirs4all_train_params", "nirs4all_refit_params")) else None
+    )
     fit_estimator.fit(x_meta, y_meta)
+    if training_controls is not None:
+        fit_estimator._nirs4all_training_controls = training_controls
+        report_model_training_controls(training_controls, fit_estimator, len(sample_ids))
 
     fold_predictions: list[dict[str, Any]] = []
     fold_targets: list[dict[str, Any]] = []

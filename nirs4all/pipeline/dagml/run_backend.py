@@ -61,7 +61,6 @@ from .exclude import _excluded_from_pool, _resolve_exclude, _resolve_tags
 from .finetune_lowering import (
     PUBLIC_DAGML_SELECTION_METRICS,
     lower_deterministic_finetune_params_to_generators,
-    reject_native_training_param_overrides,
 )
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
 from .native_results import native_results_enabled, write_native_results
@@ -771,7 +770,9 @@ def _dispatch_run(
     from nirs4all.core import detect_task_type
 
     pipeline, finetune_overrides = _lower_public_finetune_params(pipeline)
-    reject_native_training_param_overrides(list(pipeline), context="engine='dag-ml'")
+    from .training_controls import validate_training_control_declarations
+
+    validate_training_control_declarations(pipeline)
     config_name = resolved_config_name if resolved_config_name is not None else _derive_config_name(pipeline, name)
     # The ordered legacy per-variant config names for a SWEEP (empty for a single concrete pipeline). The
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy

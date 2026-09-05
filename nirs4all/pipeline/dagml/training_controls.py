@@ -19,6 +19,28 @@ from .operator_parameters import decode_constructor_value, encode_constructor_va
 logger = get_logger(__name__)
 
 
+def validate_training_control_declarations(value: Any) -> None:
+    """Validate configuration shape before public dispatch, without fitting."""
+    if isinstance(value, list):
+        for step in value:
+            validate_training_control_declarations(step)
+    elif isinstance(value, dict):
+        metadata = {}
+        for key in ("train_params", "refit_params"):
+            if key in value:
+                if "model" not in value:
+                    raise ValueError(f"{key} must belong to a model step")
+                metadata[f"nirs4all_{key}"] = encode_training_controls(value[key], name=key)
+        model = value.get("model")
+        if metadata and not isinstance(model, type) and callable(getattr(model, "get_params", None)):
+            from sklearn.base import clone
+
+            apply_model_training_controls(clone(model), metadata, "FIT_CV")
+        for key, child in value.items():
+            if key not in {"params", "train_params", "refit_params", "finetune_params"}:
+                validate_training_control_declarations(child)
+
+
 def encode_training_controls(value: Any, *, name: str) -> dict[str, Any]:
     """Encode controls without the lossy repr fallback used by old metadata."""
     if value is None:
