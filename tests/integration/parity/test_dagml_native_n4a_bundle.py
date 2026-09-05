@@ -13,7 +13,7 @@ critically — proves it is NOT a legacy refit under another name:
   still succeeds and reload-predicts exactly — the export never touches the legacy engine.
 * (3) a ``y_processing`` variant → the inverse ``y_transform`` round-trips through the bundle (original
   target space), still exact.
-* (4) NO native dir → the ``.n4a`` export refuses with a stable RtError and does not call the legacy engine.
+* (4) NO initial native dir → export persists the captured in-memory state on demand, with no legacy refit.
 * (5) a duplication branch + mean-fusion run (multiple captured artifacts) WITH a native dir → exports a
   native multi-artifact bundle that averages captured branch REFIT models, without invoking the bridge.
 * (6) a by_source branch + mean-fusion run (one captured artifact per source) WITH a native dir → exports a
@@ -221,13 +221,15 @@ def test_native_n4a_export_applies_y_inverse(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# (4) NO native dir → stable refusal, no legacy refit.
+# (4) NO initial native dir → persist captured state on demand, no legacy refit.
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
-def test_no_native_dir_n4a_refuses_without_legacy_refit(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """``export(".n4a")`` on a dag-ml run WITHOUT a native results dir refuses and does not call legacy."""
+def test_no_native_dir_n4a_persists_capture_without_legacy_refit(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A memory-only dag-ml run persists its captured artifacts for export without calling legacy."""
     monkeypatch.delenv("N4A_NATIVE_RESULTS", raising=False)
     pipeline = [SNV(), KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42), {"model": PLSRegression(n_components=5)}]
     result = run_via_dagml(
@@ -238,12 +240,18 @@ def test_no_native_dir_n4a_refuses_without_legacy_refit(tmp_path: Path, monkeypa
     assert result._dagml_results_dir is None  # noqa: SLF001 -- no native dir was written
 
     _poison_legacy_run(monkeypatch)
-    out = tmp_path / "model_refused.n4a"
-    with pytest.raises(RtError) as excinfo:
-        result.export(out)
-    _assert_export_refusal(excinfo)
-    assert not out.exists()
+    out = tmp_path / "model_memory_capture.n4a"
+    returned = result.export(out)
+    assert returned == out and out.exists()
+    assert result._dagml_results_dir is not None  # noqa: SLF001 -- materialized only when export was requested
+    native_results_dir = result._dagml_results_dir  # noqa: SLF001
     assert result._dagml_legacy_result is None  # noqa: SLF001
+
+    actual = np.asarray(BundleLoader(out).predict(_refit_x("regression")), dtype=float).ravel()
+    assert np.allclose(actual, _final_test_pred(result), atol=1e-6)
+
+    result.close()
+    assert not native_results_dir.exists(), "the on-demand native-results directory is result-owned"
 
 
 # ---------------------------------------------------------------------------

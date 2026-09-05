@@ -37,6 +37,7 @@ from nirs4all.api.result import RunResult
 from nirs4all.data import DatasetConfigs
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.dagml.rt import RtError
+from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
 
 from . import _conformance_helpers as H
 from ._datasets import dataset_path
@@ -160,12 +161,20 @@ def test_native_dagml_export_reproduces_final_test_pred(case_name: str, tmp_path
     rows = [(i, ids[i]) for i in range(len(ids)) if ids[i] in by_sample]
     assert rows, f"{case_name}: no common final-(test) samples to compare"
     expected = np.array([by_sample[sid].ravel() for _, sid in rows]).ravel()
+    target_transform = result._dagml_refit_artifacts[0].get("y_transform")  # noqa: SLF001
+    if isinstance(target_transform, CapturedTargetTransform):
+        # Native score rows intentionally remain in the runtime's encoded target space. Public exported
+        # classifiers restore the labels originally supplied by the caller, so compare in that space.
+        expected = np.asarray(target_transform.decode(expected.reshape(-1, 1))).ravel()
     actual = np.array([reloaded.reshape(len(ids), -1)[i] for i, _ in rows]).ravel()
     assert expected.shape == actual.shape
-    max_delta = float(np.max(np.abs(expected - actual)))
-    assert max_delta <= 1e-6, (
-        f"{case_name}: reloaded native export predict != run final-(test) y_pred; max Δ = {max_delta:.3e}"
-    )
+    if np.issubdtype(expected.dtype, np.number) and np.issubdtype(actual.dtype, np.number):
+        max_delta = float(np.max(np.abs(expected - actual)))
+        assert max_delta <= 1e-6, (
+            f"{case_name}: reloaded native export predict != public final-(test) labels; max Δ = {max_delta:.3e}"
+        )
+    else:
+        np.testing.assert_array_equal(actual, expected)
 
 
 def test_branch_merge_export_model_uses_native_or_refuses_without_legacy_refit(tmp_path: Path) -> None:

@@ -701,6 +701,14 @@ def _unsupported_fallback_reason(pipeline: list[Any]) -> str | None:
     unrelated runtime error. Return a catchable, explicit coverage-boundary reason instead.
     """
     for step in pipeline:
+        refit_params = step.get("refit_params") if isinstance(step, dict) else None
+        if isinstance(refit_params, dict) and "use_all_partitions" in refit_params:
+            return (
+                "engine='dag-ml' does not implement refit_params.use_all_partitions; "
+                "passing it to the estimator would silently change it into an unknown fit parameter."
+            )
+
+    for step in pipeline:
         if isinstance(step, dict) and "preprocessing" in step and set(step) != {"preprocessing"}:
             modifiers = sorted(set(step) - {"preprocessing"})
             return (
