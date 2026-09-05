@@ -23,6 +23,8 @@ def test_general_run_populates_chain_summaries(tmp_path):
     cv_chains = [chain for chain in chains if chain["cv_fold_count"] == 3]
     assert len(cv_chains) == 1, chains
     assert cv_chains[0]["model_name"] == "Ridge"
+    assert cv_chains[0]["model_class"].endswith(".Ridge")
+    assert cv_chains[0]["preprocessings"] == "StandardScaler"
     assert cv_chains[0]["metric"] == "rmse"
     assert cv_chains[0]["dataset_name"] == "array_dataset"
     assert np.isfinite(cv_chains[0]["cv_val_score"])

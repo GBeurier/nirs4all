@@ -16,6 +16,7 @@ Example:
 
 import copy
 import importlib.resources
+import inspect
 import json
 import math
 import tempfile
@@ -43,6 +44,29 @@ from .session import Session
 
 if TYPE_CHECKING:
     from .tuning import TunedSingleEstimatorConformalResult
+
+
+class _RunOptionDefault:
+    """Distinguish omitted options from explicit False/None in shared Sessions."""
+
+    def __init__(self, displayed_default: Any) -> None:
+        self.displayed_default = displayed_default
+
+    def __repr__(self) -> str:
+        return repr(self.displayed_default)
+
+
+_RUN_DEFAULT_VERBOSE: Any = _RunOptionDefault(1)
+_RUN_DEFAULT_TRUE: Any = _RunOptionDefault(True)
+_RUN_DEFAULT_FALSE: Any = _RunOptionDefault(False)
+_RUN_DEFAULT_NONE: Any = _RunOptionDefault(None)
+_RUN_DEFAULT_NAMING: Any = _RunOptionDefault("nirs")
+
+
+def _session_run_option(session: Session | None, key: str, value: Any, default: Any) -> Any:
+    if not isinstance(value, _RunOptionDefault):
+        return value
+    return session._runner_kwargs.get(key, default) if session is not None else default
 
 # Type aliases for a single pipeline or dataset (not lists)
 SinglePipelineSpec: TypeAlias = (
@@ -724,15 +748,15 @@ def run(
     name: str = "",
     session: Session | None = None,
     # Common runner options (shortcuts for most-used parameters)
-    verbose: int = 1,
-    save_artifacts: bool = True,
-    save_charts: bool | None = None,
-    plots_visible: bool = False,
-    random_state: int | None = None,
-    refit: bool | dict[str, Any] | list[dict[str, Any]] | None = True,
-    cache: Any | None = None,
-    project: str | None = None,
-    report_naming: str = "nirs",
+    verbose: int = _RUN_DEFAULT_VERBOSE,
+    save_artifacts: bool = _RUN_DEFAULT_TRUE,
+    save_charts: bool | None = _RUN_DEFAULT_NONE,
+    plots_visible: bool = _RUN_DEFAULT_FALSE,
+    random_state: int | None = _RUN_DEFAULT_NONE,
+    refit: bool | dict[str, Any] | list[dict[str, Any]] | None = _RUN_DEFAULT_TRUE,
+    cache: Any | None = _RUN_DEFAULT_NONE,
+    project: str | None = _RUN_DEFAULT_NONE,
+    report_naming: str = _RUN_DEFAULT_NAMING,
     engine: str | None = None,
     tuning: Any | None = None,
     calibration: Any | None = None,
@@ -772,6 +796,8 @@ def run(
 
         session: Optional Session object for resource reuse across multiple
             runs. When provided, shares workspace and configuration.
+            Omitted runner shortcuts inherit the Session's configuration;
+            explicit values (including False or None) override it.
 
         verbose: Verbosity level (0=quiet, 1=info, 2=debug, 3=trace).
             Default: 1
@@ -966,6 +992,21 @@ def run(
     """
 
     from .run_selection import select_run_engine
+
+    # Resolve the shared Session defaults before capability selection. Explicit
+    # False and None retain their public meaning and override configuration.
+    verbose = _session_run_option(session, "verbose", verbose, 1)
+    save_artifacts = _session_run_option(session, "save_artifacts", save_artifacts, True)
+    save_charts = _session_run_option(session, "save_charts", save_charts, None)
+    plots_visible = _session_run_option(session, "plots_visible", plots_visible, False)
+    random_state = _session_run_option(session, "random_state", random_state, None)
+    refit = _session_run_option(session, "refit", refit, True)
+    cache = _session_run_option(session, "cache", cache, None)
+    project = _session_run_option(session, "project", project, None)
+    report_naming = _session_run_option(session, "report_naming", report_naming, "nirs")
+    if session is not None:
+        public_keys = {"verbose", "save_artifacts", "save_charts", "plots_visible", "random_state", "refit", "cache", "project", "report_naming", "engine", "tuning", "calibration", "results_path"}
+        runner_kwargs = {**{key: value for key, value in session._runner_kwargs.items() if key not in public_keys}, **runner_kwargs}
 
     selected_engine = select_run_engine(
         engine, pipeline, dataset, allow_fallback=allow_fallback, session=session,
@@ -1317,6 +1358,16 @@ def run(
 
     assert selected_engine == "legacy"
     return _run_legacy()
+
+
+# Keep the frozen introspection contract while using omission sentinels inside
+# the call implementation. Outside a configured Session these are exactly the
+# effective defaults; explicit arguments always override Session configuration.
+run.__signature__ = inspect.signature(run).replace(parameters=[  # type: ignore[attr-defined]
+    parameter.replace(default=parameter.default.displayed_default)
+    if isinstance(parameter.default, _RunOptionDefault) else parameter
+    for parameter in inspect.signature(run).parameters.values()
+])
 
 
 def _run_single_estimator_tuning_subset(
