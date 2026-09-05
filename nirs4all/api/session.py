@@ -242,6 +242,32 @@ class Session:
                 unsupported_capability="core_archive_v2_prediction_only",
             )
 
+    def _prepare_dagml_run(self) -> None:
+        """Keep a general DAG Session separate from native and legacy ownership."""
+        self._ensure_open()
+        if self.execution_engine in ("native", "legacy"):
+            from nirs4all.pipeline.dagml.rt import RtError
+
+            raise RtError(
+                "run", "unsupported_capability",
+                f"A {self.execution_engine} Session cannot adopt general DAG results",
+                mitigation="create a separate Session for the general DAG profile",
+                unsupported_capability="session_execution_owner_conflict",
+            )
+
+    def _adopt_dagml_result(self, result: "RunResult", dataset: Any) -> None:
+        """Retain scored DAG models and history without allocating PipelineRunner."""
+        self._prepare_dagml_run()
+        self._last_result = result
+        self._status = "trained"
+        if result.artifacts_path is not None:
+            self._runner_kwargs["workspace_path"] = result.artifacts_path
+        self._run_history.append({
+            "dataset": str(dataset) if isinstance(dataset, (str, Path)) else "in-memory",
+            "engine": "dag-ml", "best_score": result.best_score,
+            "num_predictions": result.num_predictions,
+        })
+
     def _adopt_native_result(self, result: "RunResult", dataset: Any) -> None:
         """Bind one native result to one validated, closeable archive cache."""
         self._prepare_native_run()

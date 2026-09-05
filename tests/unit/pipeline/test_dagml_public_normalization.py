@@ -54,7 +54,7 @@ def test_separation_branch_only_normalizes_executable_body(selector):
 
 
 @pytest.mark.parametrize("classification", [False, True])
-def test_normalized_shorthand_executes_real_dag_without_legacy(classification, monkeypatch):
+def test_normalized_shorthand_executes_real_dag_without_legacy(classification, monkeypatch, tmp_path):
     import nirs4all
     from nirs4all.pipeline.runner import PipelineRunner
 
@@ -69,7 +69,7 @@ def test_normalized_shorthand_executes_real_dag_without_legacy(classification, m
     splitter = StratifiedKFold(3, shuffle=True, random_state=42) if classification else KFold(3, shuffle=True, random_state=42)
     if classification:
         y = (y > np.median(y)).astype(int)
-    result = nirs4all.run(normalize_model_steps([StandardScaler(), splitter, model]), (X, y), save_charts=False, verbose=0, random_state=42)
+    result = nirs4all.run([StandardScaler(), splitter, model], (X, y), verbose=0, random_state=42, workspace_path=tmp_path)
     assert result.execution_engine == "dag-ml"
     assert result.num_predictions > 0
     assert result._dagml_score_set is not None
