@@ -60,7 +60,10 @@ jobs:
   tests:
     needs: [lint, type-check]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # A cold Windows runner can spend more than 20 minutes resolving and
+    # installing the scientific stack before the unit and integration gates.
+    # Keep the same bounded budget as the fully qualifying release workflow.
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
