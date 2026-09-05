@@ -122,12 +122,14 @@ def test_predict_uses_native_archive_session_without_model_or_legacy_runner(
     assert observed["sample_ids"] == ["p1", "p2"]
 
 
+@pytest.mark.parametrize("environment_value", ["native", " NATIVE "])
 def test_native_environment_selects_archive_prediction(
     monkeypatch: pytest.MonkeyPatch,
+    environment_value: str,
 ) -> None:
     """The process selector reaches native replay without an explicit kwarg."""
 
-    monkeypatch.setenv("N4A_ENGINE", "native")
+    monkeypatch.setenv("N4A_ENGINE", environment_value)
     monkeypatch.setattr(
         "nirs4all.pipeline.dagml.native_archive_replay.predict_methods_archive_v2_raw_result",
         lambda _path, _X, *, sample_ids, **_kwargs: NativeArchivePrediction(
