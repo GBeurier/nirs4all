@@ -265,11 +265,12 @@ def test_public_dispatch_routes_proven_refit_noop_without_mutating_config(monkey
         "train-params",
     ),
 )
-def test_public_dispatch_rejects_every_refit_shape_outside_proven_noop(pipeline: list[Any], expected_key: str) -> None:
-    """All nearby refit forms must retain the strict native refusal."""
+def test_public_dispatch_rejects_every_invalid_refit_shape_outside_proven_noop(pipeline: list[Any], expected_key: str) -> None:
+    """Nearby malformed or unrecognized controls remain fail-closed."""
 
     from nirs4all.pipeline.dagml import run_backend
 
+    assert not _is_supported_native_refit_params_noop(pipeline), expected_key
     with pytest.raises(NotImplementedError, match=expected_key):
         run_backend._dispatch_run(
             pipeline,
@@ -806,7 +807,7 @@ def test_public_dispatch_rejects_metrics_not_supported_by_public_native_selectio
         )
 
 
-def test_public_dispatch_rejects_step_level_train_and_refit_params_before_native_routing() -> None:
+def test_public_dispatch_rejects_unknown_step_level_training_controls_before_native_routing() -> None:
     from nirs4all.pipeline.dagml import run_backend
 
     with pytest.raises(NotImplementedError, match=r"(?=.*train_params)(?=.*refit_params)"):

@@ -32,10 +32,11 @@ def validate_training_control_declarations(value: Any) -> None:
                     raise ValueError(f"{key} must belong to a model step")
                 metadata[f"nirs4all_{key}"] = encode_training_controls(value[key], name=key)
         model = value.get("model")
-        if metadata and not isinstance(model, type) and callable(getattr(model, "get_params", None)):
+        if metadata:
             from sklearn.base import clone
 
             apply_model_training_controls(clone(model), metadata, "FIT_CV")
+            apply_model_training_controls(clone(model), metadata, "REFIT")
         for key, child in value.items():
             if key not in {"params", "train_params", "refit_params", "finetune_params"}:
                 validate_training_control_declarations(child)
