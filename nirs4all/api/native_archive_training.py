@@ -13,6 +13,8 @@ from __future__ import annotations
 import copy
 import importlib
 import json
+import os
+import tempfile
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -184,29 +186,29 @@ class NativeMethodsArchiveRunResult(RunResult):
                 self._native_outcome_contract,
                 self._native_package_contract,
             )
-            reference = self._native_core.write_archive_v2_from_native_payloads(
-                path,
-                manifest,
-                members,
-            )
             from nirs4all.pipeline.dagml.core_archive_replay import (
                 _archive_fingerprint,
                 validate_core_methods_archive_v2,
             )
 
-            validation = validate_core_methods_archive_v2(
-                path,
-                methods_library_path=self._methods_library_path,
-            )
-            archive_fingerprint = _archive_fingerprint(path)
+            path.parent.mkdir(parents=True, exist_ok=True)
+            # Core validates the container; Python validates replay against the
+            # selected runtime before exposing the destination. In particular
+            # failed HPO provenance must not replace an existing good archive.
+            with tempfile.TemporaryDirectory(prefix=".n4a-publish-", dir=path.parent) as staging:
+                candidate = Path(staging) / path.name
+                reference = self._native_core.write_archive_v2_from_native_payloads(candidate, manifest, members)
+                if not isinstance(reference, Mapping):
+                    raise NativeArchiveTrainingError("Core Archive V2 writer returned an invalid reference")
+                archive_id = reference.get("archive_id")
+                archive_sha256 = reference.get("archive_sha256")
+                if not isinstance(archive_id, str) or not isinstance(archive_sha256, str):
+                    raise NativeArchiveTrainingError("Core Archive V2 writer omitted id/checksum evidence")
+                validation = validate_core_methods_archive_v2(candidate, methods_library_path=self._methods_library_path)
+                archive_fingerprint = _archive_fingerprint(candidate)
+                os.replace(candidate, path)
         except Exception as error:
             raise NativeArchiveTrainingError("DAG-ML/Core refused native Archive V2 publication") from error
-        if not isinstance(reference, Mapping):
-            raise NativeArchiveTrainingError("Core Archive V2 writer returned an invalid reference")
-        archive_id = reference.get("archive_id")
-        archive_sha256 = reference.get("archive_sha256")
-        if not isinstance(archive_id, str) or not isinstance(archive_sha256, str):
-            raise NativeArchiveTrainingError("Core Archive V2 writer omitted id/checksum evidence")
         self._native_archive_reference = {
             "archive_id": archive_id,
             "archive_sha256": archive_sha256,
