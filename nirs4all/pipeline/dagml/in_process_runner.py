@@ -155,11 +155,14 @@ def run_cv_refit_bundle(
         )
     )
     node_results = payload.get("node_results", [])
+    from .native_vote import collect_vote_evidence
+
     return {
         "returncode": 0,
         "stdout": "",
         "results": node_results,
         "scores": payload.get("scores"),
+        "classification_evidence": collect_vote_evidence(store),
         # The fitted REFIT estimators the run produced, captured HOST-SIDE from the live `store` the
         # op_callback closed over (P3 Slice 2c-i, D1 — zero ABI change). The store STILL holds the REFIT
         # estimators keyed by the artifact-handle ints, and each REFIT NodeResult carries those same

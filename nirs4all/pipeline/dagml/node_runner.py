@@ -610,7 +610,7 @@ def run_model_node(
                     if isinstance(key, tuple) and len(key) == 5 and key[:3] == ("host_hpo_evidence", node_id, variant_label)
                 ]
 
-    def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
+    def _features(ids: list[str], include_augmented: bool) -> Any:
         # Predict X at the dataset's NATIVE storage dtype too (same parity reason as the fit X above):
         # np.asarray on the resolver's ndarray preserves float32; legacy predicts on float32.
         x: Any
@@ -620,7 +620,10 @@ def run_model_node(
             x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"])
         else:
             x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"])
-        pred = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)
+        return x
+
+    def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
+        pred = np.asarray(estimator.predict(_features(ids, include_augmented)), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
 
@@ -700,6 +703,9 @@ def run_model_node(
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
+    from .native_vote import capture_vote_evidence
+
+    capture_vote_evidence(task, resolver, estimator, predictions, train_ids, _features, _predict, model_store)
     return _build_result(task, predictions, artifacts, artifact_handles, regression_targets)
 
 
