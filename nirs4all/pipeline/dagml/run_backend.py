@@ -6,7 +6,7 @@ drives ``dag-ml-cli`` through the nirs4all process adapter, and maps dag-ml's **
 and the final-test score (``best_rmse``), all computed in Rust — into an in-memory
 :class:`~nirs4all.data.predictions.Predictions`, wrapped in a :class:`~nirs4all.api.result.RunResult`.
 
-No workspace is created and no scoring happens Python-side: the numbers are dag-ml's. Supports the
+The public API persists a workspace projection of the executed results. Supports the
 vertical-slice shape (feature transforms + one model + an OOF/KFold-style splitter). Non-partition
 CV (e.g. ``ShuffleSplit``) is not yet supported by the dag-ml ``FoldSet`` (see migration notes).
 
@@ -25,7 +25,7 @@ import shutil
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 
@@ -182,81 +182,44 @@ def _lower_public_finetune_params(pipeline: Any) -> tuple[list[Any], dict[str, s
         ) from exc
 
 
-# Residual ``run()`` ``**runner_kwargs`` keys the dag-ml path POSITIVELY honors (acts on). The dag-ml
-# backend has its OWN (Rust) execution and never builds a ``PipelineRunner``, so NO ``PipelineRunner`` /
-# ``runner.run()`` option (n_jobs, continue_on_error, max_generation_count, log_*, workspace_path, …)
-# reaches it — the allowlist is EMPTY. Any key present therefore cannot be honored and must fall back to
-# legacy (which DOES build a PipelineRunner from these), rather than be silently dropped. Kept as an
-# explicit name so the rule is visible and a future genuinely-no-op key can be added with proof.
-_HONORED_RUNNER_KWARGS: frozenset[str] = frozenset()
+# Residual options supported by this executor. Unknown options are rejected
+# before work; there is no implicit legacy execution.
+_HONORED_RUNNER_KWARGS: frozenset[str] = frozenset({"workspace_path"})
 
-# Persistence keys that get a CLEARER message than the generic catch-all (they are instances of the same
-# "not honored → fall back" rule, just with a specific reason). Order: these first, then the catch-all.
 _PERSISTENCE_REJECT_MESSAGES: dict[str, str] = {
-    "workspace_path": "engine='dag-ml' creates no workspace, so workspace_path is unsupported; falling back to legacy.",
-    "store_run_id": "engine='dag-ml' creates no workspace store, so store_run_id is unsupported; falling back to legacy.",
-    "keep_datasets": "engine='dag-ml' keeps no dataset snapshots, so keep_datasets is unsupported; falling back to legacy.",
+    "store_run_id": "engine='dag-ml' cannot yet attach execution to an existing store_run_id.",
+    "keep_datasets": "engine='dag-ml' does not yet persist dataset snapshots.",
 }
 
 
 def _reject_unsupported_run_options(*, refit: Any, project: str | None, session: Any, cache: Any, runner_kwargs: dict[str, Any]) -> None:
-    """Raise :class:`DagMlUnsupported` for any run() option the scores-only dag-ml path cannot honor.
+    """Validate execution options before any operator or durable write.
 
-    Forwarding-not-dropping contract (P1b): every option the dag-ml engine genuinely cannot satisfy
-    must raise a CATCHABLE error so ``run()`` falls back to legacy, never silently ignore the user's
-    choice. Only NON-DEFAULT, un-honorable values raise — defaults run natively, so the common
-    ``engine='dag-ml'`` run is untouched:
-
-    * ``refit`` — the engine ALWAYS runs native CV+refit on the single CV winner; only the default
-      ``True`` is honorable. ``False``/``None`` (disable) and a custom selection ``dict``/``list``
-      (top_k/ranking) cannot be expressed, so they fall back.
-    * ``project`` — tagging a run needs the workspace store the in-memory path never creates.
-    * ``session`` — a Session carries a live runner with its OWN workspace + configuration that legacy
-      reuses across runs; the scores-only path creates no runner/workspace and cannot share one, so a
-      non-``None`` session falls back to legacy (which honors ``session.runner``).
-    * ``cache`` — legacy installs the CacheConfig on the runner (→ the orchestrator's StepCache); the
-      in-memory dag-ml path runs no nirs4all StepCache, so a non-``None`` cache falls back to legacy.
-    * ``runner_kwargs`` — the residual ``**runner_kwargs`` are ``PipelineRunner`` / ``runner.run()``
-      options (``n_jobs``, ``continue_on_error``, ``max_generation_count``, ``log_*``, ``workspace_path``,
-      ``store_run_id``, ``keep_datasets``, …). The dag-ml path builds no ``PipelineRunner``, so it honors
-      NONE of them (:data:`_HONORED_RUNNER_KWARGS` is empty). Rather than enumerate each (whack-a-mole),
-      ANY key not in the allowlist falls back to legacy — guaranteeing no runner_kwarg is ever silently
-      dropped. The well-known persistence keys get a clearer message; the rest fall back by the
-      generic rule naming the key.
+    General sessions own DAG results without a PipelineRunner. Workspace and
+    project options are handled by the post-execution storage projection.
+    Unsupported refit/cache/runner options remain explicit parity gaps, never
+    invitations to run a different engine after failure.
     """
     if refit is not True:
-        raise DagMlUnsupported(f"engine='dag-ml' always runs native CV+refit on the single CV winner and cannot honor refit={refit!r} (disable / custom top-k / ranking selection); falling back to legacy.")
-    if project is not None:
-        raise DagMlUnsupported(f"engine='dag-ml' returns scores in memory and creates no workspace store, so it cannot tag the run with project={project!r}; falling back to legacy.")
+        raise DagMlUnsupported(f"engine='dag-ml' always runs native CV+refit on the single CV winner and cannot honor refit={refit!r} (disable / custom top-k / ranking selection).")
     if session is not None:
-        raise DagMlUnsupported("engine='dag-ml' creates no runner/workspace and cannot share a Session's runner+workspace; falling back to legacy (which reuses session.runner).")
+        session._prepare_dagml_run()
     if cache is not None:
-        raise DagMlUnsupported("engine='dag-ml' runs no nirs4all StepCache, so it cannot honor a CacheConfig; falling back to legacy.")
-    # General no-silent-drop rule: ANY runner_kwarg the dag-ml path does not POSITIVELY honor falls back.
+        raise DagMlUnsupported("engine='dag-ml' runs no nirs4all StepCache, so it cannot honor a CacheConfig.")
+    # Unknown execution options are refused before work, never silently dropped.
     for key in runner_kwargs:
         if key in _HONORED_RUNNER_KWARGS:
             continue
         if key in _PERSISTENCE_REJECT_MESSAGES:
             raise DagMlUnsupported(_PERSISTENCE_REJECT_MESSAGES[key])
-        raise DagMlUnsupported(f"engine='dag-ml' builds no PipelineRunner and does not honor the run() option {key!r}; falling back to legacy (which does).")
+        raise DagMlUnsupported(f"engine='dag-ml' does not yet honor the run() option {key!r}.")
 
 
 def preflight_dagml_backend(cli: str) -> None:
-    """Raise :class:`DagMlUnavailable` when NEITHER dag-ml execution mechanism is installed.
+    """Require the in-process extension or an explicitly available DAG CLI.
 
-    The narrow availability gate the ADR-17 cutover added: ``dag-ml`` is now the default engine + a
-    hard dependency, but a wheel install could still be MISSING the native backend (no compiled
-    in-process extension AND no sibling ``dag-ml-cli`` binary). This probe mirrors the router cascade
-    (:func:`~nirs4all.pipeline.dagml.in_process_runner.run_cv_refit_bundle_router`):
-
-    * the in-process PyO3 extension ``dag_ml._dag_ml`` LOADS (Mechanism B is the default), OR
-    * the ``dag-ml-cli`` binary exists at ``cli`` (Mechanism A, the subprocess fallback).
-
-    Either one available → return (the run proceeds). NEITHER → raise :class:`DagMlUnavailable`, the
-    ONE catchable signal ``run()`` turns into a transparent legacy fallback WITH A WARNING. It is the
-    ONLY place that "backend not installed" is decided — deliberately a narrow up-front probe, NOT a
-    blanket ``except ImportError/FileNotFoundError`` around the run, so a genuine dag-ml bug raised
-    DURING execution propagates untouched instead of being swallowed into a silent legacy fallback.
+    Availability failure is reported to the caller before execution. It never
+    changes the selected engine or retries with PipelineRunner.
     """
     from .in_process_runner import _dagml_extension_loads, in_process_enabled
 
@@ -267,7 +230,7 @@ def preflight_dagml_backend(cli: str) -> None:
     raise DagMlUnavailable(
         "the dag-ml backend is not available: the in-process extension 'dag_ml._dag_ml' did not load "
         f"and the dag-ml-cli binary was not found at {cli} (build it: cargo build -p dag-ml-cli --release). "
-        "run() will fall back to the legacy engine."
+        "Install a working DAG-ML runtime before retrying."
     )
 
 
@@ -288,58 +251,41 @@ def run_via_dagml(
     save_charts: bool = True,
     plots_visible: bool = False,
     results_path: str | Path | None = None,
+    verbose: int = 0,
+    save_artifacts: bool | None = None,
+    report_naming: str = "nirs",
 ) -> RunResult:
-    """Execute ``pipeline`` on ``dataset`` via dag-ml-cli; return a RunResult of dag-ml's native scores.
+    """Execute a general pipeline and project its scored results.
 
-    Args:
-        pipeline: nirs4all pipeline (feature transforms, one ``{"model": ...}`` step, and a splitter).
-        dataset: Anything :class:`~nirs4all.data.config.DatasetConfigs` accepts (path/config).
-        name: Legacy ``run()`` pipeline label. Legacy does NOT use it raw — ``PipelineConfigs`` derives
-            the ``config_name`` as ``"config_{hash}"`` (unnamed) / ``"{name}_p0_{hash}"`` (named), with a
-            ``"_refit"`` suffix on the refit rows. HONORED here (not rejected) by DERIVING that exact
-            canonical name (:func:`_derive_config_name`, reusing ``PipelineConfigs`` — no hand-rolled
-            hash) and carrying it on the dag-ml RunResult predictions, so a single-variant run keeps the
-            same ``config_name`` on both engines. A GENERATOR pipeline (winner-only projection, not
-            cleanly variant-mappable) carries ``""`` rather than a wrong name (#55).
-        random_state: Global random seed, applied exactly as legacy ``run()`` does (numpy / random /
-            TF / torch / sklearn) so the stochastic paths (sample augmentation, randomized splitters,
-            and any unseeded stochastic operator) are reproducible on the dag-ml engine too. Seeds the
-            PARENT process (covers the in-process path) AND is THREADED to cli_runner, which seeds the
-            subprocess worker via the PER-CALL child env (``N4A_RANDOM_STATE``) — no ``os.environ``
-            mutation, so no stale-seed leak or concurrency hazard.
-        refit: Legacy ``run()`` refit option. The dag-ml engine ALWAYS runs native CV+refit on the
-            single CV winner, so only ``True`` (the default) is honored; any other value (``False`` /
-            ``None`` to disable, or a custom top-k/ranking ``dict``/``list``) raises
-            :class:`DagMlUnsupported` so ``run()`` falls back to legacy rather than silently ignore it.
-        project: Legacy ``run()`` project tag. Tagging requires the workspace store, which the dag-ml
-            path does not create; a non-``None`` project raises :class:`DagMlUnsupported` → legacy.
-        session: Legacy ``run()`` Session. It carries a live runner + workspace legacy reuses across
-            runs; the scores-only path creates none, so a non-``None`` session raises
-            :class:`DagMlUnsupported` → legacy (which honors ``session.runner``).
-        cache: Legacy ``run()`` CacheConfig. Legacy installs it on the runner's StepCache; the dag-ml
-            path runs no StepCache, so a non-``None`` cache raises :class:`DagMlUnsupported` → legacy.
-        runner_kwargs: The residual legacy ``run()`` ``**runner_kwargs``. Any key whose value requests
-            on-disk persistence the in-memory dag-ml path cannot provide (``workspace_path``,
-            ``store_run_id``, ``keep_datasets=True``) raises :class:`DagMlUnsupported` → legacy; the
-            scores-only-irrelevant keys are accepted.
-        dagml_cli: Path to the ``dag-ml-cli`` binary (defaults to the sibling ``dag-ml`` build).
-        venv_python: Python interpreter the process adapter re-execs under (defaults to the current).
-        workdir: Scratch directory for the run inputs/outputs (defaults to a temp dir).
-        results_path: Native results output ROOT (P3 Slice 2b-i, OFF by default). When given (or when
-            ``$N4A_NATIVE_RESULTS`` is set) the run additionally writes an ADDITIVE native results
-            directory ``<results_path>/<run_id>/`` (``manifest.json`` + ``score_set.json`` +
-            ``predictions.parquet``); env-only defaults to ``./nirs4all_results/<run_id>/``. ``None`` +
-            unset env → nothing written (behaviorally identical to a pure in-memory run). The writer
-            NEVER touches the legacy workspace store.
+    The Rust in-process/CLI runtime is chosen by the execution router. The
+    public API supplies save_artifacts=True by default: persist captured models
+    under workspace/native_results and exact predictions in WorkspaceStore.
+    False omits fitted model persistence; an explicitly requested workspace or
+    project still receives metadata/arrays. None is the internal direct-call
+    memory-only mode. An explicit results_path
+    independently requests the verified native results format.
 
-    Returns:
-        A :class:`~nirs4all.api.result.RunResult` whose ``best_rmse`` is the native final-test score
-        and ``cv_best_score`` is the native cross-fold OOF average.
+    project tags the stored run; session retains the scored result and workspace
+    without constructing PipelineRunner. verbose configures logging, and
+    report_naming selects the existing NIRS/ML metric display labels. Remaining
+    unsupported execution options are rejected before operators execute.
     """
-    # Validate the run() options the scores-only in-memory path cannot honor BEFORE any work: a
-    # non-honorable non-default raises DagMlUnsupported so run() falls back to legacy (never a silent
-    # drop). Defaults pass through untouched, so a plain engine='dag-ml' run is unaffected.
-    _reject_unsupported_run_options(refit=refit, project=project, session=session, cache=cache, runner_kwargs=runner_kwargs or {})
+    # Validate execution and presentation options before any operator runs.
+    if isinstance(verbose, bool) or not isinstance(verbose, int) or verbose not in range(4):
+        raise ValueError("verbose must be an integer from 0 through 3")
+    if save_artifacts is not None and not isinstance(save_artifacts, bool):
+        raise TypeError("save_artifacts must be a bool")
+    if report_naming not in {"nirs", "ml", "auto"}:
+        raise ValueError("report_naming must be 'nirs', 'ml', or 'auto'")
+    effective_runner_kwargs = dict(runner_kwargs or {})
+    if session is not None and session.workspace_path is not None:
+        effective_runner_kwargs.setdefault("workspace_path", session.workspace_path)
+    _reject_unsupported_run_options(refit=refit, project=project, session=session, cache=cache, runner_kwargs=effective_runner_kwargs)
+    from nirs4all.core.logging import configure_logging, get_logger
+
+    configure_logging(verbose=verbose)
+    logger = get_logger(__name__)
+    logger.info("Training pipeline with engine='dag-ml'")
 
     # Apply the honored options. random_state seeds the global RNG exactly as legacy run() does, so the
     # dag-ml engine's stochastic paths (augmentation / randomized splitters) and any unseeded stochastic
@@ -353,10 +299,8 @@ def run_via_dagml(
 
         init_global_random_state(random_state)
 
-    # PREFLIGHT: fail fast (and CATCHABLY) when NEITHER dag-ml mechanism is installed, so run() can
-    # fall back to legacy with a warning instead of crashing deep in a _run_* path. This narrow probe
-    # mirrors the router cascade (in-process .so, else subprocess CLI) and raises ONLY DagMlUnavailable
-    # — a genuine dag-ml runtime/operator error is NOT caught here (it surfaces later and propagates).
+    # Fail before execution if neither DAG mechanism is installed. Ordinary
+    # operator errors later propagate untouched; no execution is retried.
     cli = str(dagml_cli or _default_dagml_cli())
     preflight_dagml_backend(cli)
 
@@ -390,19 +334,30 @@ def run_via_dagml(
             plots_visible=plots_visible,
         )
         _attach_export_spec(result, pipeline, dataset, name, random_state)
-        # NATIVE RESULTS SEAM (P3 Slice 2b-i): write the ADDITIVE native results directory when enabled
-        # (explicit `results_path` OR $N4A_NATIVE_RESULTS) — OFF by default, so a plain run skips this
-        # and is unchanged. Runs here, AFTER the RunResult projection (so it has the raw ScoreSet
-        # captured on `result._dagml_score_set` + the projected predictions) and BEFORE the temp-dir
-        # rmtree below. The writer reads only in-memory state (the ScoreSet + Predictions); it never
-        # imports/instantiates the legacy WorkspaceStore/ArrayStore, preserving the "dag-ml never touches
-        # the legacy store" property.
+        workspace_path = None
+        if save_artifacts or project is not None or "workspace_path" in effective_runner_kwargs:
+            from nirs4all.pipeline.runner import _get_default_workspace_path
+
+            workspace_path = Path(effective_runner_kwargs.get("workspace_path") or _get_default_workspace_path())
+        if save_artifacts and result._dagml_score_set is not None and not native_results_enabled(results_path):
+            assert workspace_path is not None
+            result._dagml_results_dir = write_native_results(result, result._dagml_score_set, workspace_path / "native_results")
+        # Explicit native output remains independent of the workspace option.
+        # The writer verifies real ScoreSet provenance; host-only paths must
+        # not fabricate one to make an unsupported export look portable.
         if native_results_enabled(results_path):
-            # Record the written run dir on the RunResult so a NATIVE export_model (P3 Slice 2c-ii) can
-            # locate the captured fitted REFIT artifact(s) + rehydrate them directly — retiring the P1c
-            # legacy-refit bridge for the single-model case (the bridge stays the fallback when no native
-            # dir exists or the run captured ≠1 loadable artifact).
             result._dagml_results_dir = write_native_results(result, result._dagml_score_set, results_path)  # noqa: SLF001
+        if workspace_path is not None:
+            from .workspace_projection import publish_workspace_result
+
+            publish_workspace_result(result, pipeline, spectro, workspace_path, name=name, project=project, report_naming=report_naming)
+        if session is not None:
+            session._adopt_dagml_result(result, dataset)
+        from nirs4all.visualization.naming import get_metric_names
+
+        selected = result.cv_best
+        metric_names = get_metric_names(cast(Any, report_naming), str(selected.get("task_type", "regression")), str(selected.get("metric", "rmse")))
+        logger.info("DAG-ML completed: %s=%s", metric_names["cv_score"], result.cv_best_score)
         return result
     finally:
         if workdir is None:
@@ -410,10 +365,11 @@ def run_via_dagml(
 
 
 def _attach_export_spec(result: RunResult, pipeline: Any, dataset: Any, name: str, random_state: int | None) -> None:
-    """FREEZE the run inputs on the dag-ml RunResult so .n4a export can re-fit the SAME run on legacy (P1c).
+    """Freeze the authoring inputs for export metadata and explicit legacy-refit compatibility.
 
-    The dag-ml backend has no workspace/artifacts to bundle, so ``RunResult.export()`` re-runs this exact
-    pipeline through the legacy engine on demand. The replay inputs are FROZEN here, at run time, so a later
+    Normal export uses captured fitted artifacts and never trains again. Only
+    ``compatibility='legacy-refit'`` can explicitly request a new legacy training
+    run. The authoring inputs are FROZEN here, at run time, so a later
     mutation of the live ``pipeline`` / in-memory ``dataset`` (arrays, SpectroDataset) cannot make the
     export represent a different run than the one scored:
 
@@ -425,7 +381,7 @@ def _attach_export_spec(result: RunResult, pipeline: Any, dataset: Any, name: st
       arrays (a mutable descriptor that ``_reloadable_path`` returns ``None`` for) — is DEEPCOPIED to
       snapshot it, so a post-run mutation cannot corrupt the export.
 
-    ``_dagml_export_stochastic`` flags a run whose on-export legacy refit MAY differ from the dag-ml-scored
+    ``_dagml_export_stochastic`` flags a run whose explicitly requested legacy refit MAY differ from the dag-ml-scored
     model, so export can WARN. Two signals flag (any → flagged): (a) CERTAIN — a ``sample_augmentation``
     step (the dag-ml run only kept its augmented snapshot in the now-deleted temp dir, re-augmentation is not
     reproducible across processes, and the augmenter's own RNG is not covered by ``run(random_state)``);
@@ -790,6 +746,9 @@ def _dispatch_run(
     # / `variant_model_params` were derived from the ORIGINAL pipeline above, so the dag-ml RunResult keeps
     # the legacy-matching name; `_attach_export_spec` likewise sees the original.
     pipeline = _strip_or_reject_chart_steps(list(pipeline), save_charts=save_charts, plots_visible=plots_visible)
+    from .public_normalization import normalize_model_steps
+
+    pipeline = normalize_model_steps(pipeline)
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an

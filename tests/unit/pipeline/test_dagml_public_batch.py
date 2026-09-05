@@ -13,6 +13,7 @@ from nirs4all.pipeline.dagml.public_batch import DagMLBatchResult, run_dagml_pub
 
 @pytest.mark.parametrize("pipeline_count,dataset_count", [(1, 2), (2, 1), (2, 2)])
 def test_cartesian_batch_runs_real_dag_and_retains_children(pipeline_count, dataset_count, tmp_path, monkeypatch):
+    import nirs4all
     from nirs4all.pipeline.runner import PipelineRunner
 
     def forbidden(*args, **kwargs):
@@ -24,9 +25,9 @@ def test_cartesian_batch_runs_real_dag_and_retains_children(pipeline_count, data
     y = 2 * X[:, 0] - X[:, 1]
     pipelines = [[StandardScaler(), KFold(3, shuffle=True, random_state=42), {"model": Ridge(index + 1)}] for index in range(pipeline_count)]
     datasets = [(X + index * 0.1, y + index * 0.2) for index in range(dataset_count)]
-    result = run_dagml_public(
+    result = nirs4all.run(
         pipelines if pipeline_count > 1 else pipelines[0], datasets if dataset_count > 1 else datasets[0],
-        save_charts=False, save_artifacts=True, random_state=42, name="batch", runner_kwargs={"workspace_path": tmp_path},
+        verbose=0, random_state=42, name="batch", workspace_path=tmp_path,
     )
     assert isinstance(result, DagMLBatchResult)
     assert len(result.runs) == pipeline_count * dataset_count

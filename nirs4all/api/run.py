@@ -1275,24 +1275,13 @@ def run(
         setattr(native_result, "_dual_run_report", report)  # noqa: B010 - private diagnostic seam
         return native_result
 
-    # ADR-17 backend selector. A plain run() now dispatches to the fail-closed native Archive V2
-    # producer above. The dag-ml selector remains available explicitly for its broader native subset.
-    # Legacy remains available only as the explicit compatibility path (`engine="legacy"`).
-    #
-    # FALLBACK POLICY. By default dag-ml fails closed via two catchable signals:
-    #   * SHAPE not yet covered — the catchable coverage-boundary shapes (no splitter, .n4a export,
-    #     rich stacking, non-default refit/session/cache/project/workspace, …) raise DagMlUnsupported,
-    #     a NotImplementedError subclass.
-    #   * BACKEND not installed — the dag-ml preflight raises DagMlUnavailable when NEITHER mechanism
-    #     is present (no in-process extension AND no dag-ml-cli). dag-ml is a HARD dependency, and a
-    #     wheel install missing the native backend now refuses with a structured RtError by default.
-    # In either case the boundary raises a structured RtError and never re-runs on legacy.
-    # ONLY DagMlUnsupported/NotImplementedError/DagMlUnavailable are caught — a GENUINE dag-ml
-    # runtime/operator bug propagates untouched (never silently swallowed into legacy).
+    # The general DAG profile was selected before execution. Capability and
+    # availability errors become typed errors; ordinary operator failures
+    # propagate untouched. Neither case reruns work on the legacy engine.
     if selected_engine == "dag-ml":
         from nirs4all.pipeline.dagml.errors import DagMlUnavailable, DagMlUnsupported
+        from nirs4all.pipeline.dagml.public_batch import run_dagml_public
         from nirs4all.pipeline.dagml.rt import RtError
-        from nirs4all.pipeline.dagml.run_backend import run_via_dagml
 
         def _native_error(exc: Exception) -> RunResult:
             """Map a native capability/backend refusal to the public typed error envelope."""
@@ -1300,27 +1289,11 @@ def run(
             raise rt_error from exc
 
         try:
-            # Forward EVERY run() kwarg that affects the dag-ml run so engine='dag-ml' honors the same
-            # options as legacy (P1b). Two regimes:
-            #   HONORED natively — `random_state` (global seeding, like legacy) and `name` (DERIVED into
-            #     the canonical legacy `config_name` via PipelineConfigs — `config_{hash}` unnamed /
-            #     `{name}_p0_{hash}` named, `_refit` on the refit rows — and carried on the dag-ml
-            #     RunResult predictions; a generator pipeline's winner-only projection carries no
-            #     config_name rather than a wrong one, #55).
-            #   VALIDATED, refuse when un-honorable — `refit`, `session`,
-            #     `cache`, `project`, and the
-            #     workspace/persistence runner_kwargs are checked against what the scores-only in-memory
-            #     dag-ml path can deliver; a non-default value it cannot satisfy raises DagMlUnsupported
-            #     (caught below → RtError), so no user option is ever silently dropped.
-            # Defaults are honored natively and never trigger a fallback, so a plain engine='dag-ml' run
-            # runs natively. The remaining kwargs are presentation/logging-only for the current
-            # score-only path: `save_artifacts=True` (the default) runs natively — the dag-ml run keeps no
-            # on-disk artifacts, but .n4a export is now bridged (P1c): RunResult.export() re-fits the same
-            # pipeline on the legacy engine on demand (a documented best-effort for unseeded-stochastic
-            # shapes; exact for deterministic ones via engine parity); `save_charts=True` is accepted only
-            # because any chart-producing pipeline step is itself unsupported→RtError/fallback policy;
-            # `verbose`/`plots_visible`/`report_naming` affect only logging/display, never the scores.
-            return run_via_dagml(
+            # Forward public options explicitly. The DAG boundary validates
+            # unsupported capabilities before execution; failures never retry
+            # on legacy. Persistence projects the scored result and captured
+            # fitted artifacts, not a second training run during export.
+            return run_dagml_public(
                 pipeline,
                 dataset,
                 name=name,
@@ -1333,6 +1306,9 @@ def run(
                 save_charts=save_charts,
                 plots_visible=plots_visible,
                 results_path=results_path,
+                verbose=verbose,
+                save_artifacts=save_artifacts,
+                report_naming=report_naming,
             )
         except DagMlUnavailable as e:
             return _native_error(e)
