@@ -12,7 +12,7 @@ on:
       methods_package:
         description: "Package spec to install for nirs4all-methods"
         required: false
-        default: "nirs4all-methods>=1.0.17,<2"
+        default: "nirs4all-methods>=1.0.18,<2"
 
 jobs:
   n4m-binding:
@@ -33,7 +33,7 @@ jobs:
 
       - name: Install nirs4all-methods binding
         env:
-          METHODS_PACKAGE: ${{ inputs.methods_package || 'nirs4all-methods>=1.0.17,<2' }}
+          METHODS_PACKAGE: ${{ inputs.methods_package || 'nirs4all-methods>=1.0.18,<2' }}
         run: python -m pip install "$METHODS_PACKAGE"
 
       - name: Verify n4m binding loads
