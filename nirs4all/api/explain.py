@@ -2,8 +2,8 @@
 Module-level explain() function for nirs4all.
 
 This module provides a simple interface for generating SHAP explanations
-for trained nirs4all models. It wraps PipelineRunner.explain() with
-ergonomic defaults and returns a structured ExplainResult.
+for trained nirs4all models. General execution explains a captured predictor;
+the explicitly selected legacy lane retains PipelineRunner.explain().
 
 Example:
     >>> import nirs4all
@@ -25,7 +25,7 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline import PipelineRunner
 
 from .advanced_capabilities import AdvancedApiCapabilityDecision, preflight_advanced_api
-from .result import ExplainResult
+from .result import ExplainResult, RunResult
 from .session import Session
 
 # Type aliases for clarity
@@ -33,6 +33,7 @@ ModelSpec: TypeAlias = (
     dict[str, Any]               # Prediction dict from previous run
     | str                          # Path to bundle (.n4a) or config
     | Path                          # Path to bundle or config
+    | RunResult                     # Captured DAG training result
 )
 
 DataSpec: TypeAlias = (
@@ -116,8 +117,9 @@ def explain(
         **shap_params: Additional SHAP configuration parameters.  The stable
             catch-all also accepts the API-005 control keys ``engine``,
             ``plugin``, and ``allow_fallback`` without changing this frozen
-            signature.  Python SHAP execution requires
-            ``engine="legacy"`` explicitly during the V1 rollback window.
+            signature. General execution selects the installed scientific SHAP
+            adapter and explains the frozen REFIT predictor in raw input space.
+            ``engine="legacy"`` explicitly selects the older runner.
             Common options:
             - feature_names: List of feature names
             - background_samples: Number of background samples
@@ -186,11 +188,19 @@ def explain(
     requested_engine = full_shap_params.pop("engine", None)
     requested_plugin = full_shap_params.pop("plugin", None)
     allow_fallback = full_shap_params.pop("allow_fallback", False)
-    explain_preflight(
+    decision = explain_preflight(
         engine=requested_engine,
         plugin=requested_plugin,
         allow_fallback=allow_fallback,
     ).require()
+    if decision.lane == "plugin":
+        from .general_explain import explain_general
+
+        return explain_general(
+            model, data, name=name, session=session, verbose=verbose,
+            plots_visible=plots_visible, n_samples=n_samples,
+            explainer_type=explainer_type, options=full_shap_params,
+        )
     if isinstance(session, Session):
         session._prepare_legacy_access("explain")
 
@@ -205,6 +215,8 @@ def explain(
     runner = session.runner if session is not None else PipelineRunner(mode="explain", verbose=verbose, plots_visible=plots_visible)
 
     # Convert Path to str for compatibility with type hints
+    if isinstance(model, RunResult):
+        model = model.best
     model_arg = str(model) if isinstance(model, Path) else model
     data_arg = str(data) if isinstance(data, Path) else data
 
@@ -221,7 +233,9 @@ def explain(
     # Extract SHAP values from results
     shap_values = shap_results.get("shap_values")
     feature_names = shap_results.get("feature_names")
-    base_value = shap_results.get("expected_value") or shap_results.get("base_value")
+    base_value = shap_results.get("expected_value")
+    if base_value is None:
+        base_value = shap_results.get("base_value")
 
     # Build visualizations dict from output directory
     visualizations = {}
