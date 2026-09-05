@@ -1693,11 +1693,29 @@ class PipelineOrchestrator:
             str(e.get("id")): str(e.get("chain_id") or "")
             for e in source_entries
         }
-        # Index source entries by (fold_id, partition) to map twins to siblings.
-        source_index = {
-            (str(e.get("fold_id") or ""), str(e.get("partition") or ""), str(e.get("model_name") or ""), str(e.get("branch_id") or "")): e
-            for e in source_entries
-        }
+        # Index source entries by a stable variant identity.  A model name is
+        # not sufficient: one pipeline may contain several variants of the
+        # same estimator at different steps (or with different preprocessing).
+        # Keep every candidate so an unexpected duplicate is refused below
+        # instead of silently letting the last dict entry win.
+        def sibling_key(entry: dict[str, Any], *, fold_id: str | None = None) -> tuple[str, ...]:
+            pipeline_id = entry.get("pipeline_uid") or entry.get("pipeline_id") or ""
+            effective_fold = str(entry.get("fold_id") or "") if fold_id is None else fold_id
+            return (
+                str(pipeline_id),
+                str(entry.get("step_idx") if entry.get("step_idx") is not None else ""),
+                str(entry.get("op_counter") if entry.get("op_counter") is not None else ""),
+                effective_fold,
+                str(entry.get("partition") or ""),
+                str(entry.get("model_name") or ""),
+                str(entry.get("model_classname") or ""),
+                str(entry.get("branch_id") if entry.get("branch_id") is not None else ""),
+                str(entry.get("preprocessings") or ""),
+            )
+
+        source_index: dict[tuple[str, ...], list[dict[str, Any]]] = {}
+        for source_entry in source_entries:
+            source_index.setdefault(sibling_key(source_entry), []).append(source_entry)
         affected_chain_ids: set[str] = set()
         array_records: list[dict[str, Any]] = []
         for twin_row in twins.iter_entries():
@@ -1705,14 +1723,16 @@ class PipelineOrchestrator:
             if not twin_fold.endswith("_agg"):
                 continue
             base_fold = twin_fold[:-4]
-            sibling = source_index.get((
-                base_fold,
-                str(twin_row.get("partition") or ""),
-                str(twin_row.get("model_name") or ""),
-                str(twin_row.get("branch_id") or ""),
-            ))
-            if sibling is None:
+            key = sibling_key(twin_row, fold_id=base_fold)
+            sibling_candidates = source_index.get(key, [])
+            if len(sibling_candidates) != 1:
+                logger.warning(
+                    f"Skipping persistence of aggregated twin {twin_row.get('id')}: "
+                    f"expected one source prediction for variant identity {key}, "
+                    f"found {len(sibling_candidates)}"
+                )
                 continue
+            sibling = sibling_candidates[0]
             chain_id = sibling_chain_ids.get(str(sibling.get("id")), "") or str(sibling.get("chain_id") or "")
             pipeline_id = str(sibling.get("pipeline_uid") or sibling.get("pipeline_id") or "")
             if not chain_id or not pipeline_id:

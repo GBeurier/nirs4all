@@ -866,14 +866,23 @@ class TestAggregationEndToEnd:
                 plt.close(fig)
 
     def test_store_reload_preserves_variant_step_idx_lookup(self, repetition_data, tmp_path):
-        """Reloaded predictions must preserve step_idx for variant-specific queries."""
+        """Aggregated twins must retain the chain of same-name model variants."""
         data_path, _, _, _ = repetition_data
 
         ws_path = tmp_path / "workspace"
         ws_path.mkdir()
 
         dataset_config = self._make_dataset_config(data_path)
-        pipeline_config = self._make_pipeline_config()
+        pipeline_config = PipelineConfigs(
+            [
+                MinMaxScaler(),
+                ShuffleSplit(n_splits=3, test_size=0.25, random_state=42),
+                {"model": PLSRegression(n_components=3)},
+                {"model": PLSRegression(n_components=5)},
+                {"model": PLSRegression(n_components=10)},
+            ],
+            "test_e2e_agg_same_name_variants",
+        )
 
         runner = PipelineRunner(
             save_artifacts=False,
@@ -881,20 +890,25 @@ class TestAggregationEndToEnd:
             verbose=0,
             workspace_path=str(ws_path),
         )
-        predictions, _ = runner.run(pipeline_config, dataset_config)
-
-        best_raw = predictions.top(
-            1,
-            rank_metric="rmse",
-            rank_partition="test",
-            display_partition="test",
-            score_scope="refit",
-            by_repetition=False,
-        )[0]
-        model_name = best_raw["model_name"]
-        step_idx = best_raw["step_idx"]
+        runner.run(pipeline_config, dataset_config)
 
         reloaded = Predictions.from_workspace(ws_path)
+        final_rows = reloaded.iter_entries("final")
+        final_agg_rows = reloaded.iter_entries("final_agg")
+        expected_steps = {3, 4, 5}
+
+        assert {row["step_idx"] for row in final_rows} == expected_steps
+        assert {row["step_idx"] for row in final_agg_rows} == expected_steps
+        assert len(final_rows) == 2 * len(expected_steps)
+        assert len(final_agg_rows) == 2 * len(expected_steps)
+        assert {
+            (row["step_idx"], row["chain_id"])
+            for row in final_rows
+        } == {
+            (row["step_idx"], row["chain_id"])
+            for row in final_agg_rows
+        }
+
         matched = reloaded.top(
             1,
             rank_metric="rmse",
@@ -902,12 +916,12 @@ class TestAggregationEndToEnd:
             display_partition="test",
             score_scope="refit",
             by_repetition=True,
-            model_name=model_name,
-            step_idx=step_idx,
+            model_name="PLSRegression",
+            step_idx=3,
         )
 
         assert len(matched) == 1
-        assert matched[0]["step_idx"] == step_idx
+        assert matched[0]["step_idx"] == 3
         assert matched[0].get("aggregated", False)
 
     def test_repetition_no_leakage_across_folds(self, repetition_data):
