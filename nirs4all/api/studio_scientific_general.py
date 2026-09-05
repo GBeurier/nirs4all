@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import math
 import re
+from importlib import import_module
 from pathlib import Path
 from typing import Any, cast
 
@@ -27,6 +28,9 @@ STUDIO_GENERAL_RESULT_SCHEMA = "nirs4all.studio-scientific-job-result.v2"
 MAX_GENERAL_REQUEST_BYTES = 8 * 1024 * 1024
 MAX_GENERAL_RESPONSE_BYTES = 256 * 1024
 _PACKAGE_PREFIXES = frozenset({"nirs4all", "sklearn", "numpy", "scipy", "xgboost", "lightgbm", "catboost", "torch", "tensorflow"})
+# Product presets authorize these declarations, not the whole optional package.
+# Document editing must not import TabPFN or require its runtime dependencies.
+_OPTIONAL_PRODUCT_OPERATORS = frozenset({"tabpfn.TabPFNRegressor", "tabpfn.TabPFNClassifier"})
 _MODULE_PATH = re.compile(r"^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$")
 _OPTIONS = frozenset({
     "name", "random_state", "verbose", "save_charts", "save_artifacts", "workspace_path",
@@ -56,7 +60,7 @@ def _validate_json(value: Any, depth: int = 0) -> None:
 def _validate_operator_imports(value: Any) -> None:
     """Validate before any canonical declaration can instantiate Python code."""
     if isinstance(value, str) and _MODULE_PATH.fullmatch(value):
-        if value.partition(".")[0] not in _PACKAGE_PREFIXES:
+        if value.partition(".")[0] not in _PACKAGE_PREFIXES and value not in _OPTIONAL_PRODUCT_OPERATORS:
             raise StudioScientificJobError("operator_package_forbidden", f"operator package requires explicit authorization: {value}")
     elif isinstance(value, list):
         for item in value:
@@ -76,6 +80,28 @@ def _finite_or_none(value: Any) -> float | None:
         return None
     number = float(value)
     return number if math.isfinite(number) else None
+
+
+def _preflight_optional_product_operators(value: Any) -> None:
+    """Require optional preset operators only at execution, before construction."""
+    if isinstance(value, str) and value in _OPTIONAL_PRODUCT_OPERATORS:
+        module_name, _, operator_name = value.rpartition(".")
+        try:
+            module = import_module(module_name)
+            getattr(module, operator_name)
+        except (ImportError, AttributeError) as exc:
+            raise StudioScientificJobError(
+                "dependency_missing",
+                f"Cannot execute {value}: install a compatible tabpfn package and its "
+                f"runtime dependencies in the authorized scientific environment ({exc}). "
+                "The preset can still be imported and edited without this optional dependency.",
+            ) from exc
+    elif isinstance(value, list):
+        for item in value:
+            _preflight_optional_product_operators(item)
+    elif isinstance(value, dict):
+        for item in value.values():
+            _preflight_optional_product_operators(item)
 
 
 def validate_studio_pipeline_config(value: Any) -> None:
@@ -141,6 +167,7 @@ def studio_scientific_job_v2(request: object) -> dict[str, Any]:
         raise StudioScientificJobError("invalid_dataset", "dataset must be a canonical library path or config")
     validate_studio_pipeline_config(request["pipeline"])
     _ambient_runtime_preflight()
+    _preflight_optional_product_operators(request["pipeline"])
     pipeline = deserialize_component(request["pipeline"])
     result = cast(RunResult, _run_strict_product(
         pipeline, _inline_dataset_arrays(request["dataset"]), engine="dag-ml", allow_fallback=False,
