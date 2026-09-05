@@ -176,3 +176,49 @@ class TestLoadExcelFunction:
         assert isinstance(data, pd.DataFrame)
         assert isinstance(report, dict)
         assert headers == ["a", "b"]
+
+
+@pytest.mark.parametrize("has_header", [True, False])
+def test_shared_header_alias_keeps_every_excel_data_row(tmp_path, has_header):
+    path = tmp_path / "header_alias.xlsx"
+    values = pd.DataFrame({"first": [1.5, 2.5, 3.5], "second": [5.0, 6.0, 7.0]})
+    values.to_excel(path, index=False, header=has_header)
+    data, report, _, _, _ = load_excel(path, has_header=has_header)
+    assert report["error"] is None
+    np.testing.assert_array_equal(data.to_numpy(), values.to_numpy())
+
+
+@pytest.mark.parametrize("options", [
+    {"has_header": True, "header": None},
+    {"has_header": False, "header": 0},
+    {"has_header": "false"},
+])
+def test_conflicting_header_alias_fails_before_excel_read(tmp_path, monkeypatch, options):
+    monkeypatch.setattr(pd, "read_excel", lambda *a, **k: pytest.fail("invalid options must fail before read"))
+    result = ExcelLoader().load(tmp_path / "unopened.xlsx", **options)
+    assert not result.success
+    assert "has_header" in result.error
+
+
+def test_header_alias_preserves_explicit_header_row_sheet_and_columns(tmp_path):
+    path = tmp_path / "sheets.xlsx"
+    values = pd.DataFrame({"a": [1, 2], "b": [3, 4]})
+    with pd.ExcelWriter(path) as writer:
+        pd.DataFrame({"other": [99]}).to_excel(writer, sheet_name="first", index=False)
+        values.to_excel(writer, sheet_name="wanted", index=False, startrow=1)
+    result = ExcelLoader().load(path, has_header=True, header=1, sheet_name="wanted", usecols=["b"])
+    assert result.success
+    np.testing.assert_array_equal(result.data.to_numpy(), values[["b"]].to_numpy())
+
+
+def test_shared_numeric_and_metadata_options_are_not_forwarded_to_pandas(tmp_path):
+    path = tmp_path / "metadata.xlsx"
+    values = pd.DataFrame({"subject": ["alpha", "beta"], "measurement": ["1,25", "2,50"]})
+    values.to_excel(path, index=False)
+    result = ExcelLoader().load(path, data_type="metadata", categorical_mode="preserve",
+                                has_header=True, delimiter=";", encoding="utf-8", decimal_separator=",")
+    assert result.success
+    assert result.data["subject"].tolist() == ["alpha", "beta"]
+    np.testing.assert_array_equal(result.data["measurement"].to_numpy(), [1.25, 2.5])
+    assert result.report["categorical_mode"] == "preserve"
+    assert len(result.report["warnings"]) == 2
