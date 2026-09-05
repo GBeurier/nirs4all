@@ -171,6 +171,17 @@ def _lower_public_finetune_params(pipeline: Any) -> tuple[list[Any], dict[str, s
     steps = list(pipeline)
     if not _has_finetune_params(steps):
         return steps, {}
+    from .host_finetune import is_host_finetune, validate_host_finetune
+
+    host_steps = [step for step in steps if isinstance(step, dict) and isinstance(step.get("finetune_params"), dict) and is_host_finetune(step["finetune_params"])]
+    if host_steps:
+        host_ids = {id(step) for step in host_steps}
+        if any(isinstance(step, dict) and "finetune_params" in step and id(step) not in host_ids for step in steps):
+            raise NotImplementedError("Mixed deterministic and host optimizer profiles require separate concrete pipelines")
+        return [
+            {**step, "finetune_params": validate_host_finetune(step["finetune_params"])} if id(step) in host_ids else step
+            for step in steps
+        ], {}
     try:
         return lower_deterministic_finetune_params_to_generators(
             steps,
@@ -821,8 +832,8 @@ def _dispatch_run(
     detected_source_concat = _detect_source_concat_merge(list(pipeline), spectro.features_sources())
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
 
-    if _has_finetune_params(list(pipeline)):
-        raise NotImplementedError("engine='dag-ml' did not lower finetune_params before native dispatch; this is an internal routing bug, not a supported execution path.")
+    # Remaining finetune declarations were preflighted as scoped host proposals;
+    # the native model task owns their outer-training boundary.
     # REP FUSION (`rep_to_sources` / `rep_to_pp`, #31): a one-time HOST RESHAPE that turns each replicate
     # of a physical sample into a feature SOURCE (→ MULTI-SOURCE early fusion S3 / MB-PLS S5) or a
     # PROCESSING layer (→ the feature-axis concat S6). After the reshape the unit of analysis is the

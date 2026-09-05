@@ -103,6 +103,25 @@ run; Studio retains that lifecycle. `should_stop` is cooperative cancellation:
 checked before execution, between native scientific tasks, and before publishing
 results. It does not interrupt an individual BLAS/estimator fit mid-call.
 
+General model-local `finetune_params` with `approach="single"` can use the
+host Optuna profile (`engine="optuna"` inside `finetune_params`, or inferred
+from historical sampler/trial controls). Optuna proposes parameters; DAG owns
+the bounded trial loop, native candidate scores and selection. Each outer
+training scope gets its own training-only 80/20 tuning holdout, and the final
+REFIT gets a separate search on the full training partition. Preprocessing and
+target transforms are fitted inside each inner training split. This fixes the
+earlier global-preprocessing/global-parameter leakage, so selected parameters
+and CV values need not equal that historical implementation.
+
+Trial counts, seeds, the installed optimizer's sampler grammar and verbosity
+are honored. Its historical Grid-to-TPE conversion for noncategorical ranges
+remains visible; provenance records the effective sampler. General exports
+retain the searches and the selected fitted predictor, not a resumable Optuna
+study or a Methods checkpoint. They remain trusted Python artifacts, not
+portable Core packages. Adaptive grouped/individual search, progressive pruning,
+parallel trials, persistent studies and multi-phase host searches still require
+qualification; deterministic DAG parameter grids keep their separate contract.
+
 General `generate()` and its convenience methods select the installed
 `nirs4all.python.synthesis.v1` library adapter when no engine/plugin selector
 is supplied. This reuses the scientific synthesis builder, without a legacy

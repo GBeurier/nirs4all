@@ -32,25 +32,25 @@ pytestmark = [pytest.mark.parity]
 pytest.importorskip("dag_ml", reason="dag-ml not importable (core dependency; broken install?)")
 
 
-def test_finetune_best_params_are_cached_per_node_variant(monkeypatch) -> None:
-    """The native callback runs Optuna once and reuses the same best params for fold/refit fits."""
+def test_finetune_best_params_are_cached_only_within_exact_native_scope(monkeypatch) -> None:
+    """A cached tuning result cannot cross a fold or become the REFIT tuning."""
+    from types import SimpleNamespace
+
     from sklearn.ensemble import RandomForestRegressor
 
-    from nirs4all.optimization import optuna as optuna_mod
+    from nirs4all.pipeline.dagml import host_finetune
 
     calls: list[dict] = []
 
-    class FakeOptunaManager:
-        def finetune(self, *args, **kwargs):
-            calls.append(kwargs)
-            return optuna_mod.FinetuneResult(best_params={"n_estimators": 23}, best_value=1.0, n_trials=1)
+    def fake_search(*args, **kwargs):
+        calls.append(kwargs)
+        return {"n_estimators": 23}, {"scope": kwargs["scope"]}
 
     class FakeResolver:
-        _dataset = object()
+        _dataset = SimpleNamespace(task_type="regression")
 
         def partition_wire_ids(self, partition):
-            assert partition == "train"
-            return ["s0", "s1", "s2", "s3"]
+            pytest.fail("tuning requested the global train partition")
 
         def resolve_features(self, ids, include_augmented=True):
             assert ids == ["s0", "s1", "s2", "s3"]
@@ -60,7 +60,7 @@ def test_finetune_best_params_are_cached_per_node_variant(monkeypatch) -> None:
             assert ids == ["s0", "s1", "s2", "s3"]
             return {"values": np.array([0.0, 1.0, 0.0, 1.0])}
 
-    monkeypatch.setattr(optuna_mod, "OptunaManager", FakeOptunaManager)
+    monkeypatch.setattr(host_finetune, "run_scoped_finetune", fake_search)
     graph_node = {
         "metadata": {
             "nirs4all_finetune_params": {
@@ -80,6 +80,8 @@ def test_finetune_best_params_are_cached_per_node_variant(monkeypatch) -> None:
         upstream=[],
         resolver=FakeResolver(),
         model_store=store,
+        task={"phase": "FIT_CV", "fold_id": "fold0"},
+        train_ids=["s0", "s1", "s2", "s3"],
     )
     second = _resolve_finetune_best_params(
         graph_node=graph_node,
@@ -89,9 +91,19 @@ def test_finetune_best_params_are_cached_per_node_variant(monkeypatch) -> None:
         upstream=[],
         resolver=FakeResolver(),
         model_store=store,
+        task={"phase": "FIT_CV", "fold_id": "fold0"},
+        train_ids=["s0", "s1", "s2", "s3"],
     )
     assert first == second == {"n_estimators": 23}
     assert len(calls) == 1
+    _resolve_finetune_best_params(
+        graph_node=graph_node, node_id="model0", variant_label="base",
+        model=RandomForestRegressor(random_state=42), upstream=[], resolver=FakeResolver(), model_store=store,
+        task={"phase": "REFIT", "fold_id": None}, train_ids=["s0", "s1", "s2", "s3"],
+    )
+    assert len(calls) == 2
+    assert calls[0]["scope"]["phase"] == "FIT_CV"
+    assert calls[1]["scope"]["phase"] == "REFIT"
 
 
 def _require_methods_snv_available() -> None:

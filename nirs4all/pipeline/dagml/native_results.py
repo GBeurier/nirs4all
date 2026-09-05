@@ -416,6 +416,10 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
     selected_variant = str(best.get("config_name") or "") if isinstance(best, dict) else ""
 
     score_meta = score_set or {}
+    host_searches = [
+        evidence for artifact in result._dagml_refit_artifacts
+        for evidence in getattr(artifact.get("estimator"), "_nirs4all_host_hpo_history", [])
+    ]
     manifest = {
         "schema_version": MANIFEST_SCHEMA_VERSION,
         "run_id": run_id,
@@ -449,6 +453,8 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         },
     }
     stacking_replay = _stacking_replay_manifest(score_set, artifact_refs)
+    if host_searches:
+        manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
     if stacking_replay is not None:
         manifest["stacking_replay"] = stacking_replay
     for key in ("relation_replay_manifest", "relation_materialization_manifest", "stacking_evaluation"):
