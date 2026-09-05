@@ -873,12 +873,6 @@ def _dispatch_run(
     # across train/val (silent leakage). An unhandled composition therefore fails LOUD here (naming #21)
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
-        if is_classification and getattr(spectro, "aggregate_method", None) == "vote":
-            raise NotImplementedError(
-                "engine='dag-ml' does not yet support classification repetition datasets with "
-                "sample-level vote aggregation; the final-test surface would be scored at the "
-                "repetition row grain instead of the legacy sample-vote grain (backlog #21)."
-            )
         if (
             augmentation_steps
             or detected is not None

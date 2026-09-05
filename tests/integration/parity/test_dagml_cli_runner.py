@@ -2734,8 +2734,8 @@ def test_repetition_unsupported_composition_fails_loud() -> None:
         run_via_dagml(aug_pipeline, configs, dagml_cli=str(_DAGML_CLI))
 
 
-def test_repetition_classification_vote_aggregation_falls_back_boundary() -> None:
-    """Classification repetition + vote aggregation stays on fallback until sample-vote scoring is native."""
+def test_repetition_classification_vote_aggregation_executes_without_fallback() -> None:
+    """Native row scores and captured vote presentation coexist without refitting."""
     from sklearn.ensemble import RandomForestClassifier
 
     from nirs4all.pipeline.dagml.run_backend import run_via_dagml
@@ -2751,8 +2751,9 @@ def test_repetition_classification_vote_aggregation_falls_back_boundary() -> Non
         KFold(n_splits=3, shuffle=True, random_state=42),
         {"model": RandomForestClassifier(n_estimators=20, max_depth=6, random_state=42, n_jobs=1)},
     ]
-    with pytest.raises(NotImplementedError, match=r"classification repetition.*vote aggregation.*#21"):
-        run_via_dagml(pipeline, configs, dagml_cli=str(_DAGML_CLI))
+    result = run_via_dagml(pipeline, configs, dagml_cli=str(_DAGML_CLI))
+    assert np.isfinite(result.cv_best_score)
+    assert len(result.predictions) > 0
 
 
 def test_adaptive_finetune_params_remain_fail_closed_boundary() -> None:

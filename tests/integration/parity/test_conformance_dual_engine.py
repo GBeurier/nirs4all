@@ -396,9 +396,6 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 # coverage-boundary rejects in `run_backend._unsupported_fallback_reason`, so they
 # no longer fall through to the generic concrete route and crash at native setup.
 EXPECTED_REFUSAL: frozenset[str] = frozenset({
-    # Classification repetition vote is intentionally rejected until the native
-    # final-test surface can score at the legacy sample-vote grain (backlog #21).
-    "aggregation_classification_vote",
     # Adaptive Optuna metadata is not part of the deterministic native
     # finetune_params lowering subset.
     "generator_finetune_params_optuna",
