@@ -4,6 +4,7 @@ from typing import Any, Optional, Union
 
 import numpy as np
 from sklearn.base import TransformerMixin
+from sklearn.preprocessing import FunctionTransformer
 
 from nirs4all.core.task_detection import detect_task_type
 from nirs4all.core.task_type import TaskType
@@ -245,6 +246,24 @@ class Targets:
             forced: If True, prevents auto-detection from overriding this value
                    in subsequent processing (e.g., after MinMaxScaler). Default True.
         """
+        if forced and task_type == TaskType.REGRESSION and "raw" in self._data:
+            # Dataset loaders commonly apply the explicit task after ingestion.
+            # Undo automatic categorical encoding before any derived processing
+            # is created; changing just the task label leaves scientifically
+            # different targets in the numeric training view.
+            numeric, transformer = self._converter.convert(self._data["raw"], task_type=task_type)
+            if not np.array_equal(numeric, self._data["numeric"], equal_nan=True) or not isinstance(self._processing_chain.get_transformer("numeric"), FunctionTransformer):
+                if self.num_processings > 2:
+                    raise ValueError("Set regression task_type before target preprocessing: derived processings already use encoded class targets")
+                chain = ProcessingChain()
+                chain.add_processing("raw")
+                chain.add_processing("numeric", ancestor="raw", transformer=transformer)
+                self._data["numeric"] = numeric
+                self._processing_chain = chain
+                self._transformer = TargetTransformer(chain)
+                self._stats_cache.clear()
+            self._task_type_by_processing["raw"] = task_type
+            self._task_type_by_processing["numeric"] = task_type
         self._task_type = task_type
         self._task_type_forced = forced
 
@@ -313,35 +332,36 @@ class Targets:
 
         # First time: initialize structure
         if self.num_processings == 0:
+            numeric_data, transformer = self._converter.convert(
+                targets, task_type=self._task_type if self._task_type_forced else None,
+            )
             # Add "raw" processing (preserves original data types)
             self._data["raw"] = targets.copy()
             self._processing_chain.add_processing("raw", ancestor=None, transformer=None)
 
             # Automatically create "numeric" processing (converts to numeric format)
-            numeric_data, transformer = self._converter.convert(targets)
             self._data["numeric"] = numeric_data
             self._processing_chain.add_processing("numeric", ancestor="raw", transformer=transformer)
 
             # Detect task type when targets are first added (use numeric data for detection)
             if numeric_data.size > 0:
-                self._task_type = detect_task_type(numeric_data)
-                self._task_type_by_processing['numeric'] = self._task_type
+                detected_task = self._task_type if self._task_type_forced and self._task_type is not None else detect_task_type(numeric_data)
+                self._task_type = detected_task
+                self._task_type_by_processing['numeric'] = detected_task
                 # Also store for 'raw' if it exists
                 if 'raw' in self._data:
-                    self._task_type_by_processing['raw'] = self._task_type
+                    self._task_type_by_processing['raw'] = detected_task
         else:
             # Subsequent times: append to existing data
             if targets.shape[1] != self.num_targets:
                 raise ValueError(f"Target data has {targets.shape[1]} targets, expected {self.num_targets}")
-
-            # Append to raw data
-            self._data["raw"] = np.vstack([self._data["raw"], targets])
 
             # Update numeric data using existing transformer
             numeric_data, _ = self._converter.convert(
                 targets,
                 self._processing_chain.get_transformer("numeric")
             )
+            self._data["raw"] = np.vstack([self._data["raw"], targets])
             self._data["numeric"] = np.vstack([self._data["numeric"], numeric_data])
 
         # Invalidate cache

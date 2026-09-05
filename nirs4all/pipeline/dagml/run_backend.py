@@ -771,7 +771,10 @@ def _dispatch_run(
     # (a non-degenerate `_grid_` selects the true CV-best, not index 0). Empty for a non-sweep pipeline.
     variant_model_params = _native_param_variant_model_params(pipeline, name)
 
-    is_classification = "classif" in str(detect_task_type(np.asarray(spectro.y({"partition": "train"}))))
+    resolved_task_type = spectro.task_type
+    if resolved_task_type is None:
+        resolved_task_type = detect_task_type(np.asarray(spectro.y({"partition": "train"})))
+    is_classification = "classif" in str(resolved_task_type)
     # CV-selection metric MUST mirror legacy Predictions._resolve_effective_metric: its DEFAULT for a
     # classification candidate is `balanced_accuracy` (NOT plain `accuracy`), so a classification run on
     # dag-ml ranks/reports the SAME metric legacy does (#60). dag-ml-core exposes a native

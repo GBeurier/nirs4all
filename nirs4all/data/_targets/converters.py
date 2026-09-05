@@ -6,6 +6,8 @@ import numpy as np
 from sklearn.base import TransformerMixin
 from sklearn.preprocessing import FunctionTransformer
 
+from nirs4all.core.task_type import TaskType
+
 from .encoders import FlexibleLabelEncoder
 
 
@@ -33,7 +35,8 @@ class NumericConverter:
 
     @staticmethod
     def convert(data: np.ndarray,
-                existing_transformer: TransformerMixin | None = None
+                existing_transformer: TransformerMixin | None = None,
+                *, task_type: TaskType | None = None,
                 ) -> tuple[np.ndarray, TransformerMixin]:
         """
         Convert raw target data to numeric format.
@@ -46,6 +49,8 @@ class NumericConverter:
         Args:
             data (np.ndarray): Raw target data of any dtype
             existing_transformer (TransformerMixin, optional): Reuse existing transformer if provided (for appending data)
+            task_type: Explicit task override. Regression preserves numerical values,
+                including integer-like measurements, instead of inferring class labels.
 
         Returns:
             Tuple[np.ndarray, TransformerMixin]: Tuple of (numeric_data, transformer)
@@ -78,6 +83,15 @@ class NumericConverter:
         data = np.asarray(data)
         if data.ndim == 1:
             data = data.reshape(-1, 1)
+
+        if task_type == TaskType.REGRESSION:
+            try:
+                numeric = data.astype(np.float32)
+            except (ValueError, TypeError) as exc:
+                raise ValueError("Explicit regression targets must contain numeric values") from exc
+            transformer = FunctionTransformer(validate=False)
+            transformer.fit(numeric)
+            return numeric, transformer
 
         # Check if already numeric
         if np.issubdtype(data.dtype, np.number):
