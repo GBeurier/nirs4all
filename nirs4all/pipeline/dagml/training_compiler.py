@@ -219,6 +219,8 @@ def compile_prepared_training_contracts(
         bundle_id=contracts.bundle_id,
         warnings=warnings,
         diagnostics=diagnostics,
+        methods_inputs=contracts.methods_inputs,
+        methods_library_path=contracts.methods_library_path,
     )
 
 
@@ -230,8 +232,11 @@ def _validate_prepared_contracts(contracts: DagMLPreparedTrainingContracts) -> N
     for key in contracts.data_envelopes:
         if not isinstance(key, str) or not key:
             raise ValueError("data_envelopes keys must be non-empty strings")
-    if not callable(contracts.op_callback):
-        raise TypeError("op_callback must be callable")
+    if contracts.methods_inputs is None:
+        if not callable(contracts.op_callback):
+            raise TypeError("host training op_callback must be callable")
+    elif contracts.op_callback is not None:
+        raise TypeError("portable Methods training must not provide an op_callback")
     _require_non_empty_text("outcome_id", contracts.outcome_id)
     _require_non_empty_text("run_id", contracts.run_id)
     _require_non_empty_text("bundle_id", contracts.bundle_id)
