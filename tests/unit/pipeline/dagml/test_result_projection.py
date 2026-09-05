@@ -8,6 +8,43 @@ from nirs4all.pipeline.dagml.identity import IdentityMap
 from nirs4all.pipeline.dagml.result import _scores_to_run_result
 
 
+def test_projection_keeps_task_metrics_and_native_variant_identity_without_rewriting_raw_scores() -> None:
+    from copy import deepcopy
+
+    from nirs4all.pipeline.dagml.workspace_projection import _projection_group
+
+    scores = {"reports": [
+        {"partition": partition, "fold_id": fold, "variant_id": "variant:base", "producer_node": "model",
+         "metrics": {"rmse": value, "rmse:y": value, "accuracy": 1.0, "accuracy:y": 1.0, "custom_metric": 3.0}}
+        for partition, fold, value in [("validation", "fold0", 0.4), ("final", None, 0.1), ("test", None, 0.2)]
+    ]}
+    original = deepcopy(scores)
+    result = _scores_to_run_result(scores, "dataset", "Ridge", config_name="user_refit", producer="model")
+    rows = result.predictions.filter_predictions(load_arrays=True)
+    assert {row["config_name"] for row in rows} == {"user_refit", "user_refit_refit"}
+    assert {_projection_group(row, "dataset") for row in rows} == {("dataset", "user_refit", "variant:base", "model")}
+    for row in rows:
+        for block in row["scores"].values():
+            assert "accuracy" not in block and "accuracy:y" not in block
+            assert block["custom_metric"] == 3.0
+            assert block["rmse"] == block["rmse:y"]
+    assert scores == original
+    assert result._dagml_score_set is scores
+    # No native identity means no name-based merge, even for a familiar suffix.
+    assert _projection_group({"config_name": "user_refit"}, "dataset") != _projection_group({"config_name": "user"}, "dataset")
+    result.close()
+
+
+def test_classification_projection_does_not_publish_regression_metrics() -> None:
+    scores = {"reports": [{"partition": "validation", "fold_id": "fold0", "variant_id": "variant:base",
+                            "metrics": {"accuracy": 0.8, "balanced_accuracy": 0.7, "rmse": 0.3, "rmse:y": 0.3}}]}
+    result = _scores_to_run_result(scores, "dataset", "Classifier", metric="accuracy", task_type="multiclass_classification")
+    for row in result.predictions.filter_predictions(load_arrays=True):
+        assert row["scores"]["val"] == {"accuracy": 0.8, "balanced_accuracy": 0.7}
+    assert scores["reports"][0]["metrics"]["rmse"] == 0.3
+    result.close()
+
+
 def test_producer_projection_never_pairs_another_models_prediction_arrays() -> None:
     """Two equally sized producer outputs must retain their own arrays and scores."""
     reports = []

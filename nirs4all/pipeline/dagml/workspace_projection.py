@@ -18,6 +18,16 @@ from nirs4all.pipeline.config.component_serialization import serialize_component
 from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
 
 
+def _projection_group(row: dict[str, Any], dataset_name: str) -> tuple[str, str, str, str]:
+    """Resolve native source identity without interpreting user-facing names."""
+    metadata = row.get("result_metadata") or {}
+    source = metadata.get("dagml_projection") if isinstance(metadata, dict) else None
+    if isinstance(source, dict) and source.get("schema") == "nirs4all.dagml-result-projection.v1":
+        return (str(row.get("dataset_name", dataset_name)), str(source["config_name"]),
+                str(source.get("variant_id") or ""), str(source.get("producer_node") or ""))
+    return str(row.get("dataset_name", dataset_name)), str(row.get("config_name", "")), "", ""
+
+
 def publish_workspace_result(
     result: RunResult,
     pipeline: Any,
@@ -36,9 +46,9 @@ def publish_workspace_result(
     this projection must not claim they can replay a CV model.
     """
     template = serialize_component(pipeline)
-    groups: dict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    groups: dict[tuple[str, str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in result.predictions.filter_predictions(load_arrays=True):
-        groups[(str(row.get("dataset_name", spectro.name)), str(row.get("config_name", "")))].append(row)
+        groups[_projection_group(row, spectro.name)].append(row)
 
     with WorkspaceStore(workspace_path) as store:
         owns_run = store_run_id is None
@@ -51,7 +61,9 @@ def publish_workspace_result(
             with store.transaction():
                 captured_step: dict[str, Any] | None = None
                 captured = None
-                selected_config = str(result.best.get("config_name", "")).removesuffix("_refit")
+                selected_row = result.best
+                selected_group = _projection_group(selected_row, spectro.name)
+                selected_model = tuple(str(selected_row.get(field, "")) for field in ("model_name", "branch_id", "branch_name"))
                 if result._dagml_results_dir is not None and len(result._dagml_refit_artifacts) == 1:
                     from .native_results import read_native_results
 
@@ -80,7 +92,8 @@ def publish_workspace_result(
                                 captured_step["dagml_host_replay"][key] = recorded[0]
                 if project is not None:
                     store.set_run_project(run_id, store.get_or_create_project(project))
-                for (dataset_name, config_name), rows in groups.items():
+                for group, rows in groups.items():
+                    dataset_name, config_name, _, _ = group
                     pipeline_id = store.begin_pipeline(
                         run_id, config_name or name, template, [], dataset_name,
                         spectro.content_hash(), original_template=template,
@@ -92,14 +105,14 @@ def publish_workspace_result(
                     def chain_for(
                         row: dict[str, Any], *, chain_ids: dict[tuple[str, str, str], str] = chain_ids,
                         pipeline_id: str = pipeline_id, dataset_name: str = dataset_name,
-                        config_name: str = config_name,
+                        group: tuple[str, str, str, str] = group,
                     ) -> str:
                         key = (str(row.get("model_name", "")), str(row.get("branch_id", "")), str(row.get("branch_name", "")))
                         if key not in chain_ids:
                             replay_step: dict[str, Any] = {}
-                            if captured_step is not None and config_name.removesuffix("_refit") == selected_config:
-                                # One reference per chain, including CV-score and
-                                # final chains; deleting one must not orphan another.
+                            if captured_step is not None and group == selected_group and key == selected_model:
+                                # CV and REFIT rows share one native source chain;
+                                # other models/branches never borrow its artifact.
                                 stored_id = store.save_artifact(captured, captured_step["operator_class"], "model", "joblib")
                                 fingerprint = "sha256:" + hashlib.sha256(store.get_artifact_path(stored_id).read_bytes()).hexdigest()
                                 replay_step = {
