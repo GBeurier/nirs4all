@@ -110,3 +110,43 @@ def test_full_training_keeps_legitimate_passthrough_steps():
     fresh = fresh_training_estimator(source)
     assert fresh.steps[:2] == source.steps[:2]
     assert fresh[-1] is not source[-1]
+
+
+def test_constructor_json_does_not_claim_to_carry_captured_state():
+    from nirs4all.pipeline.config.component_serialization import deserialize_component, serialize_component
+
+    frozen = FrozenTransferTransform(StandardScaler().fit([[1], [2], [3]]))
+    constructor = serialize_component(frozen)
+    assert constructor["params"]["state_fingerprint"] == frozen.state_fingerprint
+    unbound = deserialize_component(constructor)
+    with pytest.raises(ValueError, match="not hydrated"):
+        unbound.fit([[90]])
+
+
+def test_json_cannot_inject_a_process_local_transfer_binding():
+    from nirs4all.pipeline.dagml.operator_routing import route_graph_node
+
+    with pytest.raises(ValueError, match="typed process-local"):
+        route_graph_node({"_nirs4all_transfer_binding": {"operator": "anything"}})
+
+
+def test_native_full_train_hydrates_captured_state_without_legacy(tmp_path, monkeypatch):
+    import nirs4all
+
+    monkeypatch.chdir(tmp_path)
+    # Use the actual dataset storage precision on both sides of the oracle.
+    x = np.random.default_rng(8).normal(size=(24, 4)).astype(np.float32)
+    source = make_pipeline(StandardScaler(), Ridge()).fit(x, x[:, 0])
+    steps = transfer_training_steps(source, None)
+    expected = Ridge().fit(source[:-1].transform(x + 20), x[:, 1]).predict(source[:-1].transform(x + 20))
+
+    def forbid(*args, **kwargs):
+        raise AssertionError("captured preprocessing or legacy runner was fitted")
+
+    monkeypatch.setattr(StandardScaler, "fit", forbid)
+    monkeypatch.setattr("nirs4all.pipeline.PipelineRunner", forbid)
+    with nirs4all.run(steps, (x + 20, x[:, 1]), engine="dag-ml", verbose=0, save_charts=False) as result:
+        exported = result.export(tmp_path / "transfer.n4a")
+        monkeypatch.setattr(Ridge, "fit", forbid)
+        actual = nirs4all.predict(exported, x + 20, verbose=0).y_pred
+        np.testing.assert_allclose(np.asarray(actual).ravel(), expected, atol=1e-6, rtol=1e-6)

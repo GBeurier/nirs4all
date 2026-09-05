@@ -218,6 +218,13 @@ def route_graph_node(node: dict[str, Any], *, variant_overrides: dict[str, Any] 
 
     Normalizes the per-kind operator-ref shape into ``route_operator`` inputs.
     """
+    if "_nirs4all_transfer_binding" in node:
+        from nirs4all.api.general_transfer import BoundTransferOperator
+
+        binding = node["_nirs4all_transfer_binding"]
+        if not isinstance(binding, BoundTransferOperator):
+            raise ValueError("captured transfer binding must be a typed process-local object")
+        return binding.instantiate(variant_overrides)
     kind = node["kind"]
     operator = node["operator"]
     if isinstance(operator, str):
