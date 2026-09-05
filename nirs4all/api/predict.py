@@ -292,6 +292,30 @@ def predict(
             preprocessing_steps=[],
         )
 
+    from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, predict_general_archive
+
+    # Captured host-model archives share the historical .n4a suffix with Core
+    # archives, but carry an explicit ``source_type=dagml_native`` manifest.
+    # Resolve that profile before the generic native-archive path: passing it
+    # through Core would correctly fail Core's strict ZIP/profile validation,
+    # even though the archive is valid for the distinct general DAG profile.
+    general_manifest = general_archive_manifest(model) if isinstance(model, (str, Path)) else None
+    if general_manifest is not None and engine != "legacy":
+        if requested_engine is None and not os.environ.get("N4A_ENGINE"):
+            engine = "dag-ml"
+        if engine != "dag-ml":
+            raise RtError("predict", "unsupported_capability", "this archive requires the general DAG host profile, not portable native replay", unsupported_capability="host_artifact_requires_dagml")
+        if coverage is not None:
+            raise NotImplementedError("general host archive conformal replay requires its separately qualified calibration sidecar")
+        if runner_kwargs:
+            raise TypeError(f"general archive prediction does not accept options: {sorted(runner_kwargs)}")
+        assert isinstance(model, (str, Path))
+        result = predict_general_archive(model, data)
+        return _maybe_publish_predict_result(
+            result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=workspace_path,
+            session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
+        )
+
     core_archive_version: int | None = None
     if isinstance(model, (str, Path)):
         from nirs4all.pipeline.dagml.core_archive_replay import (
@@ -371,8 +395,6 @@ def predict(
             intervals=dict(native.intervals),
         )
 
-    from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, predict_general_archive
-
     # A general workspace chain names a captured REFIT artifact, never an
     # implicit legacy executor or a fabricated set of CV models. Inspect/load
     # it only when the general profile is allowed before execution.
@@ -395,23 +417,6 @@ def predict(
                 session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
                 chain_id=str(general_chain_id),
             )
-
-    general_manifest = general_archive_manifest(model) if isinstance(model, (str, Path)) else None
-    if general_manifest is not None and engine != "legacy":
-        if requested_engine is None and not os.environ.get("N4A_ENGINE"):
-            engine = "dag-ml"
-        if engine != "dag-ml":
-            raise RtError("predict", "unsupported_capability", "this archive requires the general DAG host profile, not portable native replay", unsupported_capability="host_artifact_requires_dagml")
-        if coverage is not None:
-            raise NotImplementedError("general host archive conformal replay requires its separately qualified calibration sidecar")
-        if runner_kwargs:
-            raise TypeError(f"general archive prediction does not accept options: {sorted(runner_kwargs)}")
-        assert isinstance(model, (str, Path))
-        result = predict_general_archive(model, data)
-        return _maybe_publish_predict_result(
-            result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=workspace_path,
-            session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
-        )
 
     if _is_calibrated_replayed_prediction_request(model, data):
         result = _predict_from_calibrated_replayed_arrays(
