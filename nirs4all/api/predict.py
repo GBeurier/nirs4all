@@ -278,6 +278,29 @@ def predict(
 
     from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, predict_general_archive
 
+    # A general workspace chain names a captured REFIT artifact, never an
+    # implicit legacy executor or a fabricated set of CV models. Inspect/load
+    # it only when the general profile is allowed before execution.
+    general_chain_id = chain_id or (model.get("chain_id") if isinstance(model, dict) else None)
+    if general_chain_id and (engine == "dag-ml" or (requested_engine is None and not os.environ.get("N4A_ENGINE"))):
+        from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain, predict_general_workspace_chain
+
+        chain_workspace = workspace_path or (session.workspace_path if session is not None else None)
+        if chain_workspace is None and isinstance(model, dict):
+            chain_workspace = model.get("workspace_path")
+        loaded_chain = load_general_workspace_chain(chain_workspace or "workspace", str(general_chain_id))
+        if loaded_chain is not None:
+            if coverage is not None:
+                raise NotImplementedError("general workspace conformal replay requires a qualified calibration sidecar")
+            if runner_kwargs:
+                raise TypeError(f"general workspace prediction does not accept options: {sorted(runner_kwargs)}")
+            result = predict_general_workspace_chain(loaded_chain, data)
+            return _maybe_publish_predict_result(
+                result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=chain_workspace,
+                session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
+                chain_id=str(general_chain_id),
+            )
+
     general_manifest = general_archive_manifest(model) if isinstance(model, (str, Path)) else None
     if general_manifest is not None and engine != "legacy":
         if requested_engine is None and not os.environ.get("N4A_ENGINE"):

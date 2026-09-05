@@ -6,6 +6,7 @@ recalculates scores, or invents a native ScoreSet for host-only execution paths.
 
 from __future__ import annotations
 
+import hashlib
 import math
 from collections import defaultdict
 from pathlib import Path
@@ -48,6 +49,25 @@ def publish_workspace_result(
         )
         try:
             with store.transaction():
+                captured_step: dict[str, Any] | None = None
+                captured = None
+                selected_config = str(result.best.get("config_name", "")).removesuffix("_refit")
+                if result._dagml_results_dir is not None and len(result._dagml_refit_artifacts) == 1:
+                    from .native_results import read_native_results
+
+                    artifacts = read_native_results(result._dagml_results_dir)["artifacts"]
+                    if len(artifacts) == 1:
+                        captured = artifacts[0]
+                        estimator_type = type(captured["estimator"])
+                        class_name = f"{estimator_type.__module__}.{estimator_type.__qualname__}"
+                        captured_step = {
+                            "step_idx": 0, "operator_class": class_name, "params": {}, "stateless": False,
+                            "dagml_host_replay": {
+                                "schema": "nirs4all.dagml-workspace-refit.v1",
+                                "native_artifact_id": captured["artifact_id"], "target_names": result._dagml_target_names,
+                                "scope": "full_training_refit", "cv_artifacts_available": False,
+                            },
+                        }
                 if project is not None:
                     store.set_run_project(run_id, store.get_or_create_project(project))
                 for (dataset_name, config_name), rows in groups.items():
@@ -62,12 +82,25 @@ def publish_workspace_result(
                     def chain_for(
                         row: dict[str, Any], *, chain_ids: dict[tuple[str, str, str], str] = chain_ids,
                         pipeline_id: str = pipeline_id, dataset_name: str = dataset_name,
+                        config_name: str = config_name,
                     ) -> str:
                         key = (str(row.get("model_name", "")), str(row.get("branch_id", "")), str(row.get("branch_name", "")))
                         if key not in chain_ids:
+                            replay_step: dict[str, Any] = {}
+                            if captured_step is not None and config_name.removesuffix("_refit") == selected_config:
+                                # One reference per chain, including CV-score and
+                                # final chains; deleting one must not orphan another.
+                                stored_id = store.save_artifact(captured, captured_step["operator_class"], "model", "joblib")
+                                fingerprint = "sha256:" + hashlib.sha256(store.get_artifact_path(stored_id).read_bytes()).hexdigest()
+                                replay_step = {
+                                    **captured_step, "artifact_id": stored_id,
+                                    "dagml_host_replay": {**captured_step["dagml_host_replay"], "artifact_fingerprint": fingerprint},
+                                }
                             chain_ids[key] = store.save_chain(
-                                pipeline_id, [], -1, str(row.get("model_classname", "")),
-                                str(row.get("preprocessings", "")), "score_only", {}, {},
+                                pipeline_id, [replay_step] if replay_step else [], 0 if replay_step else -1,
+                                str(row.get("model_classname") or replay_step.get("operator_class", "")),
+                                str(row.get("preprocessings", "")), "refit_only" if replay_step else "score_only",
+                                {"final": replay_step["artifact_id"]} if replay_step else {}, {},
                                 branch_path=row.get("branch_path"), dataset_name=dataset_name,
                             )
                         return chain_ids[key]
@@ -75,6 +108,11 @@ def publish_workspace_result(
                     projection = Predictions()
                     projection._buffer = rows  # noqa: SLF001 -- exact existing rows, no score/array reconstruction
                     projection.flush(pipeline_id=pipeline_id, store=store, chain_id_resolver=chain_for)
+                    by_id = {row["id"]: row for row in rows}
+                    for original_row in result.predictions._buffer:
+                        if original_row.get("id") in by_id:
+                            original_row["chain_id"] = by_id[original_row["id"]]["chain_id"]
+                            original_row["workspace_path"] = str(workspace_path)
                     # Workspace readers consume the canonical denormalized chain
                     # summary, not the raw prediction rows. The native runner
                     # has no legacy executor to perform this publication step.
