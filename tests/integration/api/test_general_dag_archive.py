@@ -79,3 +79,39 @@ def test_general_archive_digest_checked_before_unpickling_and_session_binds_sour
         nirs4all.predict(path, X)
     with pytest.raises(ValueError, match="changed"):
         loaded.predict(X)
+
+
+def test_explicit_export_after_memory_only_run_preserves_captured_model(tmp_path, monkeypatch):
+    import nirs4all
+
+    X = np.arange(60, dtype=float).reshape(20, 3)
+    session = nirs4all.Session(pipeline=[KFold(n_splits=2), Ridge()], save_artifacts=False)
+    result = session.run((X, X[:, 0]))
+    assert result._dagml_results_dir is None
+    assert result.artifacts_path is None
+    monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("export retrained"))
+    live = session.predict(X).y_pred
+    archive = session.save(tmp_path / "on-demand.n4a")
+    native_directory = result._dagml_results_dir
+    assert native_directory is not None and native_directory.is_dir()
+    np.testing.assert_array_equal(nirs4all.predict(archive, X).y_pred, live)
+    session.close()
+    assert not native_directory.exists()
+
+
+def test_batch_session_predicts_selected_child_not_last_executed_child(monkeypatch):
+    import nirs4all
+
+    X = np.arange(60, dtype=float).reshape(20, 3)
+    session = nirs4all.Session(pipeline=[
+        [KFold(n_splits=2), Ridge(alpha=0.01)],
+        [KFold(n_splits=2), Ridge(alpha=1000)],
+    ], save_artifacts=False)
+    result = session.run((X, X[:, 0]))
+    assert session._last_result is result
+    selected = result._source_run(None)
+    assert selected is not result.runs[-1]
+    expected = selected._dagml_refit_artifacts[0]["estimator"].predict(X.astype(np.float32))
+    monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("batch replay retrained"))
+    np.testing.assert_array_equal(session.predict(X).y_pred, expected)
+    session.close()

@@ -24,6 +24,7 @@ import threading
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
@@ -1120,6 +1121,7 @@ class RunResult:
     # when branch/source order is recoverable. Other unsupported shapes refuse on the default V1 path unless
     # the caller explicitly requests ``compatibility="legacy-refit"``.
     _dagml_results_dir: Path | None = field(default=None, repr=False)
+    _dagml_export_directory: TemporaryDirectory[str] | None = field(default=None, repr=False)
 
     # Native full-DAG tuning evidence. This is populated by the tuning
     # projection seam before public run(tuning=...) is opened end-to-end. It
@@ -1155,6 +1157,10 @@ class RunResult:
             self._runner.close()
         if self._dagml_legacy_result is not None:
             self._dagml_legacy_result.close()
+        if self._dagml_export_directory is not None:
+            self._dagml_export_directory.cleanup()
+            self._dagml_export_directory = None
+            self._dagml_results_dir = None
 
     def __enter__(self) -> RunResult:
         return self
@@ -1950,6 +1956,21 @@ class RunResult:
             generator = BundleGenerator(workspace_path=workspace_path, verbose=0, store=store)
             return generator.export(source=source, output_path=output_path, format=format)
 
+    def _ensure_dagml_export_results(self) -> None:
+        """Persist captured state only when a memory-only caller explicitly exports."""
+        if self._dagml_results_dir is not None or self._dagml_score_set is None or not self._dagml_refit_artifacts:
+            return
+        from nirs4all.pipeline.dagml.native_results import write_native_results
+
+        directory = TemporaryDirectory(prefix="n4a-export-")
+        try:
+            results_dir = write_native_results(self, self._dagml_score_set, directory.name)
+        except BaseException:
+            directory.cleanup()
+            raise
+        self._dagml_export_directory = directory
+        self._dagml_results_dir = results_dir
+
     def _dagml_native_export_model(self, output_path: str | Path, format: str | None) -> Path | None:
         """Export the CAPTURED native REFIT model directly when EXACTLY ONE concrete artifact exists (2c-ii).
 
@@ -1981,12 +2002,13 @@ class RunResult:
 
         A plain ``y_transform``-less model exports a wrapper that is a pass-through over the estimator.
         """
-        if self._dagml_results_dir is None:
-            return None
         # FORMAT GATE: the native helper writes ONLY joblib bytes, so it may fire only when the request
         # resolves to joblib. Otherwise the default caller refuses unless explicit compatibility was chosen
         # before this helper was attempted.
         if not _request_is_joblib(output_path, format):
+            return None
+        self._ensure_dagml_export_results()
+        if self._dagml_results_dir is None:
             return None
         from nirs4all.pipeline.dagml.native_results import read_native_results
 
@@ -2102,13 +2124,14 @@ class RunResult:
           It is scoped to ONLY the read+rehydrate, so a genuine bug in the bundle write below is never
           swallowed.
         """
-        if self._dagml_results_dir is None:
-            return None
         # FORMAT GATE: the native writer produces the ``.n4a`` ZIP bundle only. A ``n4a.py`` portable-script
         # request refuses by default unless explicit compatibility was chosen before this helper was
         # attempted. ``BundleFormat`` is a ``StrEnum`` so ``== "n4a"`` matches both the bare string and the
         # enum member.
         if format != "n4a":
+            return None
+        self._ensure_dagml_export_results()
+        if self._dagml_results_dir is None:
             return None
         from nirs4all.pipeline.dagml.native_results import read_native_results
 

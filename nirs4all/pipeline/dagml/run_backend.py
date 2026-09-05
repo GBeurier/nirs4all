@@ -321,6 +321,13 @@ def run_via_dagml(
     cli = str(dagml_cli or _default_dagml_cli())
     preflight_dagml_backend(cli)
 
+    from nirs4all.pipeline.config.component_serialization import deserialize_component
+
+    # Public PipelineConfigs/Studio declarations use the library's existing
+    # canonical serialization. Resolve operators before splitter/shape checks;
+    # a serialized KFold must not accidentally enter the no-splitter route.
+    pipeline = deserialize_component(pipeline)
+
     # Materialize the host dataset from ANY input legacy `run()` accepts (path / config /
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
     # skips the in-memory ones, so `_materialize_dataset` wraps them with the legacy normalization.
