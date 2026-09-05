@@ -5,7 +5,59 @@ from __future__ import annotations
 import numpy as np
 
 from nirs4all.pipeline.dagml.identity import IdentityMap
-from nirs4all.pipeline.dagml.result import _scores_to_run_result
+from nirs4all.pipeline.dagml.result import _project_operator_sweep, _scores_to_run_result
+
+
+def _operator_sweep_score(metric: str, value: float) -> dict:
+    return {
+        "reports": [
+            {
+                "partition": partition,
+                "fold_id": fold_id,
+                "variant_id": "variant:base",
+                "producer_node": "model:compat.0",
+                "metrics": {metric: value},
+            }
+            for partition, fold_id in (
+                ("validation", "fold0"),
+                ("validation", "avg"),
+                ("final", None),
+                ("test", None),
+            )
+        ]
+    }
+
+
+def test_operator_sweep_maximizes_regression_r2() -> None:
+    result = _project_operator_sweep(
+        [
+            (_operator_sweep_score("r2", 0.1), "low-r2", False),
+            (_operator_sweep_score("r2", 0.9), "high-r2", False),
+        ],
+        "dataset",
+        "r2",
+        "regression",
+        False,
+        ["low-r2", "high-r2"],
+    )
+
+    assert result.best["model_name"] == "high-r2"
+
+
+def test_operator_sweep_minimizes_classification_log_loss() -> None:
+    result = _project_operator_sweep(
+        [
+            (_operator_sweep_score("log_loss", 0.9), "high-loss", False),
+            (_operator_sweep_score("log_loss", 0.1), "low-loss", False),
+        ],
+        "dataset",
+        "log_loss",
+        "classification",
+        True,
+        ["high-loss", "low-loss"],
+    )
+
+    assert result.best["model_name"] == "low-loss"
 
 
 def test_projection_keeps_task_metrics_and_native_variant_identity_without_rewriting_raw_scores() -> None:

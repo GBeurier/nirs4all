@@ -8,7 +8,53 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 
+from nirs4all.api.result import RunResult
+from nirs4all.data.predictions import Predictions
+from nirs4all.pipeline.dagml.named_stacking import NamedStackingResult
 from nirs4all.pipeline.dagml.public_batch import DagMLBatchResult, run_dagml_public
+
+
+def _named_stacking_leaf(name: str, role: str, score: float) -> RunResult:
+    predictions = Predictions()
+    predictions.add_prediction(
+        dataset_name="dataset",
+        model_name=name,
+        fold_id="final",
+        partition="test",
+        val_score=score,
+        test_score=score,
+        metric="rmse",
+    )
+    predictions._buffer[-1]["stacking_role"] = role  # noqa: SLF001 - construct an exact composite fixture.
+    return RunResult(predictions, {})
+
+
+def test_nested_batch_propagates_explicit_source_until_named_stacking_leaf(tmp_path, monkeypatch):
+    branch = _named_stacking_leaf("high", "base", 0.1)
+    meta = _named_stacking_leaf("meta", "meta", 0.2)
+    nested = NamedStackingResult([branch, meta])
+    outer = DagMLBatchResult([nested])
+    source = branch.best
+    assert nested.best["model_name"] == "meta"
+
+    calls: list[tuple[str, object, object]] = []
+
+    def export_branch(output_path, format="n4a", source=None, chain_id=None, *, compatibility=None):
+        calls.append(("archive", source, chain_id))
+        return output_path
+
+    def export_branch_model(output_path, source=None, format=None, fold=None, *, compatibility=None):
+        calls.append(("model", source, fold))
+        return output_path
+
+    monkeypatch.setattr(branch, "export", export_branch)
+    monkeypatch.setattr(branch, "export_model", export_branch_model)
+    monkeypatch.setattr(meta, "export", lambda *_args, **_kwargs: pytest.fail("meta archive exported"))
+    monkeypatch.setattr(meta, "export_model", lambda *_args, **_kwargs: pytest.fail("meta model exported"))
+
+    assert outer.export(tmp_path / "high.n4a", source=source) == tmp_path / "high.n4a"
+    assert outer.export_model(tmp_path / "high.joblib", source=source) == tmp_path / "high.joblib"
+    assert calls == [("archive", None, None), ("model", None, None)]
 
 
 @pytest.mark.parametrize("pipeline_count,dataset_count", [(1, 2), (2, 1), (2, 2)])

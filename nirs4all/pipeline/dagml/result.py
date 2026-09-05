@@ -53,6 +53,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from nirs4all.api.result import RunResult
+from nirs4all.core.metrics import is_higher_better
 from nirs4all.data.predictions import Predictions
 
 if TYPE_CHECKING:
@@ -752,12 +753,13 @@ def _project_operator_sweep(
     scores_by_variant = [scores for scores, _, _ in variant_scores]
     model_names = [name for _, name, _ in variant_scores]
     cv_scores = [_variant_cv_score(scores, metric) for scores in scores_by_variant]
+    maximize = is_higher_better(metric)
 
     def _rank(index: int) -> float:
         score = cv_scores[index]
         if score != score:  # NaN ranks last
             return float("inf")
-        return -score if is_classification else score  # maximize accuracy, minimize RMSE
+        return -score if maximize else score
 
     winner_index = min(range(len(scores_by_variant)), key=_rank)
     # The legacy refit gate is the WINNER's, not `any`: a splitter GENERATOR (e.g.
