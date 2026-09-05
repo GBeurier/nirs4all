@@ -701,6 +701,9 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     # collapsed at materialization), so this surfaces the aggregation's final-(test) y_pred at parity with
     # legacy (Gap 2). scores/skip_refit unchanged — num_predictions and scores stay score-set-driven.
     result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"])
+    from .native_vote import project_vote_evidence
+
+    project_vote_evidence(result, outcome.get("classification_evidence", []), identity)
     _attach_repetition_prediction_context(result, spectro)
     _add_explicit_aggregate_twins(result, spectro)
     return result
@@ -763,6 +766,10 @@ def _add_explicit_aggregate_twin(predictions: Predictions, spectro: Any, entry: 
         sample_indices=None,
         weights=None,
         metadata={},
+        result_metadata={"aggregate_evidence": {
+            "owner": "nirs4all.data.Predictions.aggregate", "source_prediction_id": entry.get("id"),
+            "column": aggregate, "method": method, "partition": partition, "selection_score": False,
+        }},
         partition=partition,
         y_true=agg_y_true,
         y_pred=agg_y_pred,
@@ -847,6 +854,11 @@ def _aggregate_entry_payload(
     agg_y_pred = aggregate_result.get("y_pred")
     if agg_y_true is None or agg_y_pred is None or len(agg_y_true) == 0:
         return None
+    classes = (entry.get("result_metadata") or {}).get("classification_evidence", {}).get("classes")
+    if y_proba is not None and classes is not None:
+        # The aggregation owner returns probability-column positions. Their
+        # explicit classifier labels, not positional integers, are the targets.
+        agg_y_pred = np.asarray(classes)[np.asarray(agg_y_pred, dtype=int)]
 
     try:
         metric_values = eval_list(agg_y_true, agg_y_pred, metric_names)
