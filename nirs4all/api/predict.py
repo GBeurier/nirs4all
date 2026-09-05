@@ -32,6 +32,7 @@ Example:
 
 from __future__ import annotations
 
+import os
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, TypeAlias
@@ -275,6 +276,25 @@ def predict(
             preprocessing_steps=[],
         )
 
+    from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, predict_general_archive
+
+    general_manifest = general_archive_manifest(model) if isinstance(model, (str, Path)) else None
+    if general_manifest is not None and engine != "legacy":
+        if requested_engine is None and not os.environ.get("N4A_ENGINE"):
+            engine = "dag-ml"
+        if engine != "dag-ml":
+            raise RtError("predict", "unsupported_capability", "this archive requires the general DAG host profile, not portable native replay", unsupported_capability="host_artifact_requires_dagml")
+        if coverage is not None:
+            raise NotImplementedError("general host archive conformal replay requires its separately qualified calibration sidecar")
+        if runner_kwargs:
+            raise TypeError(f"general archive prediction does not accept options: {sorted(runner_kwargs)}")
+        assert isinstance(model, (str, Path))
+        result = predict_general_archive(model, data)
+        return _maybe_publish_predict_result(
+            result, data=data, name=name, save_to_workspace=save_to_workspace, workspace_path=workspace_path,
+            session=session, workspace_metadata=workspace_metadata, workspace_result_metadata=workspace_result_metadata,
+        )
+
     if _is_calibrated_replayed_prediction_request(model, data):
         result = _predict_from_calibrated_replayed_arrays(
             model=model,
@@ -450,8 +470,7 @@ def _resolve_publish_workspace_path(workspace_path: str | Path | None, session: 
     """Return the workspace path used for explicit prediction publication."""
 
     if session is not None:
-        runner = getattr(session, "runner", None)
-        candidate = getattr(runner, "workspace_path", None)
+        candidate = session.workspace_path
         if candidate is not None:
             return Path(candidate)
     if workspace_path is not None:

@@ -26,6 +26,7 @@ def publish_workspace_result(
     name: str,
     project: str | None,
     report_naming: str,
+    store_run_id: str | None = None,
 ) -> str:
     """Persist exact prediction rows and durable provenance, returning the run ID.
 
@@ -39,7 +40,8 @@ def publish_workspace_result(
         groups[(str(row.get("dataset_name", spectro.name)), str(row.get("config_name", "")))].append(row)
 
     with WorkspaceStore(workspace_path) as store:
-        run_id = store.begin_run(
+        owns_run = store_run_id is None
+        run_id = store_run_id if store_run_id is not None else store.begin_run(
             name=name,
             config={"engine": result.execution_engine, "pipeline": template, "report_naming": report_naming},
             datasets=[{"name": spectro.name, "hash": spectro.content_hash()}],
@@ -80,16 +82,19 @@ def publish_workspace_result(
                         pipeline_id, selected.get("val_score"), selected.get("test_score"),
                         str(selected.get("metric", "")), 0,
                     )
-                store.complete_run(run_id, {
+                summary = {
                     "execution_engine": result.execution_engine,
                     "num_predictions": result.num_predictions,
                     "native_score_set_available": result._dagml_score_set is not None,  # noqa: SLF001
                     "native_results_dir": str(result._dagml_results_dir) if result._dagml_results_dir else None,  # noqa: SLF001
                     "cv_best_score": result.cv_best_score if math.isfinite(result.cv_best_score) else None,
                     "evaluation": {dataset: metadata["evaluation"] for dataset, metadata in result.per_dataset.items() if "evaluation" in metadata},
-                })
+                }
+                if owns_run:
+                    store.complete_run(run_id, summary)
         except BaseException as error:
-            store.fail_run(run_id, str(error))
+            if owns_run:
+                store.fail_run(run_id, str(error))
             raise
     result._workspace_path = workspace_path  # noqa: SLF001 -- detached result retains its durable workspace
     for metadata in result.per_dataset.values():

@@ -774,6 +774,7 @@ def _dagml_native_bundle_provenance(
         "dagml_bundle_id": native_manifest.get("bundle_id"),
         "dagml_selected_variant": native_manifest.get("selected_variant"),
         "dagml_artifact_count": artifact_count,
+        "target_names": native_manifest.get("target_names", ["y"]),
     }
     if export_shape is not None:
         provenance["dagml_native_export_shape"] = export_shape
@@ -1099,6 +1100,7 @@ class RunResult:
     # VERBATIM. In-memory metadata only; ``None`` for a legacy result.
     _dagml_score_set: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_node_results: list[dict[str, Any]] = field(default_factory=list, repr=False)
+    _dagml_target_names: list[str] = field(default_factory=lambda: ["y"], repr=False)
 
     # The fitted REFIT estimators the dag-ml run produced (P3 Slice 2c-i), captured host-side from the
     # in-process model store at projection time so the native-results writer can joblib-persist them as

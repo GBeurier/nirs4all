@@ -99,6 +99,8 @@ class Session:
         self._last_result: RunResult | None = None
         self._run_history: list[dict[str, Any]] = []
         self._bundle_path: Path | None = None  # Set when loading from bundle
+        self._general_archive_path: Path | None = None
+        self._general_archive_fingerprint: str | None = None
         self._core_archive_path: Path | None = None
         self._core_archive_validation: tuple[Path, CoreArchiveValidation] | None = None
         self._core_archive_fingerprint: str | None = None
@@ -134,6 +136,7 @@ class Session:
             self._last_result is not None
             or self._bundle_path is not None
             or self._core_archive_path is not None
+            or self._general_archive_path is not None
         )
 
     @property
@@ -172,6 +175,8 @@ class Session:
         """Return the existing execution owner without allocating a runner."""
         if self._has_native_state():
             return "native"
+        if self._general_archive_path is not None:
+            return "dag-ml"
         if self._last_result is not None and self._last_result.execution_engine == "dag-ml":
             return "dag-ml"
         if self._runner is not None or self._bundle_path is not None:
@@ -491,6 +496,22 @@ class Session:
                 "Call session.run(dataset) first."
             )
 
+        if self.execution_engine == "dag-ml":
+            import os
+
+            from nirs4all.pipeline.dagml.general_archive import predict_general_archive, predict_general_result
+
+            if requested_engine is None and not os.environ.get("N4A_ENGINE"):
+                selected_engine = "dag-ml"
+            if selected_engine != "dag-ml":
+                raise ValueError("general DAG Session prediction requires engine='dag-ml'; its fitted host model is not a portable native archive")
+            if kwargs:
+                raise TypeError(f"general Session prediction does not accept options: {sorted(kwargs)}")
+            if self._general_archive_path is not None:
+                return predict_general_archive(self._general_archive_path, dataset, expected_archive_fingerprint=self._general_archive_fingerprint)
+            assert self._last_result is not None
+            return predict_general_result(self._last_result, dataset)
+
         if self._core_archive_path is not None:
             from nirs4all.api.result import PredictResult
             from nirs4all.pipeline.dagml.core_archive_replay import (
@@ -690,6 +711,10 @@ class Session:
             ValueError: If session has not been trained.
         """
         self._ensure_open()
+        if self._general_archive_path is not None:
+            from nirs4all.pipeline.dagml.general_archive import copy_general_archive
+
+            return copy_general_archive(self._general_archive_path, path, expected_fingerprint=self._general_archive_fingerprint)
         if not self.is_trained or self._last_result is None:
             raise ValueError(
                 "Session must be trained before saving. "
@@ -722,6 +747,8 @@ class Session:
         self._core_archive_path = None
         self._core_archive_validation = None
         self._core_archive_fingerprint = None
+        self._general_archive_path = None
+        self._general_archive_fingerprint = None
         self._closed = True
         self._status = "closed"
 
@@ -810,6 +837,18 @@ def load_session(path: str | Path, *, methods_library_path: str | Path | None = 
         loaded._core_archive_path = path
         loaded._core_archive_validation = validation
         loaded._core_archive_fingerprint = source_fingerprint
+        return loaded
+
+    from nirs4all.pipeline.dagml.general_archive import general_archive_manifest, load_general_archive
+
+    if general_archive_manifest(path) is not None:
+        if methods_library_path is not None:
+            raise ValueError("methods_library_path is supported only for Core Archive V2 sessions")
+        archive = load_general_archive(path)
+        loaded = Session(name=path.stem)
+        loaded._status = "trained"
+        loaded._general_archive_path = path
+        loaded._general_archive_fingerprint = archive["archive_fingerprint"]
         return loaded
 
     from nirs4all.pipeline.bundle import BundleLoader
