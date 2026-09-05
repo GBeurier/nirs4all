@@ -17,6 +17,7 @@ The public Python API runs that contract directly. The CLI currently validates a
 | --- | --- | --- | --- |
 | `nirs4all.run(...)` | Train/evaluate one or many pipelines on one or many datasets | Pipeline spec + dataset spec | `RunResult` |
 | `nirs4all.studio_scientific_job_v1(...)` | Bounded scientific-library callable for Studio's Rust-owned CPython stdio host | Closed, already-resolved JSON value | Bounded JSON-native scientific summary |
+| `nirs4all.studio_scientific_job_v2(...)` | General scientific callable with library workspace persistence | Canonical pipeline/dataset and Rust-authorized workspace | Bounded summary, run IDs and native result paths |
 | `nirs4all.predict(...)` | Predict from a stored chain or exported bundle | `chain_id` or model bundle + data | `PredictResult` |
 | `nirs4all.calibrate(...)` | Fit split-conformal intervals from explicit calibration evidence | Replayed calibration predictions or selected calibration cohort + prediction ids | `CalibratedRunResult` or `PredictResult` |
 | `nirs4all.CONFORMAL_CALIBRATION_METHODS` / `CONFORMAL_CALIBRATION_UNITS` | Discover conformal method and exchangeability-unit vocabularies | None | Tuples aligned with runtime validation and registry schema |
@@ -266,6 +267,32 @@ result = nirs4all.run(
 ```
 
 ## Studio Scientific CPython Host Boundary
+
+The additive `studio_scientific_job_v2(request)` general contract uses schema
+`nirs4all.studio-scientific-job.v2`, operation `run`, `job_id`, a canonical
+pipeline list (as emitted by `serialize_component`), a library dataset path or
+configuration, and `options` containing an absolute `workspace_path` authorized
+by Rust. Optional `engine` and `allow_fallback` must be `dag-ml` and `false`.
+Inline JSON `X`/`y` arrays and batches are supported. Options use the public run
+semantics; unsupported execution capabilities fail without a legacy retry.
+
+V2 persists the library's exact scored predictions and captured model artifacts.
+Its bounded response uses schema `nirs4all.studio-scientific-job-result.v2` and
+contains `job_id`, actual `engine`, and a `result` object with `run_ids`,
+`workspace_path`, `native_results_dirs`, `metric`, nullable `validation_score`,
+`prediction_count`, `model_names`, `dataset_names`, and
+`native_score_sets_available`. The latter must not be treated as true for
+host-only paths lacking native evidence. Missing CV is represented by null,
+not an invented validation score. No full prediction arrays cross this seam.
+
+Requests are limited to 8 MiB and nesting depth 64; responses to 256 KiB.
+Canonical operators are trusted scientific code, not sandboxed code. Imports
+are limited to the installed scientific package allowlist; custom packages
+require separate explicit authorization and are not enabled by arbitrary
+module names. Rust remains the authority for paths, jobs, cancellation, HTTP
+and events. Library workspace writes are not a Python scheduling backend.
+The narrow V1 callable below remains unchanged; V2 is an explicit versioned
+contract, not an automatic widening of V1.
 
 `nirs4all.studio_scientific_job_v1(request)` is a library callable, not an
 HTTP backend. It never opens a socket or caller-supplied path, reads a

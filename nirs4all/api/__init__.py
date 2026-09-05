@@ -119,6 +119,7 @@ from .studio_scientific import (
     StudioScientificJobError,
     studio_scientific_job_v1,
 )
+from .studio_scientific_general import studio_scientific_job_v2
 from .tuning import (
     CONFORMAL_TUNING_SCORE_METRICS,
     FINETUNE_APPROACHES,
@@ -176,6 +177,7 @@ __all__ = [
     # Module-level API functions
     "run",
     "studio_scientific_job_v1",
+    "studio_scientific_job_v2",
     "StudioScientificJobError",
     "STUDIO_SCIENTIFIC_JOB_SCHEMA",
     "STUDIO_SCIENTIFIC_RESULT_SCHEMA",
