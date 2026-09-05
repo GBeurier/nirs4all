@@ -2385,6 +2385,8 @@ def test_public_run_engine_dagml_concat_transform_pca_svd_matches_fold_local_ora
 
     dagml = nirs4all.run(pipeline, dataset, verbose=0, engine="dag-ml")
     assert dagml.execution_engine == "dag-ml"
+    assert dagml._dagml_score_set is not None  # noqa: SLF001 - prove actual DAG execution, not a local Python projection.
+    assert dagml._dagml_refit_artifacts  # noqa: SLF001 - capture the actual scored pipeline for export.
     train = [int(i) for i in dataset.index_column("sample", {"partition": "train"})]
     X = dataset.x_rows(train, layout="2d")
     y = dataset.y({"sample": train})
@@ -2400,12 +2402,12 @@ def test_public_run_engine_dagml_concat_transform_pca_svd_matches_fold_local_ora
         np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), oracle.predict(union.transform(snv.transform(X[val_rows]))).ravel(), rtol=1e-6, atol=1e-6)
 
 
-def test_concat_transform_prematerialized_path_rejects_model_param_sweeps() -> None:
-    """Model-param generators must keep the native generation route, not the prematerialized shortcut."""
+def test_concat_transform_model_param_sweeps_execute_a_native_dag() -> None:
+    """Concrete and generator concat requests both execute the actual native DAG."""
     from sklearn.linear_model import Ridge
 
+    import nirs4all
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
-    from nirs4all.pipeline.dagml.run_paths import _is_concat_transform_prematerialized_pipeline
 
     pipeline = [
         StandardNormalVariate(),
@@ -2414,7 +2416,10 @@ def test_concat_transform_prematerialized_path_rejects_model_param_sweeps() -> N
         {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 0.3]}},
     ]
 
-    assert not _is_concat_transform_prematerialized_pipeline(pipeline)
+    result = nirs4all.run(pipeline, DatasetConfigs(dataset_path("regression")), engine="dag-ml", verbose=0)
+    assert result._dagml_score_set is not None  # noqa: SLF001
+    assert result._dagml_refit_artifacts  # noqa: SLF001
+    assert np.isfinite(result.cv_best_score)
 
 
 # ---------------------------------------------------------------------------
