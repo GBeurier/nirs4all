@@ -63,3 +63,17 @@ def test_cancellation_stops_before_next_native_fit_and_preserves_parent(tmp_path
     fitted.clear()
     nirs4all.run([KFold(n_splits=2), Ridge()], (X, X[:, 0]), save_artifacts=False)
     assert len(fitted) == 3  # cancellation context was reset after the failed invocation
+
+
+def test_canonical_serialized_pipeline_preserves_splitter_and_scientific_output():
+    import nirs4all
+    from nirs4all.pipeline.config.component_serialization import serialize_component
+
+    X = np.arange(60, dtype=float).reshape(20, 3)
+    pipeline = [KFold(n_splits=2), {"model": Ridge()}]
+    original = nirs4all.run(pipeline, (X, X[:, 0]), save_artifacts=False)
+    canonical = nirs4all.run(serialize_component(pipeline), (X, X[:, 0]), save_artifacts=False)
+    assert canonical.execution_engine == "dag-ml"
+    assert canonical.cv_best_score == original.cv_best_score
+    assert canonical.num_predictions == original.num_predictions
+    assert any(frame["lineage"]["phase"] == "FIT_CV" for frame in canonical._dagml_node_results)

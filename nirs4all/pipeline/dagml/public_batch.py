@@ -103,7 +103,12 @@ def run_dagml_public(pipeline: Any, dataset: Any, **options: Any) -> RunResult:
                 if scratch_root is not None:
                     child_options["workdir"] = scratch_root / f"pipeline-{index}-dataset-{dataset_index}"
                 results.append(run_via_dagml(single_pipeline, single_dataset, **child_options))
-        return DagMLBatchResult(results)
+        aggregate = DagMLBatchResult(results)
+        if options.get("session") is not None:
+            # Keep the logical batch as the Session's result, not whichever
+            # child happened to execute last. Individual histories remain exact.
+            options["session"]._last_result = aggregate
+        return aggregate
     except BaseException:
         for result in results:
             result.close()
