@@ -67,6 +67,40 @@ def test_native_statistics_match_full_partition_not_display_sample(tmp_path):
     assert "test" not in preview["spectra_preview_by_partition"]
 
 
+def test_train_only_preview_has_no_test_targets_or_test_target_read(tmp_path, monkeypatch):
+    from nirs4all.data.dataset import SpectroDataset
+
+    original_y = SpectroDataset.y
+
+    def checked_y(self, selector=None, *args, **kwargs):
+        if isinstance(selector, dict) and selector.get("partition") == "test":
+            pytest.fail("Absent test cohort must not read the empty-index target selector")
+        return original_y(self, selector, *args, **kwargs)
+
+    monkeypatch.setattr(SpectroDataset, "y", checked_y)
+    config, data = _csv_dataset(tmp_path, rows=21, test_rows=0)
+    result = preview_dataset(config, max_samples=21)
+    assert result["summary"]["test_samples"] == 0
+    assert set(result["target_distribution_by_partition"]) == {"train", "all"}
+    assert result["target_distribution_by_partition"]["train"]["n_samples"] == 21
+    assert result["target_distribution_by_partition"]["all"]["n_samples"] == 21
+    assert result["target_distribution_by_partition"]["train"]["mean"] == pytest.approx((np.arange(21) * 0.3 + 1.1).mean())
+    np.testing.assert_allclose(result["spectra_preview"]["sample_spectra"], data["train", 0][:5], rtol=1e-6)
+
+
+def test_distinct_test_target_cohort_is_not_replaced_by_train_values(tmp_path):
+    config, _ = _csv_dataset(tmp_path, rows=21, test_rows=7)
+    test_values = np.arange(7) * 0.7 + 100.2
+    pd.DataFrame({"protein": test_values}).to_csv(config["test_y"], index=False)
+    result = preview_dataset(config)
+    train = result["target_distribution_by_partition"]["train"]
+    test = result["target_distribution_by_partition"]["test"]
+    assert (train["n_samples"], test["n_samples"]) == (21, 7)
+    assert train["max"] < test["min"]
+    assert test["mean"] == pytest.approx(test_values.mean())
+    assert result["target_distribution_by_partition"]["all"]["n_samples"] == 28
+
+
 def test_preview_does_not_truncate_wide_source_axes(tmp_path):
     config, _ = _csv_dataset(tmp_path, width=8200, sources=2, rows=6, test_rows=3, metadata=False)
     result = preview_dataset(config)
