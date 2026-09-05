@@ -447,6 +447,10 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
     stacking_replay = _stacking_replay_manifest(score_set, artifact_refs)
     if stacking_replay is not None:
         manifest["stacking_replay"] = stacking_replay
+    for key in ("relation_replay_manifest", "relation_materialization_manifest"):
+        recorded = [metadata[key] for metadata in getattr(result, "per_dataset", {}).values() if isinstance(metadata.get(key), dict)]
+        if recorded and all(value == recorded[0] for value in recorded):
+            manifest[key] = recorded[0]
     return manifest
 
 

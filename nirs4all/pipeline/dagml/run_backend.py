@@ -20,6 +20,7 @@ materialization, exclude/tag resolution, fold construction, score mapping, and t
 
 from __future__ import annotations
 
+import copy
 import os
 import shutil
 import sys
@@ -370,6 +371,11 @@ def run_via_dagml(
         from .envelope import target_names
 
         result._dagml_target_names = target_names(spectro)
+        for key in ("relation_replay_manifest", "relation_materialization_manifest"):
+            relation = getattr(spectro, "_" + key, None)
+            if isinstance(relation, dict):
+                for metadata in result.per_dataset.values():
+                    metadata[key] = copy.deepcopy(relation)
         check_cancellation()
         _attach_export_spec(result, pipeline, dataset, name, random_state)
         workspace_path = None
