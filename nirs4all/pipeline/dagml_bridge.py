@@ -1015,27 +1015,41 @@ def _is_x_node_step(step: Any) -> bool:
 def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> dict[str, Any]:
     """Serialize a live nirs4all pipeline list into dag-ml compat DSL JSON.
 
-    The single-source ``feature_augmentation`` lowering (S6) hstacks the augmented processing layers
-    into one flat 2D matrix (the ``FLAT_2D`` materialization a 2D model already sees). That flattening
-    is only behaviour-preserving when no LATER step must still see the per-layer processing axis — a
-    bare X-transform, a ``concat_transform``, or a second ``feature_augmentation`` after it would be
-    applied per-layer by the legacy path but to the hstacked matrix by the flat lowering. Such a stack
-    needs the 3D data-plane (parallel processing channels), so it fails loud here naming #29/#31; a
-    ``feature_augmentation`` feeding directly into the model (the canonical case) lowers cleanly.
+    After single-source ``feature_augmentation``, ordinary X transforms append
+    to EACH channel's chain before flattening for a 2D model. They must never
+    run on the already-concatenated matrix. All channel estimators still fit on
+    fold-training rows through the normal DAG X-chain. Nested augmentation and
+    concat processing-axis changes require a separately qualified lowering.
 
     Raises:
         NotImplementedError: if a step uses a construct the spike does not yet cover.
     """
-    for index, step in enumerate(pipeline):
-        if isinstance(step, dict) and "feature_augmentation" in step and any(_is_x_node_step(later) for later in pipeline[index + 1 :]):
-            raise NotImplementedError(
-                "dag-ml bridge does not lower a `feature_augmentation` followed by another X-side step "
-                "(a bare transform / `concat_transform` / second `feature_augmentation`): the grown "
-                "processing axis must stay per-layer for that step, which needs the 3D data-plane "
-                "(parallel processing channels); see backlog #29/#31. A feature_augmentation feeding "
-                "directly into the model lowers as a flat feature-axis concat."
-            )
-    return {"id": dsl_id, "pipeline": [_step_to_dsl(step) for step in pipeline]}
+    lowered: list[dict[str, Any]] = []
+    channels: dict[str, Any] | None = None
+    channel_model_seen = False
+    for step in pipeline:
+        if channels is not None and _is_x_node_step(step):
+            if channel_model_seen:
+                raise NotImplementedError("Expand sequential model checkpoints before lowering later per-channel transforms")
+            if isinstance(step, dict):
+                raise NotImplementedError(
+                    "dag-ml bridge does not lower a `feature_augmentation` followed by "
+                    "`concat_transform` or a second `feature_augmentation`; these processing-axis "
+                    "changes need a qualified channel lowering (backlog #29/#31)"
+                )
+            operation = _concat_operation_spec(step)
+            channels["params"]["operations"] = [
+                [*(layer if isinstance(layer, list) else [] if layer is None else [layer]), operation]
+                for layer in channels["params"]["operations"]
+            ]
+            continue
+        node = _step_to_dsl(step)
+        lowered.append(node)
+        if isinstance(step, dict) and "feature_augmentation" in step:
+            channels = node
+        elif channels is not None and isinstance(step, dict) and "model" in step:
+            channel_model_seen = True
+    return {"id": dsl_id, "pipeline": lowered}
 
 
 def _fallback_controller_manifests() -> list[dict[str, Any]]:

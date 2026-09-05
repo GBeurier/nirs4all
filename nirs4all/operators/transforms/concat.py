@@ -92,7 +92,10 @@ def _build_operation(operation: Any) -> Any:
         # Chain [A, B, C] → C(B(A(X))), applied sequentially before concatenation.
         return _Chain([_build_operation(item) for item in operation])
     cls = _import_class(operation["class"])
-    return cls(**operation.get("params", {}))
+    from nirs4all.pipeline.dagml.operator_parameters import decode_constructor_value
+    from nirs4all.pipeline.dagml.operator_routing import _coerce_json_params
+
+    return cls(**_coerce_json_params(cls, decode_constructor_value(operation.get("params", {}))))
 
 
 class FeatureConcat(BaseEstimator, TransformerMixin):
