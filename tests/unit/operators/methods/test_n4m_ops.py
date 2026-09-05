@@ -296,7 +296,7 @@ class TestDualEngine:
 
         # Single-target corpus: the native engine is PLS1 (single-output).
         monkeypatch.setenv("N4A_ENGINE", "legacy")
-        dataset = nirs4all.generate.regression(n_samples=80, random_state=0, target_component=0)
+        dataset = nirs4all.generate.regression(n_samples=80, random_state=0, target_component=0, engine="legacy")
         result = nirs4all.run(
             pipeline=self._pipeline(),
             dataset=dataset,
