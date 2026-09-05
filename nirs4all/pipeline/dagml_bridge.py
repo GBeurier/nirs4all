@@ -121,14 +121,15 @@ def _qualname(obj: Any) -> str:
 
 
 def _json_safe_params(obj: Any) -> dict[str, Any]:
-    """sklearn-style ``get_params()`` coerced to JSON-native values.
-
-    Compile lowers the DSL structurally and never instantiates the operator, so
-    a lossy ``repr`` fallback for exotic values is acceptable here.
-    """
+    """Constructor parameters as JSON, preserving nested sklearn components."""
     if isinstance(obj, type) or not hasattr(obj, "get_params"):
         return {}
-    params: dict[str, Any] = json.loads(json.dumps(obj.get_params(), default=repr))
+    from nirs4all.pipeline.dagml.operator_parameters import encode_constructor_value
+
+    # Deep sklearn params contain aliases such as final_estimator__alpha which
+    # are set_params inputs, not constructor keywords. The component itself
+    # carries its constructor state, including non-default nested parameters.
+    params: dict[str, Any] = json.loads(json.dumps(encode_constructor_value(obj.get_params(deep=False)), default=repr))
     return params
 
 
