@@ -97,7 +97,8 @@ def explain_general(
     supplied_names = options.get("feature_names")
     relation_manifest = getattr(dataset, "_relation_materialization_manifest", None)
     if relation_manifest is None:
-        relation_manifest = loaded.get("manifest", {}).get("relation_replay_manifest")
+        manifest = loaded.get("manifest", {})
+        relation_manifest = manifest.get("relation_materialization_manifest") or manifest.get("relation_replay_manifest")
     relation = derive_relation_explain_lineage(relation_manifest, feature_names=supplied_names, n_features=X.shape[1])
     recorded_names = relation.feature_names if relation is not None else dataset.headers(0)
     default_names = recorded_names if recorded_names is not None and len(recorded_names) == X.shape[1] else [f"feature_{index}" for index in range(X.shape[1])]

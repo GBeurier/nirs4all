@@ -105,6 +105,31 @@ def test_general_explain_preserves_headers_and_relation_level(tmp_path, relation
         result.close()
 
 
+@pytest.mark.parametrize("source", ["archive", "workspace"])
+def test_general_explain_restores_training_relation_provenance_for_plain_new_arrays(tmp_path, source):
+    import nirs4all
+    from nirs4all.data.dataset import SpectroDataset
+
+    X = np.random.default_rng(24).normal(size=(20, 3)).astype(np.float32)
+    dataset = SpectroDataset("aggregated-training")
+    names = ["MIR:1000", "MIR:1100", "MIR:1200"]
+    dataset.add_samples(X, headers=names, header_unit="text", indexes={"partition": "train"})
+    dataset.add_targets(X[:, 0])
+    dataset._relation_materialization_manifest = {
+        "representation": "per_source_aggregate", "headers": names, "shape": [20, 3],
+        "source_ids": ["MIR"], "fingerprint": "persisted-training-materialization",
+    }
+    result = nirs4all.run([Ridge()], dataset, save_charts=False, verbose=0, workspace_path=tmp_path / "workspace")
+    try:
+        model = result.export(tmp_path / "model.n4a") if source == "archive" else result.best
+        explained = explain(model, X[:3], visualizations=[], plots_visible=False, verbose=0, n_samples=3)
+        assert explained.explanation_level == "source_aggregate"
+        assert explained.feature_names == names
+        assert explained.feature_lineage[names[0]]["materialization_fingerprint"] == "persisted-training-materialization"
+    finally:
+        result.close()
+
+
 def test_general_explain_session_rejects_replaced_archive_before_pickle(tmp_path, monkeypatch):
     import joblib
 
