@@ -254,6 +254,7 @@ def run_via_dagml(
     verbose: int = 0,
     save_artifacts: bool | None = None,
     report_naming: str = "nirs",
+    resolved_config_name: str | None = None,
 ) -> RunResult:
     """Execute a general pipeline and project its scored results.
 
@@ -364,6 +365,7 @@ def run_via_dagml(
             random_state,
             save_charts=save_charts,
             plots_visible=plots_visible,
+            resolved_config_name=resolved_config_name,
         )
         from .envelope import target_names
 
@@ -729,6 +731,7 @@ def _dispatch_run(
     random_state: int | None = None,
     save_charts: bool = True,
     plots_visible: bool = False,
+    resolved_config_name: str | None = None,
 ) -> RunResult:
     """Route the materialized run to the matching native dag-ml path and map its scores.
 
@@ -752,7 +755,7 @@ def _dispatch_run(
 
     pipeline, finetune_overrides = _lower_public_finetune_params(pipeline)
     reject_native_training_param_overrides(list(pipeline), context="engine='dag-ml'")
-    config_name = _derive_config_name(pipeline, name)
+    config_name = resolved_config_name if resolved_config_name is not None else _derive_config_name(pipeline, name)
     # The ordered legacy per-variant config names for a SWEEP (empty for a single concrete pipeline). The
     # native-generation and operator-expand paths below project EVERY variant's CV rows (legacy
     # num_predictions parity), labeling them with these (the winner takes index 0 + the "_refit" suffix).

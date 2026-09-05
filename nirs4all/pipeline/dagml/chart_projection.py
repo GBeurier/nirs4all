@@ -132,13 +132,14 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, workspa
         context = context.with_partition(None)
         context = context.with_processing([snapshot.features_processings(source) for source in range(snapshot.features_sources())])
         if processed_target and artifact and artifact["y_transform"] is not None:
-            target = np.asarray(snapshot.y()).reshape(snapshot.num_samples, -1)
+            target = np.asarray(snapshot.y({})).reshape(snapshot.num_samples, -1)
             snapshot.add_processed_targets("chart_refit", artifact["y_transform"].transform(target))
             context = context.with_y("chart_refit")
         controller = next(cls for cls in CONTROLLER_REGISTRY if cls.__module__.startswith("nirs4all.controllers.charts.") and cls.matches(step, parsed.operator, parsed.keyword))
         _, output = controller().execute(parsed, snapshot, context, runtime)
         scope = "captured full-training REFIT transforms; not out-of-fold features" if prefix else "original observed features"
-        summary = f"{parsed.keyword}: {snapshot.num_samples} samples; {scope}. {len(snapshot.folds)} scored cross-validation folds. Numeric inputs and fold memberships are supplied alongside the image."
+        target_scope = "captured REFIT target transform" if processed_target else "original numeric targets"
+        summary = f"{parsed.keyword}: {snapshot.num_samples} samples; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds. Numeric inputs and fold memberships are supplied alongside the image."
         if directory is None:
             print(summary)
         else:
