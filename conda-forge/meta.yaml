@@ -59,7 +59,7 @@ requirements:
     - dag-ml >=0.3.25,<0.4
     - dag-ml-data >=0.2.11,<0.3
     - nirs4all-io >=0.1.18,<0.2
-    - nirs4all-core >=0.3.29,<0.4
+    - nirs4all-core >=0.3.30,<0.4
     - nirs4all-methods >=1.0.18,<2
   # Optional dependencies, mirroring the wheel's pip extras (nirs4all[viz],
   # nirs4all[explain]). Not required to import nirs4all; constrained here only

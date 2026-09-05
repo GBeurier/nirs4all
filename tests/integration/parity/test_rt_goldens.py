@@ -192,7 +192,7 @@ def test_parity_environment_dependencies_are_declared() -> None:
     assert str(project_deps["jsonschema"].specifier) == ">=4.18.0"
     assert str(project_deps["dag-ml"].specifier) == "<0.4,>=0.3.25"
     assert str(project_deps["dag-ml-data"].specifier) == "<0.3,>=0.2.11"
-    assert str(native_deps["nirs4all-core"].specifier) == "<0.4,>=0.3.29"
+    assert str(native_deps["nirs4all-core"].specifier) == "<0.4,>=0.3.30"
     assert str(native_deps["nirs4all-methods"].specifier) == "<2,>=1.0.18"
     assert "shap" in explain_deps
     assert "shap" in dev_deps
