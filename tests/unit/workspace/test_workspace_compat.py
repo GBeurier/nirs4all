@@ -45,6 +45,36 @@ def test_inspect_sqlite_prediction_arrays_reports_legacy(tmp_path):
     assert info.conversion_command == build_conversion_command(workspace)
 
 
+def test_inspect_sqlite_workspace_closes_format_probe(tmp_path, monkeypatch):
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    database = workspace / "store.sqlite"
+    sqlite3.connect(database).close()
+    connections = []
+    original_connect = sqlite3.connect
+
+    class TrackingConnection(sqlite3.Connection):
+        closed = False
+
+        def close(self):
+            self.closed = True
+            return super().close()
+
+    def tracking_connect(*args, **kwargs):
+        kwargs["factory"] = TrackingConnection
+        connection = original_connect(*args, **kwargs)
+        connections.append(connection)
+        return connection
+
+    monkeypatch.setattr(sqlite3, "connect", tracking_connect)
+
+    info = inspect_workspace_format(workspace)
+
+    assert info.format == "sqlite-workspace-v2"
+    assert len(connections) == 1
+    assert connections[0].closed is True
+
+
 def test_inspect_legacy_artifact_reports_conversion_command(tmp_path):
     artifact = tmp_path / "legacy-model.n4a"
     artifact.write_bytes(b"legacy artifact placeholder")

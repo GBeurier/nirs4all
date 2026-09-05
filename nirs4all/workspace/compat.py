@@ -5,6 +5,7 @@ from __future__ import annotations
 import shlex
 import sqlite3
 import warnings
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -61,7 +62,10 @@ def build_conversion_command(path: Path | str, output: Path | str | None = None)
 def _sqlite_has_prediction_arrays(path: Path) -> bool:
     uri = f"file:{path.as_posix()}?mode=ro"
     try:
-        with sqlite3.connect(uri, uri=True) as conn:
+        # ``sqlite3.Connection``'s context manager controls transactions; it
+        # does not close the connection.  Close this format-probe explicitly so
+        # it cannot retain a WAL/SHM sidecar after ``WorkspaceStore`` closes.
+        with closing(sqlite3.connect(uri, uri=True)) as conn:
             row = conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='prediction_arrays'").fetchone()
             return row is not None
     except sqlite3.DatabaseError:
