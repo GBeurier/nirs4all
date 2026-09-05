@@ -60,10 +60,17 @@ def fold_scope(monkeypatch: pytest.MonkeyPatch) -> tuple[FoldData, list[tuple[li
     return data, folds
 
 
-def test_concat_preprocessing_fits_fold_train_only_and_refit_once(fold_scope: Any) -> None:
+def _run_preprocessed_matrix(data: FoldData, folds: list[tuple[list[int], list[int]]]):
+    return run_paths._run_model_on_precomputed_matrix(
+        data.X[:6], data.X[6:], data.targets[:6], data.targets[6:], list(range(6)), [6], folds,
+        Ridge(), data, "rmse", "regression", "scope", branch_id=None, branch_name="",
+        include_refit=True, preprocessing=[RecordingTransform(), StandardScaler()],
+    )
+
+
+def test_matrix_preprocessing_fits_fold_train_only_and_refit_once(fold_scope: Any) -> None:
     data, folds = fold_scope
-    pipeline = [KFold(3), RecordingTransform(), {"concat_transform": [StandardScaler()]}, {"model": Ridge()}]
-    result = run_paths._run_concat_transform_prematerialized(pipeline, data, "rmse", "regression")
+    result = _run_preprocessed_matrix(data, folds)
     assert RecordingTransform.fits[:3] == [
         (tuple(data.X[train, 0]), tuple(data.targets[train].ravel())) for train, _ in folds
     ]
@@ -73,14 +80,13 @@ def test_concat_preprocessing_fits_fold_train_only_and_refit_once(fold_scope: An
 
 def test_validation_changes_do_not_change_first_fold_preprocessing_fit(fold_scope: Any) -> None:
     data, folds = fold_scope
-    pipeline = [KFold(3), RecordingTransform(), {"concat_transform": [StandardScaler()]}, {"model": Ridge()}]
-    first = run_paths._run_concat_transform_prematerialized(pipeline, data, "rmse", "regression")
+    first = _run_preprocessed_matrix(data, folds)
     initial_fit = RecordingTransform.fits[0]
     first.close()
     data.X[folds[0][1], :] += 1000
     data.targets[folds[0][1]] += 2000
     RecordingTransform.fits.clear()
-    second = run_paths._run_concat_transform_prematerialized(pipeline, data, "rmse", "regression")
+    second = _run_preprocessed_matrix(data, folds)
     assert RecordingTransform.fits[0] == initial_fit
     second.close()
 

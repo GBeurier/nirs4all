@@ -69,7 +69,6 @@ from .run_paths import (
     _FUSION_MERGE_NODE_ID,
     _augmentation_is_leakage_free,
     _canonical_source_branch,
-    _is_concat_transform_prematerialized_pipeline,
     _operator_is_stateless,
     _reshape_for_rep_fusion,
     _run_augmentation,
@@ -77,7 +76,6 @@ from .run_paths import (
     _run_by_source_concat_shared_preproc,
     _run_by_source_distinct_preproc_concat,
     _run_by_source_stacking_branch,
-    _run_concat_transform_prematerialized,
     _run_concrete_scores,
     _run_duplication_branch,
     _run_named_metamodel_feature_stack,
@@ -150,8 +148,6 @@ __all__ = [
     "_run_by_source_stacking_branch",
     "_run_rep_fusion",
     "_run_source_concat_merge",
-    "_is_concat_transform_prematerialized_pipeline",
-    "_run_concat_transform_prematerialized",
     "preflight_dagml_backend",
     "run_via_dagml",
 ]
@@ -1109,11 +1105,6 @@ def _dispatch_run(
     # Consume handled `tag` steps AFTER the CV universe is known: tags fit on that train pool and are
     # emitted onto relations, but do not remove samples from the splitter/model pool.
     pipeline, tags_by_sample = _resolve_tags(list(pipeline), spectro, cv_pool)
-
-    # The concrete concat adapter fits every preprocessing operator within each
-    # training fold. Full-pool fitting here would leak validation information.
-    if _is_concat_transform_prematerialized_pipeline(list(pipeline)) and not excluded and not tags_by_sample:
-        return _run_concat_transform_prematerialized(list(pipeline), spectro, metric, task_type, config_name=config_name)
 
     # Param-level model sweeps (`_range_`/`_log_range_`/`_grid_` on a model step) run as ONE native
     # dag-ml run: the bridge lowers them to native `generators`, the compiler expands variants, and
