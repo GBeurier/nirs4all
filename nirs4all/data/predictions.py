@@ -390,9 +390,20 @@ class Predictions:
         # Reload chain-level metadata that is not persisted on prediction rows,
         # such as model_step_idx used for variant-specific lookups after reload.
         chain_context_by_id: dict[str, dict[str, Any]] = {}
+        config_name_by_pipeline: dict[str, str] = {}
+        refit_selection_by_chain = {
+            str(row["chain_id"]): row["val_score"]
+            for row in df.iter_rows(named=True)
+            if str(row.get("fold_id")) == "final_agg"
+            and row.get("chain_id") is not None
+            and row.get("val_score") is not None
+        }
         if "pipeline_id" in df.columns and "chain_id" in df.columns:
             pipeline_ids = {str(pipeline_id) for pipeline_id in df["pipeline_id"].to_list() if pipeline_id is not None and str(pipeline_id)}
             for pipeline_id in pipeline_ids:
+                pipeline = store.get_pipeline(pipeline_id)
+                if pipeline is not None and isinstance(pipeline.get("name"), str):
+                    config_name_by_pipeline[pipeline_id] = pipeline["name"]
                 chains_df = store.get_chains_for_pipeline(pipeline_id)
                 if chains_df.is_empty():
                     continue
@@ -471,15 +482,20 @@ class Predictions:
             elif step_idx is None:
                 step_idx = 0
 
+            val_score = row.get("val_score")
+            if str(row.get("fold_id")) == "final" and val_score is None and chain_id is not None:
+                val_score = refit_selection_by_chain.get(str(chain_id))
+
             self.add_prediction(
                 dataset_name=row.get("dataset_name", ""),
+                config_name=config_name_by_pipeline.get(str(row.get("pipeline_id") or ""), ""),
                 pipeline_uid=row.get("pipeline_id", ""),
                 step_idx=step_idx,
                 model_name=row.get("model_name", ""),
                 model_classname=row.get("model_class", ""),
                 fold_id=row.get("fold_id", ""),
                 partition=row.get("partition", ""),
-                val_score=row.get("val_score"),
+                val_score=val_score,
                 test_score=row.get("test_score"),
                 train_score=row.get("train_score"),
                 metric=row.get("metric", "rmse"),
