@@ -29,9 +29,11 @@ def test_meta_estimator_extraction_does_not_discard_control_declarations():
     }
 
 
-def test_old_source_prediction_stacking_cannot_discard_control_declarations(tmp_path):
-    with pytest.raises(DagMlUnsupported, match="would discard model controls"):
+def test_source_prediction_stacking_rejects_inconsistent_source_layout(tmp_path):
+    from types import SimpleNamespace
+
+    with pytest.raises(DagMlUnsupported, match="aligned per-source feature counts"):
         _run_by_source_stacking_branch(
-            [{"model": Ridge(), "train_params": {"alpha": 3}}], [], None, 2, None,
+            [{"model": Ridge(), "train_params": {"alpha": 3}}], [], None, 2, SimpleNamespace(num_features=[2]),
             "", "", "", tmp_path, "rmse", "regression",
         )

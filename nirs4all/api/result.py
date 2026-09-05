@@ -784,7 +784,13 @@ def _dagml_native_bundle_provenance(
         provenance["retrain_lineage"] = dict(retrain_lineage)
     if native_manifest.get("evaluation"):
         provenance["evaluation"] = native_manifest["evaluation"]
-    for key in ("relation_replay_manifest", "relation_materialization_manifest", "stacking_evaluation", "host_hpo"):
+    for key in (
+        "relation_replay_manifest",
+        "relation_materialization_manifest",
+        "source_stacking",
+        "stacking_evaluation",
+        "host_hpo",
+    ):
         if isinstance(native_manifest.get(key), Mapping):
             provenance[key] = copy.deepcopy(dict(native_manifest[key]))
     return provenance

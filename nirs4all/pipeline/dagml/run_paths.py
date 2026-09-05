@@ -2955,18 +2955,6 @@ def _source_names(spectro: Any, n_sources: int) -> list[str]:
     return names
 
 
-def _source_blocks(spectro: Any, sample_ints: list[int], n_sources: int, reference_blocks: list[np.ndarray] | None = None) -> list[np.ndarray]:
-    if not sample_ints:
-        if reference_blocks is None:
-            return [np.empty((0, 0), dtype=float) for _ in range(n_sources)]
-        return [np.empty((0, block.shape[1]), dtype=block.dtype) for block in reference_blocks]
-    blocks = spectro.x_rows(sample_ints, layout="2d", concat_source=False)
-    normalized = blocks if isinstance(blocks, list) else [blocks]
-    if len(normalized) != n_sources:
-        raise DagMlUnsupported(f"by_source stacking expected {n_sources} source blocks, got {len(normalized)}")
-    return [np.asarray(block) for block in normalized]
-
-
 def _run_by_source_stacking_branch(
     pipeline: list[Any],
     branch_body: list[Any],
@@ -2983,103 +2971,26 @@ def _run_by_source_stacking_branch(
     config_name: str = "",
     random_state: int | None = None,
 ) -> RunResult:
-    """Replay legacy by_source ``merge='predictions'`` stacking without final rows.
+    """Execute actual per-source prediction stacking through native nested OOF.
 
-    Legacy source-branch mode does not build a 3-column OOF meta matrix for this shape. Each source
-    branch mutates its source in sequence, so the branch models see cumulative layouts
-    ``S,R,R`` → ``S,S,R`` → ``S,S,S``. The merge step then writes the concatenated ``S,S,S`` block back to
-    source 0 while preserving sources 1 and 2, so the downstream Ridge sees ``[S,S,S] + S + S`` (10,755
-    columns for the parity fixture). Legacy's refit pass skips by_source stacking, therefore only CV,
-    avg, and w_avg rows are emitted.
+    Source slices precede each branch's preprocessing, fitted inside each
+    native training view. The meta-model consumes predictions, never duplicated
+    spectral blocks. Explicit feature/source concatenation is a separate path.
     """
-    _ = (dataset_arg, cli, venv_python, run_dir, dataset_pickle, random_state)
-    if any(isinstance(step, dict) and {"train_params", "refit_params", "finetune_params"} & step.keys()
-           for step in [*pipeline, *branch_body]):
-        raise DagMlUnsupported(
-            "by_source prediction-stacking needs fold-local native control lowering; "
-            "the historical precomputed-matrix route would discard model controls"
-        )
-    if task_type != "regression":
-        raise DagMlUnsupported("by_source source-layout stacking replay currently supports regression parity only")
+    from .source_stacking import lower_source_stacking
 
-    _, splitter = _split_pipeline(pipeline)
-    if splitter is None:
-        raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
-    if not branch_body or not (isinstance(branch_body[-1], dict) and "model" in branch_body[-1]):
-        raise DagMlUnsupported("by_source stacking replay requires a branch body ending in one model")
-
-    branch_transforms = branch_body[:-1]
-    branch_model = branch_body[-1]["model"]
-    source_names = _source_names(spectro, n_sources)
-    train_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "train"})]
-    test_pool = [int(sample_int) for sample_int in spectro.index_column("sample", {"partition": "test"})]
-    folds = _build_folds(splitter, spectro, train_pool, set())
-    y_train_all = _dataset_y_rows(spectro, train_pool)
-    y_test = _dataset_y_rows(spectro, test_pool) if test_pool else np.empty((0, 1))
-
-    source_train_blocks = _source_blocks(spectro, train_pool, n_sources)
-    source_test_blocks = _source_blocks(spectro, test_pool, n_sources, source_train_blocks)
-
-    combined_rows: list[dict[str, Any]] = []
-    for source_index, source_name in enumerate(source_names):
-        for transform_template in branch_transforms:
-            transform = _clone_operator_instance(transform_template)
-            transform.fit(source_train_blocks[source_index], y_train_all)
-            source_train_blocks[source_index] = np.asarray(transform.transform(source_train_blocks[source_index]))
-            source_test_blocks[source_index] = np.asarray(transform.transform(source_test_blocks[source_index])) if test_pool else source_test_blocks[source_index]
-
-        X_branch_train = np.concatenate(source_train_blocks, axis=1)
-        X_branch_test = np.concatenate(source_test_blocks, axis=1) if test_pool else np.empty((0, X_branch_train.shape[1]))
-        branch_result = _run_model_on_precomputed_matrix(
-            X_branch_train,
-            X_branch_test,
-            y_train_all,
-            y_test,
-            train_pool,
-            test_pool,
-            folds,
-            branch_model,
-            spectro,
-            metric,
-            task_type,
-            config_name,
-            branch_id=source_index,
-            branch_name=source_name,
-        )
-        combined_rows.extend(_prediction_rows_without_refit(branch_result))
-
-    merged_train = np.concatenate(source_train_blocks, axis=1)
-    merged_test = np.concatenate(source_test_blocks, axis=1) if test_pool else np.empty((0, merged_train.shape[1]))
-    X_meta_train = np.concatenate([merged_train, *source_train_blocks[1:]], axis=1)
-    X_meta_test = np.concatenate([merged_test, *source_test_blocks[1:]], axis=1) if test_pool else np.empty((0, X_meta_train.shape[1]))
-    meta_result = _run_model_on_precomputed_matrix(
-        X_meta_train,
-        X_meta_test,
-        y_train_all,
-        y_test,
-        train_pool,
-        test_pool,
-        folds,
-        meta_learner,
-        spectro,
-        metric,
-        task_type,
-        config_name,
-        branch_id=0,
-        branch_name=source_names[0],
+    widths = spectro.num_features
+    if not isinstance(widths, list) or len(widths) != n_sources:
+        raise DagMlUnsupported("source stacking requires aligned per-source feature counts")
+    lowered, branches, layout = lower_source_stacking(
+        pipeline, branch_body, source_widths=[int(width) for width in widths],
+        source_names=_source_names(spectro, n_sources),
     )
-    meta_rows = _prediction_rows_without_refit(meta_result)
-    for source_index, source_name in enumerate(source_names):
-        for row in meta_rows:
-            cloned = dict(row)
-            cloned["branch_id"] = source_index
-            cloned["branch_name"] = source_name
-            combined_rows.append(cloned)
-
-    predictions = Predictions()
-    predictions.extend_from_list(combined_rows)
-    predictions.flush()
-    return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+    return _run_stacking_branch(
+        lowered, branches, meta_learner, spectro, dataset_arg, cli, venv_python,
+        run_dir, metric, task_type, dataset_pickle=dataset_pickle,
+        config_name=config_name, random_state=random_state, source_layout=layout,
+    )
 
 
 def _run_duplication_branch_feature_merge(pipeline: list[Any], branches: list[list[Any]], merge_mode: str, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None, config_name: str, random_state: int | None) -> RunResult:
@@ -3451,7 +3362,47 @@ def _stacking_model_metadata(pipeline: list[Any]) -> dict[str, Any]:
     return dict(_step_to_dsl(model_steps[0]).get("metadata") or {})
 
 
-def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _stacking_inner_cv(
+    task_type: str,
+    spectro: Any,
+    pool: list[int],
+    folds: list[tuple[list[int], list[int]]],
+    identity: Any,
+    random_state: int | None,
+) -> dict[str, Any]:
+    """Declare an identity-keyed nested splitter suitable for the target domain."""
+    if task_type != "classification":
+        return {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state}
+
+    targets = np.asarray(_dataset_y_rows(spectro, pool), dtype=float)
+    if targets.size != len(pool) or targets.reshape(len(pool), -1).shape[1] != 1:
+        raise DagMlUnsupported("classification stacking requires exactly one class target per training sample")
+    values = targets.reshape(-1)
+    if not np.all(np.isfinite(values)):
+        raise DagMlUnsupported("classification stacking requires finite class targets")
+    label_by_sample = {
+        int(sample): (0.0 if float(value) == 0 else float(value)).hex()
+        for sample, value in zip(pool, values, strict=True)
+    }
+    for fold_train, _fold_validation in folds:
+        counts: dict[str, int] = {}
+        for sample in fold_train:
+            label = label_by_sample[int(sample)]
+            counts[label] = counts.get(label, 0) + 1
+        if len(counts) < 2 or any(count < 2 for count in counts.values()):
+            raise DagMlUnsupported(
+                "classification stacking requires every outer-training fold to contain at least two samples per class for nested stratification"
+            )
+    return {
+        "kind": "stratified_kfold",
+        "n_splits": 2,
+        "shuffle": True,
+        "seed": random_state,
+        "strata": {identity.to_wire(int(sample)): label_by_sample[int(sample)] for sample in pool},
+    }
+
+
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
     Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
@@ -3481,6 +3432,13 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     its captured REFIT artifacts. Resampled outer folds use a separately declared partitioned inner
     OOF preparation for the meta REFIT; that evidence never enters outer CV scoring.
     """
+    meta_metadata = _stacking_model_metadata(pipeline)
+    if meta_metadata.get("nirs4all_finetune_params"):
+        raise DagMlUnsupported(
+            "meta-model HPO requires a native whole-stack nested search; "
+            "reusing a precomputed OOF matrix would leak its inner selection targets"
+        )
+
     import dag_ml
 
     from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
@@ -3508,7 +3466,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     # meta-model controller via metadata.controller_id.
     canonical_dsl: dict[str, Any] = {
         "id": "nirs4all-stacking",
-        "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
+        "inner_cv": _stacking_inner_cv(task_type, spectro, pool, folds, identity, random_state),
         "steps": [
             {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch(branch, index) for index, branch in enumerate(branches)]},
             {
@@ -3517,7 +3475,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 "operator": {"class": _qualname(meta_learner), "ref": _META_MODEL_REF},
                 "params": _json_safe_params(meta_learner),
                 "metadata": {
-                    **_stacking_model_metadata(pipeline),
+                    **meta_metadata,
                     "controller_id": _META_MODEL_CONTROLLER_ID,
                     "stacking_oof_execution": "nested_oof_v1",
                     "stacking_oof_refit_contract": {"policy": refit_policy},
@@ -3526,6 +3484,17 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             },
         ],
     }
+
+    if source_layout is not None:
+        # Put source bindings in the DSL BEFORE compilation/fingerprinting,
+        # not in a callback-only graph mutation invisible to native provenance.
+        for index, branch in enumerate(canonical_dsl["steps"][0]["branches"]):
+            for step in branch["steps"]:
+                if step["kind"] == "model":
+                    step["metadata"] = {**step.get("metadata", {}), "nirs4all_source_stacking": {
+                        "layout_fingerprint": source_layout["fingerprint"], "source": source_layout["sources"][index],
+                    }}
+        canonical_dsl["steps"][1]["metadata"]["nirs4all_source_stacking"] = source_layout
 
     manifests = controller_manifests()
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
@@ -3565,6 +3534,13 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             producer=_META_NODE_ID, config_name=config_name, results=outcome["results"],
             identity=identity, refit_artifacts=outcome["refit_artifacts"],
         )
+    if source_layout is not None:
+        for view in [result, *getattr(result, "runs", [])]:
+            for metadata in view.per_dataset.values():
+                metadata["source_stacking"] = {"execution": "native_nested_oof_v1", "layout": source_layout,
+                                               "legacy_spectral_concatenation": False}
+            for row in view.predictions._buffer:
+                row["result_metadata"] = {**(row.get("result_metadata") or {}), "source_stacking_layout": source_layout}
     if refit_oof:
         evidence = {
             "schema": "nirs4all.nested-stacking-evaluation.v1",
