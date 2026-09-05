@@ -71,22 +71,22 @@ def test_installed_methods_evidence_and_r2_release_record_are_published() -> Non
     r2_audit = _normalized(R2_AUDIT.read_text(encoding="utf-8"))
 
     assert "not pinned in CI" not in compatibility
-    assert "`methods-installed.yml` pins released `dag-ml==0.3.22` and `nirs4all-methods==1.0.13`" in compatibility
+    assert "`methods-installed.yml` pins released `dag-ml==0.3.25` and `nirs4all-methods>=1.0.18,<2`" in compatibility
     assert "`test_terminal_predict_lowerer.py`" in compatibility
     assert "`test_native_methods_witness.py`" in compatibility
-    assert "| → fall back to legacy (`EXPECTED_FALLBACK`) | **8**" in compatibility
-    assert "| → semantic preflight refusal (`EXPECTED_PREFLIGHT_REFUSAL`) | **1**" in compatibility
-    assert "| → run native on dag-ml | **86**" in compatibility
-    assert "Only the exact plain `PLSRegression` model step with the built-in `dict`" in compatibility
-    assert "`{'use_all_partitions': True}` now runs natively" in compatibility
-    assert "Near `refit_params` forms remain on the fail-closed fallback boundary" in compatibility
+    assert "| → fail closed (`EXPECTED_REFUSAL`) | **1**" in compatibility
+    assert "| → run native on dag-ml | **94**" in compatibility
+    assert "`refit_params_use_all_partitions`" in compatibility
+    assert "single explicit fail-closed `EXPECTED_REFUSAL` case" in compatibility
 
     assert "process-local live Methods execution observation" in changelog
-    assert "`dag-ml==0.3.22` and `nirs4all-methods==1.0.13`" in changelog
-    assert "strict terminal lowerer preflight" in changelog
-    assert "exact plain `PLSRegression`" in changelog
-    assert "nearby `refit_params` forms remain fail-closed on the fallback boundary" in changelog
-    assert "The public default engine remains `legacy`" in changelog
+    assert "strict callback-free terminal prediction form" in changelog
+    assert "`dag-ml==0.3.25`" in changelog
+    assert "`dag-ml-data==0.2.11`" in changelog
+    assert "`nirs4all-core==0.3.29`" in changelog
+    assert "`nirs4all-methods==1.0.18`" in changelog
+    assert "`nirs4all-io>=0.1.18`" in changelog
+    assert "one remaining explicitly ledgered native coverage refusal" in changelog
 
     assert "Le lot #122 (merge `0f612509`)" in r2_audit
     assert "À l'instant historique du lot #122" in r2_audit
@@ -112,10 +112,9 @@ def test_documented_compatibility_counts_follow_the_packaged_ledger() -> None:
 
     assert DOCUMENTED_LEDGER.read_bytes() == PACKAGED_LEDGER.read_bytes()
     ledger = json.loads(PACKAGED_LEDGER.read_text(encoding="utf-8"))
-    assert ledger["coverage_meter"]["fallback"] == 8
-    assert ledger["coverage_meter"]["preflight_refusal"] == 1
-    assert ledger["coverage_meter"]["native"] == 86
-    assert len(ledger["expected_fallback"]) == 8
-    assert "refit_params_use_all_partitions" not in {entry["case"] for entry in ledger["expected_fallback"]}
+    assert ledger["coverage_meter"]["refusal"] == 1
+    assert ledger["coverage_meter"]["native"] == 94
+    assert ledger["coverage_meter"]["expected_refusal_target"] == 0
+    assert {entry["case"] for entry in ledger["expected_refusal"]} == {"refit_params_use_all_partitions"}
     methods_installed = next(entry for entry in ledger["cross_engine_surfaces"] if entry["surface"] == "methods_installed")
-    assert methods_installed["status"] == "partial"
+    assert methods_installed["status"] == "exists"

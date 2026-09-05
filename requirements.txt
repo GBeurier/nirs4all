@@ -34,7 +34,10 @@ pyopls>=20.0
 trendfitter>=0.0.6
 
 # dag-ml execution core — the DEFAULT engine since the ADR-17 cutover (a hard
-# dependency, not an extra). Native execution fails closed by default; the
-# legacy compatibility path requires an explicit allow_fallback=True.
+# dependency, not an extra). Native execution fails closed by default; direct
+# Python callers can select engine="legacy" explicitly during the rollback window.
 dag-ml>=0.3.25,<0.4
 dag-ml-data>=0.2.11,<0.3
+nirs4all-io>=0.1.18,<0.2
+nirs4all-core>=0.3.29,<0.4
+nirs4all-methods>=1.0.18,<2

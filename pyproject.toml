@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=77.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -14,7 +14,8 @@ authors = [
     { name = "Lauriane Rouan", email = "lauriane.rouan@cirad.fr" }
 ]
 readme = "README.md"
-license = { text = "CeCILL-2.1 OR AGPL-3.0-or-later" }
+license = "CeCILL-2.1 OR AGPL-3.0-or-later"
+license-files = ["LICENSE", "LICENSING.md", "THIRD_PARTY_NOTICES.md", "LICENSES/*"]
 
 maintainers = [
     { name = "Gregory Beurier", email = "gregory.beurier@cirad.fr" }
@@ -97,6 +98,9 @@ dependencies = [
     # These runtimes are base dependencies; neither profile retries on legacy.
     "dag-ml>=0.3.25,<0.4",
     "dag-ml-data>=0.2.11,<0.3",
+    # Dataset inspection and Studio Playground loading call the native IO
+    # bridge directly, so the published base wheel must close that runtime.
+    "nirs4all-io>=0.1.18,<0.2",
     # The default portable execution lane must work after a base installation.
     "nirs4all-core>=0.3.29,<0.4",
     "nirs4all-methods>=1.0.18,<2",

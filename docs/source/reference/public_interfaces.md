@@ -225,11 +225,13 @@ execution-profile parameter. It remains the rollback-capable Python API through
 the R4 removal decision. Product integrations use a private strict boundary
 inside the package instead of widening or weakening that public contract.
 
-Install `nirs4all[native]` to use the strict Archive V2 path. The extra permits
-the published Core 0.3.25 and Methods 1.0.13+ release families; this final local
-candidate is qualified against Methods 1.0.15. Exact source identities and
-artifact digests remain release-receipt/lock concerns rather than Python
-package metadata.
+The strict Archive V2 path is available in the base V1 installation; the
+`nirs4all[native]` compatibility extra repeats the Core/Methods constraints for
+existing deployment commands. Release 1.0.1 is qualified against
+`dag-ml==0.3.25`, `dag-ml-data==0.2.11`, `nirs4all-io==0.1.18`,
+`nirs4all-core==0.3.29`, and `nirs4all-methods==1.0.18`. The package metadata
+admits only the corresponding compatibility families and their next breaking
+version boundaries.
 
 The native archive training compiler accepts only KFold followed by either a
 terminal `PLSRegression` or the exact
@@ -281,6 +283,25 @@ Archive V2/V3 replay and explicit native sessions. Nested PLS-to-Ridge stacking
 requires partitioned outer CV so every sample has exactly one outer OOF row.
 Unsupported transfer, finetune, explanation, generation, archive, or workspace
 forms fail before execution and never instantiate a legacy `PipelineRunner`.
+
+### Live Methods execution observation
+
+`native_execution_claim` and `native_execution_is_live` expose an audit-only,
+process-local observation of the exact strict Methods call while its owner is
+open. It is not a portable attestation: `result.close()` or `result.detach()`,
+and `NativeMethodsSession.close()`, invalidate the live observation. The signed
+outcome and portable package remain authoritative, so
+`result.export("model.n4a")` may still write the Core Archive V2 after the live
+façade has been released.
+
+### Supported strict terminal form
+
+`run(..., terminal_predict={"X", "sample_ids"}, engine="native")` is the
+supported callback-free DAG-ML CV→REFIT→terminal-PREDICT facade. It requires
+finite prediction arrays and explicit stable identities. The opaque frozen
+receipt is process-local; Archive V2 never archives, reloads, or forges that
+terminal receipt. Unsupported shapes fail before native data execution and do
+not retry through the Python compatibility runner.
 
 ## Studio Scientific CPython Host Boundary
 
