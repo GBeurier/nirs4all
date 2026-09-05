@@ -2368,8 +2368,10 @@ def test_public_run_engine_dagml_concat_transform_with_chain() -> None:
     assert abs(result.best_rmse - test_rmse) < 1e-6, (result.best_rmse, test_rmse)
 
 
-def test_public_run_engine_dagml_concat_transform_pca_svd_matches_legacy() -> None:
-    """PCA/SVD concat is prematerialized at the legacy train+test batch boundary."""
+def test_public_run_engine_dagml_concat_transform_pca_svd_matches_fold_local_oracle() -> None:
+    """Correct validation leakage instead of reproducing legacy global PCA fitting."""
+    from sklearn.pipeline import FeatureUnion
+
     import nirs4all
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
 
@@ -2379,15 +2381,23 @@ def test_public_run_engine_dagml_concat_transform_pca_svd_matches_legacy() -> No
         ShuffleSplit(n_splits=3, random_state=42),
         {"model": PLSRegression(n_components=15)},
     ]
-    dataset = DatasetConfigs(dataset_path("regression"))
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
 
-    legacy = nirs4all.run(pipeline, dataset, verbose=0, engine="legacy")
     dagml = nirs4all.run(pipeline, dataset, verbose=0, engine="dag-ml")
-
-    assert dagml._is_dagml_engine()  # noqa: SLF001
-    assert legacy.num_predictions == dagml.num_predictions
-    assert abs(legacy.cv_best_score - dagml.cv_best_score) < 1e-9
-    assert abs(legacy.best_rmse - dagml.best_rmse) < 1e-9
+    assert dagml.execution_engine == "dag-ml"
+    train = [int(i) for i in dataset.index_column("sample", {"partition": "train"})]
+    X = dataset.x_rows(train, layout="2d")
+    y = dataset.y({"sample": train})
+    for fold, (fit_rows, val_rows) in enumerate(ShuffleSplit(n_splits=3, random_state=42).split(X)):
+        snv = StandardNormalVariate().fit(X[fit_rows], y[fit_rows])
+        train_snv = snv.transform(X[fit_rows])
+        union = FeatureUnion([("pca", PCA(n_components=15, random_state=42)), ("svd", TruncatedSVD(n_components=10, random_state=42))])
+        union.fit(train_snv, y[fit_rows])
+        # Deliberately use fit then transform, the declared operator contract;
+        # PCA.fit_transform has a different floating-point shortcut in sklearn.
+        oracle = PLSRegression(n_components=15).fit(union.transform(train_snv), y[fit_rows])
+        row = dagml.predictions.filter_predictions(fold_id=str(fold), partition="val", load_arrays=True)[0]
+        np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), oracle.predict(union.transform(snv.transform(X[val_rows]))).ravel(), rtol=1e-6, atol=1e-6)
 
 
 def test_concat_transform_prematerialized_path_rejects_model_param_sweeps() -> None:

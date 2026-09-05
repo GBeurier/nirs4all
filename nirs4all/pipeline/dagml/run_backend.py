@@ -1110,9 +1110,8 @@ def _dispatch_run(
     # emitted onto relations, but do not remove samples from the splitter/model pool.
     pipeline, tags_by_sample = _resolve_tags(list(pipeline), spectro, cv_pool)
 
-    # Top-level concrete concat_transform is a legacy prematerialization boundary: the legacy engine fits
-    # the preceding X-chain on the full train partition and transforms train+test in one batch before CV.
-    # Replaying that matrix keeps PCA/SVD concat projections byte-aligned with the Python oracle.
+    # The concrete concat adapter fits every preprocessing operator within each
+    # training fold. Full-pool fitting here would leak validation information.
     if _is_concat_transform_prematerialized_pipeline(list(pipeline)) and not excluded and not tags_by_sample:
         return _run_concat_transform_prematerialized(list(pipeline), spectro, metric, task_type, config_name=config_name)
 
