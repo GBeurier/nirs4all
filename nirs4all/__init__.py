@@ -173,6 +173,7 @@ from .api import (
     save_workspace_tuning_result,
     session,
     studio_scientific_job_v1,
+    studio_scientific_job_v2,
     tune_single_estimator,
     tuning_space_schema_json,
     tuning_summary_schema_json,
@@ -202,6 +203,7 @@ __all__ = [
     # Module-level API (primary interface)
     "run",
     "studio_scientific_job_v1",
+    "studio_scientific_job_v2",
     "StudioScientificJobError",
     "STUDIO_SCIENTIFIC_JOB_SCHEMA",
     "STUDIO_SCIENTIFIC_RESULT_SCHEMA",
