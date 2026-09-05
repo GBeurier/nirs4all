@@ -36,8 +36,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   qualified the final stack against `dag-ml==0.3.25`,
   `dag-ml-data==0.2.11`, `nirs4all-core==0.3.29`, and
   `nirs4all-methods==1.0.18`.
-- Kept step-level `refit_params` fail-closed in the one remaining explicitly
-  ledgered native coverage refusal; no compatibility fallback is implied.
+- Restored validated step-level `train_params` and `refit_params`, including
+  Optuna training controls; unknown or specialized controls still fail closed.
+- Made final-model and stacking-meta selection depend on aggregate out-of-fold
+  CV evidence instead of held-out test targets, so changing `y_test` cannot
+  change the selected winner.
+- The one remaining explicitly ledgered native coverage refusal is concatenated
+  PCA/SVD stacking: it fails closed with a typed migration refusal until those
+  transforms can be compiled fold-locally without validation leakage.
+- Routed general DAG host archives before strict Core Archive V2 replay without
+  weakening Core's portable archive contract.
+- Preserved callback-free native Methods inputs through compilation while
+  retaining callable validation for host callback execution.
 
 ---
 

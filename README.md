@@ -108,7 +108,7 @@ pip install nirs4all[all-gpu]
 
 ```bash
 docker pull ghcr.io/gbeurier/nirs4all:latest
-docker run -v $(pwd):/workspace ghcr.io/gbeurier/nirs4all python my_script.py
+docker run --rm -v "$(pwd):/workspace" ghcr.io/gbeurier/nirs4all my_script.py
 ```
 
 ### Development Installation
