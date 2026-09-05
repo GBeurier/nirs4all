@@ -78,6 +78,33 @@ def test_general_explain_preflight_selects_callable_builtin(monkeypatch):
     assert decision.contract == "nirs4all.python.shap.v1"
 
 
+@pytest.mark.parametrize("relation_level", [None, "per_source_aggregate", "sample_aggregate"])
+def test_general_explain_preserves_headers_and_relation_level(tmp_path, relation_level):
+    import nirs4all
+    from nirs4all.data.dataset import SpectroDataset
+
+    X = np.random.default_rng(72).normal(size=(20, 3)).astype(np.float32)
+    result = nirs4all.run([Ridge()], (X, X[:, 0]), save_charts=False, verbose=0, workspace_path=tmp_path / "workspace")
+    dataset = SpectroDataset("held-out")
+    names = ["MIR:1000", "MIR:1100", "MIR:1200"]
+    dataset.add_samples(X[:3], headers=names, header_unit="text", indexes={"partition": "test"})
+    if relation_level is not None:
+        dataset._relation_materialization_manifest = {
+            "representation": relation_level, "headers": names, "shape": [3, 3],
+            "source_ids": ["MIR"], "fingerprint": "recorded-materialization",
+        }
+    try:
+        explained = explain(result, dataset, visualizations=[], plots_visible=False, verbose=0, n_samples=3)
+        assert explained.feature_names == names
+        expected_level = {None: "raw_observation", "per_source_aggregate": "source_aggregate", "sample_aggregate": "sample_aggregate"}[relation_level]
+        assert explained.explanation_level == expected_level
+        if relation_level is not None:
+            assert explained.feature_lineage[names[0]]["source_id"] == "MIR"
+            assert explained.feature_lineage[names[0]]["materialization_fingerprint"] == "recorded-materialization"
+    finally:
+        result.close()
+
+
 def test_general_explain_session_rejects_replaced_archive_before_pickle(tmp_path, monkeypatch):
     import joblib
 

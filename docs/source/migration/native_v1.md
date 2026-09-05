@@ -110,6 +110,20 @@ ML runner, HTTP backend or retry. `generate.preflight()` exposes that host
 contract; explicit `engine="native"` remains strict and unsupported for
 synthesis. An explicitly requested unknown plugin is not substituted.
 
+General `explain()` similarly selects `nirs4all.python.shap.v1`. It accepts a
+captured general `.n4a`, a trained DAG result, or a persisted `result.best`
+selection and explains the full REFIT predictor without training it again.
+Preprocessing and inverse target transforms remain inside that predictor.
+`output_index` selects one target or class-probability column (default 0);
+the returned two-dimensional SHAP values describe that output, not all classes.
+Kernel SHAP operates on the complete input predictor and can be expensive on
+wide spectra: `n_samples` limits background rows, while `sample_indices` chooses
+the rows to explain. Recorded headers and relation aggregation levels are
+preserved rather than labelling an aggregate as a raw observation.
+CSV values, provenance and an HTML table are written before optional figures;
+`visualizations=[]` disables figures. This does not claim portable Core SHAP
+or saved individual CV-fold models. Explicit `engine="native"` remains strict.
+
 For a qualified request:
 
 ```python

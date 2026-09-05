@@ -14,6 +14,7 @@ import numpy as np
 
 from nirs4all.pipeline.dagml.dataset import _materialize_dataset
 from nirs4all.pipeline.dagml.general_archive import load_general_archive
+from nirs4all.pipeline.explain_lineage import derive_relation_explain_lineage
 
 from .result import ExplainResult, RunResult
 
@@ -94,7 +95,13 @@ def explain_general(
     if X.ndim != 2 or not X.shape[0] or not X.shape[1] or not np.isfinite(X).all():
         raise ValueError("SHAP requires a nonempty finite 2D feature matrix")
     supplied_names = options.get("feature_names")
-    names = list(supplied_names) if supplied_names is not None else [f"feature_{index}" for index in range(X.shape[1])]
+    relation_manifest = getattr(dataset, "_relation_materialization_manifest", None)
+    if relation_manifest is None:
+        relation_manifest = loaded.get("manifest", {}).get("relation_replay_manifest")
+    relation = derive_relation_explain_lineage(relation_manifest, feature_names=supplied_names, n_features=X.shape[1])
+    recorded_names = relation.feature_names if relation is not None else dataset.headers(0)
+    default_names = recorded_names if recorded_names is not None and len(recorded_names) == X.shape[1] else [f"feature_{index}" for index in range(X.shape[1])]
+    names = list(supplied_names) if supplied_names is not None else list(default_names)
     if len(names) != X.shape[1] or any(not isinstance(item, str) for item in names) or len(set(names)) != len(names):
         raise ValueError("feature_names must be unique strings matching the raw input columns")
     captured = loaded["artifact"]["estimator"]
@@ -128,12 +135,16 @@ def explain_general(
     )
     values = np.asarray(analyzed["shap_values"])
     unit = "class probability" if probabilities else "original target"
-    summary = f"SHAP for captured REFIT predictor, raw input columns, {unit} output {output_index}; {len(values)} rows. No training performed."
+    level = relation.explanation_level if relation is not None else "raw_observation"
+    summary = f"SHAP for captured REFIT predictor, {level} input columns, {unit} output {output_index}; {len(values)} rows. No training performed."
+    if relation is not None and relation.lineage_warning:
+        summary += " " + relation.lineage_warning
+    lineage = relation.feature_lineage if relation is not None else {feature: {"representation": "raw_input"} for feature in names}
+    lineage = {feature: {**entry, "output_index": output_index, "output_space": unit} for feature, entry in lineage.items()}
     result = ExplainResult(
         shap_values=values, feature_names=names, base_value=analyzed["base_value"],
         explainer_type=analyzed["explainer_type"], model_name=loaded["model_name"], n_samples=len(values),
-        explanation_level="raw_observation", lineage_warning=summary,
-        feature_lineage={feature: {"representation": "raw_input", "output_index": output_index, "output_space": unit} for feature in names},
+        explanation_level=level, lineage_warning=summary, feature_lineage=lineage,
     )
     if verbose or plots_visible:
         print(summary)
@@ -152,6 +163,7 @@ def explain_general(
         }
         provenance = {"contract": "nirs4all.python.shap.v1", "training_performed": False, "dataset_name": name,
                       **source_provenance,
+                      "explanation_level": level, "feature_lineage": lineage,
                       "output_index": output_index, "output_space": unit, "base_value": np.asarray(result.base_value).tolist()}
         (output / "provenance.json").write_text(json.dumps(provenance, indent=2), encoding="utf-8")
         table = result.to_dataframe().to_html(index=False, escape=True)
