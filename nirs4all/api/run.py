@@ -968,7 +968,7 @@ def run(
     from .run_selection import select_run_engine
 
     selected_engine = select_run_engine(
-        engine, pipeline, dataset, allow_fallback=allow_fallback,
+        engine, pipeline, dataset, allow_fallback=allow_fallback, session=session,
         save_artifacts=save_artifacts, save_charts=save_charts, plots_visible=plots_visible,
         random_state=random_state, refit=refit, cache=cache, project=project,
         report_naming=report_naming, tuning=tuning, calibration=calibration,

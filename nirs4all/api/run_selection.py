@@ -19,6 +19,7 @@ def select_run_engine(
     dataset: Any,
     *,
     allow_fallback: bool = False,
+    session: Any = None,
     **options: Any,
 ) -> Engine:
     """Respect selectors, otherwise choose the portable or general DAG profile.
@@ -30,6 +31,25 @@ def select_run_engine(
     selected = resolve_engine(engine, allow_fallback=allow_fallback)
     if engine is not None or os.environ.get(ENGINE_ENV_VAR, "").strip():
         return selected
+    if session is not None:
+        session._ensure_open()
+        owner = session.execution_engine
+        if owner == "native":
+            return "native"
+        if owner == "dag-ml":
+            return "dag-ml"
+        # A session's configuration participates in preflight even when run()
+        # is called directly. Merely observing it must not create a runner.
+        configured = dict(session._runner_kwargs)
+        runner_keys = set(configured) - {
+            "verbose", "save_artifacts", "save_charts", "plots_visible", "random_state",
+            "refit", "cache", "project", "results_path", "report_naming", "tuning", "calibration",
+        }
+        options = {**configured, **options}
+        options["runner_kwargs"] = {
+            **{key: configured[key] for key in runner_keys},
+            **options.get("runner_kwargs", {}),
+        }
     if not isinstance(pipeline, list) or not isinstance(dataset, Mapping):
         return "dag-ml"
     keys = set(dataset)
