@@ -1,12 +1,9 @@
 """Fail-closed capability decisions for the advanced public API verbs.
 
-``explain`` and ``generate`` pre-date the native runtime.  Their current
-implementations are Python-only (PipelineRunner/SHAP and synthesis,
-respectively), while neither the Core nor DAG-ML Python contract exposes a
-callable native verb for them.  This module makes that boundary executable:
-the default native profile is refused before inputs are touched, and the
-historical implementation remains reachable only through an explicit legacy
-selection during the V1 rollback window.
+Explicit native profiles remain strict. General synthesis selects the built-in
+scientific library host before execution: it does not use PipelineRunner or a
+legacy ML coordinator. Unknown plugins and execution-error retries are refused.
+Explain's independent adapter is still qualified separately.
 """
 
 from __future__ import annotations
@@ -16,7 +13,7 @@ from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
 from nirs4all.pipeline.dagml.rt import RtError
-from nirs4all.pipeline.engine import resolve_engine
+from nirs4all.pipeline.engine import ENGINE_ENV_VAR, resolve_engine
 
 AdvancedApiVerb = Literal["explain", "generate"]
 AdvancedApiLane = Literal["native", "plugin", "legacy", "refused"]
@@ -24,6 +21,10 @@ AdvancedApiLane = Literal["native", "plugin", "legacy", "refused"]
 _PLUGIN_ENV_VARS: dict[AdvancedApiVerb, str] = {
     "explain": "N4A_EXPLAIN_PLUGIN",
     "generate": "N4A_GENERATE_PLUGIN",
+}
+
+_BUILTIN_LIBRARY_PLUGINS: dict[AdvancedApiVerb, str] = {
+    "generate": "nirs4all.python.synthesis.v1",
 }
 
 # API-005 capability ledger.  This describes executable adapters in this
@@ -55,8 +56,8 @@ ADVANCED_API_CAPABILITIES_V1: dict[str, dict[str, dict[str, Any]]] = {
             "capability": "native_generate",
         },
         "plugin": {
-            "executable": False,
-            "contract": None,
+            "executable": True,
+            "contract": "nirs4all.python.synthesis.v1",
             "capability": "generate_plugin",
         },
         "legacy": {
@@ -113,9 +114,9 @@ def preflight_advanced_api(
 ) -> AdvancedApiCapabilityDecision:
     """Decide one advanced verb without importing its Python implementation.
 
-    ``plugin`` is an explicit selector only.  API-005 deliberately does not
-    pretend that a plugin runtime exists: until a callable plugin contract is
-    installed and wired, plugin selection returns a non-executable decision.
+    Only a named built-in adapter is executable. With no selector, general
+    synthesis chooses its installed library adapter before touching inputs.
+    Explicit native/legacy selectors remain unchanged; errors never retry.
     """
     if verb not in ("explain", "generate"):
         raise ValueError(f"unknown advanced API verb {verb!r}")
@@ -145,6 +146,9 @@ def preflight_advanced_api(
             mitigation="select engine='legacy' explicitly during the V1 rollback window",
         )
 
+    if plugin_name is None and engine is None and not os.environ.get(ENGINE_ENV_VAR, "").strip():
+        plugin_name = _BUILTIN_LIBRARY_PLUGINS.get(verb)
+
     if plugin_name is not None:
         if engine is not None:
             return AdvancedApiCapabilityDecision(
@@ -157,6 +161,15 @@ def preflight_advanced_api(
                 unsupported_capability=f"{verb}_selector_conflict",
                 reason=f"{verb} received both engine={engine!r} and plugin={plugin_name!r}",
                 mitigation="select exactly one execution lane",
+            )
+        # Even an explicitly named host cannot bypass an ambient forbidden
+        # legacy/dual selector at a product boundary.
+        resolve_engine(None)
+        if plugin_name == _BUILTIN_LIBRARY_PLUGINS.get(verb):
+            return AdvancedApiCapabilityDecision(
+                verb=verb, requested_engine=None, lane="plugin", executable=True,
+                contract=plugin_name, plugin=plugin_name, unsupported_capability=None,
+                reason=None, mitigation=None,
             )
         capability = ADVANCED_API_CAPABILITIES_V1[verb]["plugin"]["capability"]
         return AdvancedApiCapabilityDecision(

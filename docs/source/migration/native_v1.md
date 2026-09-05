@@ -103,6 +103,13 @@ run; Studio retains that lifecycle. `should_stop` is cooperative cancellation:
 checked before execution, between native scientific tasks, and before publishing
 results. It does not interrupt an individual BLAS/estimator fit mid-call.
 
+General `generate()` and its convenience methods select the installed
+`nirs4all.python.synthesis.v1` library adapter when no engine/plugin selector
+is supplied. This reuses the scientific synthesis builder, without a legacy
+ML runner, HTTP backend or retry. `generate.preflight()` exposes that host
+contract; explicit `engine="native"` remains strict and unsupported for
+synthesis. An explicitly requested unknown plugin is not substituted.
+
 For a qualified request:
 
 ```python
