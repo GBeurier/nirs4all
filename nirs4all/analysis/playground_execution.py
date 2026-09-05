@@ -12,6 +12,7 @@ from typing import Any
 
 import numpy as np
 
+from nirs4all.analysis.playground_metrics import compute_descriptors
 from nirs4all.analysis.playground_partition import filter_batch, select_sample_indices, split_batch
 from nirs4all.analysis.playground_prepare import (
     PreviewStep,
@@ -73,8 +74,8 @@ def execute_preview(batch: PreviewBatch, steps: list[PreviewStep] | None = None,
                     metric_compute: Callable[..., dict[str, Any]] | None = None) -> dict[str, Any]:
     """Return true transformed arrays and inline analysis, preserving row lineage.
 
-    ``metric_compute`` is the owner descriptor extension (not a server callback).
-    Missing extensions report a chart error, never invented metric values.
+    ``metric_compute`` optionally replaces the owner descriptor callable (not a
+    server callback). The default computes the historical descriptor set.
     Request/response byte limits remain the application's transport duty.
     ``use_cache`` is an optional optimization hint; this callable is stateless.
     """
@@ -143,8 +144,8 @@ def execute_preview(batch: PreviewBatch, steps: list[PreviewStep] | None = None,
     repetitions = _project(lambda: repetition_projection(current, pca=pca, umap=umap, options=options)) if options.get("compute_repetitions", True) else None
     metrics = None
     if options.get("compute_metrics", False):
-        metrics = (_project(lambda: metric_compute(current, pca=pca, options=options)) if metric_compute else
-                   {"error": "Spectral descriptor owner extension is not configured"})
+        metric_owner = metric_compute or compute_descriptors
+        metrics = _project(lambda: metric_owner(current, pca=pca, options=options))
     maximum = options.get("max_wavelengths_returned")
     # Identical axes share the processed-mean LTTB selection, as in 0.9.1.
     common = display_indices(current.wavelengths, current.x, maximum) if len(current.x) and np.array_equal(original.wavelengths, current.wavelengths) else None
