@@ -551,6 +551,13 @@ def run_model_node(
         if best_params and hasattr(model, "set_params"):
             model = clone(model)
             model.set_params(**best_params)
+        from .training_controls import apply_model_training_controls, report_model_training_controls
+
+        training_metadata = graph_node.get("metadata") or {}
+        training_controls = (
+            apply_model_training_controls(model, training_metadata, phase)
+            if any(key in training_metadata for key in ("nirs4all_train_params", "nirs4all_refit_params")) else None
+        )
         source_chains = _source_concat_chains(graph_node)
         source_concat = source_chains is not None or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
         multi_block = not source_concat and _is_multi_block_model(model) and resolver.is_multi_source()
@@ -602,6 +609,9 @@ def run_model_node(
         else:
             y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
         estimator.fit(x_train, y_fit)
+        if training_controls is not None:
+            estimator._nirs4all_training_controls = training_controls
+            report_model_training_controls(training_controls, model, len(fit_ids))
         evidence_key = ("host_hpo_evidence", node_id, variant_label, phase, task.get("fold_id"))
         if evidence_key in model_store:
             estimator._nirs4all_host_hpo = model_store[evidence_key]

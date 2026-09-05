@@ -929,8 +929,11 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                 model_params = step["finetune_params"].get("model_params") if isinstance(step["finetune_params"], dict) else None
                 if isinstance(model_params, dict):
                     host_metadata["nirs4all_finetune_model_param_order"] = list(model_params)
-            if "train_params" in step:
-                host_metadata["nirs4all_train_params"] = json.loads(json.dumps(step["train_params"], default=repr))
+            for control_key in ("train_params", "refit_params"):
+                if control_key in step:
+                    from nirs4all.pipeline.dagml.training_controls import encode_training_controls
+
+                    host_metadata[f"nirs4all_{control_key}"] = encode_training_controls(step[control_key], name=control_key)
             if host_metadata:
                 dsl_step["metadata"] = host_metadata
             # Non-reserved siblings are model hyperparameters: plain values extend ``params``;
