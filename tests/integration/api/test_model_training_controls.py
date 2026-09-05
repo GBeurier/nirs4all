@@ -169,3 +169,26 @@ def test_nested_stacking_applies_each_branch_and_meta_control_in_native_scopes(t
     assert {alpha for _, alpha in fits} == {1, 2, 3, 4, 5, 7}
     assert result._dagml_score_set and result._dagml_refit_artifacts
     result.close()
+
+
+def test_full_training_without_splitter_applies_refit_controls_once(tmp_path, monkeypatch):
+    import nirs4all
+
+    rng = np.random.default_rng(924)
+    X = rng.normal(size=(24, 5)).astype(np.float32)
+    y = (X[:, 0] + 0.2).astype(np.float32)
+    fits = []
+    original = Ridge.fit
+
+    def record(self, X, y, **kwargs):
+        fits.append((len(X), self.alpha))
+        return original(self, X, y, **kwargs)
+
+    monkeypatch.setattr(Ridge, "fit", record)
+    with pytest.warns(UserWarning, match="No splitter"):
+        result = nirs4all.run([StandardScaler(), {"model": Ridge(), "train_params": {"alpha": 3}, "refit_params": {"alpha": 7}}],
+                             (X, y), workspace_path=tmp_path, save_artifacts=False, save_charts=False, verbose=0)
+    assert fits == [(24, 7)]
+    assert np.isnan(result.cv_best_score)
+    assert result._dagml_refit_artifacts[0]["estimator"]._nirs4all_training_controls["model_params"] == {"alpha": 7}
+    result.close()

@@ -396,10 +396,8 @@ SAME_WINNER_CASES: frozenset[str] = frozenset({
 # coverage-boundary rejects in `run_backend._unsupported_fallback_reason`, so they
 # no longer fall through to the generic concrete route and crash at native setup.
 EXPECTED_REFUSAL: frozenset[str] = frozenset({
-    # This historical Optuna recipe also passes step-level train_params;
-    # those fit kwargs, not host search itself, remain an explicit gap.
-    "generator_finetune_params_optuna",
-    # Step-level refit_params would currently be ignored by native execution.
+    # use_all_partitions has no historical runtime implementation; it is not
+    # an estimator parameter and is now diagnosed rather than silently ignored.
     "refit_params_use_all_partitions",
 })
 

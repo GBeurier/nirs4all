@@ -115,6 +115,20 @@ run; Studio retains that lifecycle. `should_stop` is cooperative cancellation:
 checked before execution, between native scientific tasks, and before publishing
 results. It does not interrupt an individual BLAS/estimator fit mid-call.
 
+General sklearn-compatible model steps support `train_params` estimator
+overrides and `refit_params` overrides on top of them during REFIT only.
+These follow the historical controller's `set_params` contract, not arbitrary
+`fit(**kwargs)`. Controller `verbose` emits training diagnostics without
+overwriting the estimator's verbosity setting. Unknown keys are diagnosed;
+the historical controller's silent ignoring of them is not reproduced.
+Overrides participate in every inner HPO evaluation as well as the final fit;
+provenance distinguishes proposed parameters from effective parameters when an
+override replaces a searched value. CV preprocessing remains fold-local.
+Simple CV/full-training, export/replay, HPO, and native nested stacking controls
+are qualified. Specialized GPU reset, fit-influence/AOM policies, CV-weight
+warm starts, and the old by-source prediction-stacking route require separate
+scientific validation and are not claimed supported by this restoration.
+
 General model-local `finetune_params` with `approach="single"`, `"grouped"`,
 or `"individual"` can use the
 host Optuna profile (`engine="optuna"` inside `finetune_params`, or inferred
