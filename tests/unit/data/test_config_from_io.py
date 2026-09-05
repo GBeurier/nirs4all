@@ -618,3 +618,24 @@ def test_from_io_infer_task_type_override(tmp_path):
 
     forced_cfg, _ = DatasetConfigs.from_io_infer(str(tmp_path), conventions=["bare"], task_type="regression")
     assert forced_cfg.get_dataset_at(0).task_type.value == "regression"
+
+
+@pytest.mark.parametrize("task_type", ["auto", "regression"])
+def test_from_io_native_mapping_plan_keeps_resolved_metadata_and_task_override(tmp_path, task_type):
+    """A mapping-backed native plan is not itself a dataset config dictionary."""
+    x = np.arange(60, dtype=np.float32).reshape(20, 3) / 11
+    y = np.tile([10, 20], 10)
+    batches = [f"batch-{index % 3}" for index in range(20)]
+    _write(tmp_path / "Xcal.csv", pd.DataFrame(x, columns=["1100", "1102", "1104"]))
+    _write(tmp_path / "Ycal.csv", pd.DataFrame({"class": y}))
+    _write(tmp_path / "Mcal.csv", pd.DataFrame({"batch": batches}))
+    configs, plan = DatasetConfigs.from_io_infer(str(tmp_path), task_type=task_type)
+    dataset = configs.get_dataset_at(0)
+    assert plan.resolved_spec is not None
+    assert dataset.metadata_column("batch").tolist() == batches
+    np.testing.assert_allclose(dataset.x({"partition": "train"}, layout="2d"), x)
+    if task_type == "regression":
+        assert dataset.task_type.value == "regression"
+        np.testing.assert_array_equal(dataset.y({"partition": "train"}).ravel(), y)
+    else:
+        assert dataset.task_type.value == "binary_classification"
