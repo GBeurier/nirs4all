@@ -60,11 +60,17 @@ def publish_workspace_result(
                         captured = artifacts[0]
                         estimator_type = type(captured["estimator"])
                         class_name = f"{estimator_type.__module__}.{estimator_type.__qualname__}"
+                        fitted_steps = getattr(captured["estimator"], "steps", None)
+                        model_operator = fitted_steps[-1][1] if fitted_steps else captured["estimator"]
+                        model_type = type(model_operator)
+                        model_class = f"{model_type.__module__}.{model_type.__qualname__}"
+                        preprocessings = ">".join(type(operator).__name__ for _, operator in fitted_steps[:-1]) if fitted_steps else ""
                         captured_step = {
                             "step_idx": 0, "operator_class": class_name, "params": {}, "stateless": False,
                             "dagml_host_replay": {
                                 "schema": "nirs4all.dagml-workspace-refit.v1",
                                 "native_artifact_id": captured["artifact_id"], "target_names": result._dagml_target_names,
+                                "model_class": model_class, "preprocessings": preprocessings,
                                 "scope": "full_training_refit", "cv_artifacts_available": False,
                             },
                         }
@@ -96,6 +102,8 @@ def publish_workspace_result(
                                     **captured_step, "artifact_id": stored_id,
                                     "dagml_host_replay": {**captured_step["dagml_host_replay"], "artifact_fingerprint": fingerprint},
                                 }
+                                row["model_classname"] = row.get("model_classname") or captured_step["dagml_host_replay"]["model_class"]
+                                row["preprocessings"] = row.get("preprocessings") or captured_step["dagml_host_replay"]["preprocessings"]
                             chain_ids[key] = store.save_chain(
                                 pipeline_id, [replay_step] if replay_step else [], 0 if replay_step else -1,
                                 str(row.get("model_classname") or replay_step.get("operator_class", "")),
@@ -113,6 +121,8 @@ def publish_workspace_result(
                         if original_row.get("id") in by_id:
                             original_row["chain_id"] = by_id[original_row["id"]]["chain_id"]
                             original_row["workspace_path"] = str(workspace_path)
+                            original_row["model_classname"] = by_id[original_row["id"]].get("model_classname", "")
+                            original_row["preprocessings"] = by_id[original_row["id"]].get("preprocessings", "")
                     # Workspace readers consume the canonical denormalized chain
                     # summary, not the raw prediction rows. The native runner
                     # has no legacy executor to perform this publication step.
