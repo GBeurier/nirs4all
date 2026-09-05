@@ -3232,8 +3232,8 @@ def test_stacking_branch_detection() -> None:
     assert _detect_duplication_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge()}]) is None
 
 
-def test_public_run_engine_dagml_named_dict_stacking_branch_cv_only_matches_legacy() -> None:
-    """Named-dict stacking runs native and projects the exact legacy CV-only no-refit surface."""
+def test_public_run_engine_dagml_named_dict_stacking_preserves_views_with_nested_validation() -> None:
+    """Keep the historical CV views while correcting nesting and capturing real REFIT."""
     from sklearn.linear_model import Ridge
 
     import nirs4all
@@ -3255,16 +3255,29 @@ def test_public_run_engine_dagml_named_dict_stacking_branch_cv_only_matches_lega
 
     assert native._is_dagml_engine()  # noqa: SLF001
     assert not legacy._is_dagml_engine()  # noqa: SLF001
-    assert native.num_predictions == legacy.num_predictions == 45
-    assert native.predictions.filter_predictions(fold_id="final", load_arrays=False) == []
+    assert legacy.num_predictions == 45
+    assert len([row for row in native.predictions.filter_predictions() if row["fold_id"] != "final"]) == 45
+    assert native.predictions.filter_predictions(fold_id="final", load_arrays=False)
     assert legacy.predictions.filter_predictions(fold_id="final", load_arrays=False) == []
-    assert abs(native.best_rmse - legacy.best_rmse) < 1e-9
-    assert abs(native.cv_best_score - legacy.cv_best_score) < 1e-9
 
     native_rows = native.predictions.filter_predictions(load_arrays=False)
     legacy_rows = legacy.predictions.filter_predictions(load_arrays=False)
-    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "w_avg"]
+    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "final", "w_avg"]
     assert sorted({str(row.get("fold_id")) for row in legacy_rows}) == ["0", "1", "2", "avg", "w_avg"]
+    assert {row["branch_name"] for row in native_rows} == {"pls", "ridge", None}
+    # Legacy's meta CV-only projection fitted a different, non-nested protocol.
+    # Its exact score is not a scientific oracle. Named/list syntax must instead
+    # share the same native nested ensemble (whose sklearn oracle is below).
+    list_pipeline = [pipeline[0], {"branch": list(pipeline[1]["branch"].values())}, *pipeline[2:]]
+    ensemble = nirs4all.run(list_pipeline, dataset_path("regression"), engine="dag-ml", verbose=0)
+    meta = native.runs[-1]
+    for row in meta.predictions.filter_predictions(load_arrays=True):
+        matching = ensemble.predictions.filter_predictions(fold_id=row["fold_id"], partition=row["partition"], load_arrays=True)
+        assert len(matching) == 1
+        np.testing.assert_array_equal(row["y_pred"], matching[0]["y_pred"])
+    native.close()
+    legacy.close()
+    ensemble.close()
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")

@@ -313,6 +313,7 @@ def _scores_to_run_result(
     results_by_variant: dict[Any, list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
     refit_artifacts: list[dict[str, Any]] | None = None,
+    report_fold_ids: set[str] | None = None,
 ) -> RunResult:
     """Project a dag-ml ScoreSet into the full legacy ``Predictions`` table (a labeled compat projection).
 
@@ -374,7 +375,11 @@ def _scores_to_run_result(
     ``"variant:v{index}"``). Every other call site passes neither → an empty index → score-only (empty
     arrays) unchanged.
     """
-    reports = [report for report in (scores or {}).get("reports", []) if producer is None or report.get("producer_node") == producer]
+    reports = [
+        report for report in (scores or {}).get("reports", [])
+        if (producer is None or report.get("producer_node") == producer)
+        and (report_fold_ids is None or report.get("fold_id") is None or report.get("fold_id") in report_fold_ids)
+    ]
     # Key on (variant_id, partition, fold_id): native generation surfaces every variant's reports and
     # ScoreSet.validate guarantees this triple (per producer) is unique, so distinct variants never
     # collide (the pre-#55 (partition, fold_id) key let later variants overwrite earlier ones).
@@ -415,7 +420,11 @@ def _scores_to_run_result(
     if identity is not None:
         variant_results = results_by_variant if results_by_variant is not None else ({"variant:base": results} if results is not None else {})
         for variant_id, variant_frames in variant_results.items():
-            sample_blocks_by_variant[variant_id] = {(partition, fold_id): pair for (_producer, partition, fold_id), pair in _index_sample_blocks(variant_frames).items()}
+            sample_blocks_by_variant[variant_id] = {
+                (partition, fold_id): pair
+                for (block_producer, partition, fold_id), pair in _index_sample_blocks(variant_frames).items()
+                if producer is None or block_producer == producer
+            }
 
     def add(
         fold_id: str,
