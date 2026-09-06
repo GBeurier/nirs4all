@@ -29,6 +29,7 @@ from pathlib import Path
 from typing import Any, cast
 
 import numpy as np
+import yaml
 
 from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
@@ -261,6 +262,30 @@ def preflight_dagml_backend(cli: str) -> None:
     )
 
 
+def _normalize_public_pipeline_input(pipeline: Any) -> Any:
+    """Load the documented file and mapping forms into their step list."""
+    from nirs4all.pipeline import PipelineConfigs
+
+    def reject_ambiguous_wrapper(definition: Any) -> None:
+        if isinstance(definition, dict) and "steps" in definition and "pipeline" in definition:
+            raise ValueError("pipeline mappings must use either 'steps' or 'pipeline', not both")
+
+    if isinstance(pipeline, (Path, str)):
+        serialized = str(pipeline)
+        steps = PipelineConfigs._load_steps(serialized)
+        source = (
+            Path(serialized).read_text(encoding="utf-8")
+            if serialized.endswith((".json", ".yaml", ".yml"))
+            else serialized
+        )
+        reject_ambiguous_wrapper(yaml.safe_load(source))
+        return steps
+    if isinstance(pipeline, dict) and ("steps" in pipeline or "pipeline" in pipeline):
+        reject_ambiguous_wrapper(pipeline)
+        return PipelineConfigs._load_steps(pipeline)
+    return pipeline
+
+
 def run_via_dagml(
     pipeline: Any,
     dataset: Any,
@@ -298,6 +323,7 @@ def run_via_dagml(
     report_naming selects the existing NIRS/ML metric display labels. Remaining
     unsupported execution options are rejected before operators execute.
     """
+    pipeline = _normalize_public_pipeline_input(pipeline)
     # This configuration-only boundary precedes backend probing and dataset materialization. A stateful
     # pre-CV concat in legacy is not equivalent to fold-local native fitting and may never auto-migrate.
     preflight_dagml_pipeline_migration(pipeline)
