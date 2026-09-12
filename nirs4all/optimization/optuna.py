@@ -11,7 +11,7 @@ import os
 os.environ["DISABLE_EMOJIS"] = "1"  # Set to '1' to disable emojis in print statements
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, Union
+from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
 
 import numpy as np
 
@@ -1041,7 +1041,7 @@ class OptunaManager:
 
         # Create study
         study = optuna.create_study(
-            direction=direction,
+            direction=cast(Literal["minimize", "maximize"], direction),
             sampler=sampler,
             pruner=pruner,
             storage=storage,
