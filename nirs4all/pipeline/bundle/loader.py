@@ -50,6 +50,7 @@ from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, Op
 from nirs4all.pipeline.trace import ExecutionTrace, StepArtifacts
 from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
 
+import nirs4all.pipeline.execution #avoids circular import
 from nirs4all.pipeline.steps.parser import StepParser
 from nirs4all.pipeline.steps.router import ControllerRouter
 
