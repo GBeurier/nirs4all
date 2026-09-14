@@ -50,6 +50,9 @@ from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, Op
 from nirs4all.pipeline.trace import ExecutionTrace, StepArtifacts
 from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
 
+from nirs4all.pipeline.steps.parser import StepParser
+from nirs4all.pipeline.steps.router import ControllerRouter
+
 logger = logging.getLogger(__name__)
 
 
@@ -826,7 +829,9 @@ class BundleLoader:
         # Check for single refit model first (fold_id="final")
         refit_model = self._get_refit_model(step_idx)
         if refit_model is not None:
-            return np.asarray(refit_model.predict(X))
+            parsed_step = StepParser().parse(refit_model)
+            controller = ControllerRouter().route(parsed_step,step=refit_model)
+            return np.asarray(controller._predict_model(refit_model, X))
 
         assert self.artifact_provider is not None
         fold_artifacts = self.artifact_provider.get_fold_artifacts(step_idx, branch_path)
@@ -836,7 +841,11 @@ class BundleLoader:
             fold_preds = []
             for fold_id, model in fold_artifacts:
                 weight = self.fold_weights.get(fold_id, 1.0)
-                y_fold = model.predict(X)
+
+                parsed_step = StepParser().parse(model)
+                controller = ControllerRouter().route(parsed_step,step=model)
+                
+                y_fold = np.asarray(controller._predict_model(model, X))
                 fold_preds.append((weight, y_fold))
 
             if self.fold_weights:
@@ -844,14 +853,17 @@ class BundleLoader:
                 result: np.ndarray = np.asarray(sum(w * y for w, y in fold_preds) / total_weight)
                 return result
             else:
-                return np.asarray(np.mean([y for _, y in fold_preds], axis=0))
+                return np.asarray(np.mean([y for _, y in fold_preds],axis=0))
         else:
             # Single model
-            artifacts = self.artifact_provider.get_artifacts_for_step(step_idx, branch_path)
+            artifacts = self.artifact_provider.get_artifacts_for_step(step_idx,branch_path)
             if not artifacts:
                 raise RuntimeError(f"No artifacts for model step {step_idx}")
             _, model = artifacts[0]
-            return np.asarray(model.predict(X))
+
+            parsed_step = StepParser().parse(model)
+            controller = ControllerRouter().route(parsed_step,step=model)
+            return np.asarray(controller._predict_model(model, X))
 
     def _get_refit_model(self, step_idx: int) -> Any | None:
         """Load the single refit model if available.
