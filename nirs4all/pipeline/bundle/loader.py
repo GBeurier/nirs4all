@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 import contextlib
 
-import nirs4all.pipeline.execution #avoids circular import
+import nirs4all.pipeline.execution  # avoids circular import
 from nirs4all.controllers.models.base_model import BaseModelController
 from nirs4all.controllers.models.sklearn_model import SklearnModelController
 from nirs4all.pipeline.bundle.constants import BUNDLE_FORMAT_VERSION
