@@ -44,16 +44,13 @@ import contextlib
 import nirs4all.pipeline.execution #avoids circular import
 from nirs4all.controllers.models.base_model import BaseModelController
 from nirs4all.controllers.models.sklearn_model import SklearnModelController
-
 from nirs4all.pipeline.bundle.constants import BUNDLE_FORMAT_VERSION
 from nirs4all.pipeline.config.context import (
     ArtifactProvider,
     MapArtifactProvider,
 )
-
 from nirs4all.pipeline.steps.parser import StepParser
 from nirs4all.pipeline.steps.router import ControllerRouter
-
 from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 from nirs4all.pipeline.trace import ExecutionTrace, StepArtifacts
 from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
