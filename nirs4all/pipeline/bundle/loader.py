@@ -41,18 +41,22 @@ if TYPE_CHECKING:
 
 import contextlib
 
+import nirs4all.pipeline.execution #avoids circular import
+from nirs4all.controllers.models.base_model import BaseModelController
+from nirs4all.controllers.models.sklearn_model import SklearnModelController
+
 from nirs4all.pipeline.bundle.constants import BUNDLE_FORMAT_VERSION
 from nirs4all.pipeline.config.context import (
     ArtifactProvider,
     MapArtifactProvider,
 )
+
+from nirs4all.pipeline.steps.parser import StepParser
+from nirs4all.pipeline.steps.router import ControllerRouter
+
 from nirs4all.pipeline.storage.artifacts.operator_chain import OperatorChain, OperatorNode
 from nirs4all.pipeline.trace import ExecutionTrace, StepArtifacts
 from nirs4all.pipeline.trace.execution_trace import StepExecutionMode
-
-import nirs4all.pipeline.execution #avoids circular import
-from nirs4all.pipeline.steps.parser import StepParser
-from nirs4all.pipeline.steps.router import ControllerRouter
 
 logger = logging.getLogger(__name__)
 
@@ -832,7 +836,10 @@ class BundleLoader:
         if refit_model is not None:
             parsed_step = StepParser().parse(refit_model)
             controller = ControllerRouter().route(parsed_step,step=refit_model)
-            return np.asarray(controller._predict_model(refit_model, X))
+            if isinstance(controller, BaseModelController) and not isinstance(controller, SklearnModelController):
+                return np.asarray(controller._predict_model(refit_model, X))
+            else:
+                return np.asarray(refit_model.predict(X))
 
         assert self.artifact_provider is not None
         fold_artifacts = self.artifact_provider.get_fold_artifacts(step_idx, branch_path)
@@ -846,7 +853,10 @@ class BundleLoader:
                 parsed_step = StepParser().parse(model)
                 controller = ControllerRouter().route(parsed_step,step=model)
                 
-                y_fold = np.asarray(controller._predict_model(model, X))
+                if isinstance(controller, BaseModelController) and not isinstance(controller, SklearnModelController):
+                    y_fold = np.asarray(controller._predict_model(model, X))
+                else:
+                    y_fold = np.asarray(model.predict(X))
                 fold_preds.append((weight, y_fold))
 
             if self.fold_weights:
@@ -864,7 +874,10 @@ class BundleLoader:
 
             parsed_step = StepParser().parse(model)
             controller = ControllerRouter().route(parsed_step,step=model)
-            return np.asarray(controller._predict_model(model, X))
+            if isinstance(controller, BaseModelController) and not isinstance(controller, SklearnModelController):
+                return np.asarray(controller._predict_model(model, X))
+            else:
+                return np.asarray(model.predict(X))
 
     def _get_refit_model(self, step_idx: int) -> Any | None:
         """Load the single refit model if available.
