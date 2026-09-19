@@ -11,6 +11,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.0.2] — 2026-09-19
+
+### Fixed
+
+- Read active SQLite workspaces through consistent read-only transactions,
+  including committed WAL data, without migrating or cleaning them on inspection.
+- Keep the verified model loaded for repeated predictions in a session.
+- Report scores only for partitions actually evaluated; preserve real refit
+  results instead of copying validation scores into training or test fields.
+- Defer native binding initialization until it is needed.
+
+### Added
+
+- Upgrade older SQLite workspaces on a separate copy while preserving the source.
+- A short integration gate comparing native and historical Python execution,
+  real predictions, workspace preservation and performance on Windows and Linux.
+
+The historical Python execution engine remains available for Studio recovery;
+this version retains support for schema-5 workspaces from Studio 0.11.7.
+
+---
+
 ## [1.0.1] — 2026-09-05
 
 ### Added
