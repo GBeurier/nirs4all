@@ -65,12 +65,17 @@ class TestIsAvailable:
         def fake_find_spec(module_name: str):
             if module_name == 'ikpls':
                 return object()
-            if module_name == 'ikpls.numpy_ikpls':
+            if module_name in ('ikpls.numpy', 'ikpls.numpy_ikpls'):
                 return None
             raise AssertionError(f"unexpected module lookup: {module_name}")
 
         with patch('importlib.util.find_spec', side_effect=fake_find_spec):
             assert is_available('ikpls') is False
+
+    @pytest.mark.parametrize('available_module', ['ikpls.numpy', 'ikpls.numpy_ikpls'])
+    def test_ikpls_accepts_current_and_legacy_numpy_api(self, available_module):
+        with patch('importlib.util.find_spec', side_effect=lambda name: object() if name == available_module else None):
+            assert is_available('ikpls') is True
 
     def test_case_normalised(self):
         """Backend name is lowercased before lookup."""
