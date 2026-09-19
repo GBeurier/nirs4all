@@ -14,6 +14,7 @@ from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.operators.filters.base import SampleFilter
+from nirs4all.operators.filters.metadata import MetadataFilter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 logger = get_logger(__name__)
@@ -168,20 +169,16 @@ class ExcludeController(OperatorController):
                 filter_obj.fit(X_train, y_train)
 
                 # Get the mask (True = keep, False = exclude)
-                mask = filter_obj.get_mask(X_train, y_train)
+                if isinstance(filter_obj, MetadataFilter):
+                    metadata = dataset.metadata(base_selector, include_augmented=False)
+                    mask = filter_obj.get_mask(X_train, y_train, metadata=metadata)
+                else:
+                    mask = filter_obj.get_mask(X_train, y_train)
                 masks.append(mask)
                 filter_names.append(self._get_filter_name(filter_obj))
 
             except ValueError as e:
-                # Handle edge cases like insufficient data
-                if runtime_context.step_runner.verbose > 0:
-                    logger.warning(
-                        f"   ExcludeController: {filter_obj.__class__.__name__} "
-                        f"could not be applied: {e}"
-                    )
-                # Create a neutral mask (keep all)
-                masks.append(np.ones(len(X_train), dtype=bool))
-                filter_names.append(self._get_filter_name(filter_obj))
+                raise ValueError(f"{filter_obj.__class__.__name__} could not be applied: {e}") from e
 
         # Combine masks according to mode
         if len(masks) == 1:

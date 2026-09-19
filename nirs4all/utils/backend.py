@@ -61,7 +61,7 @@ _PACKAGE_MAPPING: dict[str, str] = {
     'shap': 'shap',
     # The IKPLS wrapper's default NumPy backend imports this submodule. Some
     # ikpls releases expose the root package without the NumPy implementation.
-    'ikpls': 'ikpls.numpy_ikpls',
+    'ikpls': 'ikpls.numpy',
 }
 
 # =============================================================================
@@ -108,6 +108,8 @@ def is_available(backend: str) -> bool:
     if backend not in _availability_cache:
         package = _PACKAGE_MAPPING.get(backend, backend)
         _availability_cache[backend] = _check_spec_available(package)
+        if backend == 'ikpls' and not _availability_cache[backend]:
+            _availability_cache[backend] = _check_spec_available('ikpls.numpy_ikpls')
 
     return _availability_cache[backend]
 

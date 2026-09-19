@@ -125,13 +125,14 @@ class EnsembleUtils:
         Supports weighted voting where each model's vote is weighted.
 
         Args:
-            class_predictions: List of class prediction arrays, each shape (n_samples,) or (n_samples, 1).
+            class_predictions: Arrays of shape (n_samples,), (n_samples, 1), or (n_samples, n_outputs).
             weights: Optional weights for each model's vote.
                     If None, uses uniform weights (standard majority vote).
             n_classes: Number of classes. If None, inferred from predictions.
 
         Returns:
-            Final class predictions as (n_samples, 1) array.
+            Final labels as (n_samples, n_outputs), preserving each independent output.
+            Single-target input returns (n_samples, 1).
 
         Raises:
             ValueError: If class_predictions is empty.
@@ -140,10 +141,14 @@ class EnsembleUtils:
             raise ValueError("class_predictions cannot be empty")
 
         n_models = len(class_predictions)
-        n_samples = class_predictions[0].shape[0]
+        shape = np.asarray(class_predictions[0]).shape
+        output_shape = (shape[0], 1) if len(shape) == 1 else shape
+        if len(output_shape) != 2 or any(np.asarray(p).shape != shape for p in class_predictions):
+            raise ValueError("Class predictions must have matching sample and output dimensions")
 
-        # Flatten all predictions to 1D
-        predictions = [np.asarray(p).flatten().astype(int) for p in class_predictions]
+        # Vote independently for every (sample, output), then restore the axes.
+        predictions = [np.asarray(p).reshape(-1).astype(int) for p in class_predictions]
+        n_values = predictions[0].size
 
         # Infer n_classes if not provided
         if n_classes is None:
@@ -153,14 +158,12 @@ class EnsembleUtils:
         weights = np.ones(n_models) if weights is None else np.asarray(weights, dtype=float)
 
         # Count weighted votes for each class per sample
-        vote_counts = np.zeros((n_samples, n_classes), dtype=float)
+        vote_counts = np.zeros((n_values, n_classes), dtype=float)
         for pred, w in zip(predictions, weights, strict=False):
-            for sample_idx in range(n_samples):
-                class_idx = pred[sample_idx]
-                vote_counts[sample_idx, class_idx] += w
+            vote_counts[np.arange(n_values), pred] += w
 
-        # Get winning class (most votes)
-        final_predictions: np.ndarray = np.argmax(vote_counts, axis=1).reshape(-1, 1).astype(float)
+        # Get winning class (most votes) independently for each output.
+        final_predictions: np.ndarray = np.argmax(vote_counts, axis=1).reshape(output_shape).astype(float)
 
         return final_predictions
 

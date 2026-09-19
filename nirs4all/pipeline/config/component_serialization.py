@@ -4,6 +4,7 @@ import inspect
 import json
 import sys
 from enum import Enum
+from functools import partial
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
 # Simple alias dictionary for common transformations
@@ -172,15 +173,30 @@ def serialize_component(obj: Any) -> Any:
     if inspect.isclass(obj):
         return f"{obj.__module__}.{obj.__qualname__}"
 
+    if isinstance(obj, partial):
+        serialized = serialize_component(obj.func)
+        if not isinstance(serialized, dict) or "function" not in serialized:
+            raise TypeError("Partial components must wrap an importable function")
+        if obj.args:
+            serialized["args"] = serialize_component(obj.args)
+        if obj.keywords:
+            serialized["params"] = serialize_component(obj.keywords)
+        return serialized
+
     # Special handling for stacking/ensemble meta-estimators
     # Must be checked BEFORE generic instance serialization
     if _is_meta_estimator(obj):
         return _serialize_meta_estimator(obj)
 
-    # Handle numpy arrays and other array-like objects
-    # Convert to list for JSON/YAML serialization
+    # Preserve numeric ndarray constructor parameters, even when their default
+    # is None (SparseCoder.dictionary has no type from which to infer an array).
+    # Use the existing constructor syntax, readable by older library versions.
     if hasattr(obj, '__array__') or (hasattr(obj, 'tolist') and hasattr(obj, 'shape')):
         try:
+            import numpy as np
+
+            if isinstance(obj, np.ndarray) and obj.dtype.kind in "biuf":
+                return {"class": "numpy.array", "params": {"object": obj.tolist(), "dtype": str(obj.dtype)}}
             return obj.tolist()
         except (AttributeError, TypeError):
             pass
@@ -237,6 +253,10 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
 
             mod = importlib.import_module(mod_name)
             cls_or_func = getattr(mod, cls_or_func_name)
+
+            # Functions used as score/transform callbacks are references, not factories.
+            if inspect.isfunction(cls_or_func) or inspect.isbuiltin(cls_or_func):
+                return cls_or_func
 
             # Try to instantiate without parameters
             try:
@@ -349,7 +369,11 @@ def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: 
                         "params": params
                     }
 
-                if key == "class" or key == "instance" or key == "function":
+                if key == "function":
+                    args = deserialize_component(blob.get("args", []))
+                    return partial(cls_or_func, *args, **params) if args or params else cls_or_func
+
+                if key == "class" or key == "instance":
                     return cls_or_func(**params)
 
                 # Fallback for other cases
@@ -420,6 +444,10 @@ def _changed_kwargs(obj):
             # Try to get from get_params() if available
             if name in obj_params:
                 current = obj_params[name]
+            elif f"_{name}" in getattr(obj, "__dict__", {}):
+                # Callable helpers such as sklearn scorers store constructor
+                # parameters in private backing fields instead of get_params().
+                current = obj.__dict__[f"_{name}"]
             else:
                 # fall back to what's in cvargs if it exists
                 current = obj.__dict__.get("cvargs", {}).get(name, default)

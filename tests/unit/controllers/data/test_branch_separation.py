@@ -333,3 +333,19 @@ class TestGetOperatorClassName:
 
         result = controller._get_operator_class_name(MyInstance())
         assert result == "MyInstance"
+
+
+class TestSourceNameValidation:
+    """Source typos must not silently skip all configured transformations."""
+
+    def test_rejects_unknown_names_on_real_multisource_dataset(self):
+        from nirs4all.data.dataset import SpectroDataset
+
+        dataset = SpectroDataset("source_names")
+        dataset.add_samples([np.ones((5, 3)), np.ones((5, 2))], {"partition": "train"})
+        controller = BranchController()
+        with pytest.raises(ValueError, match="Unknown source names.*NRI.*Available sources"):
+            controller._parse_by_source_steps({"NRI": ["StandardScaler"]}, dataset)
+        _, names, steps = controller._parse_by_source_steps({"source_0": ["StandardScaler"]}, dataset)
+        assert names == ["source_0", "source_1"]
+        assert steps == {"source_0": ["StandardScaler"]}  # Other sources intentionally pass through.
