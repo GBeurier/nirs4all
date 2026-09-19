@@ -250,7 +250,7 @@ class StepParser:
             if '_runtime_instance' in value:
                 return value['_runtime_instance']
             if 'class' in value or 'function' in value or 'instance' in value:
-                deserialized = deserialize_component(value)
+                deserialized = deserialize_component(value, strict_imports=True)
                 if deserialized is value:
                     component_ref = (
                         value.get('class')
@@ -267,6 +267,6 @@ class StepParser:
 
         # String reference
         if isinstance(value, str):
-            return deserialize_component(value)
+            return deserialize_component(value, strict_imports=True)
 
         return value

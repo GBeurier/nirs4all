@@ -453,7 +453,7 @@ def _backfill_chain_summaries(conn: sqlite3.Connection) -> None:
                   AND p.refit_context IS NULL
             ),
             cv_fold_count = COALESCE((
-                SELECT COUNT(DISTINCT p.fold_id)
+                SELECT COUNT(DISTINCT NULLIF(p.fold_id, ''))
                 FROM predictions p
                 WHERE p.chain_id = chains.chain_id
                   AND p.refit_context IS NULL

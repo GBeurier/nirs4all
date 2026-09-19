@@ -88,3 +88,50 @@ def test_store_export_replays_target_scaling(tmp_path):
         chain_id=chain_id, workspace_path=tmp_path / "workspace", data=X[32:], engine="legacy",
     ).y_pred
     np.testing.assert_allclose(np.asarray(predicted).ravel(), expected, rtol=1e-6, atol=1e-5)
+
+
+def test_train_only_sequential_models_have_independent_replayable_chains(tmp_path):
+    """A model without folds must not become preprocessing of the next model."""
+    from sklearn.cross_decomposition import PLSRegression
+
+    import nirs4all
+    from nirs4all.pipeline.storage import WorkspaceStore
+
+    rng = np.random.default_rng(222)
+    X = rng.normal(size=(30, 5))
+    y = 2 * X[:, 0] - X[:, 1]
+    models = [PLSRegression(n_components=2), Ridge(alpha=1)]
+    expected = {
+        type(model).__name__: make_pipeline(StandardScaler(), model).fit(X, y).predict(X[:6]).ravel()
+        for model in models
+    }
+    workspace = tmp_path / "train-only"
+    with nirs4all.run(
+        [StandardScaler(), *models], (X, y), engine="legacy", workspace_path=workspace,
+        verbose=0, save_charts=False, plots_visible=False,
+    ) as result:
+        assert result.num_predictions > 0
+        assert set(result.get_models()) == set(expected)
+        assert result.best == {}  # No validation score is invented for training-only execution.
+        rows = result.predictions.filter_predictions(partition="train", load_arrays=True)
+        assert len({row["chain_id"] for row in rows}) == 2
+        identities = [(row["model_name"], row["chain_id"]) for row in rows]
+
+    with WorkspaceStore.open_readonly(workspace) as store:
+        for name, chain_id in identities:
+            chain = store.get_chain(chain_id)
+            assert chain["model_name"] == chain["model_class"] == name
+            assert chain["fold_strategy"] == "shared"
+            assert chain["cv_fold_count"] == 0
+            assert chain["cv_val_score"] is None
+            assert chain["final_test_score"] is None
+            assert chain["cv_train_score"] is not None
+            import json
+            scores = json.loads(chain["cv_scores"])
+            assert scores["train"]["rmse"] == pytest.approx(chain["cv_train_score"], abs=1e-6)
+            assert not scores.get("val") and not scores.get("test")
+            # Both direct replay and exported replay must use this model's fitted state.
+            np.testing.assert_allclose(store.replay_chain(chain_id, X[:6]).ravel(), expected[name], atol=1e-6)
+            archive = store.export_chain(chain_id, tmp_path / f"{name}.n4a")
+            actual = nirs4all.predict(model=archive, data=X[:6], engine="legacy", verbose=0).y_pred
+            np.testing.assert_allclose(np.asarray(actual).ravel(), expected[name], atol=1e-6)

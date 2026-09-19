@@ -1218,7 +1218,7 @@ class WorkspaceStore:
                 "  AVG(val_score) AS avg_val, "
                 "  AVG(test_score) AS avg_test, "
                 "  AVG(train_score) AS avg_train, "
-                "  COUNT(DISTINCT fold_id) AS fold_count "
+                "  COUNT(DISTINCT NULLIF(fold_id, '')) AS fold_count "
                 "FROM predictions "
                 "WHERE chain_id = ? AND refit_context IS NULL "
                 "  AND SUBSTR(fold_id, -4) != '_agg' AND fold_id NOT IN ('avg', 'w_avg')",
@@ -1258,7 +1258,7 @@ class WorkspaceStore:
             # --- CV multi-metric averages (cv_scores JSON) ---
             cv_scores_json: str | None = None
             cv_metrics_rows = conn.execute(
-                "SELECT partition, scores FROM predictions WHERE chain_id = ? AND refit_context IS NULL AND partition IN ('val', 'test') AND SUBSTR(fold_id, -4) != '_agg' AND fold_id NOT IN ('avg', 'w_avg')",
+                "SELECT partition, scores FROM predictions WHERE chain_id = ? AND refit_context IS NULL AND partition IN ('train', 'val', 'test') AND SUBSTR(fold_id, -4) != '_agg' AND fold_id NOT IN ('avg', 'w_avg')",
                 [chain_id],
             ).fetchall()
             if cv_metrics_rows:
@@ -1451,7 +1451,7 @@ class WorkspaceStore:
                       AND p.fold_id NOT IN ('avg', 'w_avg')
                 ),
                 cv_fold_count = COALESCE((
-                    SELECT COUNT(DISTINCT p.fold_id)
+                    SELECT COUNT(DISTINCT NULLIF(p.fold_id, ''))
                     FROM predictions p
                     WHERE p.chain_id = chains.chain_id
                       AND p.refit_context IS NULL
@@ -1530,7 +1530,7 @@ class WorkspaceStore:
         import json as _json
 
         rows = conn.execute(
-            "SELECT chain_id, partition, scores FROM predictions WHERE refit_context IS NULL AND partition IN ('val', 'test') AND SUBSTR(fold_id, -4) != '_agg' AND fold_id NOT IN ('avg', 'w_avg') AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
+            "SELECT chain_id, partition, scores FROM predictions WHERE refit_context IS NULL AND partition IN ('train', 'val', 'test') AND SUBSTR(fold_id, -4) != '_agg' AND fold_id NOT IN ('avg', 'w_avg') AND chain_id IN (SELECT chain_id FROM _bulk_chain_ids)",
         ).fetchall()
 
         if rows:

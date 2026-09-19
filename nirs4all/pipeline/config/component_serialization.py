@@ -2,6 +2,7 @@ import contextlib
 import importlib
 import inspect
 import json
+import sys
 from enum import Enum
 from typing import Annotated, Any, Union, get_args, get_origin, get_type_hints
 
@@ -209,8 +210,12 @@ def serialize_component(obj: Any) -> Any:
 
     return def_serialized
 
-def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
-    """Turn the output of serialize_component back into live objects."""
+def deserialize_component(blob: Any, infer_type: Any = None, *, strict_imports: bool = False) -> Any:
+    """Turn serialized components into objects.
+
+    ``strict_imports`` preserves import failures for executable step references.
+    The default remains permissive for ordinary dotted string parameter values.
+    """
     # --- trivial cases ------------------------------------------------------ #
     if blob is None or isinstance(blob, (bool, int, float)):
         return blob
@@ -253,7 +258,12 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
                             f"Original error: {e}"
                         ) from e
                 raise
-        except (ImportError, AttributeError):
+        except (ImportError, AttributeError) as exc:
+            if strict_imports:
+                raise ValueError(
+                    f"Could not deserialize component '{blob}' in Python '{sys.executable}': "
+                    f"{type(exc).__name__}: {exc}"
+                ) from exc
             return blob
 
     if isinstance(blob, list):
@@ -304,8 +314,13 @@ def deserialize_component(blob: Any, infer_type: Any = None) -> Any:
             try:
                 mod = importlib.import_module(mod_name)
                 cls_or_func = getattr(mod, cls_or_func_name)
-            except (ImportError, AttributeError):
-                print(f"Failed to import {blob[key]}")
+            except (ImportError, AttributeError) as exc:
+                if strict_imports:
+                    raise ValueError(
+                        f"Could not deserialize component '{blob[key]}' in Python '{sys.executable}': "
+                        f"{type(exc).__name__}: {exc}"
+                    ) from exc
+                print(f"Failed to import {blob[key]}: {type(exc).__name__}: {exc}")
                 return blob
 
             # Special handling for meta-estimators (stacking/voting)
