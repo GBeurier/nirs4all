@@ -6,12 +6,13 @@ import importlib
 import json
 import os
 import zipfile
-from importlib.metadata import version
+from importlib.metadata import requires, version
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
+from packaging.requirements import Requirement
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
@@ -102,9 +103,13 @@ def test_installed_terminal_predict_is_callback_free_and_archives_without_a_rece
 
     monkeypatch.delenv("N4M_LIB_PATH", raising=False)
     dag_ml, n4m = _require_installed_runtime()
-    assert version("dag-ml") == "0.3.25"
-    assert version("nirs4all-methods") == "1.0.18"
-    assert dag_ml.version() == "0.3.25"
+    # Exercise supported installed wheels; exact patch pins would prevent the
+    # lifecycle assertions below from validating a compatible runtime update.
+    requirements = {requirement.name: requirement for item in requires("nirs4all") or [] if (requirement := Requirement(item)).name in {"dag-ml", "nirs4all-methods"}}
+    assert set(requirements) == {"dag-ml", "nirs4all-methods"}
+    for name, requirement in requirements.items():
+        assert version(name) in requirement.specifier
+    assert dag_ml.version() == version("dag-ml")
     assert tuple(n4m.abi_version()) == (2, 5, 0)
     assert callable(getattr(dag_ml, "execute_methods_cv_refit_terminal_predict", None))
     assert isinstance(getattr(dag_ml, "MethodsTerminalPredictionResult", None), type)

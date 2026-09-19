@@ -1,4 +1,4 @@
-"""Immutable catalogue must never invoke writable workspace startup."""
+"""Transactional catalogue must never invoke writable workspace startup."""
 
 import hashlib
 import sqlite3
@@ -18,16 +18,26 @@ def test_empty_catalogue_does_not_mutate_workspace(tmp_path, monkeypatch):
     monkeypatch.setattr(WorkspaceStore, "__init__", lambda *a, **k: pytest.fail("writable store opened"))
     assert read_model_catalogue(tmp_path) == []
     assert (hashlib.sha256(database.read_bytes()).hexdigest(), database.stat().st_mtime_ns) == before
-    assert sorted(path.name for path in tmp_path.iterdir()) == entries
+    assert sorted(path.name for path in tmp_path.iterdir() if path.name not in {"store.sqlite-wal", "store.sqlite-shm"}) == entries
 
 
-@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
-def test_active_journal_is_refused_without_ignoring_committed_writes(tmp_path, suffix):
+def test_active_writer_does_not_block_catalogue_or_hide_committed_writes(tmp_path):
     with WorkspaceStore(tmp_path):
         pass
-    (tmp_path / f"store.sqlite{suffix}").write_bytes(b"active")
-    with pytest.raises(RuntimeError, match="active SQLite journal"):
-        read_model_catalogue(tmp_path)
+    writer = sqlite3.connect(tmp_path / "store.sqlite")
+    try:
+        writer.execute("PRAGMA journal_mode=WAL")
+        writer.execute("SELECT COUNT(*) FROM chains").fetchone()
+        assert (tmp_path / "store.sqlite-wal").exists()
+        assert read_model_catalogue(tmp_path) == []
+        # A committed schema change exists only in WAL. An immutable reader
+        # would silently accept the old main-file schema instead of refusing it.
+        writer.execute("PRAGMA user_version = 999")
+        writer.commit()
+        with pytest.raises(RuntimeError, match="schema"):
+            read_model_catalogue(tmp_path)
+    finally:
+        writer.close()
 
 
 def test_schema_and_bounds_are_not_silently_migrated(tmp_path):

@@ -400,9 +400,11 @@ class WorkspaceStore:
     # Class attribute so tests (and power users) can tune it.
     AUTO_COMPACT_TOMBSTONE_THRESHOLD = 64
 
-    def __init__(self, workspace_path: Path) -> None:
+    def __init__(self, workspace_path: Path, *, read_only: bool = False) -> None:
+        self._read_only = read_only
         self._workspace_path = Path(workspace_path)
-        self._workspace_path.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            self._workspace_path.mkdir(parents=True, exist_ok=True)
         self._lock = threading.RLock()
         self._atexit_callback: Callable[[], None] | None = None
 
@@ -416,9 +418,12 @@ class WorkspaceStore:
         format_info = inspect_workspace_format(self._workspace_path)
         if format_info.conversion_required:
             raise ConversionRequired(format_info)
+        if read_only and not sqlite_path.is_file():
+            raise FileNotFoundError(f"WorkspaceStore database not found: {sqlite_path}")
 
         self._conn: sqlite3.Connection | None = sqlite3.connect(
-            str(sqlite_path),
+            f"{sqlite_path.resolve().as_uri()}?mode=ro" if read_only else str(sqlite_path),
+            uri=read_only,
             check_same_thread=False,
             detect_types=sqlite3.PARSE_DECLTYPES | sqlite3.PARSE_COLNAMES,
             isolation_level=None,  # autocommit mode
@@ -429,12 +434,26 @@ class WorkspaceStore:
         # too-new workspace is never mutated (WAL writes -wal/-shm sidecars).
         self._conn.execute("PRAGMA busy_timeout=5000")
 
-        # Create or incrementally upgrade the supported SQLite schema.
-        create_schema(self._conn)
+        # Read-only consumers keep one committed snapshot, including WAL,
+        # without migration, reconciliation or changing the journal mode.
+        if read_only:
+            try:
+                self._conn.execute("PRAGMA query_only=ON")
+                self._conn.execute("BEGIN")
+                version = self._conn.execute("PRAGMA user_version").fetchone()[0]
+                if version != SCHEMA_VERSION:
+                    raise RuntimeError(f"read-only WorkspaceStore requires schema {SCHEMA_VERSION}, got {version}")
+            except Exception:
+                self._conn.close()
+                self._conn = None
+                raise
+        else:
+            create_schema(self._conn)
 
         # Ensure artifacts directory exists
         self._artifacts_dir = self._workspace_path / "artifacts"
-        self._artifacts_dir.mkdir(parents=True, exist_ok=True)
+        if not read_only:
+            self._artifacts_dir.mkdir(parents=True, exist_ok=True)
 
         # Register a weak atexit callback so live stores close before interpreter
         # shutdown without making notebook sessions retain every store ever opened.
@@ -443,7 +462,7 @@ class WorkspaceStore:
         atexit.register(self._atexit_callback)
 
         # Parquet-backed array storage
-        self._array_store = ArrayStore(self._workspace_path)
+        self._array_store = ArrayStore(self._workspace_path, read_only=read_only)
 
         # Startup reconciliation (gated): pending tombstones signal that a previous
         # session deleted predictions without compacting — or crashed/rolled back
@@ -452,13 +471,23 @@ class WorkspaceStore:
         # covering live rows are dropped. The gate is one small JSON read, so opening
         # a clean workspace (the common case) never touches Parquet; the ArrayStore
         # process lock makes the compaction safe against concurrent writers.
-        if self._array_store.has_pending_tombstones():
+        if not read_only and self._array_store.has_pending_tombstones():
             try:
                 self.compact_arrays()
             except Exception as exc:
                 # On-disk state from a crashed session is untrusted input; never
                 # block opening the workspace on a failed reconciliation.
                 logger.warning("Startup array reconciliation failed (will retry on next open): %s", exc)
+
+    @classmethod
+    def open_readonly(cls, workspace_path: str | Path) -> WorkspaceStore:
+        """Open current-schema queries on one read-only SQLite snapshot.
+
+        Close this reader after a request to release its WAL snapshot. No schema
+        upgrade, artifact/array directory creation or cleanup occurs. SQLite may
+        maintain coordination sidecars; source records and arrays stay unchanged.
+        """
+        return cls(Path(workspace_path), read_only=True)
 
     @property
     def workspace_path(self) -> Path:
@@ -480,6 +509,10 @@ class WorkspaceStore:
             raise RuntimeError("WorkspaceStore is closed")
         return self._conn
 
+    def _require_writable(self) -> None:
+        if self._read_only:
+            raise RuntimeError("WorkspaceStore is read-only")
+
     def _execute_with_retry(
         self,
         sql: str,
@@ -499,6 +532,7 @@ class WorkspaceStore:
             max_retries: Maximum number of retry attempts.
             base_delay: Initial delay in seconds (doubles each retry with jitter).
         """
+        self._require_writable()
         with self._lock:
             conn = self._ensure_open()
             last_error: Exception = Exception("SQLite retry exhausted")
@@ -1767,6 +1801,7 @@ class WorkspaceStore:
             the *same* identifier is returned (content-addressed
             deduplication).
         """
+        self._require_writable()
         # Serialize outside the lock (CPU-bound, no DB access)
         data = _serialize_artifact(obj, format)
         content_hash = hashlib.sha256(data).hexdigest()
@@ -1935,6 +1970,7 @@ class WorkspaceStore:
         Returns:
             A unique artifact identifier.
         """
+        self._require_writable()
         data = _serialize_artifact(obj, format)
         content_hash = hashlib.sha256(data).hexdigest()
 
@@ -2142,11 +2178,11 @@ class WorkspaceStore:
 
     @staticmethod
     def get_studio_run_detail_v1(workspace_path: str | Path, run_id: str) -> dict[str, Any] | None:
-        """Return the immutable Store-owned portion of Studio run detail.
+        """Return the transactional Store-owned portion of Studio run detail.
 
         This is the Python oracle for the public ``studio_run_detail_v1``
-        projection. It refuses active journal sidecars and schema drift and
-        performs no writes. Studio dataset links, result repositories, and
+        projection. It reads committed WAL data in one snapshot and refuses
+        schema drift without writing source data. Studio dataset links, result repositories, and
         presentation/runtime inference remain separate composition inputs.
 
         Args:
@@ -2160,87 +2196,65 @@ class WorkspaceStore:
 
         Raises:
             FileNotFoundError: If ``store.sqlite`` is absent.
-            RuntimeError: If the database is incompatible, journaled, or changes.
+            RuntimeError: If the database is incompatible or unreadable.
             ValueError: If the identifier or stored JSON shapes are invalid.
         """
         canonical_run_id = _canonical_optional_id(run_id, "run_id")
         if canonical_run_id is None:
             raise ValueError("run_id must be a canonical non-empty string")
 
-        database = Path(workspace_path) / "store.sqlite"
-        if not database.is_file():
-            raise FileNotFoundError(f"WorkspaceStore database not found: {database}")
-        sidecars = tuple(Path(f"{database}{suffix}") for suffix in ("-wal", "-shm", "-journal"))
-        if any(path.exists() for path in sidecars):
-            raise RuntimeError("studio_run_detail_v1 refuses an active SQLite journal")
+        with WorkspaceStore.open_readonly(workspace_path) as store:
+            return WorkspaceStore._read_studio_run_detail_v1(store._ensure_open(), canonical_run_id)
 
-        before = database.stat()
-        before_signature = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
-        connection = sqlite3.connect(
-            f"{database.resolve().as_uri()}?mode=ro&immutable=1",
-            uri=True,
-            detect_types=sqlite3.PARSE_DECLTYPES,
-        )
-        connection.row_factory = sqlite3.Row
-        try:
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            if version != SCHEMA_VERSION:
-                raise RuntimeError(f"studio_run_detail_v1 requires WorkspaceStore schema {SCHEMA_VERSION}, got {version}")
+    @staticmethod
+    def _read_studio_run_detail_v1(connection: sqlite3.Connection, canonical_run_id: str) -> dict[str, Any] | None:
+        """Read the base projection inside the caller-owned snapshot."""
+        raw_run = connection.execute(_STUDIO_RUN_DETAIL_RUN_QUERY, [canonical_run_id]).fetchone()
+        if raw_run is None:
+            return None
+        run = dict(raw_run)
 
-            raw_run = connection.execute(_STUDIO_RUN_DETAIL_RUN_QUERY, [canonical_run_id]).fetchone()
-            if raw_run is None:
-                return None
-            run = dict(raw_run)
+        config = _studio_run_detail_parse_json(run.get("config"), "runs.config")
+        datasets = _studio_run_detail_parse_json(run.get("datasets"), "runs.datasets")
+        summary = _studio_run_detail_parse_json(run.get("summary"), "runs.summary")
+        if config is not None and not isinstance(config, dict):
+            raise ValueError("studio_run_detail_v1 runs.config must decode to an object or null")
+        if datasets is not None and not isinstance(datasets, list):
+            raise ValueError("studio_run_detail_v1 runs.datasets must decode to an array or null")
+        if summary is not None and not isinstance(summary, dict):
+            raise ValueError("studio_run_detail_v1 runs.summary must decode to an object or null")
 
-            config = _studio_run_detail_parse_json(run.get("config"), "runs.config")
-            datasets = _studio_run_detail_parse_json(run.get("datasets"), "runs.datasets")
-            summary = _studio_run_detail_parse_json(run.get("summary"), "runs.summary")
-            if config is not None and not isinstance(config, dict):
-                raise ValueError("studio_run_detail_v1 runs.config must decode to an object or null")
-            if datasets is not None and not isinstance(datasets, list):
-                raise ValueError("studio_run_detail_v1 runs.datasets must decode to an array or null")
-            if summary is not None and not isinstance(summary, dict):
-                raise ValueError("studio_run_detail_v1 runs.summary must decode to an object or null")
+        refit_row = connection.execute(_STUDIO_RUN_DETAIL_REFIT_QUERY, [canonical_run_id]).fetchone()
+        has_refit = bool(refit_row and refit_row["has_refit"])
+        stored_config = config or {}
+        run["config"] = {
+            "has_refit": has_refit,
+            **{key: value for key, value in stored_config.items() if value is not None},
+        }
+        run["datasets"] = datasets or []
+        run["summary"] = summary or {}
 
-            refit_row = connection.execute(_STUDIO_RUN_DETAIL_REFIT_QUERY, [canonical_run_id]).fetchone()
-            has_refit = bool(refit_row and refit_row["has_refit"])
-            stored_config = config or {}
-            run["config"] = {
-                "has_refit": has_refit,
-                **{key: value for key, value in stored_config.items() if value is not None},
-            }
-            run["datasets"] = datasets or []
-            run["summary"] = summary or {}
+        log_rows = [
+            _studio_run_detail_json_value(dict(row))
+            for row in connection.execute(_STUDIO_RUN_DETAIL_LOG_QUERY, [canonical_run_id]).fetchall()
+        ]
+        log_by_pipeline = {str(row["pipeline_id"]): row for row in log_rows}
 
-            log_rows = [
-                _studio_run_detail_json_value(dict(row))
-                for row in connection.execute(_STUDIO_RUN_DETAIL_LOG_QUERY, [canonical_run_id]).fetchall()
-            ]
-            log_by_pipeline = {str(row["pipeline_id"]): row for row in log_rows}
+        pipelines: list[dict[str, Any]] = []
+        for row in connection.execute(_STUDIO_RUN_DETAIL_PIPELINES_QUERY, [canonical_run_id]).fetchall():
+            pipeline = dict(row)
+            for field in ("expanded_config", "original_template", "generator_choices"):
+                pipeline[field] = _studio_run_detail_parse_json(pipeline.get(field), f"pipelines.{field}")
+            pipeline = _studio_run_detail_json_value(pipeline)
+            pipeline.update(log_by_pipeline.get(str(pipeline["pipeline_id"]), {}))
+            pipelines.append(pipeline)
 
-            pipelines: list[dict[str, Any]] = []
-            for row in connection.execute(_STUDIO_RUN_DETAIL_PIPELINES_QUERY, [canonical_run_id]).fetchall():
-                pipeline = dict(row)
-                for field in ("expanded_config", "original_template", "generator_choices"):
-                    pipeline[field] = _studio_run_detail_parse_json(pipeline.get(field), f"pipelines.{field}")
-                pipeline = _studio_run_detail_json_value(pipeline)
-                pipeline.update(log_by_pipeline.get(str(pipeline["pipeline_id"]), {}))
-                pipelines.append(pipeline)
-
-            run["pipelines"] = pipelines
-            run["log_summary"] = log_rows
-            normalized = _studio_run_detail_json_value(run)
-            if not isinstance(normalized, dict):
-                raise RuntimeError("studio_run_detail_v1 normalization did not produce an object")
-            return normalized
-        finally:
-            connection.close()
-            after = database.stat()
-            after_signature = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-            if any(path.exists() for path in sidecars):
-                raise RuntimeError("studio_run_detail_v1 detected an active SQLite journal")
-            if after_signature != before_signature:
-                raise RuntimeError("studio_run_detail_v1 detected a database change during immutable read")
+        run["pipelines"] = pipelines
+        run["log_summary"] = log_rows
+        normalized = _studio_run_detail_json_value(run)
+        if not isinstance(normalized, dict):
+            raise RuntimeError("studio_run_detail_v1 normalization did not produce an object")
+        return normalized
 
     @staticmethod
     def get_studio_run_detail_runtime_v1(workspace_path: str | Path, run_id: str) -> dict[str, Any] | None:
@@ -2265,74 +2279,53 @@ class WorkspaceStore:
         if canonical_run_id is None:
             raise ValueError("run_id must be a canonical non-empty string")
 
+        with WorkspaceStore.open_readonly(workspace_path) as store:
+            return WorkspaceStore._read_studio_run_detail_runtime_v1(store._ensure_open(), canonical_run_id)
+
+    @staticmethod
+    def _read_studio_run_detail_runtime_v1(connection: sqlite3.Connection, canonical_run_id: str) -> dict[str, Any] | None:
+        """Read runtime fields inside the same snapshot as the base projection."""
         projection = "studio_run_detail_runtime_v1"
-        database = Path(workspace_path) / "store.sqlite"
-        if not database.is_file():
-            raise FileNotFoundError(f"WorkspaceStore database not found: {database}")
-        sidecars = tuple(Path(f"{database}{suffix}") for suffix in ("-wal", "-shm", "-journal"))
-        if any(path.exists() for path in sidecars):
-            raise RuntimeError(f"{projection} refuses an active SQLite journal")
+        if connection.execute("SELECT 1 FROM runs WHERE run_id = ?", [canonical_run_id]).fetchone() is None:
+            return None
 
-        before = database.stat()
-        before_signature = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
-        connection = sqlite3.connect(
-            f"{database.resolve().as_uri()}?mode=ro&immutable=1",
-            uri=True,
-            detect_types=sqlite3.PARSE_DECLTYPES,
+        available_columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(pipelines)").fetchall()}
+        required_columns = {"pipeline_id", "run_id", "created_at"}
+        missing_required = sorted(required_columns - available_columns)
+        if missing_required:
+            raise RuntimeError(f"{projection} pipelines is missing required columns: {', '.join(missing_required)}")
+
+        provenance = {
+            column: "stored_column" if column in available_columns else "absent_in_store_v5"
+            for column in _STUDIO_RUN_DETAIL_RUNTIME_COLUMNS
+        }
+        selections = ["pipeline_id"] + [
+            f'"{column}"' if column in available_columns else f'NULL AS "{column}"'
+            for column in _STUDIO_RUN_DETAIL_RUNTIME_COLUMNS
+        ]
+        query = (
+            f"SELECT {', '.join(selections)} FROM pipelines WHERE run_id = ? "
+            "ORDER BY created_at DESC, pipeline_id ASC"
         )
-        connection.row_factory = sqlite3.Row
-        try:
-            version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-            if version != SCHEMA_VERSION:
-                raise RuntimeError(f"{projection} requires WorkspaceStore schema {SCHEMA_VERSION}, got {version}")
-            if connection.execute("SELECT 1 FROM runs WHERE run_id = ?", [canonical_run_id]).fetchone() is None:
-                return None
+        pipeline_runtime: list[dict[str, Any]] = []
+        for raw_row in connection.execute(query, [canonical_run_id]).fetchall():
+            row = dict(raw_row)
+            for field in ("engine", "engine_requested"):
+                value = row.get(field)
+                if value is not None and not isinstance(value, str):
+                    raise ValueError(f"{projection} pipelines.{field} must be stored text or null")
+            for field, expected_type in _STUDIO_RUN_DETAIL_RUNTIME_JSON_SHAPES.items():
+                value = _studio_run_detail_parse_json(row.get(field), f"pipelines.{field}", projection=projection)
+                if value is not None and not isinstance(value, expected_type):
+                    expected_shape = "array" if expected_type is list else "object"
+                    raise ValueError(f"{projection} pipelines.{field} must decode to a JSON {expected_shape} or null")
+                row[field] = value
+            pipeline_runtime.append(_studio_run_detail_json_value(row))
 
-            available_columns = {str(row["name"]) for row in connection.execute("PRAGMA table_info(pipelines)").fetchall()}
-            required_columns = {"pipeline_id", "run_id", "created_at"}
-            missing_required = sorted(required_columns - available_columns)
-            if missing_required:
-                raise RuntimeError(f"{projection} pipelines is missing required columns: {', '.join(missing_required)}")
-
-            provenance = {
-                column: "stored_column" if column in available_columns else "absent_in_store_v5"
-                for column in _STUDIO_RUN_DETAIL_RUNTIME_COLUMNS
-            }
-            selections = ["pipeline_id"] + [
-                f'"{column}"' if column in available_columns else f'NULL AS "{column}"'
-                for column in _STUDIO_RUN_DETAIL_RUNTIME_COLUMNS
-            ]
-            query = (
-                f"SELECT {', '.join(selections)} FROM pipelines WHERE run_id = ? "
-                "ORDER BY created_at DESC, pipeline_id ASC"
-            )
-            pipeline_runtime: list[dict[str, Any]] = []
-            for raw_row in connection.execute(query, [canonical_run_id]).fetchall():
-                row = dict(raw_row)
-                for field in ("engine", "engine_requested"):
-                    value = row.get(field)
-                    if value is not None and not isinstance(value, str):
-                        raise ValueError(f"{projection} pipelines.{field} must be stored text or null")
-                for field, expected_type in _STUDIO_RUN_DETAIL_RUNTIME_JSON_SHAPES.items():
-                    value = _studio_run_detail_parse_json(row.get(field), f"pipelines.{field}", projection=projection)
-                    if value is not None and not isinstance(value, expected_type):
-                        expected_shape = "array" if expected_type is list else "object"
-                        raise ValueError(f"{projection} pipelines.{field} must decode to a JSON {expected_shape} or null")
-                    row[field] = value
-                pipeline_runtime.append(_studio_run_detail_json_value(row))
-
-            return {
-                "pipeline_runtime": pipeline_runtime,
-                "runtime_column_provenance": provenance,
-            }
-        finally:
-            connection.close()
-            after = database.stat()
-            after_signature = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-            if any(path.exists() for path in sidecars):
-                raise RuntimeError(f"{projection} detected an active SQLite journal")
-            if after_signature != before_signature:
-                raise RuntimeError(f"{projection} detected a database change during immutable read")
+        return {
+            "pipeline_runtime": pipeline_runtime,
+            "runtime_column_provenance": provenance,
+        }
 
     def list_runs(
         self,
@@ -3717,6 +3710,7 @@ class WorkspaceStore:
         Returns:
             Number of artifact files removed.
         """
+        self._require_writable()
         with self._lock:
             conn = self._ensure_open()
             orphans = conn.execute(GC_ARTIFACTS).fetchall()

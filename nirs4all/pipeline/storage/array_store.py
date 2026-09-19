@@ -193,9 +193,12 @@ class ArrayStore:
             is created automatically.
     """
 
-    def __init__(self, base_dir: Path) -> None:
+    def __init__(self, base_dir: Path, *, read_only: bool = False) -> None:
+        self._read_only = read_only
         self._base_dir = Path(base_dir)
         self._arrays_dir = self._base_dir / "arrays"
+        if read_only:
+            return
         self._arrays_dir.mkdir(parents=True, exist_ok=True)
         # Clean up orphaned temp files from previous crashes
         for tmp_file in self._arrays_dir.glob("*.parquet.tmp"):
@@ -257,6 +260,8 @@ class ArrayStore:
         Readers stay lock-free: ``_atomic_write_parquet`` publishes via temp +
         ``os.replace``, so they see old-or-new files, never torn ones.
         """
+        if self._read_only:
+            raise RuntimeError("ArrayStore is read-only")
         fd = os.open(str(self._arrays_dir / ".lock"), os.O_CREAT | os.O_RDWR, 0o644)
         try:
             if fcntl is not None:

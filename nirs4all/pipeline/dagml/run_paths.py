@@ -29,7 +29,7 @@ from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_g
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _frames_by_variant, _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
-from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _is_split_step, _legacy_skips_refit, _model_name, _split_pipeline, _supported_body_steps
+from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _is_split_step, _model_name, _split_pipeline, _supported_body_steps
 
 
 class DuplicationBranchMergeTransformer:
@@ -237,7 +237,7 @@ def _run_native_generation(
     )
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id)
     return _scores_to_run_result(
-        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, skip_refit=_legacy_skips_refit(splitter), results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
     )
 
 
@@ -365,7 +365,7 @@ def _run_native_operator_generation(
     # to its OWN variant only.
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
     return _scores_to_run_result(
-        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, skip_refit=_legacy_skips_refit(splitter), results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
     )
 
 
@@ -381,22 +381,14 @@ def _run_concrete_scores(
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
     random_state: int | None = None,
-) -> tuple[dict[str, Any], str, bool, list[dict[str, Any]], Any, list[dict[str, Any]]]:
-    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, skip_refit, results, identity, refit_artifacts)``.
+) -> tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]]]:
+    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, results, identity, refit_artifacts)``.
 
-    The raw native ScoreSet + the model label + the legacy refit-gate flag + the per-node ``NodeResult``
-    frames + the minted ``IdentityMap`` + the captured fitted REFIT estimators. The first three feed both
-    the single-variant projection and the operator-sweep COMBINE (legacy num_predictions parity) — see
-    :func:`~nirs4all.pipeline.dagml.run_backend._dispatch_run`. ``results`` + ``identity`` let the
-    single-variant projection fill the strict direct-block per-sample y_pred/y_true/sample_indices (2a-i) —
-    the sweep path ignores them (its per-variant value fill is 2a-ii/2a-iii). ``refit_artifacts`` (P3 Slice
-    2c-i) is the run's captured fitted REFIT models (``outcome["refit_artifacts"]``; empty for the
-    subprocess mechanism), forwarded to the native-results writer. :func:`_run_concrete`
-    wraps this for the single-variant path. ``skip_refit`` is
-    :func:`~nirs4all.pipeline.dagml.steps._legacy_skips_refit` on the splitter — true when an all-default
-    splitter serializes to a bare string, the case where legacy skips the refit and emits no ``(final, *)``
-    rows. ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
-    mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``).
+    Return native scores, model label, per-node results, sample identities and
+    captured fitted estimators. The projection preserves all native measurements,
+    independent of historical legacy serialization/refit behavior. ``cv_pool``
+    is the CV sample universe; ``excluded`` is marked in the envelope only when
+    ``keep_in_oof=True``.
     """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -420,7 +412,7 @@ def _run_concrete_scores(
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter), outcome["results"], identity, outcome["refit_artifacts"]
+    return outcome["scores"], _model_name(steps), outcome["results"], identity, outcome["refit_artifacts"]
 
 
 def _run_concrete(
@@ -444,10 +436,10 @@ def _run_concrete(
     ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
     mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
     """
-    scores, model_name, skip_refit, results, identity, refit_artifacts = _run_concrete_scores(
+    scores, model_name, results, identity, refit_artifacts = _run_concrete_scores(
         pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state
     )
-    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, results=results, identity=identity, refit_artifacts=refit_artifacts)
+    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
 
 
 
@@ -622,7 +614,6 @@ def _run_source_concat_merge(
         metric,
         task_type,
         config_name=config_name,
-        skip_refit=_legacy_skips_refit(splitter),
         results=outcome["results"],
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
@@ -699,8 +690,8 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     # single-pipeline path does. For a SAMPLE-LEVEL-aggregation dataset (`aggregate=True`) the refit's
     # `(test, None)` block dag-ml emits is already the aggregated sample grain (the replicates were
     # collapsed at materialization), so this surfaces the aggregation's final-(test) y_pred at parity with
-    # legacy (Gap 2). scores/skip_refit unchanged — num_predictions and scores stay score-set-driven.
-    result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"])
+    # legacy (Gap 2). Native measurements determine the projected rows.
+    result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"])
     from .native_vote import project_vote_evidence
 
     project_vote_evidence(result, outcome.get("classification_evidence", []), identity)
@@ -985,23 +976,23 @@ def _run_rep_fusion(
         for index, variant in enumerate(variants)
     ]
     if len(variant_scores) == 1:
-        scores, model_name, skip_refit, refit_artifacts = variant_scores[0]
-        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, refit_artifacts=refit_artifacts)
+        scores, model_name, refit_artifacts = variant_scores[0]
+        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, refit_artifacts=refit_artifacts)
 
     # A sweep INSIDE the rep-fusion body: combine every reshaped-variant's ScoreSet into the full
     # per-variant legacy table (#55) — same machinery the main operator-sweep path uses. `_project_operator_sweep`
-    # consumes 3-tuples, so split off the per-variant refit_artifacts and thread them as a separate by-index
+    # consumes score/model pairs, so split off the per-variant refit_artifacts and thread them as a separate by-index
     # list (the projection persists the WINNER's model artifacts only).
-    sweep_scores = [(scores, model_name, skip_refit) for scores, model_name, skip_refit, _artifacts in variant_scores]
-    refit_artifacts_by_index = [artifacts for _scores, _model_name, _skip_refit, artifacts in variant_scores]
+    sweep_scores = [(scores, model_name) for scores, model_name, _artifacts in variant_scores]
+    refit_artifacts_by_index = [artifacts for _scores, _model_name, artifacts in variant_scores]
     return _project_operator_sweep(sweep_scores, spectro.name, metric, task_type, is_classification, variant_config_names or [], refit_artifacts_by_index=refit_artifacts_by_index)
 
 
-def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, pickle: Any, random_state: int | None = None) -> tuple[dict[str, Any], str, bool, list[dict[str, Any]]]:
+def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, pickle: Any, random_state: int | None = None) -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
     """One concrete rep-fusion variant: reshape a fresh dataset copy, run the sample-grain CV+refit, return raw scores.
 
-    Returns ``(scores, model_name, skip_refit, refit_artifacts)`` — the raw native ScoreSet + the model
-    label + the legacy refit-gate flag + the captured fitted REFIT estimators
+    Returns ``(scores, model_name, refit_artifacts)`` — the raw native ScoreSet + the model
+    label + the captured fitted REFIT estimators
     (``outcome["refit_artifacts"]``, P3 Slice 2c-i) — so a sweep inside the body can COMBINE every variant's
     ScoreSet into one per-variant projection (legacy num_predictions parity) AND persist the winner's model
     artifacts, exactly like :func:`_run_concrete_scores` on the main path. The single-variant caller wraps
@@ -1046,7 +1037,7 @@ def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro
     # Legacy labels the model by the model step's own name/class only — the rep_to_sources / rep_to_pp
     # reshape is a dataset transform, NOT part of the model_name. Emit the bare `_model_name` (e.g.
     # "PLSRegression"), matching legacy get_models() exactly (no "rep_to_sources_" / "rep_to_pp_" prefix).
-    return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter), outcome["refit_artifacts"]
+    return outcome["scores"], _model_name(steps), outcome["refit_artifacts"]
 
 
 def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any, context: Any | None = None) -> None:
@@ -1376,7 +1367,6 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         metric,
         task_type,
         config_name=config_name,
-        skip_refit=_legacy_skips_refit(splitter),
         results=outcome["results"],
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
@@ -2758,7 +2748,6 @@ def _run_by_source_concat_shared_preproc(pipeline: list[Any], preproc_body: list
         metric,
         task_type,
         config_name=config_name,
-        skip_refit=_legacy_skips_refit(splitter),
         results=outcome["results"],
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
@@ -2853,7 +2842,6 @@ def _run_by_source_distinct_preproc_concat(
         metric,
         task_type,
         config_name=config_name,
-        skip_refit=_legacy_skips_refit(splitter),
         results=outcome["results"],
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],

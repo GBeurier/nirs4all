@@ -136,7 +136,7 @@ def test_portable_native_selection_never_deserializes_general_workspace(tmp_path
     result.close()
 
 
-def test_repeated_array_and_file_replay_never_mutates_workspace(tmp_path, monkeypatch):
+def test_repeated_array_and_file_replay_never_mutates_persisted_workspace_data(tmp_path, monkeypatch):
     import hashlib
 
     import nirs4all
@@ -160,7 +160,7 @@ def test_repeated_array_and_file_replay_never_mutates_workspace(tmp_path, monkey
     def snapshot():
         return {
             path.relative_to(workspace).as_posix(): (path.stat().st_mtime_ns, hashlib.sha256(path.read_bytes()).hexdigest())
-            for path in workspace.rglob("*") if path.is_file()
+            for path in workspace.rglob("*") if path.is_file() and path.name not in {"store.sqlite-wal", "store.sqlite-shm"}
         }
 
     before = snapshot()
@@ -177,90 +177,71 @@ def test_repeated_array_and_file_replay_never_mutates_workspace(tmp_path, monkey
         np.testing.assert_array_equal(prediction, predictions[0])
 
 
-@pytest.mark.parametrize("suffix", ["-wal", "-shm", "-journal"])
-def test_workspace_replay_refuses_active_journals_before_loading(tmp_path, monkeypatch, suffix):
-    import joblib
-
-    import nirs4all
-    from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain
-
-    X = np.arange(120.0).reshape(30, 4)
-    result = nirs4all.run([KFold(3), Ridge()], (X, X[:, 0] + 0.12), workspace_path=tmp_path)
-    chain_id = result.best["chain_id"]
-    result.close()
-    sidecar = tmp_path / f"store.sqlite{suffix}"
-    sidecar.write_bytes(b"writer-owned journal")
-    monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("active database deserialized a model"))
-    with pytest.raises(RuntimeError, match="active SQLite journal"):
-        load_general_workspace_chain(tmp_path, chain_id)
-    assert sidecar.read_bytes() == b"writer-owned journal"
-
-
-def test_workspace_replay_waits_for_closed_owner_sidecar_unlink(tmp_path):
-    import threading
-    import time
-
-    import nirs4all
-    from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain
-
-    X = np.arange(120.0).reshape(30, 4)
-    result = nirs4all.run([KFold(3), Ridge()], (X, X[:, 0] + 0.12), workspace_path=tmp_path)
-    chain_id = result.best["chain_id"]
-    result.close()
-    sidecar = tmp_path / "store.sqlite-journal"
-    sidecar.write_bytes(b"closed owner awaiting unlink visibility")
-
-    def finish_close() -> None:
-        time.sleep(0.03)
-        sidecar.unlink()
-
-    closer = threading.Thread(target=finish_close)
-    closer.start()
-    try:
-        loaded = load_general_workspace_chain(tmp_path, chain_id)
-    finally:
-        closer.join()
-    assert loaded is not None
-    assert not sidecar.exists()
-
-
-def test_workspace_replay_refuses_sidecar_appearing_during_read(tmp_path, monkeypatch):
+@pytest.mark.parametrize("writer_state", ["idle", "committed", "uncommitted"])
+def test_workspace_replay_reads_committed_snapshot_with_active_writer(tmp_path, monkeypatch, writer_state):
     import sqlite3
 
-    import joblib
+    import nirs4all
+    from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain
+
+    X = np.arange(120.0).reshape(30, 4)
+    result = nirs4all.run([KFold(3), Ridge()], (X, X[:, 0] + 0.12), workspace_path=tmp_path)
+    selected = result.best
+    result.close()
+    expected = nirs4all.predict(selected, X).y_pred
+    monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("workspace replay fitted a model"))
+    writer = sqlite3.connect(tmp_path / "store.sqlite")
+    try:
+        writer.execute("PRAGMA journal_mode=WAL")
+        original_name = writer.execute("SELECT model_name FROM chains WHERE chain_id = ?", [selected["chain_id"]]).fetchone()[0]
+        if writer_state != "idle":
+            writer.execute("UPDATE chains SET model_name = ? WHERE chain_id = ?", ["concurrent-name", selected["chain_id"]])
+            if writer_state == "committed":
+                writer.commit()
+        wal = tmp_path / "store.sqlite-wal"
+        assert wal.exists(), "Exercise a real SQLite WAL, not a dummy journal"
+        wal_before = wal.read_bytes()
+        loaded = load_general_workspace_chain(tmp_path, selected["chain_id"])
+        assert loaded is not None
+        assert loaded["chain"]["model_name"] == ("concurrent-name" if writer_state == "committed" else original_name)
+        np.testing.assert_array_equal(nirs4all.predict(selected, X).y_pred, expected)
+        assert wal.read_bytes() == wal_before, "Prediction must not commit or checkpoint the writer"
+    finally:
+        writer.close()
+
+
+def test_workspace_replay_keeps_one_snapshot_during_concurrent_commit(tmp_path, monkeypatch):
+    import sqlite3
 
     import nirs4all
-    import nirs4all.pipeline.dagml.general_workspace as workspace_replay
+    from nirs4all.pipeline.dagml.general_workspace import load_general_workspace_chain
+    from nirs4all.pipeline.storage.store_queries import GET_CHAIN
 
     X = np.arange(120.0).reshape(30, 4)
     result = nirs4all.run([KFold(3), Ridge()], (X, X[:, 0] + 0.12), workspace_path=tmp_path)
     chain_id = result.best["chain_id"]
     result.close()
-    sidecar = tmp_path / "store.sqlite-wal"
+    writer = sqlite3.connect(tmp_path / "store.sqlite")
+    writer.execute("PRAGMA journal_mode=WAL")
     original_connect = sqlite3.connect
+    committed = []
 
-    class SidecarOnClose:
-        def __init__(self, connection):
-            self.connection = connection
+    class ConcurrentCommitConnection(sqlite3.Connection):
+        def execute(self, sql, parameters=()):
+            cursor = super().execute(sql, parameters)
+            if sql == GET_CHAIN:
+                # Remove the artifact record after replay has read the chain.
+                # A transaction must still see the matching earlier artifact.
+                writer.execute("DELETE FROM artifacts")
+                writer.commit()
+                committed.append(True)
+            return cursor
 
-        @property
-        def row_factory(self):
-            return self.connection.row_factory
-
-        @row_factory.setter
-        def row_factory(self, value):
-            self.connection.row_factory = value
-
-        def execute(self, *args, **kwargs):
-            return self.connection.execute(*args, **kwargs)
-
-        def close(self):
-            self.connection.close()
-            sidecar.write_bytes(b"writer appeared during immutable read")
-
-    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: SidecarOnClose(original_connect(*args, **kwargs)))
-    monkeypatch.setattr(workspace_replay, "_SQLITE_SIDECAR_SETTLE_SECONDS", 0)
-    monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("raced database deserialized a model"))
-    with pytest.raises(RuntimeError, match="active SQLite journal"):
-        workspace_replay.load_general_workspace_chain(tmp_path, chain_id)
-    assert sidecar.read_bytes() == b"writer appeared during immutable read"
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: original_connect(*args, factory=ConcurrentCommitConnection, **kwargs))
+    try:
+        loaded = load_general_workspace_chain(tmp_path, chain_id)
+        assert committed == [True]
+        assert loaded is not None and loaded["metadata"]["artifact_integrity_verified"]
+        assert writer.execute("SELECT COUNT(*) FROM artifacts").fetchone()[0] == 0
+    finally:
+        writer.close()

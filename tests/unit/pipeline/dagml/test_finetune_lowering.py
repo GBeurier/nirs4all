@@ -112,9 +112,9 @@ def test_public_dispatch_routes_proven_refit_noop_without_mutating_config(monkey
     pipeline = [SNV(), ShuffleSplit(n_splits=3, random_state=42), model_step]
     captured: dict[str, Any] = {}
 
-    def fake_run_concrete_scores(variant: list[Any], *_args: Any, **_kwargs: Any) -> tuple[Any, str, bool, list[Any], dict[str, Any], list[Any]]:
+    def fake_run_concrete_scores(variant: list[Any], *_args: Any, **_kwargs: Any) -> tuple[Any, str, list[Any], dict[str, Any], list[Any]]:
         captured["variant"] = variant
-        return object(), "PLSRegression", False, [], {}, []
+        return object(), "PLSRegression", [], {}, []
 
     def fake_scores_to_run_result(*_args: Any, **kwargs: Any) -> str:
         captured["config_name"] = kwargs["config_name"]
