@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Initialize SQLite workspace schemas atomically so concurrent readers never see
+  a missing chain-summary view; opening an up-to-date workspace no longer rewrites
+  the schema or waits for an active writer.
+
 ---
 
 ## [1.0.2] — 2026-09-19

@@ -533,51 +533,78 @@ def _backfill_chain_summaries(conn: sqlite3.Connection) -> None:
             )
 
 
+def _current_view_definitions(conn: sqlite3.Connection) -> bool:
+    """Compare the small view definitions without locking or scanning user data."""
+    expected = " ".join(VIEW_DDL.strip().rstrip(";").split()).replace(" IF NOT EXISTS", "", 1)
+    row = conn.execute("SELECT sql FROM sqlite_master WHERE type='view' AND name='v_chain_summary'").fetchone()
+    return bool(row and row[0] and " ".join(row[0].strip().rstrip(";").split()) == expected)
+
+
+def _check_supported_version(conn: sqlite3.Connection) -> int:
+    version = int(conn.execute("PRAGMA user_version").fetchone()[0])
+    if version > SCHEMA_VERSION:
+        raise RuntimeError(f"Workspace SQLite schema version {version} is newer than this nirs4all supports (max {SCHEMA_VERSION}). Upgrade nirs4all to open this workspace.")
+    return version
+
+
 def create_schema(conn: sqlite3.Connection) -> None:
-    """Create all tables, views, and indexes in the given SQLite connection.
+    """Create or migrate the schema atomically; current stores require no DDL.
 
-    Safe to call multiple times -- every DDL statement uses
-    ``IF NOT EXISTS``.
-
-    Args:
-        conn: An open SQLite connection.
+    Independent readers keep seeing the previous committed view while a migration
+    runs. Concurrent initializers serialize only when schema work is needed. A
+    caller's existing transaction is preserved with a savepoint, never committed.
     """
-    # Forward-incompatibility guard: refuse to touch a workspace stamped with a
-    # newer schema version than this library understands. Checked FIRST, before
-    # ANY mutation -- including ``PRAGMA journal_mode=WAL`` (persistent; writes
-    # -wal/-shm sidecars) -- so a too-new DB is never modified. Reading
-    # ``PRAGMA user_version`` is a pure read and does not mutate the file.
-    existing_version = conn.execute("PRAGMA user_version").fetchone()[0]
-    if existing_version > SCHEMA_VERSION:
-        raise RuntimeError(f"Workspace SQLite schema version {existing_version} is newer than this nirs4all supports (max {SCHEMA_VERSION}). Upgrade nirs4all to open this workspace.")
-
-    conn.execute("PRAGMA journal_mode=WAL")
+    # Refuse future versions before any mutation, including journal mode.
+    existing_version = _check_supported_version(conn)
     conn.execute("PRAGMA foreign_keys=ON")
+    if existing_version == SCHEMA_VERSION and _current_view_definitions(conn):
+        return
 
-    for statement in SCHEMA_DDL.strip().split(";"):
-        statement = statement.strip()
-        if statement:
-            conn.execute(statement)
+    # SQLite cannot change journal mode inside a transaction. Ordinary stores
+    # already use WAL. Preserve a caller-owned transaction and its journal mode.
+    if not conn.in_transaction and conn.execute("PRAGMA journal_mode").fetchone()[0].lower() != "wal":
+        conn.execute("PRAGMA journal_mode=WAL")
 
-    _migrate_schema(conn)
+    owns_transaction = not conn.in_transaction
+    conn.execute("BEGIN IMMEDIATE" if owns_transaction else "SAVEPOINT nirs4all_schema")
+    try:
+        # Another initializer may have completed while we waited for its lock.
+        existing_version = _check_supported_version(conn)
+        if existing_version != SCHEMA_VERSION or not _current_view_definitions(conn):
+            for statement in SCHEMA_DDL.strip().split(";"):
+                statement = statement.strip()
+                if statement:
+                    conn.execute(statement)
 
-    for statement in INDEX_DDL.strip().split(";"):
-        statement = statement.strip()
-        if statement:
-            conn.execute(statement)
+            _migrate_schema(conn)
 
-    # Drop and recreate views to pick up schema changes
-    conn.execute("DROP VIEW IF EXISTS v_aggregated_predictions")
-    conn.execute("DROP VIEW IF EXISTS v_aggregated_predictions_all")
-    conn.execute("DROP VIEW IF EXISTS v_chain_summary")
-    for statement in VIEW_DDL.strip().split(";"):
-        statement = statement.strip()
-        if statement:
-            conn.execute(statement)
+            for statement in INDEX_DDL.strip().split(";"):
+                statement = statement.strip()
+                if statement:
+                    conn.execute(statement)
 
-    # Stamp the current schema version (integer literal; SCHEMA_VERSION is an
-    # int constant, so f-string interpolation here carries no user input).
-    conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+            # No reader can observe the gap between DROP and CREATE: both are
+            # committed together with migrations and the schema version stamp.
+            conn.execute("DROP VIEW IF EXISTS v_aggregated_predictions")
+            conn.execute("DROP VIEW IF EXISTS v_aggregated_predictions_all")
+            conn.execute("DROP VIEW IF EXISTS v_chain_summary")
+            for statement in VIEW_DDL.strip().split(";"):
+                statement = statement.strip()
+                if statement:
+                    conn.execute(statement)
+            conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+    except BaseException:
+        if owns_transaction:
+            conn.rollback()
+        else:
+            conn.execute("ROLLBACK TO SAVEPOINT nirs4all_schema")
+            conn.execute("RELEASE SAVEPOINT nirs4all_schema")
+        raise
+    else:
+        if owns_transaction:
+            conn.commit()
+        else:
+            conn.execute("RELEASE SAVEPOINT nirs4all_schema")
 
 
 def _get_table_columns(conn: sqlite3.Connection, table_name: str) -> set[str]:
