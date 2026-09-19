@@ -1854,8 +1854,8 @@ class WorkspaceStore:
         during pipeline execution) with the ``artifacts`` table so
         that :meth:`load_artifact` and chain replay can find them.
 
-        If an artifact with the same *artifact_id* already exists the call
-        is silently ignored (idempotent).
+        Re-registering the same identity and content is idempotent. Reusing an
+        identity for different fitted content is refused, preserving old chains.
 
         Args:
             artifact_id: Artifact identifier (may be V3 format).
@@ -1872,9 +1872,12 @@ class WorkspaceStore:
         with self._lock:
             conn = self._ensure_open()
 
-            # Skip if already registered
+            # A stable identity cannot silently switch fitted models or bind a
+            # newly trained chain to an older run's artifact.
             existing = self._fetch_one(GET_ARTIFACT, [artifact_id])
             if existing is not None:
+                if existing["content_hash"] != content_hash or existing["format"] != format:
+                    raise ValueError(f"Artifact identity collision for {artifact_id!r}: fitted content differs")
                 return artifact_id
 
             conn.execute(
@@ -2971,33 +2974,13 @@ class WorkspaceStore:
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Collect artifact IDs referenced by the chain
-        artifact_ids: set[str] = set()
         fold_artifacts = chain.get("fold_artifacts") or {}
         shared_artifacts = chain.get("shared_artifacts") or {}
 
         # Detect refit model using canonical fold key; keep legacy key fallback.
         refit_key = "fold_final" if "fold_final" in fold_artifacts else ("final" if "final" in fold_artifacts else None)
         has_refit = refit_key is not None
-        if has_refit:
-            # Only include the single refit model artifact.
-            refit_artifact_id = fold_artifacts.get(refit_key, "")
-            export_fold_artifacts = {"fold_final": refit_artifact_id}
-            if refit_artifact_id:
-                artifact_ids.add(refit_artifact_id)
-        else:
-            export_fold_artifacts = fold_artifacts
-            for aid in fold_artifacts.values():
-                if aid:
-                    artifact_ids.add(aid)
-
-        for v in shared_artifacts.values():
-            if isinstance(v, list):
-                for aid in v:
-                    if aid:
-                        artifact_ids.add(aid)
-            elif v:
-                artifact_ids.add(v)
+        export_fold_artifacts = {"fold_final": fold_artifacts[refit_key]} if refit_key is not None else fold_artifacts
 
         # Build manifest
         fold_strategy = "single_refit" if has_refit else chain["fold_strategy"]
@@ -3018,9 +3001,29 @@ class WorkspaceStore:
                 "fingerprint": relation_manifest_payload.get("fingerprint"),
             }
 
+        # Bundle replay addresses fitted state by step/fold, not by its content
+        # filename. Preserve that mapping using the canonical bundle names.
+        artifact_names: dict[str, str] = {}
+        for step_idx, values in shared_artifacts.items():
+            if str(step_idx).startswith("_"):
+                continue
+            aids = values if isinstance(values, list) else [values]
+            for sub_idx, aid in enumerate(aids):
+                if aid:
+                    artifact_names[f"step_{step_idx}_sub{sub_idx}"] = aid
+        for fold_id, aid in export_fold_artifacts.items():
+            if aid:
+                fold = str(fold_id).removeprefix("fold_")
+                artifact_names[f"step_{chain['model_step_idx']}_fold{fold}"] = aid
+
+        pipeline = self.get_pipeline(chain["pipeline_id"])
+        expanded = pipeline.get("expanded_config") if pipeline else None
+        pipeline_config = expanded if isinstance(expanded, dict) else {"steps": expanded or []}
+
         # Write ZIP bundle
         with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zf:
             zf.writestr("manifest.json", json.dumps(manifest, indent=2))
+            zf.writestr("pipeline.json", json.dumps(pipeline_config, indent=2, default=str))
             zf.writestr(
                 "chain.json",
                 json.dumps(
@@ -3036,11 +3039,11 @@ class WorkspaceStore:
             if relation_manifest_payload is not None:
                 zf.writestr("relation_replay_manifest.json", json.dumps(relation_manifest_payload, indent=2, sort_keys=True))
 
-            for aid in artifact_ids:
+            for artifact_name, aid in artifact_names.items():
                 path = self.get_artifact_path(aid)
                 if not path.exists():
                     raise FileNotFoundError(f"Artifact file missing: {path}")
-                zf.write(path, f"artifacts/{path.name}")
+                zf.write(path, f"artifacts/{artifact_name}{path.suffix}")
 
         return output_path
 
@@ -3853,7 +3856,20 @@ class WorkspaceStore:
         fold_artifacts = chain.get("fold_artifacts") or {}
         shared_artifacts = chain.get("shared_artifacts") or {}
 
+        pipeline = self.get_pipeline(chain["pipeline_id"])
+        expanded = pipeline.get("expanded_config") if pipeline else None
+        configured_steps = expanded.get("steps", []) if isinstance(expanded, dict) else (expanded or [])
+        target_steps = {idx + 1 for idx, config in enumerate(configured_steps)
+                        if isinstance(config, dict) and "y_processing" in config}
+        target_transformers: list[Any] = []
         X_current = X.copy()
+
+        def _restore_targets(prediction: Any) -> np.ndarray:
+            values = np.asarray(prediction)
+            original_shape = values.shape
+            for transformer in reversed(target_transformers):
+                values = np.asarray(transformer.inverse_transform(values.reshape(-1, 1) if values.ndim == 1 else values))
+            return cast(np.ndarray, values.reshape(original_shape))
 
         def _transform_with_optional_wavelengths(transformer: Any, X_in: np.ndarray) -> np.ndarray:
             """Call transformer.transform with wavelengths when supported."""
@@ -3880,7 +3896,7 @@ class WorkspaceStore:
                 refit_artifact_id = fold_artifacts.get("fold_final") or fold_artifacts.get("final")
                 if refit_artifact_id:
                     model = self.load_artifact(refit_artifact_id)
-                    return cast(np.ndarray, np.asarray(model.predict(X_current)))
+                    return _restore_targets(model.predict(X_current))
 
                 # Legacy: load all fold models, predict, average
                 fold_preds = []
@@ -3889,7 +3905,7 @@ class WorkspaceStore:
                     fold_preds.append(model.predict(X_current))
                 if not fold_preds:
                     raise RuntimeError("Chain has no fold model artifacts")
-                return cast(np.ndarray, np.asarray(np.mean(fold_preds, axis=0)))
+                return _restore_targets(np.mean(fold_preds, axis=0))
 
             str_idx = str(idx)
             if str_idx in shared_artifacts:
@@ -3899,7 +3915,10 @@ class WorkspaceStore:
                     artifact_ids = [artifact_ids]
                 for artifact_id in artifact_ids:
                     transformer = self.load_artifact(artifact_id)
-                    X_current = _transform_with_optional_wavelengths(transformer, X_current)
+                    if idx in target_steps:
+                        target_transformers.append(transformer)
+                    else:
+                        X_current = _transform_with_optional_wavelengths(transformer, X_current)
             elif step.get("stateless", False):
                 # Stateless step -- skip (no artifact needed)
                 pass

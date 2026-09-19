@@ -21,6 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Report scores only for partitions actually evaluated; preserve real refit
   results instead of copying validation scores into training or test fields.
 - Defer native binding initialization until it is needed.
+- Give fitted artifacts an execution identity so rerunning the same pipeline on
+  different data cannot reuse an older model or overwrite its provenance.
+- Export stored chains with canonical artifact positions and their actual pipeline
+  configuration; replay target transformations on predictions rather than inputs.
+- Resolve sample origins in batches while preserving target alignment and keeping
+  augmented validation samples out of training. A paired small PLS workload dropped
+  from about 0.92 seconds to 0.28 seconds for warm legacy training.
 
 ### Added
 

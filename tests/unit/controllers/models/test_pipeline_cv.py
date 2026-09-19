@@ -87,7 +87,8 @@ class DummyFoldDataset:
             ([12, 13, 14, 15], [10, 11]),
         ]
         self._indexer = SimpleNamespace(
-            x_indices=lambda selector, include_augmented=True, include_excluded=False: np.array([10, 11, 12, 13, 14, 15])
+            x_indices=lambda selector, include_augmented=True, include_excluded=False: np.array([10, 11, 12, 13, 14, 15]),
+            get_origins_for_samples=lambda sample_ids: list(sample_ids),
         )
 
     @property

@@ -123,6 +123,18 @@ class AugmentationTracker:
 
         return int(row.select(pl.col("origin")).item())
 
+    def get_origins_for_samples(self, sample_ids: list[int]) -> list[int | None]:
+        """Resolve origins in input order with a single pass over the index.
+
+        Duplicate IDs remain duplicated and missing IDs return ``None``. Read
+        the current index on each call so additions never require invalidation.
+        """
+        if not sample_ids:
+            return []
+        frame = self._store.df
+        origins = dict(zip(frame.get_column("sample"), frame.get_column("origin"), strict=True))
+        return [origins.get(sample_id) for sample_id in sample_ids]
+
     def is_augmented(self, sample_id: int) -> bool:
         """
         Check if a sample is augmented (origin != sample).
