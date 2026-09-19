@@ -168,21 +168,13 @@ def assert_score_parity(legacy: Any, dagml: Any, case: PipelineCase) -> None:
 
 
 def assert_score_parity_metrics_only(legacy: Any, dagml: Any, case: PipelineCase) -> None:
-    """Assert dag-ml METRIC scores match legacy, EXEMPTING the structural ``num_predictions`` equality.
+    """Compare scores and model/dataset identities across storage projections.
 
-    The :func:`assert_score_parity` comparison is structural-AND-metric: ``compare``
-    flags a ``num_predictions`` mismatch even when every enforced metric is within
-    tolerance. For a documented :data:`NUM_PREDICTIONS_DIVERGENCE` case (a multi-model
-    ``_or_`` where legacy refits every loser and dag-ml refits the winner only, the
-    correct SELECT semantic) that structural check is EXPECTED to diverge, so this
-    variant drops ONLY ``num_predictions`` from ``gold``/``observed`` and enforces the
-    metric tolerances PLUS the remaining structural fields (``models``/``datasets``,
-    which still MATCH — both engines RUN both models; only the refit COUNT differs).
-    The enforced metrics are the SELECTED winner's ``best_score``/``rmse``/``r2``, which
-    DO match (measured Δ≈2e-15). The winner identity is locked separately by
-    :func:`assert_same_winner`, and the winner's per-sample y_pred by
-    :func:`assert_winner_y_pred_parity`, so the only thing exempted is the prediction
-    COUNT, never a score, model set, or winner.
+    Compact native rows contain only measured partitions, while the legacy
+    table also has fold presentation and weighted-average rows. Their row
+    counts are not equivalent. Score tolerances and the remaining structural
+    fields remain enforced; native evidence and winner predictions are checked
+    independently by the calling conformance contract.
     """
     gold = observe(legacy, case.task)
     obs = observe(dagml, case.task)
@@ -195,33 +187,83 @@ def assert_score_parity_metrics_only(legacy: Any, dagml: Any, case: PipelineCase
 
 
 def assert_native_score_evidence(dagml: Any) -> None:
-    """Require real partition evidence rather than legacy-shaped filler rows."""
+    """Require measured scores for both compact and general DAG result paths.
+
+    The compact ScoreSet projection owns ``dagml_projection`` metadata and
+    validation-only fold rows. General DAG controllers own real train/val/test
+    arrays for each fitted fold instead. Requiring the compact schema on those
+    rows rejects valid execution; both paths must still prove their scores.
+    """
     rows = dagml.predictions.filter_predictions(load_arrays=True)
     assert rows, "native run must expose scored predictions"
+    compact = any("dagml_projection" in (row.get("result_metadata") or {}) for row in rows)
+    by_id = {row["id"]: row for row in rows if row.get("id") is not None}
     for row in rows:
         partition = row["partition"]
-        provenance = row["result_metadata"]["dagml_projection"]
-        source = provenance["score_provenance"][partition]
-        assert source["purpose"] == "measurement"
+        aggregate = (row.get("result_metadata") or {}).get("aggregate_evidence")
         assert partition in row["scores"]
         assert row[f"{partition}_score"] is not None
-        if row["fold_id"] != "final":
-            assert partition == "val" and row["fold_id"] != "w_avg"
-            assert row["train_score"] is None and row["test_score"] is None
-            assert set(row["scores"]) == {"val"}
-            assert source["partition"] == "validation"
-        else:
-            assert partition in {"train", "test"}
-            assert source["partition"] == ("final" if partition == "train" else "test")
-            if row["val_score"] is not None:
-                assert provenance["score_provenance"]["val"]["purpose"] == "model_selection"
-        # Where direct regression arrays exist, the displayed measurement must
-        # be their actual error. Group-grain classification requires its vote
-        # protocol and is checked by its dedicated owner-level oracle tests.
-        if row.get("metric") == "rmse" and len(row.get("y_pred", [])):
+        assert np.isfinite(row[f"{partition}_score"])
+        if aggregate is not None:
+            # Explicit group-vote/mean companions carry their own provenance,
+            # linking to the measured source row rather than claiming to be an
+            # additional fitted model or an independent selection score.
+            assert aggregate["owner"] == "nirs4all.data.Predictions.aggregate"
+            assert aggregate["selection_score"] is False
+            assert aggregate["partition"] == partition
+            source_row = by_id[aggregate["source_prediction_id"]]
+            assert source_row["partition"] == partition
+            assert row["fold_id"] == f"{source_row['fold_id']}_agg"
+            assert len(row["y_true"]) > 0
+            assert len(row["y_true"]) == len(row["y_pred"])
+            from nirs4all.core.metrics import eval as evaluate
+
+            measured = float(evaluate(np.asarray(row["y_true"]), np.asarray(row["y_pred"]), row["metric"]))
+            assert abs(measured - row[f"{partition}_score"]) <= 1e-4
+        elif compact:
+            # Once a result uses the compact projection, every row must carry
+            # its evidence. Missing provenance must never become a general-row
+            # exemption that could conceal a damaged compact projection.
+            provenance = row["result_metadata"]["dagml_projection"]
+            source = provenance["score_provenance"][partition]
+            assert source["purpose"] == "measurement"
+            if row["fold_id"] != "final":
+                assert partition == "val" and row["fold_id"] != "w_avg"
+                assert row["train_score"] is None and row["test_score"] is None
+                assert set(row["scores"]) == {"val"}
+                assert source["partition"] == "validation"
+            else:
+                assert partition in {"train", "test"}
+                assert source["partition"] == ("final" if partition == "train" else "test")
+                if row["val_score"] is not None:
+                    assert provenance["score_provenance"]["val"]["purpose"] == "model_selection"
+        # Regression scores are independently recomputed from each row's own
+        # arrays. Group-grain classification requires its voting protocol and
+        # is verified by dedicated owner-level oracle tests.
+        if row.get("metric") == "rmse":
             targets = np.asarray(row["y_true"], dtype=float).ravel()
             predictions = np.asarray(row["y_pred"], dtype=float).ravel()
+            if targets.size == 0 and compact and aggregate is None:
+                # Repetition fusion changes sample identity/grain. Its compact
+                # rows can be score-only; require the exact native ScoreSet
+                # measurement instead of inventing sample-level arrays.
+                assert predictions.size == 0 and not row["sample_indices"]
+                reports = dagml._dagml_score_set["reports"]  # noqa: SLF001
+                matching = [report for report in reports if (
+                    report["partition"] == source["partition"]
+                    and report.get("fold_id") == source.get("fold_id")
+                    and report.get("variant_id") == source.get("variant_id")
+                    and report.get("level") == "sample"
+                    and (not provenance.get("producer_node") or report["producer_node"] == provenance["producer_node"])
+                )]
+                assert len(matching) == 1, "score-only row must identify one native measurement"
+                assert matching[0]["metrics"][row["metric"]] == row[f"{partition}_score"]
+                assert matching[0]["row_count"] > 0
+                continue
+            assert targets.size > 0, "regression score must have target evidence"
             assert targets.shape == predictions.shape
+            if aggregate is None:
+                assert len(row["sample_indices"]) == len(row["y_pred"])
             observed = float(np.sqrt(np.mean((targets - predictions) ** 2)))
             assert abs(observed - row[f"{partition}_score"]) <= 1e-4
 
@@ -255,7 +297,7 @@ def assert_runresult_contract(legacy: Any, dagml: Any, case: PipelineCase) -> No
       have an equal plain ``best_accuracy`` while the selected ``balanced_accuracy``
       differs (RF row-order divergence), so ``best_score`` is what must match.
     * ``best_rmse`` / ``best_r2`` (regression) for completeness.
-    * the selected metric NAME, ``num_predictions``, and the top-n distinct-model set.
+    * the selected metric NAME and the top-n distinct-model set.
 
     Float scalars compare within the case's score tolerance (the same cross-engine
     noise ``assert_score_parity`` absorbs); ``_close_or_both_nan`` handles a

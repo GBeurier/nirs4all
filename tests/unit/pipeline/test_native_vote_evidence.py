@@ -184,9 +184,13 @@ def test_real_native_vote_preserves_all_fold_and_final_arrays_without_extra_fits
     assert native._dagml_score_set == native_scores[0]
     expected = {(str(row["fold_id"]), row["partition"]): row for row in legacy.predictions.iter_entries()}
     observed = {(str(row["fold_id"]), row["partition"]): row for row in native.predictions.iter_entries()}
-    assert len(expected) == len(observed) == 34
-    for key, reference in expected.items():
-        row = observed[key]
+    # Only measured native partitions are published: no copied fold train/test
+    # scores or pseudo weighted ensembles. Aggregation twins keep the same keys.
+    measured = {(fold, "val") for fold in ("0", "1", "2", "avg")} | {("final", "train"), ("final", "test")}
+    assert set(observed) == measured | {(f"{fold}_agg", partition) for fold, partition in measured}
+    assert set(observed) <= set(expected)
+    for key, row in observed.items():
+        reference = expected[key]
         assert row["n_samples"] == reference["n_samples"]
         positions = {sample: index for index, sample in enumerate(reference["sample_indices"])}
         order = [positions[sample] for sample in row["sample_indices"]] if positions else slice(None)

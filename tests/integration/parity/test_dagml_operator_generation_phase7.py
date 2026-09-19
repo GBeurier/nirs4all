@@ -33,6 +33,7 @@ from sklearn.cross_decomposition import PLSRegression
 from sklearn.model_selection import KFold
 
 import nirs4all
+from nirs4all.api.result import RunResult
 from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import Detrend, FirstDerivative, Resampler
 from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
@@ -65,8 +66,94 @@ def _run_dagml(pipeline: list[Any]) -> tuple[Any, bool]:
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         result = nirs4all.run(pipeline=pipeline, dataset=_dataset(), verbose=0, engine="dag-ml")
+        assert isinstance(result, RunResult)
         fell_back = any(_FALLBACK_FRAGMENT in str(w.message) for w in caught)
     return result, (not fell_back) and bool(result._is_dagml_engine())  # noqa: SLF001
+
+
+def _assert_generator_prediction_evidence(legacy: Any, dagml: Any, *, final_atol: float = 1e-3) -> None:
+    """Compare evaluated variant/fold identities and final prediction arrays.
+
+    Native results retain measured validation and refit partitions. Historical
+    fold train/test and weighted-average placeholder rows are not part of that
+    contract. Native OOF averages also count an overlapping sample only once.
+    CV predictions may differ because native preprocessing is fitted inside
+    each fold, while legacy fits stateful transforms such as MSC before CV.
+    Their targets/identities and recomputed metrics are checked independently;
+    final predictions, fitted on the same full-training scope, must match.
+    """
+    from ._conformance_helpers import assert_native_score_evidence
+
+    assert_native_score_evidence(dagml)
+    reference = legacy.predictions.filter_predictions(load_arrays=True)
+    observed = dagml.predictions.filter_predictions(load_arrays=True)
+
+    def keyed_rows(rows: list[dict[str, Any]]) -> dict[tuple[str, str, str], dict[str, Any]]:
+        measured = [row for row in rows if (str(row["fold_id"]).isdigit() and row["partition"] == "val") or row["fold_id"] == "final"]
+        keyed = {(row["config_name"], str(row["fold_id"]), row["partition"]): row for row in measured}
+        assert len(keyed) == len(measured), "duplicate variant/fold/partition evidence"
+        return keyed
+
+    expected_rows, actual_rows = keyed_rows(reference), keyed_rows(observed)
+    assert actual_rows.keys() == expected_rows.keys(), "evaluated variants, folds or refits changed"
+    assert dagml.best["config_name"] == legacy.best["config_name"], "selected generator variant changed"
+    for key, actual in actual_rows.items():
+        expected = expected_rows[key]
+        actual_ids, expected_ids = actual["sample_indices"], expected["sample_indices"]
+        assert len(set(actual_ids)) == len(actual_ids)
+        assert set(actual_ids) == set(expected_ids), key
+        positions = {sample: index for index, sample in enumerate(expected_ids)}
+        order = [positions[sample] for sample in actual_ids]
+        np.testing.assert_array_equal(np.asarray(actual["y_true"]).ravel(), np.asarray(expected["y_true"]).ravel()[order], err_msg=str(key))
+        if key[1] == "final":
+            np.testing.assert_allclose(np.asarray(actual["y_pred"]).ravel(), np.asarray(expected["y_pred"]).ravel()[order], atol=final_atol, rtol=1e-5, err_msg=str(key))
+
+    configs = {key[0] for key in actual_rows if key[1].isdigit()}
+    averages = [row for row in observed if row["fold_id"] == "avg"]
+    assert {row["config_name"] for row in averages} == configs
+    assert len(averages) == len(configs)
+    assert len(observed) == len(actual_rows) + len(averages), "unexpected unmeasured prediction rows"
+    for average in averages:
+        by_sample: dict[int, list[float]] = {}
+        for key, row in actual_rows.items():
+            if key[0] == average["config_name"] and key[1].isdigit():
+                for sample, prediction in zip(row["sample_indices"], np.asarray(row["y_pred"]).ravel(), strict=True):
+                    by_sample.setdefault(sample, []).append(float(prediction))
+        assert set(average["sample_indices"]) == set(by_sample)
+        assert len(average["sample_indices"]) == len(by_sample)
+        np.testing.assert_allclose(
+            np.asarray(average["y_pred"]).ravel(),
+            [np.mean(by_sample[sample]) for sample in average["sample_indices"]],
+            atol=1e-12, rtol=1e-12,
+        )
+
+
+@pytest.mark.slow
+def test_stateful_generator_cv_matches_fold_local_sklearn() -> None:
+    """Stateful MSC variants agree with an independent fold-local fit, not leaked legacy CV."""
+    from sklearn.pipeline import make_pipeline
+
+    result, native = _run_dagml([{"_or_": [SNV(), MSC()]}, _ss(), {"model": PLSRegression(n_components=5)}])
+    assert native
+    dataset = _dataset().get_dataset_at(0)
+    train = np.asarray(dataset.index_column("sample", {"partition": "train"}))
+    variant_configs: dict[type, str] = {}
+    for fold_id, (training, validation) in enumerate(_ss().split(train)):
+        # Dataset selectors return storage order, independently of request order.
+        train_ids, val_ids = sorted(train[training].tolist()), sorted(train[validation].tolist())
+        rows = result.predictions.filter_predictions(partition="val", fold_id=str(fold_id), load_arrays=True)
+        assert len(rows) == 2
+        for transform in (SNV, MSC):
+            oracle = make_pipeline(transform(), PLSRegression(n_components=5))
+            oracle.fit(dataset.x({"sample": train_ids}, layout="2d"), np.asarray(dataset.y({"sample": train_ids}), dtype=float))
+            expected = dict(zip(val_ids, np.asarray(oracle.predict(dataset.x({"sample": val_ids}, layout="2d"))).ravel(), strict=True))
+            matching = [row for row in rows if set(row["sample_indices"]) == set(expected) and np.allclose(
+                np.asarray(row["y_pred"]).ravel(), [expected[sample] for sample in row["sample_indices"]], atol=1e-6, rtol=1e-6,
+            )]
+            assert len(matching) == 1, (transform.__name__, fold_id)
+            config = matching[0]["config_name"]
+            assert config == variant_configs.setdefault(transform, config)
+        assert len(set(variant_configs.values())) == 2, "variants must not reuse another model's predictions"
 
 
 # --------------------------------------------------------------------------- #
@@ -464,6 +551,7 @@ def test_constrained_bare_or_edge_a_demotes_and_matches_legacy() -> None:
     assert _is_constrained_operator_generator([node, model]) is False
     pipe = [node, ShuffleSplit(n_splits=3, random_state=42), model]
     legacy = nirs4all.run(pipeline=pipe, dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(pipe)
     assert native is True, "the dag-ml engine runs the demoted bare-_or_ via Python-expand (no legacy fallback)"
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
@@ -487,6 +575,7 @@ def test_constrained_mutex_repeated_ref_demotes_and_matches_legacy() -> None:
     assert _is_constrained_operator_generator([node, model]) is False
     pipe = [node, ShuffleSplit(n_splits=3, random_state=42), model]
     legacy = nirs4all.run(pipeline=pipe, dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(pipe)
     assert native is True, "the dag-ml engine runs the demoted repeated-ref mutex via Python-expand (no crash, no legacy fallback)"
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
@@ -516,12 +605,14 @@ def test_constrained_prefix_runs_native_and_applies_prefix() -> None:
         return [_constrained_node(), ShuffleSplit(n_splits=3, random_state=42), {"model": PLSRegression(n_components=5)}]
 
     legacy = nirs4all.run(pipeline=prefixed(), dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(prefixed())
     assert native is True, "prefixed constrained generator must route NATIVE, not fall back"
     # The prefix is applied: native matches legacy on the SAME (prefixed) pipeline within score tolerance.
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
     # And the prefix is load-bearing: dropping it changes the score, so a silent drop would NOT have matched.
     no_prefix = nirs4all.run(pipeline=prefix_free(), dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(no_prefix, RunResult)
     assert dagml.best_score != pytest.approx(no_prefix.best_score, abs=1e-6)
 
 
@@ -582,6 +673,7 @@ def test_constrained_divergent_edge_demotes_and_matches_legacy(node: dict[str, A
 
     pipe = [node, ShuffleSplit(n_splits=3, random_state=42), model]
     legacy = nirs4all.run(pipeline=pipe, dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(pipe)
     # Python-expand on dag-ml (no legacy fallback) reproduces the legacy best score exactly.
     assert native is True, "the dag-ml engine runs the demoted generator via Python-expand (no legacy fallback)"
@@ -839,31 +931,34 @@ def test_unconstrained_predicate_excludes_constrained_and_bare_or() -> None:
 def test_unconstrained_runs_native_at_full_parity(factory: Any) -> None:
     """E2E: an admitted unconstrained pick/arrange/cartesian generator runs NATIVE and matches legacy at FULL parity.
 
-    Member-exact survivor set + same winner (via num_predictions + best_score parity). The ARRANGE case proves
+    Member-exact survivor set + same winner, with real fold/refit arrays compared. The ARRANGE case proves
     dag-ml's ordered-permutation enumeration agrees with legacy `itertools.permutations` (the survivor labels
     are content-keyed, so ordered survivors align by content) — arrange reaches parity, it does NOT demote.
     """
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(factory())
     assert native is True, "an admitted unconstrained generator must route NATIVE, not fall back"
-    assert dagml.num_predictions == legacy.num_predictions
+    _assert_generator_prediction_evidence(legacy, dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
 @pytest.mark.slow
 @pytest.mark.parametrize(
-    "factory",
+    ("factory", "final_atol"),
     [
         # then_pick / then_arrange (second-order) — deterministic, must match legacy via Python-expand.
-        lambda: [{"_or_": [SNV, MSC, Detrend], "pick": 1, "then_pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
-        lambda: [{"_or_": [SNV, MSC, Detrend], "pick": 1, "then_arrange": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
+        (lambda: [{"_or_": [SNV, MSC, Detrend], "pick": 1, "then_pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}], 1e-3),
+        (lambda: [{"_or_": [SNV, MSC, Detrend], "pick": 1, "then_arrange": 2}, _ss(), {"model": PLSRegression(n_components=10)}], 1e-3),
         # `_cartesian_` pick — deterministic, must match legacy via Python-expand.
-        lambda: [{"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}],
+        # Match the existing generator_cartesian_pick conformance tolerance:
+        # FirstDerivative amplifies PLS numerical noise (measured ceiling 2.107e-3).
+        (lambda: [{"_cartesian_": [{"_or_": [SNV, MSC]}, {"_or_": [Detrend, FirstDerivative]}], "pick": 2}, _ss(), {"model": PLSRegression(n_components=10)}], 5e-3),
         # NOTE: a bare multi-step `_or_` (`[[SNV, 1stDer], [MSC, Detrend]]`) is NO LONGER a demote — ADR-17 item 5
         # slice D routes it NATIVE via the flat-single path (`test_multistep_or_runs_native_at_full_parity`).
     ],
 )
-def test_unconstrained_demoted_shape_matches_legacy_via_python_expand(factory: Any) -> None:
+def test_unconstrained_demoted_shape_matches_legacy_via_python_expand(factory: Any, final_atol: float) -> None:
     """A DEMOTED unconstrained shape stays on the dag-ml engine (Python-expand, no legacy fallback) and matches legacy.
 
     These deterministic survivor sets (then_*, cartesian-pick) demote off native but still run correctly on
@@ -872,9 +967,10 @@ def test_unconstrained_demoted_shape_matches_legacy_via_python_expand(factory: A
     out because native direct lowering would truncate instead of running Python-expand sampling.)
     """
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(factory())
     assert native is True, "the dag-ml engine runs the demoted generator via Python-expand (no legacy fallback)"
-    assert dagml.num_predictions == legacy.num_predictions
+    _assert_generator_prediction_evidence(legacy, dagml, final_atol=final_atol)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
@@ -977,9 +1073,10 @@ def test_multistep_or_runs_native_at_full_parity(factory: Any) -> None:
     winner — `num_predictions` + `best_score` parity confirm same-winner + same-set.
     """
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(factory())
     assert native is True, "an admitted multi-step `_or_` must route NATIVE, not fall back"
-    assert dagml.num_predictions == legacy.num_predictions
+    _assert_generator_prediction_evidence(legacy, dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
@@ -1001,9 +1098,10 @@ def test_multistep_nested_demoted_shape_matches_legacy_via_python_expand(factory
     feature loss. The nested case proves legacy's FLATTEN (`{_or_: [SNV,MSC]}` → SNV, MSC) is reproduced.
     """
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(factory())
     assert native is True, "the dag-ml engine runs the demoted slice-D generator via Python-expand (no legacy fallback)"
-    assert dagml.num_predictions == legacy.num_predictions
+    _assert_generator_prediction_evidence(legacy, dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
@@ -1059,12 +1157,13 @@ def test_zip_chain_run_native_via_expand_at_full_parity(factory: Any) -> None:
 
     Both demote off the dedicated in-engine paths (asserted above) but still run on the dag-ml engine via
     `_expand_operator_generators` (NOT a legacy fallback), reproducing legacy's variant set + winner — so
-    `num_predictions` + `best_score` parity confirm same-set + same-winner. (The multi-model `_chain_` of
+    per-variant fold arrays and selected final arrays confirm same-set + same-winner. (The multi-model `_chain_` of
     distinct model classes — the winner-only-refit num_predictions divergence — is covered separately by
     the conformance oracle's `generator_chain_model_configs` parity-note.)
     """
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
+    assert isinstance(legacy, RunResult)
     dagml, native = _run_dagml(factory())
     assert native is True, "an admitted `_zip_`/`_chain_` shape runs NATIVE-via-expand on dag-ml (no legacy fallback)"
-    assert dagml.num_predictions == legacy.num_predictions
+    _assert_generator_prediction_evidence(legacy, dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)

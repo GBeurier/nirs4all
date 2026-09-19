@@ -133,7 +133,7 @@ class StepParser:
         # Check for serialization operators first
         for key in self.SERIALIZATION_OPERATORS:
             if key in step:
-                operator = deserialize_component(step)
+                operator = deserialize_component(step, strict_imports=True)
                 return ParsedStep(
                     operator=operator,
                     keyword=key,
@@ -161,7 +161,12 @@ class StepParser:
             # If no priority keyword found, pick the first candidate
             key = matched_key if matched_key is not None else candidates[0]
 
-            operator = self._deserialize_operator(step[key])
+            # Workflow values may be data (fold-file paths, custom controller
+            # options), whereas operator keywords promise executable references.
+            # Explicit class/function dictionaries remain strict in either case.
+            operator = self._deserialize_operator(
+                step[key], strict_strings=key in self.WORKFLOW_KEYWORDS or key == "step",
+            )
             return ParsedStep(
                 operator=operator,
                 keyword=key,
@@ -204,7 +209,7 @@ class StepParser:
 
         if "." in step:
              # Deserialize as a class/function reference
-            operator = deserialize_component(step)
+            operator = deserialize_component(step, strict_imports=True)
             return ParsedStep(
                 operator=operator,
                 keyword=step,
@@ -222,7 +227,7 @@ class StepParser:
                 metadata={}
             )
 
-    def _deserialize_operator(self, value: Any) -> Any | None:
+    def _deserialize_operator(self, value: Any, *, strict_strings: bool = True) -> Any | None:
         """Deserialize an operator value if needed.
 
         Handles:
@@ -238,7 +243,7 @@ class StepParser:
 
         # Handle lists/tuples (for chained operators like y_processing)
         if isinstance(value, (list, tuple)):
-            deserialized = [self._deserialize_operator(v) for v in value]
+            deserialized = [self._deserialize_operator(v, strict_strings=strict_strings) for v in value]
             return deserialized if isinstance(value, list) else tuple(deserialized)
 
         # Already an instance or class type - return as-is
@@ -267,6 +272,6 @@ class StepParser:
 
         # String reference
         if isinstance(value, str):
-            return deserialize_component(value, strict_imports=True)
+            return deserialize_component(value, strict_imports=strict_strings)
 
         return value

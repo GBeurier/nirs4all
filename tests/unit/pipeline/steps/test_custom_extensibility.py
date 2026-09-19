@@ -43,6 +43,27 @@ class TestCustomKeywordExtraction:
 
         assert parsed.keyword == "smoothing"
         assert parsed.step_type == StepType.WORKFLOW
+        assert parsed.operator == "some.module.Smoother"
+
+    @pytest.mark.parametrize("step", [
+        {"smoothing": {"class": "missing_custom_package.Smoother"}},
+        {"split": {"class": "missing_custom_package.Splitter"}},
+        {"model": "missing_custom_package.Model"},
+        {"preprocessing": "missing_custom_package.Transformer"},
+        {"class": "missing_custom_package.Operator"},
+        "missing_custom_package.Operator",
+    ])
+    def test_explicit_executable_reference_preserves_import_failure(self, step):
+        """Literal custom values never weaken imports of declared components."""
+        with pytest.raises(ValueError, match="Could not deserialize component") as error:
+            StepParser().parse(step)
+        assert isinstance(error.value.__cause__, ModuleNotFoundError)
+
+    @pytest.mark.parametrize("path", ["/data/folds.csv", r"C:\\data\\folds.json", "folds.yaml"])
+    def test_fold_path_is_controller_data(self, path):
+        parsed = StepParser().parse({"split": path})
+        assert parsed.keyword == "split"
+        assert parsed.operator == path
 
     def test_custom_keyword_with_underscores(self):
         """Custom keyword with underscores should work."""

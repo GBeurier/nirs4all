@@ -610,20 +610,17 @@ class TestErrorHandling:
             enable_tab_reports=False
         )
 
-        # Note: The library has a resilient DUMMY CONTROLLER that catches invalid models
-        # So invalid model strings don't actually raise - they're handled gracefully
-        # Instead, verify that the runner completes without raising
         pipeline = [
             {"preprocessing": StandardScaler()},
-            {"model": "definitely.not.a.real.ModelClass"}  # Handled by dummy controller
+            {"model": "definitely.not.a.real.ModelClass"}
         ]
 
         dataset_path = str(test_data_manager.get_temp_directory() / "regression")
 
-        # Should complete (dummy controller handles invalid models)
-        result = runner.run(pipeline, dataset_path)
-        # Verify it ran but may have no predictions due to dummy controller
-        assert result is not None
+        with pytest.raises(RuntimeError, match="Could not deserialize component.*ModelClass") as error:
+            runner.run(pipeline, dataset_path)
+        assert isinstance(error.value.__cause__, ValueError)
+        assert isinstance(error.value.__cause__.__cause__, ModuleNotFoundError)
 
     def test_continue_on_error_true(self, test_data_manager, temp_workspace):
         """Test that execution continues when continue_on_error=True."""

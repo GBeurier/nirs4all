@@ -352,13 +352,7 @@ class TestCriticalBehavior:
         assert predictions.num_predictions > 0
 
     def test_error_stops_execution_when_continue_on_error_false(self, tmp_path, baseline_test_data):
-        """
-        CRITICAL: Errors must stop execution when continue_on_error=False.
-
-        NOTE: The library has a resilient DUMMY CONTROLLER that catches invalid models,
-        so this test verifies the continue_on_error flag behavior, not that invalid
-        models raise (they're handled gracefully by design).
-        """
+        """Invalid executable references must stop a strict run with their cause."""
         runner = PipelineRunner(
             workspace_path=tmp_path,
             save_artifacts=False, save_charts=False,
@@ -369,16 +363,15 @@ class TestCriticalBehavior:
 
         dataset_path = str(baseline_test_data.get_temp_directory() / "regression")
 
-        # The library handles invalid models with a dummy controller
-        # Test that runner completes (resilient behavior)
         pipeline = [
             {"preprocessing": StandardScaler()},
             {"model": "definitely.not.a.real.ModelClass"}
         ]
 
-        # CRITICAL ASSERTION: Should complete (library is resilient)
-        result = runner.run(pipeline, dataset_path)
-        assert result is not None
+        with pytest.raises(RuntimeError, match="Could not deserialize component.*ModelClass") as error:
+            runner.run(pipeline, dataset_path)
+        assert isinstance(error.value.__cause__, ValueError)
+        assert isinstance(error.value.__cause__.__cause__, ModuleNotFoundError)
 
     def test_multiple_datasets_produce_separate_predictions(self, tmp_path, baseline_test_data):
         """

@@ -358,7 +358,11 @@ class Explainer:
         if resolved.artifact_provider and hasattr(resolved.artifact_provider, "artifact_loader"):
             self.artifact_loader = resolved.artifact_provider.artifact_loader
 
-        return list(resolved.minimal_pipeline)
+        from nirs4all.pipeline.retrainer import _is_internal_refit_splitter_step
+
+        # Refit-only splitters have no role in replay. Keep their slots so the
+        # model capture and fitted artifact indices still match the bundle.
+        return [None if _is_internal_refit_splitter_step(step) else step for step in resolved.minimal_pipeline]
 
     @staticmethod
     def _resolve_direct_explain_model(resolved: Any) -> Any | None:
