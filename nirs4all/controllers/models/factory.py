@@ -267,8 +267,10 @@ class ModelFactory:
         # Merge top-level params with current params
         merged_top_level = {**current_params, **top_level_params}
 
-        # Create new instance with top-level params
-        new_model = model_class(**merged_top_level)
+        # Apply the same constructor filtering as ordinary estimators. Runtime
+        # hints such as num_classes are intended for neural builders, not sklearn
+        # meta-estimators; nested sklearn parameters are still applied below.
+        new_model = ModelFactory.prepare_and_call(model_class, merged_top_level)
 
         # Apply nested params using set_params
         if nested_params:

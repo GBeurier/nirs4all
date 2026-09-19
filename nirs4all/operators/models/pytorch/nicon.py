@@ -244,7 +244,24 @@ def _build_decon_sep(input_shape, params, num_classes=1):
 
     return nn.Sequential(*layers)
 
+def _validate_nicon_length(input_shape, kernels, strides):
+    """Reject impossible convolution dimensions before allocating model weights."""
+    if any(not isinstance(value, int) or isinstance(value, bool) or value < 1 for value in (*kernels, *strides)):
+        raise ValueError("NICoN kernel sizes and strides must be positive integers")
+    required = 1
+    for kernel, stride in reversed(list(zip(kernels, strides, strict=True))):
+        required = (required - 1) * stride + kernel
+    available = input_shape[1]
+    if available < required:
+        raise ValueError(
+            f"NICoN requires at least {required} spectral features for kernels {kernels} "
+            f"and strides {strides}; received {available}. Use a wider spectrum or "
+            "configure smaller kernel_size1/2/3 and strides1/2/3 with customizable_nicon."
+        )
+
+
 def _build_nicon(input_shape, params, num_classes=1):
+    _validate_nicon_length(input_shape, (15, 21, 5), (5, 3, 3))
     c, seq_len = input_shape
     layers = []
     layers.append(SpatialDropout1D(params.get('spatial_dropout', 0.08)))
@@ -284,6 +301,9 @@ def _build_nicon(input_shape, params, num_classes=1):
     return nn.Sequential(*layers)
 
 def _build_customizable_nicon(input_shape, params, num_classes=1):
+    kernels = tuple(params.get(f"kernel_size{i}", default) for i, default in enumerate((15, 21, 5), 1))
+    strides = tuple(params.get(f"strides{i}", default) for i, default in enumerate((5, 3, 3), 1))
+    _validate_nicon_length(input_shape, kernels, strides)
     c, seq_len = input_shape
     layers = []
     layers.append(SpatialDropout1D(params.get('spatial_dropout', 0.08)))

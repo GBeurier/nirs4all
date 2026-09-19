@@ -30,6 +30,7 @@ import logging
 import math
 import random
 import sqlite3
+import sys
 import threading
 import time
 import weakref
@@ -643,8 +644,6 @@ class WorkspaceStore:
 
     def __del__(self) -> None:
         """Safety net: close connection if caller forgot to call :meth:`close`."""
-        import sys
-
         if sys.is_finalizing():
             return
         with contextlib.suppress(Exception):
@@ -3872,9 +3871,14 @@ class WorkspaceStore:
             return cast(np.ndarray, values.reshape(original_shape))
 
         def _transform_with_optional_wavelengths(transformer: Any, X_in: np.ndarray) -> np.ndarray:
-            """Call transformer.transform with wavelengths when supported."""
+            """Use the same numeric output contract as training, including sparse outputs."""
+            from nirs4all.utils.transform_output import normalize_transform_output
+
+            def normalize(output: Any) -> np.ndarray:
+                return cast(np.ndarray, np.asarray(normalize_transform_output(output, type(transformer).__name__)))
+
             if wavelengths is None:
-                return cast(np.ndarray, np.asarray(transformer.transform(X_in)))
+                return normalize(transformer.transform(X_in))
 
             supports_wavelengths = False
             try:
@@ -3884,9 +3888,9 @@ class WorkspaceStore:
                 supports_wavelengths = False
 
             if supports_wavelengths or hasattr(transformer, "_requires_wavelengths"):
-                return cast(np.ndarray, np.asarray(transformer.transform(X_in, wavelengths=wavelengths)))
+                return normalize(transformer.transform(X_in, wavelengths=wavelengths))
 
-            return cast(np.ndarray, np.asarray(transformer.transform(X_in)))
+            return normalize(transformer.transform(X_in))
 
         for step in steps:
             idx = step["step_idx"]
@@ -3905,6 +3909,9 @@ class WorkspaceStore:
                     fold_preds.append(model.predict(X_current))
                 if not fold_preds:
                     raise RuntimeError("Chain has no fold model artifacts")
+                if isinstance(getattr(model, "classes_", None), (list, tuple)):
+                    from nirs4all.data.ensemble_utils import EnsembleUtils
+                    return _restore_targets(EnsembleUtils.compute_hard_voting(fold_preds))
                 return _restore_targets(np.mean(fold_preds, axis=0))
 
             str_idx = str(idx)

@@ -9,8 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.3] — 2026-09-19
+
 ### Fixed
 
+- Preserve completed model predictions, scores and artifacts when a later model
+  in the same pipeline fails; workspace Results now retain the valid work.
+- Preserve multi-output prediction shapes through training, storage, replay and
+  classification metrics.
+- Correct branch, filter, resampling, sparse-transformer, target-transformer,
+  stacking and serialization behavior used by Studio pipelines.
+- Run AOM-PLS through the native `nirs4all-methods` backend distributed with the
+  standard dependency set.
+- Validate NICoN input dimensions before training and preserve robust spectral
+  augmentation wavelength order.
 - Initialize SQLite workspace schemas atomically so concurrent readers never see
   a missing chain-summary view; opening an up-to-date workspace no longer rewrites
   the schema or waits for an active writer.

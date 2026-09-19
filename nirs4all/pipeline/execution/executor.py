@@ -179,6 +179,7 @@ class PipelineExecutor:
 
         # Execute all steps
         all_artifacts: list[Any] = []
+        steps_completed = False
         try:
             context, dataset = self._execute_steps(
                 steps,
@@ -189,6 +190,7 @@ class PipelineExecutor:
                 all_artifacts
             )
 
+            steps_completed = True
             self._finalize_pipeline(
                 steps,
                 config_name,
@@ -203,6 +205,19 @@ class PipelineExecutor:
             )
 
         except Exception as e:
+            # A later step must not erase predictions from earlier completed
+            # models. Persist their trace/artifacts, while retaining failure as
+            # the authoritative pipeline status. Never retry failed finalization.
+            if not steps_completed and self.mode == "train" and store and pipeline_id and prediction_store.num_predictions:
+                try:
+                    with store.transaction():
+                        self._finalize_pipeline(
+                            steps, config_name, dataset, runtime_context, prediction_store,
+                            all_artifacts, trace_recorder, store, pipeline_id, start_time,
+                            partial=True,
+                        )
+                except Exception as persistence_error:
+                    logger.error(f"Could not persist completed models from failed pipeline {config_name}: {persistence_error}")
             # Fail pipeline in store.  Use try/except to prevent store
             # errors from masking the original pipeline error (e.g. SQLite
             # lock conflicts from concurrent processes).
@@ -298,8 +313,10 @@ class PipelineExecutor:
         store: Any,
         pipeline_id: Any,
         start_time: float,
+        *,
+        partial: bool = False,
     ) -> None:
-        """Persist chains, predictions, and completion for a successful pipeline.
+        """Persist completed model evidence; partial failures never become successes.
 
         Runs the post-execution success path: build chains from the trace, flush
         artifact-registry records, flush predictions, complete the pipeline row, and
@@ -321,6 +338,8 @@ class PipelineExecutor:
             )
             chain_builder = ChainBuilder(trace, self.artifact_registry)
             for chain_data in chain_builder.build_all():
+                if partial and not chain_data.get("fold_artifacts"):
+                    continue
                 if relation_replay_manifest is not None:
                     chain_data = {**chain_data, "relation_replay_manifest": relation_replay_manifest}
                 store.save_chain(pipeline_id=pipeline_id, **chain_data)
@@ -350,7 +369,11 @@ class PipelineExecutor:
                 pipeline_id,
                 prediction_store,
                 runtime_context=runtime_context,
+                require_exact_chain=partial,
             )
+
+        if partial:
+            return
 
         # Complete pipeline in store
         if self.mode == "train" and store and pipeline_id:
@@ -425,6 +448,8 @@ class PipelineExecutor:
         pipeline_id: str,
         prediction_store: Predictions,
         runtime_context: Any = None,
+        *,
+        require_exact_chain: bool = False,
     ) -> None:
         """Flush in-memory predictions to the SQLite store.
 
@@ -449,6 +474,26 @@ class PipelineExecutor:
                 except (TypeError, ValueError):
                     return []
             return []
+
+        if require_exact_chain:
+            # A failed model can already have emitted predictions for its first
+            # folds, but its step was omitted from the completed execution trace.
+            # Do not let the normal compatibility fallback attach those rows to
+            # the preceding successful model's chain.
+            completed = Predictions()
+            completed.extend_from_list([
+                prediction for prediction in prediction_store.iter_entries()
+                if any(
+                    int(prediction.get("step_idx", 0) or 0) == int(row.get("model_step_idx", 0) or 0)
+                    and (prediction.get("model_classname") or prediction.get("model_class")) == row.get("model_class")
+                    and (
+                        prediction.get("branch_id") is None
+                        or _parse_branch_path(row.get("branch_path"))[:1] == [int(prediction["branch_id"])]
+                    )
+                    for row in chain_rows
+                )
+            ])
+            prediction_store = completed
 
         def _register_first(mapping: dict[Any, str], key: Any, chain_id: str) -> None:
             if key not in mapping:

@@ -36,6 +36,8 @@ from typing import TYPE_CHECKING, Any, Optional, Union, cast
 
 import numpy as np
 
+from nirs4all.utils.transform_output import normalize_transform_output
+
 if TYPE_CHECKING:
     from nirs4all.pipeline.storage.artifacts.artifact_registry import ArtifactRegistry
 
@@ -787,6 +789,11 @@ class BundleLoader:
                 y_fold = model.predict(X_meta)
                 fold_preds.append((weight, y_fold))
 
+            if isinstance(getattr(model, "classes_", None), (list, tuple)):
+                from nirs4all.data.ensemble_utils import EnsembleUtils
+                return EnsembleUtils.compute_hard_voting(
+                    [y for _, y in fold_preds], np.asarray([w for w, _ in fold_preds])
+                )
             if self.fold_weights:
                 total_weight = sum(w for w, _ in fold_preds)
                 result: np.ndarray = np.asarray(sum(w * y for w, y in fold_preds) / total_weight)
@@ -839,6 +846,11 @@ class BundleLoader:
                 y_fold = model.predict(X)
                 fold_preds.append((weight, y_fold))
 
+            if isinstance(getattr(model, "classes_", None), (list, tuple)):
+                from nirs4all.data.ensemble_utils import EnsembleUtils
+                return EnsembleUtils.compute_hard_voting(
+                    [y for _, y in fold_preds], np.asarray([w for w, _ in fold_preds])
+                )
             if self.fold_weights:
                 total_weight = sum(w for w, _ in fold_preds)
                 result: np.ndarray = np.asarray(sum(w * y for w, y in fold_preds) / total_weight)
@@ -908,7 +920,7 @@ class BundleLoader:
 
         for _, transformer in artifacts:
             if hasattr(transformer, 'transform'):
-                X = transformer.transform(X)
+                X = normalize_transform_output(transformer.transform(X), type(transformer).__name__)
 
         return X
 
@@ -988,7 +1000,7 @@ class BundleLoader:
         # Apply each transformer to original X and collect results
         for _, transformer in artifacts:
             if hasattr(transformer, 'transform'):
-                X_transformed = transformer.transform(X)
+                X_transformed = normalize_transform_output(transformer.transform(X), type(transformer).__name__)
                 feature_channels.append(X_transformed)
 
         # Concatenate all feature channels horizontally

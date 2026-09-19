@@ -498,6 +498,10 @@ class SklearnModelController(BaseModelController):
         """
         if not hasattr(model, 'predict_proba'):
             return None
+        if isinstance(getattr(model, "classes_", None), (list, tuple)):
+            # Multi-output probabilities describe independent targets, not
+            # mutually exclusive classes. Vote on labels per output instead.
+            return None
 
         try:
             proba = model.predict_proba(X)

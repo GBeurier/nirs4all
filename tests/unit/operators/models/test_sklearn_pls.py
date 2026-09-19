@@ -52,8 +52,10 @@ def _ikpls_jax_available() -> bool:
     """Check if IKPLS exposes the JAX backend modules used by the wrapper."""
     return (
         _jax_available()
-        and _module_available("ikpls.jax_ikpls_alg_1")
-        and _module_available("ikpls.jax_ikpls_alg_2")
+        and (_module_available("ikpls.jax") or (
+            _module_available("ikpls.jax_ikpls_alg_1")
+            and _module_available("ikpls.jax_ikpls_alg_2")
+        ))
     )
 
 
@@ -367,6 +369,26 @@ class TestIKPLS:
         assert cloned.n_components == 7
         assert cloned.algorithm == 2
         assert cloned is not model
+
+    def test_sklearn_recognizes_regressor(self):
+        from sklearn.base import is_regressor
+
+        assert is_regressor(IKPLS())
+
+    @requires_ikpls_numpy_backend
+    @pytest.mark.parametrize("algorithm", [1, 2])
+    @pytest.mark.parametrize("multi_target", [False, True])
+    def test_predictions_match_sklearn_pls(self, algorithm, multi_target):
+        from sklearn.cross_decomposition import PLSRegression
+
+        rng = np.random.default_rng(278)
+        X = rng.normal(size=(64, 8))
+        y = X @ rng.normal(size=(8, 2)) + 0.01 * rng.normal(size=(64, 2))
+        if not multi_target:
+            y = y[:, 0]
+        expected = PLSRegression(n_components=4, scale=True, tol=1e-12, max_iter=2000).fit(X[:48], y[:48]).predict(X[48:])
+        actual = IKPLS(n_components=4, algorithm=algorithm).fit(X[:48], y[:48]).predict(X[48:])
+        np.testing.assert_allclose(actual, expected, atol=1e-5, rtol=1e-5)
 
     @requires_ikpls_numpy_backend
     def test_sklearn_cross_val_score(self, regression_data):
