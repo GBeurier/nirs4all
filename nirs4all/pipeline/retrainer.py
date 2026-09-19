@@ -473,7 +473,15 @@ class Retrainer:
         # training spec (native dag-ml .n4a bundles: their pipeline.json model step is a cosmetic
         # label for the predict loader, not a re-trainable component reference) retrains from that
         # spec; every other source keeps replaying its minimal predict chain as before.
-        steps = self._resolved.train_pipeline or self._resolved.minimal_pipeline
+        source_steps = self._resolved.train_pipeline or self._resolved.minimal_pipeline
+        # Full retraining shares the same legacy-bundle boundary as transfer
+        # retraining.  A ``_FullTrainFoldSplitter`` was injected solely by the
+        # former refit executor; its historical JSON representation cannot be
+        # re-imported and must never become part of an authored replay chain.
+        steps = [
+            step for step in source_steps
+            if not _is_internal_refit_splitter_step(step)
+        ]
 
         # For full retrain, we just run the pipeline normally
         # The runner will train everything from scratch
