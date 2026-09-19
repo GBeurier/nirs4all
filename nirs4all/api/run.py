@@ -418,11 +418,10 @@ def _dual_comparison_report(
             "native": native_observation["fold_metrics"],
         },
     }
-    if legacy_result.num_predictions != native_result.num_predictions:
-        _append_dual_mismatch(
-            mismatches,
-            {"field": "num_predictions", "legacy": legacy_result.num_predictions, "native": native_result.num_predictions, "reason": "exact_value_mismatch"},
-        )
+    # Stored row counts include engine-specific train/refit summaries. Keep
+    # them observable, but compare the concrete validation partitions below:
+    # identical folds, sample IDs, prediction values and scores are required.
+    # Equal storage layout is not evidence of equal scientific results.
 
     _append_dual_score_mismatch(
         mismatches,
