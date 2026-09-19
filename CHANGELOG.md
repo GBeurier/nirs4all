@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   classification metrics.
 - Correct branch, filter, resampling, sparse-transformer, target-transformer,
   stacking and serialization behavior used by Studio pipelines.
+- Keep transfer retraining from legacy bundles independent of private refit
+  splitters, including when replacing the trained model.
 - Run AOM-PLS through the native `nirs4all-methods` backend distributed with the
   standard dependency set.
 - Validate NICoN input dimensions before training and preserve robust spectral

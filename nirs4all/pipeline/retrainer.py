@@ -302,6 +302,35 @@ class RetrainArtifactProvider(ArtifactProvider):
             return False
         return self.base_provider.has_artifacts_for_step(step_index)
 
+def _is_internal_refit_splitter_step(step: Any) -> bool:
+    """Return whether *step* is the implementation-only refit splitter.
+
+    ``_FullTrainFoldSplitter`` is intentionally not part of a user pipeline.
+    It can reach a legacy bundle either as its live object or as the historic
+    ``repr`` produced by ``json.dumps(default=str)``.  Removing it at the
+    retrain boundary prevents a private runtime object from becoming an
+    import-path error, without treating ordinary CV splitters as disposable.
+    """
+    from nirs4all.pipeline.trace.extractor import MinimalPipelineStep
+
+    if isinstance(step, MinimalPipelineStep):
+        step = step.step_config
+
+    from nirs4all.pipeline.execution.refit.executor import _FullTrainFoldSplitter
+
+    if isinstance(step, _FullTrainFoldSplitter):
+        return True
+    if isinstance(step, str):
+        return "nirs4all.pipeline.execution.refit.executor._FullTrainFoldSplitter" in step
+    if isinstance(step, dict):
+        # Generic bundle exports wrap non-dict pipeline entries as
+        # ``{"step": value}``; old refit exports use that representation.
+        for key in ("class", "instance", "split", "step"):
+            if key in step and _is_internal_refit_splitter_step(step[key]):
+                return True
+    return False
+
+
 class Retrainer:
     """Handles retraining pipelines with various modes.
 
@@ -486,8 +515,17 @@ class Retrainer:
                 "model step are preprocessing."
             )
 
-        # Get pipeline steps
-        steps = list(self._resolved.minimal_pipeline)
+        # Get pipeline steps.  A bundle exported from a completed refit can
+        # contain the private one-fold splitter used only to make that refit
+        # happen.  It is neither an authored preprocessing step nor a valid
+        # replayable component: JSON encoders may reduce it to its ``repr``.
+        # Transfer training must therefore omit it, while preserving genuine
+        # user-authored splitters (which still define the new evaluation).
+        source_steps = list(self._resolved.minimal_pipeline)
+        steps = [
+            step for step in source_steps
+            if not _is_internal_refit_splitter_step(step)
+        ]
 
         # Optionally replace model step with new model
         if config.new_model is not None and self._resolved.model_step_index:
@@ -511,7 +549,14 @@ class Retrainer:
                     break
             else:
                 # Fallback: try list-based indexing (for non-MinimalPipelineStep cases)
-                model_idx = model_step_index - 1  # Convert to 0-based
+                # Bundle metadata stores the source pipeline's one-based
+                # index.  Keep it aligned after removing private refit steps
+                # that preceded the model.
+                model_idx = model_step_index - 1
+                model_idx -= sum(
+                    _is_internal_refit_splitter_step(step)
+                    for step in source_steps[:model_idx]
+                )
                 if 0 <= model_idx < len(steps):
                     old_step = steps[model_idx]
                     if isinstance(old_step, dict) and 'model' in old_step:
@@ -533,7 +578,6 @@ class Retrainer:
             verbose=verbose,
             pipeline_name=f"retrain_transfer_{self._resolved.pipeline_uid[:8]}"
         )
-
     def _retrain_finetune(
         self,
         config: RetrainConfig,

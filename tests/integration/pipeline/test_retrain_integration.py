@@ -370,12 +370,15 @@ class TestExportBundleIntegration:
             source=str(bundle_path),
             dataset=retrain_dataset,
             mode='transfer',
+            new_model=RandomForestRegressor(n_estimators=5, random_state=7),
             dataset_name='bundle_retrain',
             verbose=0
         )
 
         # Verify predictions
         assert retrain_preds.num_predictions > 0
+        best_retrain = retrain_preds.top(n=1, rank_partition="test")[0]
+        assert best_retrain["model_name"] == "RandomForestRegressor"
 
 class TestMultiplePreprocessingRetrain:
     """Tests for retrain with multiple preprocessing options."""

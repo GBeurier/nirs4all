@@ -17,6 +17,7 @@ from nirs4all.pipeline.retrainer import (
     Retrainer,
     RetrainMode,
     StepMode,
+    _is_internal_refit_splitter_step,
 )
 from nirs4all.pipeline.trace import ExecutionStep, ExecutionTrace
 
@@ -40,6 +41,24 @@ class TestRetrainMode:
         assert RetrainMode("full") == RetrainMode.FULL
         assert RetrainMode("transfer") == RetrainMode.TRANSFER
         assert RetrainMode("finetune") == RetrainMode.FINETUNE
+
+
+class TestTransferRefitSplitterBoundary:
+    """Transfer must not attempt to re-import a private refit helper."""
+
+    def test_recognizes_live_and_serialized_refit_splitters(self):
+        from nirs4all.pipeline.execution.refit.executor import _FullTrainFoldSplitter
+
+        assert _is_internal_refit_splitter_step(_FullTrainFoldSplitter(4))
+        assert _is_internal_refit_splitter_step(
+            {"split": "<nirs4all.pipeline.execution.refit.executor._FullTrainFoldSplitter object at 0x1>"}
+        )
+        assert _is_internal_refit_splitter_step(
+            {"step": "<nirs4all.pipeline.execution.refit.executor._FullTrainFoldSplitter object at 0x1>"}
+        )
+        assert not _is_internal_refit_splitter_step(
+            {"split": "sklearn.model_selection._split.KFold"}
+        )
 
 class TestStepMode:
     """Tests for StepMode dataclass."""

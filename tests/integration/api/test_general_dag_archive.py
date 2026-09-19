@@ -119,7 +119,9 @@ def test_batch_session_predicts_selected_child_not_last_executed_child(monkeypat
     assert selected is not result.runs[-1]
     expected = selected._dagml_refit_artifacts[0]["estimator"].predict(X.astype(np.float32))
     monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("batch replay retrained"))
-    np.testing.assert_array_equal(session.predict(X).y_pred, expected)
+    # Captured replay can hand an equivalent array layout to platform BLAS.
+    # Bound the resulting last-bit noise without allowing a different model.
+    np.testing.assert_allclose(session.predict(X).y_pred, expected, rtol=2e-6, atol=2e-6)
     session.close()
 
 
