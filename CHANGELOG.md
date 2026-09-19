@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Resolve root and pipeline exports lazily to avoid circular imports when startup
+  loads machine learning and reads a workspace concurrently.
+- Compare dual-engine results using matching folds, samples, predictions and
+  scores, rather than requiring identical counts of stored partition rows.
 - Read active SQLite workspaces through consistent read-only transactions,
   including committed WAL data, without migrating or cleaning them on inspection.
 - Keep the verified model loaded for repeated predictions in a session.

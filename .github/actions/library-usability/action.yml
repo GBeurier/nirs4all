@@ -27,6 +27,7 @@ runs:
         tests/integration/api/test_dagml_workspace_chains.py
         tests/integration/api/test_workspace_upgrade.py
         tests/integration/api/test_legacy_artifact_identity.py
+        tests/integration/api/test_concurrent_imports.py
         tests/integration/api/test_general_dag_archive.py
         tests/unit/data/test_origin_batching.py
         tests/unit/pipeline/storage/test_workspace_readonly.py
