@@ -1,8 +1,10 @@
 """
 Bundle Loader - Load and predict from exported bundles.
 
-This module provides the BundleLoader class for loading prediction bundles
-(.n4a format) and running predictions without needing the original workspace.
+This module provides the BundleLoader class for loading legacy Python prediction
+bundles (.n4a format) and running predictions without the original workspace.
+This replay path is deprecated; DAG-ML/Core archives use their native replay
+sessions and never execute BundleLoader model artifacts.
 
 The loader supports:
     - Loading bundle metadata and structure
@@ -401,10 +403,10 @@ class BundleArtifactProvider(ArtifactProvider):
         return self.fold_weights.copy()
 
 class BundleLoader:
-    """Load and use prediction bundles.
+    """Load and use deprecated legacy Python prediction bundles.
 
     Provides functionality for loading .n4a bundles, extracting metadata,
-    and running predictions.
+    and running predictions. DAG-ML/Core archive replay does not use this class.
 
     Warning:
         Historical Python bundles contain joblib/pickle artifacts. Loading or
@@ -784,7 +786,7 @@ class BundleLoader:
             fold_preds = []
             for fold_id, model in fold_artifacts:
                 weight = self.fold_weights.get(fold_id, 1.0)
-                y_fold = model.predict(X_meta)
+                y_fold = self._predict_legacy_model_artifact(model, X_meta)
                 fold_preds.append((weight, y_fold))
 
             if self.fold_weights:
@@ -800,8 +802,25 @@ class BundleLoader:
             if not artifacts:
                 raise RuntimeError(f"No artifacts for meta-model step {meta_step_idx}")
             _, model = artifacts[0]
-            result = model.predict(X_meta)
-            return np.asarray(result)
+            return self._predict_legacy_model_artifact(model, X_meta)
+
+    def _predict_legacy_model_artifact(self, model: Any, X: np.ndarray) -> np.ndarray:
+        """Predict a fitted model from the deprecated legacy Python bundle lane.
+
+        The controller router preserves framework-specific preparation for
+        PyTorch, TensorFlow, JAX, and other registered model backends. Sklearn
+        retains its historical direct-predict shape for bundle compatibility.
+        DAG-ML/Core replay never calls this method.
+        """
+        from nirs4all.controllers.models import BaseModelController, SklearnModelController
+        from nirs4all.pipeline.steps.parser import StepParser
+        from nirs4all.pipeline.steps.router import ControllerRouter
+
+        model_step = {"model": model}
+        controller = ControllerRouter().route(StepParser().parse(model_step), model_step)
+        if isinstance(controller, BaseModelController) and not isinstance(controller, SklearnModelController):
+            return controller.predict_fitted_model(model, X)
+        return np.asarray(model.predict(X))
 
     def _predict_model_step(
         self,
@@ -826,7 +845,7 @@ class BundleLoader:
         # Check for single refit model first (fold_id="final")
         refit_model = self._get_refit_model(step_idx)
         if refit_model is not None:
-            return np.asarray(refit_model.predict(X))
+            return self._predict_legacy_model_artifact(refit_model, X)
 
         assert self.artifact_provider is not None
         fold_artifacts = self.artifact_provider.get_fold_artifacts(step_idx, branch_path)
@@ -836,7 +855,7 @@ class BundleLoader:
             fold_preds = []
             for fold_id, model in fold_artifacts:
                 weight = self.fold_weights.get(fold_id, 1.0)
-                y_fold = model.predict(X)
+                y_fold = self._predict_legacy_model_artifact(model, X)
                 fold_preds.append((weight, y_fold))
 
             if self.fold_weights:
@@ -851,7 +870,7 @@ class BundleLoader:
             if not artifacts:
                 raise RuntimeError(f"No artifacts for model step {step_idx}")
             _, model = artifacts[0]
-            return np.asarray(model.predict(X))
+            return self._predict_legacy_model_artifact(model, X)
 
     def _get_refit_model(self, step_idx: int) -> Any | None:
         """Load the single refit model if available.

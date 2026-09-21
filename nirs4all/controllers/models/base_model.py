@@ -143,6 +143,23 @@ class BaseModelController(OperatorController, ABC):
         """
         pass
 
+    def predict_fitted_model(self, model: Any, X: Any) -> np.ndarray:
+        """Predict with an already-fitted framework model.
+
+        This public adapter is intended for persistence/replay code that owns a
+        fitted model artifact but not a full pipeline execution context. It
+        preserves each framework controller's input preparation and output
+        normalization.
+
+        Args:
+            model: Fitted framework-specific model artifact.
+            X: Input features for prediction.
+
+        Returns:
+            NumPy array of predictions.
+        """
+        return np.asarray(self._predict_model(model, X))
+
     @abstractmethod
     def _prepare_data(self, X: Any, y: Any, context: 'ExecutionContext') -> tuple[Any, Any]:
         """Prepare data in framework-specific format (e.g., tensors, DataFrames).
