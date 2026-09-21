@@ -31,6 +31,7 @@ from nirs4all.pipeline.dagml_bridge import controller_manifests
 from .identity import mint_identity
 from .node_runner import run_node
 from .resolver import MaterializationResolver
+from .resources import current_execution_resources
 
 
 def in_process_enabled() -> bool:
@@ -152,6 +153,7 @@ def run_cv_refit_bundle(
             json.dumps(controller_manifests()),
             op_callback,
             selection_metric,
+            json.dumps(current_execution_resources().to_contract()),
         )
     )
     node_results = payload.get("node_results", [])
@@ -270,6 +272,13 @@ def run_cv_refit_bundle_router(
     branch ignores it: it fits operators in THIS process, whose global RNG ``run_via_dagml`` already
     seeded — so re-seeding here would be redundant.
     """
+    fold_set = (dsl.get("split_invocation") or {}).get("fold_set")
+    if isinstance(fold_set, dict):
+        for node in graph.get("nodes", []):
+            if node.get("kind") in {"model", "tuner"}:
+                metadata = dict(node.get("metadata") or {})
+                metadata["nirs4all_pipeline_fold_set"] = fold_set
+                node["metadata"] = metadata
     if in_process_enabled() and _dagml_extension_loads():
         return run_cv_refit_bundle(
             dsl=dsl,

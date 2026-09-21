@@ -6,6 +6,7 @@ import numpy as np
 from sklearn.base import TransformerMixin
 from sklearn.preprocessing import FunctionTransformer
 
+from nirs4all.core.task_detection import detect_task_type
 from nirs4all.core.task_type import TaskType
 
 from .encoders import FlexibleLabelEncoder
@@ -95,18 +96,19 @@ class NumericConverter:
 
         # Check if already numeric
         if np.issubdtype(data.dtype, np.number):
-            return NumericConverter._handle_numeric_data(data)
+            return NumericConverter._handle_numeric_data(data, task_type=task_type)
 
         # Handle non-numeric data column by column
         return NumericConverter._handle_mixed_data(data)
 
     @staticmethod
-    def _handle_numeric_data(data: np.ndarray) -> tuple[np.ndarray, TransformerMixin]:
+    def _handle_numeric_data(data: np.ndarray, *, task_type: TaskType | None = None) -> tuple[np.ndarray, TransformerMixin]:
         """
         Handle already numeric data.
 
         Args:
             data (np.ndarray): Numeric data array
+            task_type: Explicit classification must encode the complete class axis.
 
         Returns:
             Tuple[np.ndarray, TransformerMixin]: Tuple of (numeric_data, transformer)
@@ -118,16 +120,17 @@ class NumericConverter:
         # Detect classification: integer-like values, small set, not 0-based
         is_integer_like = np.allclose(unique_vals, np.round(unique_vals), atol=1e-10)
         expected_consecutive = np.arange(len(unique_vals))
-        is_classification = (
+        is_classification = (task_type is not None and task_type.is_classification) or (
             is_integer_like
-            and len(unique_vals) <= 50
+            and unique_vals.size > 0
+            and detect_task_type(data).is_classification
             and not np.array_equal(unique_vals, expected_consecutive)
         )
 
         if is_classification:
             # Re-encode to 0-based consecutive integers
             encoder = FlexibleLabelEncoder()
-            encoded = encoder.fit_transform(data_flat.astype(np.int32))
+            encoded = encoder.fit_transform(data_flat)
             return encoded.reshape(data.shape).astype(np.float32), encoder
         else:
             # Identity transformation for regression or already 0-based

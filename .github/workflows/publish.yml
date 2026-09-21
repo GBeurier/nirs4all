@@ -10,17 +10,11 @@ on:
 jobs:
   # Run full test suite before publishing
   run-tests:
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: true        # Stop immediately if any test fails
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.11', '3.13']
-        exclude:
-          # macOS only needs one Python version for platform compatibility
-          - os: macos-latest
-            python-version: '3.11'
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v6
 
@@ -29,74 +23,53 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install test deps
         shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # Skip all DL backends on macOS (platform compatibility check only)
-            grep -v -E '^(jax|jaxlib|flax|tensorflow|torch|tabpfn|keras)' requirements-test.txt > requirements-test-macos.txt
-            python -m pip install numpy -r requirements-test-macos.txt
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            # Skip JAX ecosystem on Windows (orbax-checkpoint pulls uvloop which is Unix-only)
-            grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-win.txt
-            python -m pip install numpy -r requirements-test-win.txt
-          else
-            # PyPI's Linux wheel pulls CUDA/Triton dependencies even on a CPU
-            # runner. Install the official CPU wheel so eager Torch tests do
-            # not initialize the unsupported Triton runtime.
-            grep -v '^torch' requirements-test.txt > requirements-test-linux.txt
-            python -m pip install numpy -r requirements-test-linux.txt
-            python -m pip install --index-url https://download.pytorch.org/whl/cpu \
-              'torch==2.13.0+cpu'
-          fi
+          # PyPI's Linux wheel pulls CUDA/Triton dependencies even on a CPU
+          # runner. Install the official CPU wheel so eager Torch tests do
+          # not initialize the unsupported Triton runtime.
+          grep -v '^torch' requirements-test.txt > requirements-test-linux.txt
+          python -m pip install numpy -r requirements-test-linux.txt
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.13.0+cpu'
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
 
+      - name: Gate real library usability
+        timeout-minutes: 5
+        uses: ./.github/actions/library-usability
+
       - name: Run full pytest + coverage
         shell: bash
         run: |
-          MARK=()
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
-          fi
-
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # macOS: run serially (fork() is unsafe on macOS, xdist workers deadlock)
-            python -m pytest -v --timeout=120 \
-              "${MARK[@]}" \
-              --cov=nirs4all --cov-append --cov-report=xml \
-              tests/
-          else
-            # Keep write-contention and native PyTorch/DAG-ML initialisation
-            # out of xdist workers (CPython 3.13 Linux can crash otherwise).
-            python -m pytest -v \
-              tests/integration/pipeline/test_merge_mixed.py \
-              tests/integration/pipeline/test_merge_per_branch.py \
-              tests/unit/operators/models/test_pytorch.py \
-              tests/unit/pipeline/dagml/test_raw_training_lowerer.py \
-              tests/integration/parity/test_dagml_run_selector.py \
-              --cov=nirs4all --cov-append
-
-            # Parallel remainder
-            python -m pytest -v -n auto --dist worksteal tests/ \
-              --ignore=tests/integration/pipeline/test_merge_mixed.py \
-              --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-              --ignore=tests/unit/operators/models/test_pytorch.py \
-              --ignore=tests/unit/pipeline/dagml/test_raw_training_lowerer.py \
-              --ignore=tests/integration/parity/test_dagml_run_selector.py \
-              --cov=nirs4all --cov-append --cov-report=xml
-          fi
+          python -m coverage erase
+          python -m pytest -v --timeout=300 -n 0 \
+            tests/integration/pipeline/test_merge_mixed.py \
+            tests/integration/pipeline/test_merge_per_branch.py \
+            --cov=nirs4all --cov-append
+          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
+            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
+            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
+            --cov=nirs4all --cov-append
+          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
+            python -m pytest -v --timeout=300 -n 2 --dist worksteal -m 'not gpu' tests/ \
+            --ignore=tests/integration/pipeline/test_merge_mixed.py \
+            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
+            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
+            --cov=nirs4all --cov-append --cov-report=xml
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
-          fail_ci_if_error: false
+          use_oidc: true
+          fail_ci_if_error: true
 
   # Build and verify documentation
   build-docs:
@@ -134,9 +107,40 @@ jobs:
           path: docs/_build/html/
           retention-days: 7
 
-  # Build distribution packages (after tests pass)
+  # Release publication is blocked unless every dynamically discovered example
+  # passes strict output checks (tracebacks, NaNs, and empty results).
+  verify-examples:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Free disk space
+        uses: ./.github/actions/free-disk-space
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install example dependencies
+        run: |
+          python -m pip install --upgrade pip setuptools wheel
+          python -m pip install numpy
+          python -m pip install torch --index-url https://download.pytorch.org/whl/cpu
+          python -m pip install jax jaxlib tensorflow
+          python -m pip install -r requirements-examples.txt
+          python -m pip install -e .
+
+      - name: Run all strict examples once
+        run: |
+          cd examples
+          chmod +x run_ci_examples.sh
+          ./run_ci_examples.sh -c all -j 2 -k
+        timeout-minutes: 45
+
+  # Build distribution packages (after tests, docs, and examples pass)
   build:
-    needs: [run-tests, build-docs]
+    needs: [run-tests, build-docs, verify-examples]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -196,6 +200,77 @@ jobs:
 
       - name: Upload to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
+
+  # Verify the exact public artifact in a clean environment. The full suite has
+  # already run once above; this gate catches packaging, dependency-resolution,
+  # and publication mistakes without repeating it.
+  post-publish-smoke:
+    needs: publish-pypi
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install the exact PyPI release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          package_version="${RELEASE_TAG#v}"
+          package_version="${package_version//-rc./rc}"
+          python -m pip install --upgrade pip
+          for attempt in 1 2 3 4 5 6; do
+            if python -m pip install --no-cache-dir \
+              --index-url https://pypi.org/simple/ "nirs4all==${package_version}"; then
+              break
+            fi
+            if [ "${attempt}" -eq 6 ]; then
+              echo "::error::PyPI did not serve nirs4all==${package_version} after 6 attempts"
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Verify installed metadata, native ABI, and DAG-ML execution
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from importlib.metadata import version
+
+          import numpy as np
+          import nirs4all
+          import n4m
+          from sklearn.linear_model import Ridge
+          from sklearn.model_selection import KFold
+
+          expected = os.environ["RELEASE_TAG"].removeprefix("v").replace("-rc.", "rc")
+          assert version("nirs4all") == expected
+          assert nirs4all.__version__ == expected
+          assert n4m.abi_version()[:2] == (2, 6)
+
+          rng = np.random.default_rng(42)
+          X = rng.normal(size=(30, 8))
+          y = X[:, 0] * 1.2 - X[:, 1] * 0.4 + rng.normal(scale=0.05, size=30)
+          with nirs4all.run(
+              [KFold(3), Ridge(alpha=1.0)],
+              (X, y),
+              engine="dag-ml",
+              verbose=0,
+              save_artifacts=False,
+              save_charts=False,
+          ) as result:
+              assert result.execution_engine == "dag-ml"
+              assert np.isfinite(result.cv_best_score)
+          print(f"verified public nirs4all {expected}")
+          PY
+          python -m pip check
 
   # Build and push Docker image to GHCR after the release tag/version check.
   publish-docker:

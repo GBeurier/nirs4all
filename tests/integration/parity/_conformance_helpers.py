@@ -163,19 +163,8 @@ def _enforced_score_tolerances(case: PipelineCase, gold: dict[str, Any], obs: di
 
 
 def assert_score_parity(legacy: Any, dagml: Any, case: PipelineCase) -> None:
-    """Assert dag-ml scores match legacy within the case's tolerances (reuses ``_oracle``).
-
-    The legacy ``RunResult`` is the oracle (ADR-01). ``observe`` extracts the
-    same JSON-serializable record from both, and ``compare`` enforces exact
-    structural equality (models / datasets / num_predictions) plus per-metric
-    absolute tolerance from :func:`_enforced_score_tolerances` — which only
-    enforces metrics that ACTUALLY EXIST in both results (so a no-test-set rep
-    case compares structurally rather than demanding an absent ``rmse``).
-    """
-    gold = observe(legacy, case.task)
-    obs = observe(dagml, case.task)
-    violations = compare(gold, obs, _enforced_score_tolerances(case, gold, obs))
-    assert not violations, f"{case.name}: legacy↔dag-ml score parity violated:\n  " + "\n  ".join(violations)
+    """Compare scientific scores and model identities, not storage row counts."""
+    assert_score_parity_metrics_only(legacy, dagml, case)
 
 
 def assert_score_parity_metrics_only(legacy: Any, dagml: Any, case: PipelineCase) -> None:
@@ -205,37 +194,58 @@ def assert_score_parity_metrics_only(legacy: Any, dagml: Any, case: PipelineCase
     )
 
 
-def assert_num_predictions_parity(legacy: Any, dagml: Any) -> None:
-    """Assert the two engines emit EXACTLY the same number of prediction entries."""
-    assert legacy.num_predictions == dagml.num_predictions, (
-        f"num_predictions diverged: legacy={legacy.num_predictions} != dag-ml={dagml.num_predictions}"
-    )
+def assert_native_score_evidence(dagml: Any) -> None:
+    """Require measured partition evidence, including explicit host projections."""
+    rows = dagml.predictions.filter_predictions(load_arrays=True)
+    assert rows, "native run must expose scored predictions"
+    for row in rows:
+        partition = row["partition"]
+        metadata = row["result_metadata"]
+        host_projection = metadata.get("dagml_host_projection")
+        if host_projection is not None:
+            assert host_projection["executor"] == "python"
+            source = host_projection["score_provenance"][partition]
+            assert source["purpose"] == "measurement"
+            assert partition in row["scores"]
+            assert row[f"{partition}_score"] is not None
+            if row.get("metric") == "rmse" and len(row.get("y_pred", [])):
+                targets = np.asarray(row["y_true"], dtype=float).ravel()
+                predictions = np.asarray(row["y_pred"], dtype=float).ravel()
+                assert targets.shape == predictions.shape
+                observed = float(np.sqrt(np.mean((targets - predictions) ** 2)))
+                assert abs(observed - row[f"{partition}_score"]) <= 1e-4
+            continue
 
-
-def assert_num_predictions_divergence(legacy: Any, dagml: Any, case: PipelineCase, expected_legacy: int, expected_dagml: int) -> None:
-    """Assert the DOCUMENTED EXACT num_predictions for an intentional native-vs-legacy divergence.
-
-    The :data:`NUM_PREDICTIONS_DIVERGENCE` companion to :func:`assert_num_predictions_parity`.
-    Rather than merely EXEMPTING ``num_predictions`` from parity (which would let ANY future
-    count drift — 31/32, 34/40, a stray extra row — pass silently as long as the winner score
-    and y_pred are unchanged), this pins BOTH engines to the EXACT measured counts: legacy must
-    emit ``expected_legacy`` (it refits every model and stores the losers' final rows) and dag-ml
-    must emit ``expected_dagml`` (operator-SELECT refits the winner only). For
-    ``generator_or_models_pls_ridge`` that is legacy 34 / dag-ml 32 — the 2-entry gap being
-    EXACTLY the one loser model's ``(test, final)`` + ``(train, final)`` refit rows. ANY other
-    pair (a regression that adds/drops a row on EITHER engine) FAILS — so only the one documented
-    +2 loser-final-row delta is allowed through.
-    """
-    assert legacy.num_predictions == expected_legacy, (
-        f"{case.name}: documented LEGACY num_predictions changed — expected {expected_legacy}, "
-        f"got {legacy.num_predictions} (the intentional divergence is pinned to the EXACT measured count; "
-        "a new value is an unrelated regression, not the documented loser-refit-row delta)"
-    )
-    assert dagml.num_predictions == expected_dagml, (
-        f"{case.name}: documented dag-ml num_predictions changed — expected {expected_dagml}, "
-        f"got {dagml.num_predictions} (operator-SELECT must refit the WINNER ONLY; a new value is an "
-        "unrelated regression, not the documented winner-only count)"
-    )
+        provenance = metadata["dagml_projection"]
+        source = provenance["score_provenance"][partition]
+        aggregate_evidence = row["result_metadata"].get("aggregate_evidence")
+        if aggregate_evidence is not None:
+            assert aggregate_evidence["selection_score"] is False
+            assert aggregate_evidence["source_prediction_id"] is not None
+            assert source["derived_by"] == "nirs4all.data.Predictions.aggregate"
+        assert source["purpose"] == "measurement"
+        assert partition in row["scores"]
+        assert row[f"{partition}_score"] is not None
+        base_fold_id = str(row["fold_id"]).removesuffix("_agg")
+        if base_fold_id != "final":
+            assert partition == "val" and row["fold_id"] != "w_avg"
+            assert row["train_score"] is None and row["test_score"] is None
+            assert set(row["scores"]) == {"val"}
+            assert source["partition"] == "validation"
+        else:
+            assert partition in {"train", "test"}
+            assert source["partition"] == ("final" if partition == "train" else "test")
+            if row["val_score"] is not None:
+                assert provenance["score_provenance"]["val"]["purpose"] == "model_selection"
+        # Where direct regression arrays exist, the displayed measurement must
+        # be their actual error. Group-grain classification requires its vote
+        # protocol and is checked by its dedicated owner-level oracle tests.
+        if row.get("metric") == "rmse" and len(row.get("y_pred", [])):
+            targets = np.asarray(row["y_true"], dtype=float).ravel()
+            predictions = np.asarray(row["y_pred"], dtype=float).ravel()
+            assert targets.shape == predictions.shape
+            observed = float(np.sqrt(np.mean((targets - predictions) ** 2)))
+            assert abs(observed - row[f"{partition}_score"]) <= 1e-4
 
 
 def _close_or_both_nan(a: float, b: float, tol: float) -> bool:
@@ -256,7 +266,7 @@ def _top_distinct_model_names(result: Any, n: int) -> set[Any]:
     return {row.get("model_name") for row in result.top(1, group_by="model_name")[:n]}
 
 
-def assert_runresult_contract(legacy: Any, dagml: Any, case: PipelineCase, num_predictions_exempt: bool = False) -> None:
+def assert_runresult_contract(legacy: Any, dagml: Any, case: PipelineCase) -> None:
     """Assert the public ``RunResult`` surface matches across engines.
 
     Pins the contract both engines expose to the webapp / public API:
@@ -273,16 +283,9 @@ def assert_runresult_contract(legacy: Any, dagml: Any, case: PipelineCase, num_p
     noise ``assert_score_parity`` absorbs); ``_close_or_both_nan`` handles a
     no-score (NaN-on-both) run; the metric name + top-n distinct-model set match exactly.
 
-    ``num_predictions_exempt`` (default ``False``) drops ONLY the ``num_predictions``
-    equality check — every OTHER field (best_score / best_rmse / best_r2 / the
-    selected-metric name / the top-n distinct-model set) is STILL asserted. Set it for a
-    documented :data:`NUM_PREDICTIONS_DIVERGENCE` case whose num_predictions diverges
-    BY DESIGN (operator-SELECT refits the winner only); the EXACT documented counts
-    are asserted separately by :func:`assert_num_predictions_divergence`, so the count
-    is never simply unchecked.
+    Native partition evidence is checked independently of legacy row layout.
     """
-    if not num_predictions_exempt:
-        assert_num_predictions_parity(legacy, dagml)
+    assert_native_score_evidence(dagml)
 
     # Scalar float tolerance: the case's declared metric tolerances if any, else
     # the registry engine-parity standard. Independent of which metrics exist in

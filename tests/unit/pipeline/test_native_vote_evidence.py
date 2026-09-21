@@ -15,12 +15,15 @@ class FittedClassifier(ClassifierMixin, BaseEstimator):
     def fit(self, *args):
         raise AssertionError("evidence collection must never fit")
 
-    def predict_proba(self, x):
+    def predict_proba(self, x, *, source_masks=None):
         positive = np.asarray(x)[:, 0] / 10
+        if source_masks is not None:
+            positive = np.where(source_masks["nir"], positive, 0.25)
         return np.column_stack([1 - positive, positive])
 
 
-def test_capture_retains_native_fold_proba_ids_and_separate_training_views():
+@pytest.mark.parametrize("with_options", [False, True])
+def test_capture_retains_native_fold_proba_ids_and_separate_training_views(with_options):
     resolver = SimpleNamespace(
         _dataset=SimpleNamespace(repetition="physical_sample", aggregate_method="vote"),
         partition_wire_ids=lambda part: {"train": ["a", "b", "c"], "test": ["d"]}[part],
@@ -32,7 +35,8 @@ def test_capture_retains_native_fold_proba_ids_and_separate_training_views():
     def features(ids, include_augmented):
         assert not include_augmented
         materialized.append(ids)
-        return np.array([[indices[identity]] for identity in ids])
+        options = {"source_masks": {"nir": np.asarray([identity != "d" for identity in ids])}} if with_options else {}
+        return np.array([[indices[identity]] for identity in ids]), options
 
     def predict(ids, include_augmented):
         return [[0. if identity in {"a", "b"} else 2.] for identity in ids]
@@ -48,7 +52,7 @@ def test_capture_retains_native_fold_proba_ids_and_separate_training_views():
     assert records["validation"]["sample_ids"] == ["c"]
     assert records["ensemble_train"]["sample_ids"] == ["a", "b", "c"]
     assert records["test"]["sample_ids"] == ["d"]
-    np.testing.assert_allclose(records["test"]["y_proba"], [[.1, .9]])
+    np.testing.assert_allclose(records["test"]["y_proba"], [[.75, .25]] if with_options else [[.1, .9]])
     assert records["test"]["classes"] == [0., 2.]
     assert all(record["training_performed_for_evidence"] is False for record in records.values())
     assert 101 in store and len(materialized) == 4
@@ -184,12 +188,26 @@ def test_real_native_vote_preserves_all_fold_and_final_arrays_without_extra_fits
     assert native._dagml_score_set == native_scores[0]
     expected = {(str(row["fold_id"]), row["partition"]): row for row in legacy.predictions.iter_entries()}
     observed = {(str(row["fold_id"]), row["partition"]): row for row in native.predictions.iter_entries()}
-    assert len(expected) == len(observed) == 34
-    for key, reference in expected.items():
-        row = observed[key]
+    expected_native_keys = {
+        (fold_id, partition)
+        for fold_id, partition in (
+            ("0", "val"), ("1", "val"), ("2", "val"), ("avg", "val"),
+            ("final", "train"), ("final", "test"),
+            ("0_agg", "val"), ("1_agg", "val"), ("2_agg", "val"), ("avg_agg", "val"),
+            ("final_agg", "train"), ("final_agg", "test"),
+        )
+    }
+    assert set(observed) == expected_native_keys
+    for key, row in observed.items():
+        reference = expected[key]
         assert row["n_samples"] == reference["n_samples"]
-        positions = {sample: index for index, sample in enumerate(reference["sample_indices"])}
-        order = [positions[sample] for sample in row["sample_indices"]] if positions else slice(None)
+        reference_indices = reference.get("sample_indices")
+        row_indices = row.get("sample_indices")
+        positions = {
+            sample: index
+            for index, sample in enumerate(reference_indices if reference_indices is not None else [])
+        }
+        order = [positions[sample] for sample in row_indices] if positions and row_indices is not None else slice(None)
         np.testing.assert_array_equal(row["y_pred"], np.asarray(reference["y_pred"]).ravel()[order], err_msg=str(key))
         np.testing.assert_array_equal(row["y_true"], np.asarray(reference["y_true"]).ravel()[order], err_msg=str(key))
         expected_proba = np.asarray(reference["y_proba"])[order]

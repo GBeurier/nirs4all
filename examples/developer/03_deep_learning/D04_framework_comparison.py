@@ -26,6 +26,7 @@ Difficulty: ★★★★☆
 # Standard library imports
 import argparse
 import time
+from contextlib import suppress
 
 # Third-party imports
 from sklearn.cross_decomposition import PLSRegression
@@ -67,17 +68,22 @@ print("\n" + "-" * 60)
 print("Framework Availability Check")
 print("-" * 60)
 
+if TORCH_AVAILABLE:
+    import torch
+    # CUDA-enabled PyTorch imports Triton lazily when the first optimizer is
+    # created.  Load it before TensorFlow initializes its native runtime: some
+    # TF/PyTorch/Triton combinations otherwise segfault during that late import.
+    with suppress(ImportError):
+        import triton  # noqa: F401
+    print(f"✓ PyTorch {torch.__version__}")
+else:
+    print("✗ PyTorch not available")
+
 if TF_AVAILABLE:
     import tensorflow as tf
     print(f"✓ TensorFlow {tf.__version__}")
 else:
     print("✗ TensorFlow not available")
-
-if TORCH_AVAILABLE:
-    import torch
-    print(f"✓ PyTorch {torch.__version__}")
-else:
-    print("✗ PyTorch not available")
 
 if JAX_AVAILABLE:
     import jax

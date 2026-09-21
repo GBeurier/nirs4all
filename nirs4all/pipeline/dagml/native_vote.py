@@ -22,7 +22,7 @@ EVIDENCE_KEY = "classification_evidence"
 def capture_vote_evidence(
     task: dict[str, Any], resolver: Any, estimator: Any,
     predictions: list[dict[str, Any]], train_ids: list[str],
-    features: Callable[[list[str], bool], Any],
+    features: Callable[[list[str], bool], tuple[Any, dict[str, Any]]],
     predict: Callable[[list[str], bool], list[list[float]]],
     model_store: MutableMapping[Any, Any],
 ) -> None:
@@ -56,7 +56,8 @@ def capture_vote_evidence(
             raise ValueError("classification vote evidence requires one aligned target")
         probabilities = None
         if callable(getattr(estimator, "predict_proba", None)):
-            proba = np.asarray(estimator.predict_proba(features(ids, False)), dtype=float)
+            feature_values, options = features(ids, False)
+            proba = np.asarray(estimator.predict_proba(feature_values, **options), dtype=float)
             if (proba.shape != (len(ids), len(classes)) or not np.isfinite(proba).all()
                     or np.any(proba < 0) or np.any(proba > 1) or not np.allclose(proba.sum(axis=1), 1, atol=1e-7, rtol=1e-7)):
                 raise ValueError("classification evidence has invalid class probabilities")

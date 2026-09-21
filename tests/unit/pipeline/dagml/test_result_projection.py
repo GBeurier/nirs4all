@@ -31,8 +31,8 @@ def _operator_sweep_score(metric: str, value: float) -> dict:
 def test_operator_sweep_maximizes_regression_r2() -> None:
     result = _project_operator_sweep(
         [
-            (_operator_sweep_score("r2", 0.1), "low-r2", False),
-            (_operator_sweep_score("r2", 0.9), "high-r2", False),
+            (_operator_sweep_score("r2", 0.1), "low-r2"),
+            (_operator_sweep_score("r2", 0.9), "high-r2"),
         ],
         "dataset",
         "r2",
@@ -47,8 +47,8 @@ def test_operator_sweep_maximizes_regression_r2() -> None:
 def test_operator_sweep_minimizes_classification_log_loss() -> None:
     result = _project_operator_sweep(
         [
-            (_operator_sweep_score("log_loss", 0.9), "high-loss", False),
-            (_operator_sweep_score("log_loss", 0.1), "low-loss", False),
+            (_operator_sweep_score("log_loss", 0.9), "high-loss"),
+            (_operator_sweep_score("log_loss", 0.1), "low-loss"),
         ],
         "dataset",
         "log_loss",
@@ -245,7 +245,7 @@ def test_scores_to_run_result_preserves_portable_methods_single_variant_oof_aver
         for row in result.filter(load_arrays=False)
         if row.get("fold_id") in {"avg", "w_avg"} and row.get("partition") == "val"
     ]
-    assert len(avg_rows) == 2
+    assert len(avg_rows) == 1
     assert {row["val_score"] for row in avg_rows} == {2.0}
     assert result.cv_best_score == 2.0
 

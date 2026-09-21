@@ -11,6 +11,7 @@ signal_types
 aggregation
 heterogeneous_repetitions
 heterogeneous_repetitions_tutorial
+multimodal
 sample_filtering
 ```
 

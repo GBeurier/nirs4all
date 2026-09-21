@@ -27,11 +27,13 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Callable, MutableMapping
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 from sklearn.base import clone
 from sklearn.pipeline import make_pipeline
+from sklearn.utils.metaestimators import available_if
 
 from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID
 
@@ -43,6 +45,72 @@ if TYPE_CHECKING:
 _PREDICTION_PARTITION = {"FIT_CV": "validation", "REFIT": "final", "PREDICT": "final", "EXPLAIN": "final"}
 
 
+def _framework_name(estimator: Any) -> str | None:
+    """Return the optional accelerator framework used by an estimator."""
+
+    if hasattr(estimator, "steps") and estimator.steps:
+        estimator = estimator.steps[-1][1]
+    declared = str(getattr(estimator, "framework", "")).lower()
+    if declared in {"torch", "pytorch", "tensorflow", "keras", "jax"}:
+        return "pytorch" if declared == "torch" else "tensorflow" if declared == "keras" else declared
+    modules = {
+        str(getattr(base, "__module__", "")).lower()
+        for base in getattr(type(estimator), "__mro__", (type(estimator),))
+    }
+    if any(module == "torch" or module.startswith("torch.") for module in modules):
+        return "pytorch"
+    if any(module in {"tensorflow", "keras"} or module.startswith(("tensorflow.", "keras.")) for module in modules):
+        return "tensorflow"
+    if any(module == "jax" or module.startswith(("jax.", "flax.")) for module in modules):
+        return "jax"
+    return None
+
+
+@contextmanager
+def _gpu_device_scope(task: dict[str, Any], estimator: Any):
+    """Bind framework work to the CUDA device allocated on this ``NodeTask``."""
+
+    devices = ((task.get("resources") or {}).get("gpu_devices") or [])
+    if not devices:
+        yield
+        return
+    if len(devices) != 1:
+        raise ValueError("nirs4all host model tasks currently require exactly one gpu_devices entry")
+    device = devices[0]
+    if not isinstance(device, str) or not device.startswith("cuda:") or not device[5:].isdigit():
+        raise ValueError("nirs4all host model tasks require a CUDA device such as 'cuda:0'")
+    device_index = int(device[5:])
+    framework = _framework_name(estimator)
+    if framework == "pytorch":
+        import torch
+
+        if not torch.cuda.is_available() or device_index >= torch.cuda.device_count():
+            raise RuntimeError(f"requested DAG-ML GPU {device!r} is unavailable to PyTorch")
+        torch.cuda.set_device(device_index)
+        with torch.cuda.device(device_index):
+            yield
+        return
+    if framework == "tensorflow":
+        import tensorflow as tf
+
+        gpus = tf.config.list_logical_devices("GPU")
+        if device_index >= len(gpus):
+            raise RuntimeError(f"requested DAG-ML GPU {device!r} is unavailable to TensorFlow")
+        with tf.device(f"/GPU:{device_index}"):
+            yield
+        return
+    if framework == "jax":
+        import jax
+
+        gpus = jax.devices("gpu")
+        if device_index >= len(gpus):
+            raise RuntimeError(f"requested DAG-ML GPU {device!r} is unavailable to JAX")
+        with jax.default_device(gpus[device_index]):
+            yield
+        return
+    yield
+
+
 def _is_multi_block_model(model: Any) -> bool:
     """True when ``model`` natively consumes a LIST of per-source blocks (MB-PLS intermediate fusion).
 
@@ -52,6 +120,10 @@ def _is_multi_block_model(model: Any) -> bool:
     is never accidentally handed a list. The import is lazy — MBPLS lives behind an optional model
     subpackage and most pipelines never reference it.
     """
+    from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
+
+    if isinstance(model, (MultimodalRegressor, MultimodalClassifier)):
+        return True
     try:
         from nirs4all.operators.models.sklearn.mbpls import MBPLS
     except ImportError:  # pragma: no cover - MBPLS is in the core install, but stay defensive
@@ -75,8 +147,9 @@ class _MultiBlockEstimator:
     delivers sample-aligned blocks). The model's own block weights are part of the fitted artifact.
     """
 
-    def __init__(self, model: Any, chain_template: list[Any]) -> None:
+    def __init__(self, model: Any, chain_template: list[Any], source_names: tuple[str, ...] | None = None) -> None:
         self._model = model
+        self.source_names = source_names
         # The routed upstream X-transform operators in furthest-upstream-first order. One independent
         # clone of every step is fit per block at fit time (the block count is only known then). Applied
         # as a bare transform sequence (NOT a sklearn Pipeline): a transforms-only Pipeline has no final
@@ -84,6 +157,17 @@ class _MultiBlockEstimator:
         # like SNV — applying the steps directly matches the operator's own fit/transform contract.
         self._chain_template = chain_template
         self._block_chains: list[list[Any]] = []
+
+    @property
+    def _estimator_type(self) -> str | None:
+        """Expose model identity to sklearn's attribute-based estimator checks."""
+        return cast(str | None, getattr(self._model, "_estimator_type", None))
+
+    def __sklearn_tags__(self) -> Any:
+        """Preserve classifier/regressor identity through the runtime wrapper."""
+        from sklearn.utils import get_tags
+
+        return get_tags(self._model)
 
     def _fit_transform_block(self, steps: list[Any], block: np.ndarray) -> np.ndarray:
         out = block
@@ -98,17 +182,43 @@ class _MultiBlockEstimator:
             out = np.asarray(step.transform(out))
         return out
 
-    def fit(self, blocks: list[np.ndarray], y: Any) -> _MultiBlockEstimator:
+    def _source_options(self, source_masks: dict[str, np.ndarray] | None) -> dict[str, Any]:
+        if source_masks is None:
+            return {}
+        if self.source_names is None or self._chain_template:
+            raise ValueError("partial modalities require encoders inside a multimodal model with an explicit missing_source_policy")
+        return {"source_masks": source_masks}
+
+    def fit(
+        self, blocks: list[np.ndarray], y: Any, *, target_mask: np.ndarray | None = None,
+        source_masks: dict[str, np.ndarray] | None = None,
+    ) -> _MultiBlockEstimator:
         from sklearn.base import clone
 
+        options = self._source_options(source_masks)
+        if target_mask is not None:
+            options["target_mask"] = target_mask
         self._block_chains = [[clone(step) for step in self._chain_template] for _ in blocks]
         transformed = [self._fit_transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
-        self._model.fit(transformed, y)
+        self._model.fit(transformed, y, **options)
         return self
 
-    def predict(self, blocks: list[np.ndarray]) -> np.ndarray:
+    def predict(self, blocks: list[np.ndarray], *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+        options = self._source_options(source_masks)
         transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
-        return np.asarray(self._model.predict(transformed))
+        return np.asarray(self._model.predict(transformed, **options))
+
+    @property
+    def classes_(self) -> np.ndarray:
+        """Expose the fitted classifier's probability-column order."""
+        return np.asarray(self._model.classes_)
+
+    @available_if(lambda self: hasattr(self._model, "predict_proba"))
+    def predict_proba(self, blocks: list[np.ndarray], *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+        """Apply the same captured source transforms before probability inference."""
+        options = self._source_options(source_masks)
+        transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
+        return np.asarray(self._model.predict_proba(transformed, **options))
 
 
 class _SourceConcatEstimator:
@@ -470,7 +580,11 @@ def _resolve_finetune_best_params(
         task_type=resolver._dataset.task_type,  # noqa: SLF001 -- host resolver owns this dataset
         y_transform=route_graph_node(y_transform_node) if y_transform_node is not None else None,
         inner_cv=scoped_inner_cv(finetune_params, resolver, train_ids),
-        training_controls=effective_training_controls(metadata, task["phase"]),
+        training_controls={
+            key: value
+            for key, value in effective_training_controls(metadata, task["phase"]).items()
+            if key != "use_pipeline_folds_for_aom"
+        },
     )
     model_store[cache_key] = best_params
     model_store[("host_hpo_evidence", node_id, variant_label, task["phase"], task.get("fold_id"))] = evidence
@@ -537,7 +651,11 @@ def run_model_node(
         source_concat = isinstance(estimator, _SourceConcatEstimator)
     else:
         model = route_graph_node(graph_node, variant_overrides=_variant_overrides(task, node_id))
-        from .training_controls import apply_model_training_controls, report_model_training_controls
+        from .training_controls import (
+            apply_model_training_controls,
+            apply_pipeline_folds_to_model,
+            report_model_training_controls,
+        )
 
         training_metadata = graph_node.get("metadata") or {}
         has_training_controls = any(key in training_metadata for key in ("nirs4all_train_params", "nirs4all_refit_params"))
@@ -545,7 +663,10 @@ def run_model_node(
             # Reject invalid controls before an HPO trial or upstream fit. The
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
-        upstream = [route_graph_node(node_lookup(upstream_id)) for upstream_id in _upstream_x_chain(node_id, edges)]
+        upstream = [
+            route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
+            for upstream_id in _upstream_x_chain(node_id, edges)
+        ]
         best_params = _resolve_finetune_best_params(
             graph_node=graph_node,
             node_id=node_id,
@@ -567,7 +688,10 @@ def run_model_node(
         )
         source_chains = _source_concat_chains(graph_node)
         source_concat = source_chains is not None or (_source_concat_x_chain(graph_node) and resolver.is_multi_source())
-        multi_block = not source_concat and _is_multi_block_model(model) and resolver.is_multi_source()
+        from nirs4all.operators.models.multimodal import MultimodalClassifier, MultimodalRegressor
+
+        multimodal = isinstance(model, (MultimodalRegressor, MultimodalClassifier))
+        multi_block = not source_concat and _is_multi_block_model(model) and (resolver.is_multi_source() or multimodal)
         if source_chains is not None:
             estimator = _SourceConcatEstimator(
                 model,
@@ -575,7 +699,8 @@ def run_model_node(
                 preserve_legacy_sources_after_merge=_source_concat_preserve_legacy_sources(graph_node),
             )
         elif multi_block:
-            estimator = _MultiBlockEstimator(model, upstream)
+            source_names = tuple(model.transformers) if isinstance(model, (MultimodalRegressor, MultimodalClassifier)) else None
+            estimator = _MultiBlockEstimator(model, upstream, source_names)
         elif source_concat:
             estimator = _SourceConcatEstimator(model, shared_chain_template=upstream)
         else:
@@ -601,13 +726,28 @@ def run_model_node(
         # thresholds on a fixed-seed tree ensemble (RF/GBR) and diverges the fitted trees. y stays float
         # (legacy feeds y as float64).
         x_train: Any
+        fit_options: dict[str, Any] = {}
         if source_concat or multi_block:
-            x_train = [np.asarray(block) for block in resolver.resolve_feature_blocks(fit_ids, include_augmented=True)["blocks"]]
+            resolved = resolver.resolve_feature_blocks(
+                fit_ids, include_augmented=True, source_names=getattr(estimator, "source_names", None),
+            )
+            x_train = [np.asarray(block) for block in resolved["blocks"]]
+            if "source_masks" in resolved:
+                if not multi_block:
+                    raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
+                fit_options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
             x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True)["values"])
         else:
             x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"])
-        y_train = np.asarray(resolver.resolve_targets(resolver.target_sample_ids(fit_ids))["values"], dtype=float)
+        target_block = resolver.resolve_targets(resolver.target_sample_ids(fit_ids))
+        y_train = np.asarray(target_block["values"], dtype=float)
+        target_mask = target_block.get("validity_masks")
+        if target_mask is not None:
+            if not isinstance(model, MultimodalRegressor) or getattr(model, "target_policy", "complete") != "per_target":
+                raise ValueError("partial training targets require MultimodalRegressor(target_policy='per_target')")
+            if upstream or y_transform is not None:
+                raise ValueError("partial targets require encoders inside the multimodal model and no upstream or target transform")
         # MULTI-TARGET (S0): resolve_targets returns a 2D (n, n_targets) block, so y_train is already 2D
         # — pass it through unraveled (PLSRegression(n_targets>1)/MultiOutputRegressor consume 2D y) and
         # scale per-column. SINGLE-TARGET stays 1D (byte-identical legacy reshape(-1,1).ravel()).
@@ -615,7 +755,14 @@ def run_model_node(
             y_fit = y_transform.fit_transform(y_train) if y_transform is not None else y_train
         else:
             y_fit = y_transform.fit_transform(y_train.reshape(-1, 1)).ravel() if y_transform is not None else y_train
-        estimator.fit(x_train, y_fit)
+        if target_mask is not None:
+            fit_options["target_mask"] = np.asarray(target_mask, dtype=bool).reshape(y_fit.shape)
+        apply_pipeline_folds_to_model(model, training_metadata, phase, fit_ids)
+        with _gpu_device_scope(task, estimator):
+            estimator.fit(x_train, y_fit, **fit_options)
+        from .multimodal_contracts import bind_input_contract
+
+        bind_input_contract(estimator, resolver._dataset, source_index)
         if training_controls is not None:
             estimator._nirs4all_training_controls = training_controls
             report_model_training_controls(training_controls, model, len(fit_ids))
@@ -628,20 +775,30 @@ def run_model_node(
                     if isinstance(key, tuple) and len(key) == 5 and key[:3] == ("host_hpo_evidence", node_id, variant_label)
                 ]
 
-    def _features(ids: list[str], include_augmented: bool) -> Any:
+    def _features(ids: list[str], include_augmented: bool) -> tuple[Any, dict[str, Any]]:
         # Predict X at the dataset's NATIVE storage dtype too (same parity reason as the fit X above):
         # np.asarray on the resolver's ndarray preserves float32; legacy predicts on float32.
         x: Any
+        options: dict[str, Any] = {}
         if source_concat or multi_block:
-            x = [np.asarray(block) for block in resolver.resolve_feature_blocks(ids, include_augmented=include_augmented)["blocks"]]
+            resolved = resolver.resolve_feature_blocks(
+                ids, include_augmented=include_augmented, source_names=getattr(estimator, "source_names", None),
+            )
+            x = [np.asarray(block) for block in resolved["blocks"]]
+            if "source_masks" in resolved:
+                if not multi_block:
+                    raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
+                options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
             x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"])
         else:
             x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"])
-        return x
+        return x, options
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
-        pred = np.asarray(estimator.predict(_features(ids, include_augmented)), dtype=float).reshape(len(ids), -1)
+        features, options = _features(ids, include_augmented)
+        with _gpu_device_scope(task, estimator):
+            pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
 
@@ -690,9 +847,11 @@ def run_model_node(
         # MULTI-TARGET (S0): resolve_targets returns list-of-rows (n, n_targets); _predict already builds
         # 2D rows, so both blocks widen to k columns and carry per-target names (rmse:y0/rmse:y1 keys +
         # macro-mean). SINGLE-TARGET stays a flat list → [[v]] rows + ["y"] (BYTE-IDENTICAL legacy emit).
-        true_y = resolver.resolve_targets(spec_ids)["values"]
+        target_block = resolver.resolve_targets(spec_ids)
+        true_y = target_block["values"]
         multi_target = bool(true_y) and isinstance(true_y[0], list)
         names = [f"y{i}" for i in range(len(true_y[0]))] if multi_target else ["y"]
+        names = target_block.get("target_names", names)
         true_values = [[float(value) for value in row] for row in true_y] if multi_target else [[float(value)] for value in true_y]
         predictions.append(
             {
@@ -711,6 +870,7 @@ def run_model_node(
                 "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in spec_ids],
                 "values": true_values,
                 "target_names": names,
+                **({"validity_masks": target_block["validity_masks"]} if "validity_masks" in target_block else {}),
             }
         )
 
@@ -838,9 +998,9 @@ def run_meta_model_node(
             raise ValueError(f"meta-model node {node_id!r} REFIT/PREDICT received no `:predict` off-fold inputs (no base predict-set predictions)")
         sample_ids, x_meta = _meta_feature_matrix(predict_specs, node_id)
         pred = np.asarray(estimator.predict(x_meta), dtype=float).reshape(len(sample_ids), -1)
-        predictions = [_meta_prediction_block(node_id, phase, variant_label, fold_label, "final", None, sample_ids, pred)]
-        true_y = resolver.resolve_targets(sample_ids)["values"]
-        regression_targets = [_meta_target_block(sample_ids, [float(value) for value in true_y])]
+        target = _meta_target_block(sample_ids, resolver.resolve_targets(sample_ids))
+        predictions = [_meta_prediction_block(node_id, phase, variant_label, fold_label, "final", None, sample_ids, pred, target["target_names"])]
+        regression_targets = [target]
         return _build_result(task, predictions, [], {}, regression_targets)
 
     # FIT_CV + REFIT both fit on Validation OOF. The unsuffixed OOF specs are the
@@ -849,7 +1009,10 @@ def run_meta_model_node(
     if not oof_specs:
         raise ValueError(f"meta-model node {node_id!r} received no Validation OOF inputs to fit on")
     sample_ids, x_meta = _meta_feature_matrix(oof_specs, node_id)
-    y_meta = np.asarray(resolver.resolve_targets(sample_ids)["values"], dtype=float)
+    train_target = resolver.resolve_targets(sample_ids)
+    if "validity_masks" in train_target:
+        raise ValueError("late fusion does not support partial targets")
+    y_meta = np.asarray(train_target["values"], dtype=float)
 
     artifact_id = _artifact_id(node_id, variant_label)
     artifact_handle = _stable_handle(artifact_id)
@@ -880,14 +1043,14 @@ def run_meta_model_node(
             )
         outer_ids, x_outer = _meta_feature_matrix(outer_specs, node_id)
         pred = np.asarray(fit_estimator.predict(x_outer), dtype=float).reshape(len(outer_ids), -1)
-        fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), outer_ids, pred))
-        outer_y = resolver.resolve_targets(outer_ids)["values"]
-        fold_targets.append(_meta_target_block(outer_ids, [float(value) for value in outer_y]))
+        target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids))
+        fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), outer_ids, pred, target["target_names"]))
+        fold_targets.append(target)
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
     if phase == "REFIT":
-        model_store[artifact_handle] = {"estimator": fit_estimator, "y_transform": None}
+        model_store[artifact_handle] = {"estimator": fit_estimator, "y_transform": None, "target_decoder": resolver.target_decoder()}
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 
@@ -899,14 +1062,17 @@ def run_meta_model_node(
         if test_specs:
             test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
             test_pred = np.asarray(fit_estimator.predict(x_test), dtype=float).reshape(len(test_ids), -1)
-            fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", None, test_ids, test_pred))
-            test_true = resolver.resolve_targets(test_ids)["values"]
-            fold_targets.append(_meta_target_block(test_ids, [float(value) for value in test_true]))
+            target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
+            fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", None, test_ids, test_pred, target["target_names"]))
+            fold_targets.append(target)
 
     return _build_result(task, fold_predictions, artifacts, artifact_handles, fold_targets)
 
 
-def _meta_prediction_block(node_id: str, phase: str, variant_label: str, fold_label: str, partition: str, fold_id: str | None, sample_ids: list[str], values: np.ndarray) -> dict[str, Any]:
+def _meta_prediction_block(
+    node_id: str, phase: str, variant_label: str, fold_label: str, partition: str,
+    fold_id: str | None, sample_ids: list[str], values: np.ndarray, target_names: list[str],
+) -> dict[str, Any]:
     """A meta-node prediction block for one partition (validation OOF / test / final)."""
     return {
         "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
@@ -915,17 +1081,21 @@ def _meta_prediction_block(node_id: str, phase: str, variant_label: str, fold_la
         "fold_id": fold_id,
         "sample_ids": sample_ids,
         "values": [[float(value) for value in row] for row in values],
-        "target_names": ["y"],
+        "target_names": target_names,
     }
 
 
-def _meta_target_block(sample_ids: list[str], true_y: list[float]) -> dict[str, Any]:
+def _meta_target_block(sample_ids: list[str], resolved: dict[str, Any]) -> dict[str, Any]:
     """The y_true block paired 1:1 with a meta-node prediction block (dag-ml scores against it)."""
+    if "validity_masks" in resolved:
+        raise ValueError("late fusion does not support partial targets")
+    values = np.asarray(resolved["values"], dtype=float).reshape(len(sample_ids), -1)
+    names = resolved.get("target_names", ["y"] if values.shape[1] == 1 else [f"y{i}" for i in range(values.shape[1])])
     return {
         "level": "sample",
         "unit_ids": [{"level": "sample", "id": sample_id} for sample_id in sample_ids],
-        "values": [[value] for value in true_y],
-        "target_names": ["y"],
+        "values": values.tolist(),
+        "target_names": names,
     }
 
 

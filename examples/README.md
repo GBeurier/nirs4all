@@ -68,6 +68,12 @@ The User Path provides a complete introduction to nirs4all, from your first pipe
 | U04_wavelength_handling.py | Wavelength interpolation and units | ★★☆☆☆ |
 | U05_synthetic_data.py | Generate synthetic NIRS data | ★★☆☆☆ |
 | U06_synthetic_advanced.py | Builder API for synthetic data | ★★★☆☆ |
+| U07_multimodal.py | Four raw modalities, grouped tuning, durable resume and complete archive replay | ★★★☆☆ |
+| U07_multimodal_qualification.py | Synthetic per-source baselines and fusion qualification, with JSON/CSV/text reports | ★★★☆☆ |
+| U08_multimodal_targets.py | Synthetic string classification, named regression outputs, partial target masks and archive replay without fit | ★★★☆☆ |
+| U09_multimodal_missing_sources.py | Incomplete modalities and targets, explicit presence indicators, durable tuning and prediction without images | ★★★☆☆ |
+| U10_multimodal_late_tuning.py | Tune source encoders, base models and the OOF meta-model with durable native resume and complete ensemble replay | ★★★☆☆ |
+| U11_multimodal_data_provider.py | Execute complete/partial synthetic providers, resume finite batches and replay without regenerating training data | ★★★☆☆ |
 
 ### 03_preprocessing/ - Preprocessing
 

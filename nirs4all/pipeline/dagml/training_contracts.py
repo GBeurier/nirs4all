@@ -39,6 +39,7 @@ class DagMLTrainingRequestSpec:
     refit: bool = True
     scheduler_workers: int = 1
     cpu_threads: int = 1
+    gpu_devices: Sequence[str] = ()
     cv_artifacts: str = "metadata_only"
     prediction_caches: str = "retain"
     fitted_artifacts: str = "allow_host_sidecar"
@@ -132,7 +133,7 @@ def _training_options(spec: DagMLTrainingRequestSpec) -> dict[str, Any]:
         "selection_output_id": spec.selection_output_id,
         "outputs": [dict(output) for output in spec.output_requests],
         "scheduler": {"kind": "sequential", "backend": None, "workers": spec.scheduler_workers},
-        "resources": {"cpu_threads": spec.cpu_threads, "gpu_devices": []},
+        "resources": {"cpu_threads": spec.cpu_threads, "gpu_devices": list(spec.gpu_devices)},
         "artifacts": {
             "cv_artifacts": spec.cv_artifacts,
             "prediction_caches": spec.prediction_caches,

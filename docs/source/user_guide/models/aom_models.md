@@ -1,7 +1,9 @@
 # AOM Models
 
 AOM models are spectroscopy-specific estimators that search over linear
-preprocessing operators inside the calibration model. In nirs4all, they can use
+preprocessing operators inside the calibration model. `AOMPLSRegressor` and
+`POPPLSRegressor` are provided directly by the native `nirs4all-methods` (`n4m`)
+binding; nirs4all no longer carries duplicate Python implementations. They can use
 the same split protocol as the outer pipeline, including user-defined splitters
 such as `KFold`, `GroupKFold`, `StratifiedGroupKFold`, or custom splitters.
 
@@ -16,7 +18,8 @@ AOM-PLS, AOM-Ridge, `AOMRidgeAutoSelector`, `AOMRidgeBlender`, and FastAOM.
 | `AOMRidgeBlender` | Best general AOM-Ridge recipe; convex blend of several candidate variants | `outer_cv` and `inner_cv` |
 | `AOMRidgeAutoSelector` | Pick one best AOM-Ridge variant instead of blending | `outer_cv` and `inner_cv` |
 | `AOMRidgeRegressor` | Fast single AOM-Ridge model, good first production baseline | `cv` |
-| `AOMPLSRegressor` | PLS-compatible AOM model with operator-bank selection | `cv_splitter` and `cv` |
+| `AOMPLSRegressor` | Native n4m PLS-compatible AOM model with operator-bank selection | `fold_ids` and `cv` |
+| `POPPLSRegressor` | Native n4m per-component operator-selection PLS | `fold_ids` and `cv` |
 | `FastAOMPLSRidge` | Faster chain-screened AOM family when runtime matters | no pipeline-fold injection required |
 
 ## Pipeline Split Reuse
@@ -67,6 +70,7 @@ as follows:
 
 | Estimator Capability | Injection |
 |----------------------|-----------|
+| exposes `fold_ids` | sets one validated native fold id per training row and `cv=n_splits` |
 | exposes `cv_splitter` | sets `cv_splitter=<pipeline splitter>` and `cv=n_splits` |
 | exposes `outer_cv` | sets `outer_cv=<pipeline splitter>` |
 | exposes both `outer_cv` and `inner_cv` | sets both to the pipeline splitter |
@@ -131,5 +135,7 @@ training rows before model fitting, because the original fold indices no longer
 align with `X_train`. With `use_pipeline_folds_for_aom="required"`, this raises
 instead of falling back.
 
-Repeated AOM-PLS CV (`repeats > 1`) is not compatible with a fixed pipeline
-splitter. Use `repeats=1` when the pipeline split must be authoritative.
+The native regressors accept `max_components`, `operators`, `cv`, `fold_ids`,
+`center_x`, `scale_x`, `center_y`, and `scale_y`. Older Python-only arguments
+such as `n_components="auto"`, `operator_bank`, `criterion`, `auto_select`,
+`bank`, `repeats`, and `backend` are not accepted and are not silently ignored.

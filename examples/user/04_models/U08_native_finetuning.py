@@ -21,6 +21,11 @@ Why use it
 Optuna stays the default engine; nothing here removes it. Drop ``"engine"``
 (or set it to ``"optuna"``) to go back.
 
+The outer ``nirs4all.run(..., engine="legacy")`` selector is explicit because
+adaptive optimizer callbacks currently execute in the direct Python lane. The
+inner ``finetune_params["engine"] = "n4m"`` still delegates every search
+decision to the portable native optimizer.
+
 Prerequisites
 -------------
 * Complete :ref:`U02_hyperparameter_tuning` first.
@@ -96,6 +101,7 @@ result_tpe = nirs4all.run(
         },
     ],
     dataset="sample_data/regression",
+    engine="legacy",
     name="n4m-TPE",
     verbose=1,
 )
@@ -135,10 +141,11 @@ result_cmaes = nirs4all.run(
         },
     ],
     dataset="sample_data/regression",
+    engine="legacy",
     name="n4m-CMAES",
     verbose=1,
 )
-print(f"\nBest R2 (native CMA-ES): {result_cmaes.best_score:.4f}")
+print(f"\nBest R2 (native CMA-ES): {result_cmaes.best_r2:.4f}")
 
 # =============================================================================
 # Section 3: Early stopping with a native pruner
@@ -174,6 +181,7 @@ result_pruned = nirs4all.run(
         },
     ],
     dataset="sample_data/regression",
+    engine="legacy",
     name="n4m-Pruned",
     verbose=1,
 )
@@ -224,6 +232,7 @@ result_cond = nirs4all.run(
         },
     ],
     dataset="sample_data/regression",
+    engine="legacy",
     name="n4m-Conditional",
     verbose=1,
 )
@@ -275,6 +284,7 @@ result_ops = nirs4all.run(
         },
     ],
     dataset="sample_data/regression",
+    engine="legacy",
     name="OperatorSearch",
     verbose=1,
 )
@@ -307,6 +317,8 @@ Native finetuning = the Optuna DSL + one key:
 
 Same seed + same data -> identical trial sequence in Python, R, MATLAB and WASM.
 Drop "engine" (or set "optuna") to use the Optuna engine instead.
+The surrounding nirs4all run uses engine="legacy" until adaptive callback
+search is supported by the DAG-ML execution lane.
 """)
 
 if __name__ == "__main__":

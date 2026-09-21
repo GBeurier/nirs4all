@@ -200,6 +200,7 @@ class MaterializationResolver:
         *,
         include_augmented: bool = True,
         include_excluded: bool = False,
+        source_names: tuple[str, ...] | None = None,
     ) -> dict[str, Any]:
         """Return ``{feature_set_id, observation_ids, blocks}`` — the per-source feature blocks (S5).
 
@@ -219,13 +220,29 @@ class MaterializationResolver:
         # x_rows(concat_source=False) returns a list of per-source 2D arrays for a multi-source
         # dataset, or a single 2D array for a single source — normalize to a list either way.
         blocks = per_source if isinstance(per_source, list) else [per_source]
+        if source_names is not None:
+            from .envelope import source_order
+
+            available_names = source_order(self._dataset)
+            if len(source_names) != len(set(source_names)) or set(source_names) != set(available_names):
+                raise ValueError(f"multimodal source names mismatch: required {source_names}, received {available_names}")
+            by_name = dict(zip(available_names, blocks, strict=True))
+            blocks = [by_name[name] for name in source_names]
         # Preserve each source block's NATIVE storage dtype (no .tolist() widening to float64) — same
         # parity reason as resolve_features: the host fits on what legacy dataset.x() returns (float32).
-        return {
+        result: dict[str, Any] = {
             "feature_set_id": "features",
             "observation_ids": list(observation_ids),
             "blocks": [np.asarray(block) for block in blocks],
         }
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+        if isinstance(self._dataset, MultimodalSpectroDataset):
+            presence = self._dataset.cohort.source_presence(sample_ints)
+            if any(not mask.all() for mask in presence.values()):
+                order = source_names if source_names is not None else self._dataset.source_names
+                result["source_masks"] = {name: presence[name] for name in order}
+        return result
 
     def resolve_source_block(
         self,
@@ -245,9 +262,13 @@ class MaterializationResolver:
         int, never positionally). The same origin-boundary leakage guard as :meth:`resolve_features`
         applies: an augmented child is refused in a non-augmented (validation/predict) view.
         """
-        blocks = self.resolve_feature_blocks(observation_ids, include_augmented=include_augmented, include_excluded=include_excluded)["blocks"]
+        resolved = self.resolve_feature_blocks(observation_ids, include_augmented=include_augmented, include_excluded=include_excluded)
+        blocks = resolved["blocks"]
         if not 0 <= source_index < len(blocks):
             raise ValueError(f"by_source block index {source_index} out of range for {len(blocks)} source(s)")
+        masks = resolved.get("source_masks")
+        if masks is not None and not list(masks.values())[source_index].all():
+            raise ValueError("by_source and late fusion require complete modalities; use a multimodal model with an explicit missing_source_policy")
         return {
             "feature_set_id": "features",
             "observation_ids": list(observation_ids),
@@ -292,8 +313,18 @@ class MaterializationResolver:
         rows = [row_of[sample_int] for sample_int in sample_ints]
         ordered = block[rows]
         values = ordered.ravel().tolist() if ordered.shape[1] == 1 else ordered.tolist()
-        return {
+        payload = {
             "target_id": target_id,
             "sample_ids": list(sample_ids),
             "values": values,
         }
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+        if isinstance(self._dataset, MultimodalSpectroDataset):
+            cohort = self._dataset.cohort
+            payload["target_names"] = list(cohort.target_names)
+            if cohort.target_mask is not None:
+                mask = np.asarray(cohort.target_mask).reshape(len(cohort), -1)[sample_ints]
+                if not mask.all():
+                    payload["validity_masks"] = mask.tolist()
+        return payload

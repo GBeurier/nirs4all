@@ -546,9 +546,22 @@ class _DagmlExportedModel:
 
     def predict(self, X: Any) -> np.ndarray:
         """Predict in the ORIGINAL target space: estimator, then inverse y-transform when present."""
+        from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+
+        pred = self.predict_numeric(X)
+        if isinstance(self.y_transform, CapturedTargetTransform):
+            return np.asarray(self.y_transform.decode(pred.reshape(len(pred), -1)))
+        return pred
+
+    def predict_numeric(self, X: Any) -> np.ndarray:
+        """Restore numeric targets while keeping class labels encoded for stacking."""
+        from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
+
         pred = np.asarray(self.estimator.predict(X), dtype=float)
         if self.y_transform is None:
             return pred
+        if isinstance(self.y_transform, CapturedTargetTransform):
+            return np.asarray(self.y_transform.inverse_numeric(pred.reshape(len(pred), -1)))
         return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)))
 
 
@@ -642,25 +655,39 @@ class _DagmlNativeStackingModel:
     ``stacking_replay`` manifest. Prediction rebuilds that same meta-feature matrix from raw X.
     """
 
-    def __init__(self, base_members: Sequence[_DagmlExportedModel], meta_member: _DagmlExportedModel) -> None:
+    multimodal_input_schema: dict[str, Any]
+
+    def __init__(self, base_members: Sequence[_DagmlExportedModel], meta_member: _DagmlExportedModel, source_names: Sequence[str] | None = None) -> None:
         if len(base_members) < 2:
             raise ValueError("native stacking export requires at least two base member models")
         self.base_members = list(base_members)
         self.meta_member = meta_member
+        self.source_names = tuple(source_names) if source_names is not None else None
+        if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
+            raise ValueError("native raw stacking requires one distinct named source per base model")
 
-    def predict(self, X: Any) -> np.ndarray:
+    def _meta_features(self, X: Any) -> np.ndarray:
         base_blocks: list[np.ndarray] = []
         expected_rows: int | None = None
-        for member in self.base_members:
-            pred = np.asarray(member.predict(X), dtype=float)
+        if self.source_names is not None and (not isinstance(X, list | tuple) or len(X) != len(self.source_names)):
+            raise ValueError("native raw stacking requires its ordered raw source blocks")
+        for index, member in enumerate(self.base_members):
+            pred = member.predict_numeric(X[index] if self.source_names is not None else X)
             rows = len(pred)
             if expected_rows is None:
                 expected_rows = rows
             elif rows != expected_rows:
                 raise ValueError(f"native stacking base predictions have incompatible row counts: expected {expected_rows}, got {rows}")
             base_blocks.append(pred.reshape(rows, -1))
-        x_meta = np.column_stack(base_blocks)
-        return np.asarray(self.meta_member.predict(x_meta), dtype=float)
+        return np.column_stack(base_blocks)
+
+    def predict(self, X: Any) -> np.ndarray:
+        """Predict public labels or regression values from captured source models."""
+        return np.asarray(self.meta_member.predict(self._meta_features(X)))
+
+    def predict_numeric(self, X: Any) -> np.ndarray:
+        """Keep final class labels encoded until native replay has validated them."""
+        return np.asarray(self.meta_member.predict_numeric(self._meta_features(X)), dtype=float)
 
 
 def _native_manifest_strings(manifest: Mapping[str, Any], key: str) -> set[str]:
@@ -2180,17 +2207,22 @@ class RunResult:
             artifact = artifacts[0]
             model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
             model_label = model_names[0] if model_names else type(artifact["estimator"]).__name__
+            from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
+
+            multimodal_provenance = archive_metadata(artifact["estimator"])
+            if multimodal_provenance and self._tuning_result is not None:
+                multimodal_provenance["multimodal_host"]["tuning"] = self._tuning_result.to_dict()
             return write_single_model_bundle(
                 model,
                 output_path,
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
-                provenance=_dagml_native_bundle_provenance(
+                provenance={**_dagml_native_bundle_provenance(
                     native_manifest,
                     export_path="dagml_native",
                     artifact_count=1,
                     retrain_lineage=getattr(self, "_retrain_lineage", None),
-                ),
+                ), **multimodal_provenance},
                 train_steps=train_steps,
             )
 
@@ -2209,8 +2241,22 @@ class RunResult:
             )
             provenance["dagml_stacking_base_count"] = len(base_artifacts)
             provenance["dagml_stacking_meta_artifact_id"] = meta_artifact.get("artifact_id")
+            source_names = [getattr(member.estimator, "multimodal_source_name", None) for member in base_members]
+            if any(name is not None for name in source_names) and any(name is None for name in source_names):
+                raise ValueError("raw stacking archive is missing a base source binding")
+            stacked_model = _DagmlNativeStackingModel(base_members, meta_member, cast(list[str], source_names) if all(source_names) else None)
+            if stacked_model.source_names is not None:
+                from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
+
+                schema = base_members[0].estimator.multimodal_input_schema
+                if any(member.estimator.multimodal_input_schema != schema for member in base_members):
+                    raise ValueError("raw stacking base models disagree on their source contracts")
+                stacked_model.multimodal_input_schema = schema
+                provenance.update(archive_metadata(stacked_model))
+                if self._tuning_result is not None:
+                    provenance["multimodal_host"]["tuning"] = self._tuning_result.to_dict()
             return write_single_model_bundle(
-                _DagmlNativeStackingModel(base_members, meta_member),
+                stacked_model,
                 output_path,
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),

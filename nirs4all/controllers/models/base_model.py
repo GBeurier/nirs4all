@@ -143,6 +143,23 @@ class BaseModelController(OperatorController, ABC):
         """
         pass
 
+    def predict_fitted_model(self, model: Any, X: Any) -> np.ndarray:
+        """Predict with an already-fitted framework model.
+
+        This public adapter is intended for persistence/replay code that owns a
+        fitted model artifact but not a full pipeline execution context. It
+        preserves each framework controller's input preparation and output
+        normalization.
+
+        Args:
+            model: Fitted framework-specific model artifact.
+            X: Input features for prediction.
+
+        Returns:
+            NumPy array of predictions.
+        """
+        return np.asarray(self._predict_model(model, X))
+
     @abstractmethod
     def _prepare_data(self, X: Any, y: Any, context: 'ExecutionContext') -> tuple[Any, Any]:
         """Prepare data in framework-specific format (e.g., tensors, DataFrames).
@@ -508,11 +525,13 @@ class BaseModelController(OperatorController, ABC):
                     if i < len(mask) and not mask[i]:
                         excluded_sample_ids_set.add(int(sid))
 
-        def origin_for(sample_id: int) -> int | None:
-            try:
-                return dataset._indexer.get_origin_for_sample(sample_id)  # noqa: SLF001
-            except Exception:
-                return None
+        # Resolve once for all folds, preserving the active matrix's row order.
+        # Per-sample frame filtering here costs a full index scan per row/fold.
+        origins_by_id = dict(zip(
+            active_sample_ids.tolist(),
+            dataset._indexer.get_origins_for_samples(active_sample_ids.tolist()),  # noqa: SLF001
+            strict=True,
+        ))
 
         def augmented_train_positions(train_ids) -> list[int]:
             """Return synthetic children for this fold train set, never for validation."""
@@ -526,7 +545,7 @@ class BaseModelController(OperatorController, ABC):
             positions: list[int] = []
             for sid in active_sample_ids:
                 sample_id = int(sid)
-                origin_id = origin_for(sample_id)
+                origin_id = origins_by_id.get(sample_id)
                 if origin_id is not None and sample_id != origin_id and origin_id in train_origin_ids:
                     positions.append(id_to_pos[sample_id])
             return positions
@@ -2747,7 +2766,7 @@ class BaseModelController(OperatorController, ABC):
         # Use artifact registry if available (V3 system)
         if runtime_context.artifact_registry is not None:
             registry = runtime_context.artifact_registry
-            pipeline_id = runtime_context.pipeline_name or "unknown"
+            pipeline_id = getattr(runtime_context, "pipeline_uid", None) or runtime_context.pipeline_name or "unknown"
             step_index = runtime_context.step_number
 
             # Use branch_path or convert branch_id to branch_path

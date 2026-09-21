@@ -71,7 +71,7 @@ def test_installed_methods_evidence_and_r2_release_record_are_published() -> Non
     r2_audit = _normalized(R2_AUDIT.read_text(encoding="utf-8"))
 
     assert "not pinned in CI" not in compatibility
-    assert "`methods-installed.yml` pins released `dag-ml==0.3.25` and `nirs4all-methods>=1.0.18,<2`" in compatibility
+    assert "`methods-installed.yml` pins released `dag-ml==0.3.26` and `nirs4all-methods>=1.0.18,<2`" in compatibility
     assert "`test_terminal_predict_lowerer.py`" in compatibility
     assert "`test_native_methods_witness.py`" in compatibility
     assert "| → fail closed (`EXPECTED_REFUSAL`) | **1**" in compatibility

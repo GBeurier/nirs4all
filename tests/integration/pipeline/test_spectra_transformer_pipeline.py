@@ -105,16 +105,23 @@ class TestSpectraTransformerPipeline:
         yield manager
         manager.cleanup()
 
+    @pytest.fixture
+    def dataset_config(self, test_data_manager):
+        """Declare the generated integer column labels as feature indices."""
+        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
+        return DatasetConfigs({
+            "folder": dataset_folder,
+            "global_params": {"header_unit": "index"},
+        })
+
     @pytest.fixture(autouse=True)
     def reset_recording_transformer(self):
         """Reset the recording transformer before each test."""
         WavelengthRecordingTransformer.reset_records()
         yield
 
-    def test_spectra_transformer_in_simple_pipeline(self, test_data_manager):
+    def test_spectra_transformer_in_simple_pipeline(self, dataset_config):
         """Test that SpectraTransformerMixin receives wavelengths in a simple pipeline."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
         dataset = dataset_config.get_datasets()[0]
 
         # Get expected wavelengths from dataset
@@ -145,10 +152,8 @@ class TestSpectraTransformerPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_spectra_transformer_with_standard_transformer(self, test_data_manager):
+    def test_spectra_transformer_with_standard_transformer(self, dataset_config):
         """Test SpectraTransformerMixin mixed with standard sklearn transformers."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
         dataset = dataset_config.get_datasets()[0]
 
         # Get expected wavelengths from dataset
@@ -172,11 +177,8 @@ class TestSpectraTransformerPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_wavelength_dependent_transformation(self, test_data_manager):
+    def test_wavelength_dependent_transformation(self, dataset_config):
         """Test that wavelength-dependent transformations work correctly."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
-
         pipeline = [
             WavelengthDependentScaler(target_wavelength=100.0, boost_factor=1.5),
             ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
@@ -189,11 +191,8 @@ class TestSpectraTransformerPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_optional_wavelength_transformer(self, test_data_manager):
+    def test_optional_wavelength_transformer(self, dataset_config):
         """Test that transformers with optional wavelengths work without wavelengths."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
-
         pipeline = [
             OptionalWavelengthTransformer(scale=2.0),
             ShuffleSplit(n_splits=2, test_size=0.25, random_state=42),
@@ -206,10 +205,8 @@ class TestSpectraTransformerPipeline:
         # Verify pipeline ran successfully
         assert predictions.num_predictions > 0
 
-    def test_multiple_spectra_transformers_in_pipeline(self, test_data_manager):
+    def test_multiple_spectra_transformers_in_pipeline(self, dataset_config):
         """Test multiple SpectraTransformerMixin operators in sequence."""
-        dataset_folder = str(test_data_manager.get_temp_directory() / "regression")
-        dataset_config = DatasetConfigs(dataset_folder)
         dataset = dataset_config.get_datasets()[0]
 
         # Get expected wavelengths from dataset

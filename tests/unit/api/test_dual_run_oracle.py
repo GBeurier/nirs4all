@@ -132,7 +132,7 @@ def test_dual_comparison_permits_unavailable_global_test_summaries() -> None:
 
 def test_dual_comparison_emits_structured_semantic_mismatch() -> None:
     legacy = _Result(num_predictions=4, best_score=0.2, best_rmse=0.2, cv_best_score=0.3)
-    native = _Result(num_predictions=3, best_score=0.4, best_rmse=0.2, cv_best_score=0.3)
+    native = _Result(num_predictions=3, best_score=0.4, best_rmse=0.2, cv_best_score=0.4)
 
     report = _dual_comparison_report(legacy, native, legacy_seconds=2.0, native_seconds=1.0)  # type: ignore[arg-type]
     with pytest.raises(DualRunMismatchError) as error:
@@ -140,7 +140,26 @@ def test_dual_comparison_emits_structured_semantic_mismatch() -> None:
 
     assert error.value.report["schema_version"] == 3
     assert error.value.report["tolerances"] == _resolve_dual_tolerances()
-    assert {entry["field"] for entry in error.value.report["mismatches"]} == {"num_predictions"}
+    assert {entry["field"] for entry in error.value.report["mismatches"]} == {"cv_best_score"}
+
+
+
+def test_dual_comparison_allows_different_storage_rows_with_identical_oof_evidence() -> None:
+    legacy = _Result(num_predictions=11, best_score=0.2, best_rmse=0.2, cv_best_score=0.3)
+    native = _Result(num_predictions=5, best_score=0.2, best_rmse=0.2, cv_best_score=0.3)
+    report = _dual_comparison_report(legacy, native, legacy_seconds=2.0, native_seconds=1.0)
+    assert report["mismatches"] == []
+    assert report["semantics"]["num_predictions"] == {"legacy": 11, "native": 5}
+
+
+def test_dual_comparison_rejects_missing_validation_rows_even_when_storage_counts_match() -> None:
+    legacy = _Result(num_predictions=11, best_score=0.2, best_rmse=0.2, cv_best_score=0.3)
+    native = _Result(num_predictions=11, best_score=0.2, best_rmse=0.2, cv_best_score=0.3,
+                     validation_rows=_validation_rows()[:-1])
+    report = _dual_comparison_report(legacy, native, legacy_seconds=2.0, native_seconds=1.0)
+    assert {entry["field"] for entry in report["mismatches"]} == {
+        "validation_splits", "validation_metrics.folds", "y_pred.sample_ids",
+    }
 
 
 def test_dual_comparison_compares_winner_splits_and_predictions() -> None:
@@ -369,7 +388,7 @@ def test_dual_ledger_is_resolved_from_an_installed_wheel(tmp_path: Path) -> None
     assert create_venv.returncode == 0, create_venv.stdout + create_venv.stderr
     wheel_python = venv / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     install = subprocess.run(
-        [str(wheel_python), "-m", "pip", "install", "--force-reinstall", "--no-deps", str(wheel)],
+        [str(wheel_python), "-m", "pip", "install", str(wheel)],
         check=False,
         capture_output=True,
         text=True,

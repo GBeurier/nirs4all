@@ -1551,19 +1551,17 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     return branches, meta_learner
 
 
-def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tuple[list[Any], Any] | None:
-    """Detect the legacy by_source-model stacking shape that uses source-layout replay.
+def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tuple[list[Any] | dict[str, list[Any]], Any] | None:
+    """Detect source-specific base models followed by native OOF stacking.
 
     Admits ONLY:
 
     ``splitter + {"branch": {"by_source": True, "steps": [X-transform*, {"model": Base}]}}
     + {"merge": "predictions"} + {"model": Meta}``
 
-    This is not ordinary OOF stacking. In source-branch mode legacy's merge controller collects the
-    cumulatively-mutated source feature layout for ``{"merge": "predictions"}``, writes that concat back
-    to source 0, leaves the remaining sources in place, and then the downstream estimator trains on that
-    post-merge source layout. The native runner has a dedicated replay for that exact contract, so any
-    richer form stays on the loud fallback-boundary path rather than being run as 3-column OOF stacking.
+    ``steps`` may also map each source name to its own transform/model body.
+    Each body ends in exactly one base model. The native nested scheduler owns
+    all OOF production and the prediction merge; source names only bind inputs.
     """
     from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
 
@@ -1590,16 +1588,22 @@ def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tu
     if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
         return None
     body = criterion.get("steps")
-    if not isinstance(body, list):
+    if not isinstance(body, (list, dict)) or not body:
         return None
-    model_positions = [index for index, substep in enumerate(body) if isinstance(substep, dict) and "model" in substep]
-    if len(model_positions) != 1 or model_positions[0] != len(body) - 1:
+    bodies = list(body.values()) if isinstance(body, dict) else [body]
+    if isinstance(body, dict) and (len(body) != n_sources or any(not isinstance(name, str) or not name for name in body)):
         return None
-    if any(isinstance(substep, dict) for substep in body[: model_positions[0]]):
-        return None
-    branch_model_step = body[model_positions[0]]
-    if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in branch_model_step.items() if key != "model"):
-        return None
+    for source_body in bodies:
+        if not isinstance(source_body, list):
+            return None
+        model_positions = [index for index, substep in enumerate(source_body) if isinstance(substep, dict) and "model" in substep]
+        if len(model_positions) != 1 or model_positions[0] != len(source_body) - 1:
+            return None
+        if any(isinstance(substep, dict) for substep in source_body[: model_positions[0]]):
+            return None
+        branch_model_step = source_body[model_positions[0]]
+        if any(key not in _RESERVED_STEP_KEYS or is_param_generator_spec(value) for key, value in branch_model_step.items() if key != "model"):
+            return None
 
     meta_learner = _meta_learner(model_step)
     if meta_learner is None:

@@ -355,9 +355,7 @@ class TestCriticalBehavior:
         """
         CRITICAL: Errors must stop execution when continue_on_error=False.
 
-        NOTE: The library has a resilient DUMMY CONTROLLER that catches invalid models,
-        so this test verifies the continue_on_error flag behavior, not that invalid
-        models raise (they're handled gracefully by design).
+        Invalid import references are configuration errors and must remain visible.
         """
         runner = PipelineRunner(
             workspace_path=tmp_path,
@@ -369,16 +367,13 @@ class TestCriticalBehavior:
 
         dataset_path = str(baseline_test_data.get_temp_directory() / "regression")
 
-        # The library handles invalid models with a dummy controller
-        # Test that runner completes (resilient behavior)
         pipeline = [
             {"preprocessing": StandardScaler()},
             {"model": "definitely.not.a.real.ModelClass"}
         ]
 
-        # CRITICAL ASSERTION: Should complete (library is resilient)
-        result = runner.run(pipeline, dataset_path)
-        assert result is not None
+        with pytest.raises(RuntimeError, match="Could not deserialize component"):
+            runner.run(pipeline, dataset_path)
 
     def test_multiple_datasets_produce_separate_predictions(self, tmp_path, baseline_test_data):
         """

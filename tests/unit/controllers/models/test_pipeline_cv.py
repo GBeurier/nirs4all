@@ -35,6 +35,14 @@ class AOMRecordingRegressor(BaseEstimator):
         return np.zeros(X.shape[0])
 
 
+class NativeAOMRecordingRegressor(BaseEstimator):
+    __module__ = "n4m._impl.native_sweeps"
+
+    def __init__(self, cv=5, fold_ids=None):
+        self.cv = cv
+        self.fold_ids = fold_ids
+
+
 class RecordingController(BaseModelController):
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
@@ -87,7 +95,8 @@ class DummyFoldDataset:
             ([12, 13, 14, 15], [10, 11]),
         ]
         self._indexer = SimpleNamespace(
-            x_indices=lambda selector, include_augmented=True, include_excluded=False: np.array([10, 11, 12, 13, 14, 15])
+            x_indices=lambda selector, include_augmented=True, include_excluded=False: np.array([10, 11, 12, 13, 14, 15]),
+            get_origins_for_samples=lambda sample_ids: list(sample_ids),
         )
 
     @property
@@ -147,6 +156,30 @@ def test_apply_pipeline_folds_to_aom_sets_supported_params():
     assert model.cv_splitter is splitter
     assert model.external_folds == [[2], [0]]
     assert model.selection == "external"
+
+
+def test_apply_pipeline_folds_to_native_aom_sets_canonical_fold_ids():
+    splitter = PrecomputedFoldSplitter.from_folds(
+        [([2, 3], [0, 1]), ([0, 1], [2, 3])],
+        n_samples=4,
+    )
+    model = NativeAOMRecordingRegressor()
+
+    changed = apply_pipeline_folds_to_aom_estimator(model, splitter)
+
+    assert changed is True
+    assert model.cv == 2
+    np.testing.assert_array_equal(model.fold_ids, np.array([0, 0, 1, 1], dtype=np.int32))
+
+
+def test_native_fold_ids_reject_incomplete_partition():
+    splitter = PrecomputedFoldSplitter.from_folds(
+        [([1, 2], [0]), ([0, 2], [1])],
+        n_samples=3,
+    )
+
+    with pytest.raises(ValueError, match="assign every training row"):
+        _ = splitter.fold_ids
 
 
 def test_apply_pipeline_folds_leaves_non_aom_estimator_untouched():

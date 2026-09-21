@@ -75,6 +75,7 @@ SKIP_CATEGORY_IDS: tuple[str, ...] = (
     "optional_env_dependency",
     "optional_env_sibling",
     "optional_env_methods",
+    "optional_env_gpu",
     "runtime_na",
     "baseline_capture",
     "lockdrop_empty",
@@ -90,6 +91,7 @@ SKIP_CATEGORY_KIND: dict[str, str] = {
     "optional_env_dependency": "optional_env",
     "optional_env_sibling": "optional_env",
     "optional_env_methods": "optional_env",
+    "optional_env_gpu": "optional_env",
     "runtime_na": "runtime_precondition",
     "baseline_capture": "workflow",
     "lockdrop_empty": "workflow",
@@ -250,6 +252,8 @@ def classify_skip(*, kind: str, reason: str, func: str, condition_src: str) -> s
         return "optional_env_dependency"
     if "runtime schemas not checked out" in reason:
         return "optional_env_sibling"
+    if "optional GPU environment unavailable" in reason:
+        return "optional_env_gpu"
     if "EXPECTED_REFUSAL is empty" in reason:
         return "lockdrop_empty"
     if "captured legacy baseline" in reason or "no gold baseline" in reason:

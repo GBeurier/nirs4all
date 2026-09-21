@@ -242,12 +242,19 @@ def run_cv_refit_bundle(
         env["N4A_RANDOM_STATE"] = str(random_state)
     else:
         env.pop("N4A_RANDOM_STATE", None)
+    from .resources import current_execution_resources
+
+    resources = current_execution_resources()
+    resource_args = ["--cpu-threads", str(resources.cpu_threads)]
+    for device in resources.gpu_devices:
+        resource_args.extend(("--gpu-device", device))
     proc = subprocess.run(
         [
             dagml_cli, "run-process-dsl-cv-refit-bundle",
             "--dsl", str(workdir / "dsl.json"), "--controllers", str(workdir / "controllers.json"),
             "--envelope", str(workdir / "envelope.json"), "--adapter", str(shim), "--persistent",
             "--selection-metric", selection_metric,
+            *resource_args,
             "--bundle-id", "bundle:n4a", "--plan-id", "plan:n4a",
             "--output", str(workdir / "bundle.json"), "--prediction-cache-output", str(workdir / "cache.json"),
         ],

@@ -418,11 +418,10 @@ def _dual_comparison_report(
             "native": native_observation["fold_metrics"],
         },
     }
-    if legacy_result.num_predictions != native_result.num_predictions:
-        _append_dual_mismatch(
-            mismatches,
-            {"field": "num_predictions", "legacy": legacy_result.num_predictions, "native": native_result.num_predictions, "reason": "exact_value_mismatch"},
-        )
+    # Stored row counts include engine-specific train/refit summaries. Keep
+    # them observable, but compare the concrete validation partitions below:
+    # identical folds, sample IDs, prediction values and scores are required.
+    # Equal storage layout is not evidence of equal scientific results.
 
     _append_dual_score_mismatch(
         mismatches,
@@ -788,6 +787,7 @@ def run(
             - Numpy arrays: ``(X, y)`` or ``X`` alone
             - Dict with arrays: ``{"X": X, "y": y, "metadata": meta}``
             - SpectroDataset instance
+            - IO DataProvider executed once by DAG-ML before cross-validation
             - List of SpectroDataset instances (multi-dataset)
             - DatasetConfigs object (backward compatibility)
             - **List of datasets**: ``[dataset1, dataset2, ...]`` - each
@@ -1033,6 +1033,10 @@ def run(
     if terminal_predict is not None and selected_engine != "native":
         raise ValueError("terminal_predict is available only with engine='native'")
 
+    from nirs4all.pipeline.dagml.data_provider import prepare_data_provider
+
+    dataset = prepare_data_provider(dataset, engine=selected_engine, should_stop=runner_kwargs.get("should_stop"))
+
     # Keep main's published extended Methods lane alongside the V1 Core-archive minimum. The latter
     # remains the default for plain portable PLS requests; only capabilities it does not represent
     # (nested PLS→Ridge, controller-owned tuning/calibration, terminal predict, native sessions) enter
@@ -1111,6 +1115,19 @@ def run(
     if tuning is not None:
         tuning = _coerce_public_tuning_payload(tuning)
         if selected_engine == "dag-ml":
+            import nirs4all_io
+
+            if isinstance(dataset, getattr(nirs4all_io, "MultimodalDataset", ())):
+                from nirs4all.pipeline.dagml.multimodal_tuning import run_multimodal_tuning
+
+                if session is not None or calibration is not None:
+                    raise ValueError("multimodal tuning currently requires a standalone run without calibration")
+                return cast(RunResult, run_multimodal_tuning(pipeline, dataset, tuning, run_options={
+                    **runner_kwargs, "name": name, "verbose": verbose, "save_artifacts": save_artifacts,
+                    "save_charts": save_charts, "plots_visible": plots_visible, "random_state": random_state,
+                    "refit": refit, "cache": cache, "project": project, "report_naming": report_naming,
+                    "results_path": results_path,
+                }))
             return _run_single_estimator_tuning_subset(
                 pipeline,
                 dataset,

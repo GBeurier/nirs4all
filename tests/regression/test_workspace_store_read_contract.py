@@ -151,12 +151,12 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
     assert contract["workspace_store_schema_version"] == SCHEMA_VERSION == 5
     assert contract["store"] == {
         "metadata_file": "store.sqlite",
-        "open_mode": "sqlite_immutable_read_only",
+        "open_mode": "sqlite_read_only_transaction",
         "compatibility": "exact_schema_version",
         "path_support": "local_filesystem_only",
         "unsupported_paths": ["windows_unc", "windows_device_namespace"],
         "writer_lock_required": False,
-        "must_not_create_wal_or_shm": True,
+        "must_not_create_wal_or_shm": False,
     }
     assert contract["workspace_location"] == {
         "candidate_order": ["normalized_content_directory", "input_path"],
@@ -194,7 +194,7 @@ def test_summary_contract_matches_a_fresh_workspace_store_without_mutating_it(tm
         },
         "store_semantics": {
             "source": "accepted_for_store_parity_but_does_not_switch_away_from_workspace_store",
-            "refresh": "every_native_request_is_an_uncached_immutable_read",
+            "refresh": "every_native_request_uses_a_fresh_transaction_snapshot",
             "limit": 500,
             "offset": 0,
             "ordering": "studio_run_summary",
@@ -384,11 +384,11 @@ def test_run_detail_projection_matches_golden_without_mutating_store(tmp_path: P
     }
     assert projection["json_policy"]["non_finite_numbers"] == "replace_with_null_recursively"
     assert projection["native_read_preconditions"] == {
-        "open_mode": "sqlite_immutable_read_only",
+        "open_mode": "sqlite_read_only_transaction",
         "pragma_user_version": 5,
         "active_sidecars": ["store.sqlite-wal", "store.sqlite-shm", "store.sqlite-journal"],
-        "active_sidecar_policy": "reject_if_any_exists",
-        "database_change_during_read": "reject",
+        "active_sidecar_policy": "read_committed_sqlite_snapshot",
+        "database_change_during_read": "retain_transaction_snapshot",
         "writes_or_cache": "forbidden",
     }
     assert projection["cutover_scope"] == "store_owned_source_projection_not_complete_http_response"
@@ -417,7 +417,7 @@ def test_run_detail_http_contract_assigns_every_composition_owner_and_forbids_cu
             "pipeline_runner_construction": "forbidden",
         },
         "scope": "store_v5_owner_inputs_only",
-        "open_mode": "composed_immutable_reads_guarded_by_before_after_database_stamp",
+        "open_mode": "single_sqlite_read_only_transaction",
         "writes_or_cache": "forbidden",
         "not_found": "null",
     }
@@ -476,7 +476,7 @@ def test_run_detail_http_contract_assigns_every_composition_owner_and_forbids_cu
         "entry_fields": ["pipeline_id", "splitter"],
         "splitter": "splitter_config_output_or_null",
         "materialization": "derived_by_owner_oracle_before_consumer_boundary",
-        "materialization_time": "immutable_owner_read",
+        "materialization_time": "transactional_owner_read",
         "consumer_reimplementation": "forbidden",
         "consumer_expanded_config_access": "forbidden",
     }
@@ -706,24 +706,17 @@ print(json.dumps({
         columns = {row[1] for row in connection.execute("PRAGMA table_info(pipelines)")}
     assert "splitter" not in columns
     assert "splitter_config" not in columns
-    assert not any((workspace / f"store.sqlite{suffix}").exists() for suffix in ("-wal", "-shm", "-journal"))
+    # SQLite may maintain WAL/SHM coordination; source DB bytes were checked above.
+    assert not (workspace / "store.sqlite-journal").exists()
 
 
-def test_run_detail_projection_fails_closed_on_journal_schema_and_json(tmp_path: Path) -> None:
+def test_run_detail_projection_fails_closed_on_schema_and_json(tmp_path: Path) -> None:
     """Unsafe SQLite state and malformed Store-v5 rows never produce partial output."""
     workspace, database = _create_run_detail_workspace(tmp_path)
-    journal = Path(f"{database}-wal")
-    journal.write_bytes(b"active writer sentinel")
-    with pytest.raises(RuntimeError, match="active SQLite journal"):
-        WorkspaceStore.get_studio_run_detail_v1(workspace, "run-detail-001")
-    with pytest.raises(RuntimeError, match="active SQLite journal"):
-        studio_run_detail_http_inputs_v1(workspace, "run-detail-001")
-    journal.unlink()
-
     with sqlite3.connect(database) as connection:
         connection.execute("PRAGMA user_version=4")
         connection.execute("PRAGMA journal_mode=DELETE")
-    with pytest.raises(RuntimeError, match="requires WorkspaceStore schema 5, got 4"):
+    with pytest.raises(RuntimeError, match="requires schema 5, got 4"):
         WorkspaceStore.get_studio_run_detail_v1(workspace, "run-detail-001")
 
     with sqlite3.connect(database) as connection:
@@ -974,3 +967,29 @@ def test_results_summary_contract_freezes_one_metric_and_selection_policy() -> N
         "schema_versions_other_than_5",
         "top_n_values_other_than_5",
     ]
+
+
+def test_run_detail_and_runtime_share_committed_wal_snapshot(tmp_path, monkeypatch):
+    workspace, database = _create_run_detail_workspace(tmp_path)
+    writer = sqlite3.connect(database)
+    writer.execute("PRAGMA journal_mode=WAL")
+    writer.execute("UPDATE runs SET name = 'Committed title' WHERE run_id = 'run-detail-001'")
+    writer.commit()
+    original_read = WorkspaceStore._read_studio_run_detail_v1
+
+    def commit_between_projections(connection, run_id):
+        detail = original_read(connection, run_id)
+        writer.execute("DELETE FROM pipelines")
+        writer.commit()
+        return detail
+
+    monkeypatch.setattr(WorkspaceStore, "_read_studio_run_detail_v1", staticmethod(commit_between_projections))
+    try:
+        result = studio_run_detail_http_inputs_v1(workspace, "run-detail-001")
+        assert result is not None
+        assert result["run_detail"]["name"] == "Committed title"
+        assert len(result["run_detail"]["pipelines"]) == 2
+        assert len(result["pipeline_runtime"]) == 2
+        assert writer.execute("SELECT COUNT(*) FROM pipelines").fetchone()[0] == 0
+    finally:
+        writer.close()

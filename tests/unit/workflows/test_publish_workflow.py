@@ -7,6 +7,7 @@ from typing import Any, cast
 import yaml
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[3] / ".github/workflows/publish.yml"
+WORKFLOWS_DIR = WORKFLOW_PATH.parent
 PYPROJECT_PATH = Path(__file__).resolve().parents[3] / "pyproject.toml"
 
 
@@ -15,11 +16,24 @@ def _load_workflow() -> dict[str, Any]:
     return cast(dict[str, Any], yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
 
 
+def _load_named_workflow(name: str) -> dict[str, Any]:
+    path = WORKFLOWS_DIR / name
+    return cast(dict[str, Any], yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
+
+
 def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> None:
     workflow = _load_workflow()
     assert set(workflow["on"]) == {"release", "workflow_dispatch"}
 
     jobs = workflow["jobs"]
+    test_job = jobs["run-tests"]
+    assert test_job["permissions"] == {"contents": "read", "id-token": "write"}
+    codecov_step = next(
+        step for step in test_job["steps"] if step.get("uses") == "codecov/codecov-action@v7"
+    )
+    assert codecov_step["with"]["use_oidc"] == "true"
+    assert codecov_step["with"]["fail_ci_if_error"] == "true"
+
     verification_steps = [
         step
         for step in jobs["build"]["steps"]
@@ -37,6 +51,21 @@ def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> 
         assert job["if"] == "github.event_name == 'release'"
         needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
         assert "build" in needs
+
+    public_smoke = jobs["post-publish-smoke"]
+    assert public_smoke["if"] == "github.event_name == 'release'"
+    assert public_smoke["needs"] == "publish-pypi"
+    smoke_steps = {step.get("name"): step for step in public_smoke["steps"]}
+    install_script = smoke_steps["Install the exact PyPI release"]["run"]
+    verify_script = smoke_steps["Verify installed metadata, native ABI, and DAG-ML execution"]["run"]
+    assert "--index-url https://pypi.org/simple/" in install_script
+    assert '"nirs4all==${package_version}"' in install_script
+    assert 'version("nirs4all") == expected' in verify_script
+    assert "n4m.abi_version()[:2] == (2, 6)" in verify_script
+    assert 'engine="dag-ml"' in verify_script
+    assert "np.isfinite(result.cv_best_score)" in verify_script
+    assert "python -m pip check" in verify_script
+    assert "pytest" not in install_script + verify_script
 
     metadata_steps = [
         step
@@ -58,11 +87,11 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
 
     dependencies = set(pyproject["project"]["dependencies"])
     assert {
-        "dag-ml>=0.3.25,<0.4",
+        "dag-ml>=0.3.26,<0.4",
         "dag-ml-data>=0.2.11,<0.3",
-        "nirs4all-io>=0.1.18,<0.2",
+        "nirs4all-io>=0.2.0,<0.3",
         "nirs4all-core>=0.3.30,<0.4",
-        "nirs4all-methods>=1.0.18,<2",
+        "nirs4all-methods>=1.0.20,<2",
     } <= dependencies
     assert pyproject["project"]["license"] == "CeCILL-2.1 OR AGPL-3.0-or-later"
     assert set(pyproject["project"]["license-files"]) == {
@@ -71,3 +100,33 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
         "THIRD_PARTY_NOTICES.md",
         "LICENSES/*",
     }
+
+
+def test_github_full_gates_run_once_without_local_v1_dual_qualification() -> None:
+    """CI qualifies all tests/examples once; the exhaustive dual oracle stays local."""
+
+    for workflow_name, test_job in (
+        ("CI.yaml", "tests"),
+        ("pre-publish.yml", "run-tests"),
+        ("publish.yml", "run-tests"),
+        ("shared-test-and-docs.yml", "run-tests"),
+    ):
+        workflow = _load_named_workflow(workflow_name)
+        job = workflow["jobs"][test_job]
+        assert "strategy" not in job
+        serialized = yaml.safe_dump(job)
+        assert "tests/" in serialized
+        assert "--ignore=tests/integration/parity/test_conformance_dual_engine.py" in serialized
+
+        if workflow_name in {"publish.yml", "shared-test-and-docs.yml"}:
+            assert job["permissions"] == {"contents": "read", "id-token": "write"}
+            assert "use_oidc: 'true'" in serialized
+            assert "fail_ci_if_error: 'true'" in serialized
+
+    for workflow_name in ("CI.yaml", "pre-publish.yml", "publish.yml", "examples.yml"):
+        workflow = _load_named_workflow(workflow_name)
+        job_name = "tests" if workflow_name == "CI.yaml" else "verify-examples"
+        job = workflow["jobs"][job_name]
+        assert "strategy" not in job
+        serialized = yaml.safe_dump(job)
+        assert "run_ci_examples.sh -c all -j 2 -k" in serialized

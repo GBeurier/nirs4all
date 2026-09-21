@@ -78,6 +78,10 @@ def _groups_aligned_to_pool(spectro: Any, pool: list[int], groups_all: np.ndarra
 
 def _explicit_groups_for_pool(splitter: Any, spectro: Any, pool: list[int]) -> np.ndarray | None:
     """Resolve explicit ``split``-step groups, aligned to ``pool`` order."""
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    if isinstance(spectro, MultimodalSpectroDataset) and spectro.cohort.groups is not None:
+        return spectro.groups_for_rows(pool)
     if not isinstance(splitter, DagMlSplitStep):
         return None
 
@@ -138,7 +142,9 @@ def _split_pool(splitter: Any, spectro: Any, pool: list[int]) -> list[tuple[Any,
             f"{splitter.__class__.__name__} requires a group (backlog #21)."
         )
 
-    features = _pool_features(spectro, pool)
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    features = spectro.split_features(splitter, pool) if isinstance(spectro, MultimodalSpectroDataset) else _pool_features(spectro, pool)
     needs_y, _ = _needs(splitter)
     kwargs: dict[str, Any] = {}
     op = splitter
@@ -279,8 +285,19 @@ def _build_folds(splitter: Any, spectro: Any, pool: list[int], excluded: set[int
     authoritative for what the node trains on). The envelope still marks them ``excluded`` for lineage.
     """
     if isinstance(splitter, FrozenDagMlSplitStep):
-        return splitter.materialized_folds(pool, excluded)
-    return [
-        ([pool[i] for i in train_idx if pool[i] not in excluded], [pool[i] for i in val_idx])
-        for train_idx, val_idx in _split_pool(splitter, spectro, pool)
-    ]
+        folds = splitter.materialized_folds(pool, excluded)
+    else:
+        folds = [
+            ([pool[i] for i in train_idx if pool[i] not in excluded], [pool[i] for i in val_idx])
+            for train_idx, val_idx in _split_pool(splitter, spectro, pool)
+        ]
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    if isinstance(spectro, MultimodalSpectroDataset) and spectro.is_classification:
+        validation_samples = [sample for _, validation in folds for sample in validation]
+        if len(validation_samples) != len(set(validation_samples)):
+            raise ValueError(
+                "multimodal classification requires non-overlapping validation folds; "
+                "repeated validation would average encoded class labels"
+            )
+    return folds
