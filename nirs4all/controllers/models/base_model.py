@@ -941,6 +941,15 @@ class BaseModelController(OperatorController, ABC):
 
         self.dataset = dataset
 
+        constraint_hook = getattr(self, "_constrain_finetune_params", None)
+        if callable(constraint_hook):
+            finetune_params = constraint_hook(
+                dataset,
+                model_config,
+                X_train,
+                finetune_params,
+            )
+
         # Engine selection: the native libn4m optimizer runs the same DSL as Optuna
         # but is portable across bindings. Optuna stays the default. An unknown value
         # is rejected (a typo must not silently fall back to a different optimizer).
@@ -1051,7 +1060,7 @@ class BaseModelController(OperatorController, ABC):
             self._train_single_model(
                 dataset, model_config, context, runtime_context, prediction_store,
                 X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled,
-                loaded_binaries, mode, test_sample_ids, binaries
+                best_params, loaded_binaries, mode, test_sample_ids, binaries
             )
 
         return binaries
@@ -1228,7 +1237,7 @@ class BaseModelController(OperatorController, ABC):
     def _train_single_model(
         self, dataset, model_config, context, runtime_context, prediction_store,
         X_train, y_train, X_test, y_test, y_train_unscaled, y_test_unscaled,
-        loaded_binaries, mode, test_sample_ids, binaries
+        best_params, loaded_binaries, mode, test_sample_ids, binaries
     ):
         """No-folds training path of train(): use the test set as validation.
 
@@ -1243,6 +1252,7 @@ class BaseModelController(OperatorController, ABC):
             dataset, model_config, context, runtime_context, prediction_store,
             X_train, y_train, X_test, y_test, X_test,
             y_train_unscaled, y_test_unscaled, y_test_unscaled,
+            best_params=best_params,
             loaded_binaries=loaded_binaries, mode=mode,
             test_sample_ids=test_sample_ids
         )
