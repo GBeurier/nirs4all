@@ -197,6 +197,77 @@ jobs:
       - name: Upload to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
 
+  # Verify the exact public artifact in a clean environment. The full suite has
+  # already run once above; this gate catches packaging, dependency-resolution,
+  # and publication mistakes without repeating it.
+  post-publish-smoke:
+    needs: publish-pypi
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.11'
+
+      - name: Install the exact PyPI release
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          package_version="${RELEASE_TAG#v}"
+          package_version="${package_version//-rc./rc}"
+          python -m pip install --upgrade pip
+          for attempt in 1 2 3 4 5 6; do
+            if python -m pip install --no-cache-dir \
+              --index-url https://pypi.org/simple/ "nirs4all==${package_version}"; then
+              break
+            fi
+            if [ "${attempt}" -eq 6 ]; then
+              echo "::error::PyPI did not serve nirs4all==${package_version} after 6 attempts"
+              exit 1
+            fi
+            sleep 10
+          done
+
+      - name: Verify installed metadata, native ABI, and DAG-ML execution
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import os
+          from importlib.metadata import version
+
+          import numpy as np
+          import nirs4all
+          import n4m
+          from sklearn.linear_model import Ridge
+          from sklearn.model_selection import KFold
+
+          expected = os.environ["RELEASE_TAG"].removeprefix("v").replace("-rc.", "rc")
+          assert version("nirs4all") == expected
+          assert nirs4all.__version__ == expected
+          assert n4m.abi_version()[:2] == (2, 6)
+
+          rng = np.random.default_rng(42)
+          X = rng.normal(size=(30, 8))
+          y = X[:, 0] * 1.2 - X[:, 1] * 0.4 + rng.normal(scale=0.05, size=30)
+          with nirs4all.run(
+              [KFold(3), Ridge(alpha=1.0)],
+              (X, y),
+              engine="dag-ml",
+              verbose=0,
+              save_artifacts=False,
+              save_charts=False,
+          ) as result:
+              assert result.execution_engine == "dag-ml"
+              assert np.isfinite(result.cv_best_score)
+          print(f"verified public nirs4all {expected}")
+          PY
+          python -m pip check
+
   # Build and push Docker image to GHCR after the release tag/version check.
   publish-docker:
     needs: [run-tests, build]
