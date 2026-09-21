@@ -90,6 +90,7 @@ def run_demo(output: Path, *, fusion: str = "early", resume: bool = False, stop_
     except MultimodalTuningStopped as stopped:
         return {"status": "cancelled", "completed_trials": len(stopped.evidence["checkpoint"]["trials"]), "resume": True}
     try:
+        assert result.execution_engine == "dag-ml", "This multimodal example requires the DAG-ML backend"
         captured = result._dagml_refit_artifacts[0]["estimator"]
         expected = captured.predict(
             [new_dataset.sources[name].values for name in captured.source_names],
@@ -102,7 +103,10 @@ def run_demo(output: Path, *, fusion: str = "early", resume: bool = False, stop_
                     if hasattr(estimator, method):
                         guards.enter_context(patch.object(estimator, method, side_effect=AssertionError("Replay attempted to fit")))
             replay = nirs4all.predict(archive, MultimodalDataset.from_dict(json.loads((output / "prediction_dataset.json").read_text())))
-        np.testing.assert_array_equal(replay.y_pred, expected)
+        # Archive replay can present the same captured estimator with a
+        # different contiguous layout to platform BLAS. Bound last-bit noise;
+        # the fit guards above still prove that replay did not retrain.
+        np.testing.assert_allclose(replay.y_pred, expected, rtol=2e-6, atol=2e-6)
         assert replay.y_pred.shape == (len(new_dataset), 2)
         assert replay.metadata["training_performed"] is False
         assert replay.metadata["scores"] is None
