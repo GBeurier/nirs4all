@@ -44,6 +44,21 @@ def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> 
         needs = job["needs"] if isinstance(job["needs"], list) else [job["needs"]]
         assert "build" in needs
 
+    public_smoke = jobs["post-publish-smoke"]
+    assert public_smoke["if"] == "github.event_name == 'release'"
+    assert public_smoke["needs"] == "publish-pypi"
+    smoke_steps = {step.get("name"): step for step in public_smoke["steps"]}
+    install_script = smoke_steps["Install the exact PyPI release"]["run"]
+    verify_script = smoke_steps["Verify installed metadata, native ABI, and DAG-ML execution"]["run"]
+    assert "--index-url https://pypi.org/simple/" in install_script
+    assert '"nirs4all==${package_version}"' in install_script
+    assert 'version("nirs4all") == expected' in verify_script
+    assert "n4m.abi_version()[:2] == (2, 6)" in verify_script
+    assert 'engine="dag-ml"' in verify_script
+    assert "np.isfinite(result.cv_best_score)" in verify_script
+    assert "python -m pip check" in verify_script
+    assert "pytest" not in install_script + verify_script
+
     metadata_steps = [
         step
         for step in jobs["publish-docker"]["steps"]
