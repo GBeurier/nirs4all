@@ -79,6 +79,25 @@ class TestDatasetWavelengthConversion:
         expected = np.array([780.0, 1000.0, 2500.0])
         np.testing.assert_array_almost_equal(wavelengths, expected, decimal=1)
 
+    @pytest.mark.parametrize(
+        ("unit", "conversion"),
+        [
+            ("cm-1", "wavelengths_nm"),
+            ("cm-1", "wavelengths_cm1"),
+            ("nm", "wavelengths_cm1"),
+            ("nm", "wavelengths_nm"),
+        ],
+    )
+    @pytest.mark.parametrize("invalid_value", ["0", "-1"])
+    def test_spectral_headers_must_be_strictly_positive(self, unit, conversion, invalid_value):
+        """Zero and negative spectral coordinates must fail instead of producing infinities."""
+        dataset = SpectroDataset(name="test")
+        dataset.add_samples(np.random.rand(2, 2), headers=[invalid_value, "1000"])
+        dataset._features.sources[0].set_headers([invalid_value, "1000"], unit=unit)
+
+        with pytest.raises(ValueError, match="must be strictly positive"):
+            getattr(dataset, conversion)(0)
+
     def test_conversion_accuracy(self):
         """Test conversion math accuracy for known values"""
         dataset = SpectroDataset(name="test")
