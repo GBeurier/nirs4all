@@ -192,7 +192,11 @@ print(f"Predictions: {y_pred}")
 
 ### Direct BundleLoader Usage
 
-For advanced use cases, load bundles directly with `BundleLoader`:
+`BundleLoader` is the deprecated direct-Python replay API for historical
+legacy `.n4a` bundles. New applications should use `nirs4all.predict()`, which
+routes DAG-ML/Core archives through their native replay path; those backends do
+not execute `BundleLoader`. For compatibility tooling that explicitly needs the
+legacy lane:
 
 ```python
 from nirs4all.pipeline.bundle import BundleLoader

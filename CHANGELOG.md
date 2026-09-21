@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- Routed fitted PyTorch, TensorFlow, JAX, and other registered model artifacts
+  through their framework controllers when replaying deprecated legacy Python
+  `.n4a` bundles, including refit, CV, single-model, and stacking paths. DAG-ML
+  and Core archive replay are unaffected because they do not use `BundleLoader`.
+
 ---
 
 ## [1.1.0] — 2026-09-21
