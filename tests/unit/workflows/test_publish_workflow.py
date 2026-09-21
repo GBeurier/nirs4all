@@ -26,6 +26,14 @@ def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> 
     assert set(workflow["on"]) == {"release", "workflow_dispatch"}
 
     jobs = workflow["jobs"]
+    test_job = jobs["run-tests"]
+    assert test_job["permissions"] == {"contents": "read", "id-token": "write"}
+    codecov_step = next(
+        step for step in test_job["steps"] if step.get("uses") == "codecov/codecov-action@v7"
+    )
+    assert codecov_step["with"]["use_oidc"] == "true"
+    assert codecov_step["with"]["fail_ci_if_error"] == "true"
+
     verification_steps = [
         step
         for step in jobs["build"]["steps"]
@@ -109,6 +117,11 @@ def test_github_full_gates_run_once_without_local_v1_dual_qualification() -> Non
         serialized = yaml.safe_dump(job)
         assert "tests/" in serialized
         assert "--ignore=tests/integration/parity/test_conformance_dual_engine.py" in serialized
+
+        if workflow_name in {"publish.yml", "shared-test-and-docs.yml"}:
+            assert job["permissions"] == {"contents": "read", "id-token": "write"}
+            assert "use_oidc: 'true'" in serialized
+            assert "fail_ci_if_error: 'true'" in serialized
 
     for workflow_name in ("CI.yaml", "pre-publish.yml", "publish.yml", "examples.yml"):
         workflow = _load_named_workflow(workflow_name)
