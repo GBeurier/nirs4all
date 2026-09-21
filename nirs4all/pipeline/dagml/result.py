@@ -1,49 +1,14 @@
-"""Map a dag-ml ScoreSet into a nirs4all ``RunResult`` for the dag-ml backend.
+"""Project native DAG-ML score evidence into ``RunResult``.
 
-dag-ml computes per-fold validation / cross-fold OOF / final-test scores natively (in Rust); this
-turns its ``bundle.scores`` into an in-memory :class:`~nirs4all.data.predictions.Predictions`
-wrapped in a :class:`~nirs4all.api.result.RunResult`.
+Each public row represents an actually scored native partition: validation for
+individual folds and the sample-averaged OOF aggregate, and train/test for the
+refitted model. Missing fold train/test or weighted-ensemble reports are absent;
+validation scores must never stand in for training measurements.
 
-The native ScoreSet is deliberately COMPACT — one report per ``(partition, fold_id)``: the per-fold
-``(validation, foldN)`` OOF scores, the cross-fold ``(validation, avg)`` OOF average, and the refit
-``(final, None)`` / ``(test, None)`` train/test scores. The legacy nirs4all ``Predictions`` table the
-0.9.x webapp consumes is WIDER: per fold it stores a ``train``/``val``/``test`` row, it carries BOTH a
-fold-ensemble ``avg`` and a weighted-average ``w_avg`` block (each train/val/test), and a refit
-``final`` block (train + test). For a KFold(3) run that is 3·3 + 3 + 3 + 2 = 17 entries vs the native
-2 this module used to surface.
-
-:func:`_scores_to_run_result` therefore emits the FULL legacy table as a **labeled compatibility
-PROJECTION** over the native reports — not a hardcoded count. Each emitted row carries an explicit
-ROLE (``fold_id`` ∈ {a fold key, ``"avg"``, ``"w_avg"``, ``"final"``} × ``partition`` ∈
-{train, val, test} + ``refit_context``), so it generalizes by row-role to ``n_folds`` (per-fold rows
-scale with the native validation folds), single-split CV (no native ``avg`` ⇒ no avg/w_avg block, the
-legacy KennardStone/SPXY = 5-row shape), classification (the native metric block already carries
-``accuracy``), repeated-CV / multi-target (more validation-fold reports / wider metric blocks flow
-through unchanged), and a missing-test partition (no native ``(test, None)`` ⇒ no test rows, the final
-block degrades to train-only).
-
-Native reports only score the partition each role natively owns (validation per fold, train/test for
-the refit). Each emitted row carries a full ``scores`` dict whose partitions are FILLED so the
-``Predictions`` ranking (``get_best`` / ``top`` / ``score_scope``) resolves the SAME entries as legacy
-and every partition-keyed accessor reads a true native value:
-
-* the ``val`` (and ``train``) keys carry the role's OWN block — a fold's OOF for a fold row, the
-  cross-fold OOF average for an ``avg`` / ``w_avg`` / ``final`` row — so ranking on ``val`` selects the
-  best-val fold / the ensemble exactly as legacy does;
-* the ``test`` key carries THAT VARIANT's OWN held-out ``(test, None)`` block (looked up by its
-  ``variant_id``), never another variant's. A single pipeline / the selected winner carries the held-out
-  test scored at refit (or the reassembled-merge test); in a generator SWEEP each variant carries its own
-  held-out test — operator-expanded variants ran fully so they have a real one, while a NATIVE loser that
-  never refit gets a NULL test (the row is still emitted for count parity). Each row's ``test`` key holds
-  that row's own native test, so ``top`` / ``get_best`` / ``score_scope`` rank the full per-variant table
-  correctly; the partition-keyed scalar shortcuts ``best_rmse`` / ``best_r2`` / ``best_accuracy`` all read
-  the SELECTED model's test metric via :meth:`RunResult._selected_metric` — the same model ``best_score``
-  describes — so the four scalars stay mutually consistent.
-
-``cv_best_score`` stays the native cross-fold OOF average (the winner ``avg`` row's ``val`` score), preserved
-exactly; ``best`` / ``best_final`` resolve to the refit ``final`` through the refit-only
-``score_scope="refit"`` ranking (winner-only). A merge producer (separation / fusion / stacking) emits no
-refit-train report, so it has no ``final`` row — its ``test`` block is the reassembled merge test.
+Refit rows retain their originating CV score for model selection, with explicit
+provenance in ``result_metadata.dagml_projection.score_provenance``. That score
+is selection evidence from cross-validation, not a validation measurement of
+the refitted model. Native reports and predictions remain authoritative.
 """
 
 from __future__ import annotations
@@ -59,7 +24,7 @@ from nirs4all.data.predictions import Predictions
 if TYPE_CHECKING:
     from .identity import IdentityMap
 
-# The three CV partitions every fold-grain / ensemble role stores in the legacy table.
+# Public partition names in the Predictions schema.
 _CV_PARTITIONS = ("train", "val", "test")
 
 # Sentinel distinguishing "no refit report at all" (a merge producer never refits) from a refit report
@@ -309,72 +274,23 @@ def _scores_to_run_result(
     config_name: str = "",
     variant_config_names: dict[Any, str] | None = None,
     variant_model_names: dict[Any, str] | None = None,
-    skip_refit: bool = False,
     results: list[dict[str, Any]] | None = None,
     results_by_variant: dict[Any, list[dict[str, Any]]] | None = None,
     identity: IdentityMap | None = None,
     refit_artifacts: list[dict[str, Any]] | None = None,
     report_fold_ids: set[str] | None = None,
 ) -> RunResult:
-    """Project a dag-ml ScoreSet into the full legacy ``Predictions`` table (a labeled compat projection).
+    """Project each variant's actual native reports without inventing partitions.
 
-    ``producer`` filters to one ``producer_node`` — e.g. a separation/duplication/stacking merge node,
-    whose reports carry the full-universe OOF average (``cv_best_score``) and — since dag-ml routes the
-    base branches' REFIT-test predictions to the merge node (``reassemble_branch_merge_off_fold`` for
-    concat/fusion; the ``:refit`` off-fold input for stacking) — a reassembled ``(test, fold_id=None)``
-    block (``best_rmse``); ``None`` keeps all reports (the single-model path, where exactly one producer
-    scores).
+    ``producer`` and ``report_fold_ids`` select reports for the requested model
+    view. Per-fold validation, the native OOF average and winner refit reports
+    retain their native identities and metrics. ``results`` or
+    ``results_by_variant`` provide the matching sample arrays when available.
 
-    PER-VARIANT projection (#55). Since dag-ml native generation surfaces EVERY variant's validation
-    reports (each stamped with a distinct ``variant_id``; the winner's are re-tagged ``None`` on the
-    cross-fold ``avg`` and carry the winner's id on the per-fold rows + the refit ``(final/test, None)``),
-    this groups by ``(variant_id, partition, fold_id)`` and emits the legacy 15-row CV block (per-fold
-    {train,val[,test]} + avg + w_avg) FOR EACH variant — so a generator sweep's ``num_predictions``
-    matches legacy (N·15 + 2). Only the WINNER (the variant owning the refit ``(final, None)``; the only
-    variant dag-ml refits) additionally gets the ``(final,train)`` + ``(final,test)`` standalone-refit
-    rows. A single (non-sweep) pipeline has exactly ONE CV variant (``variant:base``) and its output is
-    byte-identical to the pre-#55 winner-only projection.
-
-    ``config_name`` is the CANONICAL legacy config name already DERIVED upstream
-    (:func:`~nirs4all.pipeline.dagml.run_backend._derive_config_name` via ``PipelineConfigs``):
-    ``"config_{hash}"`` for an unnamed run, ``"{name}_p0_{hash}"`` for a named one, or ``""`` for a
-    generator pipeline. For a SWEEP, ``variant_config_names`` / ``variant_model_names`` map each CV
-    variant's fold-level ``variant_id`` → its legacy ``config_name`` / ``model_name``, so a variant is
-    labeled by its OWN identity (NOT its loop / iteration position) — the WINNER (the variant owning the
-    refit ``(final, None)``) is looked up by its own id and gets the ``"_refit"`` suffix on its refit
-    rows. The caller builds the maps from the SAME ``PipelineConfigs`` mechanism legacy uses, so a sweep
-    carries the legacy config names AND model names with a legacy-correct winner label. A variant absent
-    from the map falls back to the scalar ``config_name`` / ``model_name``. A single pipeline (no maps)
-    applies ``config_name`` / ``model_name`` verbatim, byte-identical to legacy.
-
-    The emitted rows are keyed on ROLE (see the module docstring), so the projection adapts to the
-    pipeline shape rather than hardcoding a count: ``n_folds`` per-fold rows, an ``avg``/``w_avg``
-    ensemble block only when dag-ml concatenated multiple folds, and a refit ``final`` block whose
-    partitions follow the native refit reports. The ``test`` partition is emitted on EVERY role only
-    when the run has a held-out test partition (a native ``(test, None)`` report) — a no-test dataset
-    drops every ``test`` row, the legacy train+val-only shape.
-
-    ``skip_refit`` REPLICATES the legacy refit gate (see
-    :func:`~nirs4all.pipeline.dagml.steps._legacy_skips_refit`): when the pipeline's splitter serializes
-    to a bare class string (all-default params), legacy's ``execute_simple_refit`` does not recognize it
-    and SKIPS the refit, emitting NO ``(final, train)`` / ``(final, test)`` rows (e.g. ``KFold(n_splits=5)``
-    → 21 rows, not 23). dag-ml's native bundle ALWAYS refits, so when ``skip_refit`` is set we suppress
-    JUST the standalone-refit ``final`` rows from the projection (the per-fold / avg / w_avg test rows are
-    unaffected — those come from the dataset's own held-out test partition, which legacy still scores).
-    ``cv_best_score`` (the OOF avg) is unchanged; with no ``final`` row, ``best`` / ``best_score`` (and the
-    ``best_rmse`` / ``best_r2`` / ``best_accuracy`` shortcuts, which all read the selected entry via
-    :meth:`RunResult._selected_metric`) fall back to ``cv_best`` exactly as legacy does with no refit.
-
-    ``results`` / ``results_by_variant`` (+ ``identity``) FILL the per-sample y_pred/y_true/sample_indices
-    on the strict direct-block rows (2a-i single pipeline / 2a-ii operator sweep). Both resolve to a
-    PER-VARIANT block index ``{variant_id: {(partition, fold_id): (PredictionBlock, y_true_block)}}``,
-    keyed by the SAME synthetic ``variant_id`` the reports carry — so a row's arrays come from THAT
-    variant's OWN PredictionBlocks (NO cross-variant y_pred leakage). The SINGLE-pipeline path passes
-    ``results`` (its sole CV variant's frames), mapped under ``"variant:base"`` (the variant_id its
-    reports carry). An operator SWEEP passes ``results_by_variant`` — each variant's own frames under the
-    tag :func:`_project_operator_sweep` re-stamped its reports with (winner ``"variant:base"``, losers
-    ``"variant:v{index}"``). Every other call site passes neither → an empty index → score-only (empty
-    arrays) unchanged.
+    Overlapping validation folds use DAG-ML's sample-level OOF aggregation:
+    average each physical sample's predictions first, then score unique samples.
+    This differs from legacy's concatenation, which weights repeated samples
+    multiple times. No weighted-average report is synthesized.
     """
     reports = [
         report for report in (scores or {}).get("reports", [])
@@ -444,27 +360,9 @@ def _scores_to_run_result(
         row_model_name: str,
         refit_context: str | None = None,
         arrays: tuple[list[int], list[str], np.ndarray, np.ndarray] | None = None,
+        score_provenance: dict[str, Any] | None = None,
     ) -> None:
-        """Emit one legacy row for a (role, partition) with its full train/val/test ``scores`` dict.
-
-        ``partition_blocks`` maps each of train/val/test to its native metric block (``None`` skips that
-        partition key). The legacy scalar ``{val,test,train}_score`` fields mirror the matching block's
-        ``metric`` value so the partition-keyed accessors resolve them. The native blocks are shared
-        verbatim — no metric is perturbed — so every reported value (and every accessor that reads it)
-        is the true native score.
-
-        ``arrays`` (``(sample_indices, sample_ids, y_true, y_pred)``) FILLS the per-sample prediction buffer for the
-        strict direct-block rows (2a-i): the per-fold ``val`` rows, the refit ``(final, train)`` row, and
-        the refit ``(final, test)`` row; the ``avg``/``w_avg`` validation rows carry the native OOF average
-        (2a-iii item A). It is ``None`` (empty arrays, score-only) for the per-fold train rows and any
-        not-yet-wired path, so ``num_predictions`` is unchanged either way (row-count based) and the scores
-        still come from ``scores["reports"]``, never recomputed from the arrays.
-
-        ``row_config_name`` is the variant's config name (already ``"_refit"``-suffixed by the caller for
-        the standalone-refit rows, matching legacy ``"{cv_config_name}_refit"`` — see
-        ``execution.refit.executor``); ``row_model_name`` is the variant's model label (a multi-MODEL
-        sweep carries a different model per variant — the winner's final/best rows must show ITS model).
-        """
+        """Emit a row with only supported partition scores and their provenance."""
         score_dict: dict[str, dict[str, float]] = {}
         kwargs: dict[str, Any] = {}
         for part in _CV_PARTITIONS:
@@ -498,6 +396,8 @@ def _scores_to_run_result(
                 "variant_id": variant_id,
                 "producer_node": producer,
                 "role": "refit" if refit_context == "standalone" else "crossval",
+                "score_provenance": score_provenance or {},
+                "unavailable_partitions": [part for part in _CV_PARTITIONS if partition_blocks.get(part) is None],
             }},
             **kwargs,
         )
@@ -537,13 +437,6 @@ def _scores_to_run_result(
     # variant with a `(final, None)` / `(test, None)` report in a native sweep. (In an operator sweep each
     # variant ran fully and HAS its own test report, kept and re-tagged by `_project_operator_sweep`.)
     final_variant_id = next((variant_id for (variant_id, partition, fold_id) in by_key if partition == "final" and fold_id is None), _MISSING)
-
-    # Whether the RUN has a held-out test partition at all — true when ANY variant reported a `(test,
-    # None)` block. This decides whether test ROWS are emitted per role (count parity); a variant WITHOUT
-    # its own test block still emits the test rows but with a NULL test score (it never borrows another
-    # variant's). A no-test dataset drops every test row (the legacy train+val shape).
-    run_has_test = any(partition == "test" and fold_id is None for (variant_id, partition, fold_id) in by_key)
-    cv_partitions = _CV_PARTITIONS if run_has_test else ("train", "val")
 
     # Order the CV variants WINNER-first (the variant owning the refit `(final, None)`; its cross-fold
     # avg is normally the native `None`-tagged row), then the losers in the order dag-ml emitted them. A
@@ -587,84 +480,65 @@ def _scores_to_run_result(
         # LOSER's avg carries its own variant_id. The portable Methods controller retains `variant:base`
         # for its sole producer instead of rewriting it to `None`, so we accept that exact fallback only
         # when there is no `None` row. A single-fold splitter (KennardStone/SPXY, n_splits=1) emits NO
-        # "avg" — just the one validation fold — so there is no ensemble block (the legacy 5-row
-        # single-split shape) and the lone fold's OOF is the CV score.
+        # "avg" — just one validation fold, whose OOF is the CV selection score.
         avg_variant_id = None if (is_winner or len(cv_variant_ids) == 1) else variant_id
         avg = by_key.get((avg_variant_id, "validation", "avg"))
         if avg is None and avg_variant_id is None:
             avg = by_key.get((variant_id, "validation", "avg"))
+            if avg is not None:
+                avg_variant_id = variant_id
         has_avg = avg is not None
         if avg is None and len(fold_keys) == 1:
             avg = by_key[(variant_id, "validation", fold_keys[0])]
 
-        # THIS variant's OWN held-out test + refit-train blocks (never another variant's). The winner /
-        # sole producer has both; a native sweep LOSER never refits/tests, so both are None → its test &
-        # ensemble-train rows carry a NULL score (the row is still emitted for count parity). An operator
-        # sweep LOSER kept its own `(test, None)` / `(final, None)` reports (re-tagged by
-        # `_project_operator_sweep`), so it carries its REAL test value.
+        # Refit evidence belongs to its native variant. A variant without a
+        # refit report has no final train/test measurements to expose.
         variant_test = by_key.get((variant_id, "test", None))
         variant_final_train = by_key.get((variant_id, "final", None))
         is_final_owner = is_winner or len(cv_variant_ids) == 1
 
-        # --- Per-fold rows: (foldN, {train, val[, test]}). dag-ml scores only VALIDATION per fold, so the
-        #     fold's own OOF block sits under train+val; the `test` key carries THIS variant's own held-out
-        #     `(test, None)` block (None for a native loser → null test score, never the winner's). The
-        #     native `foldN` id is normalized to the legacy integer-string `N` the webapp /
-        #     PredictionAggregator key on. ---
+        # A fold owns validation evidence only. Refit metrics describe a
+        # different fitted estimator and cannot be attached to a CV fold.
         for fold_id in fold_keys:
             fold_block = by_key[(variant_id, "validation", fold_id)]
-            fold_blocks: dict[str, dict[str, float] | None] = {"train": fold_block, "val": fold_block, "test": variant_test}
-            # STRICT 2a-i/ii: fill ONLY the `val` row with THIS variant's real per-fold OOF arrays (its
-            # own `(validation, foldN)` PredictionBlock + paired y_true — keyed by `variant_id`, so a
-            # variant's row never borrows another's). The `train` (and any `test`) fold row stays
-            # score-only — dag-ml emits no fold-train block. `_row_arrays` is `None` for a variant with no
-            # threaded frames (no `results`/`results_by_variant`, or a native loser), so those rows stay
-            # score-only.
-            for partition in cv_partitions:
-                arrays = _row_arrays(variant_id, "validation", fold_id) if partition == "val" else None
-                add(_legacy_fold_id(fold_id), partition, fold_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name, arrays=arrays)
+            add(
+                _legacy_fold_id(fold_id), "val", {"val": fold_block},
+                row_config_name=variant_config_name, row_model_name=variant_model_name,
+                arrays=_row_arrays(variant_id, "validation", fold_id),
+                score_provenance={"val": {"partition": "validation", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}},
+            )
 
-        # --- Ensemble rows: avg + w_avg, each over {train, val[, test]}. Emitted only when dag-ml produced
-        #     an OOF average over multiple folds (the legacy avg/w_avg blocks). val carries THIS variant's
-        #     true OOF average; train carries THIS variant's own refit-train (winner / sole producer) else
-        #     its own avg (a loser has no refit, so the ensemble-train proxy is its own OOF average, NOT the
-        #     winner's final-train); test carries THIS variant's own held-out test (None → null for a native
-        #     loser). Matching legacy, where avg.val == w_avg.val == cv_best_score. ---
         if has_avg and avg is not None:
-            ensemble_blocks: dict[str, dict[str, float] | None] = {"train": variant_final_train or avg, "val": avg, "test": variant_test}
-            # STRICT 2a-iii (A2): FILL the avg + w_avg `val` rows with THIS variant's per-sample OOF
-            # cross-fold AVERAGE arrays — dag-ml surfaces the `(validation, avg)` SAMPLE-level
-            # AggregatedPredictionBlock + id-matched y_true; `_row_arrays` reads it under the `(validation,
-            # avg)` key (keyed by `variant_id`, so a variant's row never borrows another's). Legacy's avg
-            # and w_avg carry the SAME OOF average per sample, so both `val` rows read the same block. The
-            # `train`/`test` ensemble rows stay score-only (no fold-train/ensemble-test block emitted), and
-            # `num_predictions`/scores are unchanged — only the previously-empty avg/w_avg val arrays fill.
-            avg_arrays = _row_arrays(variant_id, "validation", "avg")
-            for fold_id in ("avg", "w_avg"):
-                for partition in cv_partitions:
-                    arrays = avg_arrays if partition == "val" else None
-                    add(fold_id, partition, ensemble_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name, arrays=arrays)
+            add(
+                "avg", "val", {"val": avg},
+                row_config_name=variant_config_name, row_model_name=variant_model_name,
+                arrays=_row_arrays(variant_id, "validation", "avg"),
+                score_provenance={"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}},
+            )
 
-        # --- Refit final rows: (final, train) + (final, test), refit_context="standalone". Emitted only
-        #     for the FINAL OWNER — the sweep WINNER (the one variant dag-ml refits), or the sole producer
-        #     (a single concrete pipeline / a merge node) when there is just one variant. A sweep LOSER
-        #     never refits, so it gets no final block. Each row carries THIS variant's refit train/test
-        #     blocks plus its OOF average under val (so it ranks on the same CV axis as the avg).
-        #     `best`/`best_final` resolve to a final via score_scope="refit" (refit-only ranking). Degrades
-        #     to train-only with no test, or (a merge node, no refit-train report) to test-only. The
-        #     `_refit` suffix is skipped for an empty config name. SUPPRESSED entirely when `skip_refit` is
-        #     set — the legacy gate did not refit (bare-string splitter), so NO `(final, *)` rows. ---
-        if is_final_owner and not skip_refit:
+        # Preserve CV as selection evidence for REFIT ranking, explicitly
+        # distinguished from measurements of the refitted estimator.
+        if is_final_owner:
             refit_config_name = variant_config_name + "_refit" if variant_config_name else variant_config_name
             final_blocks: dict[str, dict[str, float] | None] = {"train": variant_final_train, "val": avg, "test": variant_test}
+            final_provenance = {
+                part: {"partition": native_part, "fold_id": None, "variant_id": variant_id, "purpose": "measurement"}
+                for part, native_part in (("train", "final"), ("test", "test"))
+                if final_blocks[part] is not None
+            }
+            if avg is not None:
+                final_provenance["val"] = {
+                    "partition": "validation", "fold_id": "avg" if has_avg else fold_keys[0],
+                    "variant_id": avg_variant_id if has_avg else variant_id, "purpose": "model_selection",
+                }
             # STRICT 2a-i/ii: the standalone-refit `(final, train)` row is filled from the WINNER's own
             # refit `(final, None)` PredictionBlock (refit predicting its own full train), and the
             # `(final, test)` row from its refit `(test, None)` PredictionBlock (the held-out test) — keyed
             # by `variant_id` (= the winner here), so the refit rows carry the winning variant's own values.
             if variant_final_train is not None:
-                add("final", "train", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays(variant_id, "final", None))
+                add("final", "train", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays(variant_id, "final", None), score_provenance=final_provenance)
             if variant_test is not None:
-                add("final", "test", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays(variant_id, "test", None))
+                add("final", "test", final_blocks, row_config_name=refit_config_name, row_model_name=variant_model_name, refit_context="standalone", arrays=_row_arrays(variant_id, "test", None), score_provenance=final_provenance)
 
     predictions.flush()
     run_result = RunResult(predictions=predictions, per_dataset={dataset_name: {"engine": "dag-ml"}})
@@ -709,7 +583,7 @@ def _variant_cv_score(scores: dict[str, Any], metric: str) -> float:
 
 
 def _project_operator_sweep(
-    variant_scores: list[tuple[dict[str, Any], str, bool]],
+    variant_scores: list[tuple[dict[str, Any], str]],
     dataset_name: str,
     metric: str,
     task_type: str,
@@ -750,8 +624,8 @@ def _project_operator_sweep(
     persistence — the projection refits + describes the winner, so the losers' refit models are not
     surfaced. ``None`` (rep-fusion sweep) → no artifacts persisted.
     """
-    scores_by_variant = [scores for scores, _, _ in variant_scores]
-    model_names = [name for _, name, _ in variant_scores]
+    scores_by_variant = [scores for scores, _ in variant_scores]
+    model_names = [name for _, name in variant_scores]
     cv_scores = [_variant_cv_score(scores, metric) for scores in scores_by_variant]
     maximize = is_higher_better(metric)
 
@@ -762,11 +636,6 @@ def _project_operator_sweep(
         return -score if maximize else score
 
     winner_index = min(range(len(scores_by_variant)), key=_rank)
-    # The legacy refit gate is the WINNER's, not `any`: a splitter GENERATOR (e.g.
-    # ``{"_or_": [KFold(n_splits=5), KFold(n_splits=3)]}``) yields per-variant gates — the all-default
-    # variant serializes to a bare string (legacy skips its refit) while the non-default one refits — so
-    # ONLY the selected variant's gate decides whether the standalone ``(final, *)`` rows are emitted.
-    skip_refit = variant_scores[winner_index][2]
     # Winner first, then the losers in expand order — the projection iterates / labels by variant_id, so
     # the order here only sets which reports lead, not the labels.
     ordered_indices = [winner_index] + [index for index in range(len(scores_by_variant)) if index != winner_index]
@@ -815,7 +684,6 @@ def _project_operator_sweep(
         task_type,
         variant_config_names=variant_config_map or None,
         variant_model_names=variant_model_map,
-        skip_refit=skip_refit,
         results_by_variant=results_by_variant or None,
         identity=identity,
         # Persist ONLY the WINNER's fitted REFIT estimators (the variant the projection refits + describes).

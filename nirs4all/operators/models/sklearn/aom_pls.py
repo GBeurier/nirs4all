@@ -1,31 +1,14 @@
-"""AOM-PLS public entry point for `nirs4all`.
-
-Re-exports the canonical implementation from
-``nirs4all.operators.models._aom_nirs.pls`` (vendored copy of the
-``aom-nirs`` package; once ``aom-nirs`` is on PyPI this file will
-switch to ``from aom_nirs.pls import ...``).
-
-History
--------
-The pre-migration pure-Python implementation (with ``gate='sparsemax'``,
-``FFTBandpass`` / ``WaveletProjection`` operators, and in-fit torch
-dispatch) lived directly in this file and is preserved at
-``aom_nirs/_archive/deprecated_nirs4all/aom_pls.py`` for reference.
-Those features are not part of the Talanta paper variants and were
-dropped in favour of the canonical AOM-PLS / POP-PLS family.
-"""
+"""AOM/POP-PLS public entry point backed by the native n4m engine."""
 
 from __future__ import annotations
+
+from n4m.model_selection.aom_search import AOMPLSRegressor, POPPLSRegressor
 
 from nirs4all.operators.models._aom_nirs.pls.banks import (
     bank_by_name,
     compact_bank,
     default_bank,
     extended_bank,
-)
-from nirs4all.operators.models._aom_nirs.pls.estimators import (
-    AOMPLSRegressor,
-    POPPLSRegressor,
 )
 from nirs4all.operators.models._aom_nirs.pls.operators import (
     ComposedOperator,

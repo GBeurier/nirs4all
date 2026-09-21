@@ -110,6 +110,7 @@ from .scalers import (
     norml,
     spl_norml,
 )
+from .sequence import SequenceSummary
 
 # Common shorthand aliases used throughout docs, examples, and README
 SNV = StandardNormalVariate
@@ -129,6 +130,7 @@ from .targets import IntegerKBinsDiscretizer, RangeDiscretizer
 from .wavelet_denoise import WaveletDenoise, wavelet_denoise
 
 __all__ = [
+    "SequenceSummary",
     # Data augmentation
     "Spline_Smoothing",
     "Spline_X_Perturbations",

@@ -199,8 +199,11 @@ def num_targets(dataset: SpectroDataset) -> int:
 
 
 def target_names(dataset: SpectroDataset) -> list[str]:
-    """Per-target names ``["y0", "y1", …]`` — nirs4all stores no target headers, so they are
-    synthesized positionally. Used as the per-target metric suffix (``rmse:y0``/``rmse:y1``)."""
+    """Declared multimodal target names, or positional names for spectral data."""
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    if isinstance(dataset, MultimodalSpectroDataset) and dataset.cohort.target_names:
+        return list(dataset.cohort.target_names)
     return [f"y{i}" for i in range(num_targets(dataset))]
 
 
@@ -278,6 +281,10 @@ def _dataset_schema(dataset: SpectroDataset, sources: list[str], sample_id_strin
     ``signal_1d`` sources whose blocks the data plan joins into a ``feature_block_set`` for early
     fusion — mirroring nirs4all-io-dagml ``build_dag_ml_data_parts`` (lib.rs:486-528).
     """
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    if isinstance(dataset, MultimodalSpectroDataset):
+        return dataset.data_schema(sources, sample_id_strings)
     n_samples = len(sample_id_strings)
     return {
         "dataset_id": f"nirs4all.{dataset.name}",
@@ -298,6 +305,10 @@ def _data_plan(dataset: SpectroDataset, sources: list[str]) -> dict[str, Any]:
     ``feature_block_set`` — the N per-source blocks are fused by sample_id host-side (the resolver's
     ``x_rows(concat_source=True)``). Mirrors nirs4all-io-dagml (lib.rs:551-585).
     """
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    if isinstance(dataset, MultimodalSpectroDataset):
+        return dataset.data_plan(sources)
     if len(sources) == 1:
         source_id = sources[0]
         return {
@@ -333,6 +344,10 @@ def _source_layout(dataset: SpectroDataset, sources: list[str]) -> dict[str, Any
     (``src0`` etc.). Consumers must map dict bodies by these keys, not by guessing
     from insertion order.
     """
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    if isinstance(dataset, MultimodalSpectroDataset):
+        return dataset.source_layout(sources)
     names = source_order(dataset)
     column_start = 0
     blocks: list[dict[str, Any]] = []

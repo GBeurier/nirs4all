@@ -42,17 +42,27 @@ def predict_captured_artifact(
     import dag_ml
 
     estimator, y_transform = artifact["estimator"], artifact.get("y_transform")
-    from nirs4all.api.result import _DagmlExportedModel
+    from nirs4all.api.result import _DagmlExportedModel, _DagmlNativeStackingModel
 
     # General ``.n4a`` archives store the public wrapper as their sole joblib
     # member. Unwrap it before entering the numeric-only DAG callback; public
     # label decoding is applied after the native result has been validated.
     if isinstance(estimator, _DagmlExportedModel) and y_transform is None:
         estimator, y_transform = estimator.estimator, estimator.y_transform
+    from .multimodal_contracts import validate_input_contract
+
+    validate_input_contract(estimator, spectro)
     from .target_capture import CapturedTargetTransform
 
     public_target_transform = y_transform if isinstance(y_transform, CapturedTargetTransform) else None
     runtime_target_transform = public_target_transform.transformer if public_target_transform is not None else y_transform
+    if isinstance(estimator, _DagmlNativeStackingModel):
+        # Members inverse their own numeric target transforms while forming
+        # meta-features; decode only the final output after native validation.
+        meta_transform = estimator.meta_member.y_transform
+        if isinstance(meta_transform, CapturedTargetTransform):
+            public_target_transform = meta_transform
+        runtime_target_transform = None
     if not callable(getattr(estimator, "predict", None)):
         raise ValueError("captured artifact must contain a fitted prediction estimator")
     names = ["y"] if target_names is None else list(target_names)
@@ -78,7 +88,7 @@ def predict_captured_artifact(
     envelope = build_envelope(spectro, identity)
     envelope.update(cohort_builder(envelope, {
         "role": "inference", "relations": envelope["coordinator_relations"], "target_names": names,
-        "data_content_fingerprint": _array_content_fingerprint("X", spectro.x({}, layout="2d")),
+        "data_content_fingerprint": _prediction_content_fingerprint(spectro),
         "target_content_fingerprint": None,
     }).to_dict())
     dsl["data_bindings"] = data_bindings_for(model_id, envelope)
@@ -93,15 +103,24 @@ def predict_captured_artifact(
             return _build_result(task, [], [], {})
         _, ids = _train_predict_ids(task)
         source_index = _source_index(model_node)
-        if isinstance(estimator, _MultiBlockEstimator) or (
+        options: dict[str, Any] = {}
+        if isinstance(estimator, _MultiBlockEstimator) or (isinstance(estimator, _DagmlNativeStackingModel) and estimator.source_names is not None) or (
             isinstance(estimator, _SourceConcatEstimator) and resolver.is_multi_source()
         ):
-            x = resolver.resolve_feature_blocks(ids, include_augmented=False)["blocks"]
+            resolved = resolver.resolve_feature_blocks(
+                ids, include_augmented=False, source_names=getattr(estimator, "source_names", None),
+            )
+            x = resolved["blocks"]
+            if "source_masks" in resolved:
+                if not isinstance(estimator, _MultiBlockEstimator):
+                    raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
+                options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
             x = resolver.resolve_source_block(ids, source_index, include_augmented=False)["values"]
         else:
             x = resolver.resolve_features(ids, include_augmented=False)["values"]
-        values = np.asarray(estimator.predict(x), dtype=float).reshape(len(ids), -1)
+        prediction = estimator.predict_numeric(x) if isinstance(estimator, _DagmlNativeStackingModel) else estimator.predict(x, **options)
+        values = np.asarray(prediction, dtype=float).reshape(len(ids), -1)
         if runtime_target_transform is not None:
             values = np.asarray(runtime_target_transform.inverse_transform(values), dtype=float)
         if values.shape != (len(ids), len(names)):
@@ -135,3 +154,11 @@ def predict_captured_artifact(
     if public_target_transform is not None:
         values = np.asarray(public_target_transform.decode(values))
     return (values.ravel() if len(names) == 1 else values), evidence
+
+
+def _prediction_content_fingerprint(spectro: Any) -> str:
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    if isinstance(spectro, MultimodalSpectroDataset):
+        return spectro.content_hash()
+    return _array_content_fingerprint("X", spectro.x({}, layout="2d"))

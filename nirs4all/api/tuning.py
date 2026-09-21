@@ -10,8 +10,6 @@ from pathlib import Path
 from typing import Any, Literal
 
 from nirs4all.api.result import PredictResult, RunResult
-from nirs4all.optimization.n4m_engine import _PRUNER_MAP as _N4M_PRUNER_MAP
-from nirs4all.optimization.n4m_engine import _SAMPLER_MAP as _N4M_SAMPLER_MAP
 from nirs4all.optimization.optuna import (
     VALID_APPROACHES,
     VALID_EVAL_MODES,
@@ -154,10 +152,9 @@ if set(FINETUNE_APPROACHES) != set(VALID_APPROACHES):
     raise RuntimeError("public FINETUNE_APPROACHES drifted from OptunaManager validation")
 if set(FINETUNE_EVAL_MODES) != set(VALID_EVAL_MODES):
     raise RuntimeError("public FINETUNE_EVAL_MODES drifted from OptunaManager validation")
-if set(FINETUNE_N4M_SAMPLERS) != set(_N4M_SAMPLER_MAP) - {"sample"}:
-    raise RuntimeError("public FINETUNE_N4M_SAMPLERS drifted from N4MFinetuneManager validation")
-if set(FINETUNE_N4M_PRUNERS) != set(_N4M_PRUNER_MAP):
-    raise RuntimeError("public FINETUNE_N4M_PRUNERS drifted from N4MFinetuneManager validation")
+# Native optimizer table parity is checked by test_tuning.py. Importing its
+# runtime here loads the Methods shared library for every import of nirs4all,
+# including Studio requests that never perform native optimization.
 if set(FINETUNE_DAGML_DETERMINISTIC_ENGINES) | {"", "dagml", "native"} != set(DETERMINISTIC_FINETUNE_ENGINES):
     raise RuntimeError("public FINETUNE_DAGML_DETERMINISTIC_ENGINES drifted from DAG-ML lowering")
 if set(FINETUNE_DAGML_META_KEYS) != set(SUPPORTED_FINETUNE_META_KEYS):

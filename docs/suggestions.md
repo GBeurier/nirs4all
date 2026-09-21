@@ -1,90 +1,28 @@
 # nirs4all Library Backlog Suggestions
 
-After reviewing the current `backlog.md` and the library's architecture, here are suggestions for reorganizing, adding, and removing items to ensure a smoother path to `v1.0.0`.
+**ARCHIVÉ — 17 septembre 2026.** Suggestions pré-V1 dépassées par les interfaces V1 et le programme de consolidation multimodale.
 
-## Overall Assessment & Key Recommendations
+[Lire le document historique complet](_private/planning/2026-09-17/suggestions.md).
 
-1. **Shift-Left on Core Refactoring**: The current backlog places massive architectural changes (Pipeline as DAG, Pipeline as single transformer, Optuna integration) in `v0.9.x`, *after* adding many new features in `v0.8.x`. This is risky. Building features on an architecture that is about to be heavily refactored leads to wasted effort. **Recommendation**: Move core engine refactoring to `v0.9.0` and delay non-essential features to `v0.10.0` or `v1.x`.
-2. **Scope Management for v0.8.x**: `v0.8.x` is currently a "catch-all" milestone containing everything from basic operators to HuggingFace integration and complex model fusion. **Recommendation**: Focus `v0.8.x` strictly on NIRS-specific operators, basic modeling, and visualization. Push advanced ML (HuggingFace, complex stacking) to later releases.
-3. **Documentation & DevEx**: While docs are mentioned in `v0.8.0`, a library aiming for `v1.0.0` needs a dedicated track for tutorials, a gallery of examples, and API reference completeness.
-4. **MLOps & Tracking**: Basic experiment tracking (e.g., MLflow) is currently in `v2.x+`. Given the complexity of NIRS pipelines (preprocessing sweeps), lightweight tracking should be prioritized earlier (e.g., `v0.9.x` or `v1.0.0`).
+Pour reprendre le travail :
 
----
+- [Documentation de développement actuelle](development.md).
+- [Backlog actif](../../BACKLOG_ECOSYSTEME.md).
+- [Premier chantier](../../ROADMAP_CONSOLIDATION_MULTIMODALE.md).
 
-## Proposed Revised Backlog
+Les anciennes priorités et commandes ne sont plus un plan à exécuter.
 
-### v0.8.0: Release Baseline (Current Focus)
-*Keep as is. Focus on stabilizing the current API for the webapp.*
-- [x] `[Docs]` Updated docs for the release scope.
-- [x] `[Predictions]` Simplify and verify save behavior.
-- [x] `[Loader]` Read scientific expressions in CSV.
-- [x] `[MB-PLS]` Multi-source and multi-preprocessing support.
-- [x] `[Branching]` Clarify preprocessing-to-source vs preprocessing-to-branch behavior.
-- [-] `[Design]` Define all services.
-- [-] `[SERVICE FUNCTIONS]` Provide easy service functions.
+<details>
+<summary>Anciennes sections — liens vers l’archive</summary>
 
-### v0.8.x: NIRS Core Features & Operators
-*Focus on expanding the core NIRS capabilities (preprocessing, basic models, visualization) without changing the underlying engine.*
-- **Operators & Preprocessing**
-  - [-] `[Operators]` Add NorrisWilliams, Whittaker, BandEnergies, FiniteDiffCentral.
-  - [x] `[PLS]` Implement variable selection methods (CARS, MC-UVE).
-  - [-] `[CSV]` Authorize vertical index in CSV.
-- **Modeling & Analysis**
-  - [-] `[Metrics]` Add custom losses; manage metrics at global/pipeline/model levels.
-  - [-] `[Analysis]` Add t-SNE.
-  - [-] `[Clustering]` Add clustering controllers.
-- **Visualization**
-  - [-] `[Charts]` Aggregate by metadata columns; convert standard indexes to enums.
-  - [ ] `[Chart_Controller]` Migrate individual chart controllers into operators.
-- **Cleanup**
-  - [ ] `[Dummy_Controller]` Remove totally and manage exceptions.
+- <a id="overall-assessment--key-recommendations"></a>[Overall Assessment & Key Recommendations](_private/planning/2026-09-17/suggestions.md#overall-assessment--key-recommendations)
+- <a id="proposed-revised-backlog"></a>[Proposed Revised Backlog](_private/planning/2026-09-17/suggestions.md#proposed-revised-backlog)
+- <a id="v080-release-baseline-current-focus"></a>[v0.8.0: Release Baseline (Current Focus)](_private/planning/2026-09-17/suggestions.md#v080-release-baseline-current-focus)
+- <a id="v08x-nirs-core-features--operators"></a>[v0.8.x: NIRS Core Features & Operators](_private/planning/2026-09-17/suggestions.md#v08x-nirs-core-features--operators)
+- <a id="v09x-engine-refactoring--optimization"></a>[v0.9.x: Engine Refactoring & Optimization](_private/planning/2026-09-17/suggestions.md#v09x-engine-refactoring--optimization)
+- <a id="v010x-advanced-ml--mlops-new-milestone"></a>[v0.10.x: Advanced ML & MLOps (New Milestone)](_private/planning/2026-09-17/suggestions.md#v010x-advanced-ml--mlops-new-milestone)
+- <a id="v100-stabilization-docs--deploy-gate"></a>[v1.0.0: Stabilization, Docs & Deploy Gate](_private/planning/2026-09-17/suggestions.md#v100-stabilization-docs--deploy-gate)
+- <a id="v1x-post-v1-features"></a>[v1.x: Post v1 Features](_private/planning/2026-09-17/suggestions.md#v1x-post-v1-features)
+- <a id="v2x-ecosystem--research"></a>[v2.x+: Ecosystem & Research](_private/planning/2026-09-17/suggestions.md#v2x-ecosystem--research)
 
-### v0.9.x: Engine Refactoring & Optimization
-*Focus on architectural improvements before freezing the API for v1.0.*
-- **Pipeline Engine (The DAG Refactor)**
-  - [-] `[DAG]` Pipeline as DAG.
-  - [ ] `[Pipeline]` Rework as a single transformer (fit/transform/predict).
-  - [-] `[Runner]` Verify design logic of execution sequence/history; use cache by default.
-  - [ ] `[Observers]` Replace copied analysis data with observers.
-- **Optimization**
-  - [ ] `[Optuna]` Modularize god class.
-  - [ ] `[Pipeline + Optuna]` Treat pipeline as Optuna trial; preprocessing becomes choice parameter.
-  - [ ] `[Training]` Add prediction cache for stack sweeps retraining identical pipelines.
-- **Deep Learning Foundations**
-  - [-] `[transformerMixin]` Implement in PyTorch for full differentiation.
-  - [-] `[FCK-PLS]` Full torch model.
-
-### v0.10.x: Advanced ML & MLOps (New Milestone)
-*Bridge the gap between core features and v1.0 readiness.*
-- **Advanced Modeling**
-  - [-] `[Transfer]` Partial layers retraining or partial retrain on new data.
-  - [-] `[Stacking]` Stacking from prediction files directly.
-  - [ ] `[Fusion]` Mid fusion with multi-head models & Late fusion.
-- **MLOps & Tracking**
-  - [ ] `[MLflow]` Minimal MLflow integration (params, metrics, artifacts). *(Moved from v2.x)*
-  - [-] `[Transfer]` Automate model transfer across machines.
-- **Explainability**
-  - [-] `[SHAP]` Verify SHAP for TF/Torch/JAX; fix imports and numpy compatibility.
-
-### v1.0.0: Stabilization, Docs & Deploy Gate
-*No new features. Focus on hardening, documentation, and distribution.*
-- **Hardening**
-  - [-] `[GLOBAL REVIEW]` v1.0 signatures freeze; complete tests and production coverage.
-  - [-] `[Tests]` Review and clean tests.
-  - [-] `[Profiling]` Code optimization and performance improvements.
-- **Documentation**
-  - [ ] `[Tutorials]` Create a comprehensive gallery of examples (e.g., using `sphinx-gallery`). *(New)*
-- **Packaging**
-  - [ ] `[Docker]` Provide Docker image and add build/actions.
-  - [ ] `[Conda]` Provide Conda package and add build/actions.
-  - [ ] `[SERV/CLIENT]` Clustered computation + productization service doc.
-
-### v1.x: Post v1 Features
-*Ecosystem integrations and specialized features.*
-- [ ] `[onnx]` ONNX export.
-- [ ] `[WanDB]` Weights & Biases compatibility.
-- [ ] `[HuggingFace]` Evaluate/implement Hugging Face controller. *(Moved from v0.8.x)*
-- [-] `[Customizable_Feature_Source]` Refactor dataset for customizable feature source (images, lidar).
-
-### v2.x+: Ecosystem & Research
-*Keep as is (Statsmodels, Time series, Advanced DL tooling, etc.).*
+</details>

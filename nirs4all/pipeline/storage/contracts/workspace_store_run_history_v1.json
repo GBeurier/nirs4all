@@ -3,8 +3,8 @@
   "schema_version": 1,
   "workspace_store_schema_version": 5,
   "store": {
-    "open_mode": "sqlite_immutable_read_only",
-    "must_not_create_wal_or_shm": true,
+    "open_mode": "sqlite_read_only_transaction",
+    "must_not_create_wal_or_shm": false,
     "source_arrays_or_artifacts_opened": false
   },
   "parameters": {

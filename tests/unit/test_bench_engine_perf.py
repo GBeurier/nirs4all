@@ -155,3 +155,52 @@ def test_dagml_engine_verification_rejects_missing_child_signal() -> None:
     results = {"pls_small": {"dag-ml": {"runs": [{"engine_requested": "dag-ml"}]}}}
 
     assert module._check_engine_verification(results) == ["pls_small: dag-ml engine verification failed for repeats [1]"]
+
+
+def test_canonical_oof_scores_samples_once_and_accepts_column_targets() -> None:
+    import pytest
+
+    module = _load_bench_module()
+    rows = [
+        {"partition": "val", "fold_id": "0", "sample_indices": [0, 1], "y_true": [[0.0], [1.0]], "y_pred": [1.0, 1.0]},
+        {"partition": "val", "fold_id": "1", "sample_indices": [0], "y_true": [[0.0]], "y_pred": [-1.0]},
+    ]
+    assert module._canonical_oof_rmse(rows) == 0.0
+    rows[1]["y_true"] = [2.0]
+    with pytest.raises(ValueError, match="inconsistent targets"):
+        module._canonical_oof_rmse(rows)
+    with pytest.raises(ValueError, match="OOF sample evidence"):
+        module._canonical_oof_rmse([])
+
+
+def test_benchmark_child_timeout_is_a_failed_result(monkeypatch) -> None:
+    import subprocess
+
+    module = _load_bench_module()
+
+    def timeout(*args, **kwargs):
+        assert kwargs["timeout"] == 0.25
+        raise subprocess.TimeoutExpired(args[0], 0.25)
+
+    monkeypatch.setattr(module.subprocess, "run", timeout)
+    assert module._run_child("pls_small", "dag-ml", "python", timeout=0.25)["error"] == "child exceeded 0.25 seconds"
+
+
+def test_heldout_gate_rejects_missing_or_changed_predictions() -> None:
+    module = _load_bench_module()
+    results = {"pls_small": {
+        "legacy": {"runs": [{"test_predictions": [1.0, 2.0]}]},
+        "dag-ml": {"runs": [{"test_predictions": []}, {"test_predictions": [1.0, 2.1]}]},
+    }}
+    failures = module._check_heldout_predictions(results, 1e-5)
+    assert len(failures) == 2
+    assert "evidence missing" in failures[0]
+    assert "difference exceeds" in failures[1]
+
+
+def test_prediction_row_counts_do_not_replace_scientific_evidence() -> None:
+    module = _load_bench_module()
+    assert module._check_ratio_gates(
+        {"pls_small": {"wall": 0.5, "rss": 1.0, "score_delta_abs": 0.0, "predictions_delta_abs": 100}},
+        max_wall_ratio=1.5, max_rss_ratio=1.5, max_score_delta=1e-5,
+    ) == []

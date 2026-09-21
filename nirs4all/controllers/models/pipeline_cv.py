@@ -52,6 +52,24 @@ class PrecomputedFoldSplitter:
 
         return [list(val_idx) for _, val_idx in self.folds]
 
+    @property
+    def fold_ids(self) -> np.ndarray:
+        """Return the canonical per-row fold identifiers consumed by n4m."""
+
+        if self.n_samples is None:
+            raise ValueError("n4m fold_ids require a splitter with a known row count")
+        result = np.full(int(self.n_samples), -1, dtype=np.int32)
+        for fold_id, (_, val_idx) in enumerate(self.folds):
+            positions = np.asarray(val_idx, dtype=int)
+            if np.any(positions < 0) or np.any(positions >= int(self.n_samples)):
+                raise ValueError("pipeline validation fold contains an out-of-range row")
+            if np.any(result[positions] != -1):
+                raise ValueError("pipeline validation folds assign a row more than once")
+            result[positions] = fold_id
+        if np.any(result == -1):
+            raise ValueError("pipeline validation folds must assign every training row")
+        return result
+
     def for_training_subset(
         self,
         train_indices: Sequence[int],
@@ -187,17 +205,21 @@ def apply_pipeline_folds_to_aom_estimator(
         updates["cv_splitter"] = splitter
         if "cv" in params:
             updates["cv"] = splitter.get_n_splits()
+    if "fold_ids" in params:
+        updates["fold_ids"] = splitter.fold_ids
+        if "cv" in params:
+            updates["cv"] = splitter.get_n_splits()
     if "outer_cv" in params:
         updates["outer_cv"] = splitter
         if "inner_cv" in params:
             updates["inner_cv"] = splitter
-    elif "cv" in params and "external_folds" not in params and "cv_splitter" not in params:
+    elif "cv" in params and "external_folds" not in params and "cv_splitter" not in params and "fold_ids" not in params:
         updates["cv"] = splitter
     if not updates:
         if pipeline_cv_policy_required(policy):
             raise ValueError(
                 f"{estimator.__class__.__name__} does not expose a supported pipeline-fold parameter "
-                "(expected one of cv, cv_splitter, outer_cv, external_folds)."
+                "(expected one of cv, cv_splitter, fold_ids, outer_cv, external_folds)."
             )
         return False
     return _set_estimator_params(estimator, updates)

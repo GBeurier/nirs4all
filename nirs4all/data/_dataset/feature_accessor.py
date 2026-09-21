@@ -527,9 +527,9 @@ class FeatureAccessor:
         unit = self.header_unit(source)
 
         if unit == "cm-1":
-            return self._numeric_headers(headers, "cm⁻¹")
+            return self._positive_spectral_headers(headers, "cm⁻¹")
         elif unit == "nm":
-            nm_values = self._numeric_headers(headers, "nm")
+            nm_values = self._positive_spectral_headers(headers, "nm")
             return 10_000_000.0 / nm_values
         elif unit in ["none", "index"]:
             return np.arange(len(headers), dtype=float)
@@ -567,9 +567,9 @@ class FeatureAccessor:
         unit = self.header_unit(source)
 
         if unit == "nm":
-            return self._numeric_headers(headers, "nm")
+            return self._positive_spectral_headers(headers, "nm")
         elif unit == "cm-1":
-            cm1_values = self._numeric_headers(headers, "cm⁻¹")
+            cm1_values = self._positive_spectral_headers(headers, "cm⁻¹")
             return 10_000_000.0 / cm1_values
         elif unit in ["none", "index"]:
             return np.arange(len(headers), dtype=float)
@@ -592,6 +592,14 @@ class FeatureAccessor:
         if parsed is None:
             raise ValueError(f"Headers are not numeric (optionally unit-suffixed); cannot convert to wavelengths ({unit_name}).")
         return parsed
+
+    @classmethod
+    def _positive_spectral_headers(cls, headers: list[str], unit_name: str) -> np.ndarray:
+        """Parse spectral headers and reject non-physical zero or negative values."""
+        values = cls._numeric_headers(headers, unit_name)
+        if np.any(values <= 0):
+            raise ValueError(f"Spectral header values must be strictly positive ({unit_name}).")
+        return values
 
     def float_headers(self, source: int = 0) -> np.ndarray:
         """

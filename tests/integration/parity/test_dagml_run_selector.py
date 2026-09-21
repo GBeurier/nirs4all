@@ -271,6 +271,21 @@ def test_dagml_prepares_session_and_rejects_cache() -> None:
     session = SessionProbe()
     _reject_unsupported_run_options(refit=True, project=None, session=session, cache=None, runner_kwargs={})
     assert session.prepared is True
+    _reject_unsupported_run_options(
+        refit=True,
+        project=None,
+        session=None,
+        cache=None,
+        runner_kwargs={"show_spinner": False, "show_progress_bar": False},
+    )
+    with pytest.raises(DagMlUnsupported, match="show_spinner"):
+        _reject_unsupported_run_options(
+            refit=True,
+            project=None,
+            session=None,
+            cache=None,
+            runner_kwargs={"show_spinner": True},
+        )
     with pytest.raises(DagMlUnsupported):
         _reject_unsupported_run_options(refit=True, project=None, session=None, cache=CacheConfig(), runner_kwargs={})
 

@@ -32,8 +32,17 @@ def _materialize_dataset(dataset: Any) -> Any:
     A list of datasets is rejected loud: the dag-ml backend runs ONE dataset (the cartesian product
     over datasets stays a legacy-orchestrator concern).
     """
+    # IO owns alignment and typed raw buffers; the host adapter supplies only
+    # the target/index interfaces used by the existing DAG execution path.
+    import nirs4all_io
+
     from nirs4all.data.dataset import SpectroDataset
 
+    multimodal_type = getattr(nirs4all_io, "MultimodalDataset", None)
+    if multimodal_type is not None and isinstance(dataset, multimodal_type):
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+        return MultimodalSpectroDataset(dataset)
     if isinstance(dataset, DatasetConfigs):
         return dataset.get_dataset_at(0)
     if isinstance(dataset, SpectroDataset):

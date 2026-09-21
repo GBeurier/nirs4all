@@ -1,5 +1,5 @@
 # .github/workflows/shared-test-and-docs.yml
-# Reusable workflow: full test matrix + documentation build.
+# Reusable workflow: one complete test suite + documentation build.
 # Called by pre-publish.yml and publish.yml via workflow_call.
 name: Shared – Test and Docs
 
@@ -7,11 +7,11 @@ on:
   workflow_call:
     inputs:
       fail-fast:
-        description: 'Stop matrix on first failure'
+        description: 'Retained compatibility input (the suite is no longer matrixed)'
         type: boolean
         default: true
       skip-tests:
-        description: 'Skip the test matrix (docs only)'
+        description: 'Skip the test suite (docs only)'
         type: boolean
         default: false
       upload-coverage:
@@ -30,17 +30,11 @@ on:
 jobs:
   run-tests:
     if: ${{ !inputs.skip-tests }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: ${{ inputs.fail-fast }}
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ['3.11', '3.13']
-        exclude:
-          # macOS only needs one Python version for platform compatibility
-          - os: macos-latest
-            python-version: '3.11'
-    timeout-minutes: 60
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    permissions:
+      contents: read
+      id-token: write
     steps:
       - uses: actions/checkout@v6
 
@@ -49,76 +43,53 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install test deps
         shell: bash
         run: |
           python -m pip install --upgrade pip setuptools wheel
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # Skip all DL backends on macOS (platform compatibility check only)
-            grep -v -E '^(jax|jaxlib|flax|tensorflow|torch|tabpfn|keras)' requirements-test.txt > requirements-test-macos.txt
-            python -m pip install numpy -r requirements-test-macos.txt
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            # Skip JAX ecosystem on Windows (orbax-checkpoint pulls uvloop which is Unix-only)
-            grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-win.txt
-            python -m pip install numpy -r requirements-test-win.txt
-          else
-            # Keep Linux tests on the official CPU wheel. The PyPI wheel pulls
-            # CUDA/Triton even on CPU runners, which is not a valid test target.
-            grep -v '^torch' requirements-test.txt > requirements-test-linux.txt
-            python -m pip install numpy -r requirements-test-linux.txt
-            python -m pip install --index-url https://download.pytorch.org/whl/cpu \
-              'torch==2.13.0+cpu'
-          fi
+          # Keep Linux tests on the official CPU wheel. The PyPI wheel pulls
+          # CUDA/Triton even on CPU runners, which is not a valid test target.
+          grep -v '^torch' requirements-test.txt > requirements-test-linux.txt
+          python -m pip install numpy -r requirements-test-linux.txt
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.13.0+cpu'
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
 
+      - name: Gate real library usability
+        timeout-minutes: 5
+        uses: ./.github/actions/library-usability
+
       - name: Run full pytest + coverage
         shell: bash
         run: |
-          MARK=()
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
-          fi
-
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # macOS: run serially (fork() is unsafe on macOS, xdist workers deadlock)
-            python -m pytest -v --timeout=120 \
-              "${MARK[@]}" \
-              --cov=nirs4all --cov-append --cov-report=xml \
-              tests/
-          else
-            # Serial subsets with known write-contention or unsafe native
-            # runtime initialisation under heavy xdist load.  In particular,
-            # PyTorch/DAG-ML loss tests crash CPython 3.13 workers when three
-            # torch runtimes are initialised concurrently on Linux.
-            python -m pytest -v \
-              tests/integration/pipeline/test_merge_mixed.py \
-              tests/integration/pipeline/test_merge_per_branch.py \
-              tests/unit/operators/models/test_pytorch.py \
-              tests/unit/pipeline/dagml/test_raw_training_lowerer.py \
-              tests/integration/parity/test_dagml_run_selector.py \
-              --cov=nirs4all --cov-append
-
-            # Parallel remainder
-            python -m pytest -v -n auto --dist worksteal tests/ \
-              --ignore=tests/integration/pipeline/test_merge_mixed.py \
-              --ignore=tests/integration/pipeline/test_merge_per_branch.py \
-              --ignore=tests/unit/operators/models/test_pytorch.py \
-              --ignore=tests/unit/pipeline/dagml/test_raw_training_lowerer.py \
-              --ignore=tests/integration/parity/test_dagml_run_selector.py \
-              --cov=nirs4all --cov-append --cov-report=xml
-          fi
+          python -m coverage erase
+          python -m pytest -v --timeout=300 -n 0 \
+            tests/integration/pipeline/test_merge_mixed.py \
+            tests/integration/pipeline/test_merge_per_branch.py \
+            --cov=nirs4all --cov-append
+          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
+            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
+            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
+            --cov=nirs4all --cov-append
+          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
+            python -m pytest -v --timeout=300 -n 2 --dist worksteal -m 'not gpu' tests/ \
+            --ignore=tests/integration/pipeline/test_merge_mixed.py \
+            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
+            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
+            --cov=nirs4all --cov-append --cov-report=xml
 
       - name: Upload coverage to Codecov
         if: ${{ inputs.upload-coverage }}
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
-          fail_ci_if_error: false
+          use_oidc: true
+          fail_ci_if_error: true
 
   build-docs:
     runs-on: ubuntu-latest

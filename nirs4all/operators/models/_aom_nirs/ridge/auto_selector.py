@@ -166,7 +166,7 @@ def _dispatch_candidate(
         return est, branch
 
     if selection == "aom_pls":
-        from nirs4all.operators.models._aom_nirs.pls.estimators import AOMPLSRegressor
+        from n4m.model_selection.aom_search import AOMPLSRegressor
 
         max_components = int(extra.pop("max_components", 30))
         explicit_cv = extra.pop("cv", None)
@@ -174,22 +174,35 @@ def _dispatch_candidate(
             cv_inner: int | object = inner_cv
         else:
             cv_inner = int(explicit_cv if explicit_cv is not None else (inner_cv if isinstance(inner_cv, int) else 3))
-        cv_kwargs: dict[str, Any] = {}
+        fold_ids = None
         if hasattr(cv_inner, "split"):
-            cv_kwargs["cv_splitter"] = cv_inner
+            if not hasattr(cv_inner, "fold_ids"):
+                raise ValueError(
+                    "native n4m AOM-PLS candidates require an integer inner_cv or "
+                    "a precomputed splitter exposing fold_ids"
+                )
+            fold_ids = cv_inner.fold_ids
             if hasattr(cv_inner, "get_n_splits"):
                 cv_arg = int(cv_inner.get_n_splits())
             else:
                 cv_arg = int(getattr(cv_inner, "n_splits", 3))
         else:
             cv_arg = int(cv_inner)
+        if isinstance(operator_bank, str) and operator_bank in {"compact", "default"}:
+            operators = None
+        elif operator_bank == "identity":
+            operators = ["identity"]
+        elif isinstance(operator_bank, str):
+            raise ValueError(
+                f"native n4m AOM-PLS does not define operator bank {operator_bank!r}"
+            )
+        else:
+            operators = operator_bank
         est = AOMPLSRegressor(
-            n_components="auto",
             max_components=max_components,
-            operator_bank=operator_bank,
+            operators=operators,
             cv=cv_arg,
-            random_state=seed,
-            **cv_kwargs,
+            fold_ids=fold_ids,
             **extra,
         )
         return est, branch

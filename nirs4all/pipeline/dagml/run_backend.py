@@ -212,7 +212,10 @@ def _lower_public_finetune_params(pipeline: Any) -> tuple[list[Any], dict[str, s
 
 # Residual options supported by this executor. Unknown options are rejected
 # before work; there is no implicit legacy execution.
-_HONORED_RUNNER_KWARGS: frozenset[str] = frozenset({"workspace_path", "store_run_id", "should_stop"})
+_HONORED_RUNNER_KWARGS: frozenset[str] = frozenset(
+    {"workspace_path", "store_run_id", "should_stop", "cpu_threads", "gpu_devices"}
+)
+_DISABLED_UI_RUNNER_KWARGS: frozenset[str] = frozenset({"show_progress_bar", "show_spinner"})
 
 _PERSISTENCE_REJECT_MESSAGES: dict[str, str] = {
     "store_run_id": "engine='dag-ml' cannot yet attach execution to an existing store_run_id.",
@@ -235,8 +238,13 @@ def _reject_unsupported_run_options(*, refit: Any, project: str | None, session:
     if cache is not None:
         raise DagMlUnsupported("engine='dag-ml' runs no nirs4all StepCache, so it cannot honor a CacheConfig.")
     # Unknown execution options are refused before work, never silently dropped.
-    for key in runner_kwargs:
+    for key, value in runner_kwargs.items():
         if key in _HONORED_RUNNER_KWARGS:
+            continue
+        # DAG-ML does not create the legacy progress UI, so an explicit false
+        # value is honored.  A true value remains unsupported and must not be
+        # silently ignored.
+        if key in _DISABLED_UI_RUNNER_KWARGS and value is False:
             continue
         if key in _PERSISTENCE_REJECT_MESSAGES:
             raise DagMlUnsupported(_PERSISTENCE_REJECT_MESSAGES[key])
@@ -336,6 +344,16 @@ def run_via_dagml(
     if report_naming not in {"nirs", "ml", "auto"}:
         raise ValueError("report_naming must be 'nirs', 'ml', or 'auto'")
     effective_runner_kwargs = dict(runner_kwargs or {})
+    from .resources import (
+        bind_execution_resources,
+        normalize_execution_resources,
+        reset_execution_resources,
+    )
+
+    execution_resources = normalize_execution_resources(
+        effective_runner_kwargs.pop("cpu_threads", 1),
+        effective_runner_kwargs.pop("gpu_devices", ()),
+    )
     should_stop = effective_runner_kwargs.get("should_stop")
     if should_stop is not None and not callable(should_stop):
         raise TypeError("should_stop must be a zero-argument cancellation callback")
@@ -409,6 +427,7 @@ def run_via_dagml(
     from .cancellation import SHOULD_STOP, check_cancellation
 
     cancellation_token = SHOULD_STOP.set(should_stop)
+    resource_token = bind_execution_resources(execution_resources)
     try:
         result = _dispatch_run(
             pipeline,
@@ -427,7 +446,7 @@ def run_via_dagml(
         from .envelope import target_names
 
         result._dagml_target_names = target_names(spectro)
-        for key in ("relation_replay_manifest", "relation_materialization_manifest"):
+        for key in ("relation_replay_manifest", "relation_materialization_manifest", "data_provider_evidence"):
             relation = getattr(spectro, "_" + key, None)
             if isinstance(relation, dict):
                 for metadata in result.per_dataset.values():
@@ -470,6 +489,7 @@ def run_via_dagml(
             logger.info("DAG-ML completed: %s=%s", metric_names["cv_score"], result.cv_best_score)
         return result
     finally:
+        reset_execution_resources(resource_token)
         SHOULD_STOP.reset(cancellation_token)
         if workdir is None:
             shutil.rmtree(base_dir, ignore_errors=True)
@@ -1073,10 +1093,10 @@ def _dispatch_run(
     # merge writes the cumulative source concat back to source 0, and the downstream model emits CV-only
     # rows because legacy skips the by_source stacking refit pass.
     if detected_by_source_stacking is not None:
-        branch_body, meta_learner = detected_by_source_stacking
+        source_stack_body, meta_learner = detected_by_source_stacking
         return _run_by_source_stacking_branch(
             list(pipeline),
-            branch_body,
+            source_stack_body,
             meta_learner,
             spectro.features_sources(),
             spectro,
@@ -1287,9 +1307,9 @@ def _dispatch_run(
         # SINGLE concrete pipeline: thread the node results + minted identity into the projection so the
         # strict direct-block rows (per-fold val + refit final/test) carry real y_pred/y_true/sample_indices
         # (2a-i), plus the captured fitted REFIT estimators (2c-i) for native model-artifact persistence.
-        # scores/skip_refit unchanged — num_predictions and scores are score-set-driven as before.
-        scores, model_name, skip_refit, results, identity, refit_artifacts = variant_runs[0]
-        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, results=results, identity=identity, refit_artifacts=refit_artifacts)
+        # Native measurements determine the projected rows.
+        scores, model_name, results, identity, refit_artifacts = variant_runs[0]
+        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
 
     # Operator SWEEP (2a-ii): thread EACH variant's own node results + the (shared) identity into the
     # per-variant projection so every variant's direct-block rows carry ITS OWN y_pred/y_true/sample_indices
@@ -1297,11 +1317,11 @@ def _dispatch_run(
     # projection re-keys the results by the synthetic variant tag it stamps on the reports, so a row's
     # arrays come from its own variant's blocks (NO cross-variant leakage). All variants ran on the same
     # `spectro`, so the identity is identical — take the first. The aggregated avg/w_avg rows stay
-    # score-only (deferred to 2a-iii). scores/skip_refit unchanged — num_predictions stays score-set-driven.
-    variant_scores = [(scores, model_name, skip_refit) for scores, model_name, skip_refit, _results, _identity, _artifacts in variant_runs]
-    results_by_index = [results for _scores, _model_name, _skip_refit, results, _identity, _artifacts in variant_runs]
-    refit_artifacts_by_index = [artifacts for _scores, _model_name, _skip_refit, _results, _identity, artifacts in variant_runs]
-    identity = variant_runs[0][4]
+    # score-only (deferred to 2a-iii). Native measurements determine the projected rows.
+    variant_scores = [(scores, model_name) for scores, model_name, _results, _identity, _artifacts in variant_runs]
+    results_by_index = [results for _scores, _model_name, results, _identity, _artifacts in variant_runs]
+    refit_artifacts_by_index = [artifacts for _scores, _model_name, _results, _identity, artifacts in variant_runs]
+    identity = variant_runs[0][3]
     return _project_operator_sweep(
         variant_scores, spectro.name, metric, task_type, is_classification, variant_config_names, results_by_index=results_by_index, identity=identity, refit_artifacts_by_index=refit_artifacts_by_index
     )

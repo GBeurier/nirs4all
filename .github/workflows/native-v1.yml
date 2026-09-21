@@ -42,12 +42,21 @@ jobs:
 
           library = Path(n4m.library_path()).resolve()
           assert library.is_file(), library
+          wheel_libraries = library.parents[2] / "nirs4all_methods.libs"
           print("Methods ABI:", n4m.abi_version())
           print("Methods SHA256:", hashlib.sha256(library.read_bytes()).hexdigest())
+          if wheel_libraries.is_dir():
+              print("Methods wheel dependency closure:", wheel_libraries)
           for distribution in ("nirs4all", "dag-ml", "dag-ml-data", "nirs4all-core", "nirs4all-methods"):
               print(distribution, version(distribution))
           with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as target:
               target.write(f"NIRS4ALL_CORE_LIVE_METHODS_LIBRARY={library}\n")
+              if wheel_libraries.is_dir():
+                  loader_path = os.environ.get("LD_LIBRARY_PATH", "")
+                  entries = [str(wheel_libraries)]
+                  if loader_path:
+                      entries.append(loader_path)
+                  target.write(f"LD_LIBRARY_PATH={os.pathsep.join(entries)}\n")
           PY
       - name: Require real native training, HPO resume, export and fresh-process replay
         run: |

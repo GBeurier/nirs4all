@@ -85,6 +85,13 @@ if [[ ! -f "$REPO_ROOT/pyproject.toml" ]]; then
   exit 1
 fi
 
+# Later steps change directory (notably the Sphinx build). Resolve a caller-
+# supplied relative interpreter once while we are still anchored at the repo
+# root so every phase uses the same environment.
+if [[ "$PYTHON" == */* && "$PYTHON" != /* ]]; then
+  PYTHON="$REPO_ROOT/$PYTHON"
+fi
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Docker mode – re-run this very script inside a clean ubuntu:24.04 container
 # ──────────────────────────────────────────────────────────────────────────────
@@ -212,14 +219,27 @@ if should_run tests; then
       $PYTHON -m pip install --quiet numpy -r requirements-test.txt
       $PYTHON -m pip install --quiet -e . --no-deps
 
+      # Start from a clean data file: both pytest invocations append coverage,
+      # but results from an earlier pre-publish run must not leak into this one.
+      $PYTHON -m coverage erase
+
       echo '--- Serial subset (known write-contention) ---'
       $PYTHON -m pytest -n 0 \
         tests/integration/pipeline/test_merge_mixed.py \
         tests/integration/pipeline/test_merge_per_branch.py \
         --cov=nirs4all --cov-append
 
-      echo \"--- Parallel remainder (-n $JOBS) ---\"
-      $PYTHON -m pytest -n $JOBS --dist worksteal tests/ \
+      # Accelerator tests must own the visible devices. Running them in xdist
+      # workers lets independent JAX/TensorFlow/PyTorch processes preallocate
+      # the same VRAM and turns one CUDA OOM into unrelated cascade failures.
+      echo '--- Serial GPU qualification (optional when CUDA is unavailable) ---'
+      XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
+        $PYTHON -m pytest -n 0 -m gpu tests/ \
+        --cov=nirs4all --cov-append
+
+      echo \"--- Parallel CPU remainder (-n $JOBS, CUDA hidden) ---\"
+      CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
+        $PYTHON -m pytest -n $JOBS --dist worksteal -m 'not gpu' tests/ \
         --ignore=tests/integration/pipeline/test_merge_mixed.py \
         --ignore=tests/integration/pipeline/test_merge_per_branch.py \
         --cov=nirs4all --cov-append --cov-report=xml
@@ -239,7 +259,7 @@ if should_run docs; then
       $PYTHON -m pip install --quiet -r docs/readthedocs.requirements.txt
       $PYTHON -m pip install --quiet -e .
       cd docs
-      sphinx-build -b html source _build/html --keep-going
+      $PYTHON -m sphinx -b html source _build/html --keep-going
     "
   fi
 else

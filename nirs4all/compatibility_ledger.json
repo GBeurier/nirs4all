@@ -359,6 +359,7 @@
       {"id": "optional_env_dependency", "kind": "optional_env", "note": "an example requires an optional dependency that is not installed."},
       {"id": "optional_env_sibling", "kind": "optional_env", "note": "sibling nirs4all-ecosystem runtime schemas not checked out."},
       {"id": "optional_env_methods", "kind": "optional_env", "note": "the nirs4all-methods SNV / n4m binding is unavailable (hard fail only under NIRS4ALL_REQUIRE_N4M=1)."},
+      {"id": "optional_env_gpu", "kind": "optional_env", "note": "a real accelerator qualification requires a CUDA-capable runtime; the CPU gate remains mandatory."},
       {"id": "runtime_na", "kind": "runtime_precondition", "note": "a cross-engine comparison is N/A on this build: dag-ml returned an allowlisted structured refusal, wrote no native results, or the case is not a single-artifact native run. The live boundary rejects any refusal outside EXPECTED_REFUSAL."},
       {"id": "baseline_capture", "kind": "workflow", "note": "gold-baseline capture / absent-baseline guard in test_parity_baseline (--parity-capture)."},
       {"id": "lockdrop_empty", "kind": "workflow", "note": "collection-only category for the empty-allowlist branch; currently inactive while the single L5-owned EXPECTED_REFUSAL case remains an explicit native coverage gap."}

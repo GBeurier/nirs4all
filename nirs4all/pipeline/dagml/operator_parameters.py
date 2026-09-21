@@ -7,6 +7,7 @@ This is a trusted library configuration format, not a safe untrusted-code loader
 
 from __future__ import annotations
 
+from dataclasses import is_dataclass
 from typing import Any
 
 _COMPONENT = "__nirs4all_constructor_component_v1__"
@@ -14,7 +15,9 @@ _COMPONENT = "__nirs4all_constructor_component_v1__"
 
 def encode_constructor_value(value: Any) -> Any:
     """Encode nested estimators while preserving ordinary parameter mappings."""
-    if not isinstance(value, type) and callable(getattr(value, "get_params", None)):
+    if not isinstance(value, type) and (
+        callable(getattr(value, "get_params", None)) or is_dataclass(value)
+    ):
         from nirs4all.pipeline.config.component_serialization import serialize_component
 
         return {_COMPONENT: {"kind": "component", "value": serialize_component(value)}}

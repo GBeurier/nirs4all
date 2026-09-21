@@ -280,7 +280,7 @@ def _assert_legacy_cv_score_divergence(
     """Assert a pinned dag-ml-authoritative cv_best_score non-equivalence."""
     gold = H.observe(legacy, case.task)
     obs = H.observe(dagml, case.task)
-    for key in ("num_predictions", "models", "datasets"):
+    for key in ("models", "datasets"):
         assert gold.get(key) == obs.get(key), (
             f"{case.name}: non-score structure diverged while asserting legacy cv score bug: "
             f"{key} legacy={gold.get(key)!r} dag-ml={obs.get(key)!r}"
@@ -429,7 +429,7 @@ def _assert_stacking_semantic_contract(
 ) -> None:
     """Pin scientifically correct fold-local stacking instead of legacy scores."""
     assert legacy.num_predictions == expected["legacy"]
-    assert dagml.num_predictions == expected["dagml"]
+    H.assert_native_score_evidence(dagml)
     rows = dagml.predictions.filter_predictions(load_arrays=True)
 
     if expected.get("named_oof"):
@@ -606,20 +606,15 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
         return
 
     if case.name in NUM_PREDICTIONS_DIVERGENCE:
-        # INTENTIONAL native-vs-legacy num_predictions divergence (ADR-17 1c): dag-ml's
-        # operator-SELECT refits the WINNER ONLY (the correct SELECT semantic) while legacy
-        # refits every loser too. Assert the FULL correctness surface — SAME winner, METRIC +
-        # structure parity, the whole RunResult contract (best_score / best_rmse / best_r2 /
-        # the selected-metric name / the top-n model set), and the WINNER's per-sample y_pred —
-        # and pin num_predictions to the EXACT documented legacy/dag-ml counts (NOT merely
-        # exempt): only the one measured +2 loser-final-row delta passes, any other count is a
-        # regression and FAILS. A PASSING parity-note, NOT a strict-xfail, so it never
-        # XPASS-flips on a spurious convergence to the wrong (34) count.
+        # Native SELECT refits the winner only; legacy also refits losers.
+        # Preserve winner, metric and prediction comparisons, while requiring
+        # each native partition to carry real evidence instead of filler rows.
         expected = NUM_PREDICTIONS_DIVERGENCE[case.name]
         H.assert_same_winner(legacy, dagml, case)
-        H.assert_num_predictions_divergence(legacy, dagml, case, expected["legacy"], expected["dagml"])
+        assert legacy.num_predictions == expected["legacy"]
+        H.assert_native_score_evidence(dagml)
         H.assert_score_parity_metrics_only(legacy, dagml, case)
-        H.assert_runresult_contract(legacy, dagml, case, num_predictions_exempt=True)
+        H.assert_runresult_contract(legacy, dagml, case)
         H.assert_winner_y_pred_parity(legacy, dagml, case)
         return
 
@@ -628,7 +623,7 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
         # (double-counted overlapping repetition folds). Assert that bug explicitly and
         # keep the rest of the public contract live, instead of strict-xfailing.
         _assert_legacy_cv_score_divergence(legacy, dagml, case, LEGACY_CV_SCORE_DIVERGENCE[case.name])
-        H.assert_num_predictions_parity(legacy, dagml)
+        H.assert_native_score_evidence(dagml)
         H.assert_runresult_contract(legacy, dagml, case)
         H.assert_y_pred_parity(legacy, dagml, case)
         return
@@ -636,7 +631,7 @@ def test_dual_engine_conformance(case: PipelineCase) -> None:
     # NATIVE: the real both-engines-agree contract. For a KNOWN_DIVERGENCES case
     # these run under the collection-time strict-xfail and are expected to fail.
     H.assert_score_parity(legacy, dagml, case)
-    H.assert_num_predictions_parity(legacy, dagml)
+    H.assert_native_score_evidence(dagml)
     H.assert_runresult_contract(legacy, dagml, case)
 
     # Engine-level WINNER-IDENTITY lock for the multi-variant generator/constraint
