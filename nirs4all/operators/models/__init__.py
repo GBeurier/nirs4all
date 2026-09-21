@@ -6,6 +6,7 @@ TensorFlow and PyTorch models are loaded lazily to avoid importing heavy
 frameworks at package load time.
 """
 import sys
+from importlib import import_module
 from typing import TYPE_CHECKING
 
 from .base import BaseModelOperator
@@ -15,6 +16,7 @@ from .base import BaseModelOperator
 # Or access via __getattr__ below
 # Import meta-model stacking
 from .meta import BranchScope, CoverageStrategy, MetaModel, StackingConfig, StackingLevel, TestAggregation
+from .multimodal import MultimodalClassifier, MultimodalRegressor, TensorPCA
 from .residual import ResidualModel
 from .selection import (
     AllPreviousModelsSelector,
@@ -28,49 +30,46 @@ from .selection import (
 
 # Import sklearn models (lightweight, always available)
 from .sklearn import IKPLS, KOPLS, LWPLS, MBPLS, OPLS, OPLSDA, PCR, PLSDA, SIMPLS, DiPLS, IntervalPLS, RecursivePLS, RobustPLS, SparsePLS
-from .sklearn.aom_fast import (
-    FastAOMConfig,
-    FastAOMPLSRidge,
-    HardAOMChainPLSRidge,
-    SingleChainPLSRidge,
-    SoftAOMChainPLSRidge,
-    SparseMultiKernelRidge,
-)
-from .sklearn.aom_pls import (
-    AOMPLSRegressor,
-    ComposedOperator,
-    DetrendProjectionOperator,
-    FiniteDifferenceOperator,
-    IdentityOperator,
-    LinearSpectralOperator,
-    NorrisWilliamsOperator,
-    POPPLSRegressor,
-    SavitzkyGolayOperator,
-    WhittakerOperator,
-    bank_by_name,
-    compact_bank,
-    default_bank,
-    default_operator_bank,
-    extended_bank,
-)
-from .sklearn.aom_pls_classifier import AOMPLSClassifier
-from .sklearn.aom_ridge import (
-    AOMKernelizer,
-    AOMLocalRidge,
-    AOMMultiBranchMKL,
-    AOMMultiKernelRidge,
-    AOMRidgeAutoSelector,
-    AOMRidgeBlender,
-    AOMRidgeClassifier,
-    AOMRidgePLS,
-    AOMRidgePLSCV,
-    AOMRidgeRegressor,
-)
 from .sklearn.fckpls import FCKPLS, FractionalConvFeaturizer
 from .sklearn.nlpls import KPLS, NLPLS, KernelPLS
 from .sklearn.oklmpls import OKLMPLS, IdentityFeaturizer, PolynomialFeaturizer, RBFFeaturizer
-from .sklearn.pop_pls_classifier import POPPLSClassifier
 from .sklearn.tabpfn_nirs import TabPFNNIRSRegressor
+
+_SKLEARN_LAZY_EXPORTS = {
+    "AOMPLSRegressor",
+    "POPPLSRegressor",
+    "LinearSpectralOperator",
+    "IdentityOperator",
+    "SavitzkyGolayOperator",
+    "DetrendProjectionOperator",
+    "ComposedOperator",
+    "NorrisWilliamsOperator",
+    "FiniteDifferenceOperator",
+    "WhittakerOperator",
+    "default_operator_bank",
+    "default_bank",
+    "compact_bank",
+    "extended_bank",
+    "bank_by_name",
+    "AOMPLSClassifier",
+    "POPPLSClassifier",
+    "AOMRidgeRegressor",
+    "AOMRidgeClassifier",
+    "AOMRidgeBlender",
+    "AOMRidgeAutoSelector",
+    "AOMRidgePLS",
+    "AOMRidgePLSCV",
+    "AOMMultiKernelRidge",
+    "AOMKernelizer",
+    "AOMMultiBranchMKL",
+    "AOMLocalRidge",
+    "FastAOMPLSRidge",
+    "FastAOMConfig",
+    "SingleChainPLSRidge",
+    "HardAOMChainPLSRidge",
+    "SoftAOMChainPLSRidge",
+    "SparseMultiKernelRidge",
+}
 
 # Lazy loading for TensorFlow models
 _tensorflow_exports = None
@@ -92,7 +91,11 @@ def _get_tensorflow_exports():
     return _tensorflow_exports
 
 def __getattr__(name):
-    """Lazy attribute access for TensorFlow models."""
+    """Lazy attribute access for native AOM/POP and TensorFlow models."""
+    if name in _SKLEARN_LAZY_EXPORTS:
+        value = getattr(import_module(".sklearn", __name__), name)
+        globals()[name] = value
+        return value
     tf_exports = _get_tensorflow_exports()
     if name in tf_exports:
         return tf_exports[name]
@@ -100,6 +103,9 @@ def __getattr__(name):
 
 __all__ = [
     "BaseModelOperator",
+    "MultimodalClassifier",
+    "MultimodalRegressor",
+    "TensorPCA",
     "PLSDA",
     "IKPLS",
     "OPLS",

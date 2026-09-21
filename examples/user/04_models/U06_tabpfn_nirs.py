@@ -27,6 +27,8 @@ single TabPFN training per dataset.
 Prerequisites
 -------------
 - ``pip install tabpfn`` (optional dependency)
+- One-time acceptance of the TabPFN model license. In non-interactive CI, set
+  ``TABPFN_TOKEN`` or provide a populated local TabPFN model cache.
 - A working GPU is recommended for n_train > 200 (TabPFN runs on CPU but
   much faster on CUDA / MPS).
 
@@ -115,7 +117,7 @@ result = nirs4all.run(
         ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
         {"model": TabPFNNIRSRegressor(n_estimators=8)},  # n_est=8 for example speed
     ],
-    dataset="examples/sample_data/regression",
+    dataset="sample_data/regression",
     verbose=0,
     random_state=42,
     name="U06_TabPFN_NIRS",

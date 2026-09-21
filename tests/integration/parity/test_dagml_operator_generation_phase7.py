@@ -40,6 +40,7 @@ from nirs4all.operators.transforms import StandardNormalVariate as SNV
 from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import ExecutionProfileError
 
+from ._conformance_helpers import assert_native_score_evidence
 from ._datasets import dataset_path
 
 pytestmark = [pytest.mark.parity]
@@ -846,7 +847,7 @@ def test_unconstrained_runs_native_at_full_parity(factory: Any) -> None:
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
     dagml, native = _run_dagml(factory())
     assert native is True, "an admitted unconstrained generator must route NATIVE, not fall back"
-    assert dagml.num_predictions == legacy.num_predictions
+    assert_native_score_evidence(dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
@@ -874,7 +875,7 @@ def test_unconstrained_demoted_shape_matches_legacy_via_python_expand(factory: A
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
     dagml, native = _run_dagml(factory())
     assert native is True, "the dag-ml engine runs the demoted generator via Python-expand (no legacy fallback)"
-    assert dagml.num_predictions == legacy.num_predictions
+    assert_native_score_evidence(dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
@@ -979,7 +980,7 @@ def test_multistep_or_runs_native_at_full_parity(factory: Any) -> None:
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
     dagml, native = _run_dagml(factory())
     assert native is True, "an admitted multi-step `_or_` must route NATIVE, not fall back"
-    assert dagml.num_predictions == legacy.num_predictions
+    assert_native_score_evidence(dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
@@ -1003,7 +1004,7 @@ def test_multistep_nested_demoted_shape_matches_legacy_via_python_expand(factory
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
     dagml, native = _run_dagml(factory())
     assert native is True, "the dag-ml engine runs the demoted slice-D generator via Python-expand (no legacy fallback)"
-    assert dagml.num_predictions == legacy.num_predictions
+    assert_native_score_evidence(dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)
 
 
@@ -1066,5 +1067,5 @@ def test_zip_chain_run_native_via_expand_at_full_parity(factory: Any) -> None:
     legacy = nirs4all.run(pipeline=factory(), dataset=_dataset(), verbose=0, engine="legacy")
     dagml, native = _run_dagml(factory())
     assert native is True, "an admitted `_zip_`/`_chain_` shape runs NATIVE-via-expand on dag-ml (no legacy fallback)"
-    assert dagml.num_predictions == legacy.num_predictions
+    assert_native_score_evidence(dagml)
     assert dagml.best_score == pytest.approx(legacy.best_score, abs=1e-3, rel=1e-3)

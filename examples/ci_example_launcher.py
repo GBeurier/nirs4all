@@ -20,6 +20,7 @@ from typing import Any
 
 FAST_ENV = "NIRS4ALL_EXAMPLE_FAST"
 FAST_DEFAULT = "1"
+ENGINE_ENV = "NIRS4ALL_EXAMPLE_ENGINE"
 
 
 def _force_utf8_io() -> None:
@@ -94,6 +95,24 @@ def _shrink_list(items: list[Any], cap: int) -> list[Any]:
         return items
     return items[:cap]
 
+
+def _conditional_parents(params: dict[str, Any]) -> set[str]:
+    """Return axes referenced by ``when``/``when_not`` clauses.
+
+    Fast mode must not trim those categorical domains: doing so can remove a
+    referenced label and turn a valid user search space into an invalid native
+    one before the example reaches n4m.
+    """
+    parents: set[str] = set()
+    for spec in params.values():
+        if not isinstance(spec, dict):
+            continue
+        for clause in ("when", "when_not"):
+            condition = spec.get(clause)
+            if isinstance(condition, dict):
+                parents.update(str(name) for name in condition)
+    return parents
+
 def _looks_like_model_step(step: Any) -> bool:
     if not isinstance(step, dict):
         return False
@@ -145,8 +164,9 @@ def _optimize_object(obj: Any) -> Any:
             if lowered == "model_params" and isinstance(optimized, dict):
                 params = copy.deepcopy(optimized)
                 # Keep search spaces tiny in CI.
+                conditional_parents = _conditional_parents(params)
                 for pkey, pvalue in list(params.items()):
-                    if isinstance(pvalue, list):
+                    if isinstance(pvalue, list) and pkey not in conditional_parents:
                         params[pkey] = _shrink_list(pvalue, 2)
                     elif isinstance(pvalue, tuple) and pvalue:
                         kind = pvalue[0]
@@ -171,6 +191,39 @@ def _optimize_object(obj: Any) -> Any:
         except Exception:
             pass
     return obj
+
+
+def _qualification_skip_reason(exc: BaseException) -> str | None:
+    """Identify declared qualification preconditions without masking code bugs."""
+    current: BaseException | None = exc
+    seen: set[int] = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        cls = type(current)
+        message = str(current)
+        if cls.__name__.startswith("TabPFN") and cls.__module__.startswith("tabpfn"):
+            return (
+                f"TabPFN model access is unavailable ({cls.__name__}). "
+                "Configure TABPFN_TOKEN or a local model cache to run this optional example"
+            )
+        if (
+            os.environ.get(ENGINE_ENV, "").strip() == "legacy"
+            and cls is ValueError
+            and message == "DataProvider requires the general DAG-ML profile; use engine='dag-ml' or omit engine"
+        ):
+            return (
+                "DataProvider is an explicitly DAG-ML-only capability. "
+                "Run this example with NIRS4ALL_EXAMPLE_ENGINE=dag-ml"
+            )
+        # DAG-ML callbacks cross the native boundary, which preserves the
+        # third-party diagnostic but not the original Python exception type.
+        if cls.__name__ == "DagMlRuntimeError" and cls.__module__ == "_dag_ml" and "TabPFN requires a one-time license acceptance" in message:
+            return (
+                "TabPFN model access is unavailable (license acceptance required). "
+                "Configure TABPFN_TOKEN or a local model cache to run this optional example"
+            )
+        current = current.__cause__ or current.__context__
+    return None
 
 def _optimize_pipeline_spec(pipeline: Any) -> Any:
     optimized = _optimize_object(pipeline)
@@ -212,6 +265,13 @@ def _patch_nirs4all_fast_mode(*, plots: bool = False) -> None:
     def fast_run(pipeline: Any, dataset: Any, **kwargs: Any) -> Any:
         pipeline = _optimize_pipeline_spec(pipeline)
         dataset = _optimize_dataset_spec(dataset)
+
+        # Qualification runs can force an explicit backend without editing all
+        # examples. Explicit per-example choices still win (notably tutorials
+        # that demonstrate a backend-specific capability).
+        qualification_engine = os.environ.get(ENGINE_ENV, "").strip()
+        if qualification_engine:
+            kwargs.setdefault("engine", qualification_engine)
 
         kwargs.setdefault("verbose", 0)
         kwargs.setdefault("show_spinner", False)
@@ -264,6 +324,8 @@ def main() -> int:
         examples_dir = example_path.parent
     if str(examples_dir) not in sys.path:
         sys.path.insert(0, str(examples_dir))
+    if str(example_path.parent) not in sys.path:
+        sys.path.insert(0, str(example_path.parent))
 
     plots_requested = "--plots" in args.example_args or "--show" in args.example_args
 
@@ -278,6 +340,12 @@ def main() -> int:
     except SystemExit as exc:
         code = exc.code if isinstance(exc.code, int) else 1
         return code
+    except Exception as exc:
+        reason = _qualification_skip_reason(exc)
+        if reason is not None:
+            print(f"[SKIP] {reason}.")
+            return 0
+        raise
     return 0
 
 if __name__ == "__main__":

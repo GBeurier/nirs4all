@@ -161,7 +161,9 @@ class StepParser:
             # If no priority keyword found, pick the first candidate
             key = matched_key if matched_key is not None else candidates[0]
 
-            operator = self._deserialize_operator(step[key])
+            operator = self._deserialize_operator(
+                step[key], strict_imports=key in self.WORKFLOW_KEYWORDS
+            )
             return ParsedStep(
                 operator=operator,
                 keyword=key,
@@ -222,7 +224,7 @@ class StepParser:
                 metadata={}
             )
 
-    def _deserialize_operator(self, value: Any) -> Any | None:
+    def _deserialize_operator(self, value: Any, *, strict_imports: bool = False) -> Any | None:
         """Deserialize an operator value if needed.
 
         Handles:
@@ -238,7 +240,10 @@ class StepParser:
 
         # Handle lists/tuples (for chained operators like y_processing)
         if isinstance(value, (list, tuple)):
-            deserialized = [self._deserialize_operator(v) for v in value]
+            deserialized = [
+                self._deserialize_operator(v, strict_imports=strict_imports)
+                for v in value
+            ]
             return deserialized if isinstance(value, list) else tuple(deserialized)
 
         # Already an instance or class type - return as-is
@@ -250,7 +255,7 @@ class StepParser:
             if '_runtime_instance' in value:
                 return value['_runtime_instance']
             if 'class' in value or 'function' in value or 'instance' in value:
-                deserialized = deserialize_component(value)
+                deserialized = deserialize_component(value, strict_imports=True)
                 if deserialized is value:
                     component_ref = (
                         value.get('class')
@@ -267,6 +272,10 @@ class StepParser:
 
         # String reference
         if isinstance(value, str):
-            return deserialize_component(value)
+            # Internal objects serialized through ``json.dumps(default=str)``
+            # are not reconstructable component references.
+            if value.startswith("<") and value.endswith(">"):
+                return None
+            return deserialize_component(value, strict_imports=strict_imports)
 
         return value

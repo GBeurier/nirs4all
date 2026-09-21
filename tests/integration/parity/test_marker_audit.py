@@ -156,6 +156,8 @@ def test_gate_classifies_each_sanctioned_skip_shape() -> None:
         "    pytest.skip('EXPECTED_REFUSAL is empty; native coverage is complete')\n"
         "def _require_methods_snv_available():\n"
         "    pytest.skip(message)\n"
+        "def test_gpu():\n"
+        "    pytest.skip('optional GPU environment unavailable: CUDA is required')\n"
     )
     result = M.audit_source("test_shapes.py", src, _ALLOWED)
     categories = {u.category for u in result.skip_uses}
@@ -170,6 +172,7 @@ def test_gate_classifies_each_sanctioned_skip_shape() -> None:
         "baseline_capture",
         "lockdrop_empty",
         "optional_env_methods",
+        "optional_env_gpu",
     }
 
 

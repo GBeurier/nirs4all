@@ -16,7 +16,7 @@ from sklearn.model_selection import ShuffleSplit
 pipeline = [
     SNV(),
     ShuffleSplit(n_splits=5),
-    {"model": AOMPLSRegressor(n_components="auto", operator_bank="compact")},
+    {"model": AOMPLSRegressor(max_components=10, cv=5)},
     {
         "model": AOMRidgeBlender(outer_cv=5, inner_cv=5),
         "train_params": {"use_pipeline_folds_for_aom": "required"},
@@ -30,16 +30,16 @@ All models below are imported from `nirs4all.operators.models`.
 
 ## Adaptive PLS (Auto-Preprocessing)
 
-These models automatically select the best preprocessing operator for each PLS component from a built-in operator bank.
+These models automatically select the best preprocessing operator for each PLS component. The regression estimators are the native `nirs4all-methods` (`n4m`) implementations; nirs4all does not keep a second Python implementation.
 
 | Class | Key Parameters | Description |
 |-------|---------------|-------------|
-| `AOMPLSRegressor` | `n_components="auto"`, `operator_bank="compact"`, `criterion="cv"`, `cv=5` | Adaptive Operator-Mixture PLS -- auto-selects preprocessing from an operator bank |
+| `AOMPLSRegressor` | `max_components=10`, `operators=None`, `cv=5`, `fold_ids=None`, `center_x=None`, `scale_x=None` | Native n4m Adaptive Operator-Mixture PLS -- selects preprocessing and component count by CV |
 | `AOMPLSClassifier` | `n_components="auto"`, `operator_bank="compact"`, `cv=5` | AOM-PLS for classification with probability calibration |
-| `POPPLSRegressor` | `n_components=15`, `auto_select=True`, `bank=None` | Per-Operator-Per-component PLS -- selects a different operator per component via PRESS criterion |
+| `POPPLSRegressor` | `max_components=15`, `operators=None`, `cv=5`, `fold_ids=None`, `center_x=None`, `scale_x=None` | Native n4m Per-Operator-Per-component PLS -- selects a different operator per component |
 | `POPPLSClassifier` | `n_components=15`, `auto_select=True`, `bank=None` | POP-PLS for classification with probability calibration |
 
-AOM-PLS provides `default_operator_bank()` and `extended_operator_bank()` helper functions for customizing the preprocessing bank. POP-PLS provides `pop_pls_operator_bank()`.
+`operators=None` uses the native n4m default bank. For an explicit Python-side bank, use `default_operator_bank(p)`, `compact_bank(p)`, `extended_bank(p)`, or `bank_by_name(name, p)` and pass the resulting operators to `operators=`.
 
 ---
 

@@ -15,10 +15,6 @@ on:
 jobs:
   verify-examples:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        category: [user, developer, reference]
     steps:
       - name: Free disk space
         run: |
@@ -67,9 +63,9 @@ jobs:
           python -m pip install -r requirements-examples.txt
           python -m pip install -e .
 
-      - name: Run ${{ matrix.category }} examples
+      - name: Run all examples once
         run: |
           cd examples
-          chmod +x run.sh
-          ./run.sh -c ${{ matrix.category }}
-        timeout-minutes: 30
+          chmod +x run_ci_examples.sh
+          ./run_ci_examples.sh -c all -j 2 -k
+        timeout-minutes: 45

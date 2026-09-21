@@ -1,0 +1,41 @@
+name: Library usability
+description: Check real native training, held-out predictions, loaded sessions and live workspace reads.
+runs:
+  using: composite
+  steps:
+    - name: Compare native training with the Python reference
+      shell: bash
+      env:
+        OPENBLAS_NUM_THREADS: '1'
+        OMP_NUM_THREADS: '1'
+        MKL_NUM_THREADS: '1'
+        NUMEXPR_NUM_THREADS: '1'
+      run: >-
+        python scripts/bench_engine_perf.py --cases pls_small pls_medium
+        --repeats 2 --timeout 90 --max-wall-ratio 1.5 --max-rss-ratio 1.5
+        --max-score-delta 0.00001 --max-prediction-delta 0.00001
+        --json library-usability.json
+    - name: Verify scientific evidence and replay on an open workspace
+      shell: bash
+      env:
+        OPENBLAS_NUM_THREADS: '1'
+        OMP_NUM_THREADS: '1'
+        MKL_NUM_THREADS: '1'
+      run: >-
+        python -m pytest -q --timeout=60
+        tests/integration/api/test_dagml_score_evidence.py
+        tests/integration/api/test_dagml_workspace_chains.py
+        tests/integration/api/test_workspace_upgrade.py
+        tests/integration/api/test_legacy_artifact_identity.py
+        tests/integration/api/test_concurrent_imports.py
+        tests/integration/api/test_general_dag_archive.py
+        tests/unit/data/test_origin_batching.py
+        tests/unit/pipeline/storage/test_workspace_readonly.py
+        tests/regression/test_workspace_store_read_contract.py
+    - name: Preserve paired timing and prediction evidence
+      if: always()
+      uses: actions/upload-artifact@v7
+      with:
+        name: library-usability-${{ runner.os }}
+        path: library-usability.json
+        if-no-files-found: warn

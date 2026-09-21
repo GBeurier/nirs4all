@@ -7,12 +7,18 @@ from typing import Any, cast
 import yaml
 
 WORKFLOW_PATH = Path(__file__).resolve().parents[3] / ".github/workflows/publish.yml"
+WORKFLOWS_DIR = WORKFLOW_PATH.parent
 PYPROJECT_PATH = Path(__file__).resolve().parents[3] / "pyproject.toml"
 
 
 def _load_workflow() -> dict[str, Any]:
     # BaseLoader keeps GitHub's ``on`` key as a string instead of YAML 1.1 bool.
     return cast(dict[str, Any], yaml.load(WORKFLOW_PATH.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
+
+
+def _load_named_workflow(name: str) -> dict[str, Any]:
+    path = WORKFLOWS_DIR / name
+    return cast(dict[str, Any], yaml.load(path.read_text(encoding="utf-8"), Loader=yaml.BaseLoader))
 
 
 def test_manual_dispatch_is_build_only_and_release_publication_is_verified() -> None:
@@ -58,11 +64,11 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
 
     dependencies = set(pyproject["project"]["dependencies"])
     assert {
-        "dag-ml>=0.3.25,<0.4",
+        "dag-ml>=0.3.26,<0.4",
         "dag-ml-data>=0.2.11,<0.3",
-        "nirs4all-io>=0.1.18,<0.2",
+        "nirs4all-io>=0.2.0,<0.3",
         "nirs4all-core>=0.3.30,<0.4",
-        "nirs4all-methods>=1.0.18,<2",
+        "nirs4all-methods>=1.0.20,<2",
     } <= dependencies
     assert pyproject["project"]["license"] == "CeCILL-2.1 OR AGPL-3.0-or-later"
     assert set(pyproject["project"]["license-files"]) == {
@@ -71,3 +77,28 @@ def test_release_metadata_closes_the_published_v1_stack_and_legal_files() -> Non
         "THIRD_PARTY_NOTICES.md",
         "LICENSES/*",
     }
+
+
+def test_github_full_gates_run_once_without_local_v1_dual_qualification() -> None:
+    """CI qualifies all tests/examples once; the exhaustive dual oracle stays local."""
+
+    for workflow_name, test_job in (
+        ("CI.yaml", "tests"),
+        ("pre-publish.yml", "run-tests"),
+        ("publish.yml", "run-tests"),
+        ("shared-test-and-docs.yml", "run-tests"),
+    ):
+        workflow = _load_named_workflow(workflow_name)
+        job = workflow["jobs"][test_job]
+        assert "strategy" not in job
+        serialized = yaml.safe_dump(job)
+        assert "tests/" in serialized
+        assert "--ignore=tests/integration/parity/test_conformance_dual_engine.py" in serialized
+
+    for workflow_name in ("CI.yaml", "pre-publish.yml", "publish.yml", "examples.yml"):
+        workflow = _load_named_workflow(workflow_name)
+        job_name = "tests" if workflow_name == "CI.yaml" else "verify-examples"
+        job = workflow["jobs"][job_name]
+        assert "strategy" not in job
+        serialized = yaml.safe_dump(job)
+        assert "run_ci_examples.sh -c all -j 2 -k" in serialized

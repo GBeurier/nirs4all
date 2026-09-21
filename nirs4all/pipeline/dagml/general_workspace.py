@@ -10,27 +10,8 @@ import hashlib
 import io
 import json
 import sqlite3
-import time
 from pathlib import Path
 from typing import Any
-
-_SQLITE_SIDECAR_SETTLE_SECONDS = 0.5
-_SQLITE_SIDECAR_POLL_SECONDS = 0.01
-
-
-def _wait_for_sqlite_sidecars(sidecars: list[Path]) -> None:
-    """Wait briefly for a just-closed SQLite owner to finish unlinking sidecars.
-
-    SQLite closes and checkpoints the workspace synchronously, but visibility of
-    its sidecar unlink can lag the connection close on macOS and Windows.  This
-    bounded, read-only settle period never removes a journal: a persistent WAL,
-    SHM, or rollback journal still fails closed before trusted bytes are loaded.
-    """
-    deadline = time.monotonic() + _SQLITE_SIDECAR_SETTLE_SECONDS
-    while any(path.exists() for path in sidecars):
-        if time.monotonic() >= deadline:
-            raise RuntimeError("DAG workspace replay refuses an active SQLite journal")
-        time.sleep(_SQLITE_SIDECAR_POLL_SECONDS)
 
 
 def load_general_workspace_chain(workspace_path: str | Path, chain_id: str) -> dict[str, Any] | None:
@@ -44,19 +25,14 @@ def load_general_workspace_chain(workspace_path: str | Path, chain_id: str) -> d
     database = root / "store.sqlite"
     if not database.is_file():
         return None
-    sidecars = [Path(f"{database}{suffix}") for suffix in ("-wal", "-shm", "-journal")]
-
-    def signature() -> tuple[int, int, int, int]:
-        _wait_for_sqlite_sidecars(sidecars)
-        stat = database.stat()
-        return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
-
-    before = signature()
-    # Replay is a reader, not a store owner: never migrate, reconcile arrays,
-    # enable WAL, or create files while inspecting a captured predictor.
-    connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    # A workspace is mutable while Studio or another run holds it open. A
+    # read-only SQLite transaction includes committed WAL data and keeps all
+    # metadata queries on one snapshot; immutable=1 would ignore that WAL.
+    # Do not instantiate WorkspaceStore: readers must not migrate or reconcile.
+    connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
+        connection.execute("BEGIN")
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version != SCHEMA_VERSION:
             raise RuntimeError(f"DAG workspace replay requires schema {SCHEMA_VERSION}, got {version}")
@@ -92,9 +68,7 @@ def load_general_workspace_chain(workspace_path: str | Path, chain_id: str) -> d
                 pipeline_record[field] = json.loads(value) if value is not None else None
     finally:
         connection.close()
-        if signature() != before:
-            raise RuntimeError("DAG workspace replay detected a database change during immutable read")
-    # The immutable metadata snapshot and exact payload hash are verified before
+    # The transaction metadata snapshot and exact payload hash are verified before
     # any trusted Python object is reconstructed, even if its path is replaced.
     artifact = joblib.load(io.BytesIO(payload))
     if not isinstance(artifact, dict) or not callable(getattr(artifact.get("estimator"), "predict", None)):

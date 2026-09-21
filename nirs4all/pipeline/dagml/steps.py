@@ -93,22 +93,38 @@ def _is_fqn_importable(operator: Any) -> bool:
 def _params_losslessly_serializable(operator: Any) -> bool:
     """True when ``operator``'s ``get_params()`` survive the routing's JSON round-trip with NO information loss.
 
-    The runtime reconstructs an X-transform with ``cls(**json_params)`` where ``json_params`` come from
-    :func:`~nirs4all.pipeline.dagml_bridge._json_safe_params` — ``json.dumps(get_params(), default=repr)``.
-    The ``default=repr`` fallback stringifies any non-JSON value (a callable, a fitted object, an
-    ``np.ufunc`` …) into its ``repr`` — e.g. ``FunctionTransformer(func=lambda x: x)`` becomes
-    ``func="<function <lambda> at 0x…>"``, which the constructor then receives as a STRING, crashing
-    uncaught in ``fit``. So a param set is reconstructible only when it serializes WITHOUT hitting that
-    fallback: ``json.dumps(get_params())`` (no ``default``) must succeed. A bare CLASS step carries no
-    instance params (the bridge emits ``{}`` for it), so it is trivially serializable.
+    Use the same nested-component encoding as the runtime, without its repr
+    fallback. Validate raw constructor leaves before component serialization,
+    including those inside ColumnTransformer or Pipeline; a local function must
+    not become an unresolved import that is discovered after training starts.
+    A bare class carries no constructor parameters in the bridge.
     """
     import json
 
     if isinstance(operator, type):
         return True
+    from .operator_parameters import encode_constructor_value
+
     try:
-        json.dumps(operator.get_params())
-    except (TypeError, ValueError):
+        params = operator.get_params(deep=False)
+        pending = list(params.values())
+        while pending:
+            value = pending.pop()
+            if isinstance(value, dict):
+                pending.extend(value.values())
+            elif isinstance(value, (list, tuple)):
+                pending.extend(value)
+            elif isinstance(value, type):
+                if not _is_fqn_importable(value):
+                    return False
+            elif callable(getattr(value, "get_params", None)):
+                if not _is_fqn_importable(value):
+                    return False
+                pending.extend(value.get_params(deep=False).values())
+            else:
+                json.dumps(value)
+        json.dumps(encode_constructor_value(params))
+    except (TypeError, ValueError, ImportError, AttributeError):
         return False
     return True
 
@@ -324,32 +340,6 @@ def _split_pipeline(pipeline: list[Any]) -> tuple[list[Any], Any]:
     steps = [step for step in pipeline if step is not splitter_original and step is not None]
     splitter = splitter_step
     return steps, splitter
-
-
-def _legacy_skips_refit(splitter: Any) -> bool:
-    """Whether LEGACY would SKIP the standalone refit pass for this splitter (→ no ``(final, *)`` rows).
-
-    The legacy refit gate is NOT "shuffle=False" — it is a SERIALIZATION artifact of
-    ``execution.refit.executor.execute_simple_refit``: it reloads the winning config's ``expanded_steps``
-    and calls ``_step_is_splitter`` on each, which recognizes ONLY a live splitter instance or a
-    ``{"class": ...}`` dict — NOT a bare class-name STRING. ``serialize_component`` collapses a splitter
-    with NO non-default params (``KFold()`` / ``KFold(n_splits=5)`` / ``KFold(shuffle=False)`` /
-    ``ShuffleSplit()`` / ``ShuffleSplit(n_splits=10)`` / …) to that bare string, so legacy finds no
-    splitter, logs "No cross-validation detected … Skipping refit", and emits NO refit ``(final, train)`` /
-    ``(final, test)`` rows. Any non-default param (``KFold(n_splits=3)``, ``ShuffleSplit(n_splits=3,
-    random_state=42)``) serializes to a dict → legacy refits.
-
-    We reproduce the EXACT gate by reusing the SAME ``serialize_component`` (no hand-rolled heuristic):
-    the refit is skipped iff the splitter serializes to a bare string. ``None`` (no splitter) is handled
-    upstream — every CV+refit path requires a splitter — so it conservatively does NOT skip.
-    """
-    if splitter is None:
-        return False
-    if isinstance(splitter, DagMlSplitStep):
-        splitter = splitter.splitter
-    from nirs4all.pipeline.config.component_serialization import serialize_component
-
-    return isinstance(serialize_component(splitter), str)
 
 
 def _taggers_from_step(step: Any) -> list[tuple[str, Any]] | None:

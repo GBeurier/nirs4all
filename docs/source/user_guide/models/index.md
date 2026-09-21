@@ -136,10 +136,10 @@ NIRS4ALL includes specialized models optimized for spectroscopy:
 ```python
 from nirs4all.operators.models import AOMPLSRegressor, AOMRidgeBlender, POPPLSRegressor
 
-# AOM-PLS: auto-selects best preprocessing from operator bank
+# Native n4m AOM-PLS: select preprocessing and component count by CV
 pipeline = [
     KFold(n_splits=5),
-    {"model": AOMPLSRegressor(n_components="auto", operator_bank="compact")}
+    {"model": AOMPLSRegressor(max_components=10, cv=5)}
 ]
 
 # AOM-Ridge Blender: strong split-aware operator-mixture Ridge recipe
@@ -151,10 +151,10 @@ pipeline = [
     },
 ]
 
-# POP-PLS: selects different operator per component (no holdout needed)
+# Native n4m POP-PLS: selects a different operator per component
 pipeline = [
     KFold(n_splits=5),
-    {"model": POPPLSRegressor(n_components=15, auto_select=True)}
+    {"model": POPPLSRegressor(max_components=15, cv=5)}
 ]
 ```
 

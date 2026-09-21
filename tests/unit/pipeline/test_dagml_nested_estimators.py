@@ -52,6 +52,23 @@ def test_plain_parameters_and_marker_like_user_mappings_are_preserved():
     assert decode_constructor_value("sklearn.linear_model.Ridge") == "sklearn.linear_model.Ridge"
 
 
+def test_dataclass_constructor_parameter_roundtrips_as_its_runtime_type():
+    from nirs4all.operators.models import FastAOMConfig, FastAOMPLSRidge
+
+    config = FastAOMConfig(
+        model="sparse_mkr",
+        max_chain_depth=2,
+        top_global=12,
+        sparse_mkr_max_chains=4,
+        random_state=42,
+    )
+    model = FastAOMPLSRidge(config=config)
+    params = _json_safe_params(model)
+    restored = route_operator("model", _qualname(model), params)
+    assert isinstance(restored.config, FastAOMConfig)
+    assert restored.config == config
+
+
 @pytest.mark.parametrize("classification", [False, True])
 def test_public_stacking_executes_real_dag_and_captures_fitted_model(classification, monkeypatch, tmp_path):
     import nirs4all

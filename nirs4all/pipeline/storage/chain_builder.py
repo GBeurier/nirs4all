@@ -100,8 +100,9 @@ class ChainBuilder:
             if step.branch_path:
                 branch_path = step.branch_path
 
-            # Is this a model step (has fold artifacts)?
-            if step.artifacts.fold_artifact_ids:
+            # Training without CV creates a primary artifact, not fold artifacts.
+            # The explicit trace role still identifies each distinct model.
+            if step.artifacts.fold_artifact_ids or step.operator_type in ("model", "meta_model"):
                 model_steps.append(step)
             elif step.artifacts.artifact_ids:
                 shared_artifact_entries.append((step, list(step.artifacts.artifact_ids)))
@@ -120,12 +121,21 @@ class ChainBuilder:
             for fold_id, artifact_id in model_step.artifacts.fold_artifact_ids.items():
                 fold_artifacts[normalize_fold_key(fold_id)] = artifact_id
 
-            # Include steps up to this model step
-            chain_steps = [s for s in all_steps if s["step_idx"] <= model_step.step_index]
+            has_cv_artifacts = bool(fold_artifacts)
+            if not fold_artifacts and model_step.artifacts.primary_artifact_id:
+                # "all" is a model fitted once on the training partition; it is
+                # not evidence of CV or a separate refit evaluation.
+                fold_artifacts["fold_all"] = model_step.artifacts.primary_artifact_id
 
-            # Build shared_artifacts for THIS model only, filtering by branch path
+            # Earlier model steps are independent predictors, not transformers
+            # to apply when replaying this model (PLS exposes transform too).
+            earlier_models = {step.step_index for step in model_steps if step.step_index < model_step.step_index}
+            chain_steps = [s for s in all_steps if s["step_idx"] <= model_step.step_index and s["step_idx"] not in earlier_models]
+
+            # Include only preprocessing already applied when this model fitted.
             shared_artifacts = self._collect_shared_artifacts(
-                shared_artifact_entries, model_step.branch_path
+                [(step, ids) for step, ids in shared_artifact_entries if step.step_index <= model_step.step_index],
+                model_step.branch_path,
             )
 
             chains.append({
@@ -133,7 +143,7 @@ class ChainBuilder:
                 "model_step_idx": model_step.step_index,
                 "model_class": model_step.operator_class,
                 "preprocessings": preprocessings,
-                "fold_strategy": "per_fold" if fold_artifacts else "shared",
+                "fold_strategy": "per_fold" if has_cv_artifacts else "shared",
                 "fold_artifacts": fold_artifacts,
                 "shared_artifacts": shared_artifacts,
                 "branch_path": model_step.branch_path or branch_path,

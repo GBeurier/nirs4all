@@ -1,4 +1,4 @@
-"""Bounded, immutable model metadata reads owned by the workspace library."""
+"""Bounded, transactional model metadata reads owned by the workspace library."""
 
 from __future__ import annotations
 
@@ -14,28 +14,21 @@ from nirs4all.pipeline.storage.store_schema import SCHEMA_VERSION
 def read_model_catalogue(workspace_path: str | Path, *, max_models: int = 10000) -> list[dict[str, Any]]:
     """Read chain summaries and metadata without opening a writable store.
 
-    This follows the immutable Studio Store-v5 read contract: active journals,
-    unsupported schemas and changes during a read are refused. No schema
-    migration, model deserialization, array reconciliation or file creation
-    occurs. The existing chain-summary SQL remains the source of score meaning.
+    One read-only transaction includes committed WAL data while another owner
+    uses the workspace. Unsupported schemas are refused without migrations,
+    model deserialization or array reconciliation. SQLite may maintain its
+    coordination files; persisted data is never written by this reader.
+    The existing chain-summary SQL remains the source of score meaning.
     """
     if type(max_models) is not int or not 0 < max_models <= 10000:
         raise ValueError("max_models must be an integer between 1 and 10000")
     database = Path(workspace_path) / "store.sqlite"
     if not database.is_file():
         raise FileNotFoundError(f"WorkspaceStore database not found: {database}")
-    sidecars = [Path(f"{database}{suffix}") for suffix in ("-wal", "-shm", "-journal")]
-
-    def signature() -> tuple[int, int, int, int]:
-        if any(path.exists() for path in sidecars):
-            raise RuntimeError("Model catalogue refuses an active SQLite journal")
-        stat = database.stat()
-        return stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns
-
-    before = signature()
-    connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro&immutable=1", uri=True)
+    connection = sqlite3.connect(f"{database.resolve().as_uri()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
+        connection.execute("BEGIN")
         version = connection.execute("PRAGMA user_version").fetchone()[0]
         if version != SCHEMA_VERSION:
             raise RuntimeError(f"Model catalogue requires WorkspaceStore schema {SCHEMA_VERSION}, got {version}")
@@ -57,5 +50,3 @@ def read_model_catalogue(workspace_path: str | Path, *, max_models: int = 10000)
         return result
     finally:
         connection.close()
-        if signature() != before:
-            raise RuntimeError("Model catalogue detected a database change during immutable read")

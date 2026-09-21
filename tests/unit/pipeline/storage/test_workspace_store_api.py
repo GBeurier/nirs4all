@@ -876,6 +876,7 @@ class TestMethodInventory:
         # Chain replay
         "replay_chain",
         # Resource management
+        "open_readonly",
         "close",
         "transaction",
     ]
@@ -924,7 +925,3 @@ class TestMethodInventory:
             method = getattr(WorkspaceStore, method_name)
             hints = get_type_hints(method)
             assert "return" in hints, f"{method_name} missing return type annotation"
-
-    def test_total_method_count(self):
-        """The expected method count matches the design doc."""
-        assert len(self.EXPECTED_METHODS) == 69

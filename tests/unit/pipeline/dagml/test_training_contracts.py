@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -72,6 +73,9 @@ def test_assemble_training_request_reproduces_and_validates_native_fixture() -> 
     assembled = assemble_training_request(spec)
 
     assert assembled == source
+    gpu_request = assemble_training_request(replace(spec, gpu_devices=("cuda:0",)))
+    assert gpu_request["options"]["resources"]["gpu_devices"] == ["cuda:0"]
+    assert gpu_request["request_fingerprint"] != assembled["request_fingerprint"]
     dag_ml = pytest.importorskip("dag_ml")
     if not hasattr(dag_ml, "TrainingRequest"):
         pytest.skip("installed dag_ml does not expose TrainingRequest validation yet")

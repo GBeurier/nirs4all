@@ -50,6 +50,9 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
         manifest = json.loads(archive.read("manifest.json"))
         if not isinstance(manifest, dict) or manifest.get("source_type") != "dagml_native":
             raise ValueError("archive is not a captured DAG host-model archive")
+        from .multimodal_contracts import validate_dependencies
+
+        validate_dependencies(manifest)
         members = [name for name in names if name.startswith("artifacts/") and not name.endswith("/")]
         if len(members) != 1 or not members[0].endswith(".joblib"):
             raise ValueError("general archive requires exactly one captured host-model payload")
@@ -73,18 +76,37 @@ def load_general_archive(path: str | Path, *, expected_archive_fingerprint: str 
         "manifest": manifest, "archive_fingerprint": archive_fingerprint,
         "artifact_integrity_verified": expected is not None,
         "pipeline": [{"model": model}],
-        "model_name": source.stem,
+        "model_name": source.stem, "source_path": source.resolve(),
     }
 
 
-def predict_general_archive(path: str | Path, data: Any, *, expected_archive_fingerprint: str | None = None) -> PredictResult:
+def predict_general_archive(
+    path: str | Path,
+    data: Any,
+    *,
+    expected_archive_fingerprint: str | None = None,
+    loaded_archive: dict[str, Any] | None = None,
+) -> PredictResult:
     """Replay a captured aggregate model; no old executor or retraining is used."""
     from nirs4all.api.result import PredictResult
 
     from .dataset import _materialize_dataset
     from .general_replay import predict_captured_artifact
 
-    loaded = load_general_archive(path, expected_archive_fingerprint=expected_archive_fingerprint)
+    if loaded_archive is None:
+        loaded = load_general_archive(path, expected_archive_fingerprint=expected_archive_fingerprint)
+    else:
+        loaded = loaded_archive
+        source = Path(path)
+        if source.resolve() != loaded["source_path"] or expected_archive_fingerprint != loaded["archive_fingerprint"]:
+            raise ValueError("general Session archive cache does not match its source")
+        # Keep the exact source binding on every platform, including Windows
+        # where ctime can mean creation time. Stream the digest with bounded
+        # memory, reusing the verified model without decompression or unpickling.
+        with source.open("rb") as stream:
+            fingerprint = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
+        if fingerprint != loaded["archive_fingerprint"]:
+            raise ValueError("general Session source archive changed after loading")
     values, metadata = predict_captured_artifact(
         loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"],
         target_names=loaded["manifest"].get("target_names", ["y"]),

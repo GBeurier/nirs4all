@@ -5,6 +5,7 @@ import json
 import time
 from collections.abc import Mapping
 from typing import Any, Optional
+from uuid import uuid4
 
 from nirs4all.core.logging import get_logger
 from nirs4all.data.dataset import SpectroDataset
@@ -267,6 +268,14 @@ class PipelineExecutor:
         else:
             # For predict/explain modes, use temporary UID
             pipeline_uid = f"temp_{pipeline_hash}"
+
+        # Artifact identity must distinguish executions even for memory-only or
+        # parallel workers without a store. Configuration names are not unique:
+        # the same pipeline can fit different data in consecutive runs.
+        if self.mode == "train" and pipeline_id is None:
+            pipeline_uid = str(uuid4())
+        if runtime_context and self.mode == "train":
+            runtime_context.pipeline_uid = pipeline_uid
 
         # Always set pipeline_name on runtime context for controllers
         if runtime_context:

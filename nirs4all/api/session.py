@@ -238,6 +238,7 @@ class Session:
         self._bundle_path: Path | None = None  # Set when loading from bundle
         self._general_archive_path: Path | None = None
         self._general_archive_fingerprint: str | None = None
+        self._general_archive: dict[str, Any] | None = None
         self._core_archive_path: Path | None = None
         self._core_archive_validation: tuple[Path, CoreArchiveValidation] | None = None
         self._core_archive_fingerprint: str | None = None
@@ -645,7 +646,11 @@ class Session:
             if kwargs:
                 raise TypeError(f"general Session prediction does not accept options: {sorted(kwargs)}")
             if self._general_archive_path is not None:
-                return predict_general_archive(self._general_archive_path, dataset, expected_archive_fingerprint=self._general_archive_fingerprint)
+                return predict_general_archive(
+                    self._general_archive_path, dataset,
+                    expected_archive_fingerprint=self._general_archive_fingerprint,
+                    loaded_archive=self._general_archive,
+                )
             assert self._last_result is not None
             return predict_general_result(self._last_result, dataset)
 
@@ -886,6 +891,7 @@ class Session:
         self._core_archive_fingerprint = None
         self._general_archive_path = None
         self._general_archive_fingerprint = None
+        self._general_archive = None
         self._closed = True
         self._status = "closed"
 
@@ -1003,6 +1009,7 @@ def load_session(
         loaded._status = "trained"
         loaded._general_archive_path = path
         loaded._general_archive_fingerprint = archive["archive_fingerprint"]
+        loaded._general_archive = archive
         return loaded
 
     from nirs4all.pipeline.bundle import BundleLoader

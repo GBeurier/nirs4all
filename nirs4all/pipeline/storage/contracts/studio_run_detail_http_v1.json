@@ -70,7 +70,7 @@
       "pipeline_runner_construction": "forbidden"
     },
     "scope": "store_v5_owner_inputs_only",
-    "open_mode": "composed_immutable_reads_guarded_by_before_after_database_stamp",
+    "open_mode": "single_sqlite_read_only_transaction",
     "writes_or_cache": "forbidden",
     "not_found": "null"
   },
@@ -91,7 +91,7 @@
       "entry_fields": ["pipeline_id", "splitter"],
       "splitter": "splitter_config_output_or_null",
       "materialization": "derived_by_owner_oracle_before_consumer_boundary",
-      "materialization_time": "immutable_owner_read",
+      "materialization_time": "transactional_owner_read",
       "consumer_reimplementation": "forbidden",
       "consumer_expanded_config_access": "forbidden"
     },

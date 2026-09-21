@@ -46,9 +46,6 @@ class IndexStore:
 
     def __init__(self) -> None:
         """Initialize the index store with an empty DataFrame."""
-        # Enable StringCache for consistent categorical encodings
-        pl.enable_string_cache()
-
         # Track dynamic tag columns (name -> dtype)
         self._tag_columns: dict[str, pl.DataType] = {}
 

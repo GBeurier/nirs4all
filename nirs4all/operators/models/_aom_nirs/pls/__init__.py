@@ -1,42 +1,30 @@
-"""AOM_v0: Operator-Adaptive Partial Least Squares.
+"""Shared AOM operator helpers and Python classification implementations.
 
-Public package for the Operator-Adaptive PLS framework. The package implements
-standard PLS, AOM (global) selection, POP (per-component) selection, soft
-mixtures, and superblock baselines, all in a unified estimator family. Both
-NIPALS and SIMPLS engines are provided, with materialized references and fast
-covariance/adjoint variants.
-
-The mathematical convention is `(X A^T)^T Y = A X^T Y`, which lets covariance
-SIMPLS evaluate operator candidates in the cross-covariance space.
-
-The package targets `bench/AOM_v0` and is independent from the production
-`nirs4all` library.
+The AOM/POP regressors are native n4m estimators. The remaining helpers are
+used by the classification and AOM-Ridge surfaces that have not moved to n4m.
 """
 
-from .operators import (
-    LinearSpectralOperator,
-    IdentityOperator,
-    SavitzkyGolayOperator,
-    FiniteDifferenceOperator,
-    DetrendProjectionOperator,
-    NorrisWilliamsOperator,
-    WhittakerOperator,
-    ComposedOperator,
-    ExplicitMatrixOperator,
-)
+from contextlib import suppress
+
+from n4m.model_selection.aom_search import AOMPLSRegressor, POPPLSRegressor
+
 from .banks import (
+    bank_by_name,
     compact_bank,
     default_bank,
     extended_bank,
-    bank_by_name,
+)
+from .operators import (
+    ComposedOperator,
+    DetrendProjectionOperator,
+    ExplicitMatrixOperator,
+    FiniteDifferenceOperator,
+    IdentityOperator,
+    LinearSpectralOperator,
+    NorrisWilliamsOperator,
+    SavitzkyGolayOperator,
+    WhittakerOperator,
 )
 
-# Lazy imports for higher-level components so that lower-level modules can be
-# imported in isolation during incremental development and tests.
-try:  # pragma: no cover - import-time guard
-    from .estimators import AOMPLSRegressor, POPPLSRegressor  # noqa: F401
+with suppress(ImportError):  # pragma: no cover - import-time guard
     from .classification import AOMPLSDAClassifier, POPPLSDAClassifier  # noqa: F401
-except ImportError:  # pragma: no cover
-    pass
-
-__version__ = "0.10.2"

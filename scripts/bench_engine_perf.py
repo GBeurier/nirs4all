@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Engine performance comparison: nirs4all legacy vs dag-ml (RC-D flip-gate probe).
+"""Engine usability gate: real training and predictions, legacy vs DAG-ML.
 
 Measures the SAME seeded pipeline+dataset case on both engines and reports wall time, peak RSS,
 and the dag-ml/legacy overhead ratio the cutover decision needs (see
@@ -7,13 +7,18 @@ and the dag-ml/legacy overhead ratio the cutover decision needs (see
 
 Each (case, engine, repeat) measurement runs in a FRESH subprocess so:
 
-* peak RSS (``ru_maxrss``) is per-engine, not polluted by the other engine's allocations;
+* native OS peak RSS is per-engine, not polluted by the other engine's allocations;
 * module import / JIT / cache state cannot leak between engines or repeats;
 * the engine is selected per-child via ``$N4A_ENGINE`` — no in-process engine switching.
 
 The reported ``wall_s`` times ONLY the ``nirs4all.run()`` call (post-import), which is the engine
 comparison that matters; ``total_s`` (interpreter start → exit) and ``peak_rss_mb`` are recorded for
-context. Scores are captured per engine so a perf row can never silently hide a broken run.
+context. Each child has an isolated temporary workspace and a hard timeout.
+Twenty percent of samples are held out: every final prediction must match the
+reference. OOF scores are compared after averaging repeated validation predictions
+per unique sample, since legacy concatenation and native sample averaging have
+different public score semantics. Prediction-row counts are diagnostic only:
+DAG-ML exposes actual score evidence and does not create legacy-shaped filler rows.
 
 Usage (from the nirs4all repo root, with the venv + the dag-ml/dag-ml-data bindings you want to
 measure on ``PYTHONPATH``)::
@@ -96,19 +101,88 @@ pipeline = [MinMaxScaler(), ShuffleSplit(n_splits=3, test_size=0.25, random_stat
 """,
 }
 
+def _peak_rss_mb() -> float:
+    """Read process peak resident memory with the native OS accounting API."""
+    if sys.platform != "win32":
+        import resource
+
+        peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        return float(peak) / (1024.0 * 1024.0 if sys.platform == "darwin" else 1024.0)
+    import ctypes
+    from ctypes import wintypes
+
+    class ProcessMemoryCounters(ctypes.Structure):
+        _fields_ = [
+            ("cb", wintypes.DWORD), ("PageFaultCount", wintypes.DWORD),
+            *[(field, ctypes.c_size_t) for field in (
+                "PeakWorkingSetSize", "WorkingSetSize", "QuotaPeakPagedPoolUsage", "QuotaPagedPoolUsage",
+                "QuotaPeakNonPagedPoolUsage", "QuotaNonPagedPoolUsage", "PagefileUsage", "PeakPagefileUsage",
+            )],
+        ]
+
+    current_process = ctypes.windll.kernel32.GetCurrentProcess
+    current_process.restype = wintypes.HANDLE
+    get_memory_info = ctypes.windll.psapi.GetProcessMemoryInfo
+    get_memory_info.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessMemoryCounters), wintypes.DWORD]
+    get_memory_info.restype = wintypes.BOOL
+    counters = ProcessMemoryCounters()
+    counters.cb = ctypes.sizeof(counters)
+    if not get_memory_info(current_process(), ctypes.byref(counters), counters.cb):
+        raise ctypes.WinError()
+    return float(counters.PeakWorkingSetSize) / (1024.0 * 1024.0)
+
+
+def _canonical_oof_rmse(rows: list[dict]) -> float:
+    """Score unique validation samples after averaging their fold predictions.
+
+    ShuffleSplit can validate a sample repeatedly. Legacy's public aggregate
+    concatenates fold observations while DAG-ML averages predictions per sample;
+    comparing those scalar scores would compare different estimands. This gate
+    rebuilds the same sample-level estimand from each engine's actual fold rows.
+    """
+    import numpy as np
+
+    samples: dict[int, tuple[float, list[float]]] = {}
+    for row in rows:
+        if row.get("partition") != "val" or str(row.get("fold_id")) in {"avg", "w_avg", "final"}:
+            continue
+        indices = row["sample_indices"]
+        targets = np.asarray(row["y_true"], dtype=float).ravel()
+        predictions = np.asarray(row["y_pred"], dtype=float).ravel()
+        if not len(indices) or len(indices) != len(targets) or len(indices) != len(predictions):
+            raise ValueError("OOF fold arrays are missing or misaligned")
+        for index, target, prediction in zip(indices, targets, predictions, strict=True):
+            index, target, prediction = int(index), float(target), float(prediction)
+            if not math.isfinite(target) or not math.isfinite(prediction):
+                raise ValueError("OOF sample values must be finite")
+            if index in samples:
+                if samples[index][0] != target:
+                    raise ValueError("OOF sample has inconsistent targets across folds")
+                samples[index][1].append(prediction)
+            else:
+                samples[index] = (target, [prediction])
+    if not samples:
+        raise ValueError("run did not produce OOF sample evidence")
+    return math.sqrt(sum((target - sum(values) / len(values)) ** 2 for target, values in samples.values()) / len(samples))
+
+
 _CHILD_TEMPLATE = """
-import json, math, os, resource, sys, time
+import json, math, os, sys, tempfile, time
+from scripts.bench_engine_perf import _canonical_oof_rmse, _peak_rss_mb
 t0 = time.perf_counter()
 {case_source}
+dataset = (*dataset, {{"train": int(len(dataset[0]) * 0.8)}})
 import nirs4all
 requested_engine = os.environ["N4A_ENGINE"]
 t_import = time.perf_counter() - t0
 t1 = time.perf_counter()
 result = None
+workspace = tempfile.TemporaryDirectory(prefix="nirs4all-perf-")
 try:
     result = nirs4all.run(
         pipeline=pipeline,
         dataset=dataset,
+        workspace_path=workspace.name,
         verbose=0,
         random_state=0,
         engine=requested_engine,
@@ -118,10 +192,23 @@ try:
         plots_visible=False,
     )
     wall = time.perf_counter() - t1
-    raw_best = result.best_score
-    best = None if raw_best is None else float(raw_best)
-    if best is not None and not math.isfinite(best):
-        best = None
+    reported_cv_score = float(result.cv_best_score)
+    if not math.isfinite(reported_cv_score):
+        raise RuntimeError("run did not produce a finite CV score")
+    selected_cv = result.cv_best
+    cv_rows = result.predictions.filter_predictions(config_name=selected_cv["config_name"], partition="val", load_arrays=True)
+    best = _canonical_oof_rmse(cv_rows)
+    if requested_engine == "dag-ml" and abs(best - reported_cv_score) > 1e-5:
+        raise RuntimeError("native CV score disagrees with sample-level OOF predictions")
+    final_rows = result.predictions.filter_predictions(
+        partition="test", fold_id="final", config_name=result.best["config_name"],
+        model_name=result.best["model_name"], load_arrays=True,
+    )
+    if len(final_rows) != 1:
+        raise RuntimeError("run did not produce one selected refit prediction on held-out data")
+    test_predictions = np.asarray(final_rows[0]["y_pred"], dtype=float).ravel()
+    if test_predictions.size != len(dataset[0]) - dataset[2]["train"] or not np.isfinite(test_predictions).all():
+        raise RuntimeError("held-out refit predictions are missing or non-finite")
     per_dataset = getattr(result, "per_dataset", {{}})
     engine_tags = sorted(
         {{str(info.get("engine")) for info in per_dataset.values() if isinstance(info, dict) and info.get("engine") is not None}}
@@ -134,7 +221,6 @@ try:
             f"(engine_tags={{engine_tags!r}}, is_dagml_result={{is_dagml_result!r}}, fallback_diagnostics={{fallback_diagnostics!r}})"
         )
     engine_observed = "dag-ml" if is_dagml_result else ("legacy/fallback" if fallback_diagnostics else "unknown")
-    peak_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss  # KiB on Linux
     payload = {{
         "engine_requested": requested_engine,
         "engine_observed": engine_observed,
@@ -146,24 +232,34 @@ try:
         }},
         "wall_s": wall,
         "import_s": t_import,
-        "peak_rss_mb": peak_kb / 1024.0,
+        "peak_rss_mb": _peak_rss_mb(),
         "num_predictions": result.num_predictions,
         "best_score": best,
+        "reported_cv_score": reported_cv_score,
+        "cv_score_semantics": "rmse_after_mean_prediction_per_unique_sample",
+        "test_predictions": test_predictions.tolist(),
     }}
 finally:
     close = getattr(result, "close", None)
     if callable(close):
         close()
+    workspace.cleanup()
 print("@@RESULT@@" + json.dumps(payload))
 """
 
 
-def _run_child(case: str, engine: str, python: str) -> dict[str, object]:
+def _run_child(case: str, engine: str, python: str, *, timeout: float = 90.0) -> dict[str, object]:
     source = _CHILD_TEMPLATE.format(case_source=CASES[case])
     env = dict(os.environ)
     env["N4A_ENGINE"] = engine
     t0 = time.perf_counter()
-    proc = subprocess.run([python, "-c", source], capture_output=True, text=True, env=env, cwd=Path(__file__).resolve().parent.parent)
+    try:
+        proc = subprocess.run(
+            [python, "-c", source], capture_output=True, text=True, env=env,
+            cwd=Path(__file__).resolve().parent.parent, timeout=timeout,
+        )
+    except subprocess.TimeoutExpired:
+        return {"error": f"child exceeded {timeout:g} seconds", "total_s": time.perf_counter() - t0}
     total = time.perf_counter() - t0
     if proc.returncode != 0:
         return {"error": (proc.stderr.strip().splitlines() or ["child failed with no stderr"])[-1], "total_s": total}
@@ -249,16 +345,10 @@ def _check_ratio_gates(
 ) -> list[str]:
     failures: list[str] = []
     for case, case_ratios in ratios.items():
-        comparison_available = case_ratios.get("wall") is not None or case_ratios.get("rss") is not None
-        prediction_delta = case_ratios.get("predictions_delta_abs")
-        if comparison_available and prediction_delta is None:
-            failures.append(f"{case}: prediction count comparison unavailable")
-        elif prediction_delta is not None and prediction_delta != 0:
-            failures.append(f"{case}: prediction count delta {prediction_delta:g} != 0")
         checks = (
             ("wall", max_wall_ratio, "dag-ml/legacy wall ratio"),
             ("rss", max_rss_ratio, "dag-ml/legacy RSS ratio"),
-            ("score_delta_abs", max_score_delta, "absolute best_score delta"),
+            ("score_delta_abs", max_score_delta, "absolute canonical OOF RMSE delta"),
         )
         for key, limit, label in checks:
             if limit is None:
@@ -284,6 +374,25 @@ def _check_engine_verification(results: dict[str, dict[str, dict]]) -> list[str]
         unverified = [index for index, run in enumerate(runs, start=1) if not isinstance(run, dict) or not _dagml_run_is_verified(run)]
         if unverified:
             failures.append(f"{case}: dag-ml engine verification failed for repeats {unverified}")
+    return failures
+
+
+def _check_heldout_predictions(results: dict[str, dict[str, dict]], tolerance: float) -> list[str]:
+    """Compare every native repeat to real legacy held-out predictions."""
+    failures = []
+    for case, engines in results.items():
+        legacy = engines.get("legacy", {})
+        native = engines.get("dag-ml", {})
+        if not legacy or not native or "error" in legacy or "error" in native:
+            continue
+        expected = legacy["runs"][0].get("test_predictions")
+        for engine, summary in engines.items():
+            for index, row in enumerate(summary.get("runs", []), 1):
+                actual = row.get("test_predictions")
+                if not expected or not isinstance(actual, list) or len(actual) != len(expected):
+                    failures.append(f"{case}/{engine} repeat {index}: held-out prediction evidence missing")
+                elif any(not math.isfinite(value) or abs(value - target) > tolerance for value, target in zip(actual, expected, strict=True)):
+                    failures.append(f"{case}/{engine} repeat {index}: held-out prediction difference exceeds {tolerance:g}")
     return failures
 
 
@@ -317,14 +426,18 @@ def main() -> int:
     parser.add_argument("--python", default=sys.executable, help="interpreter for measurement children")
     parser.add_argument("--max-wall-ratio", type=float, default=None, help="fail if any dag-ml/legacy wall-time ratio exceeds this limit")
     parser.add_argument("--max-rss-ratio", type=float, default=None, help="fail if any dag-ml/legacy peak-RSS ratio exceeds this limit")
-    parser.add_argument("--max-score-delta", type=float, default=None, help="fail if any absolute best_score difference exceeds this limit")
+    parser.add_argument("--max-score-delta", type=float, default=1e-5, help="maximum absolute CV score difference")
+    parser.add_argument("--max-prediction-delta", type=float, default=1e-5, help="maximum absolute held-out prediction difference")
+    parser.add_argument("--timeout", type=float, default=90.0, help="maximum seconds per fresh child")
     args = parser.parse_args()
+    if args.repeats < 1 or args.timeout <= 0 or not math.isfinite(args.timeout):
+        parser.error("repeats and timeout must be positive")
 
     results: dict[str, dict[str, dict]] = {}
     for case in args.cases:
         results[case] = {}
         for engine in args.engines:
-            runs = [_run_child(case, engine, args.python) for _ in range(args.repeats)]
+            runs = [_run_child(case, engine, args.python, timeout=args.timeout) for _ in range(args.repeats)]
             errors = [r["error"] for r in runs if "error" in r]
             if errors:
                 results[case][engine] = {"error": errors[0], "runs": runs}
@@ -345,7 +458,7 @@ def main() -> int:
             print(f"[{case} / {engine}] wall={summary['wall_s_median']:.3f}s rss={summary['peak_rss_mb_median']:.0f}MB preds={summary['num_predictions']}{verified}", file=sys.stderr)
 
     # Markdown summary with the dag-ml/legacy ratio (the cutover-decision number).
-    print("\n| case | engine | engine proof | run wall (median s) | peak RSS (MB) | preds | best_score |")
+    print("\n| case | engine | engine proof | run wall (median s) | peak RSS (MB) | preds | CV score |")
     print("|---|---|---|---|---|---|---|")
     for case, engines in results.items():
         for engine, summary in engines.items():
@@ -360,7 +473,7 @@ def main() -> int:
                 f"| {summary['num_predictions']} | {best_score_text} |"
             )
     ratios = _ratio_summary(results)
-    print("\n| case | dag-ml/legacy wall ratio | dag-ml/legacy RSS ratio | abs best_score delta | prediction count delta |")
+    print("\n| case | dag-ml/legacy wall ratio | dag-ml/legacy RSS ratio | abs CV score delta | prediction count delta |")
     print("|---|---|---|---|---|")
     for case, case_ratios in ratios.items():
         wall_ratio = case_ratios["wall"]
@@ -389,7 +502,10 @@ def main() -> int:
     engine_failures = _check_engine_verification(results)
     for failure in engine_failures:
         print(f"[gate] FAILED: {failure}", file=sys.stderr)
-    failed = failed or bool(ratio_failures) or bool(engine_failures)
+    prediction_failures = _check_heldout_predictions(results, args.max_prediction_delta)
+    for failure in prediction_failures:
+        print(f"[gate] FAILED: {failure}", file=sys.stderr)
+    failed = failed or bool(ratio_failures) or bool(engine_failures) or bool(prediction_failures)
     return 1 if failed else 0
 
 
