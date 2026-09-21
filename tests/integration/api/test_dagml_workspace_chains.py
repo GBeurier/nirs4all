@@ -92,7 +92,10 @@ def test_public_workspace_chain_and_best_dict_replay_captured_refit(tmp_path, mo
         nirs4all.predict(chain_id=selected["chain_id"], workspace_path=tmp_path, data=X),
         nirs4all.predict(selected, X),
     ):
-        np.testing.assert_array_equal(prediction.y_pred, expected)
+        # Persisted replay can present the same fitted estimator with a
+        # different contiguous layout to platform BLAS. Bound last-bit noise
+        # while retaining the no-refit and artifact-scope invariants below.
+        np.testing.assert_allclose(prediction.y_pred, expected, rtol=2e-6, atol=2e-6)
         assert prediction.metadata["phase"] == "PREDICT"
         assert prediction.metadata["artifact_scope"] == "full_training_refit"
         assert prediction.metadata["cv_artifacts_available"] is False
