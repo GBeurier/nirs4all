@@ -128,6 +128,73 @@ def test_dagml_chart_steps_render_without_changing_scores(tmp_path) -> None:
     assert len(list((tmp_path / "charts").rglob("*.html"))) >= 2
 
 
+@pytest.mark.parametrize("input_kind", ["steps", "pipeline", "str_path", "path"])
+def test_dagml_public_run_accepts_documented_pipeline_inputs(tmp_path, input_kind) -> None:
+    """General DAG execution accepts documented wrappers and YAML path types."""
+    import nirs4all
+
+    steps = [
+        {"class": "sklearn.preprocessing.StandardScaler"},
+        {"class": "sklearn.model_selection.KFold", "params": {"n_splits": 3}},
+        {"class": "sklearn.cross_decomposition.PLSRegression", "params": {"n_components": 2}},
+    ]
+    pipeline_path = tmp_path / "pipeline.yaml"
+    pipeline_path.write_text(
+        "pipeline:\n"
+        "  - class: sklearn.preprocessing.StandardScaler\n"
+        "  - class: sklearn.model_selection.KFold\n"
+        "    params:\n"
+        "      n_splits: 3\n"
+        "  - class: sklearn.cross_decomposition.PLSRegression\n"
+        "    params:\n"
+        "      n_components: 2\n",
+        encoding="utf-8",
+    )
+    pipeline = (
+        {"name": "mapped-pls", input_kind: steps}
+        if input_kind in {"steps", "pipeline"}
+        else pipeline_path if input_kind == "path" else str(pipeline_path)
+    )
+
+    result = nirs4all.run(
+        pipeline=pipeline,
+        dataset=dataset_path("regression"),
+        engine="dag-ml",
+        save_artifacts=False,
+        save_charts=False,
+        verbose=0,
+    )
+
+    assert result.num_predictions > 0
+
+
+@pytest.mark.parametrize("from_file", [False, True])
+def test_dagml_public_run_rejects_ambiguous_pipeline_mapping(tmp_path, from_file) -> None:
+    """A mapping cannot select both public wrapper aliases."""
+    import nirs4all
+
+    steps = [{"class": "sklearn.cross_decomposition.PLSRegression", "params": {"n_components": 2}}]
+    pipeline = {"steps": steps, "pipeline": steps}
+    if from_file:
+        pipeline = tmp_path / "ambiguous.yaml"
+        pipeline.write_text(
+            "steps:\n"
+            "  - class: sklearn.cross_decomposition.PLSRegression\n"
+            "pipeline:\n"
+            "  - class: sklearn.cross_decomposition.PLSRegression\n",
+            encoding="utf-8",
+        )
+    with pytest.raises(ValueError, match="either 'steps' or 'pipeline', not both"):
+        nirs4all.run(
+            pipeline=pipeline,
+            dataset=dataset_path("regression"),
+            engine="dag-ml",
+            save_artifacts=False,
+            save_charts=False,
+            verbose=0,
+        )
+
+
 def test_assembled_dsl_binds_data_and_materializes_folds() -> None:
     """The augmented DSL compiles to a plan whose model node has a data binding + a fold set."""
     import dag_ml
