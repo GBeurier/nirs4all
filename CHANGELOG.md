@@ -9,12 +9,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+---
+
+## [1.1.1] — 2026-09-21
+
 ### Fixed
 
 - Routed fitted PyTorch, TensorFlow, JAX, and other registered model artifacts
   through their framework controllers when replaying deprecated legacy Python
   `.n4a` bundles, including refit, CV, single-model, and stacking paths. DAG-ML
   and Core archive replay are unaffected because they do not use `BundleLoader`.
+- Rejected zero and negative spectral coordinates before wavelength/wavenumber
+  conversion instead of allowing silent divide-by-zero values into pipelines.
+- Made DAG-ML archive replay checks tolerate only bounded cross-platform BLAS
+  noise, and kept the missing-source multimodal example explicitly DAG-ML-only.
 
 ---
 
