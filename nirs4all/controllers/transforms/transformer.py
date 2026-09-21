@@ -114,6 +114,12 @@ class TransformerMixinController(OperatorController):
         estimator = getattr(operator, "estimator", None)
         if estimator is not None and TransformerMixinController._requires_y(estimator):
             return True
+        # sklearn's univariate selectors expose their supervised callback as
+        # score_func.  Passing y is part of that callback contract even when a
+        # particular sklearn release does not propagate requires_y through the
+        # selector's public tags (or the callable has an opaque signature).
+        if callable(getattr(operator, "score_func", None)):
+            return True
         for function in (getattr(operator, "fit", None), getattr(operator, "score_func", None)):
             if not callable(function):
                 continue

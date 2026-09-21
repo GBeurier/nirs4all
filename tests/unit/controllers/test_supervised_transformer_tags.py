@@ -31,6 +31,16 @@ def test_custom_legacy_tags_remain_supported():
     assert TransformerMixinController._requires_y(Legacy())
 
 
+def test_opaque_score_callback_still_receives_targets():
+    class SelectorWithOpaqueScore:
+        score_func = np.add
+
+        def fit(self, X, y=None):
+            return self
+
+    assert TransformerMixinController._uses_y(SelectorWithOpaqueScore())
+
+
 @pytest.mark.parametrize("selector", [{"class": "sklearn.feature_selection.SelectFdr"}, SequentialFeatureSelector(Ridge(), n_features_to_select=2, cv=2)])
 def test_real_pipeline_passes_training_targets_to_selector(tmp_path, selector):
     import nirs4all
