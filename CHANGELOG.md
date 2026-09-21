@@ -9,11 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.4] — 2026-09-21
+
 ### Fixed
 
 - Always pass training targets to supervised score callbacks used by feature
   selectors, including across scikit-learn versions with incomplete selector
   target tags.
+- Preserve finetuned model parameters in the final holdout training path and
+  constrain PLS component searches to each branch's actual sample and feature
+  dimensions.
 
 ## [1.0.3] — 2026-09-19
 
