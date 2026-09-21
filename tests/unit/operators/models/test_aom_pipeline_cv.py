@@ -4,9 +4,14 @@ from nirs4all.controllers.models.pipeline_cv import PrecomputedFoldSplitter
 from nirs4all.operators.models._aom_nirs.ridge.auto_selector import _dispatch_candidate, _subset_inner_cv
 
 
-def test_auto_selector_dispatch_passes_splitter_to_aom_pls_candidate():
+def test_auto_selector_dispatch_passes_fold_ids_to_native_aom_pls_candidate():
     splitter = PrecomputedFoldSplitter.from_folds(
-        [([0, 1, 2], [3]), ([0, 2, 3], [1])],
+        [
+            ([1, 2, 3], [0]),
+            ([0, 2, 3], [1]),
+            ([0, 1, 3], [2]),
+            ([0, 1, 2], [3]),
+        ],
         n_samples=4,
     )
     spec = {
@@ -17,8 +22,9 @@ def test_auto_selector_dispatch_passes_splitter_to_aom_pls_candidate():
 
     estimator, _ = _dispatch_candidate(spec, seed=0, inner_cv=splitter)
 
-    assert estimator.cv_splitter is splitter
     assert estimator.cv == splitter.get_n_splits()
+    np.testing.assert_array_equal(estimator.fold_ids, np.array([0, 1, 2, 3], dtype=np.int32))
+    assert estimator.operators is None
 
 
 def test_subset_inner_cv_remaps_precomputed_splitter_for_candidate_train_rows():

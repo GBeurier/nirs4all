@@ -121,3 +121,35 @@ def test_batch_session_predicts_selected_child_not_last_executed_child(monkeypat
     monkeypatch.setattr(Ridge, "fit", lambda *args, **kwargs: pytest.fail("batch replay retrained"))
     np.testing.assert_array_equal(session.predict(X).y_pred, expected)
     session.close()
+
+
+def test_loaded_session_reuses_verified_model_and_preserves_source_binding(tmp_path, monkeypatch):
+    import os
+    from pathlib import Path
+
+    import joblib
+
+    import nirs4all
+
+    X = np.random.default_rng(12).normal(size=(30, 5))
+    with nirs4all.run([KFold(3), Ridge()], (X, X[:, 0]), workspace_path=tmp_path / "workspace") as result:
+        path = result.export(tmp_path / "model.n4a")
+    with nirs4all.load_session(path) as session:
+        expected = session.predict(X).y_pred
+        monkeypatch.setattr(joblib, "load", lambda *a, **k: pytest.fail("Session deserialized its model again"))
+        monkeypatch.setattr(Path, "read_bytes", lambda *a, **k: pytest.fail("Session allocated its entire archive again"))
+        for _ in range(3):
+            np.testing.assert_array_equal(session.predict(X).y_pred, expected)
+        # Metadata-only updates must not cause another model deserialization.
+        stamp = path.stat()
+        os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns + 1_000_000))
+        np.testing.assert_array_equal(session.predict(X).y_pred, expected)
+        # Same-size replacement with restored mtime is still detected by digest.
+        stamp = path.stat()
+        with path.open("rb") as stream:
+            content = stream.read()
+        path.write_bytes(bytes([content[0] ^ 1]) + content[1:])
+        os.utime(path, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+        with pytest.raises(ValueError, match="source archive changed"):
+            session.predict(X)
+    assert session._general_archive is None

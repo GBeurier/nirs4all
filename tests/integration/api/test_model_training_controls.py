@@ -41,6 +41,41 @@ def test_unknown_controls_are_not_historically_ignored():
         controls.apply_model_training_controls(Ridge(), {"nirs4all_train_params": {"nonexistent_parameter": 19}}, "FIT_CV")
 
 
+def test_pipeline_fold_policy_is_owned_only_by_aom_models():
+    from n4m.model_selection.aom_search import AOMPLSRegressor
+
+    metadata = {"nirs4all_train_params": {"use_pipeline_folds_for_aom": "required"}}
+    evidence = controls.apply_model_training_controls(AOMPLSRegressor(), metadata, "FIT_CV")
+    assert evidence["pipeline_fold_policy_for_aom"] == "required"
+    assert evidence["model_params"] == {}
+    with pytest.raises(ValueError, match="requires an AOM estimator"):
+        controls.apply_model_training_controls(Ridge(), metadata, "FIT_CV")
+
+
+def test_materialized_pipeline_folds_are_restricted_to_the_current_aom_scope():
+    from n4m.model_selection.aom_search import AOMPLSRegressor
+
+    model = AOMPLSRegressor(cv=4)
+    fold_set = {
+        "sample_ids": [f"s{i}" for i in range(8)],
+        "folds": [
+            {
+                "fold_id": f"fold{fold}",
+                "train_sample_ids": [f"s{i}" for i in range(8) if i % 4 != fold],
+                "validation_sample_ids": [f"s{i}" for i in range(8) if i % 4 == fold],
+            }
+            for fold in range(4)
+        ],
+    }
+    metadata = {
+        "nirs4all_train_params": {"use_pipeline_folds_for_aom": "required"},
+        "nirs4all_pipeline_fold_set": fold_set,
+    }
+    assert controls.apply_pipeline_folds_to_model(model, metadata, "FIT_CV", ["s0", "s1", "s2", "s4", "s5", "s6"])
+    assert model.cv == 3
+    np.testing.assert_array_equal(model.fold_ids, np.array([0, 1, 2, 0, 1, 2], dtype=np.int32))
+
+
 def test_refit_warm_start_is_not_faked_with_fresh_estimator():
     with pytest.raises(NotImplementedError, match="CV-weight transfer"):
         controls.apply_model_training_controls(Ridge(), {"nirs4all_refit_params": {"warm_start": True}}, "REFIT")

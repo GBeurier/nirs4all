@@ -293,7 +293,7 @@ class Targets:
         """
         return self._task_type_by_processing.get(processing)
 
-    def add_targets(self, targets: np.ndarray | list | tuple) -> None:
+    def add_targets(self, targets: np.ndarray | list | tuple, *, fit_indices: list[int] | np.ndarray | None = None) -> None:
         """
         Add target samples. Can be called multiple times to append.
 
@@ -302,6 +302,10 @@ class Targets:
 
         Args:
             targets (array-like): Target data as 1D (single target) or 2D (multiple targets)
+            fit_indices: Optional training rows used to fit the initial numeric
+                converter and infer the task. All rows retain their original
+                order. Classification labels outside this subset must already
+                occur in it. Only supported on the first call.
 
         Raises:
             ValueError: If processings beyond 'raw' and 'numeric' exist
@@ -330,11 +334,37 @@ class Targets:
         elif targets.ndim != 2:
             raise ValueError(f"Targets must be 1D or 2D array, got {targets.ndim}D")
 
+        selected = None
+        if fit_indices is not None:
+            if self.num_processings != 0:
+                raise ValueError("fit_indices can only be supplied when initializing targets")
+            selected = np.asarray(fit_indices)
+            if selected.ndim != 1 or selected.size == 0 or selected.dtype.kind not in "iu":
+                raise ValueError("fit_indices must be a nonempty one-dimensional array of integer row indices")
+            if np.any(selected < 0) or np.any(selected >= len(targets)) or len(np.unique(selected)) != len(selected):
+                raise ValueError("fit_indices must contain distinct row indices within the target array")
+
         # First time: initialize structure
         if self.num_processings == 0:
-            numeric_data, transformer = self._converter.convert(
-                targets, task_type=self._task_type if self._task_type_forced else None,
+            fit_targets = targets if selected is None else targets[selected]
+            detected_task = self._task_type if self._task_type_forced else None
+            if detected_task is None and fit_targets.size > 0 and np.issubdtype(fit_targets.dtype, np.number):
+                # Infer from original training precision: float32 storage may
+                # round continuous measurements to apparent integer classes.
+                detected_task = detect_task_type(fit_targets)
+            numeric_fit, transformer = self._converter.convert(
+                fit_targets, task_type=self._task_type if self._task_type_forced else None,
             )
+            if detected_task is None and numeric_fit.size > 0:
+                detected_task = detect_task_type(numeric_fit)
+            if selected is not None:
+                if detected_task is not None and detected_task.is_classification:
+                    for column in range(targets.shape[1]):
+                        if not np.isin(targets[:, column], fit_targets[:, column]).all():
+                            raise ValueError(f"Classification target column {column} contains labels absent from training; unknown held-out classes are unsupported")
+                numeric_data, _ = self._converter.convert(targets, existing_transformer=transformer)
+            else:
+                numeric_data = numeric_fit
             # Add "raw" processing (preserves original data types)
             self._data["raw"] = targets.copy()
             self._processing_chain.add_processing("raw", ancestor=None, transformer=None)
@@ -343,9 +373,8 @@ class Targets:
             self._data["numeric"] = numeric_data
             self._processing_chain.add_processing("numeric", ancestor="raw", transformer=transformer)
 
-            # Detect task type when targets are first added (use numeric data for detection)
-            if numeric_data.size > 0:
-                detected_task = self._task_type if self._task_type_forced and self._task_type is not None else detect_task_type(numeric_data)
+            # Retain the task inferred from the original training labels.
+            if detected_task is not None:
                 self._task_type = detected_task
                 self._task_type_by_processing['numeric'] = detected_task
                 # Also store for 'raw' if it exists

@@ -9,6 +9,7 @@ into a :class:`~nirs4all.api.result.RunResult`.
 
 from __future__ import annotations
 
+import copy
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -29,7 +30,7 @@ from .folds import _build_folds, _build_group_folds, _repetition_grain, _split_g
 from .identity import mint_identity
 from .in_process_runner import run_cv_refit_bundle_router as run_cv_refit_bundle
 from .result import _frames_by_variant, _native_variant_config_map, _project_operator_sweep, _scores_to_run_result
-from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _is_split_step, _legacy_skips_refit, _model_name, _split_pipeline, _supported_body_steps
+from .steps import _apply_model_params, _apply_plain_model_params, _assert_supported_operators, _is_split_step, _model_name, _split_pipeline, _supported_body_steps
 
 
 class DuplicationBranchMergeTransformer:
@@ -237,7 +238,7 @@ def _run_native_generation(
     )
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id)
     return _scores_to_run_result(
-        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, skip_refit=_legacy_skips_refit(splitter), results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+        outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
     )
 
 
@@ -365,7 +366,7 @@ def _run_native_operator_generation(
     # to its OWN variant only.
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
     return _scores_to_run_result(
-        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, skip_refit=_legacy_skips_refit(splitter), results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
     )
 
 
@@ -381,22 +382,14 @@ def _run_concrete_scores(
     tags_by_sample: dict[int, list[str]] | None = None,
     dataset_pickle: str | None = None,
     random_state: int | None = None,
-) -> tuple[dict[str, Any], str, bool, list[dict[str, Any]], Any, list[dict[str, Any]]]:
-    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, skip_refit, results, identity, refit_artifacts)``.
+) -> tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]]]:
+    """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, results, identity, refit_artifacts)``.
 
-    The raw native ScoreSet + the model label + the legacy refit-gate flag + the per-node ``NodeResult``
-    frames + the minted ``IdentityMap`` + the captured fitted REFIT estimators. The first three feed both
-    the single-variant projection and the operator-sweep COMBINE (legacy num_predictions parity) — see
-    :func:`~nirs4all.pipeline.dagml.run_backend._dispatch_run`. ``results`` + ``identity`` let the
-    single-variant projection fill the strict direct-block per-sample y_pred/y_true/sample_indices (2a-i) —
-    the sweep path ignores them (its per-variant value fill is 2a-ii/2a-iii). ``refit_artifacts`` (P3 Slice
-    2c-i) is the run's captured fitted REFIT models (``outcome["refit_artifacts"]``; empty for the
-    subprocess mechanism), forwarded to the native-results writer. :func:`_run_concrete`
-    wraps this for the single-variant path. ``skip_refit`` is
-    :func:`~nirs4all.pipeline.dagml.steps._legacy_skips_refit` on the splitter — true when an all-default
-    splitter serializes to a bare string, the case where legacy skips the refit and emits no ``(final, *)``
-    rows. ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
-    mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``).
+    Return native scores, model label, per-node results, sample identities and
+    captured fitted estimators. The projection preserves all native measurements,
+    independent of historical legacy serialization/refit behavior. ``cv_pool``
+    is the CV sample universe; ``excluded`` is marked in the envelope only when
+    ``keep_in_oof=True``.
     """
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
@@ -420,7 +413,7 @@ def _run_concrete_scores(
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
 
-    return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter), outcome["results"], identity, outcome["refit_artifacts"]
+    return outcome["scores"], _model_name(steps), outcome["results"], identity, outcome["refit_artifacts"]
 
 
 def _run_concrete(
@@ -444,10 +437,10 @@ def _run_concrete(
     ``cv_pool`` is the CV sample-int universe (de-excluded pool in legacy mode, full train in opt-in
     mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
     """
-    scores, model_name, skip_refit, results, identity, refit_artifacts = _run_concrete_scores(
+    scores, model_name, results, identity, refit_artifacts = _run_concrete_scores(
         pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state
     )
-    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, results=results, identity=identity, refit_artifacts=refit_artifacts)
+    return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
 
 
 
@@ -622,7 +615,6 @@ def _run_source_concat_merge(
         metric,
         task_type,
         config_name=config_name,
-        skip_refit=_legacy_skips_refit(splitter),
         results=outcome["results"],
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
@@ -699,8 +691,8 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
     # single-pipeline path does. For a SAMPLE-LEVEL-aggregation dataset (`aggregate=True`) the refit's
     # `(test, None)` block dag-ml emits is already the aggregated sample grain (the replicates were
     # collapsed at materialization), so this surfaces the aggregation's final-(test) y_pred at parity with
-    # legacy (Gap 2). scores/skip_refit unchanged — num_predictions and scores stay score-set-driven.
-    result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, skip_refit=_legacy_skips_refit(splitter), results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"])
+    # legacy (Gap 2). Native measurements determine the projected rows.
+    result = _scores_to_run_result(outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, results=outcome["results"], identity=identity, refit_artifacts=outcome["refit_artifacts"])
     from .native_vote import project_vote_evidence
 
     project_vote_evidence(result, outcome.get("classification_evidence", []), identity)
@@ -751,6 +743,23 @@ def _add_explicit_aggregate_twin(predictions: Predictions, spectro: Any, entry: 
         payload = _score_only_aggregate_payload(entry, partition, primary_metric)
 
     agg_y_true, agg_y_pred, agg_y_proba, agg_scores, primary_value, n_samples = payload
+    result_metadata = copy.deepcopy(entry.get("result_metadata") or {})
+    projection = result_metadata.get("dagml_projection")
+    if isinstance(projection, dict):
+        score_provenance = projection.setdefault("score_provenance", {})
+        source = copy.deepcopy(score_provenance.get(partition) or {})
+        source.update({
+            "purpose": "measurement",
+            "derived_by": "nirs4all.data.Predictions.aggregate",
+            "source_prediction_id": entry.get("id"),
+            "aggregate_column": aggregate,
+            "aggregate_method": method,
+        })
+        score_provenance[partition] = source
+    result_metadata["aggregate_evidence"] = {
+        "owner": "nirs4all.data.Predictions.aggregate", "source_prediction_id": entry.get("id"),
+        "column": aggregate, "method": method, "partition": partition, "selection_score": False,
+    }
     predictions.add_prediction(
         dataset_name=entry.get("dataset_name", ""),
         dataset_path=entry.get("dataset_path", ""),
@@ -766,10 +775,7 @@ def _add_explicit_aggregate_twin(predictions: Predictions, spectro: Any, entry: 
         sample_indices=None,
         weights=None,
         metadata={},
-        result_metadata={"aggregate_evidence": {
-            "owner": "nirs4all.data.Predictions.aggregate", "source_prediction_id": entry.get("id"),
-            "column": aggregate, "method": method, "partition": partition, "selection_score": False,
-        }},
+        result_metadata=result_metadata,
         partition=partition,
         y_true=agg_y_true,
         y_pred=agg_y_pred,
@@ -985,23 +991,23 @@ def _run_rep_fusion(
         for index, variant in enumerate(variants)
     ]
     if len(variant_scores) == 1:
-        scores, model_name, skip_refit, refit_artifacts = variant_scores[0]
-        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, skip_refit=skip_refit, refit_artifacts=refit_artifacts)
+        scores, model_name, refit_artifacts = variant_scores[0]
+        return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, refit_artifacts=refit_artifacts)
 
     # A sweep INSIDE the rep-fusion body: combine every reshaped-variant's ScoreSet into the full
     # per-variant legacy table (#55) — same machinery the main operator-sweep path uses. `_project_operator_sweep`
-    # consumes 3-tuples, so split off the per-variant refit_artifacts and thread them as a separate by-index
+    # consumes score/model pairs, so split off the per-variant refit_artifacts and thread them as a separate by-index
     # list (the projection persists the WINNER's model artifacts only).
-    sweep_scores = [(scores, model_name, skip_refit) for scores, model_name, skip_refit, _artifacts in variant_scores]
-    refit_artifacts_by_index = [artifacts for _scores, _model_name, _skip_refit, artifacts in variant_scores]
+    sweep_scores = [(scores, model_name) for scores, model_name, _artifacts in variant_scores]
+    refit_artifacts_by_index = [artifacts for _scores, _model_name, artifacts in variant_scores]
     return _project_operator_sweep(sweep_scores, spectro.name, metric, task_type, is_classification, variant_config_names or [], refit_artifacts_by_index=refit_artifacts_by_index)
 
 
-def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, pickle: Any, random_state: int | None = None) -> tuple[dict[str, Any], str, bool, list[dict[str, Any]]]:
+def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, pickle: Any, random_state: int | None = None) -> tuple[dict[str, Any], str, list[dict[str, Any]]]:
     """One concrete rep-fusion variant: reshape a fresh dataset copy, run the sample-grain CV+refit, return raw scores.
 
-    Returns ``(scores, model_name, skip_refit, refit_artifacts)`` — the raw native ScoreSet + the model
-    label + the legacy refit-gate flag + the captured fitted REFIT estimators
+    Returns ``(scores, model_name, refit_artifacts)`` — the raw native ScoreSet + the model
+    label + the captured fitted REFIT estimators
     (``outcome["refit_artifacts"]``, P3 Slice 2c-i) — so a sweep inside the body can COMBINE every variant's
     ScoreSet into one per-variant projection (legacy num_predictions parity) AND persist the winner's model
     artifacts, exactly like :func:`_run_concrete_scores` on the main path. The single-variant caller wraps
@@ -1046,7 +1052,7 @@ def _run_rep_fusion_concrete_scores(body: Any, rep_step: dict[str, Any], spectro
     # Legacy labels the model by the model step's own name/class only — the rep_to_sources / rep_to_pp
     # reshape is a dataset transform, NOT part of the model_name. Emit the bare `_model_name` (e.g.
     # "PLSRegression"), matching legacy get_models() exactly (no "rep_to_sources_" / "rep_to_pp_" prefix).
-    return outcome["scores"], _model_name(steps), _legacy_skips_refit(splitter), outcome["refit_artifacts"]
+    return outcome["scores"], _model_name(steps), outcome["refit_artifacts"]
 
 
 def _apply_sample_augmentation(aug_step: dict[str, Any], spectro: Any, context: Any | None = None) -> None:
@@ -1376,7 +1382,6 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         metric,
         task_type,
         config_name=config_name,
-        skip_refit=_legacy_skips_refit(splitter),
         results=outcome["results"],
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
@@ -1670,6 +1675,7 @@ _PREDICTION_CLONE_FIELDS = (
     "trace_id",
     "refit_context",
     "target_processing",
+    "result_metadata",
 )
 
 
@@ -1826,6 +1832,14 @@ def _add_scored_prediction_rows(
     branch_name: str,
     weights: np.ndarray | None = None,
 ) -> None:
+    score_provenance = {
+        partition: {
+            "partition": partition,
+            "fold_id": fold_id,
+            "purpose": "measurement",
+        }
+        for partition in scores
+    }
     for partition in ("train", "val", "test"):
         y_true = y_by_partition.get(partition)
         y_pred = pred_by_partition.get(partition)
@@ -1854,6 +1868,11 @@ def _add_scored_prediction_rows(
             n_samples=len(y_true),
             n_features=n_features,
             scores=scores,
+            result_metadata={"dagml_host_projection": {
+                "schema": "nirs4all.dagml-host-projection.v1",
+                "executor": "python",
+                "score_provenance": score_provenance,
+            }},
             branch_id=branch_id,
             branch_name=branch_name,
         )
@@ -2758,7 +2777,6 @@ def _run_by_source_concat_shared_preproc(pipeline: list[Any], preproc_body: list
         metric,
         task_type,
         config_name=config_name,
-        skip_refit=_legacy_skips_refit(splitter),
         results=outcome["results"],
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
@@ -2853,7 +2871,6 @@ def _run_by_source_distinct_preproc_concat(
         metric,
         task_type,
         config_name=config_name,
-        skip_refit=_legacy_skips_refit(splitter),
         results=outcome["results"],
         identity=identity,
         refit_artifacts=outcome["refit_artifacts"],
@@ -2958,7 +2975,7 @@ def _source_names(spectro: Any, n_sources: int) -> list[str]:
 
 def _run_by_source_stacking_branch(
     pipeline: list[Any],
-    branch_body: list[Any],
+    branch_body: list[Any] | dict[str, list[Any]],
     meta_learner: Any,
     n_sources: int,
     spectro: Any,
@@ -2978,6 +2995,8 @@ def _run_by_source_stacking_branch(
     native training view. The meta-model consumes predictions, never duplicated
     spectral blocks. Explicit feature/source concatenation is a separate path.
     """
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
     from .source_stacking import lower_source_stacking
 
     widths = spectro.num_features
@@ -2986,6 +3005,7 @@ def _run_by_source_stacking_branch(
     lowered, branches, layout = lower_source_stacking(
         pipeline, branch_body, source_widths=[int(width) for width in widths],
         source_names=_source_names(spectro, n_sources),
+        source_descriptors=spectro.cohort.schema_descriptors() if isinstance(spectro, MultimodalSpectroDataset) else None,
     )
     return _run_stacking_branch(
         lowered, branches, meta_learner, spectro, dataset_arg, cli, venv_python,
@@ -3370,8 +3390,14 @@ def _stacking_inner_cv(
     folds: list[tuple[list[int], list[int]]],
     identity: Any,
     random_state: int | None,
+    group_by_sample: dict[int, str] | None = None,
 ) -> dict[str, Any]:
     """Declare an identity-keyed nested splitter suitable for the target domain."""
+    if group_by_sample:
+        for training, _validation in folds:
+            if len({group_by_sample[int(sample)] for sample in training}) < 2:
+                raise DagMlUnsupported("grouped stacking requires at least two groups in every outer-training fold")
+        return {"kind": "group_kfold", "n_splits": 2}
     if task_type != "classification":
         return {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state}
 
@@ -3401,6 +3427,88 @@ def _stacking_inner_cv(
         "seed": random_state,
         "strata": {identity.to_wire(int(sample)): label_by_sample[int(sample)] for sample in pool},
     }
+
+
+def _assemble_stacking_dsl(
+    pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any,
+    identity: Any, pool: list[int], folds: list[tuple[list[int], list[int]]], envelope: dict[str, Any], *,
+    task_type: str, random_state: int | None, group_by_sample: dict[int, str] | None,
+    source_layout: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
+    """Declare the same nested OOF graph for concrete runs and whole-stack HPO."""
+    meta_metadata = _stacking_model_metadata(pipeline)
+    if meta_metadata.get("nirs4all_finetune_params"):
+        raise DagMlUnsupported(
+            "meta-model HPO requires a native whole-stack nested search; "
+            "reusing a precomputed OOF matrix would leak its inner selection targets"
+        )
+
+    import dag_ml
+
+    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
+    from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
+
+    outer_partition_mode = build_fold_set(identity, folds, set_id="folds.stacking.outer").get("partition_mode")
+    refit_oof = {"stacking_refit_oof": "partitioned_inner_v1"} if outer_partition_mode == "resampled" else {}
+    refit_policy = "require_full_coverage"
+    # Canonical DSL: one duplication branch with N base sub-pipelines (each on the FULL data) + a
+    # merge_model meta-node. The meta-node carries the bare sklearn meta-learner (FQN + params) and the
+    # _META_MODEL_REF (so its dedicated manifest is not a generic model-kind catch-all) and binds to the
+    # meta-model controller via metadata.controller_id.
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-stacking",
+        "inner_cv": _stacking_inner_cv(task_type, spectro, pool, folds, identity, random_state, group_by_sample),
+        "steps": [
+            {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch(branch, index) for index, branch in enumerate(branches)]},
+            {
+                "kind": "merge_model",
+                "id": _META_NODE_ID,
+                "operator": {"class": _qualname(meta_learner), "ref": _META_MODEL_REF},
+                "params": _json_safe_params(meta_learner),
+                "metadata": {
+                    **meta_metadata,
+                    "controller_id": _META_MODEL_CONTROLLER_ID,
+                    "stacking_oof_execution": "nested_oof_v1",
+                    "stacking_oof_refit_contract": {"policy": refit_policy},
+                    **refit_oof,
+                },
+            },
+        ],
+    }
+
+    if source_layout is not None:
+        # Put source bindings in the DSL BEFORE compilation/fingerprinting,
+        # not in a callback-only graph mutation invisible to native provenance.
+        for index, branch in enumerate(canonical_dsl["steps"][0]["branches"]):
+            for step in branch["steps"]:
+                if step["kind"] == "model":
+                    step["metadata"] = {**step.get("metadata", {}), "nirs4all_source_stacking": {
+                        "layout_fingerprint": source_layout["fingerprint"], "source": source_layout["sources"][index],
+                    }}
+                    if source_layout.get("kind") == "typed_source_blocks":
+                        step["metadata"]["source_index"] = index
+                        step["metadata"]["source_name"] = source_layout["sources"][index]["source_name"]
+        canonical_dsl["steps"][1]["metadata"]["nirs4all_source_stacking"] = source_layout
+
+    manifests = controller_manifests()
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
+    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]
+    if len(base_model_ids) < 2:
+        raise DagMlUnsupported("stacking compile produced fewer than two base model nodes")
+    if _META_NODE_ID not in model_ids:
+        raise DagMlUnsupported("stacking compile produced no meta-model node")
+
+    # One data_binding per BASE model node (each binds its `x` to the full source). The meta-node has NO
+    # data binding: its features are the base branches' OOF, delivered as prediction_inputs (not data).
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(base_model_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+    if group_by_sample:
+        canonical_dsl["split_invocation"]["fold_set"]["sample_groups"] = {
+            identity.to_wire(int(sample)): group for sample, group in group_by_sample.items()
+        }
+
+    return canonical_dsl, graph, base_model_ids
 
 
 def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None) -> RunResult:
@@ -3433,25 +3541,12 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     its captured REFIT artifacts. Resampled outer folds use a separately declared partitioned inner
     OOF preparation for the meta REFIT; that evidence never enters outer CV scoring.
     """
-    meta_metadata = _stacking_model_metadata(pipeline)
-    if meta_metadata.get("nirs4all_finetune_params"):
-        raise DagMlUnsupported(
-            "meta-model HPO requires a native whole-stack nested search; "
-            "reusing a precomputed OOF matrix would leak its inner selection targets"
-        )
-
-    import dag_ml
-
-    from nirs4all.pipeline.dagml.cli_runner import data_bindings_for_nodes, split_invocation_for
-    from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
-
     _, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
 
     identity = mint_identity(spectro)
     named_duplication = _uses_named_duplication_branch(pipeline)
-    refit_policy = "require_full_coverage"
     # The handled shape rejects any exclude step, so the CV universe is the full train pool.
     pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_folds(splitter, spectro, pool, set())
@@ -3459,57 +3554,13 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     outer_partition_mode = build_fold_set(identity, folds, set_id="folds.stacking.outer").get("partition_mode")
     refit_oof = {"stacking_refit_oof": "partitioned_inner_v1"} if outer_partition_mode == "resampled" else {}
 
-    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=_split_group_grain(splitter, spectro, pool))
+    group_by_sample = _split_group_grain(splitter, spectro, pool)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=group_by_sample)
 
-    # Canonical DSL: one duplication branch with N base sub-pipelines (each on the FULL data) + a
-    # merge_model meta-node. The meta-node carries the bare sklearn meta-learner (FQN + params) and the
-    # _META_MODEL_REF (so its dedicated manifest is not a generic model-kind catch-all) and binds to the
-    # meta-model controller via metadata.controller_id.
-    canonical_dsl: dict[str, Any] = {
-        "id": "nirs4all-stacking",
-        "inner_cv": _stacking_inner_cv(task_type, spectro, pool, folds, identity, random_state),
-        "steps": [
-            {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch(branch, index) for index, branch in enumerate(branches)]},
-            {
-                "kind": "merge_model",
-                "id": _META_NODE_ID,
-                "operator": {"class": _qualname(meta_learner), "ref": _META_MODEL_REF},
-                "params": _json_safe_params(meta_learner),
-                "metadata": {
-                    **meta_metadata,
-                    "controller_id": _META_MODEL_CONTROLLER_ID,
-                    "stacking_oof_execution": "nested_oof_v1",
-                    "stacking_oof_refit_contract": {"policy": refit_policy},
-                    **refit_oof,
-                },
-            },
-        ],
-    }
-
-    if source_layout is not None:
-        # Put source bindings in the DSL BEFORE compilation/fingerprinting,
-        # not in a callback-only graph mutation invisible to native provenance.
-        for index, branch in enumerate(canonical_dsl["steps"][0]["branches"]):
-            for step in branch["steps"]:
-                if step["kind"] == "model":
-                    step["metadata"] = {**step.get("metadata", {}), "nirs4all_source_stacking": {
-                        "layout_fingerprint": source_layout["fingerprint"], "source": source_layout["sources"][index],
-                    }}
-        canonical_dsl["steps"][1]["metadata"]["nirs4all_source_stacking"] = source_layout
-
-    manifests = controller_manifests()
-    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
-    model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
-    base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]
-    if len(base_model_ids) < 2:
-        raise DagMlUnsupported("stacking compile produced fewer than two base model nodes")
-    if _META_NODE_ID not in model_ids:
-        raise DagMlUnsupported("stacking compile produced no meta-model node")
-
-    # One data_binding per BASE model node (each binds its `x` to the full source). The meta-node has NO
-    # data binding: its features are the base branches' OOF, delivered as prediction_inputs (not data).
-    canonical_dsl["data_bindings"] = data_bindings_for_nodes(base_model_ids, envelope)
-    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+    canonical_dsl, graph, base_model_ids = _assemble_stacking_dsl(
+        pipeline, branches, meta_learner, spectro, identity, pool, folds, envelope,
+        task_type=task_type, random_state=random_state, group_by_sample=group_by_sample, source_layout=source_layout,
+    )
 
     outcome = run_cv_refit_bundle(
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state

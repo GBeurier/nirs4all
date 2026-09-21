@@ -117,10 +117,9 @@ class TargetAccessor:
                 selector_dict, include_augmented=True, include_excluded=include_excluded
             )
             # Map each sample to its y index (augmented → origin)
-            y_indices = np.array([
-                self._indexer.get_origin_for_sample(int(sample_id))
-                for sample_id in x_indices
-            ], dtype=np.int32)
+            y_indices = np.array(
+                self._indexer.get_origins_for_samples(x_indices.tolist()), dtype=np.int32
+            )
         else:
             y_indices = self._indexer.x_indices(
                 selector_dict, include_augmented=False, include_excluded=include_excluded

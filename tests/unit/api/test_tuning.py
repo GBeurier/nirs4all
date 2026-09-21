@@ -2486,3 +2486,14 @@ def test_public_tune_single_estimator_rejects_ambiguous_tuning_winner_and_calibr
             tuning,
             calibration={"y_pred": [1.0], "prediction_sample_ids": ["pred-a"]},
         )
+
+
+def test_studio_owner_import_does_not_load_native_optimizer_library() -> None:
+    import subprocess
+    import sys
+
+    process = subprocess.run(
+        [sys.executable, "-c", "import sys, nirs4all; assert callable(nirs4all.studio_scientific_job_v1); assert 'n4m' not in sys.modules"],
+        capture_output=True, text=True, timeout=30,
+    )
+    assert process.returncode == 0, process.stderr

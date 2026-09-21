@@ -9,12 +9,20 @@ import numpy as np
 import pytest
 
 from nirs4all.pipeline.dagml.fit_identity import normalize_predict_identity
+from nirs4all.pipeline.dagml.methods_replay import (
+    MethodsN4mmReplayCallbacks,
+    MethodsPortableReplayError,
+)
 from nirs4all.pipeline.dagml.native_archive_replay import (
     NativeArchiveReplayError,
     predict_methods_archive_v2_raw,
     predict_methods_archive_v2_raw_result,
     project_methods_archive_v2_conformal_presentation,
     write_methods_archive_v2,
+)
+from nirs4all.pipeline.dagml.native_conformal_calibration import (
+    NativeConformalCalibrationError,
+    compile_methods_conformal_calibration_replay,
 )
 from nirs4all.pipeline.dagml.raw_replay_lowerer import (
     RawArrayMethodsReplayCompiler,
@@ -106,6 +114,134 @@ def _install_fake_runtime(monkeypatch: pytest.MonkeyPatch) -> types.SimpleNamesp
         types.SimpleNamespace(Context=_Context, Model=_Model),
     )
     return runtime
+
+
+def test_methods_replay_callbacks_hydrate_predict_and_release_exact_handle() -> None:
+    closed: list[str] = []
+
+    class Context:
+        def close(self) -> None:
+            closed.append("context")
+
+    class Model:
+        @classmethod
+        def from_bytes(cls, context: Context, payload: bytes) -> Model:
+            assert isinstance(context, Context)
+            assert payload == b"model"
+            return cls()
+
+        def predict(self, context: Context, values: np.ndarray) -> np.ndarray:
+            assert isinstance(context, Context)
+            return np.asarray(values)[:, :1] + 0.5
+
+        def close(self) -> None:
+            closed.append("model")
+
+    class Resolver:
+        def resolve_features(self, sample_ids: list[str], *, include_augmented: bool) -> dict[str, np.ndarray]:
+            assert sample_ids == ["sample.one", "sample.two"]
+            assert include_augmented is False
+            return {"values": np.asarray([[1.0, 2.0], [3.0, 4.0]])}
+
+    callbacks = MethodsN4mmReplayCallbacks(
+        Resolver(),
+        target_names_by_node={"model:base": ["y"]},
+        context_type=Context,
+        model_type=Model,
+    )
+    handle = callbacks.artifact_callback(
+        {
+            "operation": "hydrate",
+            "request": {"artifact": {"kind": "n4m_model"}, "controller_id": "controller:model"},
+            "payload": list(b"model"),
+        }
+    )
+    assert handle == {"handle": 1, "kind": "model", "owner_controller": "controller:model"}
+    assert callbacks.active_handle_count == 1
+
+    result = callbacks.op_callback(
+        {
+            "phase": "PREDICT",
+            "run_id": "run:test",
+            "node_plan": {
+                "kind": "model",
+                "node_id": "model:base",
+                "controller_id": "controller:model",
+                "controller_version": "1",
+                "params_fingerprint": "a" * 64,
+            },
+            "input_handles": {"model": handle},
+            "data_views": {"predict": {"partition": "predict", "sample_ids": ["sample.one", "sample.two"]}},
+        }
+    )
+    assert result["predictions"][0]["values"] == [[1.5], [3.5]]
+    assert result["predictions"][0]["target_names"] == ["y"]
+
+    assert callbacks.artifact_callback({"operation": "release", "handle": handle}) is None
+    assert callbacks.active_handle_count == 0
+    assert closed == ["model", "context"]
+    callbacks.close()
+
+
+def test_methods_replay_callbacks_refuse_ambiguous_or_unsupported_events() -> None:
+    class Resolver:
+        def resolve_features(self, sample_ids: list[str], *, include_augmented: bool) -> dict[str, np.ndarray]:
+            return {"values": np.ones((len(sample_ids), 1))}
+
+    callbacks = MethodsN4mmReplayCallbacks(
+        Resolver(),
+        target_names_by_node={"model:base": ["y"]},
+        context_type=_Context,
+        model_type=_Model,
+    )
+    with pytest.raises(MethodsPortableReplayError, match="unknown .* callback operation"):
+        callbacks.artifact_callback({"operation": "unknown"})
+    with pytest.raises(MethodsPortableReplayError, match="PREDICT only"):
+        callbacks.op_callback({"phase": "REFIT", "node_plan": {"kind": "model"}})
+    with pytest.raises(MethodsPortableReplayError, match="non-model node"):
+        callbacks.op_callback({"phase": "PREDICT", "node_plan": {"kind": "transform"}})
+
+
+def test_native_conformal_replay_compiles_identity_bound_truth(monkeypatch: pytest.MonkeyPatch) -> None:
+    _install_fake_runtime(monkeypatch)
+    replay = compile_methods_conformal_calibration_replay(
+        _package(),
+        np.asarray([[1.0, 2.0], [3.0, 4.0]]),
+        np.asarray([1.5, 2.5]),
+        sample_ids=["sample.one", "sample.two"],
+        groups=["g1", "g2"],
+        metadata={"instrument": ["a", "b"]},
+        dagml_module="dag_ml_raw_replay_test",
+    )
+
+    assert replay.binding_id == "binding:prediction"
+    assert replay.truth == {"sample_ids": ["sample.one", "sample.two"], "values": [[1.5], [2.5]]}
+    assert [record["sample_id"] for record in replay.calibration_relations["records"]] == ["sample.one", "sample.two"]
+    envelope = replay.execution.data_envelopes["model:base.x"]
+    assert envelope["target_content_fingerprint"] is not None
+    assert replay.execution.request["phase"] == "PREDICT"
+
+
+@pytest.mark.parametrize(
+    ("X", "y", "sample_ids", "message"),
+    [
+        (np.ones((2, 1)), np.ones(2), None, "explicit sample_ids"),
+        (np.asarray([[np.nan], [1.0]]), np.ones(2), ["a", "b"], "non-finite"),
+        (np.ones((2, 1)), np.ones((2, 2)), ["a", "b"], "width does not match"),
+    ],
+)
+def test_native_conformal_replay_rejects_unbound_or_invalid_truth(
+    monkeypatch: pytest.MonkeyPatch,
+    X: np.ndarray,
+    y: np.ndarray,
+    sample_ids: list[str] | None,
+    message: str,
+) -> None:
+    _install_fake_runtime(monkeypatch)
+    with pytest.raises(NativeConformalCalibrationError, match=message):
+        compile_methods_conformal_calibration_replay(
+            _package(), X, y, sample_ids=sample_ids, dagml_module="dag_ml_raw_replay_test"
+        )
 
 
 def test_raw_replay_compiler_builds_target_free_current_envelopes(

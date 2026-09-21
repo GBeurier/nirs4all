@@ -64,6 +64,8 @@ def effective_training_controls(metadata: Mapping[str, Any], phase: str) -> dict
 
 def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase: str) -> dict[str, Any]:
     """Apply recognized estimator overrides after candidate selection, before fit."""
+    from nirs4all.controllers.models.pipeline_cv import is_aom_estimator
+
     from .operator_routing import _coerce_one
 
     controls = effective_training_controls(metadata, phase)
@@ -73,7 +75,10 @@ def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase
     refit = metadata.get("nirs4all_refit_params") or {}
     if phase == "REFIT" and (refit.get("warm_start") or "warm_start_fold" in refit):
         raise NotImplementedError("refit warm-start requires captured CV-weight transfer; a fresh estimator is not equivalent")
-    reserved = {"reset_gpu", "fit_influence", "use_pipeline_folds_for_aom"} & controls.keys()
+    pipeline_fold_policy = controls.pop("use_pipeline_folds_for_aom", "auto")
+    if pipeline_fold_policy != "auto" and not is_aom_estimator(model):
+        raise ValueError("train/refit_params.use_pipeline_folds_for_aom requires an AOM estimator")
+    reserved = {"reset_gpu", "fit_influence"} & controls.keys()
     if reserved:
         raise NotImplementedError(f"training controls require their specialized controller owner: {sorted(reserved)}")
     defaults = model.get_params(deep=True) if controls and callable(getattr(model, "get_params", None)) else {}
@@ -83,7 +88,61 @@ def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase
     if controls:
         model.set_params(**{key: _coerce_one(value, defaults.get(key)) for key, value in controls.items()})
     return {"schema": "nirs4all.model-training-controls.v1", "phase": phase,
-            "model_params": encode_training_controls(controls, name="effective model parameters"), "verbose": verbose}
+            "model_params": encode_training_controls(controls, name="effective model parameters"),
+            "pipeline_fold_policy_for_aom": pipeline_fold_policy, "verbose": verbose}
+
+
+def apply_pipeline_folds_to_model(
+    model: Any,
+    metadata: Mapping[str, Any],
+    phase: str,
+    fit_ids: list[str],
+) -> bool:
+    """Apply the materialized outer FoldSet to an AOM model's current fit scope."""
+    from nirs4all.controllers.models.pipeline_cv import (
+        PrecomputedFoldSplitter,
+        apply_pipeline_folds_to_aom_estimator,
+        is_aom_estimator,
+    )
+
+    if not is_aom_estimator(model):
+        return False
+    policy = effective_training_controls(metadata, phase).get("use_pipeline_folds_for_aom", "auto")
+    fold_set = metadata.get("nirs4all_pipeline_fold_set")
+    if not isinstance(fold_set, Mapping):
+        return apply_pipeline_folds_to_aom_estimator(
+            model, None, policy=policy, unavailable_reason="the DAG model task did not carry its materialized FoldSet"
+        )
+    active_positions = {str(sample_id): position for position, sample_id in enumerate(fit_ids)}
+    fold_universe = {str(sample_id) for sample_id in fold_set.get("sample_ids", [])}
+    unknown_fit_ids = set(active_positions) - fold_universe
+    if unknown_fit_ids:
+        return apply_pipeline_folds_to_aom_estimator(
+            model,
+            None,
+            policy=policy,
+            unavailable_reason="augmented or branch-local rows are outside the materialized pipeline FoldSet",
+        )
+    local_folds: list[tuple[list[int], list[int]]] = []
+    for fold in fold_set.get("folds", []):
+        if not isinstance(fold, Mapping):
+            continue
+        local_train = [active_positions[str(sample_id)] for sample_id in fold.get("train_sample_ids", []) if str(sample_id) in active_positions]
+        local_validation = [active_positions[str(sample_id)] for sample_id in fold.get("validation_sample_ids", []) if str(sample_id) in active_positions]
+        if local_train and local_validation:
+            local_folds.append((local_train, local_validation))
+    candidate = PrecomputedFoldSplitter.from_folds(
+        local_folds,
+        n_samples=len(fit_ids),
+        label=f"dag-ml:{phase.lower()}",
+    )
+    splitter: PrecomputedFoldSplitter | None = candidate if candidate.get_n_splits() >= 2 else None
+    return apply_pipeline_folds_to_aom_estimator(
+        model,
+        splitter,
+        policy=policy,
+        unavailable_reason="fewer than two pipeline folds remain in the current DAG fit scope",
+    )
 
 
 def report_model_training_controls(evidence: Mapping[str, Any], model: Any, sample_count: int) -> None:

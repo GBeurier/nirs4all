@@ -92,6 +92,10 @@ from nirs4all.operators.models import (
 )
 ```
 
+`AOMPLSRegressor` and `POPPLSRegressor` are the native n4m estimators. Their
+main constructor arguments are `max_components`, `operators`, `cv`, and
+optional `fold_ids`; there is no Python/Torch backend selector.
+
 ## Recipe: Merge Two Sources
 
 ```python

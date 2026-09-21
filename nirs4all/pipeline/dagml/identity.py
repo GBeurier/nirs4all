@@ -92,9 +92,12 @@ def mint_identity(dataset: SpectroDataset) -> IdentityMap:
     samples = dataset.index_column("sample", {})
     origins = dataset.index_column("origin", {})
     identities: list[SampleIdentity] = []
+    from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+    explicit_ids = dataset.sample_ids if isinstance(dataset, MultimodalSpectroDataset) else None
     for sample_int, origin_int in zip(samples, origins, strict=True):
-        observation_id = validate_data_id(f"{fingerprint}.s{sample_int}")
-        sample_id = validate_data_id(f"{fingerprint}.s{origin_int}")
+        observation_id = validate_data_id(explicit_ids[sample_int] if explicit_ids is not None else f"{fingerprint}.s{sample_int}")
+        sample_id = validate_data_id(explicit_ids[origin_int] if explicit_ids is not None else f"{fingerprint}.s{origin_int}")
         identities.append(SampleIdentity(sample_int, origin_int, observation_id, sample_id, sample_int != origin_int))
     return IdentityMap(
         fingerprint=fingerprint,

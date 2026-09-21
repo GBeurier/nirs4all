@@ -340,7 +340,7 @@ class YTransformerMixinController(OperatorController):
         # Use artifact registry (V3 system)
         if runtime_context.artifact_registry is not None:
             registry = runtime_context.artifact_registry
-            pipeline_id = runtime_context.pipeline_name or "unknown"
+            pipeline_id = getattr(runtime_context, "pipeline_uid", None) or runtime_context.pipeline_name or "unknown"
             step_index = runtime_context.step_number
             branch_path = context.selector.branch_path or []
 

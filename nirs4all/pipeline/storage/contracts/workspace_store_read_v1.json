@@ -4,12 +4,12 @@
   "workspace_store_schema_version": 5,
   "store": {
     "metadata_file": "store.sqlite",
-    "open_mode": "sqlite_immutable_read_only",
+    "open_mode": "sqlite_read_only_transaction",
     "compatibility": "exact_schema_version",
     "path_support": "local_filesystem_only",
     "unsupported_paths": ["windows_unc", "windows_device_namespace"],
     "writer_lock_required": false,
-    "must_not_create_wal_or_shm": true
+    "must_not_create_wal_or_shm": false
   },
   "workspace_location": {
     "candidate_order": ["normalized_content_directory", "input_path"],
@@ -77,7 +77,7 @@
       },
       "store_semantics": {
         "source": "accepted_for_store_parity_but_does_not_switch_away_from_workspace_store",
-        "refresh": "every_native_request_is_an_uncached_immutable_read",
+        "refresh": "every_native_request_uses_a_fresh_transaction_snapshot",
         "limit": 500,
         "offset": 0,
         "ordering": "studio_run_summary",
@@ -177,11 +177,11 @@
         "not_found": "null_owner_result_for_http_404"
       },
       "native_read_preconditions": {
-        "open_mode": "sqlite_immutable_read_only",
+        "open_mode": "sqlite_read_only_transaction",
         "pragma_user_version": 5,
         "active_sidecars": ["store.sqlite-wal", "store.sqlite-shm", "store.sqlite-journal"],
-        "active_sidecar_policy": "reject_if_any_exists",
-        "database_change_during_read": "reject",
+        "active_sidecar_policy": "read_committed_sqlite_snapshot",
+        "database_change_during_read": "retain_transaction_snapshot",
         "writes_or_cache": "forbidden"
       },
       "cutover_scope": "store_owned_source_projection_not_complete_http_response",

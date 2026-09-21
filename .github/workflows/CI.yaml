@@ -7,8 +7,9 @@ on:
   pull_request:
     branches: [ main, master, 'rc/**' ]
 
-# Note: Full tests with coverage run in publish.yml before PyPI release
-# This workflow runs quick tests for regular development
+# The default gate deliberately runs one complete Linux/Python suite. Platform
+# smoke checks belong in dedicated workflows; duplicating the scientific suite
+# across an OS/Python matrix makes failures slower and less actionable.
 
 env:
   N4A_DAG_ML_REF: 233d4ecdae14d2a810f9b01b4ce7c15bdedc9d27
@@ -59,16 +60,8 @@ jobs:
 
   tests:
     needs: [lint, type-check]
-    runs-on: ${{ matrix.os }}
-    # A cold Windows runner can spend more than 20 minutes resolving and
-    # installing the scientific stack before the unit and integration gates.
-    # Keep the same bounded budget as the fully qualifying release workflow.
-    timeout-minutes: 60
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-15]
-        python-version: ['3.11', '3.12', '3.13']
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@v6
 
@@ -77,7 +70,7 @@ jobs:
 
       - uses: actions/setup-python@v7
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: '3.11'
           cache: 'pip'
 
       - name: Install test deps
@@ -90,120 +83,43 @@ jobs:
           python -m pip install \
             "dag-ml @ git+https://github.com/GBeurier/dag-ml.git@${N4A_DAG_ML_REF}#subdirectory=crates/dag-ml-py" \
             "dag-ml-data @ git+https://github.com/GBeurier/dag-ml-data.git@${N4A_DAG_ML_DATA_REF}#subdirectory=crates/dag-ml-data-py"
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # Skip all DL backends on macOS (platform compatibility check only)
-            grep -v -E '^(jax|jaxlib|flax|tensorflow|torch|tabpfn|keras)' requirements-test.txt > requirements-test-filtered.txt
-            python -m pip install numpy -r requirements-test-filtered.txt
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            # Skip JAX ecosystem on Windows (uvloop is Unix-only)
-            grep -v -E '^(jax|jaxlib|flax)' requirements-test.txt > requirements-test-filtered.txt
-            python -m pip install numpy -r requirements-test-filtered.txt
-          else
-            # PyPI's Linux wheel now pulls CUDA/Triton dependencies even on the
-            # CPU runner. The official CPU wheel avoids that unstable runtime.
-            grep -v '^torch' requirements-test.txt > requirements-test-filtered.txt
-            python -m pip install numpy -r requirements-test-filtered.txt
-            python -m pip install --index-url https://download.pytorch.org/whl/cpu \
-              'torch==2.13.0+cpu'
-          fi
+          # PyPI's Linux wheel pulls CUDA/Triton dependencies even on the CPU
+          # runner. The official CPU wheel avoids that unstable runtime.
+          grep -v '^torch' requirements-test.txt > requirements-test-filtered.txt
+          python -m pip install numpy -r requirements-test-filtered.txt
+          python -m pip install --index-url https://download.pytorch.org/whl/cpu \
+            'torch==2.13.0+cpu'
+          python -m pip install -r requirements-examples.txt
 
       - name: Install package (editable, no-deps — deps already from requirements-test.txt)
         run: python -m pip install -e . --no-deps
 
-      - name: Run R2 DAG-ML shadow-default gate
-        if: ${{ runner.os == 'Linux' && matrix.python-version == '3.11' }}
-        run: python -m pytest -q --timeout=300 tests/integration/parity/test_r2_dagml_shadow_default.py
+      - name: Gate real library usability
+        timeout-minutes: 5
+        uses: ./.github/actions/library-usability
 
-      - name: Run unit tests
+      - name: Run complete unit and integration suite once
         shell: bash
-        env:
-          OBJC_DISABLE_INITIALIZE_FORK_SAFETY: 'YES'
         run: |
-          MARK=()
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
-          fi
+          python -m coverage erase
+          python -m pytest -v --timeout=300 -n 0 \
+            tests/integration/pipeline/test_merge_mixed.py \
+            tests/integration/pipeline/test_merge_per_branch.py \
+            --cov=nirs4all --cov-append
+          XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
+            python -m pytest -v --timeout=300 -n 0 -m gpu tests/ \
+            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
+            --cov=nirs4all --cov-append
+          CUDA_VISIBLE_DEVICES='' XLA_PYTHON_CLIENT_PREALLOCATE=false TF_FORCE_GPU_ALLOW_GROWTH=true \
+            python -m pytest -v --timeout=300 -n 2 --dist worksteal -m 'not gpu' tests/ \
+            --ignore=tests/integration/pipeline/test_merge_mixed.py \
+            --ignore=tests/integration/pipeline/test_merge_per_branch.py \
+            --ignore=tests/integration/parity/test_conformance_dual_engine.py \
+            --cov=nirs4all --cov-append --cov-report=xml
 
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # macOS: run serially to avoid fork() deadlocks.
-            python -m pytest -v --timeout=120 "${MARK[@]}" tests/unit/
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            # Keep native-framework tests out of xdist, then use a bounded
-            # loadfile schedule.  ``worksteal -n auto`` deadlocks Windows
-            # workers, while a fully serial suite exceeds the job budget.
-            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
-              -m torch \
-              tests/unit/operators/models/test_pytorch.py \
-              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
-            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
-              -m tensorflow \
-              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
-            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
-              -m jax tests/unit/operators/models/test_jax.py
-            python -m pytest -v -n 2 --dist loadfile --timeout=300 \
-              -m "not torch and not tensorflow and not keras and not jax" tests/unit/
-          else
-            # TensorFlow and PyTorch both claim process-global native state. Run
-            # each framework's explicit test files in a fresh interpreter; marker
-            # selection over tests/unit would still import every test module.
-            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
-              -m torch \
-              tests/unit/operators/models/test_pytorch.py \
-              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
-            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
-              -m tensorflow \
-              tests/unit/pipeline/dagml/test_raw_training_lowerer.py
-            python scripts/ci/run_optional_pytest.py -v --timeout=300 \
-              -m jax tests/unit/operators/models/test_jax.py
-            python -m pytest -v -n auto --dist worksteal --timeout=300 \
-              -m "not torch and not tensorflow and not keras and not jax" tests/unit/
-          fi
-
-      - name: Run quick integration pytest
-        shell: bash
-        env:
-          OBJC_DISABLE_INITIALIZE_FORK_SAFETY: 'YES'
+      - name: Run all examples once
         run: |
-          MARK=()
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            MARK=(-m "not tensorflow and not torch and not keras and not jax and not stress")
-          fi
-
-          if [ "$RUNNER_OS" == "macOS" ]; then
-            # macOS: run serially to avoid fork() deadlocks.
-            python -m pytest -v --timeout=120 "${MARK[@]}" tests/integration/pipeline/
-          elif [ "$RUNNER_OS" == "Windows" ]; then
-            # The merge fixtures and TensorFlow replay own process-global or
-            # write-contended state.  Exercise them serially, then bound the
-            # portable remainder to two loadfile workers.
-            python -m pytest -v --timeout=300 \
-              tests/integration/pipeline/test_merge_mixed.py \
-              tests/integration/pipeline/test_merge_per_branch.py
-            python -m pytest -v --timeout=300 \
-              -m tensorflow \
-              tests/integration/pipeline/test_classification_integration.py \
-              tests/integration/pipeline/test_finetune_integration.py \
-              tests/integration/pipeline/test_prediction_reuse_integration.py
-            python -m pytest -v -n 2 --dist loadfile --timeout=300 tests/integration/pipeline/ \
-              -m "not torch and not tensorflow and not keras and not jax" \
-              --ignore=tests/integration/pipeline/test_merge_mixed.py \
-              --ignore=tests/integration/pipeline/test_merge_per_branch.py
-          else
-            # Serial subset with known write-contention under heavy xdist load
-            python -m pytest -v --timeout=300 \
-              tests/integration/pipeline/test_merge_mixed.py \
-              tests/integration/pipeline/test_merge_per_branch.py
-
-            # Keep TensorFlow persistence/replay tests in their own interpreter.
-            python -m pytest -v --timeout=300 \
-              -m tensorflow \
-              tests/integration/pipeline/test_classification_integration.py \
-              tests/integration/pipeline/test_finetune_integration.py \
-              tests/integration/pipeline/test_prediction_reuse_integration.py
-
-            # Parallel remainder
-            python -m pytest -v -n auto --dist worksteal --timeout=300 tests/integration/pipeline/ \
-              -m "not torch and not tensorflow and not keras and not jax" \
-              --ignore=tests/integration/pipeline/test_merge_mixed.py \
-              --ignore=tests/integration/pipeline/test_merge_per_branch.py
-          fi
+          cd examples
+          chmod +x run_ci_examples.sh
+          ./run_ci_examples.sh -c all -j 2 -k
+        timeout-minutes: 45

@@ -52,7 +52,7 @@ class Metadata:
             # got a 'float' object"). Pure numeric/bool/datetime/string columns are left untouched,
             # and nulls are preserved (pandas StringDtype, not a blanket astype(str)).
             pandas_data = data.copy()
-            for col in pandas_data.select_dtypes(include=["object"]).columns:
+            for col in pandas_data.select_dtypes(include=["object", "str"]).columns:
                 if pd.api.types.infer_dtype(pandas_data[col], skipna=True) in {"mixed", "mixed-integer"}:
                     pandas_data[col] = pandas_data[col].astype("string")
             new_df = pl.from_pandas(pandas_data)
@@ -245,11 +245,6 @@ class Metadata:
         # Create a mapping dict
         update_dict = dict(zip(indices, values, strict=False))
 
-        # Apply updates
-        self.df = self.df.with_columns(
-            pl.col("row_id").replace(update_dict, default=pl.col("row_id")).alias("_temp_update_key")
-        )
-
         # Use the mapping to update values
         for idx, val in update_dict.items():
             self.df = self.df.with_columns(
@@ -258,10 +253,6 @@ class Metadata:
                 .otherwise(pl.col(column))
                 .alias(column)
             )
-
-        # Remove temp column if it exists
-        if "_temp_update_key" in self.df.columns:
-            self.df = self.df.drop("_temp_update_key")
 
     def add_column(self,
                    column: str,

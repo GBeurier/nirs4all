@@ -228,87 +228,8 @@ check_output() {
 # =============================================================================
 
 cd "$SCRIPT_DIR"
-
-user_examples=(
-    "user/01_getting_started/U01_hello_world.py"
-    "user/01_getting_started/U02_basic_regression.py"
-    "user/01_getting_started/U03_basic_classification.py"
-    "user/01_getting_started/U04_visualization.py"
-    "user/02_data_handling/U01_flexible_inputs.py"
-    "user/02_data_handling/U02_multi_datasets.py"
-    "user/02_data_handling/U03_multi_source.py"
-    "user/02_data_handling/U04_wavelength_handling.py"
-    "user/02_data_handling/U05_synthetic_data.py"
-    "user/02_data_handling/U06_synthetic_advanced.py"
-    "user/03_preprocessing/U01_preprocessing_basics.py"
-    "user/03_preprocessing/U02_feature_augmentation.py"
-    "user/03_preprocessing/U03_sample_augmentation.py"
-    "user/03_preprocessing/U04_signal_conversion.py"
-    "user/03_preprocessing/U05_orthogonalization.py"
-    "user/03_preprocessing/U06_wavelet_denoise.py"
-    "user/04_models/U01_multi_model.py"
-    "user/04_models/U02_hyperparameter_tuning.py"
-    "user/04_models/U03_stacking_ensembles.py"
-    "user/04_models/U04_pls_variants.py"
-    "user/04_models/U05_advanced_finetuning.py"
-    "user/05_cross_validation/U01_cv_strategies.py"
-    "user/05_cross_validation/U02_group_splitting.py"
-    "user/05_cross_validation/U03_sample_filtering.py"
-    "user/05_cross_validation/U04_aggregation.py"
-    "user/05_cross_validation/U05_tagging_analysis.py"
-    "user/05_cross_validation/U06_exclusion_strategies.py"
-    "user/06_deployment/U01_save_load_predict.py"
-    "user/06_deployment/U02_export_bundle.py"
-    "user/06_deployment/U03_workspace_management.py"
-    "user/06_deployment/U04_sklearn_integration.py"
-    "user/07_explainability/U01_shap_basics.py"
-    "user/07_explainability/U02_shap_sklearn.py"
-    "user/07_explainability/U03_feature_selection.py"
-)
-
-developer_examples=(
-    "developer/01_advanced_pipelines/D01_branching_basics.py"
-    "developer/01_advanced_pipelines/D02_branching_advanced.py"
-    "developer/01_advanced_pipelines/D03_merge_basics.py"
-    "developer/01_advanced_pipelines/D04_merge_sources.py"
-    "developer/01_advanced_pipelines/D05_meta_stacking.py"
-    "developer/01_advanced_pipelines/D06_separation_branches.py"
-    "developer/01_advanced_pipelines/D07_value_mapping.py"
-    "developer/02_generators/D01_generator_syntax.py"
-    "developer/02_generators/D02_generator_advanced.py"
-    "developer/02_generators/D03_generator_iterators.py"
-    "developer/02_generators/D04_nested_generators.py"
-    "developer/02_generators/D05_synthetic_custom_components.py"
-    "developer/02_generators/D06_synthetic_testing.py"
-    "developer/02_generators/D07_synthetic_wavenumber_procedural.py"
-    "developer/02_generators/D08_synthetic_application_domains.py"
-    "developer/02_generators/D09_synthetic_instruments.py"
-    "developer/03_deep_learning/D01_pytorch_models.py"
-    "developer/03_deep_learning/D02_jax_models.py"
-    "developer/03_deep_learning/D03_tensorflow_models.py"
-    "developer/03_deep_learning/D04_framework_comparison.py"
-    "developer/04_transfer_learning/D01_transfer_analysis.py"
-    "developer/04_transfer_learning/D02_retrain_modes.py"
-    "developer/04_transfer_learning/D03_pca_geometry.py"
-    "developer/05_advanced_features/D01_metadata_branching.py"
-    "developer/05_advanced_features/D02_concat_transform.py"
-    "developer/05_advanced_features/D03_repetition_transform.py"
-    "developer/06_internals/D01_session_workflow.py"
-    "developer/06_internals/D02_custom_controllers.py"
-    "developer/06_internals/D03_cache_performance.py"
-    "developer/06_internals/D04_parallel_branches.py"
-    "developer/06_internals/D05_binary_search_sampler.py"
-)
-
-reference_examples=(
-    "reference/R01_pipeline_syntax.py"
-    "reference/R02_generator_reference.py"
-    "reference/R03_all_keywords.py"
-    "reference/R04_visualization.py"
-    "reference/R05_synthetic_environmental.py"
-    "reference/R06_synthetic_validation.py"
-    "reference/R07_synthetic_fitter.py"
-)
+# shellcheck source=example_inventory.sh
+source "$SCRIPT_DIR/example_inventory.sh"
 
 selected_examples=()
 case "$CATEGORY" in
@@ -342,6 +263,13 @@ echo "" | tee -a "$SUMMARY_FILE"
 # Execution
 # =============================================================================
 
+is_resource_exclusive_example() {
+    case "$1" in
+        developer/03_deep_learning/*|user/04_models/U06_tabpfn_nirs.py) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
 run_example_worker() {
     local idx="$1"
     local example="$2"
@@ -362,9 +290,18 @@ run_example_worker() {
     startTime=$(date +%s)
     start_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
     exitCode=0
-    NIRS4ALL_EXAMPLE_FAST="$FAST_MODE" \
-    NIRS4ALL_WORKSPACE="$workspace_dir" \
-    "$PYTHON_BIN" "$LAUNCHER" "$example" "${launcher_args[@]}" > "$output_file" 2>&1 || exitCode=$?
+    if is_resource_exclusive_example "$example"; then
+        CUDA_VISIBLE_DEVICES="${NIRS4ALL_CI_CUDA_VISIBLE_DEVICES:-0}" \
+        XLA_PYTHON_CLIENT_PREALLOCATE=false \
+        TF_FORCE_GPU_ALLOW_GROWTH=true \
+        NIRS4ALL_EXAMPLE_FAST="$FAST_MODE" \
+        NIRS4ALL_WORKSPACE="$workspace_dir" \
+        "$PYTHON_BIN" "$LAUNCHER" "$example" "${launcher_args[@]}" > "$output_file" 2>&1 || exitCode=$?
+    else
+        NIRS4ALL_EXAMPLE_FAST="$FAST_MODE" \
+        NIRS4ALL_WORKSPACE="$workspace_dir" \
+        "$PYTHON_BIN" "$LAUNCHER" "$example" "${launcher_args[@]}" > "$output_file" 2>&1 || exitCode=$?
+    fi
     endTime=$(date +%s)
     duration=$((endTime - startTime))
     end_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
@@ -381,6 +318,14 @@ if [ "$JOBS" -gt 1 ]; then
     for i in "${!selected_examples[@]}"; do
         idx=$((i + 1))
         example="${selected_examples[$i]}"
+
+        if is_resource_exclusive_example "$example"; then
+            wait
+            launch_iso=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+            echo "LAUNCH [${idx}/${TOTAL_EXAMPLES}] ${launch_iso} :: ${example} (exclusive resources)"
+            run_example_worker "$idx" "$example" "$TOTAL_EXAMPLES"
+            continue
+        fi
 
         while [ "$(jobs -pr | wc -l)" -ge "$JOBS" ]; do
             sleep 0.2
@@ -406,8 +351,10 @@ fi
 # =============================================================================
 
 passed=0
+skipped=0
 failed=0
 warnings=0
+skipped_examples=()
 failed_examples=()
 warning_examples=()
 
@@ -448,6 +395,17 @@ for i in "${!selected_examples[@]}"; do
             echo "Stopping on first failure. Use -k to keep going."
             break
         fi
+        continue
+    fi
+
+    # The launcher emits this marker only after matching an exact, declared
+    # precondition (for example a TabPFN licence exception). Some execution
+    # lanes log the caught traceback before it crosses back to the launcher,
+    # so classify the trusted marker before generic traceback scanning.
+    if grep -q '^\[SKIP\]' "$output_file" 2>/dev/null; then
+        echo "SKIPPED (${duration}s, done: ${end_iso})"
+        skipped=$((skipped + 1))
+        skipped_examples+=("$example")
         continue
     fi
 
@@ -524,6 +482,7 @@ echo "CI VALIDATION SUMMARY" | tee -a "$SUMMARY_FILE"
 echo "========================================" | tee -a "$SUMMARY_FILE"
 echo "Total examples: ${#selected_examples[@]}" | tee -a "$SUMMARY_FILE"
 echo "Passed: $passed" | tee -a "$SUMMARY_FILE"
+echo "Skipped (declared precondition): $skipped" | tee -a "$SUMMARY_FILE"
 echo "Warnings: $warnings" | tee -a "$SUMMARY_FILE"
 echo "Failed: $failed" | tee -a "$SUMMARY_FILE"
 echo "Started: $GLOBAL_START_ISO" | tee -a "$SUMMARY_FILE"
@@ -543,6 +502,14 @@ if [ "${#warning_examples[@]}" -gt 0 ]; then
     echo "EXAMPLES WITH WARNINGS:" | tee -a "$SUMMARY_FILE"
     for ex in "${warning_examples[@]}"; do
         echo "  ! $ex" | tee -a "$SUMMARY_FILE"
+    done
+    echo "" | tee -a "$SUMMARY_FILE"
+fi
+
+if [ "${#skipped_examples[@]}" -gt 0 ]; then
+    echo "EXAMPLES SKIPPED BY DECLARED PRECONDITION:" | tee -a "$SUMMARY_FILE"
+    for ex in "${skipped_examples[@]}"; do
+        echo "  - $ex" | tee -a "$SUMMARY_FILE"
     done
     echo "" | tee -a "$SUMMARY_FILE"
 fi

@@ -108,7 +108,7 @@ def studio_run_detail_http_contract() -> dict[str, Any]:
             "pipeline_runner_construction": "forbidden",
         },
         "scope": "store_v5_owner_inputs_only",
-        "open_mode": "composed_immutable_reads_guarded_by_before_after_database_stamp",
+        "open_mode": "single_sqlite_read_only_transaction",
         "writes_or_cache": "forbidden",
         "not_found": "null",
     }:
@@ -177,7 +177,7 @@ def studio_run_detail_http_contract() -> dict[str, Any]:
         "entry_fields": ["pipeline_id", "splitter"],
         "splitter": "splitter_config_output_or_null",
         "materialization": "derived_by_owner_oracle_before_consumer_boundary",
-        "materialization_time": "immutable_owner_read",
+        "materialization_time": "transactional_owner_read",
         "consumer_reimplementation": "forbidden",
         "consumer_expanded_config_access": "forbidden",
     }:
@@ -213,18 +213,18 @@ def studio_run_detail_http_inputs_v1(workspace_path: str | Path, run_id: str) ->
     manifest branch remain external exactly as declared by
     :func:`studio_run_detail_http_contract`.
     """
-    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore
+    from nirs4all.pipeline.storage.workspace_store import WorkspaceStore, _canonical_optional_id
 
     studio_run_detail_http_contract()
-    database = Path(workspace_path) / "store.sqlite"
-    before = database.stat()
-    before_signature = (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns)
-    sidecars = tuple(Path(f"{database}{suffix}") for suffix in ("-wal", "-shm", "-journal"))
-    try:
-        run_detail = WorkspaceStore.get_studio_run_detail_v1(workspace_path, run_id)
+    canonical_run_id = _canonical_optional_id(run_id, "run_id")
+    if canonical_run_id is None:
+        raise ValueError("run_id must be a canonical non-empty string")
+    with WorkspaceStore.open_readonly(workspace_path) as store:
+        connection = store._ensure_open()
+        run_detail = WorkspaceStore._read_studio_run_detail_v1(connection, canonical_run_id)
         if run_detail is None:
             return None
-        runtime = WorkspaceStore.get_studio_run_detail_runtime_v1(workspace_path, run_id)
+        runtime = WorkspaceStore._read_studio_run_detail_runtime_v1(connection, canonical_run_id)
         if runtime is None:
             raise RuntimeError("studio run-detail runtime input disappeared during owner composition")
 
@@ -277,13 +277,6 @@ def studio_run_detail_http_inputs_v1(workspace_path: str | Path, run_id: str) ->
             "results": results,
             "results_count": len(results),
         }
-    finally:
-        after = database.stat()
-        after_signature = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
-        if any(path.exists() for path in sidecars):
-            raise RuntimeError("studio run-detail owner composition detected an active SQLite journal")
-        if after_signature != before_signature:
-            raise RuntimeError("studio run-detail owner composition detected a database change")
 
 
 __all__ = [

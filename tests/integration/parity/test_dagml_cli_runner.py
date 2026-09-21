@@ -478,15 +478,9 @@ def test_public_run_engine_dagml_fills_direct_block_predictions(inprocess, monke
 
 
 def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> None:
-    """The cross-fold OOF AVERAGE (``avg``/``w_avg``) VAL row now carries per-sample y_pred (2a-iii A2).
+    """The sole native OOF average matches direct sklearn predictions by sample.
 
-    dag-ml computes the per-sample OOF average (each train sample's across-fold mean validation
-    prediction) and now SURFACES it as a sample-level ``aggregated_predictions`` block + id-matched
-    y_true through the in-process bridge; the projection FILLS the ``(val, avg)`` / ``(val, w_avg)``
-    rows from it (they were empty before). Asserts the avg row covers EVERY train sample exactly once
-    and its y_pred equals a DIRECT sklearn KFold OOF mean BY SAMPLE ID within 1e-6 — and that
-    ``avg`` and ``w_avg`` carry the SAME per-sample OOF (legacy invariant). In-process only: the
-    subprocess path surfaces the OOF average as the scalar ``cv_best_score`` (unchanged), not a block.
+    Weighted averages require their own native evidence and are not synthesized.
     """
     from sklearn.pipeline import make_pipeline
 
@@ -512,7 +506,7 @@ def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> Non
             sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
 
     avg_by_sample: dict[str, dict[int, float]] = {}
-    for fold_id in ("avg", "w_avg"):
+    for fold_id in ("avg",):
         rows = result.predictions.filter_predictions(partition="val", fold_id=fold_id)
         assert len(rows) == 1, f"exactly one (val, {fold_id}) row"
         row = rows[0]
@@ -522,8 +516,7 @@ def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> Non
         diffs = [abs(avg_by_sample[fold_id][sample_int] - sklearn_oof[sample_int]) for sample_int in sklearn_oof]
         assert max(diffs) < 1e-6, f"(val, {fold_id}) y_pred drift vs direct sklearn OOF mean: {max(diffs)}"
 
-    # avg and w_avg carry the SAME per-sample OOF (legacy: avg.val == w_avg.val == cv_best_score).
-    assert avg_by_sample["avg"] == avg_by_sample["w_avg"]
+    assert result.predictions.filter_predictions(fold_id="w_avg") == []
 
 
 @pytest.mark.parametrize(
@@ -3240,13 +3233,15 @@ def test_public_run_engine_dagml_named_dict_stacking_preserves_views_with_nested
     assert native._is_dagml_engine()  # noqa: SLF001
     assert not legacy._is_dagml_engine()  # noqa: SLF001
     assert legacy.num_predictions == 45
-    assert len([row for row in native.predictions.filter_predictions() if row["fold_id"] != "final"]) == 45
+    native_cv = [row for row in native.predictions.filter_predictions() if row["fold_id"] != "final"]
+    assert len(native_cv) == 12
+    assert all(row["partition"] == "val" and row["train_score"] is None and row["test_score"] is None for row in native_cv)
     assert native.predictions.filter_predictions(fold_id="final", load_arrays=False)
     assert legacy.predictions.filter_predictions(fold_id="final", load_arrays=False) == []
 
     native_rows = native.predictions.filter_predictions(load_arrays=False)
     legacy_rows = legacy.predictions.filter_predictions(load_arrays=False)
-    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "final", "w_avg"]
+    assert sorted({str(row.get("fold_id")) for row in native_rows}) == ["0", "1", "2", "avg", "final"]
     assert sorted({str(row.get("fold_id")) for row in legacy_rows}) == ["0", "1", "2", "avg", "w_avg"]
     assert {row["branch_name"] for row in native_rows} == {"pls", "ridge", None}
     # Legacy's meta CV-only projection fitted a different, non-nested protocol.

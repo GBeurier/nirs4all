@@ -105,12 +105,10 @@ pipeline = [
     {"model": PLSRegression(n_components=5, scale=False), "name": "PLS-5"},
     {
         "model": AOMPLSRegressor(
-            n_components="auto",
             max_components=5,
-            operator_bank="compact",
-            criterion="cv",
+            operators=None,
             cv=4,
-            random_state=42,
+            scale_x=False,
         ),
         "name": "AOMPLS-compact",
         "train_params": AOM_SPLIT_REQUIRED,
@@ -185,7 +183,7 @@ for rank, pred in enumerate(top_rows, 1):
 
 print("""
 Split note:
-  AOMPLSRegressor receives cv_splitter from the pipeline.
+  Native n4m AOMPLSRegressor receives fold_ids from the pipeline.
   AOMRidgeRegressor receives cv from the pipeline.
   AOMRidgeAutoSelector and AOMRidgeBlender receive both outer_cv and inner_cv.
   Set train_params.use_pipeline_folds_for_aom='required' to fail fast if a

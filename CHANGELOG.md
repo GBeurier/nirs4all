@@ -11,6 +11,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.0] — 2026-09-21
+
+### Added
+
+- Added first-class multimodal datasets, source masks, partial targets, late
+  fusion, late tuning, and resumable host-search checkpoints for DAG execution.
+- Added explicit CPU-thread and GPU-device resource contracts across the
+  Python API, CLI, DAG envelopes, native tasks, and model backends.
+- Added workspace schema upgrades, concurrent import safety, read-only
+  inspection, and richer score and replay evidence.
+
+### Changed
+
+- Raised the release floors to `dag-ml>=0.3.26,<0.4`,
+  `nirs4all-io>=0.2.0,<0.3`, and `nirs4all-methods>=1.0.20,<2`.
+- Routed public AOM-PLS and POP-PLS regressors directly to their maintained
+  `nirs4all-methods` implementations and removed the duplicate regressors from
+  `nirs4all`.
+- Kept DAG-ML as the default execution backend while preserving the explicit
+  `legacy` Python backend as the parity and rollback lane.
+
+### Fixed
+
+- Preserved component identities, folds, targets, source masks, resources, and
+  tuning evidence across DAG lowering, execution, archive, and replay.
+- Made package import, workspace access, artifact identity, and result
+  projection deterministic under concurrent and installed-package use.
+- Restored GPU selection and device scoping for JAX, PyTorch, and TensorFlow
+  without silently falling back to a different execution engine.
+
+---
+
 ## [1.0.1] — 2026-09-05
 
 ### Added

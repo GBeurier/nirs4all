@@ -335,10 +335,14 @@ class Indexer:
             >>> print(origin)  # None
 
         Note:
-            This is a single-sample lookup. For batch operations, use y_indices()
-            which is more efficient for retrieving origins for multiple samples.
+            This is a single-sample lookup. For explicit IDs in a specific order,
+            use get_origins_for_samples() to resolve them in one batch.
         """
         return self._augmentation_tracker.get_origin_for_sample(sample_id)
+
+    def get_origins_for_samples(self, sample_ids: list[int]) -> list[int | None]:
+        """Resolve origins in input order, preserving duplicates and missing IDs."""
+        return self._augmentation_tracker.get_origins_for_samples(sample_ids)
 
     def replace_processings(self, source_processings: list[str], new_processings: list[str]) -> None:
         """
