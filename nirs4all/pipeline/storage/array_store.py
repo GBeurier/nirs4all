@@ -202,13 +202,16 @@ class ArrayStore:
         if read_only:
             return
         self._arrays_dir.mkdir(parents=True, exist_ok=True)
-        # Clean up orphaned temp files from previous crashes
-        for tmp_file in self._arrays_dir.glob("*.parquet.tmp"):
-            try:
-                tmp_file.unlink()
-                logger.debug("Cleaned orphaned temp file: %s", tmp_file.name)
-            except OSError:
-                pass
+        # A temp file can belong to another ArrayStore instance that is actively
+        # publishing a write.  Serialize crash cleanup with mutations so the
+        # constructor never unlinks a live writer's file before os.replace().
+        with self._process_lock():
+            for tmp_file in self._arrays_dir.glob("*.parquet.tmp"):
+                try:
+                    tmp_file.unlink()
+                    logger.debug("Cleaned orphaned temp file: %s", tmp_file.name)
+                except OSError:
+                    pass
 
     @property
     def arrays_dir(self) -> Path:
