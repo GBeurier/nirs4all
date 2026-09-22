@@ -1,25 +1,15 @@
-"""Unit tests for :class:`AOMPLSAomlibRegressor`.
-
-These tests require the ``aompls`` package (AOM_lib C++ backend) to be
-importable. Invoke pytest with::
-
-    PYTHONPATH=bench/AOM_lib/python/src pytest tests/unit/operators/models/test_aom_pls_aomlib.py
-
-The whole module is skipped when ``aompls`` is unavailable so the rest of
-the test suite keeps running on environments without the compiled
-extension.
-"""
+"""Real installed nirs4all-methods binding parity and saved-model replay."""
 
 from __future__ import annotations
 
 import builtins
-import sys
+import pickle
 
 import numpy as np
 import pytest
+from n4m.model_selection.aom_search import AOMPLSRegressor
+from sklearn.base import clone, is_regressor
 from sklearn.datasets import make_regression
-
-pytest.importorskip("aompls")
 
 from nirs4all.operators.models.sklearn import AOMPLSAomlibRegressor  # noqa: E402
 
@@ -122,31 +112,50 @@ def test_unknown_selection_raises() -> None:
     model = AOMPLSAomlibRegressor(selection="nope")
     X = np.zeros((10, 5), dtype=np.float64)
     y = np.zeros(10, dtype=np.float64)
-    with pytest.raises(ValueError, match="Unknown selection mode"):
+    with pytest.raises(ValueError, match="Unsupported selection mode"):
         model.fit(X, y)
 
 
-def test_missing_aompls_raises_clear_error(
-    monkeypatch: pytest.MonkeyPatch,
-    small_regression: tuple[np.ndarray, np.ndarray],
-) -> None:
-    """When ``aompls`` cannot be imported, fit raises an informative ImportError."""
+def test_missing_methods_raises_clear_error(monkeypatch, small_regression):
     X, y = small_regression
-
-    # Remove cached aompls modules and force `import aompls` to fail.
-    for name in list(sys.modules):
-        if name == "aompls" or name.startswith("aompls."):
-            monkeypatch.delitem(sys.modules, name, raising=False)
-
     original_import = builtins.__import__
 
-    def fake_import(name: str, *args: object, **kwargs: object) -> object:
-        if name == "aompls" or name.startswith("aompls."):
-            raise ImportError("simulated missing aompls")
+    def fake_import(name, *args, **kwargs):
+        if name == "n4m.model_selection.aom_search":
+            raise ImportError("simulated missing nirs4all-methods")
         return original_import(name, *args, **kwargs)
 
     monkeypatch.setattr(builtins, "__import__", fake_import)
+    with pytest.raises(ImportError, match="nirs4all-methods native Python wheel"):
+        AOMPLSAomlibRegressor(n_components=4, cv=3).fit(X, y)
 
-    model = AOMPLSAomlibRegressor(n_components=4, cv=3)
-    with pytest.raises(ImportError, match="aompls"):
-        model.fit(X, y)
+
+def test_matches_public_native_binding_and_pickle_replay(small_regression):
+    X, y = small_regression
+    model = AOMPLSAomlibRegressor(n_components=4, cv=3, random_state=42).fit(X, y)
+    native = AOMPLSRegressor(max_components=4, cv=3, fold_ids=model._backend.result_["fold_ids"],
+                            center_x=True, center_y=True, scale_x=False, scale_y=False).fit(X, y)
+    np.testing.assert_allclose(model.predict(X), native.predict(X), rtol=1e-12, atol=1e-12)
+    np.testing.assert_allclose(pickle.loads(pickle.dumps(model)).predict(X), model.predict(X), rtol=1e-12)
+    assert model.backend_ == "nirs4all-methods"
+    assert is_regressor(model)
+    assert clone(model).get_params() == model.get_params()
+
+
+@pytest.mark.parametrize("parameters", [
+    {"one_se": True}, {"selection": "spxy"}, {"selection": "holdout"}, {"preprocessing": "asls"},
+    {"osc_n_components": 2}, {"selection": "external"}, {"external_folds": [[0], [1]]},
+])
+def test_unsupported_legacy_options_are_never_silently_ignored(small_regression, parameters):
+    X, y = small_regression
+    with pytest.raises(ValueError):
+        AOMPLSAomlibRegressor(**parameters).fit(X, y)
+
+
+def test_external_validation_folds_are_preserved(small_regression):
+    X, y = small_regression
+    folds = [list(range(0, 20)), list(range(20, 40))]
+    model = AOMPLSAomlibRegressor(n_components=3, selection="external", external_folds=folds).fit(X, y)
+    assert model.fold_indices_ == folds
+    with pytest.raises(ValueError, match="exactly once"):
+        AOMPLSAomlibRegressor(selection="external", external_folds=[[0, 1], [1, 2]]).fit(X, y)

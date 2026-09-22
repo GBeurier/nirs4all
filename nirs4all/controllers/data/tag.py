@@ -14,6 +14,7 @@ from nirs4all.controllers.controller import OperatorController
 from nirs4all.controllers.registry import register_controller
 from nirs4all.core.logging import get_logger
 from nirs4all.operators.filters.base import SampleFilter
+from nirs4all.operators.filters.metadata import MetadataFilter
 from nirs4all.pipeline.config.component_serialization import deserialize_component
 
 logger = get_logger(__name__)
@@ -167,7 +168,11 @@ class TagController(OperatorController):
                     filter_obj.fit(X, y)
 
                 # Get the mask (True = keep = False for outlier tag)
-                mask = filter_obj.get_mask(X, y)
+                if isinstance(filter_obj, MetadataFilter):
+                    metadata = dataset.metadata(selector, include_augmented=include_augmented)
+                    mask = filter_obj.get_mask(X, y, metadata=metadata)
+                else:
+                    mask = filter_obj.get_mask(X, y)
 
                 # For boolean tags, invert mask to get "is_outlier" semantics
                 # mask=True means "keep" (not outlier), we want tag=True to mean "is outlier"
@@ -194,13 +199,7 @@ class TagController(OperatorController):
                     artifacts.append(artifact)
 
             except ValueError as e:
-                # Handle edge cases like insufficient data
-                if runtime_context.step_runner.verbose > 0:
-                    logger.warning(
-                        f"   TagController: {filter_obj.__class__.__name__} "
-                        f"could not be applied: {e}"
-                    )
-                # Don't create tag if filter fails
+                raise ValueError(f"{filter_obj.__class__.__name__} could not be applied: {e}") from e
 
         return context, artifacts
 

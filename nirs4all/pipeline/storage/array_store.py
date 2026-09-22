@@ -166,7 +166,9 @@ _PARQUET_SCHEMA = pa.schema(
         ("val_score", pa.float64()),
         ("task_type", pa.utf8()),
         ("y_true", pa.list_(pa.float64())),
+        ("y_true_shape", pa.list_(pa.int32())),
         ("y_pred", pa.list_(pa.float64())),
+        ("y_pred_shape", pa.list_(pa.int32())),
         ("y_proba", pa.list_(pa.float64())),
         ("y_proba_shape", pa.list_(pa.int32())),
         ("X", pa.list_(pa.float64())),
@@ -313,6 +315,11 @@ class ArrayStore:
 
             columns["y_true"].append(_arr_to_list(y_true))
             columns["y_pred"].append(_arr_to_list(y_pred))
+            for field, values in (("y_true", y_true), ("y_pred", y_pred)):
+                # Retain historical flat single-target reads; multi-output
+                # targets require explicit axes to keep samples distinguishable.
+                shape = list(np.shape(values)) if values is not None and np.ndim(values) > 1 and np.shape(values)[1] > 1 else None
+                columns[f"{field}_shape"].append(shape)
             columns["y_proba"].append(_arr_to_list(y_proba))
             columns["y_proba_shape"].append(_shape_to_list(y_proba))
             columns["X"].append(_arr_to_list(X))
@@ -473,6 +480,13 @@ class ArrayStore:
                         arrays[field] = np.array(val, dtype=np.float64)
                     else:
                         arrays[field] = None
+
+                # Older files have no target shape columns: keep their flat
+                # representation rather than guessing lost target dimensions.
+                for field in ("y_true", "y_pred"):
+                    shape = row.get(f"{field}_shape")
+                    if arrays[field] is not None and shape is not None:
+                        arrays[field] = arrays[field].reshape(shape)
 
                 # Reconstruct y_proba shape if available
                 if arrays["y_proba"] is not None:

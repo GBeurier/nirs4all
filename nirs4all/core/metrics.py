@@ -208,6 +208,10 @@ def _eval_single(y_true: np.ndarray, y_pred: np.ndarray, metric: str) -> float:
     if not SKLEARN_AVAILABLE:
         raise ImportError("scikit-learn is required for metric calculations")
 
+    # Legacy metrics pool sample/target entries for multi-output data. In
+    # classification this is pooled balanced accuracy (or the selected metric),
+    # not multilabel exact-match accuracy. Keep that estimand unchanged here.
+    # Stored prediction arrays retain their sample and target axes separately.
     # Ensure arrays are numpy arrays and flattened
     y_true = np.asarray(y_true).flatten()
     y_pred = np.asarray(y_pred).flatten()
