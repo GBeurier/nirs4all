@@ -65,6 +65,10 @@ jobs:
             --cov=nirs4all --cov-append --cov-report=xml
 
       - name: Upload coverage to Codecov
+        # Coverage is already uploaded by the PR CI. Codecov's OIDC endpoint
+        # does not resolve release events reliably, and telemetry must not block
+        # a package after the release tests themselves have passed.
+        if: github.event_name != 'release'
         uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
