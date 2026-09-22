@@ -5,9 +5,11 @@ Verifies that launch_training() uses best_params regardless of mode value.
 
 from unittest.mock import MagicMock, patch
 
+import numpy as np
 import pytest
 
 from nirs4all.controllers.models.base_model import BaseModelController
+from nirs4all.controllers.models.sklearn_model import SklearnModelController
 
 
 class TestBestParamsApplication:
@@ -34,3 +36,29 @@ class TestBestParamsApplication:
         assert "if best_params is not None:" in source, (
             "BUG-1: best_params handling should check 'if best_params is not None:'"
         )
+
+    def test_best_params_reach_training_without_cross_validation(self):
+        """The holdout path must forward optimized params to final training."""
+        controller = SklearnModelController()
+        controller._train_single_model = MagicMock()
+        best_params = {"n_components": 1}
+        values = np.arange(8, dtype=float).reshape(4, 2)
+        targets = np.arange(4, dtype=float)
+
+        controller.train(
+            dataset=MagicMock(),
+            model_config={},
+            context=MagicMock(),
+            runtime_context=MagicMock(),
+            prediction_store=MagicMock(),
+            X_train=values,
+            y_train=targets,
+            X_test=values,
+            y_test=targets,
+            y_train_unscaled=targets,
+            y_test_unscaled=targets,
+            folds=[],
+            best_params=best_params,
+        )
+
+        assert controller._train_single_model.call_args.args[11] == best_params

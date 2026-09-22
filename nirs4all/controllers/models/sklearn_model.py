@@ -70,6 +70,40 @@ class SklearnModelController(BaseModelController):
 
     priority = 6  # Higher priority than TransformerMixin (10) to win matching
 
+    def _constrain_finetune_params(
+        self,
+        dataset: 'SpectroDataset',
+        model_config: dict[str, Any],
+        X_train: Any,
+        finetune_params: dict[str, Any],
+    ) -> dict[str, Any]:
+        """Keep PLS component trials inside the current branch dimensions."""
+        params = copy.deepcopy(finetune_params)
+        try:
+            model = self._get_model_instance(dataset, copy.deepcopy(model_config))
+        except (ImportError, TypeError, ValueError):
+            return params
+        if model.__class__.__name__ != "PLSRegression":
+            return params
+
+        shape = np.shape(X_train)
+        if len(shape) < 2:
+            return params
+        component_cap = max(1, min(int(shape[0]) - 1, int(shape[-1])))
+        spec = params.get("model_params", {}).get("n_components")
+        if not isinstance(spec, dict):
+            return params
+
+        high_key = "high" if "high" in spec else "max" if "max" in spec else None
+        low_key = "low" if "low" in spec else "min" if "min" in spec else None
+        if high_key is None:
+            return params
+
+        spec[high_key] = min(int(spec[high_key]), component_cap)
+        if low_key is not None and int(spec[low_key]) > int(spec[high_key]):
+            spec[low_key] = spec[high_key]
+        return params
+
     @classmethod
     def matches(cls, step: Any, operator: Any, keyword: str) -> bool:
         """Match sklearn estimators and model dictionaries with sklearn models.
@@ -497,6 +531,10 @@ class SklearnModelController(BaseModelController):
                 or None if model doesn't support probability predictions.
         """
         if not hasattr(model, 'predict_proba'):
+            return None
+        if isinstance(getattr(model, "classes_", None), (list, tuple)):
+            # Multi-output probabilities describe independent targets, not
+            # mutually exclusive classes. Vote on labels per output instead.
             return None
 
         try:

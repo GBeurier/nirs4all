@@ -45,6 +45,9 @@ class Resampler(TransformerMixin, BaseEstimator):
         If False, use fill_value for out-of-bounds points.
     copy : bool, default=True
         Whether to copy input data or modify in place.
+    n_points : int or None, default=None
+        Generate an evenly spaced grid over the input wavelength range.
+        Mutually exclusive with target_wavelengths.
 
     Attributes
     ----------
@@ -94,7 +97,8 @@ class Resampler(TransformerMixin, BaseEstimator):
         crop_range: tuple[float, float] | None = None,
         fill_value: float | str = 0.0,
         bounds_error: bool = False,
-        copy: bool = True
+        copy: bool = True,
+        n_points: int | None = None,
     ):
         self.target_wavelengths = target_wavelengths
         self.method = method
@@ -102,6 +106,7 @@ class Resampler(TransformerMixin, BaseEstimator):
         self.fill_value = fill_value
         self.bounds_error = bounds_error
         self.copy = copy
+        self.n_points = n_points
 
     def _validate_wavelengths(self, wavelengths: np.ndarray) -> np.ndarray:
         """Validate and convert wavelengths to 1D float array."""
@@ -176,7 +181,7 @@ class Resampler(TransformerMixin, BaseEstimator):
         X = check_array(X, dtype=np.float64, ensure_all_finite='allow-nan', copy=self.copy)
 
         # Identity mode: no target_wavelengths configured → act as pass-through
-        if self.target_wavelengths is None:
+        if self.target_wavelengths is None and self.n_points is None:
             self._identity_ = True
             self.n_features_in_ = X.shape[1]
             self.n_features_out_ = X.shape[1]
@@ -234,7 +239,15 @@ class Resampler(TransformerMixin, BaseEstimator):
             self.wavelengths_after_crop_ = self.original_wavelengths_
 
         # Validate target wavelengths
-        target_wl = self._validate_wavelengths(self.target_wavelengths)
+        if self.n_points is not None:
+            if self.target_wavelengths is not None:
+                raise ValueError("Specify either n_points or target_wavelengths, not both")
+            if isinstance(self.n_points, bool) or not isinstance(self.n_points, (int, np.integer)) or self.n_points < 2:
+                raise ValueError("n_points must be an integer of at least 2")
+            target_wl = np.linspace(self.original_wavelengths_[0], self.original_wavelengths_[-1], self.n_points)
+        else:
+            assert self.target_wavelengths is not None
+            target_wl = self._validate_wavelengths(self.target_wavelengths)
 
         # Check for overlap and warn if needed
         self._check_wavelength_overlap(self.original_wavelengths_, target_wl)
@@ -289,24 +302,14 @@ class Resampler(TransformerMixin, BaseEstimator):
         from scipy.interpolate import interp1d
 
         target_wl = self.interpolator_params_['target_wavelengths']
-        n_samples = X.shape[0]
-        X_resampled = np.zeros((n_samples, self.n_features_out_), dtype=X.dtype)
-
-        for i in range(n_samples):
-            # Create interpolator for this sample
-            interpolator = interp1d(
-                self.original_wavelengths_,
-                X[i, :],
-                kind=self.method,
-                fill_value=self.fill_value,
-                bounds_error=self.bounds_error,
-                assume_sorted=False
-            )
-
-            # Interpolate to target wavelengths
-            X_resampled[i, :] = interpolator(target_wl)
-
-        return X_resampled
+        # All spectra share a wavelength grid: sort it and construct the
+        # interpolator once, rather than once per sample.
+        interpolator = interp1d(
+            self.original_wavelengths_, X, axis=-1, kind=self.method,
+            fill_value=self.fill_value, bounds_error=self.bounds_error,
+            assume_sorted=False,
+        )
+        return interpolator(target_wl)
 
     def get_feature_names_out(self, input_features=None):
         """

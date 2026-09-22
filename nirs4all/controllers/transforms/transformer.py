@@ -13,12 +13,14 @@ if TYPE_CHECKING:
     from nirs4all.pipeline.steps.parser import ParsedStep
     from nirs4all.spectra.spectra_dataset import SpectroDataset
 
+import inspect
 import warnings
 
 import numpy as np
 from sklearn.base import clone
 
 from nirs4all.core.logging import get_logger
+from nirs4all.utils.transform_output import normalize_transform_output
 
 logger = get_logger(__name__)
 
@@ -50,9 +52,24 @@ class TransformerMixinController(OperatorController):
             operator: The operator to check.
 
         Returns:
-            True if the operator declares requires_y=True in its _more_tags().
+            True if the operator declares a required supervised target.
         """
-        # Check _more_tags() method (sklearn convention)
+        # sklearn 1.6+ exposes public structured tags; current estimators no
+        # longer implement _more_tags, so legacy-only detection drops y during fit.
+        try:
+            from sklearn.utils import get_tags
+        except ImportError:  # sklearn 1.5 remains supported
+            get_tags = None
+        if get_tags is not None:
+            try:
+                if get_tags(operator).target_tags.required:
+                    return True
+            except AttributeError:
+                # Custom legacy operators may only implement the old dictionary
+                # protocol. Keep supporting those without changing their API.
+                pass
+
+        # Check _more_tags() method (legacy sklearn convention)
         if hasattr(operator, '_more_tags'):
             tags = operator._more_tags()
             if tags.get('requires_y', False):
@@ -64,6 +81,59 @@ class TransformerMixinController(OperatorController):
             if isinstance(tags, dict) and tags.get('requires_y', False):
                 return True
 
+        return False
+
+    @staticmethod
+    def _allows_nan(operator: Any) -> bool:
+        """Honor modern and legacy NaN support without replacing input values."""
+        try:
+            from sklearn.utils import get_tags
+        except ImportError:
+            get_tags = None
+        if get_tags is not None:
+            try:
+                if get_tags(operator).input_tags.allow_nan:
+                    return True
+            except AttributeError:
+                pass
+        for method in ("_get_tags", "_more_tags"):
+            getter = getattr(operator, method, None)
+            if callable(getter) and getter().get("allow_nan", False):
+                return True
+        return bool(getattr(operator, "_tags", {}).get("allow_nan", False))
+
+    @staticmethod
+    def _uses_y(operator: Any) -> bool:
+        """Honor required targets of a selector's configured estimator or scorer.
+
+        Some selectors permit unsupervised callbacks, so their own tags do not
+        require y even when the chosen scorer or nested model needs it.
+        """
+        if TransformerMixinController._requires_y(operator):
+            return True
+        estimator = getattr(operator, "estimator", None)
+        if estimator is not None and TransformerMixinController._requires_y(estimator):
+            return True
+        # sklearn's univariate selectors expose their supervised callback as
+        # score_func.  Passing y is part of that callback contract even when a
+        # particular sklearn release does not propagate requires_y through the
+        # selector's public tags (or the callable has an opaque signature).
+        if callable(getattr(operator, "score_func", None)):
+            return True
+        for function in (getattr(operator, "fit", None), getattr(operator, "score_func", None)):
+            if not callable(function):
+                continue
+            try:
+                parameters = inspect.signature(function).parameters
+                # sklearn 1.5/1.6 used optional y/Y aliases during a required
+                # target-parameter rename (e.g. PLSSVD); one must still be given.
+                if "y" in parameters and "Y" in parameters:
+                    return True
+                parameter = parameters.get("y") or parameters.get("Y")
+                if parameter is not None and parameter.default is inspect.Parameter.empty:
+                    return True
+            except (TypeError, ValueError):
+                pass
         return False
 
     @staticmethod
@@ -355,7 +425,7 @@ class TransformerMixinController(OperatorController):
         needs_wavelengths = self._needs_wavelengths(op)
 
         # Check if operator requires y (supervised transform like OSC, EPO)
-        requires_y = self._requires_y(op)
+        requires_y = self._uses_y(op)
         y_fit = None
         if requires_y:
             # Get target values for fitting
@@ -401,7 +471,7 @@ class TransformerMixinController(OperatorController):
                 had_nan_before = False
                 if dataset._may_contain_nan and np.any(np.isnan(all_2d)):
                     had_nan_before = True
-                    allow_nan = getattr(op, '_tags', {}).get('allow_nan', False)
+                    allow_nan = self._allows_nan(op)
                     if allow_nan:
                         pass  # Operator natively handles NaN
                     elif na_policy == "replace":
@@ -485,6 +555,7 @@ class TransformerMixinController(OperatorController):
                             transformer.fit(fit_2d)
 
                 transformed_2d = transformer.transform(all_2d, wavelengths=wavelengths) if needs_wavelengths else transformer.transform(all_2d)
+                transformed_2d = normalize_transform_output(transformed_2d, operator_name)
 
                 # --- Post-transform NaN detection ---
                 if not had_nan_before and np.any(np.isnan(transformed_2d)):
@@ -749,6 +820,7 @@ class TransformerMixinController(OperatorController):
 
                 # Batch transform all samples at once
                 transformed_data = transformer.transform(proc_data, wavelengths=wavelengths) if needs_wavelengths else transformer.transform(proc_data)
+                transformed_data = normalize_transform_output(transformed_data, operator_name)
                 source_transformed.append(transformed_data)
 
             all_transformed.append(source_transformed)
@@ -847,7 +919,7 @@ class TransformerMixinController(OperatorController):
         wavelengths_cache: dict[int, Any] = {}  # Cache wavelengths per source
 
         # Check if operator requires y (supervised transform)
-        requires_y = self._requires_y(operator)
+        requires_y = self._uses_y(operator)
 
         # Get data for fitting (if not in predict/explain mode) - once for all samples
         fitted_transformers_cache: dict[tuple[int, int], Any] = {}  # Cache fitted transformers per source/processing
@@ -957,7 +1029,7 @@ class TransformerMixinController(OperatorController):
         needs_wavelengths = self._needs_wavelengths(operator)
 
         # Check if operator requires y (supervised transform)
-        requires_y = self._requires_y(operator)
+        requires_y = self._uses_y(operator)
 
         # Get data for fitting (if not in predict/explain mode)
         fit_data = None
@@ -1063,6 +1135,7 @@ class TransformerMixinController(OperatorController):
                             fitted_transformers.append(artifact)
 
                     transformed_data = transformer.transform(proc_data, wavelengths=wavelengths) if needs_wavelengths else transformer.transform(proc_data)
+                    transformed_data = normalize_transform_output(transformed_data, operator_name)
                     source_2d_list.append(transformed_data)
 
                 source_3d = np.stack(source_2d_list, axis=1)

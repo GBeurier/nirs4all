@@ -31,6 +31,22 @@ def _safe_interp(x_new: np.ndarray, x_old: np.ndarray, y_old: np.ndarray) -> np.
     """Safe 1D interpolation."""
     return np.asarray(np.interp(x_new, x_old, y_old))
 
+def _ordered_warp_inputs(X: np.ndarray, wavelengths: np.ndarray | None) -> tuple[np.ndarray, np.ndarray, np.ndarray | None]:
+    """Interpolate on increasing physical coordinates, restoring channel order later."""
+    axis = np.asarray(wavelengths, dtype=float) if wavelengths is not None else np.arange(X.shape[1], dtype=float)
+    if axis.ndim != 1 or len(axis) != X.shape[1] or len(axis) < 2 or not np.isfinite(axis).all():
+        raise ValueError("Spectral warping requires at least two finite wavelengths matching the feature columns")
+    if np.all(np.diff(axis) > 0):
+        return X, axis, None
+    order = np.argsort(axis, kind="stable")
+    ordered_axis = axis[order]
+    if np.any(np.diff(ordered_axis) <= 0):
+        raise ValueError("Spectral warping requires distinct wavelength coordinates; duplicate wavelengths are ambiguous")
+    inverse = np.empty_like(order)
+    inverse[order] = np.arange(len(order))
+    return X[:, order], ordered_axis, inverse
+
+
 # --- 2.1 Additive / Multiplicative Noise ---
 
 class GaussianAdditiveNoise(TransformerMixin, BaseEstimator):
@@ -338,7 +354,9 @@ class LocalWavelengthWarp(SpectraTransformerMixin):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        lambdas = wavelengths.astype(float) if wavelengths is not None else np.arange(n_features, dtype=float)
+        if self.n_control_points < 2:
+            raise ValueError("n_control_points must be at least 2 for spectral warping")
+        X, lambdas, inverse = _ordered_warp_inputs(X, wavelengths)
 
         X_aug = np.empty_like(X)
 
@@ -365,7 +383,7 @@ class LocalWavelengthWarp(SpectraTransformerMixin):
             # Apply warp: f(l - shift(l))
             X_aug[i] = np.interp(lambdas - shifts, lambdas, X[i])
 
-        return X_aug
+        return X_aug[:, inverse] if inverse is not None else X_aug
 
 class SmoothMagnitudeWarp(SpectraTransformerMixin):
     """
@@ -398,7 +416,9 @@ class SmoothMagnitudeWarp(SpectraTransformerMixin):
         rng = getattr(self, '_rng', np.random.default_rng(self.random_state))
         n_samples, n_features = X.shape
 
-        lambdas = wavelengths.astype(float) if wavelengths is not None else np.arange(n_features, dtype=float)
+        if self.n_control_points < 2:
+            raise ValueError("n_control_points must be at least 2 for spectral warping")
+        X, lambdas, inverse = _ordered_warp_inputs(X, wavelengths)
 
         X_aug = np.empty_like(X)
         ctrl_x = np.linspace(lambdas[0], lambdas[-1], self.n_control_points)
@@ -418,7 +438,7 @@ class SmoothMagnitudeWarp(SpectraTransformerMixin):
             gains = interpolate.splev(lambdas, tck)
             X_aug[i] = X[i] * gains
 
-        return X_aug
+        return X_aug[:, inverse] if inverse is not None else X_aug
 
 class BandPerturbation(TransformerMixin, BaseEstimator):
     """

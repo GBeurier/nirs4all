@@ -905,6 +905,12 @@ class BranchController(OperatorController):
         # Parse steps configuration
         if isinstance(steps, dict):
             # Per-source steps: {"NIR": [...], "markers": [...]}
+            unknown_sources = [name for name in steps if name not in source_names]
+            if unknown_sources:
+                raise ValueError(
+                    f"Unknown source names in by_source: {unknown_sources}. "
+                    f"Available sources: {source_names}"
+                )
             source_steps = steps
         elif isinstance(steps, list):
             # Shared steps for all sources

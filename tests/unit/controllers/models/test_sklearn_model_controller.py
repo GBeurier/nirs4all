@@ -3,6 +3,7 @@ from types import SimpleNamespace
 import numpy as np
 import pytest
 from sklearn.base import BaseEstimator
+from sklearn.cross_decomposition import PLSRegression
 from sklearn.linear_model import Ridge
 
 from nirs4all.controllers.models.sklearn_model import SklearnModelController
@@ -117,6 +118,41 @@ class TestSklearnModelControllerGetModelInstance:
                     }
                 },
             )
+
+
+class TestSklearnFinetuneConstraints:
+    def test_pls_components_are_capped_to_transformed_feature_count(self):
+        controller = SklearnModelController()
+        config = {
+            "n_trials": 20,
+            "model_params": {
+                "n_components": {"type": "int", "low": 1, "high": 30, "step": 1},
+            },
+        }
+
+        constrained = controller._constrain_finetune_params(
+            _DummyDataset(),
+            {"model_instance": PLSRegression(n_components=10)},
+            np.zeros((48, 3)),
+            config,
+        )
+
+        assert constrained["model_params"]["n_components"] == {
+            "type": "int", "low": 1, "high": 3, "step": 1,
+        }
+        assert config["model_params"]["n_components"]["high"] == 30
+
+    def test_pls_components_collapse_to_one_for_single_feature_branch(self):
+        controller = SklearnModelController()
+        constrained = controller._constrain_finetune_params(
+            _DummyDataset(),
+            {"model_instance": PLSRegression()},
+            np.zeros((20, 1)),
+            {"model_params": {"n_components": {"type": "int", "low": 5, "high": 30}}},
+        )
+
+        assert constrained["model_params"]["n_components"]["low"] == 1
+        assert constrained["model_params"]["n_components"]["high"] == 1
 
 
 class TestStepParserInvalidSerializedComponents:

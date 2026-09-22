@@ -108,7 +108,7 @@ class ResamplerController(OperatorController):
         operator: Resampler,
         source_idx: int,
         n_sources: int
-    ) -> np.ndarray:
+    ) -> np.ndarray | None:
         """
         Get target wavelengths for a specific source.
 
@@ -124,9 +124,11 @@ class ResamplerController(OperatorController):
             Target wavelengths for this source
         """
         target_wl = operator.target_wavelengths
+        if target_wl is None:
+            return None
 
         # Check if it's a list of arrays (per-source targets)
-        if isinstance(target_wl, list):
+        if isinstance(target_wl, list) and target_wl and not np.isscalar(target_wl[0]):
             if len(target_wl) != n_sources:
                 raise ValueError(
                     f"If target_wavelengths is a list, it must have {n_sources} elements "
@@ -255,20 +257,6 @@ class ResamplerController(OperatorController):
                 # Transform all data
                 transformed_2d = resampler.transform(all_2d)
 
-                # Apply cropping if needed based on processing type
-                # Raw data: crop features directly using the stored crop mask
-                # Preprocessed data: padding with 0 is already handled by fill_value in interpolation
-                is_raw = processing_name.lower() == "raw" or processing_name.startswith("raw")
-                if is_raw and hasattr(resampler, 'crop_mask_') and resampler.crop_mask_ is not None:
-                    # Apply the crop mask to remove features outside the target range
-                    from nirs4all.operators.transforms.features import CropTransformer
-                    crop_indices = np.where(resampler.crop_mask_)[0]
-                    if len(crop_indices) > 0:
-                        crop_start = crop_indices[0]
-                        crop_end = crop_indices[-1] + 1
-                        cropper = CropTransformer(start=crop_start, end=crop_end)
-                        transformed_2d = cropper.transform(transformed_2d)
-
                 # Store results
                 source_transformed_features.append(transformed_2d)
                 new_processing_name = f"{processing_name}_{new_operator_name}"
@@ -284,7 +272,7 @@ class ResamplerController(OperatorController):
             # Determine final wavelengths for headers
             # Use the OUTPUT wavelengths (target_wavelengths from interpolator_params_)
             # NOT the input wavelengths (wavelengths_after_crop_)
-            final_wavelengths = target_wavelengths
+            final_wavelengths = original_wavelengths if target_wavelengths is None else target_wavelengths
             for resampler in source_resamplers:
                 if hasattr(resampler, 'interpolator_params_') and resampler.interpolator_params_ is not None:
                     final_wavelengths = resampler.interpolator_params_['target_wavelengths']
