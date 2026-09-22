@@ -11,6 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.2] — 2026-09-22
+
+### Fixed
+
+- Preserved fitted native models, partial scientific results, multi-output
+  arrays, sparse transformer outputs, and serialized callable/array parameters
+  throughout legacy Python execution and replay.
+- Routed target arrays to supervised transformers and feature selectors inside
+  nested and Cartesian pipelines.
+- Applied optimized model parameters to final training and replay artifacts.
+
+---
+
 ## [1.1.1] — 2026-09-21
 
 ### Fixed
