@@ -11,6 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [1.1.3] — 2026-09-22
+
+### Fixed
+
+- Serialized orphaned Parquet cleanup with active workspace mutations so a
+  newly opened store cannot delete another process's in-progress write.
+
+---
+
 ## [1.1.2] — 2026-09-22
 
 ### Fixed
