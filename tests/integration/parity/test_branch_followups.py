@@ -67,6 +67,9 @@ def test_by_source_auto_cv_exports_only_explicit_source(tmp_path, monkeypatch, m
     x = np.asarray(dataset.x({"partition": "test"}, "3d", concat_source=False)[1])
     replay = BundleLoader(archive).predict(x.reshape(len(x), -1))
     np.testing.assert_allclose(np.asarray(replay).ravel(), np.asarray(rows[0]["y_pred"]).ravel(), atol=1e-6)
+    full_x = np.asarray(dataset.x({"partition": "test"}, "2d"))
+    full_replay = BundleLoader(archive).predict(full_x)
+    np.testing.assert_allclose(np.asarray(full_replay).ravel(), np.asarray(rows[0]["y_pred"]).ravel(), atol=1e-6)
     result.close()
 
 

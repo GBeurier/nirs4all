@@ -147,10 +147,13 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         assert manifest["dagml_selected_source"]["index"] == 1
         selected_x = np.asarray(test_blocks[1]).reshape(len(test_blocks[1]), -1)
         selected_prediction = BundleLoader(selected_archive).predict(selected_x)
+        full_x = np.asarray(dataset.x({"partition": "test"}, "2d"))
+        full_prediction = BundleLoader(selected_archive).predict(full_x)
         expected_selected = Ridge(alpha=1.0).fit(
             np.asarray(train_blocks[1]).reshape(len(y_train), -1), y_train,
         ).predict(selected_x)
         np.testing.assert_allclose(np.asarray(selected_prediction).ravel(), np.asarray(expected_selected).ravel(), atol=1e-6)
+        np.testing.assert_allclose(np.asarray(full_prediction).ravel(), np.asarray(expected_selected).ravel(), atol=1e-6)
         with pytest.raises(ValueError, match="source= must identify"):
             result.export(tmp_path / f"forged_{mode}.n4a", source={"id": "foreign"})
 

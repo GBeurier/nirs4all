@@ -647,6 +647,35 @@ class _DagmlNativeBySourceFusionModel:
         )
 
 
+class _DagmlNativeSelectedSourceModel:
+    """Replay only the caller-selected source from an independent-output run."""
+
+    def __init__(self, source_index: int, source_widths: Sequence[int], member: _DagmlExportedModel) -> None:
+        if not 0 <= source_index < len(source_widths) or any(width <= 0 for width in source_widths):
+            raise ValueError("selected-source replay requires valid source index and feature widths")
+        self.source_index = source_index
+        self.source_widths = tuple(source_widths)
+        self.member = member
+
+    def predict(self, X: Any) -> np.ndarray:
+        if isinstance(X, (list, tuple)) and not isinstance(X, (str, bytes)) and len(X) == len(self.source_widths):
+            block = np.asarray(X[self.source_index])
+        else:
+            features = np.asarray(X)
+            if features.ndim == 3 and features.shape[0] == len(self.source_widths):
+                block = features[self.source_index]
+            elif features.ndim == 3 and features.shape[1] == len(self.source_widths):
+                block = features[:, self.source_index, :]
+            elif features.ndim == 2 and features.shape[1] == self.source_widths[self.source_index]:
+                block = features
+            elif features.ndim == 2 and features.shape[1] == sum(self.source_widths):
+                start = sum(self.source_widths[:self.source_index])
+                block = features[:, start:start + self.source_widths[self.source_index]]
+            else:
+                raise ValueError("selected-source replay requires the selected source matrix or the full source-aligned input")
+        return self.member.predict(block)
+
+
 class _DagmlNativeMetadataConcatModel:
     """Replay fanned REFIT models using the required metadata partition key."""
 
@@ -2334,7 +2363,13 @@ class RunResult:
             if len(source_artifacts) != 1:
                 return None
             artifact = source_artifacts[0]
-            model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+            widths = [_estimator_feature_width(member["estimator"]) for _index, member in indexed]
+            if any(width is None for width in widths):
+                return None
+            model = _DagmlNativeSelectedSourceModel(
+                source_index, cast(list[int], widths),
+                _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
+            )
             from nirs4all.pipeline.bundle import write_single_model_bundle
 
             native_manifest = cast(Mapping[str, Any], native["manifest"])
@@ -2346,6 +2381,7 @@ class RunResult:
             )
             provenance["dagml_selected_source"] = {"name": source_name, "index": source_index,
                                                    "producer_node": artifact.get("producer_node")}
+            provenance["dagml_source_widths"] = widths
             return write_single_model_bundle(
                 model, output_path,
                 model_label=str(selected_source.get("model_name") or source_name),
