@@ -102,6 +102,8 @@ def _feature_axes(task: dict[str, Any]) -> list[tuple[str, ...]] | None:
 
 def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...]] | None, source_index: int = 0) -> list[Any]:
     """Prepare a source's required-coordinate transforms in pipeline order."""
+    from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
     from .steps import _needs_wavelength_injection
 
     if not axes:
@@ -113,7 +115,7 @@ def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...]] | None, sour
     current = axes[source_index]
     prepared = []
     for step in steps:
-        if _needs_wavelength_injection(step):
+        if _needs_wavelength_injection(step) or isinstance(step, (CARS, MCUVE)):
             prepared.append(_CoordinateTransform(step, current, source_index))
         else:
             prepared.append(step)
@@ -131,6 +133,10 @@ def _axis_after_step(step: Any, current: tuple[str, ...], source_index: int) -> 
         # The public legacy controller materializes these as dataset headers
         # with two decimal places before the next operator reads the axis.
         return tuple(f"{float(value):.2f}" for value in targets)
+    from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
+    if isinstance(step, (CARS, MCUVE)) and hasattr(step, "selected_indices_"):
+        return tuple(f"{float(current[index]):.2f}" for index in step.selected_indices_)
     return current
 
 

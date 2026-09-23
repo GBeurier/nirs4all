@@ -103,11 +103,12 @@ def data_bindings_for_nodes(model_ids: list[str], envelope: dict[str, Any], *, s
 
 def data_bindings_for_fitted_x_chain(
     graph: dict[str, Any], model_id: str, envelope: dict[str, Any], *, source_id: str = _SOURCE_ID,
+    force: bool = False,
 ) -> list[dict[str, Any]]:
     """Bind each X node when any step requests a native, node-local fit scope."""
     bindings = data_bindings_for(model_id, envelope, source_id=source_id)
     transforms = [node for node in graph["nodes"] if node["kind"] == "transform"]
-    if not any(node.get("metadata", {}).get("nirs4all_fit_on_all") is True for node in transforms):
+    if not force and not any(node.get("metadata", {}).get("nirs4all_fit_on_all") is True for node in transforms):
         return bindings
     for node in transforms:
         binding = _data_binding(node["id"], envelope, source_id=source_id)
@@ -131,11 +132,26 @@ def split_invocation_for(identity: IdentityMap, folds: list[tuple[list[int], lis
     }
 
 
+def needs_dynamic_feature_axis(pipeline: list[Any]) -> bool:
+    """A feature selector changes the source axis only after its fit completes."""
+    from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
+    return any(
+        isinstance(step, (CARS, MCUVE))
+        or (isinstance(step, dict) and isinstance(step.get("preprocessing"), (CARS, MCUVE)))
+        for step in pipeline
+    )
+
+
 def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: dict[str, Any], folds: list[tuple[list[int], list[int]]], *, dsl_id: str = "nirs4all-pipeline", n_splits: int, source_id: str = _SOURCE_ID) -> dict[str, Any]:
     """The executable compat DSL: lowered pipeline + embedded fold_set + model data binding."""
     dsl = pipeline_to_dsl(pipeline, dsl_id)
     dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=n_splits)
-    if not any(
+    # A selector's chosen feature indices are known only after its fold-local
+    # fit. Keep that transformation as a native node so its output axis can be
+    # handed to a downstream wavelength-aware operator in the same fold.
+    dynamic_axis = needs_dynamic_feature_axis(pipeline)
+    if not dynamic_axis and not any(
         isinstance(step, dict) and (step.get("metadata") or {}).get("nirs4all_fit_on_all") is True
         for step in dsl["pipeline"]
     ):
@@ -147,7 +163,7 @@ def assemble_cv_refit_dsl(pipeline: list[Any], identity: IdentityMap, envelope: 
     # handle reaches it through the graph edge instead of refitting at the model.
     graph = build_dagml_plan(pipeline, plan_id="plan:probe", dsl_id=dsl_id).to_dict()["graph_plan"]["graph"]
     model_id = next(node["id"] for node in graph["nodes"] if node["kind"] == "model")
-    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope, source_id=source_id)
+    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope, source_id=source_id, force=dynamic_axis)
     return dsl
 
 
