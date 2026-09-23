@@ -221,6 +221,7 @@ def _capture_refit_artifacts(node_results: list[dict[str, Any]], store: dict[int
                 {
                     "artifact_id": artifact_id,
                     "estimator": bundle["estimator"],
+                    **({"fold_estimators": bundle["fold_estimators"]} if "fold_estimators" in bundle else {}),
                     "y_transform": captured_target_transform(
                         bundle["y_transform"], bundle.get("target_decoder"), bundle["estimator"]
                     ),

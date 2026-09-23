@@ -8,6 +8,8 @@ from sklearn.model_selection import StratifiedKFold
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.operators.models import MetaModel
+from nirs4all.operators.models.meta import StackingConfig
+from nirs4all.operators.models.meta import TestAggregation as FoldAggregation
 
 from ._datasets import dataset_path
 
@@ -136,7 +138,8 @@ def test_multiple_probability_sources_feed_native_metamodel(mechanism, source_mo
 
 
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
-def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, monkeypatch):
+@pytest.mark.parametrize("test_aggregation", [FoldAggregation.MEAN, FoldAggregation.BEST_FOLD])
+def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, test_aggregation, monkeypatch):
     import nirs4all
 
     if mechanism == "cli":
@@ -154,6 +157,7 @@ def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, monk
         {"model": MetaModel(
             model=LogisticRegression(max_iter=300), use_proba=True,
             source_models=["RandomForestClassifier", "LogisticRegression"],
+            stacking_config=StackingConfig(test_aggregation=test_aggregation),
         )},
     ]
     path = dataset_path("binary")

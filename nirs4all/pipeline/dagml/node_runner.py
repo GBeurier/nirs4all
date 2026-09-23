@@ -46,6 +46,26 @@ if TYPE_CHECKING:
 _PREDICTION_PARTITION = {"FIT_CV": "validation", "REFIT": "final", "PREDICT": "final", "EXPLAIN": "final"}
 
 
+class _DagmlSelectedFoldEstimator:
+    """Host estimator container whose chosen fold is selected by DAG-ML scores."""
+
+    def __init__(self, fold_estimators: dict[str, Any], selected_fold: str) -> None:
+        if selected_fold not in fold_estimators:
+            raise ValueError(f"selected stacking fold {selected_fold!r} has no captured estimator")
+        self.fold_estimators = dict(fold_estimators)
+        self.selected_fold = selected_fold
+
+    def predict(self, X: Any, **kwargs: Any) -> Any:
+        return self.fold_estimators[self.selected_fold].predict(X, **kwargs)
+
+    def predict_proba(self, X: Any, **kwargs: Any) -> Any:
+        return self.fold_estimators[self.selected_fold].predict_proba(X, **kwargs)
+
+    @property
+    def classes_(self) -> Any:
+        return self.fold_estimators[self.selected_fold].classes_
+
+
 class _FrozenTransform(TransformerMixin, BaseEstimator):
     """Keep a transform fitted by its own native task when the model fits."""
 
@@ -1527,12 +1547,21 @@ def run_model_node(
 
     artifacts: list[dict[str, Any]] = []
     artifact_handles: dict[str, Any] = {}
+    if (phase == "FIT_CV" and (graph_node.get("metadata") or {}).get("nirs4all_stack_fold_capture")
+            and fold_label in (graph_node.get("metadata") or {}).get("nirs4all_stack_outer_fold_ids", [])):
+        model_store[("stacking_fold_estimator", node_id, variant_label, fold_label)] = estimator
     if phase == "REFIT":
         model_store[artifact_handle] = {
             "estimator": _PartitionJoinedEstimator(estimator, joined_chain, joined_chain.metadata_key()) if isinstance(joined_chain, _PartitionedXChain) else estimator,
             "y_transform": y_transform,
             "target_decoder": resolver.target_decoder(),
         }
+        if (graph_node.get("metadata") or {}).get("nirs4all_stack_fold_capture"):
+            model_store[artifact_handle]["fold_estimators"] = {
+                key[3]: value for key, value in model_store.items()
+                if isinstance(key, tuple) and len(key) == 4
+                and key[:3] == ("stacking_fold_estimator", node_id, variant_label)
+            }
         artifacts.append({"id": artifact_id, "kind": "sklearn_estimator", "controller_id": controller_id, "backend": "joblib"})
         artifact_handles[artifact_id] = {"handle": artifact_handle, "kind": "model", "owner_controller": controller_id}
 

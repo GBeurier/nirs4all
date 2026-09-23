@@ -1425,15 +1425,15 @@ def _is_simple_predictions_merge_step(step: Any) -> bool:
     return isinstance(step, dict) and step.get("merge") == "predictions"
 
 
-def _is_default_except_level(config: Any) -> bool:
-    """True iff ``config`` is a ``StackingConfig`` equal to the default in EVERY field except ``level``.
+def _is_default_except_level(config: Any, *, allow_best_fold: bool = False) -> bool:
+    """Check the fields honored by this lowering, optionally including native best-fold test features.
 
-    A MetaModel may carry only the stacking options this slice actually HONORS. ``level`` is the one
-    permitted deviation (AUTO / LEVEL_1 → a single base→meta level, which the dag-ml lowering produces);
-    every other field (``coverage_strategy``, ``test_aggregation``, ``branch_scope``, ``allow_no_cv``,
+    A MetaModel may carry only the stacking options this slice actually HONORS. ``level`` may
+    select AUTO / LEVEL_1 (the single base→meta level produced by the dag-ml lowering);
+    every other field (``coverage_strategy``, ``branch_scope``, ``allow_no_cv``,
     ``min_coverage_ratio``, ``allow_meta_sources``, ``max_level``, ``relation_profile``) is SILENTLY
-    IGNORED by the lowering — notably ``test_aggregation``, which has no effect because this slice cannot
-    score test meta-features at all (best_rmse is NaN). So a non-default value of any of those must reject
+    IGNORED by the lowering. ``test_aggregation=BEST_FOLD`` is allowed only when the caller requests
+    the native fold-scored test feature path. So an unsupported non-default value must reject
     the stacking shape (fail loud) rather than run with the option dropped. Comparison is field-exhaustive
     by construction: clone the config with ``level`` reset to the default and compare to a fresh default,
     so any future ``StackingConfig`` field is covered without enumerating them here.
@@ -1444,11 +1444,15 @@ def _is_default_except_level(config: Any) -> bool:
 
     if not isinstance(config, StackingConfig):
         return False
+    from nirs4all.operators.models.meta import TestAggregation
+
     normalized = dataclasses.replace(config, level=StackingConfig().level)
+    if allow_best_fold and normalized.test_aggregation == TestAggregation.BEST_FOLD:
+        normalized = dataclasses.replace(normalized, test_aggregation=StackingConfig().test_aggregation)
     return normalized == StackingConfig()
 
 
-def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False) -> Any | None:
+def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_best_fold: bool = False) -> Any | None:
     """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
 
     Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
@@ -1459,8 +1463,8 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allo
     Returns ``None`` (→ fail loud, never run wrong) for any MetaModel option this slice does not honor:
     a non-default ``source_models`` list, ``use_proba`` unless explicitly allowed by the caller,
     a custom ``selector``, a ``finetune_space``, a
-    non-AUTO/non-1 stacking ``level``, OR any OTHER non-default ``stacking_config`` field
-    (``test_aggregation``, ``coverage_strategy``, … — silently ignored by the lowering; see
+    non-AUTO/non-1 stacking ``level``, OR any OTHER unsupported ``stacking_config`` field
+    (``coverage_strategy``, … — silently ignored by the lowering; see
     :func:`_is_default_except_level`).
     """
     from nirs4all.operators.models.meta import MetaModel, StackingLevel
@@ -1484,7 +1488,7 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allo
             or model.selector is not None
             or model.finetune_space is not None
             or config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_1)
-            or not _is_default_except_level(config)
+            or not _is_default_except_level(config, allow_best_fold=allow_best_fold)
         ):
             return None
         return model.model
@@ -1506,7 +1510,7 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
     wrapper = steps[-1].get("model")
     if not isinstance(wrapper, MetaModel):
         return None
-    learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True)
+    learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True, allow_best_fold=True)
     if learner is None:
         return None
     models: list[Any] = []
