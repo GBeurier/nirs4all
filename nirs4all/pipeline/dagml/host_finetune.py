@@ -12,6 +12,8 @@ _HOST_KEYS = {"n_trials", "sampler", "sample", "verbose", "seed", "storage", "ph
 _N4M_ENGINE_NAMES = {"n4m", "native", "methods", "libn4m"}
 TRIAL_TRAIN_PREFIX = "nirs4all_trial_fit__"
 _NATIVE_CHECKPOINT_ATTR = "nirs4all_dagml_host_hpo_checkpoint_v1"
+_NATIVE_PREPARED_ATTR = "nirs4all_dagml_host_hpo_prepared_v1"
+_NATIVE_PENDING_ATTR = "nirs4all_dagml_host_hpo_pending_v1"
 
 
 def _content_fingerprint(values: np.ndarray) -> str:
@@ -24,6 +26,63 @@ def _content_fingerprint(values: np.ndarray) -> str:
     digest.update(json.dumps(array.shape).encode())
     digest.update(array.tobytes())
     return digest.hexdigest()
+
+
+def _recover_interrupted_optuna_study(study: Any, saved: dict[str, Any]) -> dict[str, Any]:
+    """Pair a prepared native terminal and fail unfinished concurrent work."""
+    import dag_ml
+    from optuna.trial import TrialState
+
+    terminal = saved["trials"]
+    prepared = study.user_attrs.get(_NATIVE_PREPARED_ATTR)
+    if isinstance(prepared, dict):
+        prepared_count = len(prepared.get("trials", []))
+        if prepared_count <= len(terminal):
+            prepared = None  # Checkpoint publication won the crash race.
+        elif prepared_count != len(terminal) + 1:
+            raise RuntimeError("Optuna native prepared terminal has a non-contiguous trial index")
+    elif prepared is not None:
+        raise RuntimeError("Optuna native prepared terminal is malformed")
+    first_orphan = len(terminal) + int(prepared is not None)
+    observed = study.trials
+    if len(observed) < first_orphan:
+        raise RuntimeError("Optuna study is shorter than its native terminal journal")
+    pending = study.user_attrs.get(_NATIVE_PENDING_ATTR) or {}
+    if not isinstance(pending, dict):
+        raise RuntimeError("Optuna native pending proposal journal is malformed")
+    interrupted = []
+    for index in range(first_orphan, len(observed)):
+        trial = observed[index]
+        if trial.number != index or trial.state not in (TrialState.RUNNING, TrialState.FAIL):
+            raise RuntimeError("Optuna has an unpaired completed trial without native score evidence")
+        values = pending.get(str(index), trial.params)
+        if not isinstance(values, dict):
+            raise RuntimeError("Optuna native pending proposal is malformed")
+        interrupted.append({"trial_index": index, "params": values})
+    recovered = dag_ml.recover_host_hpo_checkpoint(saved, prepared, interrupted)
+    if prepared is not None:
+        index = len(terminal)
+        trial = observed[index]
+        event = prepared["trials"][-1]
+        state = event["state"]
+        expected = {"complete": TrialState.COMPLETE, "pruned": TrialState.PRUNED,
+                    "failed": TrialState.FAIL}[state]
+        if trial.state == TrialState.RUNNING:
+            if state == "complete":
+                study.tell(index, event["evidence"]["score"])
+            else:
+                study.tell(index, state=expected)
+        elif trial.state != expected:
+            raise RuntimeError("Optuna prepared terminal disagrees with optimizer trial state")
+        elif state == "complete" and trial.value != event["evidence"]["score"]:
+            raise RuntimeError("Optuna prepared terminal disagrees with optimizer trial score")
+    for orphan in interrupted:
+        if observed[orphan["trial_index"]].state == TrialState.RUNNING:
+            study.tell(orphan["trial_index"], state=TrialState.FAIL)
+    study.set_user_attr(_NATIVE_CHECKPOINT_ATTR, recovered)
+    study.set_user_attr(_NATIVE_PREPARED_ATTR, None)
+    study.set_user_attr(_NATIVE_PENDING_ATTR, {})
+    return recovered
 
 
 def split_trial_fit_overrides(params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -75,10 +134,6 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
         n_jobs = params["n_jobs"]
         if type(n_jobs) is not int or n_jobs == 0 or n_jobs < -1:
             raise ValueError("DAG host Optuna n_jobs must be positive or -1")
-        if params.get("storage") or params.get("resume"):
-            raise NotImplementedError("DAG parallel Optuna trials require a durable concurrent checkpoint contract")
-        if params.get("pruner", "none") != "none":
-            raise NotImplementedError("DAG parallel Optuna pruning requires coordinator-mediated fold feedback")
     if engine == "optuna":
         if "storage" in params and (not isinstance(params["storage"], str) or not params["storage"].strip()):
             raise TypeError("DAG host finetune_params.storage requires a nonempty Optuna storage URL")
@@ -271,6 +326,8 @@ def run_scoped_finetune(
                     "DAG host Optuna resume requires a paired native DAG trial checkpoint; "
                     "an existing optimizer study cannot be replayed as new candidate evidence"
                 )
+            if params.get("n_jobs", 1) != 1:
+                saved_checkpoint = _recover_interrupted_optuna_study(study, saved_checkpoint)
             terminal = saved_checkpoint.get("trials", [])
             if len(terminal) != len(study.trials) or any(
                 observed.number != index or observed.state.name.lower() != {"failed": "fail"}.get(native.get("state"), native.get("state"))
@@ -353,7 +410,12 @@ def run_scoped_finetune(
                 }
             # Canonical JSON restoration preserves tuple/type-token grammars in
             # configuration; concrete proposed parameters are ordinary JSON.
-            return cast(dict[str, Any], json.loads(json.dumps(values)))
+            values = cast(dict[str, Any], json.loads(json.dumps(values)))
+            if study is not None and params.get("storage") and params.get("n_jobs", 1) != 1:
+                journal = dict(study.user_attrs.get(_NATIVE_PENDING_ATTR) or {})
+                journal[str(index)] = values
+                study.set_user_attr(_NATIVE_PENDING_ATTR, journal)
+            return values
         if request["operation"] != "tell" or index not in pending:
             raise ValueError("Unexpected native optimizer transition")
         trial = pending.pop(index)
@@ -402,7 +464,16 @@ def run_scoped_finetune(
                 native_kwargs["resume_checkpoint"] = saved_checkpoint
 
             def checkpoint_callback(event: dict[str, Any]) -> bool:
+                if event["operation"] == "prepare_terminal":
+                    study.set_user_attr(_NATIVE_PREPARED_ATTR, event["checkpoint"])
+                    return True
                 study.set_user_attr(_NATIVE_CHECKPOINT_ATTR, event["checkpoint"])
+                study.set_user_attr(_NATIVE_PREPARED_ATTR, None)
+                if params.get("n_jobs", 1) != 1:
+                    terminal_count = len(event["checkpoint"]["trials"])
+                    journal = {key: value for key, value in (study.user_attrs.get(_NATIVE_PENDING_ATTR) or {}).items()
+                               if int(key) >= terminal_count}
+                    study.set_user_attr(_NATIVE_PENDING_ATTR, journal)
                 return True
 
             native_kwargs["progress_callback"] = checkpoint_callback
