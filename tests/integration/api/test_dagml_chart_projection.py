@@ -129,3 +129,20 @@ def test_charts_on_both_sides_of_augmentation_use_their_own_sample_universe(tmp_
         assert len(samples) == count
     assert "original observed features" in by_step[0].read_text()
     assert "observed and synthetic augmentation features" in by_step[2].read_text()
+
+
+def test_fold_local_augmentation_chart_requires_refit_stage_capture(tmp_path):
+    import nirs4all
+
+    rng = np.random.default_rng(7)
+    X = rng.normal(size=(30, 6))
+    y = X[:, 0] * 2 + X[:, 1]
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "balance": "y", "max_factor": 1.2, "random_state": 42,
+    }}
+    pipeline = [augmentation, "chart_2d", KFold(2), Ridge()]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    with pytest.raises(Exception, match="captured branch/source snapshot"):
+        nirs4all.run(pipeline, (X, y), engine="dag-ml", workspace_path=tmp_path / "dag", save_artifacts=False, verbose=0)
