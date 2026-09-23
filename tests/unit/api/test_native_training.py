@@ -147,9 +147,24 @@ def test_fit_native_pipeline_is_a_public_strict_native_composition(
     monkeypatch: pytest.MonkeyPatch, native_library: str
 ) -> None:
     captured: dict[str, Any] = {}
+    training_losses = (
+        {
+            "schema_version": 1,
+            "node_id": "model:compat.0",
+            "output_id": "output:prediction",
+            "phases": ["FIT_CV", "REFIT"],
+            "loss": {"spec": {"loss_id": "loss:compat"}},
+        },
+    )
 
     def compile_fit(self, estimator, X, y, **kwargs):  # noqa: ANN001
-        captured.update(estimator=estimator, X=X, y=y, kwargs=kwargs)
+        captured.update(
+            estimator=estimator,
+            X=X,
+            y=y,
+            kwargs=kwargs,
+            training_losses=self.training_losses,
+        )
         from nirs4all.pipeline.dagml.estimator import DagMLTrainingExecution
 
         return DagMLTrainingExecution(
@@ -174,11 +189,14 @@ def test_fit_native_pipeline_is_a_public_strict_native_composition(
         np.asarray([1.0, 2.0]),
         sample_ids=["fit-a", "fit-b"],
         native_client=client,
+        training_losses=training_losses,
         methods_library_path=native_library,
     )
 
     assert isinstance(estimator, DagMLPipelineEstimator)
     assert captured["kwargs"]["sample_ids"] == ("fit-a", "fit-b")
+    assert captured["training_losses"] == training_losses
+    assert estimator.training_compiler.training_losses == training_losses
     assert estimator.training_compiler.additional_diagnostics == {"nirs4all_native_seed": 12345}
     assert client.calls[0][0][:4] == (
         {"request": "native"},

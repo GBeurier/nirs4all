@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import sys
+from types import ModuleType
 from typing import Any
 
 import numpy as np
@@ -279,6 +281,81 @@ def test_predict_and_predict_proba_use_native_replay_and_explicit_decoders() -> 
         {"artifact": {"handle": 1}},
     )
     assert client.replay_calls[1]["args"][1] == {"phase": "predict_proba"}
+
+
+def test_portable_output_selection_is_explicit_and_preserves_multi_output_replay(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class PortablePackage:
+        def __init__(self) -> None:
+            self.output_bindings = [
+                {"binding_id": "output:point", "port_name": "prediction"},
+                {"binding_id": "output:probability", "port_name": "probability"},
+            ]
+
+        def select_output(self, binding_id: str) -> dict[str, Any]:
+            for binding in self.output_bindings:
+                if binding["binding_id"] == binding_id:
+                    return {
+                        "package_id": "package:multi",
+                        "package_fingerprint": "f" * 64,
+                        "output_binding": dict(binding),
+                    }
+            raise RuntimeError(f"portable package has no output binding {binding_id!r}")
+
+    package = PortablePackage()
+    replayed_packages: list[Any] = []
+    facade = ModuleType("dag_ml_multi_output_test")
+
+    def select_portable_output(
+        package_document: dict[str, Any],
+        binding_id: str,
+    ) -> dict[str, Any]:
+        binding = next(
+            item
+            for item in package_document["output_bindings"]
+            if item["binding_id"] == binding_id
+        )
+        return {
+            "package_id": package_document["package_id"],
+            "package_fingerprint": package_document["package_fingerprint"],
+            "output_binding": dict(binding),
+        }
+
+    def replay_loaded_predictor_package(
+        replay_package: Any,
+        *_args: Any,
+        **_kwargs: Any,
+    ) -> dict[str, Any]:
+        replayed_packages.append(replay_package)
+        return {"outputs": [dict(binding) for binding in replay_package.output_bindings]}
+
+    facade.select_portable_output = select_portable_output  # type: ignore[attr-defined]
+    facade.replay_loaded_predictor_package = replay_loaded_predictor_package  # type: ignore[attr-defined]
+    monkeypatch.setitem(sys.modules, facade.__name__, facade)
+    estimator = DagMLPipelineEstimator(dagml_module=facade.__name__)
+    estimator.training_result_ = object()
+    estimator.output_binding_ = package.output_bindings[0]
+    estimator.predictor_package_ = package
+
+    selected = estimator.select_portable_output("output:probability")
+
+    assert selected["output_binding"] == package.output_bindings[1]
+    selected_from_document = estimator.native_runtime_client().select_portable_output(
+        {
+            "package_id": "package:multi",
+            "package_fingerprint": "f" * 64,
+            "output_bindings": package.output_bindings,
+        },
+        "output:point",
+    )
+    assert selected_from_document["output_binding"] == package.output_bindings[0]
+    with pytest.raises(RuntimeError, match="no output binding"):
+        estimator.select_portable_output("output:missing")
+    replay = estimator.execute_compiled_replay(_replay_execution("predict"))
+    assert replay["outputs"] == package.output_bindings
+    assert replayed_packages == [package]
+    assert len(estimator.predictor_package_.output_bindings) == 2
 
 
 def test_predict_proba_never_fabricates_pseudo_probabilities() -> None:

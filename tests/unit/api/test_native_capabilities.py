@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import copy
+import inspect
 import json
 from pathlib import Path
 
@@ -155,3 +156,32 @@ def test_native_capability_matrix_returns_a_detached_document() -> None:
     first["operations"]["run"]["forms"]["portable_methods"]["boundary"] = "mutated"
 
     assert get_native_capability_matrix()["operations"]["run"]["forms"]["portable_methods"]["boundary"] != "mutated"
+
+
+def test_installed_dagml_exposes_runtime_bridges_used_by_nirs4all() -> None:
+    """The declared dependency must expose every runtime primitive we call."""
+
+    import dag_ml
+
+    required = {
+        "select_candidate",
+        "recover_host_hpo_checkpoint",
+        "align_named_source_rows",
+        "select_portable_output",
+    }
+    missing = sorted(name for name in required if not callable(getattr(dag_ml, name, None)))
+    version = getattr(dag_ml, "__version__", "unknown")
+    assert not missing, (
+        f"installed dag-ml {version} is incompatible with nirs4all: "
+        f"missing runtime callables {missing}"
+    )
+
+    host_hpo = getattr(dag_ml, "run_host_hpo_search_in_process", None)
+    assert callable(host_hpo), (
+        f"installed dag-ml {version} is incompatible with nirs4all: "
+        "missing run_host_hpo_search_in_process()"
+    )
+    assert "candidate_callback_factory" in inspect.signature(host_hpo).parameters, (
+        f"installed dag-ml {version} is incompatible with nirs4all: "
+        "run_host_hpo_search_in_process() lacks candidate_callback_factory"
+    )
