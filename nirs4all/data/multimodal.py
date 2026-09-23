@@ -83,8 +83,8 @@ class MultimodalSpectroDataset(SpectroDataset):
     def x(self, selector: Any, layout: Any = "2d", concat_source: bool = True, include_augmented: bool = True, include_excluded: bool = False) -> Any:
         return self.x_rows(self.index_column("sample", selector or {}), layout, concat_source)
 
-    def content_hash(self, source_index: int | None = None) -> str:
-        """Fingerprint actual typed host buffers, including categorical values."""
+    def content_hash(self, source_index: int | None = None, sample_rows: list[int] | None = None) -> str:
+        """Fingerprint typed source buffers, optionally restricted to a cohort's rows."""
         digest = hashlib.sha256()
         items = list(self.cohort.sources.items())
         if source_index is not None:
@@ -92,6 +92,9 @@ class MultimodalSpectroDataset(SpectroDataset):
         for name, source in items:
             values = np.asarray(source.values)
             presence = np.asarray(source.presence_mask)
+            if sample_rows is not None:
+                values = values[sample_rows]
+                presence = presence[sample_rows]
             if not presence.all():
                 values = values.copy()
                 values[~presence] = "" if values.dtype.kind in "US" else 0

@@ -317,6 +317,8 @@ def run_cv_refit_bundle_router(
     if dataset is not None and test:
         import dag_ml
 
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
         from .envelope import build_envelope, target_names
         from .raw_training_lowerer import _array_content_fingerprint
 
@@ -324,10 +326,16 @@ def run_cv_refit_bundle_router(
         cohort_builder = getattr(dag_ml, "attach_predict_cohort_to_envelope", None)
         if not callable(cohort_builder):
             raise RuntimeError("the installed DAG-ML runtime lacks the native test-cohort constructor")
+        if isinstance(dataset, MultimodalSpectroDataset):
+            # Raw source blocks cannot be concatenated into a numeric matrix.
+            # Bind the external cohort to its typed, source-aware buffers.
+            data_content_fingerprint = dataset.content_hash(sample_rows=test)
+        else:
+            data_content_fingerprint = _array_content_fingerprint("X", dataset.x({"partition": "test"}, layout="2d"))
         envelope.update(cohort_builder(envelope, {
             "role": "external_test", "relations": test_envelope["coordinator_relations"],
             "target_names": target_names(dataset),
-            "data_content_fingerprint": _array_content_fingerprint("X", dataset.x({"partition": "test"}, layout="2d")),
+            "data_content_fingerprint": data_content_fingerprint,
             "target_content_fingerprint": _array_content_fingerprint("y", dataset.y({"partition": "test"})),
         }).to_dict())
     fold_set = (dsl.get("split_invocation") or {}).get("fold_set")
