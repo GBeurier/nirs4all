@@ -1649,6 +1649,7 @@ def _run_augmentation_full_train(
     early_models = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
     if early_models and (
         pre_aug_steps[-len(early_models):] != early_models
+        or len(aug_indices) > 1
         or aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
         or any(_is_exclude_step(step) for step in pipeline[aug_indices[-1] + 1:])
     ):
@@ -1912,6 +1913,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     early_models = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
     if early_models and (
         pre_aug_steps[-len(early_models):] != early_models
+        or len(aug_indices) > 1
         or aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
         or any(_is_exclude_step(step) for step in pipeline[aug_indices[-1] + 1:])
     ):
