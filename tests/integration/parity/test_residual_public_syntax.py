@@ -65,3 +65,51 @@ def test_residual_public_instance_forms_refit_and_replay(tmp_path, monkeypatch, 
         assert np.sqrt(np.mean((targets[24:] - predicted) ** 2)) == pytest.approx(native.best_rmse, abs=1e-5)
     finally:
         native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("syntax", ["residual_instance", "residual_dict"])
+def test_residual_keyword_before_plain_model_is_independent_checkpoint(tmp_path, monkeypatch, mechanism: str, syntax: str) -> None:
+    """The residual keyword remains a model checkpoint when a later model follows."""
+    if mechanism == "subprocess":
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    rng = np.random.default_rng(44)
+    features = rng.normal(size=(30, 6))
+    targets = 2 * features[:, 0] + features[:, 1] + rng.normal(scale=0.1, size=30)
+
+    def dataset() -> SpectroDataset:
+        result = SpectroDataset("residual_then_model")
+        result.add_samples(features[:26], {"partition": "train"}, headers=[str(index) for index in range(6)])
+        result.add_samples(features[26:], {"partition": "test"})
+        result.add_targets(targets.reshape(-1, 1))
+        return result
+
+    residual = ResidualModel(base=Ridge(alpha=1), learner=Ridge(alpha=1), gate=False)
+    first = {"residual": residual if syntax == "residual_instance" else residual.get_params(deep=False)}
+    pipeline = [KFold(2, shuffle=True, random_state=1), first, Ridge(alpha=2)]
+    legacy = nirs4all.run(pipeline, dataset(), engine="legacy", refit=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False,
+                          save_charts=False, verbose=0)
+    try:
+        assert np.isfinite(legacy.cv_best_score)
+    finally:
+        legacy.close()
+
+    native = nirs4all.run(pipeline, dataset(), engine="dag-ml", allow_fallback=False, refit=True,
+                         workspace_path=tmp_path / "native", save_artifacts=True,
+                         save_charts=False, verbose=0)
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert len(native.runs) == 2
+        assert all(np.isfinite(run.cv_best_score) for run in native.runs)
+        archive = native.runs[0].export(tmp_path / "residual_checkpoint.n4a")
+        prediction = np.asarray(nirs4all.predict(archive, features[26:]).y_pred).ravel()
+        assert np.sqrt(np.mean((targets[26:] - prediction) ** 2)) == pytest.approx(native.runs[0].best_rmse, abs=1e-5)
+    finally:
+        native.close()

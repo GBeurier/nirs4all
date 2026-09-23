@@ -54,7 +54,9 @@ def validate_training_control_declarations(value: Any) -> None:
             apply_model_training_controls(clone(model), metadata, "FIT_CV")
             apply_model_training_controls(clone(model), metadata, "REFIT")
         for key, child in value.items():
-            if key not in {"params", "train_params", "refit_params", "finetune_params"}:
+            # The residual payload is an operator's constructor configuration.
+            # Its train_params belong to the residual learner, not a pipeline step.
+            if key not in {"params", "train_params", "refit_params", "finetune_params", "residual"}:
                 validate_training_control_declarations(child)
 
 
