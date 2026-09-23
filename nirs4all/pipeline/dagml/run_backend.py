@@ -437,10 +437,13 @@ def run_via_dagml(
     # skips the in-memory ones, so `_materialize_dataset` wraps them with the legacy normalization.
     spectro = _materialize_dataset(dataset)
     requested_charts = isinstance(pipeline, list) and any(_is_chart_step(step) for step in pipeline)
+    chart_original_spectro = None
     if requested_charts and (save_charts or plots_visible):
         from .chart_projection import validate_chart_projection
 
         validate_chart_projection(pipeline, spectro)
+        if any(_is_augmentation_step(step) for step in pipeline):
+            chart_original_spectro = copy.deepcopy(spectro)
     base_dir = Path(workdir) if workdir is not None else Path(tempfile.mkdtemp(prefix="n4a_dagml_"))
     # `dataset_arg` is the reloadable path (clean file-path datasets, no pickle — fast); `host_pickle`
     # is set only when the adapter cannot faithfully reload from a path (in-memory inputs, or a path
@@ -494,7 +497,11 @@ def run_via_dagml(
         if requested_charts:
             from .chart_projection import render_run_charts
 
-            chart_paths = render_run_charts(result, pipeline, spectro, workspace_path=workspace_path, save_charts=save_charts, plots_visible=plots_visible, verbose=verbose)
+            chart_paths = render_run_charts(
+                result, pipeline, spectro, original_spectro=chart_original_spectro,
+                workspace_path=workspace_path, save_charts=save_charts,
+                plots_visible=plots_visible, verbose=verbose,
+            )
             for metadata in result.per_dataset.values():
                 metadata["chart_reports"] = chart_paths
         if save_artifacts and result._dagml_score_set is not None and not native_results_enabled(results_path):

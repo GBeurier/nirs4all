@@ -9,6 +9,8 @@ from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
 from sklearn.preprocessing import StandardScaler
 
+from nirs4all.operators.augmentation import GaussianAdditiveNoise
+
 
 @pytest.mark.parametrize("save_charts", [False, True, None])
 def test_charts_use_captured_refit_without_extra_fits_and_supply_numeric_alternatives(tmp_path, monkeypatch, save_charts):
@@ -98,3 +100,32 @@ def test_target_chart_after_processing_uses_captured_target_transform(tmp_path):
         values = [float(row["target_0"]) for row in csv.DictReader(stream)]
     expected = result._dagml_refit_artifacts[0]["y_transform"].transform(y.astype(np.float32).reshape(-1, 1)).ravel()
     np.testing.assert_array_equal(np.asarray(values).reshape(20, 3)[:, 0], expected)
+
+
+def test_charts_on_both_sides_of_augmentation_use_their_own_sample_universe(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import nirs4all
+
+    rng = np.random.default_rng(214)
+    X = rng.normal(size=(24, 5))
+    y = X @ np.arange(1.0, 6.0)
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    pipeline = ["chart_2d", augmentation, "chart_2d", KFold(2), Ridge()]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, (X, y), engine="dag-ml", workspace_path=tmp_path / "dag", save_artifacts=False, verbose=0)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-4)
+
+    reports = [Path(path) for item in native.per_dataset.values() for path in item["chart_reports"]]
+    assert len(reports) == 2
+    by_step = {int(report.stem.split("_")[1]): report for report in reports}
+    for step, count in [(0, 24), (2, 48)]:
+        with by_step[step].with_suffix(".csv").open() as stream:
+            samples = {int(row["sample_index"]) for row in csv.DictReader(stream)}
+        assert len(samples) == count
+    assert "original observed features" in by_step[0].read_text()
+    assert "observed and synthetic augmentation features" in by_step[2].read_text()
