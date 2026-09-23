@@ -15,7 +15,7 @@ from ._datasets import dataset_path
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-@pytest.mark.parametrize("gate,threshold", [(0.35, 0.0), ("auto", 1.0)])
+@pytest.mark.parametrize("gate,threshold", [(0.35, 0.0), ("auto", 1.0), (True, 1.0), (None, 1.0)])
 def test_residual_lambda_and_rli_threshold_match_refit_and_replay(tmp_path, monkeypatch, mechanism: str, gate, threshold: float) -> None:
     """REFIT predictions and replay use the core-calibrated scalar exactly."""
     if mechanism == "subprocess":
@@ -46,7 +46,7 @@ def test_residual_lambda_and_rli_threshold_match_refit_and_replay(tmp_path, monk
     )
     replay_contract = native.per_dataset[next(iter(native.per_dataset))]["residual_replay"]
     assert replay_contract["lambda"] == pytest.approx(0.6)
-    if gate == "auto":
+    if gate is True or gate is None or gate == "auto":
         assert replay_contract["gate"] == pytest.approx(0.0)
         assert all(record["gate"] == pytest.approx(0.0) for record in replay_contract["gate_records"])
     else:
