@@ -192,8 +192,10 @@ def test_real_native_vote_preserves_all_fold_and_final_arrays_without_extra_fits
         (fold_id, partition)
         for fold_id, partition in (
             ("0", "val"), ("1", "val"), ("2", "val"), ("avg", "val"),
+            ("0", "test"), ("1", "test"), ("2", "test"),
             ("final", "train"), ("final", "test"),
             ("0_agg", "val"), ("1_agg", "val"), ("2_agg", "val"), ("avg_agg", "val"),
+            ("0_agg", "test"), ("1_agg", "test"), ("2_agg", "test"),
             ("final_agg", "train"), ("final_agg", "test"),
         )
     }

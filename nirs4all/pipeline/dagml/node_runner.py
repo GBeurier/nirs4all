@@ -1233,10 +1233,9 @@ def run_model_node(
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
 
-    # What to predict: the phase's own partition; and — at REFIT — also the held-out TEST partition
-    # so dag-ml scores the final model's test RMSE (nirs4all's best_rmse). The CV fold set does not
-    # cover test, but dag-ml only scope-checks `validation` blocks (runtime validate_prediction_scope),
-    # so a `test` block for the refit model is accepted and scored natively.
+    # What to predict: the phase's own partition and the independent held-out TEST cohort.
+    # FIT_CV receives the cohort through DAG-ML's attested non-fit companion view; the core checks
+    # both its sample scope and fold id. REFIT also scores its separately fitted final estimator.
     #
     # The TEST block is emitted with `fold_id=None` (the OFF-FOLD convention dag-ml keys on): a REFIT
     # runs `fold_id=None`, and dag-ml's `reassemble_branch_merge_off_fold` /
@@ -1251,21 +1250,24 @@ def run_model_node(
     # TRAINING rows — REFIT predicting its own full_train ("final"-train score). The predict ids are the
     # view's BASE ids, so resolve_features fetches base rows only (the "final"-train score is over base
     # train); the synthetic children influenced the FIT, never a scored holdout. FIT_CV's validation/OOF
-    # view, the REFIT held-out TEST, and PREDICT are non-fit holdout views, so include_augmented=False
+    # view, FIT_CV/REFIT held-out TEST, and PREDICT are non-fit holdout views, so include_augmented=False
     # makes resolve_features REFUSE any augmented child there (the origin-boundary leakage guard).
     predict_is_train = phase == "REFIT"  # REFIT predict_ids == full_train (training rows); FIT_CV/PREDICT are holdout
     specs: list[tuple[list[str], str, str | None, bool]] = [
         (predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
     ]
-    if phase == "REFIT":
-        test_ids = resolver.partition_wire_ids("test")
-        # A separation-branch refit model only ever trained on its partition, so its TEST prediction
-        # must be restricted to that partition too (the test ids are fetched directly, not via a view).
+    if phase in ("FIT_CV", "REFIT"):
+        test_ids = (
+            _sample_ids(_view_by_partition(task, "predict"))
+            if phase == "FIT_CV" else resolver.partition_wire_ids("test")
+        )
+        # A separation-branch model only ever trained on its partition, so its TEST prediction
+        # must be restricted to that partition too.
         selector = _branch_selector(task)
         if selector is not None and sample_metadata is not None:
             test_ids = [sample_id for sample_id in test_ids if _branch_view_keep(sample_id, selector, sample_metadata)]
         if test_ids:
-            specs.append((test_ids, "test", None, False))
+            specs.append((test_ids, "test", task.get("fold_id") if phase == "FIT_CV" else None, False))
 
     # One prediction block per spec, each paired 1:1 with an exactly-matching y_true block (dag-ml
     # scoring requires target units == prediction units). dag-ml matches block↔target by unit set.

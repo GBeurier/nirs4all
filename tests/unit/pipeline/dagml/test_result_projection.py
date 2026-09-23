@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import numpy as np
 
+import nirs4all.api  # noqa: F401 - initialize API exports before importing the result module
 from nirs4all.pipeline.dagml.identity import IdentityMap
 from nirs4all.pipeline.dagml.result import _project_operator_sweep, _scores_to_run_result
 
@@ -94,6 +95,30 @@ def test_classification_projection_does_not_publish_regression_metrics() -> None
     for row in result.predictions.filter_predictions(load_arrays=True):
         assert row["scores"]["val"] == {"accuracy": 0.8, "balanced_accuracy": 0.7}
     assert scores["reports"][0]["metrics"]["rmse"] == 0.3
+    result.close()
+
+
+def test_cv_only_projection_keeps_fold_test_and_native_test_ensembles() -> None:
+    """A test cohort measured by CV estimators remains visible without a refit."""
+    reports = [
+        {"producer_node": "model", "partition": partition, "fold_id": fold,
+         "variant_id": None if fold in {"avg", "w_avg"} else "variant:base",
+         "metrics": {"rmse": value}}
+        for partition, fold, value in [
+            ("validation", "fold0", 1.0), ("validation", "fold1", 3.0),
+            ("validation", "avg", 2.0),
+            ("test", "fold0", 1.5), ("test", "fold1", 2.5),
+            ("test", "avg", 1.8), ("test", "w_avg", 1.6),
+        ]
+    ]
+    result = _scores_to_run_result({"reports": reports}, "dataset", "Ridge", producer="model")
+    rows = result.predictions.filter_predictions()
+    by_key = {(row["fold_id"], row["partition"]): row for row in rows}
+    assert {("0", "test"), ("1", "test"), ("avg", "test"), ("w_avg", "test")} <= by_key.keys()
+    assert by_key[("0", "test")]["test_score"] == 1.5
+    assert by_key[("avg", "test")]["test_score"] == 1.8
+    assert by_key[("w_avg", "test")]["test_score"] == 1.6
+    assert by_key[("avg", "val")]["val_score"] == 2.0
     result.close()
 
 

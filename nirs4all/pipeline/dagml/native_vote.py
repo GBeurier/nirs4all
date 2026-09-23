@@ -38,11 +38,12 @@ def capture_vote_evidence(
     variant = task.get("variant_id")
     specs = [(block["sample_ids"], "train" if block["partition"] == "final" else block["partition"], block["values"]) for block in predictions]
     if phase == "FIT_CV":
+        native_partitions = {partition for _, partition, _ in specs}
         specs.extend((ids, part, None) for ids, part in (
             (train_ids, "train"),
             (resolver.partition_wire_ids("train"), "ensemble_train"),
             (resolver.partition_wire_ids("test"), "test"),
-        ) if ids)
+        ) if ids and part not in native_partitions)
     classes = np.asarray(estimator.classes_, dtype=float)
     if classes.ndim != 1 or not np.isfinite(classes).all() or len(np.unique(classes)) != len(classes):
         raise ValueError("classification evidence requires distinct finite class identities")
