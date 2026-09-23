@@ -8,9 +8,12 @@ from sklearn.model_selection import KFold
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
+from nirs4all.data import DatasetConfigs
 from nirs4all.data.dataset import SpectroDataset
+from nirs4all.operators.models.residual import ResidualModel
 
 from ._dagml_cli import dagml_cli_path
+from ._datasets import dataset_path
 
 
 @pytest.mark.parity
@@ -72,5 +75,52 @@ def test_residual_choices_after_prefix_refit_and_replay(tmp_path, monkeypatch, m
         archive = native.export(tmp_path / "residual_composition.n4a")
         predicted = np.asarray(nirs4all.predict(archive, features[30:]).y_pred).ravel()
         assert np.sqrt(np.mean((targets[30:] - predicted) ** 2)) == pytest.approx(native.best_rmse, abs=1e-5)
+    finally:
+        native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_residual_learner_search_and_training_controls_after_target_prefix(tmp_path, monkeypatch, mechanism: str) -> None:
+    """Learner search and fit options keep the transformed target in native refit."""
+    if mechanism == "subprocess":
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    source = dataset_path("regression")
+    search = {"n_trials": 2, "sampler": "grid", "approach": "single", "model_params": {"alpha": [0.01, 1.0]}}
+
+    def pipeline() -> list:
+        return [
+            KFold(2, shuffle=True, random_state=1),
+            {"y_processing": StandardScaler()},
+            {"model": ResidualModel(
+                base=PLSRegression(n_components=2), learner=Ridge(), gate="auto",
+                train_params={"fit_intercept": False}, finetune_space=search,
+            )},
+        ]
+
+    legacy = nirs4all.run(pipeline(), source, engine="legacy", refit=False,
+                          workspace_path=tmp_path / "legacy_search", save_artifacts=False, save_charts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    native = nirs4all.run(pipeline(), source, engine="dag-ml", allow_fallback=False, refit=True,
+                          workspace_path=tmp_path / "native_search", save_artifacts=False, save_charts=False, verbose=0)
+    try:
+        assert native.execution_engine == "dag-ml"
+        learner = next(artifact["estimator"] for artifact in native._dagml_refit_artifacts if artifact["controller_id"] == "controller:nirs4all.residual_learner")
+        assert learner.fit_intercept is False
+        assert {trial["params"]["alpha"] for trial in learner._nirs4all_host_hpo["trials"]} == {0.01, 1.0}
+        assert learner._nirs4all_host_hpo["evaluation"]["outer_validation_used"] is False
+        dataset = DatasetConfigs(source).get_dataset_at(0)
+        features = dataset.x({"partition": "test"}, layout="2d")
+        targets = np.asarray(dataset.y({"partition": "test"})).ravel()
+        archive = native.export(tmp_path / "residual_search_target.n4a")
+        predicted = np.asarray(nirs4all.predict(archive, features).y_pred).ravel()
+        assert np.sqrt(np.mean((targets - predicted) ** 2)) == pytest.approx(native.best_rmse, abs=1e-5)
     finally:
         native.close()
