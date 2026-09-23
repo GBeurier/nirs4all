@@ -2384,6 +2384,14 @@ def _canonical_branch_step(step: Any, node_id: str) -> dict[str, Any]:
     if "y_processing" in compat:
         inner = compat["y_processing"]
         return {"kind": "y_transform", "id": node_id, "operator": {"class": inner["class"]}, "params": inner.get("params", {})}
+    if "preprocessing" in compat:
+        inner = compat["preprocessing"]
+        return {
+            "kind": "transform", "id": node_id,
+            "operator": {"class": inner["class"]}, "params": inner.get("params", {}),
+            **({"metadata": compat["metadata"]} if "metadata" in compat else {}),
+            **({"shape": compat["shape"]} if "shape" in compat else {}),
+        }
     # Bare transform: compat is {"class": FQN, "params": {...}}.
     return {"kind": "transform", "id": node_id, "operator": {"class": compat["class"]}, "params": compat.get("params", {})}
 
