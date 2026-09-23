@@ -544,10 +544,7 @@ def test_public_run_engine_dagml_fills_direct_block_predictions(inprocess, monke
 
 
 def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> None:
-    """The sole native OOF average matches direct sklearn predictions by sample.
-
-    Weighted averages require their own native evidence and are not synthesized.
-    """
+    """Native OOF averages match direct sklearn predictions by sample."""
     from sklearn.pipeline import make_pipeline
 
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
@@ -572,7 +569,7 @@ def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> Non
             sklearn_oof[sample_int] = float(np.asarray(model.predict(np.asarray(dataset.x({"sample": [sample_int]}, layout="2d")))).ravel()[0])
 
     avg_by_sample: dict[str, dict[int, float]] = {}
-    for fold_id in ("avg",):
+    for fold_id in ("avg", "w_avg"):
         rows = result.predictions.filter_predictions(partition="val", fold_id=fold_id)
         assert len(rows) == 1, f"exactly one (val, {fold_id}) row"
         row = rows[0]
@@ -581,9 +578,6 @@ def test_public_run_engine_dagml_fills_avg_oof_row(monkeypatch, tmp_path) -> Non
         avg_by_sample[fold_id] = {int(sid): float(p) for sid, p in zip(row["sample_indices"], np.asarray(row["y_pred"], dtype=float).ravel(), strict=True)}
         diffs = [abs(avg_by_sample[fold_id][sample_int] - sklearn_oof[sample_int]) for sample_int in sklearn_oof]
         assert max(diffs) < 1e-6, f"(val, {fold_id}) y_pred drift vs direct sklearn OOF mean: {max(diffs)}"
-
-    assert result.predictions.filter_predictions(fold_id="w_avg") == []
-
 
 @pytest.mark.parametrize(
     "inprocess",
