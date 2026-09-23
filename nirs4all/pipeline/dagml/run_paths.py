@@ -12,7 +12,7 @@ from __future__ import annotations
 import copy
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin, TransformerMixin
@@ -1433,7 +1433,7 @@ def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> 
         chains = []
         for source_index, block in enumerate(blocks):
             transforms = (
-                [_branch_merge_transformer_step(branches, "features")]
+                [_branch_merge_transformer_step(cast(list[list[Any]], branches), "features")]
                 if branch_merge else [
                     FeatureConcat(**_lower_feature_augmentation(step)["params"])
                     if isinstance(step, dict) and "feature_augmentation" in step else clone(step)
@@ -1670,8 +1670,8 @@ def _run_augmentation_full_train(
             metric=metric, task_type=task_type, config_name=config_name,
             random_state=random_state, train_sample_ids=train_sample_ids,
         )
-    chart_snapshots = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
-    chart_transform_snapshots = {} if chart_snapshots is not None else None
+    chart_snapshots: list[Any] | None = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
+    chart_transform_snapshots: dict[tuple[int, int], Any] | None = {} if chart_snapshots is not None else None
     after_aug = aug_indices[-1] + 1
     materialize_end = after_aug + _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
     pre_aug_steps = pipeline[:aug_indices[0]]
@@ -1711,8 +1711,8 @@ def _run_augmentation_full_train(
         base_fit_model_count=len(checkpoint_steps),
     )
     result = _attach_pre_augmentation_replay(result, replay_stages)
-    result._dagml_chart_aug_snapshots = chart_snapshots
-    result._dagml_chart_transform_snapshots = chart_transform_snapshots
+    result._dagml_chart_aug_snapshots = chart_snapshots  # type: ignore[attr-defined]
+    result._dagml_chart_transform_snapshots = chart_transform_snapshots  # type: ignore[attr-defined]
     return result
 
 
@@ -1764,7 +1764,7 @@ def _run_interleaved_full_train_checkpoints(
 
     candidate_scores = []
     for index, campaign in enumerate(campaigns):
-        reports = campaign._dagml_score_set["reports"]
+        reports = cast(dict[str, Any], campaign._dagml_score_set)["reports"]
         test_report = next((report for report in reports if report["partition"] == "test" and report["level"] == "sample"), None)
         fit_report = next((report for report in reports if report["partition"] == "final" and report["level"] == "sample"), None)
         report = test_report or fit_report
@@ -1787,13 +1787,13 @@ def _run_interleaved_full_train_checkpoints(
     selected = campaigns[selected_index]
     result = RunResult(predictions=predictions, per_dataset=copy.deepcopy(selected.per_dataset))
     result._dagml_score_set = selected._dagml_score_set
-    result._dagml_checkpoint_score_sets = [campaign._dagml_score_set for campaign in campaigns]
+    result._dagml_checkpoint_score_sets = [campaign._dagml_score_set for campaign in campaigns]  # type: ignore[attr-defined]
     result._dagml_node_results = selected._dagml_node_results
     result._dagml_refit_artifacts = selected._dagml_refit_artifacts
     chart_source = next((campaign for campaign in reversed(campaigns) if hasattr(campaign, "_dagml_chart_aug_snapshots")), None)
     if chart_source is not None:
-        result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots
-        result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots
+        result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots  # type: ignore[attr-defined]
+        result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots  # type: ignore[attr-defined]
     return result
 
 
@@ -1884,8 +1884,8 @@ def _run_interleaved_augmentation_checkpoints(
         selected_index=int(decision["selected_candidate_id"]), emit_all_refits=True,
     )
     if chart_source is not None:
-        result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots
-        result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots
+        result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots  # type: ignore[attr-defined]
+        result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots  # type: ignore[attr-defined]
     return result
 
 
@@ -1915,8 +1915,8 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     Interleaved fold-local augmentation uses separate, ordered feature views for every fold and refit.
     """
     import pickle
-    chart_snapshots = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
-    chart_transform_snapshots = {} if chart_snapshots is not None else None
+    chart_snapshots: list[Any] | None = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
+    chart_transform_snapshots: dict[tuple[int, int], Any] | None = {} if chart_snapshots is not None else None
 
     from .detect import _is_exclude_step
 
@@ -2084,8 +2084,8 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
             refit=refit,
         )
         result = _attach_pre_augmentation_replay(result, replay_stages)
-        result._dagml_chart_aug_snapshots = chart_snapshots
-        result._dagml_chart_transform_snapshots = chart_transform_snapshots
+        result._dagml_chart_aug_snapshots = chart_snapshots  # type: ignore[attr-defined]
+        result._dagml_chart_transform_snapshots = chart_transform_snapshots  # type: ignore[attr-defined]
         return result
 
     # Identity is minted on the AUGMENTED dataset so children get their own observation_id + the origin's
@@ -2175,8 +2175,8 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
             refit_artifacts=outcome["refit_artifacts"],
         )
     result = _attach_pre_augmentation_replay(result, replay_stages)
-    result._dagml_chart_aug_snapshots = chart_snapshots
-    result._dagml_chart_transform_snapshots = chart_transform_snapshots
+    result._dagml_chart_aug_snapshots = chart_snapshots  # type: ignore[attr-defined]
+    result._dagml_chart_transform_snapshots = chart_transform_snapshots  # type: ignore[attr-defined]
     if capture is not None:
         capture.update(
             scores=outcome["scores"], results=outcome["results"], identity=identity,
@@ -4927,10 +4927,10 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 "reports": reports,
             })
             if fold_aggregation == TestAggregation.BEST_FOLD:
-                selected = json.loads(dag_ml.select_stacking_fold_json(request))
+                selected = json.loads(dag_ml.select_stacking_fold_json(request))  # type: ignore[attr-defined]
                 artifact["estimator"] = _DagmlSelectedFoldEstimator(fold_estimators, selected_fold=selected)
             else:
-                weights = json.loads(dag_ml.stacking_fold_weights_json(request))
+                weights = json.loads(dag_ml.stacking_fold_weights_json(request))  # type: ignore[attr-defined]
                 artifact["estimator"] = _DagmlSelectedFoldEstimator(
                     fold_estimators, weights=dict(zip(fold_estimators, weights, strict=True)),
                 )
@@ -4965,9 +4965,9 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                     "metric": metric, "reports": reports,
                 })
                 if aggregation == TestAggregation.BEST_FOLD:
-                    artifact["fold_selection"] = {"selected_fold": json.loads(dag_ml.select_stacking_fold_json(request))}
+                    artifact["fold_selection"] = {"selected_fold": json.loads(dag_ml.select_stacking_fold_json(request))}  # type: ignore[attr-defined]
                 else:
-                    weights = json.loads(dag_ml.stacking_fold_weights_json(request))
+                    weights = json.loads(dag_ml.stacking_fold_weights_json(request))  # type: ignore[attr-defined]
                     artifact["fold_selection"] = {"weights": dict(zip(outer_fold_ids, weights, strict=True))}
 
     # List form exposes the ensemble; named form also exposes each base producer.

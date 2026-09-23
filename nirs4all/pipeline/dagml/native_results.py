@@ -451,7 +451,7 @@ def _stacking_replay_manifest(
             if not selected:
                 return None
             if selector.get("select", "all") != "all":
-                from dag_ml import select_stacking_producers_json
+                from dag_ml import select_stacking_producers_json  # type: ignore[attr-defined]  # PyO3 export has no Python stub
 
                 selected_nodes = set(json.loads(select_stacking_producers_json(json.dumps({
                     "producer_nodes": [base_producers[index]["producer_node"] for index in selected],
@@ -838,7 +838,7 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
         expected = ref.get("content_fingerprint")
         try:
             if sidecar_owner is not None:
-                for directory_ref in sidecar_refs:
+                for directory_ref in cast(list[dict[str, Any]], sidecar_refs):
                     for file_ref in directory_ref["files"]:
                         safe_uri = _safe_uri(file_ref["uri"])
                         target = Path(sidecar_owner.name) / safe_uri

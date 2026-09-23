@@ -54,11 +54,11 @@ def sequential_model_pipelines(pipeline: Any) -> list[list[Any]] | None:
                 for index in model_positions
             )
         ):
-            prefix = [step for step in steps if not isinstance(step, dict) or "model" not in step]
+            meta_prefix = [step for step in steps if not isinstance(step, dict) or "model" not in step]
             bases = [steps[index] for index in model_positions[:-2]]
-            children = [[*prefix, base] for base in bases]
-            children.append([*prefix, *bases, steps[meta_positions[0]]])
-            children.append([*prefix, steps[model_positions[-1]]])
+            children = [[*meta_prefix, base] for base in bases]
+            children.append([*meta_prefix, *bases, steps[meta_positions[0]]])
+            children.append([*meta_prefix, steps[model_positions[-1]]])
             return children
         return None
     if any(isinstance(step, dict) and any(key in step for key in ("branch", "merge", "exclude", "sample_augmentation")) for step in steps):
