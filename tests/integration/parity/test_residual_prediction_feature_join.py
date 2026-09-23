@@ -61,3 +61,49 @@ def test_residual_after_prediction_feature_join_is_oof_safe_and_replays(tmp_path
     replay_rmse = np.sqrt(np.mean((targets - np.asarray(replay.y_pred).ravel()) ** 2))
     assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
     native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_residual_prediction_feature_join_without_splitter_uses_training_only_oof(tmp_path, monkeypatch, mechanism: str) -> None:
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    source = dataset_path("regression")
+    pipeline = [
+        {"branch": [
+            [StandardScaler(), {"model": Ridge(alpha=0.5)}],
+            [MinMaxScaler(), {"model": Ridge(alpha=1.0)}],
+        ]},
+        {"merge": "predictions"},
+        {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(), gate=False)},
+    ]
+    legacy = nirs4all.run(
+        pipeline, source, engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy", save_artifacts=False,
+        save_charts=False, verbose=0,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    legacy_cv_score = legacy.cv_best_score
+    legacy.close()
+
+    native = nirs4all.run(
+        pipeline, source, engine="dag-ml", refit=True,
+        workspace_path=tmp_path / "native", save_artifacts=False,
+        save_charts=False, verbose=0,
+    )
+    assert np.isfinite(native.cv_best_score)
+    assert np.isfinite(native.best_rmse)
+    assert native.cv_best_score != pytest.approx(legacy_cv_score)
+    dataset = DatasetConfigs(source).get_dataset_at(0)
+    features = dataset.x({"partition": "test"}, layout="2d")
+    targets = np.asarray(dataset.y({"partition": "test"})).ravel()
+    replay = nirs4all.predict(native.export(tmp_path / "unsplit_prediction_features.n4a"), features)
+    replay_rmse = np.sqrt(np.mean((targets - np.asarray(replay.y_pred).ravel()) ** 2))
+    assert replay_rmse == pytest.approx(native.best_rmse, abs=1e-5)
+    native.close()
