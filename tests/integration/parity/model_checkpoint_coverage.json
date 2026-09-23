@@ -1,6 +1,6 @@
 {
   "schema_version": 1,
-  "inventory_complete": false,
+  "inventory_complete": true,
   "scope": "Candidate ordered positions of two model checkpoints around each state-changing pipeline stage. Classify legacy validity first; every legacy-successful row then needs a dual-engine PyO3/CLI oracle before the inventory can close.",
   "candidate_intervening_stages": ["none", "preprocessing", "y_processing", "sample_augmentation", "feature_augmentation", "splitter", "branch", "merge", "exclude", "concat_transform"],
   "patterns": [
@@ -27,7 +27,7 @@
     {"id": "model_then_splitter_then_model", "pipeline": "KFold -> model -> KFold -> model", "intervening_stage": "splitter", "legacy": "success", "coverage": "verified", "evidence": ["tests/integration/parity/test_interleaved_splitter_checkpoints.py::test_new_splitter_uses_independent_native_fold_sets_and_refits"]},
     {"id": "model_then_branch_then_model", "pipeline": "KFold -> model -> branch -> model", "intervening_stage": "branch", "legacy": "success", "coverage": "verified", "evidence": ["tests/integration/parity/test_model_checkpoint_positions.py::test_model_checkpoint_before_duplication_branch_replays_selected_native_producer"]},
     {"id": "model_then_merge_then_model", "pipeline": "KFold -> branch -> model -> merge -> model", "intervening_stage": "merge", "legacy": "success", "coverage": "verified", "evidence": ["tests/integration/parity/test_model_checkpoint_positions.py::test_model_checkpoint_inside_duplication_feature_merge_preserves_legacy_refits"]},
-    {"id": "model_then_exclude_then_model", "pipeline": "KFold -> model -> exclude -> model", "intervening_stage": "exclude", "legacy": "unverified", "coverage": "unverified", "evidence": []},
+    {"id": "model_then_exclude_then_model", "pipeline": "KFold -> model -> exclude -> model", "intervening_stage": "exclude", "legacy": "success", "coverage": "verified", "evidence": ["tests/integration/parity/test_model_checkpoint_positions.py::test_exclusion_between_model_checkpoints_preserves_original_folds_and_refits"]},
     {"id": "model_then_concat_transform_then_model", "pipeline": "KFold -> model -> concat_transform -> model", "intervening_stage": "concat_transform", "legacy": "success", "coverage": "verified", "evidence": ["tests/integration/parity/test_model_checkpoint_positions.py::test_two_model_checkpoints_preserve_final_predictions_and_archive"]}
   ]
 }

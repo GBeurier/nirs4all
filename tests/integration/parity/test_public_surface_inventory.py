@@ -50,13 +50,11 @@ def test_snapshot_has_no_duplicate_names() -> None:
         assert len(names) == len(set(names)), package
 
 
-def test_model_checkpoint_positions_block_feature_complete_gate(capsys) -> None:
+def test_model_checkpoint_positions_inventory_is_complete() -> None:
     complete, open_patterns, invalid = meter.checkpoint_inventory_status()
-    assert not complete
-    assert open_patterns
+    assert complete
+    assert not open_patterns
     assert not invalid
-    assert meter.main(["--require-feature-complete"]) == 1
-    assert open_patterns[0] in capsys.readouterr().out
 
 
 def test_verified_checkpoint_requires_a_real_public_test(tmp_path) -> None:

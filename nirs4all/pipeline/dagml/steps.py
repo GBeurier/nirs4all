@@ -34,10 +34,15 @@ class FrozenDagMlSplitStep(DagMlSplitStep):
     folds: tuple[tuple[tuple[int, ...], tuple[int, ...]], ...] = ()
 
     def materialized_folds(self, pool: list[int], excluded: set[int]) -> list[tuple[list[int], list[int]]]:
-        """Replay exactly the captured split; never silently address another pool."""
-        if tuple(pool) != self.sample_pool:
+        """Replay captured folds on the same pool or an ordered exclusion subset."""
+        kept = set(pool)
+        if tuple(pool) != tuple(sample for sample in self.sample_pool if sample in kept):
             raise ValueError("A shared sequential-model FoldSet cannot be reused for a different sample pool")
-        return [([sample for sample in train if sample not in excluded], list(validation)) for train, validation in self.folds]
+        return [
+            ([sample for sample in train if sample in kept and sample not in excluded],
+             [sample for sample in validation if sample in kept])
+            for train, validation in self.folds
+        ]
 
 
 @dataclass(frozen=True)
