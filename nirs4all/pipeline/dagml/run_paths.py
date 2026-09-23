@@ -3879,6 +3879,7 @@ def _run_duplication_branch(pipeline: list[Any], branches: list[list[Any]], aggr
 
 
 _META_NODE_ID = "merge:stack"
+_SECOND_META_NODE_ID = "merge:stack.level2"
 
 
 def _uses_named_duplication_branch(pipeline: list[Any]) -> bool:
@@ -4327,7 +4328,7 @@ def _assemble_stacking_dsl(
     return canonical_dsl, graph, base_model_ids
 
 
-def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None, refit: bool = True, prediction_aggregations: list[dict[str, Any]] | None = None) -> RunResult:
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None, refit: bool = True, prediction_aggregations: list[dict[str, Any]] | None = None, second_meta_step: dict[str, Any] | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
     Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
@@ -4374,11 +4375,37 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=group_by_sample)
 
     canonical_dsl, graph, base_model_ids = _assemble_stacking_dsl(
-        pipeline, branches, meta_learner, spectro, identity, pool, folds, envelope,
+        pipeline[:-1] if second_meta_step is not None else pipeline,
+        branches, meta_learner, spectro, identity, pool, folds, envelope,
         task_type=task_type, random_state=random_state, group_by_sample=group_by_sample, source_layout=source_layout,
         prediction_aggregations=prediction_aggregations,
         selection_metric=metric,
     )
+    final_meta_node_id = _META_NODE_ID
+    final_meta_learner = meta_learner
+    if second_meta_step is not None:
+        import dag_ml
+
+        from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
+
+        final_meta_learner = second_meta_step["model"].model
+        canonical_dsl["steps"].append({
+            "kind": "merge_model",
+            "id": _SECOND_META_NODE_ID,
+            "operator": {"class": _qualname(final_meta_learner), "ref": _META_MODEL_REF},
+            "params": _json_safe_params(final_meta_learner),
+            "metadata": {
+                **_stacking_model_metadata([second_meta_step]),
+                "controller_id": _META_MODEL_CONTROLLER_ID,
+                "stacking_oof_execution": "nested_oof_v1",
+                "stacking_oof_refit_contract": {"policy": "require_full_coverage"},
+                **refit_oof,
+            },
+        })
+        graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(
+            canonical_dsl, controller_manifests(),
+        ).graph.to_dict()
+        final_meta_node_id = _SECOND_META_NODE_ID
 
     outcome = run_cv_refit_bundle(
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
@@ -4429,7 +4456,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 )
 
     # List form exposes the ensemble; named form also exposes each base producer.
-    model_label = f"MetaModel_{type(meta_learner).__name__}"
+    model_label = f"MetaModel_{type(final_meta_learner).__name__}"
     result: RunResult
     if named_duplication:
         from .named_stacking import project_named_stacking
@@ -4443,7 +4470,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     else:
         result = _scores_to_run_result(
             outcome["scores"], spectro.name, model_label, metric, task_type,
-            producer=_META_NODE_ID, config_name=config_name, results=outcome["results"],
+            producer=final_meta_node_id, config_name=config_name, results=outcome["results"],
             identity=identity, refit_artifacts=outcome["refit_artifacts"],
         )
     if source_layout is not None:

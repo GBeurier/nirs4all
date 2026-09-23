@@ -65,6 +65,7 @@ _ENV_GATE = "N4A_NATIVE_RESULTS"
 # The artifacts subtree holding the joblib-serialized fitted REFIT models, relative to the run dir.
 _ARTIFACTS_DIR = "artifacts"
 _STACKING_PRODUCER_NODE = "merge:stack"
+_SECOND_STACKING_PRODUCER_NODE = "merge:stack.level2"
 _META_MODEL_CONTROLLER_ID = "controller:nirs4all.meta_model"
 _ARTIFACT_REFIT_MARKER = ":nirs4all:refit:"
 
@@ -334,6 +335,7 @@ def _score_set_producer_nodes(score_set: dict[str, Any] | None, *, final_only: b
 def _stacking_replay_manifest(
     score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]],
     selectors: list[dict[str, Any]] | None = None,
+    *, _allow_multi: bool = True,
 ) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
@@ -346,8 +348,50 @@ def _stacking_replay_manifest(
     # final meta score (its training input is OOF, not raw-feature inference).
     # The real REFIT artifact/controller identity below attests replayability;
     # do not require a fabricated final score merely to export that estimator.
-    if _STACKING_PRODUCER_NODE not in _score_set_producer_nodes(score_set):
+    scored_producers = _score_set_producer_nodes(score_set)
+    if _STACKING_PRODUCER_NODE not in scored_producers:
         return None
+    if _allow_multi and _SECOND_STACKING_PRODUCER_NODE in scored_producers:
+        by_producer: dict[str, list[dict[str, Any]]] = {}
+        for ref in artifact_refs:
+            producer = str(ref.get("producer_node") or _producer_node_from_artifact_id(ref.get("artifact_id")) or "")
+            by_producer.setdefault(producer, []).append(ref)
+        first = by_producer.get(_STACKING_PRODUCER_NODE, [])
+        second = by_producer.get(_SECOND_STACKING_PRODUCER_NODE, [])
+        if len(first) != 1 or len(second) != 1:
+            return None
+        first_refs = [ref for ref in artifact_refs if ref is not second[0]]
+        first_stage = _stacking_replay_manifest(score_set, first_refs, selectors, _allow_multi=False)
+        if first_stage is None:
+            return None
+        if any(
+            ref.get("controller_id") == _META_MODEL_CONTROLLER_ID
+            and ref is not first[0] and ref is not second[0]
+            for ref in artifact_refs
+        ):
+            return None
+        second_stage = {
+            "schema_version": 1,
+            "producer_node": _SECOND_STACKING_PRODUCER_NODE,
+            "meta_artifact_id": second[0].get("artifact_id"),
+            "base_producers": [{
+                "artifact_id": first[0].get("artifact_id"),
+                "producer_node": _STACKING_PRODUCER_NODE,
+                "meta_feature_key": f"{_STACKING_PRODUCER_NODE}.oof",
+                "column_block": "prediction_values",
+            }],
+            "meta_feature_construction": {
+                "kind": "base_prediction_column_stack",
+                "producer_order": "sorted_prediction_input_base_key",
+                "prediction_space": "original_target",
+                "column_blocks": "one block per base producer, preserving target column order",
+            },
+        }
+        return {
+            "schema_version": 2,
+            "producer_node": _SECOND_STACKING_PRODUCER_NODE,
+            "stages": [first_stage, second_stage],
+        }
 
     meta_refs = [
         ref
