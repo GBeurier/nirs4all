@@ -2,7 +2,7 @@
   "schema_version": 1,
   "inventory_complete": false,
   "unverified": [
-    {"id": "step_na_policy_fill_value", "reason": "Legacy transform/model controllers expose step-level NA replacement but the parity registry excludes it. The first in-memory Ridge probe fails in both engines because the dataset NA flag is not set; test a public dataset with na_policy=ignore and verify the full train/predict contract."},
+    {"id": "transform_na_policy_fill_value", "reason": "The legacy transformer controller exposes step-level NA replacement, but no public transform pipeline has been compared with DAG-ML."},
     {"id": "native_methods_tuning", "reason": "Check nirs4all-methods native tuning beyond the public n4m finetune_params pipeline now covered by test_host_finetune.py."},
     {"id": "optuna_pruner_parallel_phases_storage", "reason": "Legacy paths exist and DAG-ML rejects several controls; reproduce each public legacy contract and its native outcome."},
     {"id": "by_source_generator_archive_semantics", "reason": "DAG-ML correctly refuses .n4a export of independent source-model outputs without a replayable fusion contract. Legacy writes an archive, but predicting on concatenated raw X gives first values 193.4067, 200.9121, 202.2472 on the two_source_distinct fixture; no source-fusion prediction oracle validates this replay. Define and test the intended merge/predict semantics before enabling export."}
@@ -14,6 +14,7 @@
     {"id": "legacy_exclude_metadata_concat_score", "classification": "legacy selects a group-local CV row rather than scoring the merged OOF", "pipeline": "YOutlierFilter(iqr, threshold=1.0), KFold(3), by_metadata(group, PLSRegression(3)), merge=concat on seeded 120x20 balanced-group data with one train outlier", "legacy_cv_rmse": 0.8809393773365354, "dagml_cv_rmse": 0.9142813126624925, "sklearn_fold_local_cv_rmse": 0.9142813084180439, "evidence": "test_exclude_metadata_branch.py:test_exclude_then_metadata_branch_matches_per_group_oracle", "scope": "Legacy executes and reports its best group A CV row as cv_best_score. DAG-ML scores the reassembled OOF universe, matches the direct sklearn oracle, and excludes the outlier from training."}
   ],
   "gaps": [
+    {"id": "model_na_policy_fill_value", "priority": "P1", "legacy": "a model step with na_policy=replace and fill_value trains on X with NaNs after replacement", "dagml": "the model receives NaNs and fails at runtime", "evidence": "test_step_na_policy_gap.py:test_model_na_replacement_matches_filled_legacy_run_and_exposes_native_gap; in-memory dataset NA tracking restored in orchestrator"},
     {"id": "auto_transfer_preproc", "priority": "P2", "legacy": "a public train/test pipeline can run transfer-preprocessing selection and continue to a model", "dagml": "preflight rejects the auto_transfer_preproc step as unsupported_shape", "evidence": "After restoring controller state to ExecutionContext.custom, regression dataset + auto_transfer_preproc(preset=fast, apply_recommendation=False) + PLSRegression(3) succeeds in legacy and is rejected by DAG-ML."}
   ]
 }
