@@ -1257,10 +1257,11 @@ def run_model_node(
         (predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
     ]
     if phase in ("FIT_CV", "REFIT"):
-        test_ids = (
-            _sample_ids(_view_by_partition(task, "predict"))
-            if phase == "FIT_CV" else resolver.partition_wire_ids("test")
-        )
+        if phase == "FIT_CV":
+            test_view = _view_by_partition(task, "predict")
+            test_ids = _sample_ids(test_view) if test_view is not None else []
+        else:
+            test_ids = resolver.partition_wire_ids("test")
         # A separation-branch model only ever trained on its partition, so its TEST prediction
         # must be restricted to that partition too.
         selector = _branch_selector(task)
