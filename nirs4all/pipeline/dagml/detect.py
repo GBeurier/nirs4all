@@ -1775,7 +1775,17 @@ def _detect_proba_mean_stacking_branch(
         if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(branches) or index in seen:
             return None
         aggregate = config.get("aggregate", "separate")
-        if aggregate not in {"separate", "mean", "weighted_mean", "proba_mean"} or config.get("select", "all") != "all":
+        select = config.get("select", "all")
+        model_count = sum(isinstance(step, dict) and "model" in step for step in branches[index])
+        if aggregate not in {"separate", "mean", "weighted_mean", "proba_mean"}:
+            return None
+        valid_top_k = isinstance(select, dict) and set(select) == {"top_k"} and type(select["top_k"]) is int and 1 <= select["top_k"] <= model_count
+        if select not in ("all", "best") and not valid_top_k:
+            return None
+        metric = config.get("metric") or "rmse"
+        if not isinstance(metric, str) or not metric.strip():
+            return None
+        if select != "all" and metric not in {"rmse", "mse", "mae", "r2", "accuracy"}:
             return None
         use_proba = config.get("proba", aggregate == "proba_mean")
         if not isinstance(use_proba, bool) or (aggregate == "proba_mean" and not use_proba) or config.get("sources", "all") != "all":
@@ -1783,13 +1793,17 @@ def _detect_proba_mean_stacking_branch(
         if not any(isinstance(step, dict) and "model" in step for step in branches[index]):
             return None
         seen.add(index)
-        selector: dict[str, Any] = {"branch": f"branch_{index}", "select": "all"}
+        selector: dict[str, Any] = {"branch": f"branch_{index}", "select": select}
+        if select != "all":
+            selector["metric"] = metric
         if aggregate != "separate":
             selector["aggregate"] = aggregate
         if aggregate == "weighted_mean":
             weight_metric = config.get("weight_metric") or config.get("metric")
             if weight_metric is not None:
                 if not isinstance(weight_metric, str) or not weight_metric.strip():
+                    return None
+                if select != "all" and weight_metric != metric:
                     return None
                 selector["metric"] = weight_metric
         if use_proba:
