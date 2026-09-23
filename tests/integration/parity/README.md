@@ -95,9 +95,9 @@ For a feature-completeness audit before a release:
 `coverage_meter.py` currently counts registered cases and declared keywords; it
 does **not** generate this ordered-composition matrix. Its `expected_refusal`
 bucket must therefore be reviewed separately before claiming feature parity.
-At this audit, `concat_transform_pca_svd_plsr` is a concrete legacy-successful
-case in that bucket. The ledger's refusal target is zero; the current value is
-one, so the feature-completeness gate remains open.
+`concat_transform_pca_svd_plsr` now runs natively with fold-local PCA/SVD;
+the registered-case refusal bucket is empty. The broader feature-completeness
+gate remains open while other compositions in `feature_gaps.json` remain.
 Run `python -m tests.integration.parity.coverage_meter --require-zero-refusals`
 to make the registered-case refusal check fail in a release job. This check is
 necessary but insufficient until the ordered-composition inventory above is

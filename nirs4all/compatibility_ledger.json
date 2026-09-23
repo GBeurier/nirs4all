@@ -162,14 +162,7 @@
     }
   ],
   "coverage_skips": [],
-  "expected_refusal": [
-    {
-      "case": "concat_transform_pca_svd_plsr",
-      "owner_lane": "L5",
-      "reason": "Stateful PCA/SVD after concat must be compiled inside each outer training scope before native execution can preserve the feature without validation leakage.",
-      "exception": "DagMlStatefulConcatTransformMigrationRequired"
-    }
-  ],
+  "expected_refusal": [],
   "num_predictions_divergence": [
     {
       "case": "generator_or_models_pls_ridge",
@@ -336,8 +329,8 @@
     "registered": 95,
     "non_runnable": 0,
     "runnable": 95,
-    "refusal": 1,
-    "native": 94,
+    "refusal": 0,
+    "native": 95,
     "xfail_strict": 0,
     "skip": 0,
     "num_predictions_divergence": 4,

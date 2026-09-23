@@ -171,7 +171,7 @@ Authority: **Python (legacy)**, the oracle of record (ADR-01). Enforced by
 
 ## §C — Orthogonal axes (NOT authority tiers; tracked so they don't pollute §B)
 
-### C.1 Native-coverage boundary — `EXPECTED_REFUSAL` (1)
+### C.1 Native-coverage boundary — `EXPECTED_REFUSAL` (0)
 
 Shapes the dag-ml host bridge deliberately refuses before execution make **no
 parity claim**. They are pinned by the never-xfailed
@@ -180,13 +180,15 @@ coverage **regression → FAIL**; a native case still on the allowlist is a
 **stale entry → FAIL**. No entry transparently re-runs legacy. **Owner: L5/A3**
 (host-bridge serialization/runtime semantics, not a tolerance question). When
 L5 lands native coverage, the entry leaves the allowlist and the boundary test
-then demands native parity.
+then demands native parity. The registered allowlist is now empty. Stateful
+concat fits within each DAG-ML training fold; a direct fold-local oracle and
+archive-replay test pin the corrected scope.
 
 Source: `test_conformance_dual_engine.py:310-326`.
 
 | Shape group | Cases |
 |---|---|
-| step-level refit semantics | `refit_params_use_all_partitions` |
+| expected refusal | none |
 
 `preprocessing_fit_on_all` and `preprocessing_force_layout_2d` now run native for the registered SNV cases: `fit_on_all=True` is equivalent for stateless transforms, and `force_layout='2d'` on a preprocessing step is not consumed by the legacy preprocessing controller.
 
@@ -216,7 +218,7 @@ Closed on 2026-07-02:
 | `branch_separation_by_metadata_auto` | moved to `with_metadata` and the `group` metadata column; dag-ml now projects stateless by-metadata preprocessing + concat + downstream model |
 | `exclude_multi_any_y_and_x` | raised the Mahalanobis threshold to keep a viable two-filter UNION on `sample_data/regression` |
 | `aggregation_classification_vote` | moved to the repeated multiclass `classification` fixture and aggregates by `Sample_ID` |
-| `refit_params_use_all_partitions` | remains the single explicit fail-closed `EXPECTED_REFUSAL` case until step-level refit semantics are preserved natively |
+| `refit_params_use_all_partitions` | remains a separate step-level parity gap; it is not registered as an `EXPECTED_REFUSAL` conformance case |
 
 ### C.3 `Y_PRED_TOL_OVERRIDES` (6) — band `cross_impl_ypred_firstderiv` (5e-3, guarded)
 
@@ -273,8 +275,8 @@ gate.
 | Registered `PipelineCase`s | **95** | `cases_*.py` `register()` calls |
 | Non-runnable (`skip_reason` set) | **0** | all registry debt closed |
 | Runnable | **95** | all registered cases run |
-| → fail closed (`EXPECTED_REFUSAL`) | **1** | boundary-asserted, no fallback/parity claim — **target → 0 (LOCK-DROP D1, L5)** |
-| → run native on dag-ml | **94** | native reach asserted; one unseeded `_sample_` is run-only |
+| → fail closed (`EXPECTED_REFUSAL`) | **0** | registered-case target reached; broader feature audit remains open |
+| → run native on dag-ml | **95** | native reach asserted; one unseeded `_sample_` is run-only |
 | Strict-xfail (documented divergence) | **0** | no live strict xfail rows |
 | `pytest.skip` (fixture + unknown-semantics) | **0** | registry skip debt closed |
 | `NUM_PREDICTIONS_DIVERGENCE` parity-notes (PASS) | **2** | counts pinned |

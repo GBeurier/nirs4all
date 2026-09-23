@@ -98,6 +98,15 @@ def _build_operation(operation: Any) -> Any:
     return cls(**_coerce_json_params(cls, decode_constructor_value(operation.get("params", {}))))
 
 
+def _has_learned_operation(operation: Any) -> bool:
+    """Detect channels whose fitted state needs stable floating-point replay."""
+    if operation is None:
+        return False
+    if isinstance(operation, list):
+        return any(_has_learned_operation(item) for item in operation)
+    return not getattr(_import_class(operation["class"]), "_stateless", False)
+
+
 class FeatureConcat(BaseEstimator, TransformerMixin):
     """Fit several sub-transformers and horizontally concatenate their transform outputs.
 
@@ -128,9 +137,15 @@ class FeatureConcat(BaseEstimator, TransformerMixin):
         )
 
     def fit(self, X: Any, y: Any = None) -> FeatureConcat:
+        # Learned float32 projections can differ after joblib reload because BLAS
+        # sees a different array alignment; downstream ill-conditioned models
+        # amplify those few ULPs. Keep the fitted and replayed path in float64.
+        self._promote_input_ = any(_has_learned_operation(op) for op in self.operations or [])
+        values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
         self.union_ = self._make_union()
-        self.union_.fit(np.asarray(X), y)
+        self.union_.fit(values, y)
         return self
 
     def transform(self, X: Any) -> np.ndarray:
-        return np.asarray(self.union_.transform(np.asarray(X)))
+        values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
+        return np.asarray(self.union_.transform(values))

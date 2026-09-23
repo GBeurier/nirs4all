@@ -1017,10 +1017,6 @@ def run(
         report_naming=report_naming, tuning=tuning, calibration=calibration,
         results_path=results_path, runner_kwargs=runner_kwargs,
     )
-    if selected_engine == "dag-ml":
-        from nirs4all.pipeline.dagml.migration_preflight import preflight_dagml_pipeline_migration
-
-        preflight_dagml_pipeline_migration(pipeline)
     if save_charts is None:
         save_charts = selected_engine != "native"
     elif not isinstance(save_charts, bool):

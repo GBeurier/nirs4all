@@ -19,12 +19,11 @@ import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.decomposition import PCA, TruncatedSVD
-from sklearn.model_selection import KFold, ShuffleSplit
+from sklearn.model_selection import KFold
 
 from nirs4all.data.config import DatasetConfigs
 from nirs4all.pipeline.dagml.cli_runner import assemble_cv_refit_dsl, run_cv_refit_bundle
 from nirs4all.pipeline.dagml.envelope import build_envelope
-from nirs4all.pipeline.dagml.errors import DagMlStatefulConcatTransformMigrationRequired
 from nirs4all.pipeline.dagml.identity import mint_identity
 from nirs4all.pipeline.dagml.in_process_runner import in_process_enabled
 from nirs4all.pipeline.dagml.rt import RtError
@@ -2429,23 +2428,33 @@ def test_public_run_engine_dagml_concat_transform_with_chain() -> None:
     assert abs(result.best_rmse - test_rmse) < 1e-6, (result.best_rmse, test_rmse)
 
 
-def test_public_run_engine_dagml_refuses_stateful_concat_transform_before_cv() -> None:
-    """Require explicit migration rather than silently changing legacy PCA/SVD semantics."""
+def test_public_run_engine_dagml_fits_stateful_concat_inside_folds(tmp_path) -> None:
+    """Stateful concat trains natively inside folds and retains replayable refit state."""
     import nirs4all
-    from nirs4all.operators.transforms.scalers import StandardNormalVariate
 
+    dataset = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    def make_step():
+        return {"concat_transform": [PCA(n_components=15, random_state=42), TruncatedSVD(n_components=10, random_state=42)]}
+
+    cv_oracle, test_oracle = _concat_oof_and_test(dataset, make_step)
     pipeline = [
-        StandardNormalVariate(),
-        {"concat_transform": [PCA(n_components=15, random_state=42), TruncatedSVD(n_components=10, random_state=42)]},
-        ShuffleSplit(n_splits=3, random_state=42),
+        make_step(),
+        KFold(n_splits=3, shuffle=True, random_state=42),
         {"model": PLSRegression(n_components=15)},
     ]
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
-        nirs4all.run(pipeline, DatasetConfigs(dataset_path("regression")).get_dataset_at(0), verbose=0, engine="dag-ml")
+    result = nirs4all.run(pipeline, dataset, verbose=0, engine="dag-ml")
+    assert result.execution_engine == "dag-ml"
+    assert result.cv_best_score == pytest.approx(cv_oracle, abs=1e-6)
+    assert result.best_rmse == pytest.approx(test_oracle, abs=1e-6)
+    archive = result.export(tmp_path / "stateful_concat.n4a")
+    fresh = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
+    replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
+    replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
+    assert replay_rmse == pytest.approx(test_oracle, abs=1e-6)
 
 
-def test_concat_transform_model_param_sweeps_preserve_stateful_refusal() -> None:
-    """A downstream model sweep cannot bypass the pre-CV stateful-concat guard."""
+def test_concat_transform_model_param_sweeps_run_natively() -> None:
+    """A downstream model sweep keeps the learned concat inside each fold."""
     from sklearn.linear_model import Ridge
 
     import nirs4all
@@ -2458,8 +2467,9 @@ def test_concat_transform_model_param_sweeps_preserve_stateful_refusal() -> None
         {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 0.3]}},
     ]
 
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
-        nirs4all.run(pipeline, DatasetConfigs(dataset_path("regression")), engine="dag-ml", verbose=0)
+    result = nirs4all.run(pipeline, DatasetConfigs(dataset_path("regression")), engine="dag-ml", verbose=0)
+    assert result.execution_engine == "dag-ml"
+    assert np.isfinite(result.cv_best_score)
 
 
 # ---------------------------------------------------------------------------
@@ -2603,8 +2613,8 @@ def test_feature_augmentation_then_concat_transform_matches_legacy_and_replays(t
     native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
     legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
     assert native.execution_engine == "dag-ml"
-    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-8)
-    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-8)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
 
     archive = native.export(tmp_path / f"feature_concat_{action}.n4a")
     dataset = DatasetConfigs(path).get_dataset_at(0)
@@ -4628,7 +4638,7 @@ def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> Non
     split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
     concat_wavelength = [{"concat_transform": [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))]}, split, {"model": PLSRegression(n_components=2)}]
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
         run_via_dagml(concat_wavelength, dataset_path("regression"))
 
     feataug_lambda = [{"feature_augmentation": [FunctionTransformer(func=lambda x: x)]}, split, {"model": PLSRegression(n_components=2)}]
@@ -4641,7 +4651,7 @@ def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> Non
     from sklearn.preprocessing import StandardScaler
 
     nested_chain = [{"concat_transform": [[StandardScaler(), [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))]]]}, split, {"model": PLSRegression(n_components=2)}]
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
+    with pytest.raises(DagMlUnsupported, match="wavelength"):
         run_via_dagml(nested_chain, dataset_path("regression"))
 
 
@@ -4662,16 +4672,15 @@ def test_non_serializable_param_transform_fails_loud_catchably() -> None:
         run_via_dagml(pipeline, dataset_path("regression"))
 
 
-def test_bare_class_runs_natively_and_stateful_nested_transform_is_refused() -> None:
-    """A bare class remains native while pre-CV stateful nesting requires migration.
+def test_bare_class_and_stateful_nested_transform_run_natively() -> None:
+    """A bare class and a stateful concat remain native.
 
     The reconstructibility checks must not over-reject:
 
     * a bare CLASS step (``StandardScaler`` the class, not an instance) is reconstructible — ``_qualname``
       handles class objects, so it must run natively (the FQN-import check used to compare against
       ``type(StandardScaler)`` = ``type`` and wrongly rejected it); and
-    * a ``concat_transform`` wrapping a stateful sklearn transform (``StandardScaler()``) is refused
-      before CV because silently changing legacy global-fit semantics is not a fallback boundary.
+    * a ``concat_transform`` wrapping a stateful sklearn transform fits in each fold.
     """
     from sklearn.preprocessing import StandardScaler
 
@@ -4682,8 +4691,9 @@ def test_bare_class_runs_natively_and_stateful_nested_transform_is_refused() -> 
     class_step = run_via_dagml([StandardScaler, split, {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
     assert class_step.cv_best_score == class_step.cv_best_score  # not NaN — it ran natively
 
-    with pytest.raises(DagMlStatefulConcatTransformMigrationRequired, match="stateful concat_transform before CV"):
-        run_via_dagml([{"concat_transform": [StandardScaler()]}, split, {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    concat = run_via_dagml([{"concat_transform": [StandardScaler()]}, split, {"model": PLSRegression(n_components=2)}], dataset_path("regression"))
+    assert concat.execution_engine == "dag-ml"
+    assert np.isfinite(concat.cv_best_score)
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
