@@ -793,6 +793,40 @@ def _unwrap_preprocessing_steps(pipeline: list[Any]) -> list[Any]:
     return [step["preprocessing"] if _can_unwrap_preprocessing_step(step) else step for step in pipeline]
 
 
+def _lower_step_na_replacement(pipeline: list[Any]) -> list[Any]:
+    """Place a native X-transform before each supported step-local NaN policy.
+
+    The graph owns this ordering and fits the transform on the correct fold scope.
+    Its Python operator performs the same stateless replacement as the legacy
+    model and preprocessing controllers, and the fitted chain is replayable.
+    """
+    from .na_policy import ReplaceMissingValues
+
+    lowered: list[Any] = []
+    for step in pipeline:
+        if not isinstance(step, dict) or step.get("na_policy") != "replace":
+            lowered.append(step)
+            continue
+        if "preprocessing" in step:
+            without_policy = {key: value for key, value in step.items() if key not in {"na_policy", "fill_value"}}
+            if not _can_unwrap_preprocessing_step(without_policy):
+                lowered.append(step)
+                continue
+            operator = step["preprocessing"]
+        elif "model" in step:
+            without_policy = {key: value for key, value in step.items() if key not in {"na_policy", "fill_value"}}
+            operator = step["model"]
+        else:
+            lowered.append(step)
+            continue
+        # Legacy gives an operator explicitly tagged allow_nan priority over
+        # na_policy: it passes NaNs through even when the policy says replace.
+        if not getattr(operator, "_tags", {}).get("allow_nan", False):
+            lowered.append(ReplaceMissingValues(fill_value=step.get("fill_value", 0)))
+        lowered.append(without_policy)
+    return lowered
+
+
 def _unsupported_fallback_reason(pipeline: list[Any]) -> str | None:
     """Why an unhandled raw DSL shape must fall back before the generic concrete path.
 
@@ -929,15 +963,16 @@ def _dispatch_run(
             )
     task_type = "classification" if is_classification else "regression"
 
-    # Unwrap proven-equivalent `{"preprocessing": op}` wrappers to bare operators BEFORE detection/dispatch
-    # (the bridge only lowers bare operators). Stateful `fit_on_all`, non-2D `force_layout`, NA modifiers, and
-    # other unproven wrappers stay as dicts and still fall back loudly. `config_name` / `variant_config_names`
+    # Lower supported step-local NA replacement to a preceding native transform,
+    # then unwrap equivalent `{"preprocessing": op}` wrappers before dispatch.
+    # Other unproven wrappers stay as dicts and still fall back loudly. `config_name` / `variant_config_names`
     # / `variant_model_params` were derived from the ORIGINAL pipeline above, so the dag-ml RunResult keeps
     # the legacy-matching name; `_attach_export_spec` likewise sees the original.
     pipeline = _strip_chart_steps(list(pipeline))
     from .public_normalization import normalize_model_steps
 
     pipeline = normalize_model_steps(pipeline)
+    pipeline = _lower_step_na_replacement(list(pipeline))
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
     if refit_top_k > 1 and _generation_kind(list(pipeline)) not in {"param_model", "operator"}:
         raise DagMlUnsupported("refit top_k>1 currently requires a native parameter or operator sweep")
