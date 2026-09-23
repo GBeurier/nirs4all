@@ -135,6 +135,13 @@ the historical controller's silent ignoring of them is not reproduced.
 Overrides participate in every inner HPO evaluation as well as the final fit;
 provenance distinguishes proposed parameters from effective parameters when an
 override replaces a searched value. CV preprocessing remains fold-local.
+For `{"model": ..., "na_policy": "replace", "fill_value": v}` and
+`{"preprocessing": ..., "na_policy": "replace", "fill_value": v}`,
+the general DAG-ML profile inserts a stateless transform immediately before
+the declared step. It replaces NaNs in both training and later prediction
+data, and the transform is retained in exported `.n4a` predictors. This
+step-local replacement is equivalent to filling the input at that point in the
+pipeline; other preprocessing modifiers still require separate qualification.
 Simple CV/full-training, export/replay, HPO, and native nested stacking controls
 are qualified. Specialized GPU reset, fit-influence/AOM policies, CV-weight
 warm starts, and the old by-source prediction-stacking route require separate
