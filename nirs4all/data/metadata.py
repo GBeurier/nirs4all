@@ -52,7 +52,7 @@ class Metadata:
             # got a 'float' object"). Pure numeric/bool/datetime/string columns are left untouched,
             # and nulls are preserved (pandas StringDtype, not a blanket astype(str)).
             pandas_data = data.copy()
-            for col in pandas_data.select_dtypes(include=["object", "str"]).columns:
+            for col in pandas_data.select_dtypes(include=["object", "string"]).columns:
                 if pd.api.types.infer_dtype(pandas_data[col], skipna=True) in {"mixed", "mixed-integer"}:
                     pandas_data[col] = pandas_data[col].astype("string")
             new_df = pl.from_pandas(pandas_data)
