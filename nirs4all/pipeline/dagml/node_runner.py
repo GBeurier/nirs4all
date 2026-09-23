@@ -747,7 +747,7 @@ def run_model_node(
         fit_options: dict[str, Any] = {}
         if source_concat or multi_block:
             resolved = resolver.resolve_feature_blocks(
-                fit_ids, include_augmented=True, source_names=getattr(estimator, "source_names", None),
+                fit_ids, include_augmented=True, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
             )
             x_train = [np.asarray(block) for block in resolved["blocks"]]
             if "source_masks" in resolved:
@@ -755,9 +755,9 @@ def run_model_node(
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 fit_options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True)["values"])
+            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True, fold_label=fold_label)["values"])
         else:
-            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True)["values"])
+            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True, fold_label=fold_label)["values"])
         target_block = resolver.resolve_targets(resolver.target_sample_ids(fit_ids))
         y_train = np.asarray(target_block["values"], dtype=float)
         target_mask = target_block.get("validity_masks")
@@ -800,7 +800,7 @@ def run_model_node(
         options: dict[str, Any] = {}
         if source_concat or multi_block:
             resolved = resolver.resolve_feature_blocks(
-                ids, include_augmented=include_augmented, source_names=getattr(estimator, "source_names", None),
+                ids, include_augmented=include_augmented, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
             )
             x = [np.asarray(block) for block in resolved["blocks"]]
             if "source_masks" in resolved:
@@ -808,9 +808,9 @@ def run_model_node(
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented)["values"])
+            x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label)["values"])
         else:
-            x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented)["values"])
+            x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented, fold_label=fold_label)["values"])
         return x, options
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:

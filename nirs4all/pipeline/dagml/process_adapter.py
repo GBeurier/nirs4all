@@ -135,7 +135,8 @@ def _build_handler() -> NodeHandler:
     A **fold-local** augmentation run pickles ``{"dataset": ..., "fold_children": ...}`` instead of a
     bare dataset: ``fold_children`` (``{fold_label: {origin_int: [child_int, ...]}}``) tells the
     resolver which synthetic children belong to which fold's fit-train (a stateful augmenter was fit
-    inside each fold's train only, so each fold has different children). A bare-dataset pickle (the
+    inside each fold's train only, so each fold has different children). Interleaved preprocessing
+    also carries ``fold_feature_views`` for fold-specific fitted spectra. A bare-dataset pickle (the
     stateless global slice) carries no fold map — the resolver discovers the dataset-global children.
     """
     import pickle
@@ -147,6 +148,7 @@ def _build_handler() -> NodeHandler:
     from .resolver import MaterializationResolver
 
     fold_children: dict[str, dict[int, list[int]]] | None = None
+    fold_feature_views: dict[str, tuple[Any, dict[int, int]]] | None = None
     pickle_path = os.environ.get("N4A_DAGML_DATASET_PICKLE")
     if pickle_path:
         with open(pickle_path, "rb") as pickle_file:
@@ -154,11 +156,12 @@ def _build_handler() -> NodeHandler:
         if isinstance(payload, dict):
             dataset = payload["dataset"]
             fold_children = payload.get("fold_children")
+            fold_feature_views = payload.get("fold_feature_views")
         else:
             dataset = payload
     else:
         dataset = DatasetConfigs(os.environ["N4A_DAGML_DATASET_PATH"]).get_dataset_at(0)
-    resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children)
+    resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children, fold_feature_views)
     with open(os.environ["N4A_DAGML_GRAPH_PATH"], encoding="utf-8") as graph_file:
         graph = json.load(graph_file)
     nodes = {node["id"]: node for node in graph["nodes"]}

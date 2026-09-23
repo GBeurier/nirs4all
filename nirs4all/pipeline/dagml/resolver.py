@@ -46,6 +46,8 @@ class MaterializationResolver:
     refit), so a fold's children only ever join that fold's fit-train and never another fold's
     holdout. Omitted (``None``) for the GLOBAL stateless slice (#8): the children are dataset-global
     and discovered from the identity grain (every augmented row, regardless of fold).
+    ``fold_feature_views`` selects separately fitted features for base, validation and synthetic
+    rows when preprocessing appears between fold-local augmentation steps.
     """
 
     def __init__(
@@ -53,9 +55,11 @@ class MaterializationResolver:
         dataset: SpectroDataset,
         identity: IdentityMap,
         fold_children: dict[str, dict[int, list[int]]] | None = None,
+        fold_feature_views: dict[str, tuple[SpectroDataset, dict[int, int]]] | None = None,
     ) -> None:
         self._dataset = dataset
         self._identity = identity
+        self._fold_feature_views = fold_feature_views
         self._augmented_observation_ids = frozenset(
             sample.observation_id for sample in identity.identities if sample.augmented
         )
@@ -171,6 +175,7 @@ class MaterializationResolver:
         *,
         include_augmented: bool = True,
         include_excluded: bool = False,
+        fold_label: str | None = None,
     ) -> dict[str, Any]:
         """Return ``{feature_set_id, observation_ids, values}`` for the requested view, in order.
 
@@ -181,13 +186,13 @@ class MaterializationResolver:
         never reach a validation/OOF view (the origin-boundary leakage guard).
         """
         self._guard_origin_boundary(observation_ids, include_augmented)
-        sample_ints = [self._identity.to_int(observation_id) for observation_id in observation_ids]
+        dataset, sample_ints = self._feature_rows(observation_ids, fold_label)
         # Return the ndarray as-is (no .tolist()): the host must fit on the dataset's NATIVE storage
         # dtype (x_rows preserves it — float32 for the legacy SpectroDataset contract), not a float64
         # widening. A .tolist() round-trips to Python doubles, so the estimator would see float64 while
         # legacy feeds float32; on a fixed-seed tree ensemble that ~1e-7 input shift tips split
         # thresholds and the fitted trees diverge. Keeping the array preserves byte-level parity.
-        block = np.asarray(self._dataset.x_rows(sample_ints, layout="2d"))
+        block = np.asarray(dataset.x_rows(sample_ints, layout="2d"))
         return {
             "feature_set_id": "features",
             "observation_ids": list(observation_ids),
@@ -201,6 +206,7 @@ class MaterializationResolver:
         include_augmented: bool = True,
         include_excluded: bool = False,
         source_names: tuple[str, ...] | None = None,
+        fold_label: str | None = None,
     ) -> dict[str, Any]:
         """Return ``{feature_set_id, observation_ids, blocks}`` — the per-source feature blocks (S5).
 
@@ -215,15 +221,15 @@ class MaterializationResolver:
         :meth:`resolve_features` applies: an augmented child is refused in a non-augmented view.
         """
         self._guard_origin_boundary(observation_ids, include_augmented)
-        sample_ints = [self._identity.to_int(observation_id) for observation_id in observation_ids]
-        per_source = self._dataset.x_rows(sample_ints, layout="2d", concat_source=False)
+        dataset, sample_ints = self._feature_rows(observation_ids, fold_label)
+        per_source = dataset.x_rows(sample_ints, layout="2d", concat_source=False)
         # x_rows(concat_source=False) returns a list of per-source 2D arrays for a multi-source
         # dataset, or a single 2D array for a single source — normalize to a list either way.
         blocks = per_source if isinstance(per_source, list) else [per_source]
         if source_names is not None:
             from .envelope import source_order
 
-            available_names = source_order(self._dataset)
+            available_names = source_order(dataset)
             if len(source_names) != len(set(source_names)) or set(source_names) != set(available_names):
                 raise ValueError(f"multimodal source names mismatch: required {source_names}, received {available_names}")
             by_name = dict(zip(available_names, blocks, strict=True))
@@ -237,10 +243,10 @@ class MaterializationResolver:
         }
         from nirs4all.data.multimodal import MultimodalSpectroDataset
 
-        if isinstance(self._dataset, MultimodalSpectroDataset):
-            presence = self._dataset.cohort.source_presence(sample_ints)
+        if isinstance(dataset, MultimodalSpectroDataset):
+            presence = dataset.cohort.source_presence(sample_ints)
             if any(not mask.all() for mask in presence.values()):
-                order = source_names if source_names is not None else self._dataset.source_names
+                order = source_names if source_names is not None else dataset.source_names
                 result["source_masks"] = {name: presence[name] for name in order}
         return result
 
@@ -251,6 +257,7 @@ class MaterializationResolver:
         *,
         include_augmented: bool = True,
         include_excluded: bool = False,
+        fold_label: str | None = None,
     ) -> dict[str, Any]:
         """Return ``{feature_set_id, observation_ids, values}`` for ONE source's block (S4 by_source).
 
@@ -262,7 +269,7 @@ class MaterializationResolver:
         int, never positionally). The same origin-boundary leakage guard as :meth:`resolve_features`
         applies: an augmented child is refused in a non-augmented (validation/predict) view.
         """
-        resolved = self.resolve_feature_blocks(observation_ids, include_augmented=include_augmented, include_excluded=include_excluded)
+        resolved = self.resolve_feature_blocks(observation_ids, include_augmented=include_augmented, include_excluded=include_excluded, fold_label=fold_label)
         blocks = resolved["blocks"]
         if not 0 <= source_index < len(blocks):
             raise ValueError(f"by_source block index {source_index} out of range for {len(blocks)} source(s)")
@@ -274,6 +281,16 @@ class MaterializationResolver:
             "observation_ids": list(observation_ids),
             "values": blocks[source_index],
         }
+
+    def _feature_rows(self, observation_ids: list[str], fold_label: str | None) -> tuple[SpectroDataset, list[int]]:
+        """Select a fold's fitted spectra while keeping global wire identities stable."""
+        sample_ints = [self._identity.to_int(observation_id) for observation_id in observation_ids]
+        if self._fold_feature_views is None:
+            return self._dataset, sample_ints
+        if fold_label not in self._fold_feature_views:
+            raise ValueError(f"missing fold-local feature view for {fold_label!r}")
+        dataset, child_ids = self._fold_feature_views[fold_label]
+        return dataset, [child_ids.get(sample_int, sample_int) for sample_int in sample_ints]
 
     def _guard_origin_boundary(self, observation_ids: list[str], include_augmented: bool) -> None:
         """Refuse an augmented child in a non-augmented (validation/predict) view — the leakage guard."""
