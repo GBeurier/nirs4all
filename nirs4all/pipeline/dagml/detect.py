@@ -1638,10 +1638,9 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
       dag-ml's CV-only stacking policy and projects the legacy no-refit row surface;
     * a sub-pipeline without a model (the base level needs a model to produce OOF);
     * a MetaModel carrying unhandled options (non-default source_models/use_proba/selector/finetune/config);
-    * a meta-model step carrying a sibling param (``{"model": Ridge(), "alpha": 0.2}``) or a generator
-      (``{"model": Ridge(), "alpha": {"_range_": [...]}}``): the meta-model node is lowered as a bare
-      estimator, so ``_apply_model_params`` / native generation never run for it — the param/sweep would
-      be silently ignored. A tuned/swept meta-model is a later slice.
+    * a meta-model step carrying a generator (``{"model": Ridge(), "alpha": {"_range_": [...]}}``):
+      native meta-model variant selection is not yet implemented. Concrete sibling parameters are
+      applied to a clone of the meta-estimator by :func:`_meta_learner`.
     """
     from nirs4all.pipeline.dagml_bridge import is_param_generator_spec
 
