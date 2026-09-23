@@ -236,7 +236,7 @@ def test_full_train_checkpoints_across_augmentation_match_legacy(
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("interleaving", [
-    "x_transform", "exclude_before", "exclude_after", "two_augmentations", "y_transform",
+    "x_transform", "exclude_before", "exclude_after", "two_augmentations", "contiguous_augmentations", "y_transform",
 ])
 def test_interleaved_augmentation_checkpoints_match_legacy(
     tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, interleaving: str,
@@ -261,6 +261,7 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
         "exclude_before": [exclusion, augmentation(42)],
         "exclude_after": [augmentation(42), exclusion],
         "two_augmentations": [augmentation(42), StandardScaler(), augmentation(43)],
+        "contiguous_augmentations": [augmentation(42), augmentation(43)],
         "y_transform": [{"y_processing": StandardScaler()}, augmentation(42)],
     }[interleaving]
     pipeline = [
@@ -323,7 +324,7 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("interleaving", [
-    "x_transform", "exclude_before", "exclude_after", "two_augmentations", "y_transform",
+    "x_transform", "exclude_before", "exclude_after", "two_augmentations", "contiguous_augmentations", "y_transform",
 ])
 def test_unsplit_interleaved_augmentation_checkpoints_match_legacy(
     tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, interleaving: str,
@@ -348,6 +349,7 @@ def test_unsplit_interleaved_augmentation_checkpoints_match_legacy(
         "exclude_before": [exclusion, augmentation(42)],
         "exclude_after": [augmentation(42), exclusion],
         "two_augmentations": [augmentation(42), StandardScaler(), augmentation(43)],
+        "contiguous_augmentations": [augmentation(42), augmentation(43)],
         "y_transform": [{"y_processing": StandardScaler()}, augmentation(42)],
     }[interleaving]
     pipeline = [{"model": PLSRegression(n_components=3)}, *middle, {"model": Ridge()}]
