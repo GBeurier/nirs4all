@@ -326,14 +326,16 @@ def _run_native_operator_generation(
     variant_config_names: list[str] | None = None,
     random_state: int | None = None,
     refit: bool = True,
+    refit_top_k: int = 1,
 ) -> RunResult:
     """Run a FLAT-SINGLE operator ``_or_`` as ONE native dag-ml operator-SELECT + refit run (#23 Phase 7).
 
     The generator sits on a TRANSFORM step (the model is concrete): the bridge lowers the ``_or_`` to a
     compat ``Generator`` step, dag-ml's ``compile_operator_variant_models`` expands the operator-variant
-    models, and the in-process binding scores EACH choice by its cross-fold OOF ``metric``, refits ONLY the
-    winner, and surfaces every variant's validation reports — each stamped with the cross-language
-    ``variant_label`` content fingerprint (the WINNER too). ``bundle.scores`` is mapped to the full
+    models, and the in-process binding scores EACH choice by its cross-fold OOF ``metric``, refits the
+    requested top-k candidates on their own pruned plans, and surfaces every variant's validation reports.
+    Each report carries the cross-language ``variant_label`` content fingerprint (the WINNER too).
+    ``bundle.scores`` is mapped to the full
     PER-VARIANT legacy table, keyed CONTENT-WISE (``variant_label`` → ``config_name``), so a sweep's
     num_predictions + winner identity match the Python-expand path.
 
@@ -411,7 +413,7 @@ def _run_native_operator_generation(
     dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit, refit_top_k=refit_top_k
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml operator-generation run failed")
@@ -438,9 +440,12 @@ def _run_native_operator_generation(
     # (the winner's OOF-average frame) default to the winner. NO cross-variant leakage: a frame routes
     # to its OWN variant only.
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id) if winner_variant_id is not None else None
-    return _scores_to_run_result(
-        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
+    result = _scores_to_run_result(
+        scores, spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map or None, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"], emit_all_refits=refit_top_k > 1, refit_name_suffix=f"_refit_rmsecvt{refit_top_k}" if refit_top_k > 1 else "_refit"
     )
+    if refit_top_k > 1:
+        result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
+    return result
 
 
 def _run_concrete_scores(
