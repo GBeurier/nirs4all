@@ -877,9 +877,15 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
         for view in task.get("data_views", {}).values()
         for flag in (view.get("extra", {}).get("unsafe_flags") or [])
     })
+    outputs = _output_handles(task, _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}"))
+    if any(block.get("producer_port") == "proba" for block in predictions):
+        outputs["proba"] = {"handle": _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}:proba"),
+                            "kind": "prediction", "owner_controller": node_plan["controller_id"]}
+        for block in classification_probabilities or []:
+            block.setdefault("producer_port", "oof")
     return {
         "node_id": node_id,
-        "outputs": _output_handles(task, _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}")),
+        "outputs": outputs,
         "predictions": predictions,
         "classification_probabilities": classification_probabilities or [],
         "shape_deltas": [],
@@ -1246,6 +1252,7 @@ def run_model_node(
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
     graph_node = node_lookup(node_id)
     proba_output = (graph_node.get("metadata") or {}).get("nirs4all_prediction_output") == "proba"
+    dual_probability_output = "proba" in (graph_node.get("metadata") or {}).get("auxiliary_prediction_ports", [])
     residual_mode = node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID
     source_index = _source_index(graph_node)
     # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
@@ -1494,10 +1501,10 @@ def run_model_node(
             x = joined_chain.transform_ids(x, ids, cast(dict[str, dict[str, Any]], sample_metadata))
         return x, options
 
-    def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
+    def _predict(ids: list[str], include_augmented: bool, *, full_probabilities: bool = False) -> list[list[float]]:
         features, options = _features(ids, include_augmented)
         with _gpu_device_scope(task, estimator):
-            if proba_output:
+            if proba_output or full_probabilities:
                 if y_transform is not None or not hasattr(estimator, "predict_proba"):
                     raise ValueError(f"classifier model {node_id!r} cannot provide probabilities for proba_mean")
                 pred = np.asarray(estimator.predict_proba(features, **options), dtype=float).reshape(len(ids), -1)
@@ -1586,6 +1593,7 @@ def run_model_node(
             {
                 "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
                 "producer_node": node_id,
+                **({"producer_port": "oof"} if dual_probability_output else {}),
                 "partition": partition,
                 "fold_id": spec_fold,
                 "sample_ids": spec_ids,
@@ -1593,6 +1601,17 @@ def run_model_node(
                 "target_names": names,
             }
         )
+        if dual_probability_output:
+            predictions.append({
+                "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}:proba",
+                "producer_node": node_id,
+                "producer_port": "proba",
+                "partition": partition,
+                "fold_id": spec_fold,
+                "sample_ids": spec_ids,
+                "values": _predict(spec_ids, spec_include_augmented, full_probabilities=True),
+                "target_names": [str(label) for label in estimator.classes_],
+            })
         if (phase == "FIT_CV" and partition in {"train", "train_pool", "test"} and not proba_output
                 and resolver._dataset.is_classification
                 and callable(getattr(estimator, "predict_proba", None))):
@@ -1648,7 +1667,8 @@ def run_model_node(
     return _build_result(task, predictions, artifacts, artifact_handles, regression_targets, classification_probabilities)
 
 
-def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[list[str], np.ndarray]:
+def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str,
+                         *, project_probability_columns: bool = False) -> tuple[list[str], np.ndarray]:
     """Build ``(sample_ids, X_meta)`` from base prediction-input specs, concatenated per producer.
 
     One column block per base producer in the order ``specs`` is given (the caller passes them in the
@@ -1660,6 +1680,9 @@ def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[lis
     rows_by_sample: dict[str, list[float]] = {sample_id: [] for sample_id in sample_ids}
     for spec in specs:
         spec_rows = {sample_id: [float(value) for value in row] for sample_id, row in zip(spec["sample_ids"], spec["values"], strict=True)}
+        if project_probability_columns:
+            spec_rows = {sample_id: [row[1] if len(row) == 2 else row[0]] if len(row) > 1 else row
+                         for sample_id, row in spec_rows.items()}
         for sample_id in sample_ids:
             row = spec_rows.get(sample_id)
             if row is None:
@@ -1669,7 +1692,8 @@ def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[lis
 
 
 def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None,
-                       source_order: list[str] | None = None) -> list[dict[str, Any]]:
+                       source_order: list[str] | None = None,
+                       source_ports: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """The meta-node's base specs in canonical producer order, selecting one delivery kind.
 
     dag-ml keys each base producer's Validation OOF under ``"{producer}.{port}"`` and its off-fold
@@ -1696,11 +1720,11 @@ def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None,
         elif key.endswith(tag):
             selected[key[: -len(tag)]] = spec
     if source_order and selected:
-        by_producer = {str(spec["producer_node"]): spec for spec in selected.values()}
-        missing = [source for source in source_order if source not in by_producer]
+        keys = [f"{source}.{(source_ports or {}).get(source, 'oof')}" for source in source_order]
+        missing = [source for source, key in zip(source_order, keys, strict=True) if key not in selected]
         if missing:
-            raise ValueError(f"meta-model is missing declared prediction sources for {suffix}: {missing}; received: {list(by_producer)}; keys: {list(prediction_inputs)}")
-        return [by_producer[source] for source in source_order]
+            raise ValueError(f"meta-model is missing declared prediction sources for {suffix}: {missing}; keys: {list(prediction_inputs)}")
+        return [selected[key] for key in keys]
     return [selected[base_key] for base_key in sorted(selected)]
 
 
@@ -1748,6 +1772,7 @@ def run_meta_model_node(
     fold_label = task.get("fold_id") or "nofold"
     metadata = node_lookup(node_id).get("metadata") or {}
     probability_output = metadata.get("nirs4all_prediction_output") == "proba"
+    dual_probability_output = "proba" in metadata.get("auxiliary_prediction_ports", [])
 
     def predict_values(estimator: Any, features: np.ndarray) -> np.ndarray:
         if not probability_output:
@@ -1768,6 +1793,30 @@ def run_meta_model_node(
         raise ValueError(f"meta-model node {node_id!r} received no prediction_inputs (no base branch OOF)")
     metadata = node_lookup(node_id).get("metadata") or {}
     source_order = metadata.get("prediction_source_order")
+    source_ports = metadata.get("prediction_source_ports") or {}
+    project_probability_columns = bool(metadata.get("nirs4all_use_proba"))
+
+    def ordered_specs(suffix: str | None) -> list[dict[str, Any]]:
+        return _ordered_oof_specs(prediction_inputs, suffix=suffix, source_order=source_order, source_ports=source_ports)
+
+    def feature_matrix(specs: list[dict[str, Any]]) -> tuple[list[str], np.ndarray]:
+        return _meta_feature_matrix(specs, node_id, project_probability_columns=project_probability_columns)
+
+    def prediction_blocks(estimator: Any, features: np.ndarray, sample_ids: list[str],
+                          partition: str, fold_id: str | None, target_names: list[str]) -> list[dict[str, Any]]:
+        primary = _meta_prediction_block(
+            node_id, phase, variant_label, fold_label, partition, fold_id, sample_ids,
+            predict_values(estimator, features), target_names,
+            producer_port="oof" if dual_probability_output else None,
+        )
+        if not dual_probability_output:
+            return [primary]
+        probabilities = np.asarray(estimator.predict_proba(features), dtype=float).reshape(len(sample_ids), -1)
+        auxiliary = _meta_prediction_block(
+            node_id, phase, variant_label, fold_label, partition, fold_id, sample_ids,
+            probabilities, [str(label) for label in estimator.classes_], producer_port="proba",
+        )
+        return [primary, auxiliary]
 
     if phase == "PREDICT":
         # PREDICT replays the persisted meta-learner over the base producers' PREDICT-set predictions
@@ -1776,22 +1825,21 @@ def run_meta_model_node(
         # one is a real wiring error.
         artifact_handle = _stable_handle(_artifact_id(node_id, variant_label))
         estimator = model_store[artifact_handle]["estimator"]
-        predict_specs = _ordered_oof_specs(prediction_inputs, suffix="predict", source_order=source_order)
+        predict_specs = ordered_specs("predict")
         if not predict_specs:
             raise ValueError(f"meta-model node {node_id!r} REFIT/PREDICT received no `:predict` off-fold inputs (no base predict-set predictions)")
-        sample_ids, x_meta = _meta_feature_matrix(predict_specs, node_id)
-        pred = predict_values(estimator, x_meta)
+        sample_ids, x_meta = feature_matrix(predict_specs)
         target = _meta_target_block(sample_ids, resolver.resolve_targets(sample_ids))
-        predictions = [_meta_prediction_block(node_id, phase, variant_label, fold_label, "final", None, sample_ids, pred, target["target_names"])]
+        predictions = prediction_blocks(estimator, x_meta, sample_ids, "final", None, target["target_names"])
         regression_targets = [target]
         return _build_result(task, predictions, [], {}, regression_targets)
 
     # FIT_CV + REFIT both fit on Validation OOF. The unsuffixed OOF specs are the
     # meta-learner's training features; in FIT_CV they are inner OOF, in REFIT the full OOF.
-    oof_specs = _ordered_oof_specs(prediction_inputs, suffix=None, source_order=source_order)
+    oof_specs = ordered_specs(None)
     if not oof_specs:
         raise ValueError(f"meta-model node {node_id!r} received no Validation OOF inputs to fit on")
-    sample_ids, x_meta = _meta_feature_matrix(oof_specs, node_id)
+    sample_ids, x_meta = feature_matrix(oof_specs)
     train_target = resolver.resolve_targets(sample_ids)
     if "validity_masks" in train_target:
         raise ValueError("late fusion does not support partial targets")
@@ -1818,25 +1866,23 @@ def run_meta_model_node(
         # The outer rows must be distinct from the inner rows just used to fit.
         # Refuse a direct/old lowering rather than silently emitting optimistic
         # same-fold predictions.
-        outer_specs = _ordered_oof_specs(prediction_inputs, suffix="outer", source_order=source_order)
+        outer_specs = ordered_specs("outer")
         if not outer_specs:
             raise ValueError(
                 f"meta-model node {node_id!r} FIT_CV received no `:outer` OOF evaluation inputs; "
                 "nested scheduler evidence is required"
             )
-        outer_ids, x_outer = _meta_feature_matrix(outer_specs, node_id)
-        pred = predict_values(fit_estimator, x_outer)
+        outer_ids, x_outer = feature_matrix(outer_specs)
         target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids))
-        fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), outer_ids, pred, target["target_names"]))
+        fold_predictions.extend(prediction_blocks(fit_estimator, x_outer, outer_ids, "validation", task.get("fold_id"), target["target_names"]))
         fold_targets.append(target)
         if probability_output:
             fold_class_probabilities.append(_meta_probability_block(node_id, "validation", task.get("fold_id"), outer_ids, fit_estimator, x_outer))
-        test_specs = _ordered_oof_specs(prediction_inputs, suffix="test")
+        test_specs = ordered_specs("test")
         if test_specs:
-            test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
-            test_pred = predict_values(fit_estimator, x_test)
+            test_ids, x_test = feature_matrix(test_specs)
             test_target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
-            fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", task.get("fold_id"), test_ids, test_pred, test_target["target_names"]))
+            fold_predictions.extend(prediction_blocks(fit_estimator, x_test, test_ids, "test", task.get("fold_id"), test_target["target_names"]))
             fold_targets.append(test_target)
             if probability_output:
                 fold_class_probabilities.append(_meta_probability_block(node_id, "test", task.get("fold_id"), test_ids, fit_estimator, x_test))
@@ -1860,12 +1906,11 @@ def run_meta_model_node(
         # held-out Test predictions). The meta-model was fit on Validation OOF ONLY (above), so this is
         # leakage-safe: the Test meta-features come from base Test predictions, never OOF/train. Emit a
         # `(test, fold_id=None)` block so dag-ml scores best_rmse (off-fold convention, like a base model).
-        test_specs = _ordered_oof_specs(prediction_inputs, suffix="refit", source_order=source_order)
+        test_specs = ordered_specs("refit")
         if test_specs:
-            test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
-            test_pred = predict_values(fit_estimator, x_test)
+            test_ids, x_test = feature_matrix(test_specs)
             target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
-            fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", None, test_ids, test_pred, target["target_names"]))
+            fold_predictions.extend(prediction_blocks(fit_estimator, x_test, test_ids, "test", None, target["target_names"]))
             fold_targets.append(target)
             if probability_output:
                 fold_class_probabilities.append(_meta_probability_block(node_id, "test", None, test_ids, fit_estimator, x_test))
@@ -1876,11 +1921,13 @@ def run_meta_model_node(
 def _meta_prediction_block(
     node_id: str, phase: str, variant_label: str, fold_label: str, partition: str,
     fold_id: str | None, sample_ids: list[str], values: np.ndarray, target_names: list[str],
+    producer_port: str | None = None,
 ) -> dict[str, Any]:
     """A meta-node prediction block for one partition (validation OOF / test / final)."""
     return {
-        "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}",
+        "prediction_id": f"pred:{node_id}:{phase}:{variant_label}:{fold_label}:{partition}{':' + producer_port if producer_port else ''}",
         "producer_node": node_id,
+        **({"producer_port": producer_port} if producer_port else {}),
         "partition": partition,
         "fold_id": fold_id,
         "sample_ids": sample_ids,

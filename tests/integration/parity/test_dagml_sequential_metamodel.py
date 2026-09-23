@@ -293,9 +293,18 @@ def test_named_classifier_meta_probability_chain_replays_selected_class(tmp_path
                 np.asarray(block["values"])
                 for node in native._dagml_node_results for block in node.get("predictions", [])
                 if block.get("producer_node") == "merge:stack" and block.get("partition") == "validation"
+                and block.get("producer_port", "oof") == "oof"
             ]
             assert upstream_oof and all(block.ndim == 2 and block.shape[1] == 1 for block in upstream_oof)
-            assert all(np.all((0 <= block) & (block <= 1)) for block in upstream_oof)
+            assert all(np.all(np.isin(block, np.arange(n_classes))) for block in upstream_oof)
+            upstream_probabilities = [
+                np.asarray(block["values"])
+                for node in native._dagml_node_results for block in node.get("predictions", [])
+                if block.get("producer_node") == "merge:stack" and block.get("partition") == "validation"
+                and block.get("producer_port") == "proba"
+            ]
+            assert upstream_probabilities and all(block.shape[1] == n_classes for block in upstream_probabilities)
+            assert all(np.allclose(block.sum(axis=1), 1.0) for block in upstream_probabilities)
         persisted = read_native_results(native._dagml_results_dir)
         first_stage, second_stage = persisted["manifest"]["stacking_replay"]["stages"]
         assert second_stage["base_producers"][0]["column_block"] == "probability_values"
@@ -307,8 +316,11 @@ def test_named_classifier_meta_probability_chain_replays_selected_class(tmp_path
         ]
         groups = first_stage["reduction_groups"]
         assert all(group["proba"] and len(group["members"]) == 1 for group in groups)
-        first_features = np.column_stack([base_probabilities[group["members"][0]] for group in groups])
         class_column = 1 if n_classes == 2 else 0
+        first_features = np.column_stack([
+            base_probabilities[group["members"][0]][:, class_column:class_column + 1]
+            for group in groups
+        ])
         first_probability = np.asarray(by_id[first_stage["meta_artifact_id"]]["estimator"].predict_proba(first_features))[:, class_column:class_column + 1]
         second_estimator = by_id[second_stage["meta_artifact_id"]]["estimator"]
         assert second_estimator.n_features_in_ == 1
@@ -442,7 +454,8 @@ def test_second_named_classifier_probability_fold_aggregation_replays_paired_sta
         fold_probabilities = {}
         for fold, meta in first_meta["fold_estimators"].items():
             base_probabilities = [np.asarray(base["fold_estimators"][fold].predict_proba(x_test)) for base in bases]
-            features = np.column_stack([base_probabilities[group["members"][0]] for group in first_stage["reduction_groups"]])
+            features = np.column_stack([base_probabilities[group["members"][0]][:, 1:2]
+                                        for group in first_stage["reduction_groups"]])
             fold_probabilities[fold] = np.asarray(meta.predict_proba(features))[:, 1:2]
         selection = first_meta["fold_selection"]
         if test_aggregation == FoldAggregation.BEST_FOLD:
@@ -535,7 +548,8 @@ def test_multiclass_named_probability_fold_aggregation_scores_and_replays(tmp_pa
         fold_probabilities = {}
         for fold, meta in first_meta["fold_estimators"].items():
             base_probabilities = [np.asarray(base["fold_estimators"][fold].predict_proba(x_test)) for base in bases]
-            features = np.column_stack([base_probabilities[group["members"][0]] for group in first_stage["reduction_groups"]])
+            features = np.column_stack([base_probabilities[group["members"][0]][:, :1]
+                                        for group in first_stage["reduction_groups"]])
             fold_probabilities[fold] = np.asarray(meta.predict_proba(features))[:, :1]
         selection = first_meta["fold_selection"]
         if test_aggregation == FoldAggregation.BEST_FOLD:

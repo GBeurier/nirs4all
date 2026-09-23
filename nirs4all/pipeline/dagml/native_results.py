@@ -340,7 +340,8 @@ def _stacking_replay_manifest(
     score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]],
     selectors: list[dict[str, Any]] | None = None,
     *, probability_producers: set[str] | None = None,
-    source_orders: dict[str, list[str]] | None = None, _allow_multi: bool = True,
+    source_orders: dict[str, list[str]] | None = None,
+    source_ports: dict[str, dict[str, str]] | None = None, _allow_multi: bool = True,
 ) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
@@ -375,7 +376,7 @@ def _stacking_replay_manifest(
         first_refs = [ref for ref in artifact_refs if all(ref is not meta for meta in meta_refs[1:])]
         first_stage = _stacking_replay_manifest(
             score_set, first_refs, selectors,
-            probability_producers=probability_producers, source_orders=source_orders,
+            probability_producers=probability_producers, source_orders=source_orders, source_ports=source_ports,
             _allow_multi=False,
         )
         if first_stage is None:
@@ -392,13 +393,14 @@ def _stacking_replay_manifest(
                 "base_producers": [{
                     "artifact_id": by_producer[source][0].get("artifact_id"),
                     "producer_node": source,
-                    "meta_feature_key": f"{source}.oof",
-                    "column_block": "probability_values" if source in (probability_producers or set()) else "prediction_values",
+                    "meta_feature_key": f"{source}.{(source_ports or {}).get(node, {}).get(source, 'oof')}",
+                    "column_block": "probability_values" if (source_ports or {}).get(node, {}).get(source) == "proba" or source in (probability_producers or set()) else "prediction_values",
+                    **({"column_projection": "selected_class"} if (source_ports or {}).get(node, {}).get(source) == "proba" else {}),
                 } for source in source_nodes],
                 "meta_feature_construction": {
                     "kind": "base_prediction_column_stack",
                     "producer_order": "declared_source_order" if node in (source_orders or {}) else "sorted_prediction_input_base_key",
-                    "prediction_space": "selected_class_probability" if all(source in (probability_producers or set()) for source in source_nodes) else "original_target",
+                    "prediction_space": "selected_class_probability" if all((source_ports or {}).get(node, {}).get(source) == "proba" or source in (probability_producers or set()) for source in source_nodes) else "original_target",
                     "column_blocks": "one block per base producer, preserving target column order",
                 },
             })
@@ -435,8 +437,9 @@ def _stacking_replay_manifest(
             "artifact_id": ref.get("artifact_id"),
             "producer_node": producer_node,
             # This is the base key order used by node_runner._ordered_oof_specs after suffix stripping.
-            "meta_feature_key": f"{producer_node}.oof",
-            "column_block": "prediction_values",
+            "meta_feature_key": f"{producer_node}.{(source_ports or {}).get(_STACKING_PRODUCER_NODE, {}).get(producer_node, 'oof')}",
+            "column_block": "probability_values" if (source_ports or {}).get(_STACKING_PRODUCER_NODE, {}).get(producer_node) == "proba" else "prediction_values",
+            **({"column_projection": "selected_class"} if (source_ports or {}).get(_STACKING_PRODUCER_NODE, {}).get(producer_node) == "proba" else {}),
         }
         if ref.get("branch_index") is not None:
             entry["branch_index"] = int(ref["branch_index"])
@@ -583,6 +586,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         score_set, artifact_refs, getattr(result, "_dagml_stacking_selectors", None),
         probability_producers=getattr(result, "_dagml_stacking_probability_producers", None),
         source_orders=getattr(result, "_dagml_stacking_source_orders", None),
+        source_ports=getattr(result, "_dagml_stacking_source_ports", None),
     )
     if host_searches:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}

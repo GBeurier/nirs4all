@@ -850,6 +850,7 @@ class _DagmlNativeStackingModel:
         reduction_groups: Sequence[Mapping[str, Any]] | None = None,
         probability_base: bool = False,
         probability_sources: Sequence[bool] | None = None,
+        selected_probability_sources: Sequence[bool] | None = None,
     ) -> None:
         if not base_members:
             raise ValueError("native stacking export requires at least one base member model")
@@ -863,6 +864,9 @@ class _DagmlNativeStackingModel:
         self.probability_sources = tuple(probability_sources) if probability_sources is not None else (probability_base,) * len(base_members)
         if len(self.probability_sources) != len(base_members):
             raise ValueError("native stacking probability source flags must match base members")
+        self.selected_probability_sources = tuple(selected_probability_sources) if selected_probability_sources is not None else (False,) * len(base_members)
+        if len(self.selected_probability_sources) != len(base_members):
+            raise ValueError("native stacking probability projections must match base members")
         if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
             raise ValueError("native raw stacking requires one distinct named source per base model")
 
@@ -875,6 +879,9 @@ class _DagmlNativeStackingModel:
             source = X[index] if self.source_names is not None else X
             if self.probability_sources[index]:
                 pred = member.predict_proba_numeric(source)
+                if self.selected_probability_sources[index] and pred.shape[1] > 1:
+                    column = 1 if pred.shape[1] == 2 else 0
+                    pred = pred[:, column:column + 1]
             else:
                 pred = member.predict_numeric(source)
             rows = len(pred)
@@ -894,7 +901,7 @@ class _DagmlNativeStackingModel:
                 raise ValueError("native stacking replay has invalid selected base members")
             blocks = []
             for index in indices:
-                if group.get("proba"):
+                if group.get("proba") and not self.selected_probability_sources[index]:
                     member = self.base_members[index]
                     if not isinstance(member, _DagmlExportedModel):
                         raise ValueError("nested stacking probability replay requires a probability-capable base model")
@@ -912,7 +919,7 @@ class _DagmlNativeStackingModel:
             if aggregate not in {"mean", "weighted_mean", "proba_mean"}:
                 raise ValueError("native stacking replay has an unsupported aggregation")
             width = max(block.shape[1] for block in blocks)
-            if aggregate == "proba_mean":
+            if aggregate == "proba_mean" and width > 1:
                 blocks = [np.pad(block, ((0, 0), (0, width - block.shape[1]))) for block in blocks]
             elif any(block.shape[1] != width for block in blocks):
                 raise ValueError("native stacking replay members have different prediction widths")
@@ -923,7 +930,7 @@ class _DagmlNativeStackingModel:
                     or sum(weights) <= 0):
                 raise ValueError("native stacking replay has invalid model weights")
             reduced = sum(block * weight for block, weight in zip(blocks, weights, strict=True)) / sum(weights)
-            if aggregate == "proba_mean":
+            if aggregate == "proba_mean" and width > 1:
                 totals = reduced.sum(axis=1, keepdims=True)
                 if np.any(totals <= 0):
                     raise ValueError("native stacking probability replay has zero row mass")
@@ -2920,6 +2927,8 @@ class RunResult:
                 base_members,
                 _DagmlExportedModel(meta_artifacts[0]["estimator"], meta_artifacts[0]["y_transform"]),
                 reduction_groups=cast(list[dict[str, Any]] | None, stages[0].get("reduction_groups")),
+                probability_sources=[source["column_block"] == "probability_values" for source in stages[0]["base_producers"]],
+                selected_probability_sources=[source.get("column_projection") == "selected_class" for source in stages[0]["base_producers"]],
             )
             members_by_artifact: dict[str, _DagmlExportedModel | _DagmlNativeStackingModel | _DagmlFoldStackingModel] = {
                 str(artifact["artifact_id"]): member
@@ -2932,6 +2941,7 @@ class RunResult:
                         [members_by_artifact[str(source["artifact_id"])] for source in source_specs],
                         _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
                         probability_sources=[source["column_block"] == "probability_values" for source in source_specs],
+                        selected_probability_sources=[source.get("column_projection") == "selected_class" for source in source_specs],
                     )
                 fold_selection = artifact.get("fold_selection")
                 if fold_selection is not None:
@@ -2959,6 +2969,7 @@ class RunResult:
                                 _DagmlExportedModel(cast(Mapping[str, Any], prior_folds)[fold], prior_artifact["y_transform"]),
                                 reduction_groups=cast(list[dict[str, Any]] | None, prior_stage.get("reduction_groups")),
                                 probability_sources=[source["column_block"] == "probability_values" for source in source_specs],
+                                selected_probability_sources=[source.get("column_projection") == "selected_class" for source in source_specs],
                             )
                             fold_members[str(prior_artifact["artifact_id"])] = fold_stack
                         fold_stacks[fold] = fold_stack
@@ -3001,6 +3012,8 @@ class RunResult:
             stacked_model = _DagmlNativeStackingModel(
                 base_members, meta_member, cast(list[str], source_names) if all(source_names) else None,
                 cast(list[dict[str, Any]] | None, replay.get("reduction_groups")),
+                probability_sources=[source["column_block"] == "probability_values" for source in replay["base_producers"]],
+                selected_probability_sources=[source.get("column_projection") == "selected_class" for source in replay["base_producers"]],
             )
             if stacked_model.source_names is not None:
                 from nirs4all.pipeline.dagml.multimodal_contracts import archive_metadata
