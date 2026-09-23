@@ -420,3 +420,73 @@ def test_optuna_pruned_trial_is_terminal_without_final_score(tmp_path, monkeypat
         study = optuna.load_study(study_name=search["optimizer"]["study_name"], storage=storage)
         assert study.trials[1].state == optuna.trial.TrialState.PRUNED
     result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_n4m_pruner_uses_native_fold_feedback_and_replay(tmp_path, monkeypatch, mechanism):
+    pytest.importorskip("n4m")
+    import nirs4all
+
+    X, y = _data()
+    pipeline = [KFold(3), {"model": PLSRegression(), "finetune_params": {
+        "engine": "n4m", "approach": "grouped", "sampler": "random", "seed": 7,
+        "n_trials": 3, "pruner": "asha", "reduction_factor": 2, "n_startup_trials": 0,
+        "model_params": {"n_components": ["int", 1, 3]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    legacy_score = legacy.cv_best_score
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False)
+    assert result.cv_best_score == pytest.approx(legacy_score)
+    fitted = result._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001
+    for search in fitted._nirs4all_host_hpo_history:
+        assert len(search["trials"]) == 2
+        assert len(search["pruned_trials"]) == 1
+        assert search["pruned_trials"][0]["intermediate_scores"]
+        assert search["pruned_trials"][0]["scores"]["reports"]
+        assert search["selected_trial_index"] in {trial["trial_index"] for trial in search["trials"]}
+    archive = result.export(tmp_path / "n4m_pruned.n4a")
+    np.testing.assert_allclose(nirs4all.predict(archive, X[:4]).y_pred, fitted.predict(X[:4]).ravel())
+    result.close()
+
+
+def test_optuna_parallel_trials_legacy_oracle_and_native_boundary(tmp_path):
+    pytest.importorskip("optuna")
+    import nirs4all
+
+    X, y = _data()
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
+        "engine": "optuna", "approach": "grouped", "sampler": "random", "seed": 7,
+        "n_trials": 2, "n_jobs": 2, "model_params": {"n_components": ["int", 1, 3]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+    with pytest.raises(Exception, match="parallel-trial contract"):
+        nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
+
+
+def test_n4m_n_jobs_matches_legacy_sequential_contract(tmp_path):
+    pytest.importorskip("n4m")
+    import nirs4all
+
+    X, y = _data()
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": {
+        "engine": "n4m", "approach": "grouped", "sampler": "random", "seed": 7,
+        "n_trials": 2, "n_jobs": 2, "model_params": {"n_components": ["int", 1, 3]},
+    }}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    legacy_score = legacy.cv_best_score
+    legacy.close()
+    dag = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False, workspace_path=tmp_path)
+    assert dag.cv_best_score == pytest.approx(legacy_score)
+    dag.close()

@@ -54,10 +54,8 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
     unknown = params.keys() - allowed
     if unknown:
         raise NotImplementedError(f"DAG host finetuning controls not wired yet: {sorted(unknown)}")
-    if params.get("n_jobs", 1) != 1:
-        raise NotImplementedError("DAG host search has no parallel-trial contract yet")
-    if engine == "n4m" and params.get("pruner", "none") != "none":
-        raise NotImplementedError("DAG host n4m search has no native resource-pruning contract yet")
+    if engine == "optuna" and params.get("n_jobs", 1) != 1:
+        raise NotImplementedError("DAG host Optuna search has no parallel-trial contract yet")
     if engine == "optuna":
         if "storage" in params and (not isinstance(params["storage"], str) or not params["storage"].strip()):
             raise TypeError("DAG host finetune_params.storage requires a nonempty Optuna storage URL")
@@ -219,14 +217,15 @@ def run_scoped_finetune(
         space, slots, static_model, static_train = manager._compile_space(params)  # noqa: SLF001
         flat_heads = {slot.origin_name for slot in slots if not slot.is_train and "__" not in slot.origin_name}
         flat_heads.update(key for key in static_model if "__" not in key)
+        pruner_name = n4m_engine._PRUNER_MAP[params.get("pruner", "none")]  # noqa: SLF001 -- optimizer owns token grammar
         optimizer = n4m_engine.Optimizer(
             space,
             sampler=manager._native_sampler(params["sampler"]),  # noqa: SLF001
-            pruner=n4m_engine.Pruner.NONE,
+            pruner=n4m_engine.Pruner[pruner_name.upper()],
             direction=n4m_engine.Direction.MAXIMIZE if direction == "maximize" else n4m_engine.Direction.MINIMIZE,
             n_startup_trials=int(params.get("n_startup_trials", 10)),
             seed=int(seed or 0),
-            max_resource=0,
+            max_resource=len(folds) if pruner_name == "hyperband" else 0,
             reduction_factor=int(params.get("reduction_factor", 0)),
         )
         if params.get("force_params"):
@@ -271,12 +270,20 @@ def run_scoped_finetune(
         index = request["trial_index"]
         if request["operation"] == "report_intermediate":
             trial = pending[index]
+            if optimizer is not None:
+                return bool(optimizer.tell_intermediate(trial.id, request["step"], request["score"]))
             trial.report(request["score"], request["step"])
             return bool(trial.should_prune())
         if request["operation"] == "pruned":
-            from optuna.trial import TrialState
+            trial = pending.pop(index)
+            if optimizer is not None:
+                from nirs4all.optimization import n4m_engine
 
-            study.tell(pending.pop(index), state=TrialState.PRUNED)
+                optimizer.tell_result(trial.id, n4m_engine.TrialStatus.PRUNED)
+            else:
+                from optuna.trial import TrialState
+
+                study.tell(trial, state=TrialState.PRUNED)
             return None
         if request["operation"] == "ask":
             if optimizer is None:
@@ -334,6 +341,8 @@ def run_scoped_finetune(
     if phases:
         request["phase_trial_budgets"] = [phase["n_trials"] for phase in phases]
     if engine == "optuna" and params.get("approach", "grouped") == "grouped" and params.get("pruner", "none") != "none":
+        request["progressive_pruning"] = True
+    if engine == "n4m" and len(folds) > 1 and params.get("pruner", "none") != "none":
         request["progressive_pruning"] = True
     if inner_cv is not None:
         request["fold_score_reduction"] = params.get("eval_mode", "best")
