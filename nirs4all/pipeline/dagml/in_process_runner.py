@@ -169,6 +169,7 @@ def run_cv_refit_bundle(
         "stdout": "",
         "results": node_results,
         "scores": payload.get("scores"),
+        "variant_catalog": payload.get("variant_catalog", []),
         "classification_evidence": collect_vote_evidence(store),
         # The fitted REFIT estimators the run produced, captured HOST-SIDE from the live `store` the
         # op_callback closed over (P3 Slice 2c-i, D1 — zero ABI change). The store STILL holds the REFIT
@@ -373,7 +374,9 @@ def run_cv_refit_bundle_router(
     # in-process branch (the call sites read outcome["scores"], not bundle.json). Only on success;
     # a non-zero returncode is handled by the caller's guard before scores are ever consumed.
     bundle_path = Path(workdir) / "bundle.json"
-    outcome["scores"] = json.loads(bundle_path.read_text()).get("scores") if outcome["returncode"] == 0 and bundle_path.exists() else None
+    bundle = json.loads(bundle_path.read_text()) if outcome["returncode"] == 0 and bundle_path.exists() else {}
+    outcome["scores"] = bundle.get("scores")
+    outcome["variant_catalog"] = bundle.get("metadata", {}).get("variant_catalog", [])
     # The adapter serializes its fitted REFIT models to this run's private artifact directory.
     # Only descriptors in the captured native results can select files for loading.
     outcome["refit_artifacts"] = _load_subprocess_refit_artifacts(native_frames, Path(workdir) / "refit_artifacts") if outcome["returncode"] == 0 else []

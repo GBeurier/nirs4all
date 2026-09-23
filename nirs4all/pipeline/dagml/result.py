@@ -453,6 +453,12 @@ def _scores_to_run_result(
     # the normal fold path above remains authoritative whenever it exists.
     if not cv_variant_ids:
         cv_variant_ids = list(dict.fromkeys(variant_id for (variant_id, partition, fold_id) in by_key if partition == "validation" and fold_id == "avg" and variant_id is not None))
+    # A CV-only native sweep still SELECTS its winner, but deliberately emits no REFIT report.
+    # The selected variant's fold reports lead the ScoreSet and own the untagged OOF-average
+    # report; without this owner the average would be dropped and cv_best_score could point to
+    # a losing variant's average instead.
+    if final_variant_id is _MISSING and (None, "validation", "avg") in by_key and cv_variant_ids:
+        final_variant_id = cv_variant_ids[0]
     if final_variant_id is not _MISSING and final_variant_id in cv_variant_ids:
         cv_variant_ids = [final_variant_id] + [variant_id for variant_id in cv_variant_ids if variant_id != final_variant_id]
 
