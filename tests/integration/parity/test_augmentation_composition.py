@@ -165,7 +165,7 @@ def test_multiple_model_checkpoints_across_augmentation_match_legacy(
                                 if row["model_name"] == model_name and row["fold_id"] == "final" and row["partition"] == "test")
             native_final = next(row for row in native_rows
                                 if row["model_name"] == model_name and row["fold_id"] == "final" and row["partition"] == "test")
-            assert native_final["test_score"] == pytest.approx(legacy_final["test_score"], abs=1e-4)
+            assert native_final["test_score"] == pytest.approx(legacy_final["test_score"], abs=1e-5)
             np.testing.assert_allclose(np.asarray(native_final["y_pred"]).ravel(), np.asarray(legacy_final["y_pred"]).ravel(), atol=1e-4)
         assert len({report["producer_node"] for report in native._dagml_score_set["reports"]}) == len(expected_models)
         archive = tmp_path / "multiple_checkpoints.n4a"
@@ -218,7 +218,7 @@ def test_full_train_checkpoints_across_augmentation_match_legacy(
         for model_name in expected_models:
             legacy_test = next(row for row in legacy_rows if row["model_name"] == model_name and row["partition"] == "test")
             native_test = next(row for row in native_rows if row["model_name"] == model_name and row["partition"] == "test")
-            assert native_test["test_score"] == pytest.approx(legacy_test["test_score"], abs=1e-4)
+            assert native_test["test_score"] == pytest.approx(legacy_test["test_score"], abs=1e-5)
             np.testing.assert_allclose(np.asarray(native_test["y_pred"]).ravel(), np.asarray(legacy_test["y_pred"]).ravel(), atol=1e-4)
         assert len({report["producer_node"] for report in native._dagml_score_set["reports"]}) == len(expected_models)
         archive = tmp_path / "full_train_checkpoints.n4a"

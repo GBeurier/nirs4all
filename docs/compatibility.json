@@ -70,6 +70,16 @@
       "enforced_at": "tests/integration/parity/test_conformance_export_roundtrip.py"
     },
     {
+      "band_id": "interleaved_augmentation_y_transform_score",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "score",
+      "abs_tol": 0.0001,
+      "rel_tol": 0.0,
+      "measured_ceiling": 0.000055,
+      "enforced_at": "tests/integration/parity/test_augmentation_composition.py",
+      "note": "Legacy and DAG-ML differ by at most 5.46e-5 on transformed-target scores in the interleaved augmentation checkpoint oracle; all other score comparisons in that module use the tighter 1e-5 band."
+    },
+    {
       "band_id": "per_case_tight",
       "numeric_path": "cross_impl_pipeline",
       "metric_class": "score",
