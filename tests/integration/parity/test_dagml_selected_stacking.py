@@ -93,7 +93,8 @@ def test_selected_source_archive_matches_native_final_test(tmp_path, monkeypatch
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-def test_sequential_best_fold_test_features_and_archive_replay(tmp_path, monkeypatch, mechanism):
+@pytest.mark.parametrize("aggregation", [FoldAggregation.BEST_FOLD, FoldAggregation.WEIGHTED_MEAN])
+def test_sequential_fold_test_features_and_archive_replay(tmp_path, monkeypatch, mechanism, aggregation):
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
 
@@ -107,7 +108,7 @@ def test_sequential_best_fold_test_features_and_archive_replay(tmp_path, monkeyp
         PLSRegression(n_components=2),
         Ridge(alpha=10000),
         {"model": MetaModel(Ridge(alpha=1), stacking_config=StackingConfig(
-            test_aggregation=FoldAggregation.BEST_FOLD,
+            test_aggregation=aggregation,
         ))},
     ]
     path = dataset_path("regression")
@@ -120,19 +121,57 @@ def test_sequential_best_fold_test_features_and_archive_replay(tmp_path, monkeyp
     try:
         assert native.execution_engine == "dag-ml"
         assert np.isfinite(native.best_rmse)
-        selected = [artifact["estimator"] for artifact in native._dagml_refit_artifacts
-                    if hasattr(artifact["estimator"], "selected_fold")]
-        assert len(selected) == 2
-        assert all(estimator.selected_fold in estimator.fold_estimators for estimator in selected)
+        fold_models = [artifact["estimator"] for artifact in native._dagml_refit_artifacts
+                       if hasattr(artifact["estimator"], "fold_estimators")]
+        assert len(fold_models) == 2
+        if aggregation == FoldAggregation.BEST_FOLD:
+            assert all(estimator.selected_fold in estimator.fold_estimators for estimator in fold_models)
+        else:
+            assert all(estimator.weights is not None and sum(estimator.weights.values()) == pytest.approx(1.0)
+                       for estimator in fold_models)
         archive = native.export(tmp_path / "best_fold.n4a")
         dataset = DatasetConfigs(path).get_dataset_at(0)
         x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
         y_test = np.asarray(dataset.y({"partition": "test"})).ravel()
+        if aggregation == FoldAggregation.WEIGHTED_MEAN:
+            for estimator, model_name in zip(fold_models, ("PLSRegression", "Ridge"), strict=True):
+                legacy_average = next(row for row in legacy.predictions._buffer
+                                      if row.get("model_name") == model_name and row.get("partition") == "test"
+                                      and row.get("fold_id") == "w_avg")
+                np.testing.assert_allclose(np.asarray(estimator.predict(x_test)).ravel(),
+                                           np.asarray(legacy_average["y_pred"]).ravel(), atol=1e-4)
         replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
         assert replay.shape == y_test.shape
         assert np.sqrt(np.mean((y_test - replay) ** 2)) == pytest.approx(native.best_rmse, rel=1e-6, abs=1e-6)
     finally:
         native.close()
+
+
+def test_legacy_weighted_test_aggregation_uses_inverse_rmse_average():
+    pipeline = [
+        KFold(3, shuffle=True, random_state=42),
+        PLSRegression(n_components=2),
+        Ridge(alpha=10000),
+        {"model": MetaModel(Ridge(alpha=1), stacking_config=StackingConfig(
+            test_aggregation=FoldAggregation.WEIGHTED_MEAN,
+        ))},
+    ]
+    legacy = nirs4all.run(pipeline, dataset_path("regression"), engine="legacy", refit=False,
+                          save_artifacts=False, save_charts=False, verbose=0)
+    try:
+        rows = [row for row in legacy.predictions._buffer
+                if row.get("model_name") == "PLSRegression" and row.get("partition") == "test"]
+        folds = sorted((row for row in rows if str(row.get("fold_id", "")).isdigit()),
+                       key=lambda row: int(row["fold_id"]))
+        aggregate = next(row for row in rows if row.get("fold_id") == "w_avg")
+        assert len(folds) == 3
+        errors = np.asarray([row["val_score"] for row in folds], dtype=float)
+        predictions = np.asarray([row["y_pred"] for row in folds], dtype=float)
+        np.testing.assert_allclose(np.asarray(aggregate["y_pred"]), np.average(predictions, axis=0, weights=1.0 / errors))
+        assert not np.allclose(np.asarray(aggregate["y_pred"]),
+                               np.average(predictions, axis=0, weights=errors))
+    finally:
+        legacy.close()
 
 
 def test_branch_numeric_prediction_aggregation(tmp_path):

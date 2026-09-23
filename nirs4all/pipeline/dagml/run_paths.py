@@ -4200,9 +4200,12 @@ def _assemble_stacking_dsl(
 
     meta_wrapper = next((step.get("model") for step in reversed(pipeline)
                          if isinstance(step, dict) and isinstance(step.get("model"), MetaModel)), None)
-    best_fold = meta_wrapper is not None and meta_wrapper.stacking_config.test_aggregation == TestAggregation.BEST_FOLD
-    if best_fold:
-        meta_metadata["stacking_test_aggregation"] = "best"
+    fold_aggregation = (
+        meta_wrapper.stacking_config.test_aggregation
+        if meta_wrapper is not None else TestAggregation.MEAN
+    )
+    if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
+        meta_metadata["stacking_test_aggregation"] = "best" if fold_aggregation == TestAggregation.BEST_FOLD else "weighted"
         meta_metadata["stacking_test_metric"] = selection_metric
     if meta_metadata.get("nirs4all_finetune_params"):
         raise DagMlUnsupported(
@@ -4245,7 +4248,7 @@ def _assemble_stacking_dsl(
         ],
     }
 
-    if best_fold:
+    if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN):
         for branch in canonical_dsl["steps"][0]["branches"]:
             for step in branch["steps"]:
                 if step["kind"] == "model":
@@ -4363,12 +4366,12 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
 
     from nirs4all.operators.models.meta import MetaModel, TestAggregation
 
-    best_fold = any(
-        isinstance(step, dict) and isinstance(step.get("model"), MetaModel)
-        and step["model"].stacking_config.test_aggregation == TestAggregation.BEST_FOLD
+    fold_aggregation = next((
+        step["model"].stacking_config.test_aggregation
         for step in pipeline
-    )
-    if best_fold and outcome["refit_artifacts"]:
+        if isinstance(step, dict) and isinstance(step.get("model"), MetaModel)
+    ), TestAggregation.MEAN)
+    if fold_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN) and outcome["refit_artifacts"]:
         import json
 
         import dag_ml
@@ -4384,17 +4387,24 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 continue
             fold_estimators = artifact.pop("fold_estimators", None)
             if not fold_estimators:
-                raise DagMlUnsupported(f"stacking best-fold replay has no captured CV estimators for {producer}")
+                raise DagMlUnsupported(f"stacking fold aggregation has no captured CV estimators for {producer}")
             if any(fold_id not in fold_estimators for fold_id in outer_fold_ids):
-                raise DagMlUnsupported(f"stacking best-fold replay is missing an outer-fold estimator for {producer}")
+                raise DagMlUnsupported(f"stacking fold aggregation is missing an outer-fold estimator for {producer}")
             fold_estimators = {fold_id: fold_estimators[fold_id] for fold_id in outer_fold_ids}
-            selected = json.loads(dag_ml.select_stacking_fold_json(json.dumps({
+            request = json.dumps({
                 "producer_node": producer,
                 "fold_ids": list(fold_estimators),
                 "metric": metric,
                 "reports": reports,
-            })))
-            artifact["estimator"] = _DagmlSelectedFoldEstimator(fold_estimators, selected)
+            })
+            if fold_aggregation == TestAggregation.BEST_FOLD:
+                selected = json.loads(dag_ml.select_stacking_fold_json(request))
+                artifact["estimator"] = _DagmlSelectedFoldEstimator(fold_estimators, selected_fold=selected)
+            else:
+                weights = json.loads(dag_ml.stacking_fold_weights_json(request))
+                artifact["estimator"] = _DagmlSelectedFoldEstimator(
+                    fold_estimators, weights=dict(zip(fold_estimators, weights, strict=True)),
+                )
 
     # List form exposes the ensemble; named form also exposes each base producer.
     model_label = f"MetaModel_{type(meta_learner).__name__}"
