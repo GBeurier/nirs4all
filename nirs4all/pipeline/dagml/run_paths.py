@@ -4899,6 +4899,8 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     final_meta_node_id = _META_NODE_ID
     final_meta_learner = meta_learner
     stacking_source_orders: dict[str, list[str]] = {}
+    meta_source_nodes: dict[str, list[str]] = {}
+    meta_labels: dict[str, str] = {}
     if downstream_meta_steps:
         import dag_ml
 
@@ -4919,6 +4921,17 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                     source_estimators[source_step["id"]] = route_graph_node(source_step)
         first_meta_step = pipeline[-len(downstream_meta_steps) - 1]
         first_meta_name = first_meta_step.get("name") or first_meta_step["model"].name
+        meta_labels[_META_NODE_ID] = first_meta_name
+        selected_first_sources = [
+            model_id
+            for selector in prediction_aggregations or []
+            for model_id in (
+                selector["select"].get("models", [])
+                if isinstance(selector.get("select"), dict)
+                else ([selector["model"]] if selector.get("model") in base_model_ids else [])
+            )
+        ]
+        meta_source_nodes[_META_NODE_ID] = list(dict.fromkeys(selected_first_sources)) or base_model_ids
         source_nodes[first_meta_name] = [_META_NODE_ID]
         source_steps[_META_NODE_ID] = canonical_dsl["steps"][-1]
         source_estimators[_META_NODE_ID] = meta_learner
@@ -4937,6 +4950,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             explicit_sources = requested_names != [previous_meta_name]
             requested_sources = [node_id for name in requested_names for node_id in source_nodes[name]]
             sources = requested_sources if explicit_sources else []
+            meta_source_nodes[final_meta_node_id] = requested_sources
             if sources:
                 stacking_source_orders[final_meta_node_id] = sources
             source_ports: dict[str, str] = {}
@@ -4970,6 +4984,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 },
             })
             current_name = step.get("name") or step["model"].name
+            meta_labels[final_meta_node_id] = current_name
             source_nodes[current_name] = [final_meta_node_id]
             source_steps[final_meta_node_id] = canonical_dsl["steps"][-1]
             source_estimators[final_meta_node_id] = final_meta_learner
@@ -5092,11 +5107,68 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             pipeline=pipeline, random_state=random_state, meta_per_branch=meta_per_branch,
         )
     else:
-        result = _scores_to_run_result(
-            outcome["scores"], spectro.name, model_label, metric, task_type,
-            producer=final_meta_node_id, config_name=config_name, results=outcome["results"],
-            identity=identity, refit_artifacts=outcome["refit_artifacts"],
-        )
+        referenced_meta_nodes = {
+            source for sources in meta_source_nodes.values() for source in sources
+            if source in meta_source_nodes
+        }
+        terminal_meta_nodes = [node for node in meta_source_nodes if node not in referenced_meta_nodes]
+        if len(terminal_meta_nodes) > 1:
+            import dag_ml
+
+            from .envelope import target_names
+            from .native_results import _producer_node_from_artifact_id
+            from .public_batch import DagMLBatchResult
+            from .run_backend import _metric_objective
+
+            def closure(node: str) -> set[str]:
+                return {node}.union(*(
+                    closure(source) if source in meta_source_nodes else {source}
+                    for source in meta_source_nodes[node]
+                ))
+
+            children: list[RunResult] = []
+            for node in terminal_meta_nodes:
+                own_producers = closure(node)
+                own_scores = {
+                    **outcome["scores"],
+                    "reports": [report for report in outcome["scores"].get("reports", [])
+                                if report.get("producer_node") in own_producers],
+                }
+                own_artifacts = [
+                    artifact for artifact in outcome["refit_artifacts"]
+                    if _producer_node_from_artifact_id(artifact.get("artifact_id")) in own_producers
+                ]
+                child = _scores_to_run_result(
+                    own_scores, spectro.name, meta_labels[node], metric, task_type,
+                    producer=node, config_name=config_name, results=outcome["results"],
+                    identity=identity, refit_artifacts=own_artifacts,
+                )
+                child._dagml_target_names = target_names(spectro)  # noqa: SLF001
+                child._dagml_stacking_replay_producer = node  # noqa: SLF001
+                child._dagml_stacking_independent_terminal = True  # noqa: SLF001
+                for metadata in child.per_dataset.values():
+                    metadata["producer_node"] = node
+                    metadata["output_topology"] = "independent_metamodel"
+                children.append(child)
+            result = DagMLBatchResult(children)
+            result._dagml_score_set = outcome["scores"]  # noqa: SLF001
+            result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+            result._dagml_node_results = outcome["results"]  # noqa: SLF001
+            result._dagml_stacking_replay_producer = ""  # noqa: SLF001
+            decision = dag_ml.select_candidate(
+                {"id": "select:terminal_metamodel", "metric": {"name": metric, "objective": _metric_objective(metric)},
+                 "evaluation_scope": "oof", "require_finite": True},
+                [{"candidate_id": node, "metrics": {metric: child.cv_best_score}}
+                 for node, child in zip(terminal_meta_nodes, children, strict=True)],
+            )
+            result._dagml_selection_decision = decision  # noqa: SLF001
+            result._dagml_selected_run = children[terminal_meta_nodes.index(decision["selected_candidate_id"])]  # noqa: SLF001
+        else:
+            result = _scores_to_run_result(
+                outcome["scores"], spectro.name, model_label, metric, task_type,
+                producer=final_meta_node_id, config_name=config_name, results=outcome["results"],
+                identity=identity, refit_artifacts=outcome["refit_artifacts"],
+            )
     if source_layout is not None:
         for view in [result, *getattr(result, "runs", [])]:
             for metadata in view.per_dataset.values():
@@ -5118,7 +5190,11 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             for metadata in view.per_dataset.values():
                 metadata["stacking_evaluation"] = evidence
     for view in [result, *getattr(result, "runs", [])]:
-        view._dagml_stacking_selectors = prediction_aggregations  # noqa: SLF001
+        view._dagml_stacking_selectors = (  # noqa: SLF001
+            prediction_aggregations
+            if getattr(view, "_dagml_stacking_replay_producer", _META_NODE_ID) == _META_NODE_ID
+            else None
+        )
         view._dagml_stacking_outer_fold_ids = [fold["fold_id"] for fold in outer_fold_set["folds"]]  # noqa: SLF001
         view._dagml_stacking_producer_classes = {
             step["id"]: step["operator"]["class"].rsplit(".", 1)[-1]
