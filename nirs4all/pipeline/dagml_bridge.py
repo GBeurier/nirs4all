@@ -879,7 +879,9 @@ def _lower_feature_augmentation(step: dict[str, Any]) -> dict[str, Any]:
     * **extend / add** — keep the raw layer beside the new ones: ``[raw, op1(raw), …, opN(raw)]`` →
       ``FeatureConcat([None, op1, …, opN])`` (the ``None`` pass-through is the raw layer).
     * **replace** — legacy's 2D materialization still exposes the raw layer before
-      the new views: ``[raw, op1(raw), …, opN(raw)]`` → ``FeatureConcat([None, op1, …, opN])``.
+      ordinary transform views: ``[raw, op1(raw), …, opN(raw)]`` → ``FeatureConcat([None, op1, …, opN])``.
+      A sole ``Resampler`` is different: its controller replaces the source
+      processing, so only the resampled lane survives in all three modes.
 
     The ``FeatureConcat`` node lives in the model's upstream X-chain, so each augmentation
     sub-transformer is fit on fold-train only (leakage-safe) and re-applied to fold-val/test, exactly
@@ -913,6 +915,13 @@ def _lower_feature_augmentation(step: dict[str, Any]) -> dict[str, Any]:
             "dag-ml bridge does not lower an empty `feature_augmentation` (no operations to add)"
         )
     specs = [_concat_operation_spec(op) for op in layers]
+    from nirs4all.operators.transforms.resampler import Resampler
+
+    # The legacy ResamplerController replaces the source processing in the dataset,
+    # even when invoked beneath feature_augmentation. There is consequently no raw
+    # lane for the model in this single-operation case, for any action mode.
+    if len(layers) == 1 and isinstance(layers[0], Resampler):
+        return {"class": _FEATURE_CONCAT_CLASS, "params": {"operations": specs}}
     if action in ("extend", "add", "replace"):
         # Prepend the raw pass-through layer (FeatureConcat lowers None → sklearn "passthrough").
         specs = [None, *specs]

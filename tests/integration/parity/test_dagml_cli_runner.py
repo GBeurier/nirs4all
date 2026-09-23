@@ -4509,13 +4509,11 @@ def test_supported_operator_precheck_does_not_swallow_real_bugs() -> None:
 
 
 def test_unsupported_op_inside_branch_and_augmentation_bodies_fail_loud_catchably() -> None:
-    """P0: a wavelength-requiring op INSIDE a branch / by_source / augmentation body raises a catchable error.
+    """Invalid fixture wavelengths fail at runtime, even when Resampler is nested.
 
-    The X-side precheck must reach EVERY leaf/body lowerer, not just the simple/native/repetition paths.
-    A configured ``Resampler`` (needs ``wavelengths=`` injected into ``fit``) buried inside a duplication
-    branch, a by_metadata separation branch, a by_source branch, or a sample_augmentation pipeline used to
-    crash mid-run (uncaught ``DagMlRuntimeError`` in-process → ``run()`` could not fall back). It now raises
-    a catchable ``DagMlUnsupported`` BEFORE any ``estimator.fit`` reaches the runtime, anywhere it appears."""
+    These fixture headers are not a usable spectral axis. The operator is supported,
+    so a numerical fit failure must never be disguised as ``DagMlUnsupported``.
+    """
     from sklearn.linear_model import Ridge
 
     from nirs4all.operators.transforms.resampler import Resampler
@@ -4526,17 +4524,19 @@ def test_unsupported_op_inside_branch_and_augmentation_bodies_fail_loud_catchabl
 
     split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
+    def assert_bad_wavelengths(pipeline, dataset):
+        with pytest.raises(Exception, match="[Ww]avelength") as exc_info:  # noqa: PT011 - runtime wrapper varies by mechanism
+            run_via_dagml(pipeline, dataset)
+        assert not isinstance(exc_info.value, DagMlUnsupported)
+
     duplication = [split, {"branch": [[resampler(), {"model": PLSRegression(n_components=2)}], [{"model": Ridge(alpha=1.0)}]]}, {"merge": "mean"}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(duplication, dataset_path("regression"))
+    assert_bad_wavelengths(duplication, dataset_path("regression"))
 
     separation = [split, {"branch": {"by_metadata": "group", "steps": [resampler(), {"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(separation, dataset_path("with_metadata"))
+    assert_bad_wavelengths(separation, dataset_path("with_metadata"))
 
     by_source = [split, {"branch": {"by_source": True, "steps": [resampler(), {"model": PLSRegression(n_components=2)}]}}, {"merge": "mean"}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(by_source, dataset_path("multi"))
+    assert_bad_wavelengths(by_source, dataset_path("multi"))
 
     augmentation = [
         resampler(),
@@ -4544,8 +4544,7 @@ def test_unsupported_op_inside_branch_and_augmentation_bodies_fail_loud_catchabl
         split,
         {"model": PLSRegression(n_components=2)},
     ]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(augmentation, dataset_path("regression"))
+    assert_bad_wavelengths(augmentation, dataset_path("regression"))
 
 
 def test_none_step_inside_branch_bodies_is_handled() -> None:
@@ -4614,13 +4613,13 @@ def test_non_reconstructible_custom_transform_fails_loud_catchably() -> None:
 
 
 def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> None:
-    """P0: an unsupported transform NESTED inside concat_transform / feature_augmentation is caught up front.
+    """Invalid numerical input and non-reconstructible nested transforms fail distinctly.
 
     ``FeatureConcat`` reconstructs + fits each transform inside a ``concat_transform`` /
     ``feature_augmentation`` spec (the same import + ``cls(**params)`` round-trip as a bare transform), so a
-    wavelength-requiring or non-reconstructible op nested there used to bypass the dict-skipping precheck
-    and crash uncaught in ``FeatureConcat.fit``. The precheck now recurses into those nested X-ops and
-    raises a catchable ``DagMlUnsupported``."""
+    non-reconstructible op is unsupported; configured Resampler is supported but
+    invalid fixture wavelengths cause a real runtime fit error.
+    """
     from sklearn.preprocessing import FunctionTransformer
 
     from nirs4all.operators.transforms.resampler import Resampler
@@ -4629,8 +4628,9 @@ def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> Non
     split = KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42)
 
     concat_wavelength = [{"concat_transform": [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))]}, split, {"model": PLSRegression(n_components=2)}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
+    with pytest.raises(Exception, match="[Ww]avelength") as concat_error:  # noqa: PT011 - runtime wrapper varies by mechanism
         run_via_dagml(concat_wavelength, dataset_path("regression"))
+    assert not isinstance(concat_error.value, DagMlUnsupported)
 
     feataug_lambda = [{"feature_augmentation": [FunctionTransformer(func=lambda x: x)]}, split, {"model": PLSRegression(n_components=2)}]
     with pytest.raises(DagMlUnsupported, match="reconstructible"):
@@ -4642,8 +4642,9 @@ def test_nested_concat_and_feature_augmentation_ops_fail_loud_catchably() -> Non
     from sklearn.preprocessing import StandardScaler
 
     nested_chain = [{"concat_transform": [[StandardScaler(), [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))]]]}, split, {"model": PLSRegression(n_components=2)}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
+    with pytest.raises(Exception, match="[Ww]avelength") as nested_error:  # noqa: PT011 - runtime wrapper varies by mechanism
         run_via_dagml(nested_chain, dataset_path("regression"))
+    assert not isinstance(nested_error.value, DagMlUnsupported)
 
 
 def test_non_serializable_param_transform_fails_loud_catchably() -> None:
