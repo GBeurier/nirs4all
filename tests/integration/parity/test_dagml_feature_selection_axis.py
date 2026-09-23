@@ -136,3 +136,29 @@ def test_selection_with_invalid_numeric_headers_uses_indices(monkeypatch):
     legacy = nirs4all.run(pipeline, dataset, engine="legacy", save_artifacts=False, verbose=0)
     native = nirs4all.run(pipeline, dataset, engine="dag-ml", save_artifacts=False, verbose=0)
     assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+
+
+@pytest.mark.parametrize("sequence", ["cars_mcuve", "mcuve_cars", "cars_resampler_mcuve"])
+@pytest.mark.parametrize("in_process", [True, False], ids=["pyo3", "cli"])
+def test_multisource_selector_chains_preserve_refit_axis(tmp_path, monkeypatch, sequence, in_process):
+    if not in_process:
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if in_process else "0")
+    dataset, held_out, targets = _dataset(True)
+    cars = CARS(n_components=2, n_sampling_runs=10, random_state=42)
+    mcuve = MCUVE(n_components=2, n_iterations=20, random_state=42)
+    steps = {
+        "cars_mcuve": [cars, mcuve],
+        "mcuve_cars": [mcuve, cars],
+        "cars_resampler_mcuve": [cars, Resampler(target_wavelengths=targets), mcuve],
+    }[sequence]
+    pipeline = [*steps, KFold(2), {"model": Ridge()}]
+    legacy = nirs4all.run(pipeline, dataset, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert np.isfinite(native.cv_best_score)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    archive = native.export(tmp_path / f"{sequence}_{in_process}.n4a")
+    assert np.asarray(nirs4all.predict(archive, held_out).y_pred).shape == (6,)
