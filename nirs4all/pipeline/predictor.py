@@ -564,10 +564,22 @@ class Predictor:
 
         from nirs4all.data.raw_multisource import RawMultiSourceDataset
 
+        prediction_metadata: dict[str, np.ndarray] = {}
+        native_routing = loader.get_partitioner_routing() or {}
+        native_metadata = any(info.get("native_replay") == "by_metadata_concat" for info in native_routing.values())
+
         if isinstance(dataset, RawMultiSourceDataset):
             if not loader.relation_replay_manifest:
                 raise ValueError("RawMultiSourceDataset bundle prediction requires a relation replay manifest.")
             X_data: Any = dataset
+        elif isinstance(dataset, dict) and "X" in dataset:
+            X_data = np.asarray(dataset["X"])
+            supplied_metadata = dataset.get("metadata")
+            if isinstance(supplied_metadata, dict):
+                prediction_metadata = {str(key): np.asarray(value) for key, value in supplied_metadata.items()}
+        elif native_metadata and isinstance(dataset, np.ndarray):
+            required = loader.get_required_metadata_columns()
+            raise ValueError(f"by_metadata bundle prediction requires metadata column(s) {required!r} alongside X")
         else:
             dataset_config = self.runner.orchestrator._normalize_dataset(dataset, dataset_name)
             X_data = None
@@ -576,12 +588,18 @@ class Predictor:
                 dataset_obj = dataset_config.get_dataset(data_config, name)
                 raw = dataset_obj.x({})
                 X_data = np.concatenate(raw, axis=1) if isinstance(raw, list) else raw
+                if native_metadata:
+                    for column in loader.get_required_metadata_columns():
+                        try:
+                            prediction_metadata[column] = np.asarray(dataset_obj.metadata_column(column, {}))
+                        except (KeyError, ValueError) as exc:
+                            raise ValueError(f"by_metadata bundle prediction requires metadata column {column!r}") from exc
                 break
 
             if X_data is None:
                 raise ValueError("No data found in dataset for prediction")
 
-        y_pred = loader.predict(X_data)
+        y_pred = loader.predict_with_metadata(X_data, prediction_metadata) if native_metadata else loader.predict(X_data)
 
         model_name = "bundle_model"
         if loader.metadata:

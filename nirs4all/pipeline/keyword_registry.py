@@ -95,7 +95,7 @@ class KeywordRegistry(TypedDict):
 
 KEYWORD_REGISTRY_SCHEMA_ID: Final = "https://nirs4all.org/schemas/keyword-effects/v1"
 KEYWORD_REGISTRY_SCHEMA_VERSION: Final = 1
-KEYWORD_REGISTRY_VERSION: Final = "1.0.1"
+KEYWORD_REGISTRY_VERSION: Final = "1.0.3"
 
 _OBJECT_SCHEMA: Final[dict[str, Any]] = {"type": "object"}
 _STRING_SCHEMA: Final[dict[str, Any]] = {"type": "string", "minLength": 1}
@@ -321,7 +321,7 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "changes": ["candidate_fit", "selection", "final_predictor"],
         "invalidates_calibration": "always",
         "engine_support": {"legacy": "supported", "dag-ml": "partial"},
-        "summary": "Runs model-local hyperparameter optimization; DAG-ML natively supports only deterministic model_params grids/ranges today, and this is never weight continuation.",
+        "summary": "Runs model-local hyperparameter optimization; DAG-ML supports deterministic model_params grids/ranges and a scoped host Optuna profile, with some legacy controls still unsupported. This is never weight continuation.",
         "docs_anchor": "model-local-hpo-finetune-params",
         "ui": {"label": "Model-local HPO", "group": "tuning", "control": "object", "order": 20},
     },
@@ -363,8 +363,8 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "reads": [],
         "changes": ["trial_sequence"],
         "invalidates_calibration": "if_predictor_changes",
-        "engine_support": {"optuna": "supported", "n4m": "partial"},
-        "summary": "Selects the HPO sampling strategy. The shared n4m objective adapter passes grid through to a native GRID enum when available and fails closed otherwise; sample is a read-only legacy alias.",
+        "engine_support": {"optuna": "supported", "n4m": "partial", "dag-ml": "partial"},
+        "summary": "Selects the HPO sampling strategy. DAG-ML's host Optuna profile supports the legacy sample alias and Optuna samplers; deterministic lowering does not use a sampler. The n4m objective adapter maps grid to a native GRID enum when available.",
         "docs_anchor": "canonical-aliases",
         "ui": {"label": "Sampler", "group": "tuning", "control": "select", "order": 40},
     },
@@ -439,8 +439,8 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "reads": [],
         "changes": ["trial_sequence", "selection", "final_predictor"],
         "invalidates_calibration": "if_predictor_changes",
-        "engine_support": {"optuna": "supported", "n4m": "supported", "dag-ml": "unsupported"},
-        "summary": "Sets the adaptive HPO trial budget for Optuna and n4m. Deterministic DAG-ML native generation rejects it because the grid/range itself defines the candidate set.",
+        "engine_support": {"optuna": "supported", "n4m": "supported", "dag-ml": "partial"},
+        "summary": "Sets the adaptive HPO trial budget for Optuna and n4m. DAG-ML honors it with the explicit host Optuna profile; deterministic generation uses the grid/range candidate set instead.",
         "docs_anchor": "model-local-hpo-finetune-params",
         "ui": {"label": "Trial budget", "group": "tuning", "control": "number", "order": 44},
     },
@@ -459,7 +459,7 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "changes": ["candidate_fit", "trial_ranking", "selection", "final_predictor"],
         "invalidates_calibration": "if_predictor_changes",
         "engine_support": {"optuna": "supported", "n4m": "partial", "dag-ml": "partial"},
-        "summary": "Controls how folds are searched. DAG-ML deterministic lowering currently accepts only grouped; n4m supports the same vocabulary with partial behavioral parity.",
+        "summary": "Controls how folds are searched. DAG-ML deterministic lowering accepts grouped; the host Optuna profile accepts single, grouped, and individual scoped searches. Individual uses a training-only inner holdout for each outer fold and a fresh refit search.",
         "docs_anchor": "model-local-hpo-finetune-params",
         "ui": {"label": "Fold search strategy", "group": "tuning", "control": "select", "order": 45},
     },
@@ -496,8 +496,8 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "reads": ["development"],
         "changes": ["trial_ranking"],
         "invalidates_calibration": "if_predictor_changes",
-        "engine_support": {"optuna": "partial", "n4m": "partial"},
-        "summary": "Aggregates trial scores for ranking. best and robust_best are not yet behaviorally distinct in every path; avg is a read-only alias for mean.",
+        "engine_support": {"optuna": "partial", "n4m": "partial", "dag-ml": "partial"},
+        "summary": "Aggregates trial scores for ranking. DAG-ML deterministic lowering accepts mean; host Optuna accepts best or mean for grouped search. avg is a read-only alias for mean.",
         "docs_anchor": "canonical-aliases",
         "ui": {"label": "Evaluation aggregation", "group": "tuning", "control": "select", "order": 50},
     },
@@ -515,8 +515,8 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "reads": ["development"],
         "changes": ["trial_fit"],
         "invalidates_calibration": "if_predictor_changes",
-        "engine_support": {"optuna": "supported", "n4m": "supported", "dag-ml": "unsupported"},
-        "summary": "Configures training arguments inside HPO trials, not the winner's terminal fit; DAG-ML native routing rejects it until optimizer adapters can preserve trial fit kwargs.",
+        "engine_support": {"optuna": "supported", "n4m": "supported", "dag-ml": "partial"},
+        "summary": "Configures or samples fit controls inside HPO trials. DAG-ML's host Optuna profile applies supported estimator controls to each candidate; terminal CV/refit training uses step-level train/refit_params. Deterministic lowering rejects trial-fit sampling.",
         "docs_anchor": "three-training-parameter-scopes",
         "ui": {"label": "Trial training parameters", "group": "tuning", "control": "object", "order": 60},
     },
@@ -534,8 +534,8 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "reads": ["development"],
         "changes": ["final_predictor"],
         "invalidates_calibration": "always",
-        "engine_support": {"legacy": "supported", "dag-ml": "unsupported"},
-        "summary": "Configures ordinary legacy model training and its terminal fit unless refit_params overrides a value; DAG-ML currently rejects it before native execution.",
+        "engine_support": {"legacy": "supported", "dag-ml": "supported"},
+        "summary": "Configures ordinary model training and terminal refit unless refit_params overrides a value. DAG-ML applies recognized estimator overrides and framework training-loop parameters in each fit scope; unsupported controller policies fail explicitly.",
         "docs_anchor": "three-training-parameter-scopes",
         "ui": {"label": "Training parameters", "group": "training", "control": "object", "order": 70},
     },
@@ -555,9 +555,9 @@ _ENTRIES: Final[tuple[KeywordEntry, ...]] = (
         "invalidates_calibration": "always",
         "engine_support": {"legacy": "supported", "dag-ml": "partial"},
         "summary": (
-            "Overrides train_params only during legacy winner refit. DAG-ML accepts only the exact "
-            "{'use_all_partitions': True} no-op on one top-level exact PLSRegression model step "
-            "(optional name only); every other refit_params shape is rejected before native execution."
+            "Overrides train_params only during winner refit. DAG-ML applies recognized model overrides "
+            "and framework training-loop parameters; specialized warm starts and controller policies "
+            "remain unsupported. The exact {'use_all_partitions': True} PLSRegression no-op is accepted."
         ),
         "docs_anchor": "three-training-parameter-scopes",
         "ui": {"label": "Winner refit parameters", "group": "training", "control": "object", "order": 80},

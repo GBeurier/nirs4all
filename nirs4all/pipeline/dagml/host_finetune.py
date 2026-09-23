@@ -8,6 +8,14 @@ from typing import Any
 import numpy as np
 
 _HOST_KEYS = {"n_trials", "sampler", "sample", "verbose", "seed", "storage", "phases", "pruner", "n_jobs"}
+TRIAL_TRAIN_PREFIX = "nirs4all_trial_fit__"
+
+
+def split_trial_fit_overrides(params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Separate sampled fit controls from model-constructor candidates."""
+    model_params = {key: value for key, value in params.items() if not key.startswith(TRIAL_TRAIN_PREFIX)}
+    fit_params = {key[len(TRIAL_TRAIN_PREFIX):]: value for key, value in params.items() if key.startswith(TRIAL_TRAIN_PREFIX)}
+    return model_params, fit_params
 
 
 def is_host_finetune(config: dict[str, Any]) -> bool:
@@ -26,7 +34,7 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
     values = dict(config)
     inner_splitter = values.pop("__dagml_inner_splitter", None) if internal else None
     params = manager._validate_and_normalize_finetune_params(values)  # noqa: SLF001 -- optimizer owns its grammar
-    allowed = {"model_params", "n_trials", "sampler", "verbose", "seed", "approach", "metric", "direction", "eval_mode", "engine", "pruner", "n_jobs"}
+    allowed = {"model_params", "train_params", "n_trials", "sampler", "verbose", "seed", "approach", "metric", "direction", "eval_mode", "engine", "pruner", "n_jobs"}
     unknown = params.keys() - allowed
     if unknown:
         raise NotImplementedError(f"DAG host finetuning controls not wired yet: {sorted(unknown)}")
@@ -37,6 +45,8 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
         raise ValueError("finetune_params.n_trials must be a positive u32 integer")
     if not isinstance(params.get("model_params"), dict) or not params["model_params"]:
         raise ValueError("finetune_params.model_params must be a nonempty mapping")
+    if "train_params" in params and not isinstance(params["train_params"], dict):
+        raise TypeError("finetune_params.train_params must be a parameter mapping")
     params["n_trials"] = budget
     params["engine"] = "optuna"
     if inner_splitter is not None:
@@ -185,7 +195,17 @@ def run_scoped_finetune(
             pending[index] = trial
             values, train_params = manager.sample_hyperparameters(trial, params)
             if train_params:
-                raise ValueError("Host HPO cannot silently discard sampled train_params")
+                available = model.get_params(deep=False) if hasattr(model, "get_params") else {}
+                unknown = sorted(set(train_params) - set(available))
+                if unknown:
+                    raise ValueError(f"Host HPO training controls are not supported by {type(model).__name__}: {unknown}")
+                # The host adapter exposes training controls as estimator
+                # parameters, so one native variant carries both architecture
+                # and fit choices through every inner fit and final refit.
+                values = {
+                    **{f"{TRIAL_TRAIN_PREFIX}{key}": value for key, value in train_params.items() if key not in values},
+                    **values,
+                }
             # Canonical JSON restoration preserves tuple/type-token grammars in
             # configuration; concrete proposed parameters are ordinary JSON.
             return json.loads(json.dumps(values))
@@ -217,8 +237,10 @@ def run_scoped_finetune(
         evidence["training_controls"] = encode_training_controls(training_controls, name="training controls")
         model_overrides = {key: value for key, value in evidence["training_controls"].items() if key != "verbose"}
         for candidate in evidence["trials"]:
-            candidate["effective_model_params"] = {**candidate["params"], **model_overrides}
-        evidence["effective_selected_model_params"] = {**evidence["selected_params"], **model_overrides}
+            model_params, sampled_fit = split_trial_fit_overrides(candidate["params"])
+            candidate["effective_model_params"] = {**model_params, **model_overrides, **sampled_fit}
+        selected_model_params, _ = split_trial_fit_overrides(evidence["selected_params"])
+        evidence["effective_selected_model_params"] = {**selected_model_params, **model_overrides}
     evidence["evaluation"] = {"role": "inner_parameter_selection", "outer_validation_used": False, "test_used": False}
     evidence["evaluation"].update({"approach": params.get("approach", "grouped"),
                                   "inner_fold_count": len(folds),

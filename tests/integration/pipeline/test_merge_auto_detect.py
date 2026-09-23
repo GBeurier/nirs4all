@@ -15,7 +15,6 @@ import nirs4all
 from nirs4all.data import DatasetConfigs
 from nirs4all.operators.transforms import MultiplicativeScatterCorrection as MSC
 from nirs4all.operators.transforms import StandardNormalVariate as SNV
-from nirs4all.pipeline import PipelineConfigs, PipelineRunner
 from tests.fixtures.data_generators import TestDataManager
 
 # ===========================================================================
@@ -30,37 +29,37 @@ class TestAutoMergeDuplicationBranch:
         return nirs4all.generate.regression(n_samples=50, random_state=42, engine="legacy")
 
     def test_merge_auto_string(self, dataset):
-        """{"merge": "auto"} resolves to predictions merge for duplication."""
+        """{"merge": "auto"} resolves to feature merge for duplication."""
         pipeline = [
             {"branch": [[SNV()], [MSC()]]},
             {"merge": "auto"},
             {"model": PLSRegression(n_components=5)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="legacy", verbose=0)
-        assert result is not None
-        assert hasattr(result, "best_rmse")
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="dag-ml", verbose=0)
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert np.isfinite(result.best_rmse)
 
     def test_merge_true(self, dataset):
-        """{"merge": True} resolves to predictions merge for duplication."""
+        """{"merge": True} resolves to feature merge for duplication."""
         pipeline = [
             {"branch": [[SNV()], [MSC()]]},
             {"merge": True},
             {"model": PLSRegression(n_components=5)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="legacy", verbose=0)
-        assert result is not None
-        assert hasattr(result, "best_rmse")
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="dag-ml", verbose=0)
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert np.isfinite(result.best_rmse)
 
     def test_merge_dict_branch(self, dataset):
-        """{"merge": {"branch": True}} resolves to predictions merge."""
+        """{"merge": {"branch": True}} resolves to feature merge."""
         pipeline = [
             {"branch": [[SNV()], [MSC()]]},
             {"merge": {"branch": True}},
             {"model": PLSRegression(n_components=5)},
         ]
-        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="legacy", verbose=0)
-        assert result is not None
-        assert hasattr(result, "best_rmse")
+        result = nirs4all.run(pipeline=pipeline, dataset=dataset, engine="dag-ml", verbose=0)
+        assert all(item["engine"] == "dag-ml" for item in result.per_dataset.values())
+        assert np.isfinite(result.best_rmse)
 
 
 # ===========================================================================
@@ -94,10 +93,30 @@ class TestAutoMergeBySource:
             {"merge": "auto"},
         ]
 
-        dataset_config = DatasetConfigs(dataset_folder)
-        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
-        predictions, _ = runner.run(PipelineConfigs(pipeline, "auto_src"), dataset_config)
-        assert predictions.num_predictions > 0
+        result = nirs4all.run(pipeline=pipeline, dataset=DatasetConfigs(dataset_folder), engine="dag-ml", verbose=0)
+        assert result.num_predictions > 0
+        assert set(result.predictions.get_unique_values("branch_name")) == {"source_0", "source_1"}
+        val_rows = [row for row in result.predictions.filter_predictions(load_arrays=True) if row["partition"] == "val"]
+        assert {row["branch_name"] for row in val_rows} == {"source_0", "source_1"}
+        assert all(len(row["y_pred"]) > 0 and np.isfinite(row["val_score"]) for row in val_rows)
+
+    def test_merge_auto_without_cv(self, test_data_manager):
+        dataset_folder = str(test_data_manager.get_temp_directory() / "multi")
+        pipeline = [
+            {"y_processing": MinMaxScaler()},
+            {"branch": {
+                "by_source": True,
+                "steps": {
+                    "source_0": [StandardScaler(), PLSRegression(5)],
+                    "source_1": [StandardScaler(), PLSRegression(5)],
+                },
+            }},
+            {"merge": "auto"},
+        ]
+        result = nirs4all.run(pipeline=pipeline, dataset=DatasetConfigs(dataset_folder), engine="dag-ml", verbose=0)
+        assert set(result.predictions.get_unique_values("branch_name")) == {"source_0", "source_1"}
+        assert np.isfinite(result.best_rmse)
+        assert np.isnan(result.cv_best_score)
 
     def test_merge_true(self, test_data_manager):
         """{"merge": True} resolves to source concat for by_source."""
@@ -116,10 +135,9 @@ class TestAutoMergeBySource:
             {"merge": True},
         ]
 
-        dataset_config = DatasetConfigs(dataset_folder)
-        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
-        predictions, _ = runner.run(PipelineConfigs(pipeline, "true_src"), dataset_config)
-        assert predictions.num_predictions > 0
+        result = nirs4all.run(pipeline=pipeline, dataset=DatasetConfigs(dataset_folder), engine="dag-ml", verbose=0)
+        assert result.num_predictions > 0
+        assert set(result.predictions.get_unique_values("branch_name")) == {"source_0", "source_1"}
 
     def test_merge_dict_branch(self, test_data_manager):
         """{"merge": {"branch": True}} resolves to source concat for by_source."""
@@ -138,7 +156,6 @@ class TestAutoMergeBySource:
             {"merge": {"branch": "auto"}},
         ]
 
-        dataset_config = DatasetConfigs(dataset_folder)
-        runner = PipelineRunner(save_artifacts=False, save_charts=False, verbose=0)
-        predictions, _ = runner.run(PipelineConfigs(pipeline, "dict_src"), dataset_config)
-        assert predictions.num_predictions > 0
+        result = nirs4all.run(pipeline=pipeline, dataset=DatasetConfigs(dataset_folder), engine="dag-ml", verbose=0)
+        assert result.num_predictions > 0
+        assert set(result.predictions.get_unique_values("branch_name")) == {"source_0", "source_1"}

@@ -221,9 +221,11 @@ def _generation_kind(pipeline: list[Any]) -> str:
     (b) NO other generator exists ANYWHERE — no generator keyword on a non-model step, no
         generator-valued model (multi-model ``{"model": {"_or_": ...}}``), no generator-shaped model
         sibling that is not natively lowerable (``_grid_``, dict-form, modifier-bearing), AND
-    (c) NO step carries ``finetune_params`` or ``train_params``.
+    (c) NO step carries ``finetune_params`` or a ``train_params`` shape the
+        native model adapter cannot apply. Framework factory training controls
+        may accompany a native parameter sweep.
 
-    Any other generator (or finetune/train_params) → ``"operator"`` (the correct Python ``expand_spec``
+    Any other generator (or unsupported finetune/train_params) → ``"operator"`` (the correct Python ``expand_spec``
     path). ``"none"`` means no generators at all. When in doubt, this never returns ``"param_model"``.
     """
     from nirs4all.pipeline.config._generator.keywords import GENERATION_KEYWORDS, has_nested_generator_keywords
@@ -234,8 +236,15 @@ def _generation_kind(pipeline: list[Any]) -> str:
     for step in pipeline:
         if not isinstance(step, dict):
             continue
-        if _FORCE_PYTHON_STEP_KEYS & set(step):
-            has_other = True  # finetune/train_params are not in the native contract
+        forced = _FORCE_PYTHON_STEP_KEYS & set(step)
+        if forced:
+            model = step.get("model")
+            framework = model.get("framework") if isinstance(model, dict) else getattr(model, "framework", None)
+            # Neural factory training controls are applied by the host adapter
+            # on every native candidate and refit. Keep their model-local grid
+            # with dag-ml so each factory argument becomes a real candidate.
+            if forced != {"train_params"} or framework not in {"pytorch", "tensorflow", "jax"}:
+                has_other = True
         if "model" in step:
             # A generator-valued model (multi-model) is operator-level, not a clean param sweep.
             if has_nested_generator_keywords(step["model"]):
@@ -1001,6 +1010,47 @@ def _detect_by_source_branch(pipeline: list[Any], n_sources: int) -> tuple[list[
     return body, aggregate
 
 
+def _detect_by_source_auto_models(pipeline: list[Any], n_sources: int) -> tuple[dict[str, list[Any]], list[Any]] | None:
+    """Recognize per-source model branches followed by legacy's auto source concat."""
+    branch_steps = [step for step in pipeline if _is_by_source_branch_step(step)]
+    if len(branch_steps) != 1 or n_sources < 2:
+        return None
+    branch_step = branch_steps[0]
+    branch_index = next(index for index, step in enumerate(pipeline) if step is branch_step)
+    if branch_index + 2 != len(pipeline):
+        return None
+    merge_step = pipeline[-1]
+    if not isinstance(merge_step, dict) or "merge" not in merge_step:
+        return None
+    merge_spec = merge_step["merge"]
+    if not (
+        merge_spec is True or merge_spec == "auto" or merge_spec == {"sources": "concat"}
+        or isinstance(merge_spec, dict) and "branch" in merge_spec
+        and not any(key in merge_spec for key in ("features", "predictions", "sources", "concat"))
+    ):
+        return None
+    criterion = branch_step["branch"]
+    if set(criterion) - _HANDLED_BY_SOURCE_KEYS:
+        return None
+    bodies = criterion.get("steps")
+    if not isinstance(bodies, dict) or len(bodies) != n_sources:
+        return None
+    for body in bodies.values():
+        if not isinstance(body, list) or not body:
+            return None
+        if not (isinstance(body[-1], dict) and "model" in body[-1] or hasattr(body[-1], "predict")):
+            return None
+        if any(isinstance(step, dict) and "model" in step for step in body[:-1]):
+            return None
+    prefix = pipeline[:branch_index]
+    if sum(_is_split_step(step) for step in prefix) > 1:
+        return None
+    y_steps = [step for step in prefix if isinstance(step, dict) and "y_processing" in step]
+    if any(not any(step is y_step for y_step in y_steps) and not _is_split_step(step) for step in prefix):
+        return None
+    return bodies, y_steps
+
+
 def _is_source_concat_merge_step(step: Any) -> bool:
     """Recognize feature-source concatenation without admitting row merges."""
     return _is_concat_merge_step(step) or (isinstance(step, dict) and step.get("merge") == {"sources": "concat"})
@@ -1130,6 +1180,36 @@ def _is_duplication_branch_step(step: Any) -> bool:
     return _duplication_branch_bodies(step) is not None
 
 
+def _detect_branch_only_model_comparison(pipeline: list[Any]) -> tuple[list[Any], list[list[Any]], list[str]] | None:
+    """Recognize independent branch models with no merge, preserving their names."""
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    if len(branch_steps) != 1 or any(isinstance(step, dict) and "merge" in step for step in pipeline):
+        return None
+    branch_step = branch_steps[0]
+    branches = _duplication_branch_bodies(branch_step)
+    assert branches is not None
+    for body in branches:
+        if not body or not (
+            isinstance(body[-1], dict) and "model" in body[-1]
+            or hasattr(body[-1], "fit") and hasattr(body[-1], "predict")
+        ):
+            return None
+        if any(isinstance(step, dict) and "model" in step for step in body[:-1]):
+            return None
+    branch_index = next(index for index, step in enumerate(pipeline) if step is branch_step)
+    prefix = pipeline[:branch_index]
+    if any(isinstance(step, dict) and not ("preprocessing" in step and len(step) == 1) for step in prefix):
+        return None
+    if pipeline[-1] is not branch_step:
+        return None
+    spec = branch_step["branch"]
+    names = (
+        [key for key in spec if isinstance(key, str) and key not in _DUPLICATION_BRANCH_CONFIG_KEYS and not key.startswith("_")]
+        if isinstance(spec, dict) else [f"branch_{index}" for index in range(len(branches))]
+    )
+    return prefix, branches, names
+
+
 # The cross-branch fusion (avg / proba-mean) merge tokens this backend maps to dag-ml's native fusion
 # merge handler. Simple-string ``"mean"``/``"average"`` (a NEW token — legacy MergeConfigParser rejects
 # it, so there is no collision) average the branches' held-out OOF per sample into ONE final prediction;
@@ -1186,6 +1266,16 @@ def _simple_duplication_merge_mode(step: Any) -> str | None:
     if not isinstance(step, dict) or "merge" not in step:
         return None
     spec = step["merge"]
+    if isinstance(spec, dict) and set(spec) == {"features"}:
+        return "features"
+    if spec is True or spec in ("auto", "concat") or (
+        isinstance(spec, dict)
+        and "branch" in spec
+        and not any(key in spec for key in ("features", "predictions", "sources", "concat"))
+    ):
+        # MergeController resolves auto-detect spellings to feature collection
+        # and falls back to feature collection for concat on duplication branches.
+        return "features"
     return spec if spec in ("features", "all") else None
 
 
@@ -1274,6 +1364,17 @@ def _detect_duplication_branch(pipeline: list[Any]) -> tuple[list[list[Any]], st
         return None
     if merge_mode == "all" and not all(branch_has_model):
         return None
+    feature_spec = merge_step["merge"]
+    if merge_mode == "features" and isinstance(feature_spec, dict) and "features" in feature_spec:
+        selection = feature_spec["features"]
+        if isinstance(selection, dict):
+            selection = selection.get("branches", "all")
+        if isinstance(selection, list):
+            if not selection or any(type(index) is not int or index < 0 or index >= len(branches) for index in selection):
+                return None
+            branches = [branches[index] for index in selection]
+        elif selection not in (True, "all"):
+            return None
     return branches, merge_mode
 
 

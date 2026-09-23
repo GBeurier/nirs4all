@@ -647,6 +647,50 @@ class _DagmlNativeBySourceFusionModel:
         )
 
 
+class _DagmlNativeMetadataConcatModel:
+    """Replay fanned REFIT models using the required metadata partition key."""
+
+    def __init__(self, metadata_key: str, members: Sequence[tuple[str, _DagmlExportedModel]]) -> None:
+        if not members or len({value for value, _ in members}) != len(members):
+            raise ValueError("metadata concat export requires distinct partition models")
+        self.metadata_key = metadata_key
+        self.members = dict(members)
+
+    def predict(self, X: Any) -> np.ndarray:
+        raise ValueError(
+            f"metadata column {self.metadata_key!r} is required for this by_metadata bundle; "
+            "use predict_with_metadata(X, metadata) or pass a dataset with that column"
+        )
+
+    def predict_with_metadata(self, X: Any, metadata: Mapping[str, Any]) -> np.ndarray:
+        if self.metadata_key not in metadata:
+            raise ValueError(f"metadata column {self.metadata_key!r} is required for by_metadata bundle prediction")
+        features = np.asarray(X)
+        if features.ndim != 2:
+            raise ValueError("metadata concat bundle expects a 2D feature matrix")
+        groups = np.asarray(metadata[self.metadata_key], dtype=object).reshape(-1)
+        if len(groups) != len(features):
+            raise ValueError(f"metadata column {self.metadata_key!r} has {len(groups)} rows, expected {len(features)}")
+        labels = np.asarray([str(value) for value in groups], dtype=object)
+        unknown = sorted(set(labels) - set(self.members))
+        if unknown:
+            raise ValueError(f"unknown {self.metadata_key!r} partition values: {unknown!r}")
+        output: np.ndarray | None = None
+        for value, member in self.members.items():
+            positions = np.flatnonzero(labels == value)
+            if not len(positions):
+                continue
+            prediction = np.asarray(member.predict(features[positions])).reshape(len(positions), -1)
+            if output is None:
+                output = np.empty((len(features), prediction.shape[1]), dtype=prediction.dtype)
+            if prediction.shape[1] != output.shape[1]:
+                raise ValueError("metadata partition models produced different target widths")
+            output[positions] = prediction
+        if output is None:
+            raise ValueError("metadata concat bundle received no prediction rows")
+        return output.ravel() if output.shape[1] == 1 else output
+
+
 class _DagmlNativeStackingModel:
     """Predict-capable wrapper for native branch stacking artifacts.
 
@@ -2257,6 +2301,49 @@ class RunResult:
                     provenance["multimodal_host"]["tuning"] = self._tuning_result.to_dict()
             return write_single_model_bundle(
                 stacked_model,
+                output_path,
+                model_label=model_label,
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance,
+                train_steps=train_steps,
+            )
+
+        separation = native_manifest.get("separation_replay")
+        if isinstance(separation, Mapping) and separation.get("kind") == "by_metadata_concat":
+            metadata_key = separation.get("metadata_key")
+            member_specs = separation.get("members")
+            if not isinstance(metadata_key, str) or not isinstance(member_specs, list) or len(member_specs) < 2:
+                return None
+            by_id = {str(artifact.get("artifact_id")): artifact for artifact in artifacts}
+            separation_members: list[tuple[str, _DagmlExportedModel]] = []
+            used_ids: set[str] = set()
+            for spec in member_specs:
+                if not isinstance(spec, Mapping) or not isinstance(spec.get("value"), str):
+                    return None
+                artifact_id = str(spec.get("artifact_id"))
+                artifact = by_id.get(artifact_id)
+                if artifact is None or artifact_id in used_ids:
+                    return None
+                used_ids.add(artifact_id)
+                separation_members.append((spec["value"], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])))
+            if used_ids != set(by_id) or len({value for value, _ in separation_members}) != len(separation_members):
+                return None
+            model_label = model_names[0] if model_names else "dagml_native_metadata_concat"
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest,
+                export_path="dagml_native_metadata_concat",
+                artifact_count=len(artifacts),
+                export_shape="by_metadata_concat",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
+            )
+            provenance["partitioner_routing"] = {"1": {
+                "native_replay": "by_metadata_concat",
+                "column": metadata_key,
+                "partitions": [value for value, _ in separation_members],
+                "branch_count": len(separation_members),
+            }}
+            return write_single_model_bundle(
+                _DagmlNativeMetadataConcatModel(metadata_key, separation_members),
                 output_path,
                 model_label=model_label,
                 pipeline_uid=str(native_manifest.get("run_id") or ""),

@@ -159,6 +159,11 @@ def route_operator(
     """
     merged = decode_constructor_value({**(params or {}), **(variant_overrides or {})})
     if operator_kind == "model":
+        from nirs4all.pipeline.dagml.host_finetune import TRIAL_TRAIN_PREFIX
+
+        # Trial-fit controls are applied after the step's base training
+        # controls by the model node, never passed to a model constructor.
+        merged = {key: value for key, value in merged.items() if not key.startswith(TRIAL_TRAIN_PREFIX)}
         # Short aliases stay supported; otherwise the model id IS a fully-qualified class (the bridge
         # now emits FQNs), so any sklearn-style estimator — regressor or classifier — is imported.
         fqn = _MODEL_TABLE.get(operator_ref, operator_ref)
@@ -171,6 +176,16 @@ def route_operator(
     if fqn in _METHODS_SNV_FQNS:
         _assert_methods_snv_available()
     cls = _import_class(fqn)
+    if fqn in {
+        "nirs4all.pipeline.dagml.torch_estimator.DagMLTorchEstimator",
+        "nirs4all.pipeline.dagml.framework_estimator.DagMLFrameworkEstimator",
+    }:
+        own = cls().get_params(deep=False)
+        factory_params = dict(merged.get("factory_params") or {})
+        factory_params.update({key: value for key, value in merged.items() if key not in own})
+        constructor = {key: value for key, value in merged.items() if key in own}
+        constructor["factory_params"] = factory_params
+        return cls(**constructor)
     nested = {key: value for key, value in merged.items() if "__" in key} if callable(getattr(cls, "set_params", None)) else {}
     constructor = {key: value for key, value in merged.items() if key not in nested}
     instance = cls(**_coerce_json_params(cls, constructor))

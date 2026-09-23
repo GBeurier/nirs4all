@@ -99,7 +99,7 @@ print("-" * 60)
 # Pipeline with SNV
 
 result_snv = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         "chart_2d",
         StandardNormalVariate(),
@@ -118,7 +118,7 @@ print(f"   SNV - RMSE: {result_snv.best_rmse:.4f}")
 # Pipeline with MSC
 
 result_msc = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         "chart_2d",
         MultiplicativeScatterCorrection(),
@@ -143,7 +143,7 @@ print("-" * 60)
 
 # First derivative
 result_d1 = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         FirstDerivative(),
         ShuffleSplit(n_splits=2),
@@ -157,7 +157,7 @@ print(f"   FirstDerivative - RMSE: {result_d1.best_rmse:.4f}")
 
 # Second derivative
 result_d2 = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         SecondDerivative(),
         ShuffleSplit(n_splits=2),
@@ -171,7 +171,7 @@ print(f"   SecondDerivative - RMSE: {result_d2.best_rmse:.4f}")
 
 # Savitzky-Golay derivative
 result_sg = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         SavitzkyGolay(window_length=11, polyorder=2, deriv=1),
         ShuffleSplit(n_splits=2),
@@ -192,7 +192,7 @@ print("-" * 60)
 
 # Gaussian smoothing
 result_gauss = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         Gaussian(sigma=2),
         ShuffleSplit(n_splits=2),
@@ -206,7 +206,7 @@ print(f"   Gaussian (sigma=2) - RMSE: {result_gauss.best_rmse:.4f}")
 
 # Savitzky-Golay smoothing (deriv=0)
 result_sg_smooth = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         SavitzkyGolay(window_length=11, polyorder=2, deriv=0),
         ShuffleSplit(n_splits=2),
@@ -227,7 +227,7 @@ print("-" * 60)
 
 # Common combination: SNV + First Derivative
 result_combined = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         "chart_2d",
         StandardNormalVariate(),
@@ -246,7 +246,7 @@ print(f"   SNV + FirstDerivative - RMSE: {result_combined.best_rmse:.4f}")
 
 # Detrend + MSC + Savitzky-Golay
 result_chain = nirs4all.run(
-    engine="legacy",
+    engine="dag-ml",
     pipeline=[
         Detrend(),
         MultiplicativeScatterCorrection(),

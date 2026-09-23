@@ -642,6 +642,14 @@ class BundleLoader:
         if self.artifact_provider is None:
             raise RuntimeError("Bundle not loaded properly: no artifact provider")
 
+        routing = self.get_partitioner_routing()
+        if routing and any(info.get("native_replay") == "by_metadata_concat" for info in routing.values()):
+            required = self.get_required_metadata_columns()
+            raise ValueError(
+                f"metadata column(s) {required!r} required for this by_metadata bundle; "
+                "use predict_with_metadata(X, metadata)"
+            )
+
         X_current = self._prepare_prediction_input(X)
 
         # Get step execution order from trace or artifact index
@@ -1462,6 +1470,22 @@ class BundleLoader:
             raise RuntimeError("Bundle not loaded properly: no artifact provider")
 
         assert self.metadata is not None
+        native_routes = [
+            (int(step_index), info)
+            for step_index, info in self.metadata.partitioner_routing.items()
+            if info.get("native_replay") == "by_metadata_concat"
+        ]
+        if native_routes:
+            if len(native_routes) != 1 or len(native_routes) != len(self.metadata.partitioner_routing):
+                raise ValueError("native metadata bundle has an ambiguous partitioner routing contract")
+            step_index, info = native_routes[0]
+            column = info.get("column")
+            if not isinstance(column, str) or column not in metadata:
+                raise ValueError(f"metadata column {column!r} required for by_metadata bundle prediction")
+            artifacts = self.artifact_provider.get_artifacts_for_step(step_index)
+            if len(artifacts) != 1 or not hasattr(artifacts[0][1], "predict_with_metadata"):
+                raise ValueError("native metadata bundle has no replayable routed model artifact")
+            return np.asarray(artifacts[0][1].predict_with_metadata(X, metadata))
         n_samples = X.shape[0]
         y_pred = np.full(n_samples, np.nan)
 

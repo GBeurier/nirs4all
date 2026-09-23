@@ -49,7 +49,11 @@ def _load_captured_source(model: Any, session: Any, workspace_path: Any = None) 
                 workspace_source["source_provenance"] = {"source_type": "workspace", **workspace_source["metadata"]}
                 return workspace_source
     result = model if isinstance(model, RunResult) else getattr(session, "_last_result", None)
-    if not isinstance(result, RunResult) or result.execution_engine != "dag-ml":
+    if (
+        not isinstance(result, RunResult)
+        or not getattr(result, "_dagml_refit_artifacts", None)
+        or result.execution_engine != "dag-ml"
+    ):
         raise ValueError("General explain requires a captured .n4a archive or a trained DAG Session/result")
     if isinstance(model, dict):
         if hasattr(result, "_source_run"):

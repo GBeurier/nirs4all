@@ -182,12 +182,13 @@ sidecar, separate from the coordinator's native result protocol.
 
 General `generate()` and its convenience methods select the installed
 `nirs4all.python.synthesis.v1` library adapter when no engine/plugin selector
-is supplied. This reuses the scientific synthesis builder, without a legacy
+is supplied or `engine="dag-ml"` is requested. This reuses the scientific synthesis builder, without a legacy
 ML runner, HTTP backend or retry. `generate.preflight()` exposes that host
 contract; explicit `engine="native"` remains strict and unsupported for
 synthesis. An explicitly requested unknown plugin is not substituted.
 
-General `explain()` similarly selects `nirs4all.python.shap.v1`. It accepts a
+General `explain()` similarly selects `nirs4all.python.shap.v1` for the
+default or explicit `engine="dag-ml"` route. It accepts a
 captured general `.n4a`, a trained DAG result, or a persisted `result.best`
 selection and explains the full REFIT predictor without training it again.
 Preprocessing and inverse target transforms remain inside that predictor.
@@ -249,7 +250,7 @@ are the lower-level authorities. This guide does not redefine them.
 
 | Request | Strict product behavior |
 |---|---|
-| `run`, `predict`, `session`, save/load/export | Native for the qualified V1 matrix; unsupported shapes refuse before significant work. |
+| `run`, `predict`, `session`, save/load/export | Native for the qualified V1 matrix; general DAG-ML sessions and captured host archives support training and replay. Unsupported shapes refuse before significant work. |
 | Full retrain | DAG-ML for concrete archive specs and captured trainable winners (workspace prediction or archive); other modes remain under qualification. |
 | Transfer | DAG-ML for captured trainable host winners; the explicit historical Python-library plugin retains its separate preflight. |
 | Finetune, unavailable explain/generate shapes | Explicit refusal in the strict profile; no implicit legacy execution. |

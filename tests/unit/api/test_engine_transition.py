@@ -28,6 +28,12 @@ from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.engine import require_legacy_engine
 
 
+@pytest.fixture(autouse=True)
+def _isolate_engine_default(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Selector tests set their own engine assumptions explicitly."""
+    monkeypatch.delenv("N4A_ENGINE", raising=False)
+
+
 class _TestWitness:
     """Test-only witness substituted at mocked fit boundaries."""
 
@@ -491,10 +497,6 @@ def test_run_native_rejects_broad_legacy_shapes_before_native_execution(
             lambda: predict(chain_id="chain-1", data=np.zeros((2, 3)), engine="dag-ml"),
         ),
         (
-            "explain",
-            lambda: explain({"model_name": "dummy"}, np.zeros((2, 3)), engine="dag-ml"),
-        ),
-        (
             "retrain",
             lambda: retrain({"model_name": "dummy"}, (np.zeros((2, 3)), np.zeros(2)), engine="dag-ml"),
         ),
@@ -505,6 +507,11 @@ def test_public_helpers_reject_dagml_until_native_paths_exist(operation: str, ca
         call()
     assert caught.value.verb == ("run" if operation == "retrain" else operation)
     assert caught.value.cause in {"invalid_request", "unsupported_capability"}
+
+
+def test_dagml_explain_requires_a_captured_model() -> None:
+    with pytest.raises(ValueError, match="captured .n4a archive or a trained DAG"):
+        explain({"model_name": "dummy"}, np.zeros((2, 3)), engine="dag-ml")
 
 
 @pytest.mark.parametrize("source_type", [NativeMethodsRunResult, NativeMethodsRefitResult])
@@ -639,13 +646,19 @@ def test_explain_native_run_result_refuses_before_constructing_a_legacy_runner(
         explain(model=result, data={"X": np.asarray([[2.0]])})
 
 
-@pytest.mark.parametrize("engine", ["native", "dag-ml", "dual"])
+@pytest.mark.parametrize("engine", ["native", "dual"])
 def test_explain_native_run_result_refuses_unavailable_native_engines(engine: str) -> None:
     result = object.__new__(NativeMethodsRunResult)
     with pytest.raises(RtError) as caught:
         explain(model=result, data={"X": np.asarray([[2.0]])}, engine=engine)
     assert caught.value.verb == "explain"
     assert caught.value.cause == "unsupported_capability"
+
+
+def test_explain_native_run_result_is_not_a_captured_dagml_model() -> None:
+    result = object.__new__(NativeMethodsRunResult)
+    with pytest.raises(ValueError, match="captured .n4a archive or a trained DAG"):
+        explain(model=result, data={"X": np.asarray([[2.0]])}, engine="dag-ml")
 
 
 def test_predict_native_archive_accepts_raw_matrix_with_explicit_keyword_identities(

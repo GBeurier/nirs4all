@@ -183,8 +183,12 @@ def _repetition_groups_for_pool(spectro: Any, pool: list[int]) -> np.ndarray:
     groups_all = compute_effective_groups(spectro)
     if groups_all is None:
         raise ValueError("repetition dataset has no effective groups (no repetition/group_by column)")
-    stored = spectro.index_column("sample", {})
-    group_of_sample = {int(sample_int): groups_all[row] for row, sample_int in enumerate(stored)}
+    samples = spectro.index_column("sample", {})
+    origins = spectro.index_column("origin", {})
+    stored = [int(sample) for sample, origin in zip(samples, origins, strict=True) if sample == origin]
+    if len(stored) != len(groups_all):
+        raise ValueError(f"repetition groups do not align with base rows ({len(groups_all)} groups for {len(stored)} rows)")
+    group_of_sample = {sample_int: groups_all[row] for row, sample_int in enumerate(stored)}
     return np.array([group_of_sample[sample_int] for sample_int in pool], dtype=object)
 
 

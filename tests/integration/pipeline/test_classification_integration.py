@@ -365,8 +365,9 @@ class TestClassificationIntegration:
         result = nirs4all.run(
             pipeline=pipeline,
             dataset=(X, y),
-            engine="legacy",
+            engine="dag-ml",
             verbose=0,
         )
 
         assert result.num_predictions > 0
+        assert np.isfinite(result.cv_best_score)

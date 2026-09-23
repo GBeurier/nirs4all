@@ -131,22 +131,23 @@ the metric are rejected rather than silently inverted. Broader core/training
 metrics (`mse`, `mae`, `r2`) remain internal training-contract work until CLI
 and in-process public selection metric parity is closed. Adaptive keys such as
 `n_trials`, `sampler`, `pruner`, phases, and `engine="n4m"`/`"optuna"` are known
-model-local HPO controls for the legacy Optuna/n4m paths, but they are still
-refused on the deterministic DAG-ML native lowering path until the pipeline
-compiler, objective runner, optimizer adapters, and typed tuning result are all
-closed.
+model-local HPO controls. The DAG-ML host Optuna profile supports `n_trials`,
+`sampler` (including the `sample` alias), `single`/`grouped`/`individual`, `best`/`mean`, and
+trial-fit `train_params`; deterministic native lowering remains a separate
+grid/range profile. Pruning, parallel trials, phases, and persistent study
+storage remain outside the host profile.
 
-| `finetune_params` key | Lifecycle/effect | Optuna | n4m | DAG-ML deterministic lowering |
+| `finetune_params` key | Lifecycle/effect | Optuna | n4m | DAG-ML |
 | --- | --- | --- | --- | --- |
 | `model_params` | Defines model-local candidate parameters; changing it changes candidates, selection and the final predictor, so existing calibration is stale. | Adaptive DSL supported. | Adaptive DSL supported. | Partial: plain JSON grids and `_range_`/`_log_range_` generator specs only. |
 | `metric` | Selects trial ranking/selection metric; invalidates calibration if the selected predictor changes. | Supported. | Supported. | Partial: public `rmse`, `accuracy`, `balanced_accuracy`. |
 | `direction` | Selects minimize/maximize objective; invalidates calibration if winner changes. | Supported. | Supported. | Partial: must agree with the native metric objective. |
-| `n_trials` | Sets adaptive trial budget and may change the winner. | Supported. | Supported. | Unsupported: deterministic candidate set comes from the grid/range. |
-| `sampler` | Selects adaptive trial sequence and may change the winner. | Supported. | Partial: some names remap internally. | Unsupported. |
+| `n_trials` | Sets adaptive trial budget and may change the winner. | Supported. | Supported. | Host Optuna profile only; deterministic generation uses the grid/range candidate set. |
+| `sampler` | Selects adaptive trial sequence and may change the winner. | Supported. | Partial: some names remap internally. | Host Optuna profile only. |
 | `pruner` | Selects adaptive pruning/early stopping and may change the winner. | Supported. | Partial: overlapping but not identical pruner vocabulary. | Unsupported. |
-| `approach` | Controls fold search strategy and may change trial ranking/winner. | Supported. | Partial. | Partial: only `grouped`. |
-| `eval_mode` | Aggregates trial scores and may change ranking/winner. | Partial. | Partial. | Deterministic lowering: `mean` only (`avg` is read-only); `best` requires the explicit host Optuna HPO profile. |
-| `train_params` | Configures trial-fit kwargs, not terminal refit kwargs. | Supported. | Supported. | Unsupported until optimizer adapters preserve trial fit kwargs. |
+| `approach` | Controls fold search strategy and may change trial ranking/winner. | Supported. | Partial. | Deterministic: `grouped`; host Optuna: `single`, `grouped`, or `individual` with a fresh training-only search per outer fold and refit. |
+| `eval_mode` | Aggregates trial scores and may change ranking/winner. | Partial. | Partial. | Deterministic: `mean`; host Optuna: `best` or `mean` for grouped search. |
+| `train_params` | Configures trial-fit kwargs, not terminal refit kwargs. | Supported. | Supported. | Host Optuna samples supported estimator fit controls; deterministic lowering rejects it. |
 
 (execution-engine-versus-optimizer-engine)=
 ### Execution engine versus optimizer engine
@@ -213,24 +214,24 @@ These similarly named dictionaries act at different lifecycle stages:
 
 1. `finetune_params.train_params` configures or samples fit arguments inside
    HPO trials.
-2. Step-level `train_params` configures ordinary legacy training and the
+2. Step-level `train_params` configures ordinary model training and the
    terminal fit.
 3. Step-level `refit_params` overrides `train_params` only for the selected
-   legacy winner's refit; missing values inherit from `train_params`.
+   winner's refit; missing values inherit from `train_params`.
 
-DAG-ML still rejects `finetune_params.train_params` and step-level
-`train_params`. Step-level `refit_params` is **partial**: the sole accepted
-exception is the exact built-in `{"use_all_partitions": True}` no-op mapping on
-exactly one top-level model step whose model is exactly
-`sklearn.cross_decomposition.PLSRegression`; that step may carry only an
-optional `name` sibling. The pipeline is not mutated, so its original legacy
-configuration identity is retained.
+DAG-ML applies recognized step-level `train_params` in each fold and the final
+fit, with `refit_params` taking precedence in REFIT. For sklearn-compatible
+models these are estimator `set_params` overrides; for built-in PyTorch,
+TensorFlow and JAX model factories they include training-loop settings such as
+`epochs` and `batch_size`. Unknown keys fail explicitly. Specialized controller
+policies such as warm-starting from CV weights remain unsupported. The exact
+built-in `{"use_all_partitions": True}` PLSRegression no-op remains accepted.
 
-Every false, extra, or non-built-in payload; PLS subclass or other estimator;
-additional or nested model/refit step; and serialized or workflow step remains
-rejected before native execution. Outside that no-op, all three legacy scopes
-can change the deployed predictor. A conformal calibrator fitted before such a
-change is stale and must not be reused.
+The deterministic DAG-ML HPO lowering still rejects
+`finetune_params.train_params`. The host Optuna profile samples supported
+estimator fit controls inside each trial; the terminal fit still uses the
+step-level `train_params` and `refit_params`. Changes to these scopes can change the deployed predictor, so an
+earlier conformal calibration must be renewed.
 
 (planned-full-dag-tuning)=
 ### Full-DAG tuning
@@ -2305,6 +2306,9 @@ Branches receive disjoint subsets of samples.
 **Notes:**
 - Duplication branches are typically followed by `{"merge": "predictions"}` for stacking.
 - Separation branches are typically followed by `{"merge": "concat"}` to reassemble samples.
+- A DAG-ML `by_metadata` model branch followed by `{"merge": "concat"}` can be exported as a `.n4a` bundle. Replaying it requires the same metadata column for every input row, for example `nirs4all.predict(bundle, {"X": X, "metadata": {"site": sites}}, engine="legacy")`; unseen partition values raise an error.
+- A named duplication branch can also end the pipeline without a merge. With `engine="dag-ml"`, each branch model is trained and scored independently; prediction rows retain their `branch_name`.
+- For a multi-source dataset, `by_source` model branches can end with `{"merge": "auto"}`. DAG-ML trains each source-local model on that source's features and reports its predictions separately. Source names in `steps` must match the dataset's source names.
 
 ---
 
@@ -2324,6 +2328,9 @@ Combines outputs from preceding branches.
 
 # For multi-source merging
 {"merge": {"sources": "concat"}}
+
+# Select only specific duplication-branch feature outputs
+{"merge": {"features": [0, 1]}}
 ```
 
 | Value | Use Case | Description |
@@ -2332,6 +2339,10 @@ Combines outputs from preceding branches.
 | `"features"` | Duplication branches | Transformed feature matrices are concatenated horizontally |
 | `"all"` | Duplication branches | All available outputs (features + predictions) |
 | `"concat"` | Separation branches | Reassembles disjoint sample subsets in original order |
+
+For duplication branches, `"auto"`, `True`, and `{"branch": "auto"}` select feature merging; `"concat"` also collects features in this context. A feature merge needs a downstream model. The indexed `{"features": [0, 1]}` form uses only those branch outputs, in the listed order. `"all"` combines branch features and branch-model predictions for a downstream model.
+
+For `by_source` branches with one model per source, `"auto"`, `True`, and `{"branch": "auto"}` select source concatenation. When there is no downstream model, DAG-ML keeps the source-local model scores and prediction rows separate. Without a cross-validator, the models fit once on all training samples; `cv_best_score` is unavailable, and a test score is reported only when the dataset has a test partition.
 
 ---
 

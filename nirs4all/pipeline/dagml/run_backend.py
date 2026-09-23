@@ -33,9 +33,12 @@ import yaml
 
 from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
+from nirs4all.data.predictions import Predictions
 
 from .dataset import _dataset_inputs, _materialize_dataset
 from .detect import (
+    _detect_branch_only_model_comparison,
+    _detect_by_source_auto_models,
     _detect_by_source_branch,
     _detect_by_source_concat_shared_preproc,
     _detect_by_source_distinct_preproc_concat,
@@ -76,6 +79,8 @@ from .run_paths import (
     _operator_is_stateless,
     _reshape_for_rep_fusion,
     _run_augmentation,
+    _run_augmentation_full_train,
+    _run_by_source_auto_models,
     _run_by_source_branch,
     _run_by_source_concat_shared_preproc,
     _run_by_source_distinct_preproc_concat,
@@ -900,9 +905,41 @@ def _dispatch_run(
 
     pipeline = normalize_model_steps(pipeline)
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
+    comparison = _detect_branch_only_model_comparison(pipeline)
+    if comparison is not None:
+        if _is_repetition_dataset(spectro):
+            raise DagMlUnsupported("branch-only model comparison on repetition datasets requires grouped folds")
+        prefix, branches, branch_names = comparison
+        predictions = Predictions()
+        for index, (body, branch_name) in enumerate(zip(branches, branch_names, strict=True)):
+            branch_result = _dispatch_run(
+                [*prefix, *body], spectro, base_dir / f"branch_{index}", dataset_arg,
+                host_pickle, cli, venv_python, name=name, random_state=random_state,
+                save_charts=save_charts, plots_visible=plots_visible,
+                resolved_config_name=config_name,
+            )
+            for row in branch_result.predictions.filter_predictions(load_arrays=True):
+                row["branch_id"] = index
+                row["branch_name"] = branch_name
+                predictions.extend_from_list([row])
+        predictions.flush()
+        return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+    source_auto = _detect_by_source_auto_models(pipeline, spectro.features_sources())
+    if source_auto is not None and not any(_is_split_step(step) for step in pipeline):
+        if _is_repetition_dataset(spectro):
+            raise DagMlUnsupported("by_source model comparison on repetition datasets requires grouped folds")
+        from .full_train import run_by_source_auto_full_train
+
+        source_bodies, y_steps = source_auto
+        return run_by_source_auto_full_train(
+            source_bodies, y_steps, spectro, metric=metric, task_type=task_type,
+            config_name=config_name,
+        )
     if not any(_is_split_step(step) for step in pipeline):
         from .full_train import run_full_train
 
+        if any(_is_augmentation_step(step) for step in pipeline):
+            return _run_augmentation_full_train(pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name)
         return run_full_train(pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name)
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
@@ -913,6 +950,7 @@ def _dispatch_run(
     detected_stacking = _detect_stacking_branch(list(pipeline))
     detected_named_metamodel_stack = _detect_named_metamodel_feature_stack(list(pipeline))
     detected_by_source = _detect_by_source_branch(list(pipeline), spectro.features_sources())
+    detected_by_source_auto = _detect_by_source_auto_models(list(pipeline), spectro.features_sources())
     detected_by_source_concat = _detect_by_source_concat_shared_preproc(list(pipeline), spectro.features_sources())
     detected_by_source_distinct_concat = _detect_by_source_distinct_preproc_concat(list(pipeline), spectro.features_sources())
     detected_by_source_stacking = _detect_by_source_stacking_branch(list(pipeline), spectro.features_sources())
@@ -962,22 +1000,27 @@ def _dispatch_run(
     # rather than taking a non-group path and running wrong.
     if _is_repetition_dataset(spectro):
         if (
-            augmentation_steps
-            or detected is not None
+            detected is not None
             or detected_separation_preproc_concat is not None
             or detected_duplication is not None
             or detected_stacking is not None
             or detected_named_metamodel_stack is not None
             or detected_by_source is not None
+            or detected_by_source_auto is not None
             or detected_by_source_concat is not None
             or detected_by_source_distinct_concat is not None
             or detected_by_source_stacking is not None
             or detected_source_concat is not None
-            or any(_is_exclude_step(step) for step in pipeline)
+            or (not augmentation_steps and any(_is_exclude_step(step) for step in pipeline))
         ):
             raise NotImplementedError(
                 "engine='dag-ml' does not yet support a repetition dataset combined with "
                 "exclude/branch/sample_augmentation (the group constraint would be lost); backlog #21."
+            )
+        if augmentation_steps:
+            return _run_augmentation(
+                list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable,
+                base_dir / "augment", metric, task_type, config_name=config_name, random_state=random_state,
             )
         return _run_repetition(
             list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state
@@ -1056,6 +1099,15 @@ def _dispatch_run(
             task_type,
             dataset_pickle=host_pickle,
             config_name=config_name,
+            random_state=random_state,
+        )
+
+    if detected_by_source_auto is not None:
+        source_bodies, y_steps = detected_by_source_auto
+        return _run_by_source_auto_models(
+            list(pipeline), source_bodies, y_steps, spectro.features_sources(), spectro, dataset_arg, cli,
+            venv_python or sys.executable, base_dir / "by_source_auto", metric,
+            task_type, dataset_pickle=host_pickle, config_name=config_name,
             random_state=random_state,
         )
 
@@ -1186,23 +1238,21 @@ def _dispatch_run(
             "an averaging (fusion) ensemble instead."
         )
 
-    if (reason := _unsupported_fallback_reason(list(pipeline))) is not None:
-        raise DagMlUnsupported(reason)
-
     # `sample_augmentation` → run nirs4all's REAL augmentation machinery to create the synthetic TRAIN
     # rows in the dataset, then run ONE native dag-ml CV+refit: base-grain folds (the synthetic children
     # never reach a holdout) + a CV-universe envelope carrying the children's origin/augmentation grain.
     # The model trains on base + its augmented children (host-side expansion); OOF is over base val only.
-    # Detected on the ORIGINAL pipeline so it composes only with the supported transform+model+splitter
-    # shape — a branch/exclude beside it is out of scope (the bridge fails loud below).
+    # Detected on the ORIGINAL pipeline; the augmentation path validates its remaining operators.
     #
     # Both leakage regimes run natively (`_run_augmentation` picks the path): a STATELESS augmenter is
     # augmented ONCE globally (#8, children shared across folds); a STATEFUL/SUPERVISED/BALANCED augmenter
     # is augmented FOLD-LOCALLY (#32, fit inside each fold's train only + a full-train refit pass), so it
-    # never sees a fold's validation rows. A single augmentation step of either kind is supported here; an
-    # unsupported richer shape still falls through to the bridge's raw `sample_augmentation` error.
+    # never sees a fold's validation rows.
     if augmentation_steps:
         return _run_augmentation(list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "augment", metric, task_type, config_name=config_name, random_state=random_state)
+
+    if (reason := _unsupported_fallback_reason(list(pipeline))) is not None:
+        raise DagMlUnsupported(reason)
 
     # Consume the `exclude` step (if any) BEFORE generator handling: run the SampleFilter operator(s)
     # in Python on the full CV train pool to get the excluded sample ints, then choose the CV universe

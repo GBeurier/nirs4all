@@ -29,6 +29,7 @@ Example:
 """
 
 import logging
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union
 
@@ -131,10 +132,17 @@ class NIRSPipeline:
         """
         import tempfile
 
-        from nirs4all.pipeline.bundle import BundleLoader
+        per_dataset = getattr(result, "per_dataset", None)
+        dagml_result = isinstance(per_dataset, Mapping) and any(
+            isinstance(item, dict) and item.get("engine") == "dag-ml"
+            for item in per_dataset.values()
+        )
+        if dagml_result and source is not None:
+            raise ValueError("DAG-ML result export currently selects its best fitted model; source selection is unavailable")
 
-        # Get source prediction (prefer refit entry, consistent with export())
-        if source is None:
+        # Legacy result export accepts a concrete prediction entry. DAG-ML
+        # exports its captured refit model directly and rejects source=.
+        if source is None and not dagml_result:
             final = getattr(result, "final", None)
             source = final if isinstance(final, dict) and final else result.best
             if not source:
@@ -148,7 +156,10 @@ class NIRSPipeline:
         bundle_path = Path(temp_dir) / "model.n4a"
 
         try:
-            result.export(bundle_path, source=source)
+            if dagml_result:
+                result.export(bundle_path)
+            else:
+                result.export(bundle_path, source=source)
         except Exception as e:
             raise RuntimeError(f"Failed to export model to bundle: {e}") from e
 
@@ -408,12 +419,12 @@ class NIRSPipeline:
                     # Find the requested fold
                     for fold_id, model in fold_artifacts:
                         if fold_id == self._fold:
-                            self._cached_model = model
-                            return model
+                            self._cached_model = self._model_for_access(model)
+                            return self._cached_model
                     # Fall back to first available fold
                     _, model = fold_artifacts[0]
-                    self._cached_model = model
-                    return model
+                    self._cached_model = self._model_for_access(model)
+                    return self._cached_model
 
                 # Try single model (no CV)
                 artifacts = self._bundle_loader.artifact_provider.get_artifacts_for_step(
@@ -421,13 +432,23 @@ class NIRSPipeline:
                 )
                 if artifacts:
                     _, model = artifacts[0]
-                    self._cached_model = model
-                    return model
+                    self._cached_model = self._model_for_access(model)
+                    return self._cached_model
 
         raise RuntimeError(
             "Could not access underlying model. "
             "This may happen if the bundle doesn't contain model artifacts."
         )
+
+    @staticmethod
+    def _model_for_access(model: Any) -> Any:
+        """Expose the fitted estimator behind a captured DAG prediction wrapper."""
+        from nirs4all.api.result import _DagmlExportedModel
+
+        if isinstance(model, _DagmlExportedModel):
+            estimator = model.estimator
+            return estimator.steps[-1][1] if hasattr(estimator, "steps") else estimator
+        return model
 
     @property
     def shap_model(self) -> Any:

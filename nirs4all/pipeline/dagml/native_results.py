@@ -457,11 +457,42 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
     if stacking_replay is not None:
         manifest["stacking_replay"] = stacking_replay
-    for key in ("relation_replay_manifest", "relation_materialization_manifest", "source_stacking", "stacking_evaluation"):
+    for key in ("relation_replay_manifest", "relation_materialization_manifest", "source_stacking", "stacking_evaluation", "separation_replay"):
         recorded = [metadata[key] for metadata in getattr(result, "per_dataset", {}).values() if isinstance(metadata.get(key), dict)]
         if recorded and all(value == recorded[0] for value in recorded):
             manifest[key] = recorded[0]
     return manifest
+
+
+def separation_replay_manifest(graph: dict[str, Any], metadata_key: str, artifacts: list[dict[str, Any]]) -> dict[str, Any] | None:
+    """Record the exact native artifact for every metadata-fanned model."""
+    if not artifacts:
+        return None
+    model_nodes = [node for node in graph.get("nodes", []) if node.get("kind") == "model"]
+    if len(model_nodes) < 2:
+        return None
+    members: list[dict[str, str]] = []
+    seen_values: set[str] = set()
+    seen_artifacts: set[str] = set()
+    for node in model_nodes:
+        node_id = str(node["id"])
+        selector = ((node.get("metadata") or {}).get("dsl_branch_selector") or {}).get("metadata") or {}
+        value = selector.get(metadata_key)
+        matches = [str(artifact["artifact_id"]) for artifact in artifacts if str(artifact.get("artifact_id", "")).startswith(f"artifact:{node_id}:")]
+        if value is None or len(matches) != 1:
+            return None
+        value, artifact_id = str(value), matches[0]
+        if value in seen_values or artifact_id in seen_artifacts:
+            raise ValueError("metadata separation replay has duplicate values or artifacts")
+        seen_values.add(value)
+        seen_artifacts.add(artifact_id)
+        members.append({"value": value, "artifact_id": artifact_id})
+    if len(seen_artifacts) != len(artifacts):
+        return None
+    return {
+        "kind": "by_metadata_concat", "producer_node": "merge:concat",
+        "metadata_key": metadata_key, "members": members,
+    }
 
 
 def write_native_results(

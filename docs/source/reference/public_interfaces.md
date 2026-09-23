@@ -62,7 +62,7 @@ The public Python API runs that contract directly. The CLI currently validates a
 | `nirs4all.tuning_space_schema_json(...)` | Serialize the ordered tuning-space JSON Schema deterministically | Optional JSON indentation | Schema JSON text |
 | `nirs4all.explain(...)` | Generate SHAP explanations | Model/bundle + data | `ExplainResult` |
 | `nirs4all.retrain(...)` | Retrain from an existing result or bundle | Source + new data | `RunResult` |
-| `nirs4all.session(...)` | Share runner/workspace resources across calls | Optional pipeline and runner kwargs | `Session` |
+| `nirs4all.session(...)` | Reuse a selected execution session and workspace across calls | Optional pipeline and execution kwargs | `Session` |
 | `nirs4all.load_session(...)` | Load an exported `.n4a` bundle for prediction | Bundle path | `Session` |
 | `nirs4all.generate(...)` | Generate synthetic NIRS data | Synthetic parameters | `SpectroDataset` or arrays |
 | `result.export(...)` | Export a trained pipeline bundle | Output path | `.n4a` path |

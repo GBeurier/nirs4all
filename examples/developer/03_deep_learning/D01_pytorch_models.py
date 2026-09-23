@@ -114,7 +114,7 @@ if TORCH_AVAILABLE:
 
 
     result = nirs4all.run(
-        engine="legacy",
+        engine="dag-ml",
         pipeline=[
             MinMaxScaler(),
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -218,7 +218,7 @@ Custom models work like any model, using 'model' + 'train_params':
 
 
     result = nirs4all.run(
-        engine="legacy",
+        engine="dag-ml",
         pipeline=[
             MinMaxScaler(),
             ShuffleSplit(n_splits=2, test_size=0.2, random_state=42),
@@ -386,7 +386,7 @@ Compare architectures using branching:
     ]
 
     result = nirs4all.run(
-        engine="legacy",
+        engine="dag-ml",
         pipeline=pipeline_compare,
         dataset="sample_data/regression",
         name="CustomVsNICON",

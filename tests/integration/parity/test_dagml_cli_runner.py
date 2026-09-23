@@ -2738,19 +2738,17 @@ def test_public_run_engine_dagml_repetitions() -> None:
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_repetition_unsupported_composition_fails_loud() -> None:
-    """A repetition dataset combined with a branch or augmentation FAILS LOUD (the bypass is closed).
+    """A repetition dataset combined with a branch FAILS LOUD (the bypass is closed).
 
-    The repetition guard in `run_via_dagml` runs BEFORE the separation-branch and augmentation dispatch
-    (both of which build folds WITHOUT the group constraint, so a rep dataset reaching them could split a
-    sample's replicates across train/val = silent group leakage). This pins that closure: each composition
-    must raise `NotImplementedError` naming `repetition`/`#21` rather than silently take the group-free path.
+    The repetition guard in `run_via_dagml` runs BEFORE the separation-branch dispatch,
+    which would otherwise split a sample's replicates across train/val. Augmentation now
+    constructs group-aware folds and is covered by the public augmentation test.
 
     The branch/augmentation steps are real shapes (`_detect_separation_branch` / `_is_augmentation_step`
     recognise them) so the guard is exercised on the actual dispatch — the guard raises before any CLI
     subprocess, so no real run happens despite the binary being present.
     """
-    from nirs4all.operators.augmentation import GaussianAdditiveNoise
-    from nirs4all.pipeline.dagml.run_backend import _detect_separation_branch, _is_augmentation_step, run_via_dagml
+    from nirs4all.pipeline.dagml.run_backend import _detect_separation_branch, run_via_dagml
 
     configs = DatasetConfigs(str(_REPETITION_DS), repetition=_REP_COL)
 
@@ -2762,16 +2760,6 @@ def test_repetition_unsupported_composition_fails_loud() -> None:
     assert _detect_separation_branch(branch_pipeline) is not None, "branch step must reach the dispatch for this to be a real lock"
     with pytest.raises(NotImplementedError, match=r"repetition.*#21"):
         run_via_dagml(branch_pipeline, configs, dagml_cli=str(_DAGML_CLI))
-
-    aug_pipeline = [
-        {"sample_augmentation": {"transformers": [GaussianAdditiveNoise(sigma=0.01)], "count": 1, "selection": "all", "random_state": 42}},
-        {"model": PLSRegression(n_components=5)},
-        KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
-    ]
-    assert any(_is_augmentation_step(step) for step in aug_pipeline), "augmentation step must reach the dispatch for this to be a real lock"
-    with pytest.raises(NotImplementedError, match=r"repetition.*#21"):
-        run_via_dagml(aug_pipeline, configs, dagml_cli=str(_DAGML_CLI))
-
 
 def test_repetition_classification_vote_aggregation_executes_without_fallback() -> None:
     """Native row scores and captured vote presentation coexist without refitting."""
