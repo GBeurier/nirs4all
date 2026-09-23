@@ -1603,6 +1603,7 @@ def _run_augmentation_full_train(
     pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str,
     venv_python: str, run_dir: Path, *, metric: str, task_type: str,
     config_name: str, random_state: int | None = None,
+    train_sample_ids: list[int] | None = None,
 ) -> RunResult:
     """Apply sample augmentation before a single DAG-owned full-training phase."""
     from .full_train import run_full_train
@@ -1635,7 +1636,7 @@ def _run_augmentation_full_train(
         config_name=config_name, augmented_train=True,
         cli=cli, venv_python=venv_python, dataset_path=dataset_arg,
         dataset_pickle=str(pickle_path), workdir=run_dir / "refit",
-        random_state=random_state,
+        random_state=random_state, train_sample_ids=train_sample_ids,
     )
     result = _attach_pre_augmentation_replay(result, replay_stages)
     result._dagml_chart_aug_snapshots = chart_snapshots
@@ -4203,7 +4204,11 @@ def _assemble_stacking_dsl(
     }
 
     if prediction_aggregations:
-        selected_branches = {selector["branch"] for selector in prediction_aggregations}
+        selected_branches = {
+            selector["branch"] for selector in prediction_aggregations
+            if selector.get("aggregate") == "proba_mean"
+            or selector.get("metadata", {}).get("prediction_output") == "proba"
+        }
         for branch in canonical_dsl["steps"][0]["branches"]:
             if branch["id"] in selected_branches:
                 for step in branch["steps"]:

@@ -96,7 +96,8 @@ def run_full_train(
         criterion = branch_step["branch"]
         mode, key = ("by_metadata", criterion["by_metadata"]) if "by_metadata" in criterion else ("by_tag", criterion["by_tag"])
         metadata_by_sample, sample_metadata = _branch_metadata(spectro, identity, mode, key)
-    train_all = spectro.index_column("sample", {"partition": "train"})
+    partition_train_all = spectro.index_column("sample", {"partition": "train"})
+    train_all = partition_train_all
     if train_sample_ids is not None:
         if not train_sample_ids or len(train_sample_ids) != len(set(train_sample_ids)) or not set(train_sample_ids) <= set(train_all):
             raise ValueError("full-training sample IDs must be a non-empty unique subset of the train partition")
@@ -111,13 +112,15 @@ def run_full_train(
 
         origins = spectro.index_column("origin", {"partition": "train"})
         allowed_origins = set(_split_base_samples(spectro))
+        if train_sample_ids is not None:
+            allowed_origins &= set(train_sample_ids)
         if train_pool is not None:
             allowed_origins &= train_pool
-        train = [sample for sample, origin in zip(train_all, origins, strict=True) if sample == origin and sample in allowed_origins]
-        envelope_train = [sample for sample, origin in zip(train_all, origins, strict=True) if origin in allowed_origins]
+        train = [sample for sample, origin in zip(partition_train_all, origins, strict=True) if sample == origin and sample in allowed_origins]
+        envelope_train = [sample for sample, origin in zip(partition_train_all, origins, strict=True) if origin in allowed_origins]
         augmentation_by_sample = {
             sample: "sample_augmentation"
-            for sample, origin in zip(train_all, origins, strict=True) if sample != origin and origin in allowed_origins
+            for sample, origin in zip(partition_train_all, origins, strict=True) if sample != origin and origin in allowed_origins
         }
     test = spectro.index_column("sample", {"partition": "test"})
     envelope = build_envelope(spectro, identity, sample_ints=envelope_train, augmentation_by_sample=augmentation_by_sample, metadata_by_sample=metadata_by_sample)
