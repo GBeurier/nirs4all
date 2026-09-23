@@ -3,7 +3,6 @@
   "inventory_complete": false,
   "unverified": [
     {"id": "native_methods_tuning", "reason": "Check nirs4all-methods native tuning beyond the public n4m finetune_params pipeline now covered by test_host_finetune.py."},
-    {"id": "optuna_pruner_parallel_phases_storage", "reason": "Legacy paths exist and DAG-ML rejects several controls; reproduce each public legacy contract and its native outcome."},
     {"id": "by_source_generator_archive_semantics", "reason": "DAG-ML correctly refuses .n4a export of independent source-model outputs without a replayable fusion contract. Legacy writes an archive, but predicting on concatenated raw X gives first values 193.4067, 200.9121, 202.2472 on the two_source_distinct fixture; no source-fusion prediction oracle validates this replay. Define and test the intended merge/predict semantics before enabling export."}
   ],
   "documented_divergences": [
@@ -14,6 +13,8 @@
     {"id": "legacy_exclude_metadata_concat_score", "classification": "legacy selects a group-local CV row rather than scoring the merged OOF", "pipeline": "YOutlierFilter(iqr, threshold=1.0), KFold(3), by_metadata(group, PLSRegression(3)), merge=concat on seeded 120x20 balanced-group data with one train outlier", "legacy_cv_rmse": 0.8809393773365354, "dagml_cv_rmse": 0.9142813126624925, "sklearn_fold_local_cv_rmse": 0.9142813084180439, "evidence": "test_exclude_metadata_branch.py:test_exclude_then_metadata_branch_matches_per_group_oracle", "scope": "Legacy executes and reports its best group A CV row as cv_best_score. DAG-ML scores the reassembled OOF universe, matches the direct sklearn oracle, and excludes the outlier from training."}
   ],
   "gaps": [
-    {"id": "auto_transfer_preproc", "priority": "P2", "legacy": "a public train/test pipeline can run transfer-preprocessing selection and continue to a model", "dagml": "preflight rejects the auto_transfer_preproc step as unsupported_shape", "evidence": "After restoring controller state to ExecutionContext.custom, regression dataset + auto_transfer_preproc(preset=fast, apply_recommendation=False) + PLSRegression(3) succeeds in legacy and is rejected by DAG-ML."}
+    {"id": "optuna_parallel_n_jobs", "priority": "P1", "legacy": "Optuna finetune_params with n_jobs=2 executes concurrent trials", "dagml": "host-HPO protocol currently asks, executes and tells one candidate at a time and refuses n_jobs>1", "evidence": "test_host_finetune.py public KFold(2), PLS, n_trials=2, n_jobs=2 legacy-success/DAG-refusal oracle; native provider currently uses non-Sync RefCell state"},
+    {"id": "optuna_resume", "priority": "P1", "legacy": "Optuna finetune_params resumes a named SQLite study", "dagml": "resume=True is refused until native trial checkpoint and study state can be coupled safely", "evidence": "OptunaManager uses storage/study_name/resume; host_finetune.py validates storage and study_name but rejects resume"},
+    {"id": "feature_augmentation_then_auto_transfer", "priority": "P1", "legacy": "applies the selected transfer transform to each processing after feature augmentation", "dagml": "currently applies the transfer transform to the concatenated feature block", "evidence": "regression fixture, feature_augmentation(SNV) followed by auto_transfer_preproc(apply=True) and PLS: legacy no-CV RMSE 20.7023078830, DAG 20.6549209976; isolated by augmentation agent"}
   ]
 }
