@@ -1,9 +1,9 @@
 """Project native DAG-ML score evidence into ``RunResult``.
 
-Each public row represents an actually scored native partition: validation for
-individual folds and the sample-averaged OOF aggregate, and train/test for the
-refitted model. Missing fold train/test or weighted-ensemble reports are absent;
-validation scores must never stand in for training measurements.
+Each public row represents an actually scored native partition: train and
+validation for individual folds, their scored cross-fold aggregates, and
+train/test for the refitted model. Validation scores never stand in for
+training measurements.
 
 Refit rows retain their originating CV score for model selection, with explicit
 provenance in ``result_metadata.dagml_projection.score_provenance``. That score
@@ -378,6 +378,7 @@ def _scores_to_run_result(
         if arrays is not None:
             sample_indices, sample_ids, y_true, y_pred = arrays
             kwargs["sample_indices"] = sample_indices
+            kwargs["n_samples"] = len(sample_ids)
             # Native wire IDs are authoritative; positional indices are not.
             # Preserve them in the legacy-shaped buffer for native archive
             # persistence and later conformal presentation attachment.
@@ -418,8 +419,8 @@ def _scores_to_run_result(
         wire ``sample_id`` to its in-memory ``sample`` int via ``identity.to_int``, and pairs ``y_pred``
         (the ``PredictionBlock.values``) with ``y_true`` (the paired ``regression_targets.values``, same
         sample order). ``None`` when no such block was emitted for this variant (so the row stays
-        score-only) — e.g. a no-test run has no ``(test, None)`` block, a fold-train row has no fold-train
-        block, and a native loser (no threaded frames) has no blocks at all. Single-target blocks are
+        score-only) — e.g. a no-test run has no ``(test, None)`` block, and a native loser (no
+        threaded frames) has no blocks at all. Single-target blocks are
         flattened to 1-D arrays (legacy ``.ravel()`` shape).
         """
         pair = sample_blocks_by_variant.get(variant_id, {}).get((partition, fold_id))
@@ -512,11 +513,21 @@ def _scores_to_run_result(
         # Keep that measurement tied to its fold, never to the refitted estimator.
         for fold_id in fold_keys:
             fold_block = by_key[(variant_id, "validation", fold_id)]
+            fold_train = by_key.get((variant_id, "train", fold_id))
             fold_test = by_key.get((variant_id, "test", fold_id))
-            fold_blocks = {"val": fold_block, "test": fold_test}
+            fold_blocks = {"train": fold_train, "val": fold_block, "test": fold_test}
             fold_provenance = {"val": {"partition": "validation", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}}
+            if fold_train is not None:
+                fold_provenance["train"] = {"partition": "train", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}
             if fold_test is not None:
                 fold_provenance["test"] = {"partition": "test", "fold_id": fold_id, "variant_id": variant_id, "purpose": "measurement"}
+            if fold_train is not None:
+                add(
+                    _legacy_fold_id(fold_id), "train", fold_blocks,
+                    row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "train", fold_id),
+                    score_provenance=fold_provenance,
+                )
             add(
                 _legacy_fold_id(fold_id), "val", fold_blocks,
                 row_config_name=variant_config_name, row_model_name=variant_model_name,
@@ -532,13 +543,21 @@ def _scores_to_run_result(
                 )
 
         if has_avg and avg is not None:
+            avg_train = by_key.get((avg_variant_id, "train", "avg"))
+            if avg_train is None and avg_variant_id is None:
+                avg_train = by_key.get((variant_id, "train", "avg"))
             avg_test = by_key.get((avg_variant_id, "test", "avg"))
             if avg_test is None and avg_variant_id is None:
                 avg_test = by_key.get((variant_id, "test", "avg"))
-            avg_blocks = {"val": avg, "test": avg_test}
+            avg_blocks = {"train": avg_train, "val": avg, "test": avg_test}
             avg_provenance = {"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}}
+            if avg_train is not None:
+                avg_provenance["train"] = {"partition": "train", "fold_id": "avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_training_sample"}
             if avg_test is not None:
                 avg_provenance["test"] = {"partition": "test", "fold_id": "avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "mean_prediction_per_sample"}
+            if avg_train is not None:
+                add("avg", "train", avg_blocks, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "train", "avg"), score_provenance=avg_provenance)
             add(
                 "avg", "val", avg_blocks,
                 row_config_name=variant_config_name, row_model_name=variant_model_name,
@@ -551,6 +570,20 @@ def _scores_to_run_result(
             weighted_test = by_key.get((avg_variant_id, "test", "w_avg"))
             if weighted_test is None and avg_variant_id is None:
                 weighted_test = by_key.get((variant_id, "test", "w_avg"))
+            weighted_train = by_key.get((avg_variant_id, "train", "w_avg"))
+            if weighted_train is None and avg_variant_id is None:
+                weighted_train = by_key.get((variant_id, "train", "w_avg"))
+            if weighted_train is not None:
+                add("w_avg", "train", {"train": weighted_train, "val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "train", "w_avg"),
+                    score_provenance={"train": {"partition": "train", "fold_id": "w_avg", "variant_id": variant_id, "purpose": "measurement", "aggregation": "validation_weighted_mean_prediction_per_training_sample"}})
+            if weighted_train is not None or weighted_test is not None:
+                # Legacy's weighted ensemble retains the same OOF validation
+                # predictions as `avg`: each sample is predicted only by its
+                # held-out fold, so weights cannot change that measurement.
+                add("w_avg", "val", {"train": weighted_train, "val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
+                    arrays=_row_arrays(variant_id, "validation", "avg"),
+                    score_provenance={"val": {"partition": "validation", "fold_id": "avg", "variant_id": avg_variant_id, "purpose": "measurement", "aggregation": "same_oof_as_avg"}})
             if weighted_test is not None:
                 add("w_avg", "test", {"val": avg, "test": weighted_test}, row_config_name=variant_config_name, row_model_name=variant_model_name,
                     arrays=_row_arrays(variant_id, "test", "w_avg"),

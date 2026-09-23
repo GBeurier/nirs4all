@@ -1371,16 +1371,20 @@ def run_model_node(
     # (non-branch) model reaches no merge node — its `(test, None)` block is read straight back by
     # `_scores_to_run_result` for best_rmse, exactly like the prior `(test, "final")` block.
     #
-    # include_augmented per spec mirrors the leakage guard: it is True ONLY when the predicted ids are
-    # TRAINING rows — REFIT predicting its own full_train ("final"-train score). The predict ids are the
-    # view's BASE ids, so resolve_features fetches base rows only (the "final"-train score is over base
-    # train); the synthetic children influenced the FIT, never a scored holdout. FIT_CV's validation/OOF
-    # view, FIT_CV/REFIT held-out TEST, and PREDICT are non-fit holdout views, so include_augmented=False
-    # makes resolve_features REFUSE any augmented child there (the origin-boundary leakage guard).
+    # Training measurements use the view's BASE ids: synthetic children influence fitting but do not
+    # become scored samples. The training scope permits resolving those base ids after augmentation;
+    # validation/OOF, held-out TEST, and PREDICT remain non-fit holdout views.
     predict_is_train = phase == "REFIT"  # REFIT predict_ids == full_train (training rows); FIT_CV/PREDICT are holdout
     specs: list[tuple[list[str], str, str | None, bool]] = [
         (predict_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
     ]
+    if phase == "FIT_CV" and train_ids:
+        specs.append((train_ids, "train", task.get("fold_id"), True))
+        # The legacy CV ensemble asks every fold estimator to predict the
+        # complete training pool. Keep this report-only surface distinct from
+        # the fold's own in-sample `train` measurement and validation OOF.
+        train_pool_ids = list(dict.fromkeys([*train_ids, *predict_ids]))
+        specs.append((train_pool_ids, "train_pool", task.get("fold_id"), True))
     if phase in ("FIT_CV", "REFIT"):
         if phase == "FIT_CV":
             test_view = _view_by_partition(task, "predict")
@@ -1426,15 +1430,15 @@ def run_model_node(
                 "target_names": names,
             }
         )
-        if (phase == "FIT_CV" and partition == "test" and resolver._dataset.is_classification
+        if (phase == "FIT_CV" and partition in {"train", "train_pool", "test"} and resolver._dataset.is_classification
                 and callable(getattr(estimator, "predict_proba", None))):
             classes = np.asarray(estimator.classes_, dtype=float)
-            features, options = _features(spec_ids, False)
+            features, options = _features(spec_ids, spec_include_augmented)
             with _gpu_device_scope(task, estimator):
                 probabilities = np.asarray(estimator.predict_proba(features, **options), dtype=float)
             classification_probabilities.append({
                 "producer_node": node_id,
-                "partition": "test",
+                "partition": partition,
                 "fold_id": spec_fold,
                 "sample_ids": spec_ids,
                 "class_labels": classes.tolist(),
