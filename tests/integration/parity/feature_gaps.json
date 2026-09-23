@@ -13,7 +13,6 @@
     {"id": "legacy_exclude_metadata_concat_score", "classification": "legacy selects a group-local CV row rather than scoring the merged OOF", "pipeline": "YOutlierFilter(iqr, threshold=1.0), KFold(3), by_metadata(group, PLSRegression(3)), merge=concat on seeded 120x20 balanced-group data with one train outlier", "legacy_cv_rmse": 0.8809393773365354, "dagml_cv_rmse": 0.9142813126624925, "sklearn_fold_local_cv_rmse": 0.9142813084180439, "evidence": "test_exclude_metadata_branch.py:test_exclude_then_metadata_branch_matches_per_group_oracle", "scope": "Legacy executes and reports its best group A CV row as cv_best_score. DAG-ML scores the reassembled OOF universe, matches the direct sklearn oracle, and excludes the outlier from training."}
   ],
   "gaps": [
-    {"id": "fold_file_split_step", "priority": "P1", "legacy": "public {'split': 'folds.json'} loads fold assignments and executes CV with refit=False", "dagml": "rejects the public split keyword as unsupported_shape", "evidence": "12-row Ridge pipeline with two folds: legacy CV 1.98761, DAG rejects step keyword ['split']; dual-engine oracle in progress"},
     {"id": "optuna_parallel_n_jobs", "priority": "P1", "legacy": "Optuna finetune_params with n_jobs=2 executes concurrent trials", "dagml": "host-HPO protocol currently asks, executes and tells one candidate at a time and refuses n_jobs>1", "evidence": "test_host_finetune.py public KFold(2), PLS, n_trials=2, n_jobs=2 legacy-success/DAG-refusal oracle; native provider currently uses non-Sync RefCell state"}
   ]
 }
