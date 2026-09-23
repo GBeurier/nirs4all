@@ -16,12 +16,120 @@ from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
 from nirs4all.data import DatasetConfigs
+from nirs4all.operators.augmentation import GaussianAdditiveNoise
 from nirs4all.pipeline.dagml.folds import _build_folds
 from nirs4all.pipeline.dagml.run_paths import _reshape_for_rep_fusion
 from tests.integration.pipeline.test_separation_branch_generators import create_dataset_with_metadata
 
 from ._datasets import dataset_path
 from .test_dagml_cli_runner import _equal_rep_dataset, _two_source_distinct_dataset
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_metadata_branch_cv_without_refit_matches_legacy(monkeypatch: pytest.MonkeyPatch, mechanism: str) -> None:
+    """Native fan-out evaluates both metadata groups without fitting final models."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    pipeline = [
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"branch": {"by_metadata": "site", "steps": [{"model": Ridge(alpha=1.0)}]}},
+    ]
+    legacy = nirs4all.run(pipeline, create_dataset_with_metadata(), engine="legacy", refit=False, save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, create_dataset_with_metadata(), engine="dag-ml", refit=False, save_artifacts=False, verbose=0)
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, rel=1e-6)
+    assert native._dagml_refit_artifacts == []
+    rows = native.predictions.filter_predictions(load_arrays=True)
+    assert {row["partition"] for row in rows} == {"val"}
+    assert {row["branch_name"] for row in rows} == {"site_A", "site_B"}
+    assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
+               for frame in native._dagml_node_results)
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_augmented_metadata_branch_cv_without_refit(monkeypatch: pytest.MonkeyPatch, mechanism: str) -> None:
+    """The branch consumes augmented fold training rows and emits only OOF evidence."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    pipeline = [
+        {"sample_augmentation": {
+            "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+            "count": 1, "selection": "all", "random_state": 42,
+        }},
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"branch": {"by_metadata": "site", "steps": [{"model": Ridge(alpha=1.0)}]}},
+    ]
+    legacy = nirs4all.run(pipeline, create_dataset_with_metadata(), engine="legacy", refit=False, save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, create_dataset_with_metadata(), engine="dag-ml", refit=False, save_artifacts=False, verbose=0)
+    assert legacy.num_predictions > 0
+    assert np.isfinite(native.cv_best_score)
+    assert native._dagml_refit_artifacts == []
+    assert {row["partition"] for row in native.predictions.filter_predictions()} == {"val"}
+    assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
+               for frame in native._dagml_node_results)
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_by_source_auto_cv_without_refit_matches_direct_oracle(monkeypatch: pytest.MonkeyPatch, mechanism: str) -> None:
+    """CV-only keeps independent source scores; legacy's shared score is not a source oracle."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+
+    splitter = KFold(n_splits=3, shuffle=True, random_state=42)
+    pipeline = [
+        splitter,
+        {"branch": {"by_source": True, "steps": {
+            "source_0": [PLSRegression(3)], "source_1": [PLSRegression(3)],
+        }}},
+        {"merge": {"sources": "concat"}},
+    ]
+    legacy = nirs4all.run(pipeline, _two_source_distinct_dataset(), engine="legacy", refit=False, save_artifacts=False, verbose=0)
+    dataset = _two_source_distinct_dataset()
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", refit=False, save_artifacts=False, verbose=0)
+    assert legacy.num_predictions > 0
+    assert native._dagml_refit_artifacts == []
+    rows = native.predictions.filter_predictions(load_arrays=True)
+    assert {row["partition"] for row in rows} == {"val"}
+    assert {row["branch_name"] for row in rows} == {"source_0", "source_1"}
+    folds = _build_folds(splitter, dataset, dataset.index_column("sample", {"partition": "train"}), set())
+    for source_index in range(2):
+        expected: dict[int, tuple[float, float]] = {}
+        for train, validation in folds:
+            train_x = np.asarray(dataset.x_rows(train, layout="2d", concat_source=False)[source_index])
+            validation_x = np.asarray(dataset.x_rows(validation, layout="2d", concat_source=False)[source_index])
+            train_y = np.asarray(dataset.y({"sample": train})).ravel()
+            validation_y = np.asarray(dataset.y({"sample": validation})).ravel()
+            model = PLSRegression(3).fit(train_x, train_y)
+            expected.update({sample: (float(target), float(prediction)) for sample, target, prediction
+                             in zip(validation, validation_y, model.predict(validation_x).ravel(), strict=True)})
+        sample_ids = sorted(expected)
+        oracle = float(np.sqrt(mean_squared_error(
+            [expected[sample][0] for sample in sample_ids],
+            [expected[sample][1] for sample in sample_ids],
+        )))
+        average = next(row for row in rows if row["branch_name"] == f"source_{source_index}" and row["fold_id"] == "avg")
+        assert average["val_score"] == pytest.approx(oracle, abs=1e-9)
+    assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT"
+               for frame in native._dagml_node_results)
 
 
 def test_metadata_model_branches_without_merge_keep_partition_predictions() -> None:

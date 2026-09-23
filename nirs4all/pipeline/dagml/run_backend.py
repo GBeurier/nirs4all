@@ -1119,13 +1119,11 @@ def _dispatch_run(
             )
 
     if refit is False and (
-        detected is not None
-        or detected_separation_preproc_concat is not None
+        detected_separation_preproc_concat is not None
         or (detected_duplication is not None and detected_duplication[1] != "features")
         or detected_stacking is not None
         or detected_named_metamodel_stack is not None
         or detected_by_source is not None
-        or detected_by_source_auto is not None
         or detected_by_source_concat is not None
         or detected_by_source_distinct_concat is not None
         or detected_by_source_stacking is not None
@@ -1232,6 +1230,7 @@ def _dispatch_run(
             random_state=random_state,
             cv_pool=cv_pool,
             excluded_sample_ints=excluded,
+            refit=refit,
         )
 
     # Duplication branch (`{"branch": [[A], [B], …]}`) + avg/mean fusion merge → ONE native run: each
@@ -1287,7 +1286,7 @@ def _dispatch_run(
             list(pipeline), source_bodies, y_steps, spectro.features_sources(), spectro, dataset_arg, cli,
             venv_python or sys.executable, base_dir / "by_source_auto", metric,
             task_type, dataset_pickle=host_pickle, config_name=config_name,
-            random_state=random_state, refit_top_k=refit_top_k,
+            random_state=random_state, refit_top_k=refit_top_k, refit=refit,
         )
 
     # by_source shared preprocessing + concat feature merge + one downstream model → ONE native run:
