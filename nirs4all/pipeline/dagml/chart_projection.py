@@ -77,17 +77,18 @@ def _folds_from_scores(result: Any) -> list[tuple[list[int], list[int]]]:
 
 def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, summary: str, image_name: str, *,
                        include_excluded: bool, source_index: int | None = None, color_column: str | None = None,
-                       plotted_groups: dict[str, list[int]] | None = None) -> None:
+                       plotted_groups: dict[str, list[int]] | None = None, include_augmented: bool = True,
+                       processing_indices: list[int] | None = None) -> None:
     """Expose exact plotted inputs without requiring interpretation of colors."""
-    sample_indices = snapshot._indexer.x_indices(context.selector, include_augmented=True, include_excluded=include_excluded)
-    arrays = snapshot.x(context.selector, "3d", False, include_excluded=include_excluded)
+    sample_indices = snapshot._indexer.x_indices(context.selector, include_augmented=include_augmented, include_excluded=include_excluded)
+    arrays = snapshot.x(context.selector, "3d", False, include_augmented=include_augmented, include_excluded=include_excluded)
     arrays = arrays if isinstance(arrays, list) else [arrays]
-    targets = np.asarray(snapshot.y(context, include_excluded=include_excluded)).reshape(len(sample_indices), -1)
+    targets = np.asarray(snapshot.y(context, include_augmented=include_augmented, include_excluded=include_excluded)).reshape(len(sample_indices), -1)
     origins = [snapshot._indexer.get_origin_for_sample(int(sample_id)) for sample_id in sample_indices]
     partitions = {int(row["sample"]): str(row["partition"]) for row in snapshot._indexer.df.select("sample", "partition").iter_rows(named=True)}
     colors = None
     if color_column is not None:
-        colors = np.asarray(snapshot.metadata_column(color_column, context.selector, include_augmented=True)).reshape(len(sample_indices), -1)
+        colors = np.asarray(snapshot.metadata_column(color_column, context.selector, include_augmented=include_augmented)).reshape(len(sample_indices), -1)
     data_name = f"{stem}.csv"
     excluded = {
         int(row["sample"]): str(row.get("exclusion_reason") or "")
@@ -111,6 +112,8 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
                 if plotted_groups is not None and sample_id not in plotted_in:
                     continue
                 for processing, values in enumerate(sample_data):
+                    if processing_indices is not None and processing not in processing_indices:
+                        continue
                     for feature, value in enumerate(values):
                         origin = origins[sample]
                         writer.writerow([sample_id, origin, partitions.get(sample_id, ""), origin is not None and origin != sample_id,
@@ -232,13 +235,17 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
         if file_holdout_lowered and augmentation_count:
             scope += "; the single-file test holdout was applied before augmentation, so its rows and synthetic children were excluded from fitting"
         target_scope = "captured REFIT target transform" if processed_target else "original numeric targets"
-        plotted_count = len(snapshot._indexer.x_indices(context.selector, include_augmented=True, include_excluded=exclusion_chart))
+        include_augmented = output.metadata.get("include_augmented", True)
+        plotted_count = len(snapshot._indexer.x_indices(context.selector, include_augmented=include_augmented, include_excluded=exclusion_chart))
         if exclusion_chart:
             excluded_count = len(snapshot._indexer.get_excluded_samples(context.selector))
             chart_subject = f"{parsed.keyword}: {plotted_count - excluded_count} included and {excluded_count} excluded samples in {chart_partition or 'all'} partition"
         else:
             chart_subject = f"{parsed.keyword}: {plotted_count} samples"
         color_scope = f" Color coding uses metadata column {color_column!r}." if color_column is not None else ""
+        if not include_augmented and augmentation_count:
+            scope = ("full-training REFIT augmentation stage; not out-of-fold features; "
+                     "only observed samples are included in this chart's envelopes")
         summary = f"{chart_subject}; {scope}; {target_scope}. {len(snapshot.folds)} scored cross-validation folds.{color_scope} Numeric inputs and fold memberships are supplied alongside the image."
         if directory is None:
             print(summary)
@@ -251,11 +258,16 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
                 source_index = number if controller.use_multi_source() and len(output.outputs) == snapshot.features_sources() else None
                 groups_by_source = output.metadata.get("plotted_groups")
                 plotted_groups = groups_by_source[number] if groups_by_source is not None else None
+                processings_by_source = output.metadata.get("plotted_processings")
+                processing_indices = processings_by_source[number] if processings_by_source is not None else None
                 report_summary = (f"{len({sample for ids in plotted_groups.values() for sample in ids})} spectra actually plotted "
                                   f"(max_samples={config.get('max_samples', 50)} per group); {summary}") if plotted_groups is not None else summary
+                if processing_indices is not None:
+                    report_summary += f" Processing indices shown: {processing_indices}."
                 _write_alternative(directory, stem, snapshot, context, report_summary, image_path.name,
                                    include_excluded=include_excluded, source_index=source_index, color_column=color_column,
-                                   plotted_groups=plotted_groups)
+                                   plotted_groups=plotted_groups, include_augmented=include_augmented,
+                                   processing_indices=processing_indices)
                 output_paths.append(str(directory / f"{stem}.html"))
     if plots_visible:
         import matplotlib.pyplot as plt
