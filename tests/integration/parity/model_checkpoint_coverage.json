@@ -17,9 +17,8 @@
       "pipeline": "KFold -> PLSRegression -> sample_augmentation -> Ridge",
       "intervening_stage": "sample_augmentation",
       "legacy": "success",
-      "coverage": "gap",
-      "evidence": [],
-      "reason": "Legacy keeps the upstream PLS checkpoint and trains downstream Ridge after augmentation; DAG-ML currently refuses the upstream model checkpoint."
+      "coverage": "verified",
+      "evidence": ["tests/integration/parity/test_augmentation_composition.py::test_model_checkpoint_before_augmentation_keeps_both_legacy_models"]
     },
     {"id": "model_then_model", "pipeline": "KFold -> model -> model", "intervening_stage": "none", "legacy": "unverified", "coverage": "unverified", "evidence": []},
     {"id": "model_then_preprocessing_then_model", "pipeline": "KFold -> model -> preprocessing -> model", "intervening_stage": "preprocessing", "legacy": "unverified", "coverage": "unverified", "evidence": []},
