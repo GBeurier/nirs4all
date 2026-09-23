@@ -12,8 +12,6 @@ from nirs4all.pipeline.dagml_bridge import (
     _PREDICTION_FEATURE_CONTROLLER_ID,
     _RESIDUAL_LEARNER_CONTROLLER_ID,
     _RESIDUAL_LEARNER_REF,
-    _json_safe_params,
-    _qualname,
     controller_manifests,
 )
 
@@ -205,6 +203,7 @@ def run_residual_model(
             },
             {"kind": "merge", "id": "merge:concat", "merge_mode": "concat", "output_as": "features", "include_original_data": False},
         ]
+    learner_step = _canonical_branch_step({"model": operator.learner}, learner_id)
     dsl = {
         "id": "nirs4all-residual-model",
         "inner_cv": {"kind": "kfold", "n_splits": 2, "shuffle": False, "seed": random_state},
@@ -215,10 +214,11 @@ def run_residual_model(
             {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch([{"model": operator.base}], len(prediction_branch_bodies) if prediction_branch_bodies else 0)]},
             {
                 "kind": "merge_model", "id": learner_id,
-                "operator": {"class": _qualname(operator.learner), "ref": _RESIDUAL_LEARNER_REF},
-                "params": _json_safe_params(operator.learner),
+                "operator": {**learner_step["operator"], "ref": _RESIDUAL_LEARNER_REF},
+                "params": learner_step["params"],
                 "include_original_data": True,
                 "metadata": {
+                    **learner_step.get("metadata", {}),
                     "controller_id": _RESIDUAL_LEARNER_CONTROLLER_ID,
                     "residual_target_execution": "nested_oof_v1",
                     "stacking_refit_oof": "partitioned_inner_v1",
