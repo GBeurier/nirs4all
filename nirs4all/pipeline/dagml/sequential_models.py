@@ -19,11 +19,43 @@ def sequential_model_pipelines(pipeline: Any) -> list[list[Any]] | None:
         return None
     steps = normalize_model_steps(pipeline)
     from nirs4all.operators.models.meta import MetaModel
+    from nirs4all.operators.models.residual import ResidualModel
 
     if any(isinstance(step, dict) and isinstance(step.get("model"), MetaModel) for step in steps):
-        # A MetaModel depends on earlier model predictions. Keep the whole
-        # request intact so the native stacking router can lower it or give a
-        # precise refusal for an unsupported option such as use_proba.
+        # The residual checkpoint after a sequential MetaModel does not consume
+        # that MetaModel's predictions: legacy fits it from its own base and
+        # original X. Keep the base -> MetaModel pair in one native stacking
+        # request, then schedule the independent residual checkpoint separately.
+        # Other MetaModel shapes remain intact for the stacking router.
+        model_positions = [index for index, step in enumerate(steps) if isinstance(step, dict) and "model" in step]
+        meta_positions = [index for index in model_positions if isinstance(steps[index]["model"], MetaModel)]
+        if (
+            len(meta_positions) == 1
+            and len(model_positions) >= 3
+            and meta_positions[0] == model_positions[-2]
+            and isinstance(steps[model_positions[-1]]["model"], ResidualModel)
+            and all(
+                index < model_positions[0]
+                for index in range(len(steps))
+                if index not in model_positions
+            )
+            and all(not isinstance(step, dict) or not any(key in step for key in ("branch", "merge", "exclude", "sample_augmentation")) for step in steps)
+            and all(
+                index == model_positions[-1]
+                or index == meta_positions[0]
+                or (
+                    hasattr(steps[index]["model"], "fit")
+                    and hasattr(steps[index]["model"], "predict")
+                )
+                for index in model_positions
+            )
+        ):
+            prefix = [step for step in steps if not isinstance(step, dict) or "model" not in step]
+            bases = [steps[index] for index in model_positions[:-2]]
+            children = [[*prefix, base] for base in bases]
+            children.append([*prefix, *bases, steps[meta_positions[0]]])
+            children.append([*prefix, steps[model_positions[-1]]])
+            return children
         return None
     if any(isinstance(step, dict) and any(key in step for key in ("branch", "merge", "exclude", "sample_augmentation")) for step in steps):
         return None
