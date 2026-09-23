@@ -641,7 +641,7 @@ def _upstream_x_chain(node_id: str, edges: list[dict[str, Any]] | None) -> list[
     """
     incoming: dict[str, str] = {}
     for edge in edges or []:
-        if edge["target"]["port_name"] == "x" and edge["contract"]["kind"] == "data":
+        if edge["target"]["port_name"] in {"x", "x_original"} and edge["contract"]["kind"] == "data":
             incoming[edge["target"]["node_id"]] = edge["source"]["node_id"]
     chain: list[str] = []
     current = incoming.get(node_id)

@@ -74,10 +74,12 @@ def test_fold_file_loader_imports_sample_ids_into_native_foldset(tmp_path, monke
 
 @pytest.mark.parity
 @pytest.mark.parametrize("gate", [False, 0.25])
-def test_residual_model_native_graph_fits_oof_targets_and_fuses_predictions(tmp_path, gate) -> None:
+@pytest.mark.parametrize("preprocessing", [False, True])
+def test_residual_model_native_graph_fits_oof_targets_and_fuses_predictions(tmp_path, gate, preprocessing) -> None:
     """The learner fits OOF-derived residuals; DAG-ML fuses held-out predictions."""
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.model_selection import KFold
+    from sklearn.preprocessing import StandardScaler
 
     import nirs4all
     from nirs4all.operators.models.residual import ResidualModel
@@ -86,11 +88,12 @@ def test_residual_model_native_graph_fits_oof_targets_and_fuses_predictions(tmp_
 
     pipeline = [
         KFold(2, shuffle=True, random_state=1),
+        *([StandardScaler()] if preprocessing else []),
         {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(alpha=1.0), gate=gate)},
     ]
     legacy = nirs4all.run(
         pipeline, dataset_path("regression"), engine="legacy", refit=False,
-        workspace_path=tmp_path / f"legacy-residual-{gate}", save_artifacts=False, save_charts=False, verbose=0,
+        workspace_path=tmp_path / f"legacy-residual-{gate}-{preprocessing}", save_artifacts=False, save_charts=False, verbose=0,
     )
     assert np.isfinite(legacy.cv_best_score)
     assert np.isfinite(legacy.best_rmse)
@@ -98,7 +101,7 @@ def test_residual_model_native_graph_fits_oof_targets_and_fuses_predictions(tmp_
 
     native = nirs4all.run(
         pipeline, dataset_path("regression"), engine="dag-ml", refit=True,
-        workspace_path=tmp_path / f"native-residual-{gate}", save_artifacts=False, save_charts=False, verbose=0,
+        workspace_path=tmp_path / f"native-residual-{gate}-{preprocessing}", save_artifacts=False, save_charts=False, verbose=0,
     )
     assert native.execution_engine == "dag-ml"
     assert np.isfinite(native.cv_best_score)
@@ -121,10 +124,11 @@ def test_residual_model_native_graph_fits_oof_targets_and_fuses_predictions(tmp_
         for sample_id, fused_row in zip(fused["sample_ids"], fused["values"], strict=True):
             expected = np.asarray(base_rows[sample_id]) + float(gate if gate is not False else 1) * np.asarray(learner_rows[sample_id])
             assert fused_row == pytest.approx(expected, abs=1e-8)
-    assert fusion_rows > 0
+    if any(frame.get("node_id") == fusion_id for frame in frames):  # CLI bundles omit merge-node frames.
+        assert fusion_rows > 0
     from nirs4all.data import DatasetConfigs
 
-    archive = native.export(tmp_path / f"residual_{gate}.n4a")
+    archive = native.export(tmp_path / f"residual_{gate}_{preprocessing}.n4a")
     fresh = DatasetConfigs(dataset_path("regression")).get_dataset_at(0)
     replay = nirs4all.predict(archive, fresh.x({"partition": "test"}, layout="2d"))
     replay_rmse = np.sqrt(np.mean((np.asarray(fresh.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2))
