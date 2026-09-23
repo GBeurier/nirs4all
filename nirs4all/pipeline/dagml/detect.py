@@ -1226,6 +1226,21 @@ def _detect_checkpoint_before_duplication_branch(pipeline: list[Any]) -> tuple[l
     return branches, first, last
 
 
+def _detect_checkpoint_inside_duplication_feature_merge(pipeline: list[Any]) -> tuple[list[list[Any]], dict[str, Any], dict[str, Any]] | None:
+    """Two branch-local model checkpoints followed by a feature merge and model."""
+    if len(pipeline) != 5 or not _is_split_step(pipeline[0]):
+        return None
+    branch_step, first, merge_step, last = pipeline[1:]
+    branches = _duplication_branch_bodies(branch_step)
+    if branches is None or len(branches) < 2 or _simple_duplication_merge_mode(merge_step) != "features":
+        return None
+    if not all(isinstance(step, dict) and _model_step_is_plain_estimator(step) for step in (first, last)):
+        return None
+    if any(not body or any(not (hasattr(step, "fit") and hasattr(step, "transform") and not hasattr(step, "predict")) for step in body) for body in branches):
+        return None
+    return branches, first, last
+
+
 def _detect_branch_only_model_comparison(pipeline: list[Any]) -> tuple[list[Any], list[list[Any]], list[str]] | None:
     """Recognize independent branch models with no merge, preserving their names."""
     branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]

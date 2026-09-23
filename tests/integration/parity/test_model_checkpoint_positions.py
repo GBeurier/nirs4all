@@ -106,7 +106,7 @@ def test_two_model_checkpoints_preserve_final_predictions_and_archive(tmp_path, 
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
-@pytest.mark.parametrize("stage", ["splitter", "merge"])
+@pytest.mark.parametrize("stage", ["splitter"])
 def test_two_model_checkpoints_open_native_composition_gaps(tmp_path, monkeypatch, mechanism: str, stage: str) -> None:
     """Legacy-successful positions retain explicit DAG refusal until their graph lowering exists."""
     _transport(mechanism, monkeypatch)
@@ -120,8 +120,7 @@ def test_two_model_checkpoints_open_native_composition_gaps(tmp_path, monkeypatc
     finally:
         legacy.close()
     native_data, _, _ = _dataset()
-    reason = "cannot route KFold" if stage == "splitter" else "does not yet support this raw branch/merge composition"
-    with pytest.raises(Exception, match=reason):
+    with pytest.raises(Exception, match="cannot route KFold"):
         nirs4all.run(_pipeline(stage), native_data, engine="dag-ml", allow_fallback=False,
                      workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0)
 
@@ -165,6 +164,50 @@ def test_model_checkpoint_before_duplication_branch_replays_selected_native_prod
                               and row["branch_id"] == winner["branch_id"]
                               and row["partition"] == "test" and row["fold_id"] == "final")
         archive = native.export(tmp_path / "checkpoint_branch.n4a")
+        replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
+        np.testing.assert_allclose(replay, np.asarray(selected_final["y_pred"]).ravel(), atol=1e-4)
+    finally:
+        native.close()
+        legacy.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
+def test_model_checkpoint_inside_duplication_feature_merge_preserves_legacy_refits(tmp_path, monkeypatch, mechanism: str) -> None:
+    """Branch-local model refits and selected archive agree across the native transports."""
+    _transport(mechanism, monkeypatch)
+    legacy_data, x_test, _ = _dataset()
+    legacy = nirs4all.run(_pipeline("merge"), legacy_data, engine="legacy", allow_fallback=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
+    native_data, _, _ = _dataset()
+    native = nirs4all.run(_pipeline("merge"), native_data, engine="dag-ml", allow_fallback=False,
+                         workspace_path=tmp_path / "native", save_artifacts=True, save_charts=False, verbose=0)
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert native.get_models() == legacy.get_models() == ["PLSRegression", "Ridge"]
+        assert native.per_dataset["checkpoint_positions"]["checkpoint_producers"] == [
+            "branch:0.node:1", "branch:0.node:2", "branch:1.node:1", "branch:1.node:2",
+        ]
+        native_rows = native.predictions.filter_predictions()
+        legacy_rows = legacy.predictions.filter_predictions()
+        assert len(native_rows) == len(legacy_rows) == 44
+        # Legacy's feature merge keeps the two terminal branch models, but
+        # emits CV evidence for only the first Ridge.  Both native REFIT
+        # artifacts must still reproduce their exact legacy test predictions.
+        for model in ("PLSRegression", "Ridge"):
+            native_final = [row for row in native_rows if row["model_name"] == model
+                            and row["partition"] == "test" and row["fold_id"] == "final"]
+            legacy_final = [row for row in legacy_rows if row["model_name"] == model
+                            and row["partition"] == "test" and row["fold_id"] == "final"]
+            assert len(native_final) == len(legacy_final) == 2
+            for actual, expected in zip(native_final, legacy_final, strict=True):
+                assert actual["test_score"] == pytest.approx(expected["test_score"], abs=1e-5)
+                np.testing.assert_allclose(np.asarray(actual["y_pred"]).ravel(),
+                                           np.asarray(expected["y_pred"]).ravel(), atol=1e-5)
+        winner = native.cv_best
+        selected_final = next(row for row in native_rows if row["model_name"] == winner["model_name"]
+                              and row["partition"] == "test" and row["fold_id"] == "final")
+        archive = native.export(tmp_path / "checkpoint_merge.n4a")
         replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
         np.testing.assert_allclose(replay, np.asarray(selected_final["y_pred"]).ravel(), atol=1e-4)
     finally:
