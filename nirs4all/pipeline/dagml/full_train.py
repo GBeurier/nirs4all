@@ -145,7 +145,11 @@ def run_full_train(
     if len(models) != 1:
         raise DagMlUnsupported("full-training execution needs one concrete model; expand independent public model requests before dispatch")
     model_id = models[0]["id"]
-    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope)
+    from .cli_runner import needs_dynamic_feature_axis
+
+    dsl["data_bindings"] = data_bindings_for_fitted_x_chain(
+        graph, model_id, envelope, force=needs_dynamic_feature_axis(steps),
+    )
     message = (
         "No splitter provided: fitting all training rows once; the test set is also used as validation. "
         "There is no cross-validation or independent model-selection holdout."
