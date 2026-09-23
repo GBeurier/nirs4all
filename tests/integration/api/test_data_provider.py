@@ -166,19 +166,46 @@ def test_provider_hpo_resume_matches_continuous_and_binds_recipe(tmp_path: Path,
         continuous.close()
 
 
-def test_provider_lineage_is_retained_by_late_fusion_export(tmp_path: Path) -> None:
+@pytest.mark.parametrize("tune", [False, True])
+def test_provider_lineage_is_retained_by_late_fusion_export(tune: bool, tmp_path: Path) -> None:
     from tests.integration.api.test_multimodal_late_fusion import _pipeline
 
-    result = nirs4all.run(_pipeline(), _provider(), workspace_path=tmp_path / "workspace",
-                         random_state=19, verbose=0, save_charts=False)
+    provider = _provider()
+    options: dict[str, Any] = {
+        "tuning": {
+            **_tuning(tmp_path / "study"),
+            "n_trials": 2,
+            "space": {"meta.alpha": [0.1, 1.0]},
+        }
+    } if tune else {}
+    result: Any = nirs4all.run(
+        _pipeline(),
+        provider,
+        workspace_path=tmp_path / "workspace",
+        random_state=19,
+        verbose=0,
+        save_charts=False,
+        **options,
+    )
     try:
-        ensemble = next(view for view in result.runs if any(item.get("producer_node") == "merge:stack" for item in view.per_dataset.values()))
+        views = [result, *getattr(result, "runs", ())]
+        evidence = getattr(provider.cohort, "_data_provider_evidence")
+        assert all(
+            metadata["data_provider_evidence"] == evidence
+            for view in views
+            for metadata in view.per_dataset.values()
+        )
+        ensemble = result if tune else next(
+            view
+            for view in result.runs
+            if any(item.get("producer_node") == "merge:stack" for item in view.per_dataset.values())
+        )
         archive = ensemble.export(tmp_path / "late.n4a")
         with zipfile.ZipFile(archive) as bundle:
             manifest = json.loads(bundle.read("manifest.json"))
         contract = manifest["multimodal_host"]
         assert contract["selected_model"]["fusion"] == "late_oof"
-        assert contract["data_provider"]["recipe"]["provider_id"] == "qualification.synthetic"
+        assert contract["data_provider"] == evidence
         assert len(nirs4all.predict(archive, _cohort(prediction=True)).values) == 5
     finally:
         result.close()

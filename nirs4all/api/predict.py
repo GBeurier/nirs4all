@@ -538,6 +538,11 @@ def predict(
             portable_level="legacy" if legacy_archive else None,
         )
 
+    import nirs4all_io
+
+    if isinstance(data, getattr(nirs4all_io, "MultimodalDataset", ())):
+        raise TypeError("raw multimodal prediction requires a captured DAG-ML artifact")
+
     # ---- Store-based path (chain_id) ----
     if chain_id is not None:
         result = _predict_from_chain(
