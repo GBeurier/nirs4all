@@ -8,8 +8,8 @@ from pathlib import Path
 import numpy as np
 import polars as pl
 import pytest
-from sklearn.linear_model import Ridge
-from sklearn.model_selection import KFold
+from sklearn.linear_model import LogisticRegression, Ridge
+from sklearn.model_selection import KFold, StratifiedKFold
 
 import nirs4all
 from nirs4all.data.dataset import SpectroDataset
@@ -175,5 +175,36 @@ def test_source_specific_spectra_and_envelope_reports_export_only_plotted_source
         assert {int(row["source"]) for row in rows} == {index % 2}
         values = np.asarray([float(row["value"]) for row in rows]).reshape(20, 6)
         np.testing.assert_allclose(values, left if index % 2 == 0 else right, rtol=0, atol=1e-5)
+    legacy.close()
+    native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_y_chart_preserves_classification_targets_and_fold_membership(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, mechanism: str,
+) -> None:
+    _mechanism(monkeypatch, mechanism)
+    rng = np.random.default_rng(296)
+    x = rng.normal(size=(24, 6))
+    y = (x[:, 0] + 0.3 * x[:, 1] > 0).astype(int)
+
+    def dataset() -> SpectroDataset:
+        samples = SpectroDataset("classification_y_chart")
+        samples.add_samples(x[:20], {"partition": "train"})
+        samples.add_samples(x[20:], {"partition": "test"})
+        samples.add_targets(y)
+        return samples
+
+    pipeline = [StratifiedKFold(2), {"chart_y": {"layout": "stacked"}}, {"model": LogisticRegression(max_iter=200)}]
+    legacy = nirs4all.run(pipeline, dataset(), engine="legacy", workspace_path=tmp_path / "legacy", save_charts=True, save_artifacts=False, verbose=0)
+    assert list((tmp_path / "legacy").rglob("Y_distribution_*_stacked.png"))
+    native = nirs4all.run(pipeline, dataset(), engine="dag-ml", workspace_path=tmp_path / mechanism, save_charts=True, save_artifacts=False, verbose=0)
+    reports = _reports(native)
+    assert len(reports) == 1
+    with reports[0].with_suffix(".csv").open(newline="", encoding="utf-8") as stream:
+        rows = list(csv.DictReader(stream))
+    assert {int(row["sample_index"]): int(float(row["target_0"])) for row in rows} == dict(enumerate(y))
+    assert set(native.predictions.get_folds()) >= {"0", "1"}
     legacy.close()
     native.close()
