@@ -1602,7 +1602,7 @@ def _dispatch_run(
     # nirs4all) and emitting the winner's refit rows only.
     variants = _expand_operator_generators(list(pipeline))
     variant_runs = [
-        _run_concrete_scores(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, random_state=random_state, refit=refit)
+        _run_concrete_scores(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, random_state=random_state, refit=refit, metric=metric)
         for index, variant in enumerate(variants)
     ]
     if len(variant_runs) == 1:

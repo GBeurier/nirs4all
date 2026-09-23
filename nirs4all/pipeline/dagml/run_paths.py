@@ -461,6 +461,7 @@ def _run_concrete_scores(
     dataset_pickle: str | None = None,
     random_state: int | None = None,
     refit: bool = True,
+    metric: str = "rmse",
 ) -> tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]]]:
     """Run one concrete (generator-free) pipeline through dag-ml-cli; return ``(scores, model_name, results, identity, refit_artifacts)``.
 
@@ -487,7 +488,7 @@ def _run_concrete_scores(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
@@ -518,7 +519,7 @@ def _run_concrete(
     mode); ``excluded`` is marked in the envelope only in the opt-in (``keep_in_oof=True``) mode.
     """
     scores, model_name, results, identity, refit_artifacts = _run_concrete_scores(
-        pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state, refit=refit
+        pipeline, spectro, dataset_arg, cli, venv_python, run_dir, cv_pool, excluded, tags_by_sample, dataset_pickle=dataset_pickle, random_state=random_state, refit=refit, metric=metric
     )
     return _scores_to_run_result(scores, spectro.name, model_name, metric, task_type, config_name=config_name, results=results, identity=identity, refit_artifacts=refit_artifacts)
 
