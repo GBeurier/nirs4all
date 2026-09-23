@@ -116,7 +116,11 @@ def test_github_full_gates_run_once_without_local_v1_dual_qualification() -> Non
         assert "strategy" not in job
         serialized = yaml.safe_dump(job)
         assert "tests/" in serialized
-        assert "--ignore=tests/integration/parity/test_conformance_dual_engine.py" in serialized
+        if workflow_name in {"CI.yaml", "shared-test-and-docs.yml"}:
+            assert "run_full_dagml_pytest.py" in serialized
+            assert "--ignore=" not in serialized
+        else:
+            assert "--ignore=tests/integration/parity/test_conformance_dual_engine.py" in serialized
 
         if workflow_name in {"publish.yml", "shared-test-and-docs.yml"}:
             assert job["permissions"] == {"contents": "read", "id-token": "write"}
