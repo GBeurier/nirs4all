@@ -178,3 +178,56 @@ def test_multiple_model_checkpoints_across_augmentation_match_legacy(
     finally:
         native.close()
         legacy.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("before_count", [1, 2])
+def test_full_train_checkpoints_across_augmentation_match_legacy(
+    tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, before_count: int,
+) -> None:
+    """No-split runs preserve each model's base or augmented fit cohort."""
+    if mechanism == "subprocess":
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "in_process" else "0")
+    models_before = [PLSRegression(n_components=3), LinearRegression()][:before_count]
+    models_after = [Ridge(), DummyRegressor()][:before_count]
+    pipeline = [
+        *({"model": model} for model in models_before),
+        {"sample_augmentation": {
+            "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+            "count": 1, "selection": "all", "random_state": 42,
+        }},
+        *({"model": model} for model in models_after),
+    ]
+    path = dataset_path("regression")
+    legacy = nirs4all.run(pipeline, path, engine="legacy", allow_fallback=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
+    with pytest.warns(NoSplitEvaluationWarning):
+        native = nirs4all.run(pipeline, path, engine="dag-ml", allow_fallback=False,
+                              workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0)
+    try:
+        expected_models = sorted(type(model).__name__ for model in [*models_before, *models_after])
+        assert native.get_models() == legacy.get_models() == expected_models
+        native_rows = native.predictions.filter_predictions()
+        legacy_rows = legacy.predictions.filter_predictions()
+        assert len(native_rows) == len(legacy_rows) == 3 * len(expected_models)
+        for model_name in expected_models:
+            legacy_test = next(row for row in legacy_rows if row["model_name"] == model_name and row["partition"] == "test")
+            native_test = next(row for row in native_rows if row["model_name"] == model_name and row["partition"] == "test")
+            assert native_test["test_score"] == pytest.approx(legacy_test["test_score"], abs=1e-4)
+            np.testing.assert_allclose(np.asarray(native_test["y_pred"]).ravel(), np.asarray(legacy_test["y_pred"]).ravel(), atol=1e-4)
+        assert len({report["producer_node"] for report in native._dagml_score_set["reports"]}) == len(expected_models)
+        archive = tmp_path / "full_train_checkpoints.n4a"
+        native.export(archive)
+        dataset = DatasetConfigs(path).get_dataset_at(0)
+        x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+        replay = nirs4all.predict(archive, x_test)
+        selected = native.best_final
+        assert selected["partition"] == "test"
+        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), np.asarray(selected["y_pred"]).ravel(), atol=1e-4)
+    finally:
+        native.close()
+        legacy.close()

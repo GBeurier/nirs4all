@@ -16,6 +16,7 @@ from typing import Any
 import numpy as np
 
 from nirs4all.api.result import RunResult
+from nirs4all.core.metrics import is_higher_better
 from nirs4all.data.predictions import Predictions
 from nirs4all.pipeline.dagml_bridge import controller_manifests, pipeline_to_dsl
 
@@ -43,6 +44,7 @@ def run_full_train(
     dataset_path: str | None = None, dataset_pickle: str | None = None,
     workdir: Any = None, random_state: int | None = None,
     train_sample_ids: list[int] | None = None,
+    base_fit_model_count: int = 0,
 ) -> RunResult:
     """Fit one concrete pipeline once on selected train rows using the DAG scheduler.
 
@@ -74,7 +76,8 @@ def run_full_train(
             steps = [_branch_merge_transformer_step(branches, merge_mode), model_step]
     separation = _detect_separation_branch(steps)
     if separation is None:
-        _reject_multi_model(steps)
+        if not base_fit_model_count:
+            _reject_multi_model(steps)
         _assert_supported_operators(steps)
         steps = _apply_model_params(steps)
     execute = None
@@ -150,14 +153,27 @@ def run_full_train(
     dsl = pipeline_to_dsl(steps, "nirs4all-full-train")
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     models = [node for node in graph["nodes"] if node["kind"] == "model"]
-    if len(models) != 1:
+    if len(models) != 1 and not base_fit_model_count:
         raise DagMlUnsupported("full-training execution needs one concrete model; expand independent public model requests before dispatch")
+    if base_fit_model_count and (not augmented_train or not 0 < base_fit_model_count < len(models)):
+        raise DagMlUnsupported("full-training checkpoint views require models before and after augmentation")
     model_id = models[0]["id"]
     from .cli_runner import needs_dynamic_feature_axis
 
     dsl["data_bindings"] = data_bindings_for_fitted_x_chain(
         graph, model_id, envelope, force=needs_dynamic_feature_axis(steps),
     )
+    if base_fit_model_count:
+        from .cli_runner import data_bindings_for_nodes
+
+        model_ids = [model["id"] for model in models]
+        dsl["data_bindings"].extend(data_bindings_for_nodes(model_ids[1:], envelope))
+        for binding in dsl["data_bindings"]:
+            if binding["node_id"] in model_ids[:base_fit_model_count]:
+                binding["view_policy"] = {"include_augmented_train": False}
+    model_names = [_model_name([step]) for step in steps if isinstance(step, dict) and "model" in step]
+    projection_ids = [model["id"] for model in models] if base_fit_model_count else model_id
+    projection_names = model_names if base_fit_model_count else _model_name(steps)
     if train_sample_ids is not None:
         message = "Single-fold file: fitting its train IDs once and evaluating its validation IDs as a test holdout; no cross-validation occurred."
     elif test:
@@ -191,8 +207,8 @@ def run_full_train(
         artifacts = _load_subprocess_refit_artifacts(outcome["node_results"], cli_run["artifact_dir"])
         warnings.warn(message, NoSplitEvaluationWarning, stacklevel=2)
         return _project_full_train(
-            outcome, identity, dataset_name=spectro.name, model_id=model_id,
-            model_name=_model_name(steps), metric=metric, task_type=task_type,
+            outcome, identity, dataset_name=spectro.name, model_id=projection_ids,
+            model_name=projection_names, metric=metric, task_type=task_type,
             config_name=config_name, artifacts=artifacts,
         )
     resolver = MaterializationResolver(spectro, identity)
@@ -214,8 +230,8 @@ def run_full_train(
     if outcome["phase"] != "REFIT":
         raise ValueError("full-training runtime returned an unexpected phase")
     return _project_full_train(
-        outcome, identity, dataset_name=spectro.name, model_id=model_id,
-        model_name=_model_name(steps), metric=metric, task_type=task_type,
+        outcome, identity, dataset_name=spectro.name, model_id=projection_ids,
+        model_name=projection_names, metric=metric, task_type=task_type,
         config_name=config_name, artifacts=_capture_refit_artifacts(outcome["node_results"], store),
     )
 
@@ -531,18 +547,19 @@ def run_by_source_auto_full_train(
 
 def _project_full_train(
     outcome: dict[str, Any], identity: IdentityMap, *, dataset_name: str,
-    model_id: str, model_name: str, metric: str, task_type: str,
+    model_id: str | list[str], model_name: str | list[str], metric: str, task_type: str,
     config_name: str, artifacts: list[dict[str, Any]],
 ) -> RunResult:
     """Expose actual full-training reports without manufacturing CV evidence."""
     scores = outcome["scores"]
-    reports = [report for report in scores["reports"] if report["producer_node"] == model_id and report["level"] == "sample"]
-    if any(report["partition"] not in {"final", "test"} or report.get("fold_id") is not None for report in reports):
-        raise ValueError("full-training reports unexpectedly contain cross-validation evidence")
-    blocks = {report["partition"]: dict(report["metrics"]) for report in reports}
-    if "final" not in blocks or len(blocks) != len(reports):
-        raise ValueError("full-training requires one unambiguous native training report")
-    has_test = "test" in blocks
+    model_pairs = list(zip(
+        [model_id] if isinstance(model_id, str) else model_id,
+        [model_name] if isinstance(model_name, str) else model_name,
+        strict=True,
+    ))
+    if not model_pairs:
+        raise ValueError("full-training requires at least one model")
+    has_test = any(report["partition"] == "test" for report in scores["reports"])
     evaluation = {
         "profile": "full_train", "cross_validation": False,
         "training_scope": "resubstitution",
@@ -550,38 +567,54 @@ def _project_full_train(
         "test_used_for_validation": has_test,
         "independent_model_selection_holdout": False,
     }
-    partition_scores = {"train": blocks["final"]}
-    if has_test:
-        partition_scores.update(val=blocks["test"], test=blocks["test"])
     indexed = _index_sample_blocks(outcome["node_results"])
     predictions = Predictions()
-    for partition, native_partition in [("train", "final"), *([("val", "test"), ("test", "test")] if has_test else [])]:
-        block, target = indexed[(model_id, native_partition, None)]
-        if target is None:
-            raise ValueError("full-training prediction has no native target evidence")
-        ids = block["sample_ids"]
-        target_ids = [unit["id"] for unit in target["unit_ids"]]
-        if ids != target_ids:
-            raise ValueError("full-training prediction/target identities disagree")
-        y_pred, y_true = np.asarray(block["values"], dtype=float), np.asarray(target["values"], dtype=float)
-        predictions.add_prediction(
-            dataset_name=dataset_name, config_name=config_name, model_name=model_name,
-            fold_id="final", refit_context="full_train", partition=partition,
-            metric=metric, task_type=task_type, scores=partition_scores,
-            train_score=blocks["final"].get(metric), val_score=blocks.get("test", {}).get(metric),
-            test_score=blocks.get("test", {}).get(metric),
-            sample_indices=[identity.to_int(sample_id) for sample_id in ids],
-            metadata={"physical_sample_id": list(ids)},
-            result_metadata={"evaluation": dict(evaluation), "native_partition": native_partition},
-            y_pred=y_pred.ravel() if y_pred.shape[1] == 1 else y_pred,
-            y_true=y_true.ravel() if y_true.shape[1] == 1 else y_true,
-            n_samples=len(ids),
-        )
+    candidate_scores: list[tuple[str, float]] = []
+    for current_id, current_name in model_pairs:
+        reports = [report for report in scores["reports"] if report["producer_node"] == current_id and report["level"] == "sample"]
+        if any(report["partition"] not in {"final", "test"} or report.get("fold_id") is not None for report in reports):
+            raise ValueError("full-training reports unexpectedly contain cross-validation evidence")
+        blocks = {report["partition"]: dict(report["metrics"]) for report in reports}
+        if "final" not in blocks or len(blocks) != len(reports) or ("test" in blocks) != has_test:
+            raise ValueError("full-training requires one unambiguous native training report per model")
+        candidate_scores.append((current_id, float(blocks["test" if has_test else "final"].get(metric, float("nan")))))
+        partition_scores = {"train": blocks["final"]}
+        if has_test:
+            partition_scores.update(val=blocks["test"], test=blocks["test"])
+        for partition, native_partition in [("train", "final"), *([("val", "test"), ("test", "test")] if has_test else [])]:
+            block, target = indexed[(current_id, native_partition, None)]
+            if target is None:
+                raise ValueError("full-training prediction has no native target evidence")
+            ids = block["sample_ids"]
+            target_ids = [unit["id"] for unit in target["unit_ids"]]
+            if ids != target_ids:
+                raise ValueError("full-training prediction/target identities disagree")
+            y_pred, y_true = np.asarray(block["values"], dtype=float), np.asarray(target["values"], dtype=float)
+            predictions.add_prediction(
+                dataset_name=dataset_name, config_name=config_name, model_name=current_name,
+                fold_id="final", refit_context="full_train", partition=partition,
+                metric=metric, task_type=task_type, scores=partition_scores,
+                train_score=blocks["final"].get(metric), val_score=blocks.get("test", {}).get(metric),
+                test_score=blocks.get("test", {}).get(metric),
+                sample_indices=[identity.to_int(sample_id) for sample_id in ids],
+                metadata={"physical_sample_id": list(ids)},
+                result_metadata={"evaluation": dict(evaluation), "native_partition": native_partition},
+                y_pred=y_pred.ravel() if y_pred.shape[1] == 1 else y_pred,
+                y_true=y_true.ravel() if y_true.shape[1] == 1 else y_true,
+                n_samples=len(ids),
+            )
     predictions.flush()
     result = RunResult(predictions=predictions, per_dataset={dataset_name: {
         "engine": "dag-ml", "execution_profile": "full_train", "evaluation": evaluation,
     }})
     result._dagml_score_set = scores  # noqa: SLF001 -- untouched native authority
     result._dagml_node_results = outcome["node_results"]  # noqa: SLF001
+    if len(model_pairs) > 1:
+        finite_scores = [(node_id, value) for node_id, value in candidate_scores if np.isfinite(value)]
+        selected_id = (
+            sorted(finite_scores, key=lambda item: item[1], reverse=is_higher_better(metric))[0][0]
+            if finite_scores else model_pairs[0][0]
+        )
+        artifacts = [artifact for artifact in artifacts if f":{selected_id}:" in artifact["artifact_id"]]
     result._dagml_refit_artifacts = artifacts  # noqa: SLF001
     return result

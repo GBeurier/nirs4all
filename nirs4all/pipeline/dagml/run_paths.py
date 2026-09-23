@@ -1639,7 +1639,7 @@ def _run_augmentation_full_train(
     config_name: str, random_state: int | None = None,
     train_sample_ids: list[int] | None = None,
 ) -> RunResult:
-    """Apply sample augmentation before a single DAG-owned full-training phase."""
+    """Apply sample augmentation before a DAG-owned full-training phase."""
     from .full_train import run_full_train
 
     aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
@@ -1647,14 +1647,24 @@ def _run_augmentation_full_train(
     chart_transform_snapshots = {} if chart_snapshots is not None else None
     after_aug = aug_indices[-1] + 1
     materialize_end = after_aug + _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
+    pre_aug_steps = pipeline[:aug_indices[0]]
+    checkpoint_steps = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    if checkpoint_steps:
+        if (len(aug_indices) != 1 or materialize_end != after_aug
+                or pre_aug_steps[-len(checkpoint_steps):] != checkpoint_steps
+                or not any(isinstance(step, dict) and "model" in step for step in pipeline[after_aug:])):
+            raise DagMlUnsupported("sequential full-training checkpoints across this augmentation shape need distinct native fit views")
+        materialize_prefix = [*pre_aug_steps[:-len(checkpoint_steps)], *pipeline[aug_indices[0]:materialize_end]]
+    else:
+        materialize_prefix = pipeline[:materialize_end]
     replay_stages = _materialize_augmentation_prefix(
-        pipeline[:materialize_end], spectro,
+        materialize_prefix, spectro,
         chart_snapshots=chart_snapshots, chart_transform_snapshots=chart_transform_snapshots,
     )
     # The host model still needs the Y transform: materializing the prefix for the
     # augmentation controller does not add a Y node to the native model graph.
     y_prefix_steps = [step for step in pipeline[:aug_indices[0]] if isinstance(step, dict) and "y_processing" in step]
-    post_aug_steps = [*y_prefix_steps, *pipeline[materialize_end:]]
+    post_aug_steps = [*y_prefix_steps, *checkpoint_steps, *pipeline[materialize_end:]]
     from .detect import _detect_duplication_branch
 
     duplication = _detect_duplication_branch(post_aug_steps)
@@ -1671,6 +1681,7 @@ def _run_augmentation_full_train(
         cli=cli, venv_python=venv_python, dataset_path=dataset_arg,
         dataset_pickle=str(pickle_path), workdir=run_dir / "refit",
         random_state=random_state, train_sample_ids=train_sample_ids,
+        base_fit_model_count=len(checkpoint_steps),
     )
     result = _attach_pre_augmentation_replay(result, replay_stages)
     result._dagml_chart_aug_snapshots = chart_snapshots
