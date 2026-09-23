@@ -516,6 +516,9 @@ def run_by_source_auto_full_train(
     result._dagml_score_set = outcome["scores"]  # noqa: SLF001
     result._dagml_node_results = outcome["node_results"]  # noqa: SLF001
     result._dagml_refit_artifacts = artifacts  # noqa: SLF001
+    from .envelope import _numeric_feature_axis
+
+    result._dagml_source_feature_axes = tuple(_numeric_feature_axis(spectro, index) for index in range(n_sources))  # noqa: SLF001
     return result
 
 

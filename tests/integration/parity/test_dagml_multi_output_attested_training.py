@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import zipfile
+
 import dag_ml
 import numpy as np
 import pytest
@@ -61,7 +64,7 @@ def test_by_source_cv_executes_signed_multi_output_training() -> None:
 
 
 @pytest.mark.parity
-def test_public_by_source_cv_attested_capture_preserves_cli_predictions(monkeypatch) -> None:
+def test_public_by_source_cv_attested_capture_preserves_cli_predictions(monkeypatch, tmp_path) -> None:
     import nirs4all
 
     cli = dagml_cli_path()
@@ -89,3 +92,22 @@ def test_public_by_source_cv_attested_capture_preserves_cli_predictions(monkeypa
     assert [key(row) for row in attested_rows] == [key(row) for row in cli_rows]
     for actual, expected in zip(attested_rows, cli_rows, strict=True):
         np.testing.assert_allclose(actual["y_pred"], expected["y_pred"], atol=1e-6)
+    archive = attested.export(tmp_path / "by_source_cv.n4a")
+    with zipfile.ZipFile(archive) as contents:
+        topology = json.loads(contents.read("manifest.json"))["dagml_independent_output_topology"]
+    spectro = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    blocks = spectro.x({"partition": "test"}, "3d", concat_source=False)
+    sample_ids = [f"sample_{row}" for row in range(len(blocks[0]))]
+    named = {"sample_ids": sample_ids, "sources": {}}
+    for index, block in enumerate(blocks):
+        matrix = np.asarray(block).reshape(len(block), -1)
+        order = np.arange(len(matrix))[::-1] if index % 2 == 0 else np.arange(len(matrix))
+        named["sources"][f"source_{index}"] = {
+            "sample_ids": [sample_ids[row] for row in order],
+            "values": matrix[order],
+            "feature_axis_cm1": topology["outputs"][index]["feature_axis_cm1"],
+        }
+    replay = nirs4all.predict(archive, named, output="output:source_1")
+    oracle = next(row for row in cli_rows if key(row) == (1, "test", "final"))
+    np.testing.assert_allclose(replay.y_pred, oracle["y_pred"], atol=1e-4)
+    assert replay.metadata["phase"] == "PREDICT"

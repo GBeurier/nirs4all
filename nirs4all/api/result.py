@@ -679,7 +679,11 @@ class _DagmlNativeSelectedSourceModel:
 class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
     """Retain every source output without defining a default prediction."""
 
-    def __init__(self, members: Sequence[tuple[int, str, str, _DagmlExportedModel]]) -> None:
+    def __init__(
+        self,
+        members: Sequence[tuple[int, str, str, _DagmlExportedModel]],
+        feature_axes_cm1: Sequence[Sequence[str] | None] | None = None,
+    ) -> None:
         if len(members) < 2:
             raise ValueError("independent-source archive requires at least two outputs")
         ordered = sorted(members, key=lambda item: item[0])
@@ -688,6 +692,14 @@ class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
         if len(set(self.source_ids)) != len(self.source_ids) or len(set(self.output_binding_ids)) != len(self.output_binding_ids):
             raise ValueError("independent-source archive source and output IDs must be unique")
         super().__init__([(index, member) for index, _source_id, _binding_id, member in ordered])
+        axes = tuple(feature_axes_cm1) if feature_axes_cm1 is not None else (None,) * len(ordered)
+        if len(axes) != len(ordered):
+            raise ValueError("independent-source feature axes must match source count")
+        self.feature_axes_cm1 = tuple(tuple(axis) if axis is not None else None for axis in axes)
+        for index, axis in enumerate(self.feature_axes_cm1):
+            if axis is not None and (len(axis) != self.source_widths[index]
+                                     or not np.all(np.isfinite(np.asarray(axis, dtype=float)))):
+                raise ValueError("independent-source feature axis disagrees with captured width")
 
     def predict(self, X: Any) -> np.ndarray:
         raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict or call BundleLoader.predict_output(s)")
@@ -698,10 +710,15 @@ class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
         if set(X) != {"sample_ids", "sources"} or not isinstance(X["sources"], Mapping):
             raise ValueError("named-source replay requires sample_ids and a sources mapping")
         sources = X["sources"]
+        feature_axes = getattr(self, "feature_axes_cm1", (None,) * len(self.source_ids))
         request_sources = []
         for source_id, payload in sources.items():
-            if not isinstance(source_id, str) or not isinstance(payload, Mapping) or set(payload) != {"sample_ids", "values"}:
+            if not isinstance(source_id, str) or not isinstance(payload, Mapping):
                 raise ValueError("each named source requires a source ID, sample_ids and values")
+            expected_axis = feature_axes[self.source_ids.index(source_id)] if source_id in self.source_ids else None
+            expected_fields = {"sample_ids", "values"} | ({"feature_axis_cm1"} if expected_axis is not None else set())
+            if set(payload) != expected_fields:
+                raise ValueError(f"named source {source_id!r} requires fields {sorted(expected_fields)!r}")
             request_sources.append({"source_id": source_id, "sample_ids": payload["sample_ids"]})
 
         import dag_ml
@@ -721,6 +738,14 @@ class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
                 raise ValueError(f"named source {source_id!r} has incompatible feature rows or width")
             if not np.issubdtype(values.dtype, np.number) or not np.all(np.isfinite(values)):
                 raise ValueError(f"named source {source_id!r} requires finite numeric features")
+            expected_axis = feature_axes[index]
+            if expected_axis is not None:
+                try:
+                    axis = np.asarray(payload["feature_axis_cm1"], dtype=float)
+                except (TypeError, ValueError) as exc:
+                    raise ValueError(f"named source {source_id!r} has invalid spectral axis") from exc
+                if axis.shape != (width,) or not np.array_equal(axis, np.asarray(expected_axis, dtype=float)):
+                    raise ValueError(f"named source {source_id!r} spectral axis differs from training")
             blocks.append(values[np.asarray(selection["row_indices"], dtype=int)])
         return blocks
 
@@ -1366,6 +1391,7 @@ class RunResult:
     # Signed evidence from an in-process by_source CV execute_training run.
     _dagml_training_outcome: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_portable_predictor_package: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_source_feature_axes: tuple[list[str] | None, ...] | None = field(default=None, repr=False)
 
     # The on-disk native results directory the 2b-i writer produced for this dag-ml run (recorded by
     # ``run_via_dagml`` when native results were enabled; ``None`` for an in-memory-only dag-ml run or a
@@ -2500,7 +2526,16 @@ class RunResult:
                 (index, names[index], f"output:source_{index}", _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]))
                 for index, artifact in indexed
             ]
-            independent_model = _DagmlNativeIndependentSourceModels(independent_members)
+            captured_axes = self._dagml_source_feature_axes
+            if captured_axes is not None and len(captured_axes) != len(independent_members):
+                return None
+            feature_axes = tuple(
+                axis if axis is not None and len(axis) == _estimator_feature_width(member.estimator) else None
+                for axis, (_index, _source_id, _binding_id, member) in zip(
+                    captured_axes or (None,) * len(independent_members), independent_members, strict=True,
+                )
+            )
+            independent_model = _DagmlNativeIndependentSourceModels(independent_members, feature_axes)
             if any(width is None for width in independent_model.source_widths):
                 return None
             native_manifest = cast(Mapping[str, Any], native["manifest"])
@@ -2515,7 +2550,9 @@ class RunResult:
                 "input_relation": "aligned_rows",
                 "outputs": [
                     {"source_id": source_id, "source_index": index, "output_binding_id": binding_id,
-                     "producer_node": artifact.get("producer_node"), "feature_width": independent_model.source_widths[index]}
+                     "producer_node": artifact.get("producer_node"), "feature_width": independent_model.source_widths[index],
+                     **({"feature_axis_cm1": list(independent_model.feature_axes_cm1[index] or ())}
+                        if independent_model.feature_axes_cm1[index] is not None else {})}
                     for (index, artifact), source_id, binding_id in zip(
                         indexed, independent_model.source_ids, independent_model.output_binding_ids, strict=True,
                     )

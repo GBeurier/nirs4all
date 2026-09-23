@@ -137,6 +137,7 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
             topology = json.loads(archive_file.read("manifest.json"))["dagml_independent_output_topology"]
         assert topology["schema_id"] == "dag-ml.host_independent_outputs.v1"
         assert [(entry["source_id"], entry["output_binding_id"]) for entry in topology["outputs"]] == list(zip(source_names, output_ids, strict=True))
+        assert all(len(entry["feature_axis_cm1"]) == entry["feature_width"] for entry in topology["outputs"])
         full_x = np.asarray(dataset.x({"partition": "test"}, "2d"))
         with pytest.raises(ValueError, match="multiple named outputs"):
             loader.predict(full_x)
@@ -152,9 +153,20 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
             named_sources["sources"][name] = {
                 "sample_ids": [named_sources["sample_ids"][row] for row in order],
                 "values": block[order],
+                "feature_axis_cm1": topology["outputs"][index]["feature_axis_cm1"],
             }
         named_outputs = loader.predict_outputs(named_sources)
         assert set(named_outputs) == set(output_ids)
+        mismatched_axis = {"sample_ids": named_sources["sample_ids"], "sources": {
+            name: dict(payload) for name, payload in named_sources["sources"].items()
+        }}
+        mismatched_axis["sources"][source_names[0]]["feature_axis_cm1"] = list(reversed(
+            named_sources["sources"][source_names[0]]["feature_axis_cm1"],
+        ))
+        with pytest.raises(ValueError, match="spectral axis differs"):
+            loader.predict_outputs(mismatched_axis)
+        with pytest.raises(ValueError, match="spectral axis differs"):
+            nirs4all.predict(archive, mismatched_axis, output=output_ids[0])
         for index, name in enumerate(source_names):
             expected = Ridge(alpha=1.0).fit(
                 np.asarray(train_blocks[index]).reshape(len(y_train), -1), y_train,
