@@ -44,6 +44,15 @@
       "note": "Native fitted-chain and archive replay comparisons use an eight-decimal absolute bound."
     },
     {
+      "band_id": "legacy_float32_cv_train_relative",
+      "numeric_path": "cross_impl_pipeline",
+      "metric_class": "prediction",
+      "abs_tol": 1e-7,
+      "rel_tol": 1e-7,
+      "enforced_at": "tests/integration/parity/test_dagml_cv_train_surface.py",
+      "note": "Legacy stores CV train predictions as float32 while DAG-ML retains float64. The public comparison combines this relative bound with the existing 1e-5 absolute prediction band to cover float32 quantization near 200 without a looser uniform absolute bound."
+    },
+    {
       "band_id": "pipeline_replay_practical",
       "numeric_path": "cross_impl_pipeline",
       "metric_class": "prediction",
