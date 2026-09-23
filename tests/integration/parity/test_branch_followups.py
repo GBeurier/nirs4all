@@ -220,3 +220,39 @@ def test_by_source_operator_generator_matches_per_source_oracle(generate_second_
     assert len(final_variants) == 1
     assert candidate_scores[final_variants.pop()] == pytest.approx(expected_selected, abs=1e-9)
     assert native.cv_best_score == pytest.approx(min(min(branches.values()) for branches in averages.values()), abs=1e-9)
+
+
+@pytest.mark.parametrize("in_process", [True, False], ids=["in_process", "cli"])
+def test_by_source_operator_product_refits_two_ranked_variants(monkeypatch: pytest.MonkeyPatch, in_process: bool) -> None:
+    """Each selected product refits both source models in either runtime."""
+    from ._dagml_cli import dagml_cli_path
+
+    if not in_process:
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if in_process else "0")
+    pipeline = [
+        ShuffleSplit(n_splits=2, random_state=42),
+        {"branch": {"by_source": True, "steps": {
+            "source_0": [{"_or_": [StandardScaler(), MinMaxScaler()]}, PLSRegression(5)],
+            "source_1": [{"_or_": [StandardScaler(), MinMaxScaler()]}, PLSRegression(5)],
+        }}},
+        {"merge": {"sources": "concat"}},
+    ]
+    legacy = nirs4all.run(pipeline, _two_source_distinct_dataset(), engine="legacy", refit={"top_k": 2}, save_artifacts=False, verbose=0)
+    legacy_configs = {row["config_name"] for row in legacy.predictions.filter_predictions() if row["fold_id"] == "final"}
+    assert len(legacy_configs) == 2
+    legacy.close()
+
+    native = nirs4all.run(pipeline, _two_source_distinct_dataset(), engine="dag-ml", refit={"top_k": 2}, save_artifacts=False, verbose=0)
+    selected = native.per_dataset[next(iter(native.per_dataset))]["selected_refit_variant_ids"]
+    assert len(selected) == 2
+    final_variants = {
+        row["result_metadata"]["dagml_projection"]["variant_id"]
+        for row in native.predictions.filter_predictions() if row["fold_id"] == "final"
+    }
+    assert final_variants == set(selected)
+    assert all(sum(variant_id in artifact["artifact_id"] for artifact in native._dagml_refit_artifacts) == 2 for variant_id in selected)
+    native.close()

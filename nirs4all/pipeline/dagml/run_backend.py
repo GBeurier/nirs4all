@@ -1206,7 +1206,7 @@ def _dispatch_run(
             list(pipeline), source_bodies, y_steps, spectro.features_sources(), spectro, dataset_arg, cli,
             venv_python or sys.executable, base_dir / "by_source_auto", metric,
             task_type, dataset_pickle=host_pickle, config_name=config_name,
-            random_state=random_state,
+            random_state=random_state, refit_top_k=refit_top_k,
         )
 
     # by_source shared preprocessing + concat feature merge + one downstream model → ONE native run:

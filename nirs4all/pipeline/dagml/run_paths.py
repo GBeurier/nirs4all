@@ -3527,6 +3527,7 @@ def _run_by_source_auto_models(
     n_sources: int, spectro: Any, dataset_arg: str, cli: str, venv_python: str,
     run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None,
     config_name: str = "", random_state: int | None = None,
+    refit_top_k: int = 1,
 ) -> RunResult:
     """Score every source-local model when auto merge has no downstream estimator."""
     import dag_ml
@@ -3567,7 +3568,7 @@ def _run_by_source_auto_models(
         dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
         workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
         selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
-        random_state=random_state,
+        random_state=random_state, refit_top_k=refit_top_k,
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml by_source auto model run failed")
@@ -3591,6 +3592,9 @@ def _run_by_source_auto_models(
             outcome["scores"], spectro.name, _model_name(source_bodies[name]), metric,
             task_type, producer=model_id, config_name=config_name,
             results_by_variant=results_by_variant, identity=identity,
+            refit_artifacts=outcome["refit_artifacts"],
+            emit_all_refits=refit_top_k > 1,
+            refit_name_suffix=f"_refit_rmsecvt{refit_top_k}" if refit_top_k > 1 else "_refit",
         )
         for row in local.predictions.filter_predictions(load_arrays=True):
             row["branch_id"] = index
@@ -3601,6 +3605,8 @@ def _run_by_source_auto_models(
     result._dagml_score_set = outcome["scores"]  # noqa: SLF001
     result._dagml_node_results = outcome["results"]  # noqa: SLF001
     result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    if refit_top_k > 1:
+        result.per_dataset[spectro.name]["selected_refit_variant_ids"] = outcome.get("selected_refit_variant_ids", [])
     return result
 
 
