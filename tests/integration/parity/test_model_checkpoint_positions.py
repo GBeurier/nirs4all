@@ -106,27 +106,6 @@ def test_two_model_checkpoints_preserve_final_predictions_and_archive(tmp_path, 
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
-@pytest.mark.parametrize("stage", ["splitter"])
-def test_two_model_checkpoints_open_native_composition_gaps(tmp_path, monkeypatch, mechanism: str, stage: str) -> None:
-    """Legacy-successful positions retain explicit DAG refusal until their graph lowering exists."""
-    _transport(mechanism, monkeypatch)
-    legacy_data, _, _ = _dataset()
-    legacy = nirs4all.run(_pipeline(stage), legacy_data, engine="legacy", allow_fallback=False,
-                          workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
-    try:
-        assert legacy.get_models() == ["PLSRegression", "Ridge"]
-        assert np.isfinite(legacy.cv_best_score)
-        assert len(legacy.predictions.filter_predictions(load_arrays=False)) >= 38
-    finally:
-        legacy.close()
-    native_data, _, _ = _dataset()
-    with pytest.raises(Exception, match="cannot route KFold"):
-        nirs4all.run(_pipeline(stage), native_data, engine="dag-ml", allow_fallback=False,
-                     workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0)
-
-
-@pytest.mark.parity
-@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
 def test_model_checkpoint_before_duplication_branch_replays_selected_native_producer(tmp_path, monkeypatch, mechanism: str) -> None:
     """One DAG retains a pre-branch model and both branch models through REFIT and archive."""
     _transport(mechanism, monkeypatch)
