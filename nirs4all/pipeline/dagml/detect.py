@@ -1787,7 +1787,8 @@ def _detect_proba_mean_stacking_branch(
         if aggregate not in {"separate", "mean", "weighted_mean", "proba_mean"}:
             return None
         valid_top_k = isinstance(select, dict) and set(select) == {"top_k"} and type(select["top_k"]) is int and 1 <= select["top_k"] <= model_count
-        if select not in ("all", "best") and not valid_top_k:
+        valid_explicit = isinstance(select, list) and bool(select) and all(isinstance(name, str) and name for name in select)
+        if select not in ("all", "best") and not valid_top_k and not valid_explicit:
             return None
         metric = config.get("metric") or "rmse"
         if not isinstance(metric, str) or not metric.strip():
