@@ -177,3 +177,39 @@ def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, test
         assert np.mean(replay == y_test) == pytest.approx(native.best_accuracy, abs=1e-6)
     finally:
         native.close()
+
+
+@pytest.mark.parity
+def test_two_named_metamodel_levels_expose_native_planner_gap(tmp_path):
+    """Legacy can consume a named meta-model as the source of another level."""
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.datasets import make_regression
+    from sklearn.linear_model import Lasso, Ridge
+    from sklearn.model_selection import KFold
+
+    import nirs4all
+
+    features, targets = make_regression(
+        n_samples=48, n_features=6, noise=0.1, random_state=42,
+    )
+    pipeline = [
+        KFold(3, shuffle=True, random_state=42),
+        PLSRegression(n_components=2),
+        Ridge(alpha=100),
+        {"model": MetaModel(Ridge(), source_models=["PLSRegression", "Ridge"], name="first")},
+        {"model": MetaModel(Lasso(alpha=0.1), source_models=["first"], name="second")},
+    ]
+    legacy = nirs4all.run(
+        pipeline, (features, targets), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    try:
+        assert np.isfinite(legacy.cv_best_score)
+    finally:
+        legacy.close()
+
+    with pytest.raises(Exception, match="sequential MetaModel requires a supported native OOF feature contract"):
+        nirs4all.run(
+            pipeline, (features, targets), engine="dag-ml", allow_fallback=False, refit=False,
+            workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0,
+        )

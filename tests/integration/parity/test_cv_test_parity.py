@@ -106,6 +106,67 @@ def test_fold_file_formats_keep_native_cv_and_test_rows(tmp_path, monkeypatch, m
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_fold_file_filters_a_small_number_of_unknown_sample_ids(tmp_path, monkeypatch, mechanism: str) -> None:
+    """A stale sample ID in a fold file does not change the valid folds."""
+    import nirs4all
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    rng = np.random.default_rng(42)
+    x = rng.normal(size=(20, 6))
+    y = x[:, 0] - x[:, 1]
+    folds = [
+        {"train": [*range(10, 20), 999], "val": list(range(10))},
+        {"train": list(range(10)), "val": list(range(10, 20))},
+    ]
+    fold_file = tmp_path / "folds.json"
+    fold_file.write_text(json.dumps(folds), encoding="utf-8")
+    pipeline = [{"split": str(fold_file)}, Ridge()]
+    legacy = nirs4all.run(
+        pipeline, (x, y), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    native = nirs4all.run(
+        pipeline, (x, y), engine="dag-ml", allow_fallback=False, refit=False,
+        workspace_path=tmp_path / mechanism, save_artifacts=False, save_charts=False, verbose=0,
+    )
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-5)
+        legacy_rows = {
+            (row["fold_id"], row["partition"]): row
+            for row in legacy.predictions.filter_predictions(load_arrays=True)
+        }
+        native_rows = {
+            (row["fold_id"], row["partition"]): row
+            for row in native.predictions.filter_predictions(load_arrays=True)
+        }
+        assert legacy_rows.keys() == native_rows.keys()
+        for key, row in legacy_rows.items():
+            native_row = native_rows[key]
+            native_order = np.argsort(np.asarray(native_row["sample_indices"]).ravel())
+            legacy_order = np.argsort(np.asarray(row["sample_indices"]).ravel())
+            np.testing.assert_array_equal(
+                np.asarray(native_row["sample_indices"]).ravel()[native_order],
+                np.asarray(row["sample_indices"]).ravel()[legacy_order],
+            )
+            np.testing.assert_allclose(
+                np.asarray(native_row["y_pred"]).ravel()[native_order],
+                np.asarray(row["y_pred"]).ravel()[legacy_order], atol=1e-5,
+            )
+    finally:
+        legacy.close()
+        native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("preprocessing", [False, True])
 def test_single_fold_file_augments_only_its_training_partition(tmp_path, monkeypatch, mechanism: str, preprocessing: bool) -> None:
     """A file-defined holdout remains outside augmentation and model fitting."""
