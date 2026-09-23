@@ -130,6 +130,75 @@ def test_tensorflow_nested_compile_fit_controls_match_legacy_and_replay(tmp_path
     result.close()
 
 
+@pytest.mark.tensorflow
+@pytest.mark.parity
+def test_tensorflow_custom_callbacks_are_not_a_working_legacy_run_contract(tmp_path, monkeypatch) -> None:
+    """The public legacy serializer turns callback instances into strings."""
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    tf = pytest.importorskip("tensorflow")
+    import nirs4all
+    from nirs4all.operators.models.tensorflow.nicon import customizable_decon
+    from nirs4all.pipeline.dagml.rt import RtError
+
+    class Probe(tf.keras.callbacks.Callback):
+        pass
+
+    rng = np.random.default_rng(2401)
+    x = rng.uniform(0, 1, (8, 64)).astype(np.float32)
+    y = rng.uniform(0, 1, (8, 1)).astype(np.float32)
+    pipeline = [
+        KFold(2),
+        {"model": customizable_decon, "train_params": {
+            "epochs": 1, "batch_size": 4, "custom_callbacks": [Probe()],
+        }},
+    ]
+    with pytest.raises(RuntimeError, match="'str' object has no attribute 'set_model'"):
+        nirs4all.run(pipeline, (x, y), engine="legacy", workspace_path=tmp_path / "legacy", save_charts=False, verbose=0)
+    with pytest.raises(RtError, match="not JSON serializable"):
+        nirs4all.run(pipeline, (x, y), engine="dag-ml", workspace_path=tmp_path / "dagml", save_charts=False, verbose=0)
+
+
+@pytest.mark.tensorflow
+@pytest.mark.parity
+def test_tensorflow_cyclic_lr_legacy_callback_runs_but_cannot_assign_keras3_lr(tmp_path, monkeypatch) -> None:
+    """The current Keras variable rejects legacy backend.set_value, leaving LR unchanged."""
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    tf = pytest.importorskip("tensorflow")
+    if not isinstance(tf.keras.optimizers.Adam().learning_rate.dtype, str):
+        pytest.skip("this Keras version does not have the Keras 3 learning-rate variable")
+    import nirs4all
+    from nirs4all.controllers.models.tensorflow.config import TensorFlowCallbackFactory
+    from nirs4all.operators.models.tensorflow.nicon import customizable_decon
+    from nirs4all.pipeline.dagml.rt import RtError
+
+    made = []
+    original = TensorFlowCallbackFactory.create_cyclic_lr
+
+    def record(train_params, verbose=0):
+        callback = original(train_params, verbose)
+        made.append(callback)
+        return callback
+
+    monkeypatch.setattr(TensorFlowCallbackFactory, "create_cyclic_lr", staticmethod(record))
+    rng = np.random.default_rng(2402)
+    x = rng.uniform(0, 1, (8, 64)).astype(np.float32)
+    y = rng.uniform(0, 1, (8, 1)).astype(np.float32)
+    pipeline = [
+        KFold(2),
+        {"model": customizable_decon, "train_params": {
+            "epochs": 1, "batch_size": 2, "verbose": 0, "best_model_memory": False,
+            "cyclic_lr": True, "cyclic_lr_params": {"base_lr": 0.0001, "max_lr": 0.001, "step_size": 1},
+        }},
+    ]
+    result = nirs4all.run(pipeline, (x, y), engine="legacy", workspace_path=tmp_path / "legacy", save_charts=False, verbose=0)
+    assert np.isfinite(result.cv_best_score)
+    assert [callback.clr_iterations for callback in made] == [2, 2, 4]
+    assert [float(callback.model.optimizer.learning_rate.numpy()) for callback in made] == pytest.approx([0.001] * 3)
+    result.close()
+    with pytest.raises(RtError, match="cyclic_lr"):
+        nirs4all.run(pipeline, (x, y), engine="dag-ml", workspace_path=tmp_path / "dagml", save_charts=False, verbose=0)
+
+
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parity
 def test_cv_without_refit_uses_native_scores_and_no_refit_artifact(monkeypatch, mechanism: str) -> None:
