@@ -264,7 +264,7 @@ def test_n4m_finetune_params_use_native_scoped_search_and_export(tmp_path, monke
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 def test_optuna_storage_keeps_outer_training_scopes_separate(tmp_path, monkeypatch, mechanism):
-    pytest.importorskip("optuna")
+    optuna = pytest.importorskip("optuna")
     import nirs4all
 
     X, y = _data()
@@ -293,13 +293,33 @@ def test_optuna_storage_keeps_outer_training_scopes_separate(tmp_path, monkeypat
     assert len(names) == len(set(names)) == 3
     assert all(name.startswith("dag:scope:") for name in names)
     assert np.isfinite(result.cv_best_score)
+    first_score = result.cv_best_score
     result.close()
 
-    with pytest.raises(Exception, match="paired native DAG trial checkpoint"):
+    resumed = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "dag", "resume": True}}],
+        (X, y), engine="dag-ml", save_charts=False,
+    )
+    assert resumed.cv_best_score == pytest.approx(first_score)
+    assert all(len(optuna.load_study(study_name=name, storage=storage).trials) == 2 for name in names)
+    resumed.close()
+
+    extended = nirs4all.run(
+        [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "n_trials": 3, "study_name": "dag", "resume": True}}],
+        (X, y), engine="dag-ml", save_charts=False,
+    )
+    assert all(len(optuna.load_study(study_name=name, storage=storage).trials) == 3 for name in names)
+    extended.close()
+
+    unpaired = optuna.load_study(study_name=names[0], storage=storage)
+    unpaired.set_user_attr("nirs4all_dagml_host_hpo_checkpoint_v1", None)
+    with pytest.raises(Exception) as missing_pair:
         nirs4all.run(
-            [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "dag", "resume": True}}],
+            [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "n_trials": 3, "study_name": "dag", "resume": True}}],
             (X, y), engine="dag-ml", save_charts=False,
         )
+    expected_error = "paired native DAG trial checkpoint" if mechanism == "in_process" else "dag-ml engine run failed"
+    assert expected_error in str(missing_pair.value)
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
