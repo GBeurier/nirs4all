@@ -402,6 +402,12 @@ def _apply_model_params(steps: list[Any]) -> list[Any]:
     out: list[Any] = []
     for step in steps:
         if isinstance(step, dict) and "model" in step:
+            from .autogluon_estimator import autogluon_step_estimator
+
+            autogluon = autogluon_step_estimator(step)
+            if autogluon is not None:
+                out.append({**{key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS and key not in {"params", "model_params"}}, "model": autogluon})
+                continue
             params = {key: value for key, value in step.items() if key not in _RESERVED_STEP_KEYS}
             if params:
                 factory_step = _apply_framework_factory_params(step, params)
@@ -557,6 +563,12 @@ def _apply_plain_model_params(steps: list[Any]) -> list[Any]:
     out: list[Any] = []
     for step in steps:
         if isinstance(step, dict) and "model" in step:
+            from .autogluon_estimator import autogluon_step_estimator
+
+            autogluon = autogluon_step_estimator(step)
+            if autogluon is not None:
+                out.append({**{key: value for key, value in step.items() if key in _RESERVED_STEP_KEYS and key not in {"params", "model_params"}}, "model": autogluon})
+                continue
             # The step's native `_grid_` key (if any) is kept on the step for the bridge to lower; a
             # per-param `_range_`/`_log_range_` sibling is kept too. Everything else non-reserved is a
             # plain hyperparameter set on the model clone.

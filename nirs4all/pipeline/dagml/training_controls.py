@@ -35,16 +35,21 @@ def validate_training_control_declarations(value: Any) -> None:
         if metadata:
             from sklearn.base import clone
 
+            from .autogluon_estimator import autogluon_step_estimator
             from .framework_estimator import DagMLFrameworkEstimator, framework_model_params
             from .torch_estimator import DagMLTorchEstimator, torch_model_params
 
-            torch_params = torch_model_params(model)
-            if torch_params is not None:
-                model = DagMLTorchEstimator(**torch_params)
+            autogluon = autogluon_step_estimator(value)
+            if autogluon is not None:
+                model = autogluon
             else:
-                framework_params = framework_model_params(model)
-                if framework_params is not None:
-                    model = DagMLFrameworkEstimator(**framework_params)
+                torch_params = torch_model_params(model)
+                if torch_params is not None:
+                    model = DagMLTorchEstimator(**torch_params)
+                else:
+                    framework_params = framework_model_params(model)
+                    if framework_params is not None:
+                        model = DagMLFrameworkEstimator(**framework_params)
 
             apply_model_training_controls(clone(model), metadata, "FIT_CV")
             apply_model_training_controls(clone(model), metadata, "REFIT")
@@ -111,6 +116,13 @@ def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase
     reserved = {"reset_gpu", "fit_influence"} & controls.keys()
     if reserved:
         raise NotImplementedError(f"training controls require their specialized controller owner: {sorted(reserved)}")
+    from .autogluon_estimator import DagMLAutoGluonEstimator
+
+    if isinstance(model, DagMLAutoGluonEstimator):
+        model.fit_params = {**(model.fit_params or {}), **controls}
+        return {"schema": "nirs4all.model-training-controls.v1", "phase": phase,
+                "model_params": encode_training_controls(controls, name="effective model parameters"),
+                "pipeline_fold_policy_for_aom": pipeline_fold_policy, "verbose": verbose}
     defaults = model.get_params(deep=True) if controls and callable(getattr(model, "get_params", None)) else {}
     unknown = sorted(controls.keys() - defaults.keys())
     if unknown:
