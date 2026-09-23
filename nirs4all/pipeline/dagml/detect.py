@@ -1440,7 +1440,7 @@ def _is_default_except_level(config: Any) -> bool:
     return normalized == StackingConfig()
 
 
-def _meta_learner(model_step: dict[str, Any]) -> Any | None:
+def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False) -> Any | None:
     """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
 
     Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
@@ -1449,7 +1449,8 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
     sklearn estimator that fits on the meta-feature matrix.
 
     Returns ``None`` (→ fail loud, never run wrong) for any MetaModel option this slice does not honor:
-    a non-default ``source_models`` list, ``use_proba``, a custom ``selector``, a ``finetune_space``, a
+    a non-default ``source_models`` list, ``use_proba`` unless explicitly allowed by the caller,
+    a custom ``selector``, a ``finetune_space``, a
     non-AUTO/non-1 stacking ``level``, OR any OTHER non-default ``stacking_config`` field
     (``test_aggregation``, ``coverage_strategy``, … — silently ignored by the lowering; see
     :func:`_is_default_except_level`).
@@ -1471,7 +1472,7 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
         config = model.stacking_config
         if (
             model.source_models != "all"
-            or model.use_proba
+            or (model.use_proba and not allow_proba)
             or model.selector is not None
             or model.finetune_space is not None
             or config.level not in (StackingLevel.AUTO, StackingLevel.LEVEL_1)
@@ -1485,12 +1486,13 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
     return None
 
 
-def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[Any], Any] | None:
+def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[Any], Any, bool] | None:
     """A single base estimator followed by a default MetaModel wrapper.
 
     Legacy accepts this spelling without an explicit branch/merge. Keep the
-    recognizer narrow: other operators, multiple bases, probability features,
-    and non-default MetaModel options need separately proven graph contracts.
+    recognizer narrow: other operators, multiple bases, and non-default
+    MetaModel options need separately proven graph contracts. Probability
+    features are a one-model branch reduction over class-probability OOF.
     """
     from nirs4all.operators.models.meta import MetaModel
 
@@ -1502,7 +1504,7 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[Any], Any] |
     wrapper = steps[-1].get("model")
     if not isinstance(wrapper, MetaModel):
         return None
-    learner = _meta_learner(steps[-1])
+    learner = _meta_learner(steps[-1], allow_proba=True)
     if learner is None:
         return None
     base = steps[0]
@@ -1514,7 +1516,7 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[Any], Any] |
         operator = base
     if not (hasattr(operator, "fit") and hasattr(operator, "predict")):
         return None
-    return [{"model": operator}], learner
+    return [{"model": operator}], learner, wrapper.use_proba
 
 
 def _branch_local_meta_model_step(model_step: dict[str, Any]) -> dict[str, Any] | None:

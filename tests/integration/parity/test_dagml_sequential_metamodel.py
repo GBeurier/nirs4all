@@ -10,7 +10,7 @@ from nirs4all.operators.models import MetaModel
 
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
 @pytest.mark.parametrize("use_proba", [False, True])
-def test_sequential_classification_metamodel_uses_native_oof_or_refuses_proba(use_proba, mechanism, monkeypatch):
+def test_sequential_classification_metamodel_uses_native_oof(use_proba, mechanism, monkeypatch):
     import nirs4all
 
     if mechanism == "cli":
@@ -34,12 +34,22 @@ def test_sequential_classification_metamodel_uses_native_oof_or_refuses_proba(us
                           save_artifacts=False, save_charts=False, verbose=0)
     assert legacy.cv_best_score == pytest.approx(0.9333333333333333)
 
-    if use_proba:
-        with pytest.raises(Exception, match="sequential MetaModel.*probability features"):
-            nirs4all.run(pipeline, (features, targets), engine="dag-ml", refit=False,
+    native = nirs4all.run(pipeline, (features, targets), engine="dag-ml", refit=False,
                          save_artifacts=False, save_charts=False, verbose=0)
-    else:
-        native = nirs4all.run(pipeline, (features, targets), engine="dag-ml", refit=False,
-                             save_artifacts=False, save_charts=False, verbose=0)
+    if not use_proba:
         assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-8)
-        assert native.cv_best["model_name"] == "MetaModel_LogisticRegression"
+    else:
+        # Native nested OOF evaluation is stricter than legacy's reuse of the
+        # base CV predictions, so the validation score need not be identical.
+        assert native.cv_best_score == pytest.approx(0.7)
+        if mechanism == "pyo3":
+            probability_blocks = [
+                block for node in native._dagml_node_results
+                for block in node.get("predictions", [])
+                if str(block.get("producer_node", "")).startswith("branch:")
+                and block.get("partition") == "validation"
+            ]
+            assert probability_blocks
+            assert all(len(row) == 2 and sum(row) == pytest.approx(1.0)
+                       for block in probability_blocks for row in block["values"])
+    assert native.cv_best["model_name"] == "MetaModel_LogisticRegression"
