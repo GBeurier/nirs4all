@@ -3686,7 +3686,9 @@ def _run_by_source_auto_models(
             row["branch_name"] = name
             predictions.extend_from_list([row])
     predictions.flush()
-    result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+    result = RunResult(predictions=predictions, per_dataset={spectro.name: {
+        "engine": "dag-ml", "output_topology": "independent_by_source",
+    }})
     result._dagml_score_set = outcome["scores"]  # noqa: SLF001
     result._dagml_node_results = outcome["results"]  # noqa: SLF001
     result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001

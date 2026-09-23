@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import zipfile
+
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
@@ -132,6 +135,24 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         with pytest.raises(RtError, match="independent source predictions"):
             result.export(archive, compatibility="legacy-refit")
         assert not archive.exists()
+        selected = next(row for row in rows if row["branch_name"] == source_names[1])
+        selected_archive = tmp_path / f"by_source_selected_{mode}.n4a"
+        result.export(selected_archive, source=selected)
+        from nirs4all.pipeline.bundle.loader import BundleLoader
+
+        with zipfile.ZipFile(selected_archive) as archive_file:
+            manifest = json.loads(archive_file.read("manifest.json"))
+        assert manifest["dagml_native_export_shape"] == "independent_by_source_selected"
+        assert manifest["dagml_selected_source"]["name"] == source_names[1]
+        assert manifest["dagml_selected_source"]["index"] == 1
+        selected_x = np.asarray(test_blocks[1]).reshape(len(test_blocks[1]), -1)
+        selected_prediction = BundleLoader(selected_archive).predict(selected_x)
+        expected_selected = Ridge(alpha=1.0).fit(
+            np.asarray(train_blocks[1]).reshape(len(y_train), -1), y_train,
+        ).predict(selected_x)
+        np.testing.assert_allclose(np.asarray(selected_prediction).ravel(), np.asarray(expected_selected).ravel(), atol=1e-6)
+        with pytest.raises(ValueError, match="source= must identify"):
+            result.export(tmp_path / f"forged_{mode}.n4a", source={"id": "foreign"})
 
 
 @pytest.mark.parity

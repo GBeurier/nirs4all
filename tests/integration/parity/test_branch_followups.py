@@ -26,6 +26,51 @@ from .test_dagml_cli_runner import _equal_rep_dataset, _two_source_distinct_data
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_by_source_auto_cv_exports_only_explicit_source(tmp_path, monkeypatch, mechanism: str) -> None:
+    """An independent CV output replays only when its source row is named."""
+    from nirs4all.pipeline.bundle.loader import BundleLoader
+    from nirs4all.pipeline.dagml.rt import RtError
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    dataset = DatasetConfigs(dataset_path("multi")).get_dataset_at(0)
+    names = [f"source_{index}" for index in range(dataset.features_sources())]
+    pipeline = [KFold(2, shuffle=True, random_state=1), {
+        "branch": {"by_source": True, "steps": {
+            name: [{"model": Ridge(alpha=1.0)}] for name in names
+        }},
+    }, {"merge": "auto"}]
+    legacy = nirs4all.run(
+        pipeline, dataset_path("multi"), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert legacy.num_predictions > 0
+    legacy.close()
+    result = nirs4all.run(
+        pipeline, dataset_path("multi"), engine="dag-ml", refit=True,
+        workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert result.per_dataset[next(iter(result.per_dataset))]["output_topology"] == "independent_by_source"
+    with pytest.raises(RtError, match="independent source predictions"):
+        result.export(tmp_path / "ambiguous.n4a")
+    rows = [row for row in result.predictions.filter_predictions(load_arrays=True)
+            if row.get("fold_id") == "final" and row.get("partition") == "test"
+            and row.get("branch_name") == names[1]]
+    assert len(rows) == 1
+    archive = result.export(tmp_path / "selected.n4a", source=rows[0])
+    x = np.asarray(dataset.x({"partition": "test"}, "3d", concat_source=False)[1])
+    replay = BundleLoader(archive).predict(x.reshape(len(x), -1))
+    np.testing.assert_allclose(np.asarray(replay).ravel(), np.asarray(rows[0]["y_pred"]).ravel(), atol=1e-6)
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 def test_metadata_branch_cv_without_refit_matches_legacy(monkeypatch: pytest.MonkeyPatch, mechanism: str) -> None:
     """Native fan-out evaluates both metadata groups without fitting final models."""
     if mechanism == "subprocess":

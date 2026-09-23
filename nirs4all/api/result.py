@@ -1994,13 +1994,15 @@ class RunResult:
         ``RtError`` that points to ``nirs4all-tools`` conversion or the explicit compatibility opt-in. It
         never re-runs the pipeline through ``engine="legacy"`` implicitly. To deliberately request the old
         refit bridge, pass ``compatibility="legacy-refit"``; this re-runs the frozen pipeline through the
-        legacy engine and is best-effort for stochastic pipelines. ``source`` / ``chain_id`` are not
-        supported for a dag-ml run (they reference its non-existent workspace).
+        legacy engine and is best-effort for stochastic pipelines. Independent ``by_source`` outputs
+        can instead export one explicitly selected final prediction row with ``source=``.
+        ``chain_id`` is not supported for a dag-ml run.
 
         Args:
             output_path: Path for the exported bundle file.
             format: Export format ('n4a' or 'n4a.py').
-            source: Prediction dict to export. If None, exports best model.
+            source: Final prediction row to export from an independent dag-ml
+                ``by_source`` result. Otherwise, a legacy workspace prediction dict.
             chain_id: Chain identifier for store-based export.
                 When provided, ``source`` is ignored and the chain is
                 exported directly from the workspace store.
@@ -2021,28 +2023,38 @@ class RunResult:
         # dag-ml exports use captured native artifacts by default. The legacy refit bridge is available
         # only through the explicit compatibility opt-in above.
         if self._is_dagml_engine():
+            independent_sources = any(
+                dataset.get("output_topology") == "independent_by_source"
+                for dataset in self.per_dataset.values()
+            )
+            if independent_sources:
+                if source is None or chain_id is not None or legacy_refit_compatibility:
+                    from nirs4all.pipeline.dagml.rt import RtError
+
+                    raise RtError(
+                        "export",
+                        "unsupported_capability",
+                        "engine='dag-ml' by_source merge:auto has independent source predictions; "
+                        "export requires an explicit final prediction row in source=.",
+                        mitigation=("Select one final row from result.predictions and pass it as source=, "
+                                    "or train with an explicit merge:mean."),
+                        unsupported_capability=_DAGML_EXPORT_UNSUPPORTED_CAPABILITY,
+                    )
+                identifier = source.get("id") or source.get("prediction_id")
+                selected = self.predictions.get_prediction_by_id(identifier, load_arrays=False) if identifier else None
+                if selected is None or selected.get("fold_id") != "final" or selected.get("branch_id") is None:
+                    raise ValueError("source= must identify one final prediction row from this independent-source result")
+                native = self._dagml_native_export_bundle(output_path, format, selected_source=selected)
+                if native is not None:
+                    return native
+                raise self._dagml_export_refusal(
+                    "export", "the selected source has no replayable native REFIT artifact",
+                )
             if source is not None or chain_id is not None:
                 raise NotImplementedError(
                     "engine='dag-ml' export does not support an explicit source=/chain_id= (they reference "
                     "the dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export(path) (no source/chain_id)."
-                )
-            if any(
-                dataset.get("output_topology") == "independent_by_source"
-                for dataset in self.per_dataset.values()
-            ):
-                from nirs4all.pipeline.dagml.rt import RtError
-
-                raise RtError(
-                    "export",
-                    "unsupported_capability",
-                    "engine='dag-ml' by_source merge:auto produces independent source predictions "
-                    "and has no single output to replay from a .n4a archive.",
-                    mitigation=(
-                        "Use an explicit fusion merge such as merge:mean to export one prediction, "
-                        "or train and export a selected source as a separate pipeline."
-                    ),
-                    unsupported_capability=_DAGML_EXPORT_UNSUPPORTED_CAPABILITY,
                 )
             if legacy_refit_compatibility:
                 delegate = self._dagml_export_delegate()
@@ -2125,7 +2137,10 @@ class RunResult:
 
         Returns the written path on success, or ``None`` to signal that the native export is not applicable.
         The default caller raises a structured refusal; only ``compatibility="legacy-refit"`` can choose the
-        legacy bridge before this helper is attempted.
+        legacy bridge before this helper is attempted. For an independent
+        ``by_source`` result, ``source=`` must name one final prediction row;
+        its captured source model is exported without selecting or combining
+        the other outputs.
 
         * no native dir;
         * the requested export is NOT joblib (an explicit non-joblib ``format`` such as ``cloudpickle`` /
@@ -2244,7 +2259,9 @@ class RunResult:
             logger.debug("native dag-ml train_pipeline.json is unavailable: %s", exc)
             return None
 
-    def _dagml_native_export_bundle(self, output_path: str | Path, format: str) -> Path | None:
+    def _dagml_native_export_bundle(
+        self, output_path: str | Path, format: str, *, selected_source: Mapping[str, Any] | None = None,
+    ) -> Path | None:
         """Export a NATIVE ``.n4a`` bundle from captured dag-ml refit artifacts when safely replayable.
 
         The single-artifact path is the ``.n4a`` bundle counterpart of
@@ -2269,13 +2286,17 @@ class RunResult:
 
         Returns the written path on success, or ``None`` to signal that the native bundle is not applicable.
         The default caller raises a structured refusal; only ``compatibility="legacy-refit"`` can choose the
-        legacy bridge before this helper is attempted.
+        legacy bridge before this helper is attempted. For an independent
+        ``by_source`` result, ``source=`` must name one final prediction row;
+        its captured source model is exported without selecting or combining
+        the other outputs.
 
         * no native dir;
         * a non-``n4a`` format (the ``n4a.py`` PORTABLE SCRIPT embeds artifacts through the legacy
-          generator's template path and is out of this native writer's scope; the default path refuses
+        generator's template path and is out of this native writer's scope; the default path refuses
           rather than silently substituting a ZIP bundle);
-        * a multi-artifact shape other than the supported branch / by_source mean-fusion or stacking replay;
+        * a multi-artifact shape other than the supported branch / by_source mean-fusion,
+          explicitly selected independent source, or stacking replay;
         * ANY native-read/rehydrate failure — a tampered/edited manifest (verify-then-load ``ValueError``), a
           missing/malformed native dir (``FileNotFoundError`` / ``KeyError`` / parquet error), OR a
           fingerprint-valid but UNLOADABLE artifact (``EOFError`` / ``UnpicklingError`` / ``ModuleNotFoundError``
@@ -2301,6 +2322,37 @@ class RunResult:
         except Exception as exc:  # noqa: BLE001 -- default contract: ANY native-read failure → stable refusal
             logger.debug("native dag-ml .n4a export is unavailable: %s", exc)
             return None
+        if selected_source is not None:
+            indexed = _indexed_branch_artifacts(artifacts)
+            if indexed is None or len(indexed) < 2:
+                return None
+            try:
+                source_index = int(selected_source["branch_id"])
+            except (KeyError, TypeError, ValueError):
+                return None
+            source_artifacts = [artifact for index, artifact in indexed if index == source_index]
+            if len(source_artifacts) != 1:
+                return None
+            artifact = source_artifacts[0]
+            model = _DagmlExportedModel(artifact["estimator"], artifact["y_transform"])
+            from nirs4all.pipeline.bundle import write_single_model_bundle
+
+            native_manifest = cast(Mapping[str, Any], native["manifest"])
+            source_name = str(selected_source.get("branch_name") or f"source_{source_index}")
+            provenance = _dagml_native_bundle_provenance(
+                native_manifest, export_path="dagml_native_selected_source",
+                artifact_count=1, export_shape="independent_by_source_selected",
+                retrain_lineage=getattr(self, "_retrain_lineage", None),
+            )
+            provenance["dagml_selected_source"] = {"name": source_name, "index": source_index,
+                                                   "producer_node": artifact.get("producer_node")}
+            return write_single_model_bundle(
+                model, output_path,
+                model_label=str(selected_source.get("model_name") or source_name),
+                pipeline_uid=str(native_manifest.get("run_id") or ""),
+                provenance=provenance,
+                train_steps=None,  # The original multi-output pipeline is not this selected model.
+            )
         if len(artifacts) > 1:
             primary = self._dagml_top_k_primary_artifact(artifacts)
             if primary is not None:
