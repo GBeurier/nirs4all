@@ -17,11 +17,12 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from nirs4all.api.result import RunResult
 from nirs4all.core.metrics import is_higher_better
 from nirs4all.data.predictions import Predictions
 
 if TYPE_CHECKING:
+    from nirs4all.api.result import RunResult
+
     from .identity import IdentityMap
 
 # Public partition names in the Predictions schema.
@@ -296,6 +297,8 @@ def _scores_to_run_result(
     multiple times. Held-out test fold and ensemble reports are projected when
     DAG-ML emits them; their scores remain native.
     """
+    from nirs4all.api.result import RunResult
+
     reports = [
         report for report in (scores or {}).get("reports", [])
         if (producer is None or report.get("producer_node") == producer)
