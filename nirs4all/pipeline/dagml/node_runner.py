@@ -1538,7 +1538,11 @@ def run_model_node(
         (final_ids, _PREDICTION_PARTITION[phase], task.get("fold_id") if phase == "FIT_CV" else None, predict_is_train)
     ]
     if phase == "FIT_CV" and train_ids:
-        specs.append((train_ids, "train", task.get("fold_id"), True))
+        score_augmented_cv_train = (
+            include_augmented_fit
+            and bool((fit_view or {}).get("extra", {}).get("include_augmented_cv_train_predictions"))
+        )
+        specs.append((fit_ids if score_augmented_cv_train else train_ids, "train", task.get("fold_id"), True))
         # The legacy CV ensemble asks every fold estimator to predict the
         # complete training pool. Keep this report-only surface distinct from
         # the fold's own in-sample `train` measurement and validation OOF.

@@ -2128,6 +2128,30 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         for binding in dsl["data_bindings"][:len(checkpoint_steps)]:
             binding["view_policy"] = {"include_augmented_train": False}
 
+    # The native FoldSet stays base-grain for OOF validation. Declare the exact
+    # synthetic observations fitted in each fold separately so only the CV
+    # in-sample `train` report can include them. A fold-local augmenter creates
+    # distinct children per fold; a global stateless augmenter shares children
+    # whose origins belong to the fold's training cohort.
+    origin_by_sample = dict(zip(samples, origins, strict=True))
+    augmented_train_by_fold: dict[str, list[str]] = {}
+    for fold_index, (train_ints, _validation_ints) in enumerate(base_folds):
+        fold_label = f"fold{fold_index}"
+        train_set = set(train_ints)
+        if fold_children is None:
+            children = [sample for sample in augmented_ints if origin_by_sample[sample] in train_set]
+        else:
+            excluded = (fold_feature_views[fold_label][2]
+                        if fold_feature_views is not None and fold_label in fold_feature_views else set())
+            children = [sample for child_ids in fold_children.get(fold_label, {}).values()
+                        for sample in child_ids if origin_by_sample[sample] in train_set and sample not in excluded]
+        augmented_train_by_fold[fold_label] = [identity.to_wire(sample) for sample in children]
+    for binding in dsl["data_bindings"][len(checkpoint_steps):]:
+        binding.setdefault("view_policy", {}).update({
+            "include_augmented_cv_train_predictions": True,
+            "augmented_cv_train_prediction_ids_by_fold": augmented_train_by_fold,
+        })
+
     run_dir.mkdir(parents=True, exist_ok=True)
     pickle_path = run_dir / "augmented_dataset.pkl"
     # Fold-local pickles the dataset + the fold→children map (the resolver's per-fold expansion); the
