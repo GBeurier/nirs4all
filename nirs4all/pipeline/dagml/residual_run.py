@@ -62,10 +62,14 @@ def run_residual_model(
     prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
     if any(step["kind"] != "transform" for step in prefix_steps):
         raise DagMlUnsupported("residual prefix currently requires X preprocessing steps")
-    if operator.finetune_space:
-        raise DagMlUnsupported("residual learner finetune_space needs nested native selection")
     if operator.gate == "auto":
         raise DagMlUnsupported("automatic residual gate needs nested learner OOF evidence")
+
+    learner_finetune: dict[str, Any] = {}
+    if operator.finetune_space:
+        from .host_finetune import validate_host_finetune
+
+        learner_finetune = validate_host_finetune(operator.finetune_space)
 
     import dag_ml
 
@@ -95,6 +99,10 @@ def run_residual_model(
                     "residual_lambda": operator.lam,
                     "residual_gate": operator.gate,
                     "residual_rli_threshold": operator.rli_threshold,
+                    **({
+                        "nirs4all_finetune_params": learner_finetune,
+                        "nirs4all_finetune_model_param_order": list(learner_finetune["model_params"]),
+                    } if learner_finetune else {}),
                 },
                 **({"train_params": operator.train_params} if operator.train_params else {}),
             },

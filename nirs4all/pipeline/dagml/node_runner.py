@@ -921,7 +921,14 @@ def _resolve_finetune_best_params(
     from .training_controls import effective_training_controls
 
     x_train = np.asarray(resolver.resolve_features(train_ids, include_augmented=False)["values"])
-    y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
+    residual_targets = task.get("residual_targets")
+    if isinstance(residual_targets, dict):
+        by_sample = dict(zip(residual_targets["sample_ids"], residual_targets["values"], strict=True))
+        if set(by_sample) != set(train_ids):
+            raise ValueError("residual finetune targets must exactly cover the learner train scope")
+        y_train = np.asarray([by_sample[sample_id] for sample_id in train_ids], dtype=float)
+    else:
+        y_train = np.asarray(resolver.resolve_targets(train_ids)["values"], dtype=float)
     best_params, evidence = run_scoped_finetune(
         model, upstream, x_train, y_train, finetune_params,
         scope={"node_id": node_id, "variant_id": variant_label, "phase": task["phase"], "fold_id": task.get("fold_id"), "training_sample_ids": train_ids},
