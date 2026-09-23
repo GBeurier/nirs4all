@@ -236,7 +236,7 @@ def test_full_train_checkpoints_across_augmentation_match_legacy(
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("interleaving", [
-    "x_transform", "exclude_before", "exclude_after", "two_augmentations", "contiguous_augmentations", "y_transform",
+    "x_transform", "x_after_augmentation", "exclude_before", "exclude_after", "two_augmentations", "contiguous_augmentations", "y_transform",
 ])
 def test_interleaved_augmentation_checkpoints_match_legacy(
     tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, interleaving: str,
@@ -258,6 +258,7 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
     exclusion = {"exclude": YOutlierFilter(method="iqr", threshold=1.0)}
     middle = {
         "x_transform": [StandardScaler(), augmentation(42)],
+        "x_after_augmentation": [augmentation(42), StandardScaler()],
         "exclude_before": [exclusion, augmentation(42)],
         "exclude_after": [augmentation(42), exclusion],
         "two_augmentations": [augmentation(42), StandardScaler(), augmentation(43)],
@@ -306,6 +307,7 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
                 np.testing.assert_allclose(
                     [native_by_id[sample_id] for sample_id in legacy_by_id],
                     list(legacy_by_id.values()), rtol=1e-4, atol=2e-3,
+                    err_msg=f"{interleaving}: {model_name} {partition} fold={fold_id}",
                 )
                 score_key = "test_score" if partition == "test" else "val_score"
                 assert native_row[score_key] == pytest.approx(legacy_row[score_key], abs=1e-4)
@@ -324,7 +326,7 @@ def test_interleaved_augmentation_checkpoints_match_legacy(
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.parametrize("interleaving", [
-    "x_transform", "exclude_before", "exclude_after", "two_augmentations", "contiguous_augmentations", "y_transform",
+    "x_transform", "x_after_augmentation", "exclude_before", "exclude_after", "two_augmentations", "contiguous_augmentations", "y_transform",
 ])
 def test_unsplit_interleaved_augmentation_checkpoints_match_legacy(
     tmp_path, monkeypatch: pytest.MonkeyPatch, mechanism: str, interleaving: str,
@@ -346,6 +348,7 @@ def test_unsplit_interleaved_augmentation_checkpoints_match_legacy(
     exclusion = {"exclude": YOutlierFilter(method="iqr", threshold=1.0)}
     middle = {
         "x_transform": [StandardScaler(), augmentation(42)],
+        "x_after_augmentation": [augmentation(42), StandardScaler()],
         "exclude_before": [exclusion, augmentation(42)],
         "exclude_after": [augmentation(42), exclusion],
         "two_augmentations": [augmentation(42), StandardScaler(), augmentation(43)],

@@ -1621,16 +1621,25 @@ def _materialize_augmentation_prefix(
 
 
 def _post_augmentation_exclusion_prefix_length(steps: list[Any]) -> int:
-    """How much of a post-augmentation transform/exclude prefix must run in order."""
+    """How much of a post-augmentation transform/exclude prefix runs before modeling."""
     from .detect import _is_exclude_step
 
+    transform_end = 0
+    for step in steps:
+        is_transform = (
+            isinstance(step, dict) and "preprocessing" in step
+        ) or (not isinstance(step, dict) and hasattr(step, "fit") and hasattr(step, "transform")
+              and not hasattr(step, "predict"))
+        if not (is_transform or _is_exclude_step(step)):
+            break
+        transform_end += 1
     exclude_indices = [index for index, step in enumerate(steps) if _is_exclude_step(step)]
     if not exclude_indices:
-        return 0
+        return transform_end
     end = exclude_indices[-1] + 1
     if any(_is_split_step(step) or (isinstance(step, dict) and any(key in step for key in ("model", "branch", "merge"))) for step in steps[:end]):
         raise DagMlUnsupported("exclude after a splitter, model or branch cannot be materialized before augmentation training")
-    return end
+    return max(end, transform_end)
 
 
 def _run_augmentation_full_train(
@@ -1647,10 +1656,13 @@ def _run_augmentation_full_train(
 
     pre_aug_steps = pipeline[:aug_indices[0]]
     early_models = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    next_model = next((index for index in range(aug_indices[-1] + 1, len(pipeline))
+                       if isinstance(pipeline[index], dict) and "model" in pipeline[index]), len(pipeline))
     if early_models and (
         pre_aug_steps[-len(early_models):] != early_models
         or len(aug_indices) > 1
         or aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
+        or any(not _is_split_step(step) for step in pipeline[aug_indices[-1] + 1:next_model])
         or any(_is_exclude_step(step) for step in pipeline[aug_indices[-1] + 1:])
     ):
         return _run_interleaved_full_train_checkpoints(
@@ -1911,10 +1923,13 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
     pre_aug_steps = pipeline[:aug_indices[0]]
     early_models = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    next_model = next((index for index in range(aug_indices[-1] + 1, len(pipeline))
+                       if isinstance(pipeline[index], dict) and "model" in pipeline[index]), len(pipeline))
     if early_models and (
         pre_aug_steps[-len(early_models):] != early_models
         or len(aug_indices) > 1
         or aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
+        or any(not _is_split_step(step) for step in pipeline[aug_indices[-1] + 1:next_model])
         or any(_is_exclude_step(step) for step in pipeline[aug_indices[-1] + 1:])
     ):
         return _run_interleaved_augmentation_checkpoints(
@@ -1933,7 +1948,8 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         pipeline = list(pipeline)
         splitter_step = pipeline.pop(early_splitters[0])
         last_aug = max(index for index, step in enumerate(pipeline) if _is_augmentation_step(step))
-        pipeline.insert(last_aug + 1, splitter_step)
+        ordered_post_aug = _post_augmentation_exclusion_prefix_length(pipeline[last_aug + 1:])
+        pipeline.insert(last_aug + 1 + ordered_post_aug, splitter_step)
 
     aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
     interleaved = aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
