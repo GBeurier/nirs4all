@@ -68,7 +68,6 @@ from .finetune_lowering import (
     reject_native_training_param_overrides,
 )
 from .folds import _build_folds, _build_group_folds, _is_repetition_dataset, _repetition_groups_for_pool
-from .migration_preflight import preflight_dagml_pipeline_migration
 from .native_results import native_results_enabled, write_native_results
 from .result import _project_operator_sweep, _scores_to_run_result
 from .run_paths import (
@@ -336,10 +335,6 @@ def run_via_dagml(
     unsupported execution options are rejected before operators execute.
     """
     pipeline = _normalize_public_pipeline_input(pipeline)
-    # This configuration-only boundary precedes backend probing and dataset materialization. A stateful
-    # pre-CV concat in legacy is not equivalent to fold-local native fitting and may never auto-migrate.
-    preflight_dagml_pipeline_migration(pipeline)
-
     # Validate execution and presentation options before any operator runs.
     if isinstance(verbose, bool) or not isinstance(verbose, int) or verbose not in range(4):
         raise ValueError("verbose must be an integer from 0 through 3")

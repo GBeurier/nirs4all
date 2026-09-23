@@ -152,8 +152,7 @@ register(
     PipelineCase(
         name="concat_transform_pca_svd_plsr",
         description="SNV → concat_transform([PCA(15), TruncatedSVD(10)]) → PLSR. "
-        "The DAG-ML compatibility boundary must raise a typed preflight migration refusal because legacy "
-        "materializes these reducers before CV.",
+        "DAG-ML fits the reducers inside each CV fold; legacy materializes them before CV.",
         keywords=("concat_transform", "model"),
         capabilities=(
             "preprocessing_transform",
