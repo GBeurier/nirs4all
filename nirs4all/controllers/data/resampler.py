@@ -255,20 +255,6 @@ class ResamplerController(OperatorController):
                 # Transform all data
                 transformed_2d = resampler.transform(all_2d)
 
-                # Apply cropping if needed based on processing type
-                # Raw data: crop features directly using the stored crop mask
-                # Preprocessed data: padding with 0 is already handled by fill_value in interpolation
-                is_raw = processing_name.lower() == "raw" or processing_name.startswith("raw")
-                if is_raw and hasattr(resampler, 'crop_mask_') and resampler.crop_mask_ is not None:
-                    # Apply the crop mask to remove features outside the target range
-                    from nirs4all.operators.transforms.features import CropTransformer
-                    crop_indices = np.where(resampler.crop_mask_)[0]
-                    if len(crop_indices) > 0:
-                        crop_start = crop_indices[0]
-                        crop_end = crop_indices[-1] + 1
-                        cropper = CropTransformer(start=crop_start, end=crop_end)
-                        transformed_2d = cropper.transform(transformed_2d)
-
                 # Store results
                 source_transformed_features.append(transformed_2d)
                 new_processing_name = f"{processing_name}_{new_operator_name}"

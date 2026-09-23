@@ -69,9 +69,16 @@ class _CoordinateTransform(TransformerMixin, BaseEstimator):
         self.source_index = source_index
 
     def fit(self, X: Any, y: Any = None) -> _CoordinateTransform:
+        from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
         from nirs4all.operators.transforms.resampler import Resampler
 
         if np.asarray(X).shape[1] != len(self.coordinates):
+            # A preceding feature-width transform without an axis mapping
+            # invalidates the original wavelengths. Legacy CARS/MCUVE then
+            # fit in feature-index space; they do not require wavelengths.
+            if isinstance(self.transformer, (CARS, MCUVE)):
+                self.transformer.fit(X, y)
+                return self
             raise ValueError("feature-axis coordinates no longer match the transformed feature width")
         if isinstance(self.transformer, Resampler) and self.transformer.target_wavelengths is not None:
             targets = self.transformer.target_wavelengths
@@ -126,7 +133,18 @@ def _coordinate_chain(steps: list[Any], axes: list[tuple[str, ...] | None] | Non
 
 
 def _axis_after_step(step: Any, current: tuple[str, ...] | None, source_index: int) -> tuple[str, ...] | None:
+    from nirs4all.operators.transforms.features import CropTransformer, ResampleTransformer
     from nirs4all.operators.transforms.resampler import Resampler
+
+    # These width-changing transforms do not provide an output wavelength
+    # mapping. Legacy clears their headers, so the next optional selector
+    # must use indices and a strict wavelength operator must fail explicitly.
+    if current is not None and isinstance(step, CropTransformer):
+        end = len(current) if step.end is None else min(step.end, len(current))
+        if step.start != 0 or end != len(current):
+            return None
+    if current is not None and isinstance(step, ResampleTransformer) and step.num_samples is not None and step.num_samples != len(current):
+        return None
 
     if isinstance(step, Resampler) and step.target_wavelengths is not None:
         targets = step.target_wavelengths
@@ -138,6 +156,8 @@ def _axis_after_step(step: Any, current: tuple[str, ...] | None, source_index: i
     from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
 
     if current is not None and isinstance(step, (CARS, MCUVE)) and hasattr(step, "selected_indices_"):
+        if getattr(step, "n_features_in_", len(current)) != len(current):
+            return None
         return tuple(f"{float(current[index]):.2f}" for index in step.selected_indices_)
     return current
 
