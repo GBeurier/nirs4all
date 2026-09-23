@@ -565,6 +565,16 @@ class _DagmlExportedModel:
             return np.asarray(self.y_transform.inverse_numeric(pred.reshape(len(pred), -1)))
         return np.asarray(self.y_transform.inverse_transform(pred.reshape(len(pred), -1)))
 
+    def predict_proba_numeric(self, X: Any) -> np.ndarray:
+        """Replay every class-probability column of a fitted base classifier."""
+        predict_proba = getattr(self.estimator, "predict_proba", None)
+        if self.y_transform is not None or not callable(predict_proba):
+            raise ValueError("native stacking probability source lacks a fitted classifier")
+        probabilities = np.asarray(predict_proba(X), dtype=float).reshape(len(X), -1)
+        if probabilities.shape[1] < 2 or not np.all(np.isfinite(probabilities)):
+            raise ValueError("native stacking probability source has invalid class columns")
+        return probabilities
+
     def predict_numeric_with_metadata(self, X: Any, metadata: Mapping[str, Any]) -> np.ndarray:
         """Replay a fitted feature join using its required row metadata."""
         from nirs4all.pipeline.dagml.target_capture import CapturedTargetTransform
@@ -839,6 +849,7 @@ class _DagmlNativeStackingModel:
         source_names: Sequence[str] | None = None,
         reduction_groups: Sequence[Mapping[str, Any]] | None = None,
         probability_base: bool = False,
+        probability_sources: Sequence[bool] | None = None,
     ) -> None:
         if not base_members:
             raise ValueError("native stacking export requires at least one base member model")
@@ -849,6 +860,9 @@ class _DagmlNativeStackingModel:
         if probability_base and (len(base_members) != 1 or not isinstance(base_members[0], (_DagmlNativeStackingModel, _DagmlFoldStackingModel))):
             raise ValueError("nested probability stacking requires one preceding native stacking model")
         self.probability_base = probability_base
+        self.probability_sources = tuple(probability_sources) if probability_sources is not None else (probability_base,) * len(base_members)
+        if len(self.probability_sources) != len(base_members):
+            raise ValueError("native stacking probability source flags must match base members")
         if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
             raise ValueError("native raw stacking requires one distinct named source per base model")
 
@@ -859,9 +873,7 @@ class _DagmlNativeStackingModel:
             raise ValueError("native raw stacking requires its ordered raw source blocks")
         for index, member in enumerate(self.base_members):
             source = X[index] if self.source_names is not None else X
-            if self.probability_base:
-                if not isinstance(member, (_DagmlNativeStackingModel, _DagmlFoldStackingModel)):
-                    raise ValueError("nested probability stacking requires a native stacking predecessor")
+            if self.probability_sources[index]:
                 pred = member.predict_proba_numeric(source)
             else:
                 pred = member.predict_numeric(source)
@@ -2916,13 +2928,10 @@ class RunResult:
             for stage_index, (artifact, stage) in enumerate(zip(meta_artifacts, stages, strict=True)):
                 if stage_index:
                     source_specs = stage["base_producers"]
-                    probability_base = len(source_specs) == 1 and source_specs[0]["column_block"] == "probability_values"
-                    if len(source_specs) > 1 and any(source["column_block"] == "probability_values" for source in source_specs):
-                        raise ValueError("native multi-source probability replay requires per-source probability declarations")
                     stacked_model = _DagmlNativeStackingModel(
                         [members_by_artifact[str(source["artifact_id"])] for source in source_specs],
                         _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
-                        probability_base=probability_base,
+                        probability_sources=[source["column_block"] == "probability_values" for source in source_specs],
                     )
                 fold_selection = artifact.get("fold_selection")
                 if fold_selection is not None:
@@ -2945,14 +2954,11 @@ class RunResult:
                             stages[:stage_index + 1], meta_artifacts[:stage_index + 1], fold_maps[len(base_artifacts):], strict=True,
                         ):
                             source_specs = prior_stage["base_producers"]
-                            probability_base = len(source_specs) == 1 and source_specs[0]["column_block"] == "probability_values"
-                            if len(source_specs) > 1 and any(source["column_block"] == "probability_values" for source in source_specs):
-                                raise ValueError("native multi-source probability fold replay requires per-source declarations")
                             fold_stack = _DagmlNativeStackingModel(
                                 [fold_members[str(source["artifact_id"])] for source in source_specs],
                                 _DagmlExportedModel(cast(Mapping[str, Any], prior_folds)[fold], prior_artifact["y_transform"]),
                                 reduction_groups=cast(list[dict[str, Any]] | None, prior_stage.get("reduction_groups")),
-                                probability_base=probability_base,
+                                probability_sources=[source["column_block"] == "probability_values" for source in source_specs],
                             )
                             fold_members[str(prior_artifact["artifact_id"])] = fold_stack
                         fold_stacks[fold] = fold_stack
