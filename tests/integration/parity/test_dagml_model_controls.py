@@ -239,6 +239,7 @@ def test_operator_sweep_without_refit_keeps_all_cv_variants(monkeypatch, mechani
     y = 0.3 * x[:, 0] - 0.5 * x[:, 2] + rng.normal(size=16) * 0.1
     pipeline = [{"_or_": [StandardScaler(), MinMaxScaler()]}, KFold(2), Ridge(alpha=0.5)]
     legacy = nirs4all.run(pipeline, (x, y), engine="legacy", refit=False, save_charts=False)
+    legacy_best = legacy.cv_best_score
     legacy_names = {row["config_name"] for row in legacy.predictions.filter_predictions()}
     legacy.close()
 
@@ -254,12 +255,16 @@ def test_operator_sweep_without_refit_keeps_all_cv_variants(monkeypatch, mechani
     assert result._dagml_refit_artifacts == []  # noqa: SLF001
     assert {row["config_name"] for row in result.predictions.filter_predictions()} == legacy_names
     assert {row["partition"] for row in result.predictions.filter_predictions()} == {"val"}
-    # Legacy fits this preprocessing sweep with different fold-local scaling;
-    # compare the native result to an independent, leakage-safe sklearn CV.
+    # Legacy fits StandardScaler globally before splitting; the two independent
+    # sklearn oracles distinguish that behavior from leakage-safe fold-local CV.
     direct = np.empty_like(y)
+    global_direct = np.empty_like(y)
+    globally_scaled = StandardScaler().fit_transform(x)
     for train, val in KFold(2).split(x):
         direct[val] = make_pipeline(StandardScaler(), Ridge(alpha=0.5)).fit(x[train], y[train]).predict(x[val])
+        global_direct[val] = Ridge(alpha=0.5).fit(globally_scaled[train], y[train]).predict(globally_scaled[val])
     np.testing.assert_allclose(result.cv_best_score, np.sqrt(np.mean((direct - y) ** 2)), rtol=1e-5)
+    np.testing.assert_allclose(legacy_best, np.sqrt(np.mean((global_direct - y) ** 2)), rtol=1e-5)
     result.close()
 
 
