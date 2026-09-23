@@ -151,7 +151,7 @@ class _MultimodalEstimator(BaseEstimator):
         return self
 
     @staticmethod
-    def _validate_blocks(X: Any, names: tuple[str, ...], shapes: Mapping[str, tuple[int, ...]] | None = None) -> list[Any]:
+    def _validate_blocks(X: Any, names: tuple[str, ...], shapes: Mapping[str, tuple[int | None, ...]] | None = None) -> list[Any]:
         if not isinstance(X, list):
             raise ValueError("Multimodal prediction requires a list of source blocks in the configured source order.")
         if len(X) != len(names):
@@ -201,6 +201,8 @@ class _MultimodalEstimator(BaseEstimator):
 
     @staticmethod
     def _take_rows(block: Any, rows: np.ndarray) -> Any:
+        if hasattr(block, "take_rows"):
+            return block.take_rows(rows)
         return block.iloc[rows] if hasattr(block, "iloc") else block[rows] if sparse.issparse(block) else np.asarray(block)[rows]
 
     @staticmethod
@@ -265,7 +267,8 @@ class _MultimodalEstimator(BaseEstimator):
         self.missing_source_policy_ = self.missing_source_policy
         self.transformers_ = fitted
         self.model_ = model
-        self.n_features_in_ = sum(int(np.prod(shape)) for shape in self.input_shapes_.values())
+        # Variable time axes have no fixed scalar width; count their channels.
+        self.n_features_in_ = sum(int(np.prod([size for size in shape if size is not None])) for shape in self.input_shapes_.values())
         return self
 
     def _encode(self, X: list[Any], *, source_masks: Mapping[str, Any] | None = None) -> np.ndarray | list[np.ndarray]:

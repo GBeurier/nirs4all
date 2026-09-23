@@ -223,27 +223,34 @@ class MaterializationResolver:
         """
         self._guard_origin_boundary(observation_ids, include_augmented)
         dataset, sample_ints = self._feature_rows(observation_ids, fold_label)
-        per_source = dataset.x_rows(sample_ints, layout="2d", concat_source=False)
-        # x_rows(concat_source=False) returns a list of per-source 2D arrays for a multi-source
-        # dataset, or a single 2D array for a single source — normalize to a list either way.
-        blocks = per_source if isinstance(per_source, list) else [per_source]
-        if source_names is not None:
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+        if isinstance(dataset, MultimodalSpectroDataset):
+            available_names = dataset.source_names
+            if source_names is not None and (len(source_names) != len(set(source_names)) or set(source_names) != set(available_names)):
+                raise ValueError(f"multimodal source names mismatch: required {source_names}, received {available_names}")
+            order = source_names if source_names is not None else available_names
+            blocks = dataset.cohort.source_values(sample_ints, source_names=list(order))
+        else:
+            per_source = dataset.x_rows(sample_ints, layout="2d", concat_source=False)
+            # x_rows(concat_source=False) returns a list of per-source 2D arrays for a multi-source
+            # dataset, or a single 2D array for a single source — normalize to a list either way.
+            blocks = per_source if isinstance(per_source, list) else [per_source]
+        if source_names is not None and not isinstance(dataset, MultimodalSpectroDataset):
             from .envelope import source_order
 
-            available_names = source_order(dataset)
-            if len(source_names) != len(set(source_names)) or set(source_names) != set(available_names):
-                raise ValueError(f"multimodal source names mismatch: required {source_names}, received {available_names}")
-            by_name = dict(zip(available_names, blocks, strict=True))
+            dense_available_names = source_order(dataset)
+            if len(source_names) != len(set(source_names)) or set(source_names) != set(dense_available_names):
+                raise ValueError(f"multimodal source names mismatch: required {source_names}, received {dense_available_names}")
+            by_name = dict(zip(dense_available_names, blocks, strict=True))
             blocks = [by_name[name] for name in source_names]
         # Preserve each source block's NATIVE storage dtype (no .tolist() widening to float64) — same
         # parity reason as resolve_features: the host fits on what legacy dataset.x() returns (float32).
         result: dict[str, Any] = {
             "feature_set_id": "features",
             "observation_ids": list(observation_ids),
-            "blocks": [np.asarray(block) for block in blocks],
+            "blocks": blocks if isinstance(dataset, MultimodalSpectroDataset) else [np.asarray(block) for block in blocks],
         }
-        from nirs4all.data.multimodal import MultimodalSpectroDataset
-
         if isinstance(dataset, MultimodalSpectroDataset):
             presence = dataset.cohort.source_presence(sample_ints)
             if any(not mask.all() for mask in presence.values()):
@@ -270,6 +277,21 @@ class MaterializationResolver:
         int, never positionally). The same origin-boundary leakage guard as :meth:`resolve_features`
         applies: an augmented child is refused in a non-augmented (validation/predict) view.
         """
+        from nirs4all.data.multimodal import MultimodalSpectroDataset
+
+        self._guard_origin_boundary(observation_ids, include_augmented)
+        dataset, sample_ints = self._feature_rows(observation_ids, fold_label)
+        if isinstance(dataset, MultimodalSpectroDataset):
+            if not 0 <= source_index < dataset.n_sources:
+                raise ValueError(f"by_source block index {source_index} out of range for {dataset.n_sources} source(s)")
+            name = dataset.source_names[source_index]
+            if not np.asarray(dataset.cohort.sources[name].presence_mask)[sample_ints].all():
+                raise ValueError("by_source and late fusion require complete modalities; use a multimodal model with an explicit missing_source_policy")
+            return {
+                "feature_set_id": "features",
+                "observation_ids": list(observation_ids),
+                "values": dataset.cohort.source_values(sample_ints, source_names=[name])[0],
+            }
         resolved = self.resolve_feature_blocks(observation_ids, include_augmented=include_augmented, include_excluded=include_excluded, fold_label=fold_label)
         blocks = resolved["blocks"]
         if not 0 <= source_index < len(blocks):

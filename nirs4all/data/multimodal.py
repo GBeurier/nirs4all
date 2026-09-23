@@ -55,8 +55,8 @@ class MultimodalSpectroDataset(SpectroDataset):
 
     @property
     def num_features(self) -> list[int]:
-        """Raw scalar counts, not learned embedding dimensions."""
-        return [int(np.prod(source.values.shape[1:])) for source in self.cohort.sources.values()]
+        """Fixed raw dimensions; variable-length series contribute channel counts."""
+        return [int(np.prod([size for size in source.values.shape[1:] if size is not None])) for source in self.cohort.sources.values()]
 
     @property
     def n_sources(self) -> int:
@@ -90,15 +90,26 @@ class MultimodalSpectroDataset(SpectroDataset):
         if source_index is not None:
             items = [items[source_index]]
         for name, source in items:
-            values = np.asarray(source.values)
+            descriptor = source.schema_descriptor(name)
             presence = np.asarray(source.presence_mask)
+            rows = np.arange(len(presence))
             if sample_rows is not None:
-                values = values[sample_rows]
+                rows = rows[sample_rows]
                 presence = presence[sample_rows]
+            if descriptor["native_representation"]["ragged"]:
+                batch = source.values.take_rows(rows[presence])
+                digest.update(json.dumps([descriptor, (len(rows), *source.values.shape[1:])], sort_keys=True).encode())
+                digest.update(np.ascontiguousarray(presence).tobytes())
+                for buffer in (batch.values, batch.offsets, batch.time_coordinates):
+                    if buffer is not None:
+                        digest.update(json.dumps([str(buffer.dtype), buffer.shape]).encode())
+                        digest.update(np.ascontiguousarray(buffer).tobytes())
+                continue
+            values = np.asarray(source.values)[rows]
             if not presence.all():
                 values = values.copy()
                 values[~presence] = "" if values.dtype.kind in "US" else 0
-            digest.update(json.dumps([source.schema_descriptor(name), values.shape], sort_keys=True).encode())
+            digest.update(json.dumps([descriptor, values.shape], sort_keys=True).encode())
             digest.update(np.ascontiguousarray(presence).tobytes())
             if values.dtype.kind in "OUS":
                 if values.dtype.kind == "O":

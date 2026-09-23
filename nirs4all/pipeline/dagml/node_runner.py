@@ -195,6 +195,19 @@ def _axis_after_step(step: Any, current: tuple[str, ...] | None, source_index: i
     return current
 
 
+def _fixed_block_width(block: Any) -> int:
+    """Return the existing dense width or the fixed channel width of a ragged block."""
+    shape = np.shape(block)
+    if len(shape) < 2:
+        raise ValueError(f"feature block requires a sample and feature axis, got {shape}")
+    if shape[1] is not None:
+        return int(shape[1])
+    fixed_axes = [size for size in shape[2:] if size is not None]
+    if not fixed_axes:
+        raise ValueError(f"ragged feature block requires at least one fixed non-sample axis, got {shape}")
+    return int(np.prod(fixed_axes))
+
+
 class _FittedXChain:
     """Host-owned state behind the transform node's native data output handle."""
 
@@ -214,15 +227,15 @@ class _FittedXChain:
             raise ValueError("fitted X chain has no source-scoped operators")
         return _FittedXChain(list(self.source_steps[index]), feature_axes=[self.feature_axes[index]] if self.feature_axes else None)
 
-    def transform_blocks(self, blocks: list[np.ndarray]) -> list[np.ndarray]:
+    def transform_blocks(self, blocks: list[Any]) -> list[np.ndarray]:
         if self.source_steps is None or len(blocks) != len(self.source_steps):
             raise ValueError("fitted X chain received an incompatible source layout")
         transformed = []
         for block, steps in zip(blocks, self.source_steps, strict=True):
-            out = np.asarray(block)
+            out = block
             for transformer in steps:
                 out = np.asarray(transformer.transform(out))
-            transformed.append(out)
+            transformed.append(np.asarray(out))
         return transformed
 
     def transform(self, X: Any) -> Any:
@@ -519,14 +532,14 @@ class _MultiBlockEstimator:
 
         return get_tags(self._model)
 
-    def _fit_transform_block(self, steps: list[Any], block: np.ndarray) -> np.ndarray:
+    def _fit_transform_block(self, steps: list[Any], block: Any) -> Any:
         out = block
         for step in steps:
             out = np.asarray(step.fit_transform(out))
         return out
 
     @staticmethod
-    def _transform_block(steps: list[Any], block: np.ndarray) -> np.ndarray:
+    def _transform_block(steps: list[Any], block: Any) -> Any:
         out = block
         for step in steps:
             out = np.asarray(step.transform(out))
@@ -540,7 +553,7 @@ class _MultiBlockEstimator:
         return {"source_masks": source_masks}
 
     def fit(
-        self, blocks: list[np.ndarray], y: Any, *, target_mask: np.ndarray | None = None,
+        self, blocks: list[Any], y: Any, *, target_mask: np.ndarray | None = None,
         source_masks: dict[str, np.ndarray] | None = None,
     ) -> _MultiBlockEstimator:
         from sklearn.base import clone
@@ -548,14 +561,14 @@ class _MultiBlockEstimator:
         options = self._source_options(source_masks)
         if target_mask is not None:
             options["target_mask"] = target_mask
-        self._source_widths = tuple(np.asarray(block).shape[1] for block in blocks)
+        self._source_widths = tuple(_fixed_block_width(block) for block in blocks)
         templates = self._source_chain_templates or [self._chain_template for _ in blocks]
         self._block_chains = [[clone(step) for step in chain] for chain in templates]
         transformed = [self._fit_transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
         self._model.fit(transformed, y, **options)
         return self
 
-    def _restore_blocks(self, blocks: list[np.ndarray] | np.ndarray) -> list[np.ndarray]:
+    def _restore_blocks(self, blocks: list[Any] | np.ndarray) -> list[Any]:
         widths = getattr(self, "_source_widths", None)
         if isinstance(blocks, list) and len(blocks) == 1 and widths is not None and len(widths) > 1:
             blocks = np.asarray(blocks[0])
@@ -567,7 +580,7 @@ class _MultiBlockEstimator:
             raise ValueError("multi-block replay received an incompatible source count")
         return blocks
 
-    def predict(self, blocks: list[np.ndarray] | np.ndarray, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    def predict(self, blocks: list[Any] | np.ndarray, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         options = self._source_options(source_masks)
         blocks = self._restore_blocks(blocks)
         transformed = [self._transform_block(steps, block) for steps, block in zip(self._block_chains, blocks, strict=True)]
@@ -579,7 +592,7 @@ class _MultiBlockEstimator:
         return np.asarray(self._model.classes_)
 
     @available_if(lambda self: hasattr(self._model, "predict_proba"))
-    def predict_proba(self, blocks: list[np.ndarray] | np.ndarray, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
+    def predict_proba(self, blocks: list[Any] | np.ndarray, *, source_masks: dict[str, np.ndarray] | None = None) -> np.ndarray:
         """Apply the same captured source transforms before probability inference."""
         options = self._source_options(source_masks)
         blocks = self._restore_blocks(blocks)
@@ -611,18 +624,18 @@ class _SourceConcatEstimator:
         self._source_chains: list[list[Any]] = []
 
     @staticmethod
-    def _fit_transform_chain(steps: list[Any], block: np.ndarray) -> np.ndarray:
+    def _fit_transform_chain(steps: list[Any], block: Any) -> np.ndarray:
         out = block
         for step in steps:
             out = np.asarray(step.fit_transform(out))
-        return out
+        return np.asarray(out)
 
     @staticmethod
-    def _transform_chain(steps: list[Any], block: np.ndarray) -> np.ndarray:
+    def _transform_chain(steps: list[Any], block: Any) -> np.ndarray:
         out = block
         for step in steps:
             out = np.asarray(step.transform(out))
-        return out
+        return np.asarray(out)
 
     @staticmethod
     def _hstack(blocks: list[np.ndarray]) -> np.ndarray:
@@ -630,7 +643,7 @@ class _SourceConcatEstimator:
             raise ValueError("by_source concat received no source blocks")
         return np.hstack([np.asarray(block) for block in blocks])
 
-    def _templates_for(self, blocks: list[np.ndarray]) -> list[list[Any]]:
+    def _templates_for(self, blocks: list[Any]) -> list[list[Any]]:
         if self._source_chain_templates is not None:
             return self._source_chain_templates
         return [list(self._shared_chain_template or []) for _block in blocks]
@@ -644,19 +657,19 @@ class _SourceConcatEstimator:
         # sees [merged, source1, source2, ...].
         return self._hstack([merged, *blocks[1:]])
 
-    def fit(self, blocks: list[np.ndarray], y: Any) -> _SourceConcatEstimator:
+    def fit(self, blocks: list[Any], y: Any) -> _SourceConcatEstimator:
         from sklearn.base import clone
 
         source_chain_templates = self._templates_for(blocks)
         if len(blocks) != len(source_chain_templates):
             raise ValueError(f"by_source concat received {len(blocks)} blocks for {len(source_chain_templates)} source chain(s)")
-        self._source_widths = tuple(np.asarray(block).shape[1] for block in blocks)
+        self._source_widths = tuple(_fixed_block_width(block) for block in blocks)
         self._source_chains = [[clone(step) for step in chain] for chain in source_chain_templates]
         transformed = [self._fit_transform_chain(steps, block) for steps, block in zip(self._source_chains, blocks, strict=True)]
         self._model.fit(self._assemble_blocks(transformed), y)
         return self
 
-    def predict(self, blocks: list[np.ndarray] | np.ndarray) -> np.ndarray:
+    def predict(self, blocks: list[Any] | np.ndarray) -> np.ndarray:
         if isinstance(blocks, np.ndarray):
             # General archive replay supplies the original sources in one flat matrix.
             # Restore only the layout captured at fit time; never guess equal widths.
@@ -1043,22 +1056,23 @@ def _run_fitted_transform_node(
     node_id = task["node_plan"]["node_id"]
     current_axes = preceding.feature_axes if preceding is not None else _feature_axes(task)
 
-    def partitioned_views(x_fit: np.ndarray) -> dict[str, tuple[np.ndarray, np.ndarray | None]]:
+    def partitioned_views(x_fit: Any) -> dict[str, tuple[Any, np.ndarray | None]]:
         if view["partition"] != "all_observations":
             raise ValueError("partition-aware transform requires a native all-observations fit view")
         dataset = resolver._dataset  # noqa: SLF001 -- host provider maps native sample IDs to partitions
         identity = resolver._identity  # noqa: SLF001 -- host wire identity
-        views: dict[str, tuple[np.ndarray, np.ndarray | None]] = {}
+        views: dict[str, tuple[Any, np.ndarray | None]] = {}
         for partition in ("train", "test"):
             partition_ids = {
                 identity.to_wire(sample)
                 for sample in dataset.index_column("sample", {"partition": partition})
             }
             mask = np.asarray([sample_id in partition_ids for sample_id in ids], dtype=bool)
-            views[partition] = (x_fit[mask], y_fit[mask] if np.any(mask) else None)
+            selected = x_fit.take_rows(mask) if hasattr(x_fit, "take_rows") else x_fit[mask]
+            views[partition] = (selected, y_fit[mask] if np.any(mask) else None)
         return views
 
-    def fit_transformer(transformer: Any, x_fit: np.ndarray) -> None:
+    def fit_transformer(transformer: Any, x_fit: Any) -> None:
         fit_with_views = getattr(transformer, "fit_with_views", None)
         if callable(fit_with_views):
             fit_with_views(partitioned_views(x_fit))
@@ -1071,8 +1085,8 @@ def _run_fitted_transform_node(
         )
         if "source_masks" in resolved:
             raise ValueError("source-scoped preprocessing requires complete feature sources")
-        raw_blocks = [np.asarray(block) for block in resolved["blocks"]]
-        widths = tuple(block.shape[1] for block in raw_blocks)
+        raw_blocks = resolved["blocks"]
+        widths = tuple(_fixed_block_width(block) for block in raw_blocks)
         if preceding is not None:
             if preceding.source_widths != widths:
                 raise ValueError("fitted X chain source widths changed between data-edge nodes")
@@ -1415,13 +1429,14 @@ def run_model_node(
             resolved = resolver.resolve_feature_blocks(
                 fit_ids, include_augmented=include_augmented_fit, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
             )
-            x_train = [np.asarray(block) for block in resolved["blocks"]]
+            # Keep typed blocks intact until their explicit source encoder.
+            x_train = resolved["blocks"]
             if "source_masks" in resolved:
                 if not multi_block:
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 fit_options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=include_augmented_fit, fold_label=fold_label)["values"])
+            x_train = resolver.resolve_source_block(fit_ids, source_index, include_augmented=include_augmented_fit, fold_label=fold_label)["values"]
         else:
             x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=include_augmented_fit, fold_label=fold_label)["values"])
         if joined_chain is not None:
@@ -1486,13 +1501,13 @@ def run_model_node(
             resolved = resolver.resolve_feature_blocks(
                 ids, include_augmented=include_augmented, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
             )
-            x = [np.asarray(block) for block in resolved["blocks"]]
+            x = resolved["blocks"]
             if "source_masks" in resolved:
                 if not multi_block:
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x = np.asarray(resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label)["values"])
+            x = resolver.resolve_source_block(ids, source_index, include_augmented=include_augmented, fold_label=fold_label)["values"]
         else:
             x = np.asarray(resolver.resolve_features(ids, include_augmented=include_augmented, fold_label=fold_label)["values"])
         if joined_chain is not None:
