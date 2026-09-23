@@ -85,6 +85,8 @@ def main(argv: list[str] | None = None) -> int:
     coverage_dir = report_dir / "coverage-files"
     for directory in (junit_dir, log_dir, coverage_dir):
         directory.mkdir(parents=True, exist_ok=True)
+    for stale in coverage_dir.glob(".coverage.*"):
+        stale.unlink()
 
     all_suites: list[ET.Element] = []
     results = []
@@ -95,6 +97,10 @@ def main(argv: list[str] | None = None) -> int:
         junit = junit_dir / f"{stem}.xml"
         manifest = report_dir / f"{stem}.json"
         log = log_dir / f"{stem}.log"
+        # A retry in the same report directory must never read a stale result
+        # when this subprocess crashes before writing its own files.
+        junit.unlink(missing_ok=True)
+        manifest.unlink(missing_ok=True)
         env = os.environ.copy()
         env["N4A_ENGINE"] = "dag-ml"
         env["N4A_PYTEST_MANIFEST"] = str(manifest)
