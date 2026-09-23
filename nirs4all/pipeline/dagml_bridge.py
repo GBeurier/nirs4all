@@ -1054,6 +1054,8 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
     run on the already-concatenated matrix. Repeated augmentations retain the
     stored layers separately from the active processing selection: ``replace``
     changes that selection but legacy 2D model materialization retains all layers.
+    A later ``concat_transform`` replaces each stored layer with its own
+    concatenated transform output before the final 2D flattening.
     All channel estimators fit on fold-training rows through the normal DAG X-chain.
 
     Raises:
@@ -1069,7 +1071,18 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
                 raise NotImplementedError("Expand sequential model checkpoints before lowering later per-channel transforms")
             if isinstance(step, dict):
                 if "feature_augmentation" not in step:
-                    raise NotImplementedError("concat_transform after feature_augmentation needs a qualified processing-axis lowering")
+                    # Legacy's concat controller replaces every stored processing layer after a
+                    # feature-augmentation step. Keep those layers distinct until the outer
+                    # FeatureConcat flattens them for the model; fitting the nested concat on
+                    # the already-flattened matrix would mix the processing axes.
+                    operation = _lower_concat_transform(step)
+                    layers = channels["params"]["operations"]
+                    channels["params"]["operations"] = [
+                        [*(layer if isinstance(layer, list) else [] if layer is None else [layer]), operation]
+                        for layer in layers
+                    ]
+                    active_channels = list(range(len(layers)))
+                    continue
                 additions = _lower_feature_augmentation(step)["params"]["operations"][1:]
                 layers = channels["params"]["operations"]
                 action = step.get("action", "add")
