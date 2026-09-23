@@ -2002,6 +2002,23 @@ class RunResult:
                     "the dag-ml run's non-existent workspace); export the run's best model with "
                     "result.export(path) (no source/chain_id)."
                 )
+            if any(
+                dataset.get("output_topology") == "independent_by_source"
+                for dataset in self.per_dataset.values()
+            ):
+                from nirs4all.pipeline.dagml.rt import RtError
+
+                raise RtError(
+                    "export",
+                    "unsupported_capability",
+                    "engine='dag-ml' by_source merge:auto produces independent source predictions "
+                    "and has no single output to replay from a .n4a archive.",
+                    mitigation=(
+                        "Use an explicit fusion merge such as merge:mean to export one prediction, "
+                        "or train and export a selected source as a separate pipeline."
+                    ),
+                    unsupported_capability=_DAGML_EXPORT_UNSUPPORTED_CAPABILITY,
+                )
             if legacy_refit_compatibility:
                 delegate = self._dagml_export_delegate()
                 if delegate is None:
