@@ -4741,7 +4741,10 @@ def _assemble_stacking_dsl(
     if prediction_aggregations:
         canonical_branches = {branch["id"]: branch for branch in canonical_dsl["steps"][0]["branches"]}
         for selector in prediction_aggregations:
-            if isinstance(selector.get("select"), dict) and "fold_candidates_top_k" in selector["select"]:
+            if isinstance(selector.get("select"), dict) and (
+                "fold_candidates_top_k" in selector["select"]
+                or "diverse_fold_candidates" in selector["select"]
+            ):
                 if selector.get("metric") == "val_score":
                     selector["metric"] = selection_metric
                 continue
@@ -5110,6 +5113,11 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     for view in [result, *getattr(result, "runs", [])]:
         view._dagml_stacking_selectors = prediction_aggregations  # noqa: SLF001
         view._dagml_stacking_outer_fold_ids = [fold["fold_id"] for fold in outer_fold_set["folds"]]  # noqa: SLF001
+        view._dagml_stacking_producer_classes = {
+            step["id"]: step["operator"]["class"].rsplit(".", 1)[-1]
+            for branch in canonical_dsl["steps"][0]["branches"]
+            for step in branch["steps"] if step.get("kind") == "model"
+        }  # noqa: SLF001
         view._dagml_stacking_probability_producers = {
             step["id"] for step in canonical_dsl["steps"]
             if step.get("kind") == "merge_model"

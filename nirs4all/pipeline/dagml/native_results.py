@@ -343,6 +343,7 @@ def _stacking_replay_manifest(
     source_orders: dict[str, list[str]] | None = None,
     source_ports: dict[str, dict[str, str]] | None = None, _allow_multi: bool = True,
     outer_fold_ids: list[str] | None = None,
+    producer_classes: dict[str, str] | None = None,
 ) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
@@ -378,7 +379,7 @@ def _stacking_replay_manifest(
         first_stage = _stacking_replay_manifest(
             score_set, first_refs, selectors,
                 probability_producers=probability_producers, source_orders=source_orders, source_ports=source_ports,
-                _allow_multi=False, outer_fold_ids=outer_fold_ids,
+                _allow_multi=False, outer_fold_ids=outer_fold_ids, producer_classes=producer_classes,
         )
         if first_stage is None:
             return None
@@ -467,6 +468,7 @@ def _stacking_replay_manifest(
                         "select": selector["select"], "metric": selector.get("metric") or "rmse",
                         "reports": reports,
                         "fold_ids": outer_fold_ids or [],
+                        "producer_classes": producer_classes or {},
                 }))))
                 selected = [index for index in selected if base_producers[index]["producer_node"] in selected_nodes]
                 if not selected:
@@ -590,6 +592,7 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         source_orders=getattr(result, "_dagml_stacking_source_orders", None),
         source_ports=getattr(result, "_dagml_stacking_source_ports", None),
         outer_fold_ids=getattr(result, "_dagml_stacking_outer_fold_ids", None),
+        producer_classes=getattr(result, "_dagml_stacking_producer_classes", None),
     )
     if host_searches:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}
