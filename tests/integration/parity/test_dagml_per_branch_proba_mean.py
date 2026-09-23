@@ -26,7 +26,16 @@ def _pipeline() -> list:
     ]
 
 
-def test_legacy_and_dag_support_per_branch_probability_mean(tmp_path) -> None:
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_legacy_and_dag_support_per_branch_probability_mean(tmp_path, monkeypatch, mechanism) -> None:
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
     rng = np.random.default_rng(731)
     features = rng.normal(size=(60, 6))
     labels = (features[:, 0] + 0.5 * features[:, 1] > 0).astype(int)
@@ -49,8 +58,8 @@ def test_legacy_and_dag_support_per_branch_probability_mean(tmp_path) -> None:
         assert np.isfinite(native.cv_best_score)
         assert 0.0 <= native.cv_best_score <= 1.0
         probability_blocks = [
-            block for node in native._dagml_node_results
-            for block in node.get("predictions", [])
+            block for frame in native._dagml_node_results
+            for block in frame.get("result", frame).get("predictions", [])
             if str(block.get("producer_node", "")).startswith("branch:")
             and block.get("partition") == "validation"
         ]
