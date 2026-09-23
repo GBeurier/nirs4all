@@ -9,6 +9,7 @@ from typing import Any
 from nirs4all.api.result import RunResult
 from nirs4all.operators.models.residual import ResidualModel
 from nirs4all.pipeline.dagml_bridge import (
+    _PREDICTION_FEATURE_CONTROLLER_ID,
     _RESIDUAL_LEARNER_CONTROLLER_ID,
     _RESIDUAL_LEARNER_REF,
     _json_safe_params,
@@ -79,6 +80,7 @@ def run_residual_model(
     source_concat = False
     distinct_source_steps: dict[str, list[Any]] | None = None
     metadata_branch_body: tuple[str, list[Any]] | None = None
+    prediction_branch_bodies: list[list[Any]] | None = None
     if branch_positions:
         from .detect import _duplication_branch_bodies, _selected_duplication_feature_branches, _simple_duplication_merge_mode
         from .run_paths import _branch_merge_transformer_step
@@ -109,17 +111,28 @@ def run_residual_model(
                 raise DagMlUnsupported("residual branch prefix requires one duplication branch and feature merge")
             branch_index = branch_positions[0]
             merge_step = prefix[branch_index + 1]
-            merge_mode = _simple_duplication_merge_mode(merge_step)
-            if merge_mode not in {"features", "all"}:
-                raise DagMlUnsupported("residual branch prefix requires merge='features' or merge='all'")
-            branches = _duplication_branch_bodies(prefix[branch_index])
-            if branches is None:
-                raise DagMlUnsupported("residual feature merge requires duplication branch bodies")
-            if merge_mode == "features":
-                branches = _selected_duplication_feature_branches(branches, merge_step)
+            merge_mode = "predictions" if merge_step == {"merge": "predictions"} else _simple_duplication_merge_mode(merge_step)
+            if merge_mode == "predictions":
+                if branch_index + 2 != len(prefix):
+                    raise DagMlUnsupported("residual prediction-feature merge must end its prefix")
+                prediction_branch_bodies = _duplication_branch_bodies(prefix[branch_index])
+                if prediction_branch_bodies is None or any(
+                    not body or not isinstance(body[-1], dict) or "model" not in body[-1]
+                    for body in prediction_branch_bodies
+                ):
+                    raise DagMlUnsupported("residual prediction-feature branches must end in models")
+                prefix = prefix[:branch_index]
+            else:
+                if merge_mode not in {"features", "all"}:
+                    raise DagMlUnsupported("residual branch prefix requires merge='features', merge='all', or merge='predictions'")
+                branches = _duplication_branch_bodies(prefix[branch_index])
                 if branches is None:
-                    raise DagMlUnsupported("residual feature merge has an invalid branch selection")
-            prefix = [*prefix[:branch_index], _branch_merge_transformer_step(branches, merge_mode), *prefix[branch_index + 2:]]
+                    raise DagMlUnsupported("residual feature merge requires duplication branch bodies")
+                if merge_mode == "features":
+                    branches = _selected_duplication_feature_branches(branches, merge_step)
+                    if branches is None:
+                        raise DagMlUnsupported("residual feature merge has an invalid branch selection")
+                prefix = [*prefix[:branch_index], _branch_merge_transformer_step(branches, merge_mode), *prefix[branch_index + 2:]]
     prefix = _supported_body_steps(prefix)
     prefix_steps = [_canonical_branch_step(step, f"residual.prefix:{index}") for index, step in enumerate(prefix)]
     if any(step["kind"] not in {"transform", "y_transform"} for step in prefix_steps):
@@ -158,10 +171,24 @@ def run_residual_model(
         from .run_paths import _source_preprocessing_metadata
 
         source_preprocessing = _source_preprocessing_metadata(distinct_source_steps, (envelope.get("plan") or {}).get("source_layout"))
-    base_id = "branch:0.node:0"
+    base_id = f"branch:{len(prediction_branch_bodies) if prediction_branch_bodies else 0}.node:0"
     learner_id = "model:residual.learner"
     fusion_id = f"{learner_id}.residual_fusion"
     metadata_steps: list[dict[str, Any]] = []
+    prediction_steps: list[dict[str, Any]] = []
+    prediction_model_ids: set[str] = set()
+    prediction_model_order: list[str] = []
+    if prediction_branch_bodies is not None:
+        source_branches = [_canonical_branch(body, index) for index, body in enumerate(prediction_branch_bodies)]
+        prediction_model_order = [branch["steps"][-1]["id"] for branch in source_branches]
+        prediction_model_ids = set(prediction_model_order)
+        prediction_steps = [
+            {"kind": "branch", "mode": "duplication", "branches": source_branches},
+            {"kind": "merge", "id": "merge:prediction.features", "merge_mode": "predictions",
+             "output_as": "features", "include_original_data": False,
+             "metadata": {"controller_id": _PREDICTION_FEATURE_CONTROLLER_ID,
+                          "prediction_feature_execution": "native_oof_v1"}},
+        ]
     if metadata_branch_body is not None:
         key, body = metadata_branch_body
         branch_steps = [_canonical_branch_step(step, f"branch:metadata.node:{index}") for index, step in enumerate(body)]
@@ -184,7 +211,8 @@ def run_residual_model(
         "steps": [
             *prefix_steps,
             *metadata_steps,
-            {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch([{"model": operator.base}], 0)]},
+            *prediction_steps,
+            {"kind": "branch", "mode": "duplication", "branches": [_canonical_branch([{"model": operator.base}], len(prediction_branch_bodies) if prediction_branch_bodies else 0)]},
             {
                 "kind": "merge_model", "id": learner_id,
                 "operator": {"class": _qualname(operator.learner), "ref": _RESIDUAL_LEARNER_REF},
@@ -218,9 +246,13 @@ def run_residual_model(
                 else:
                     node["metadata"]["source_concat_preprocessing"] = source_preprocessing
     model_ids = {node["id"] for node in graph["nodes"] if node["kind"] == "model"}
-    if model_ids != {base_id, learner_id} or fusion_id not in {node["id"] for node in graph["nodes"]}:
+    if model_ids != {base_id, learner_id, *prediction_model_ids} or fusion_id not in {node["id"] for node in graph["nodes"]}:
         raise ValueError("residual graph did not compile to its declared base, learner and fusion nodes")
-    if metadata_branch_body is not None:
+    if prediction_branch_bodies is not None:
+        incoming = {edge["target"]["node_id"] for edge in graph["edges"] if edge["contract"]["kind"] == "data"}
+        roots = [node["id"] for node in graph["nodes"] if node["kind"] in {"transform", "model"} and node["id"] not in incoming]
+        bindings = data_bindings_for_nodes(roots, envelope)
+    elif metadata_branch_body is not None:
         incoming = {edge["target"]["node_id"] for edge in graph["edges"] if edge["contract"]["kind"] == "data"}
         roots = [node["id"] for node in graph["nodes"] if node["kind"] == "transform" and node["id"] not in incoming]
         if len(roots) < 2:
@@ -268,6 +300,7 @@ def run_residual_model(
         "learner_producer_node": learner_id,
         "lambda": float(operator.lam),
         "gate": gate,
+        **({"feature_producer_nodes": prediction_model_order} if prediction_model_order else {}),
         **({"gate_records": gate_records} if operator.gate == "auto" else {}),
         **({"implicit_training_cv": True} if implicit_cv else {}),
     }
