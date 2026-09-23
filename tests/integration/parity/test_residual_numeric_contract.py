@@ -161,3 +161,47 @@ def test_residual_nonlinear_base_and_custom_name_replay(tmp_path, monkeypatch, m
     replay = nirs4all.predict(native.export(tmp_path / "named_residual_rf.n4a"), features)
     np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, atol=5e-5)
     native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_residual_nonlinear_learner_signed_gate_replays(tmp_path, monkeypatch, mechanism: str) -> None:
+    """The residual learner may itself be a nonlinear host estimator."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+
+    source = dataset_path("regression")
+    operator = ResidualModel(
+        base=PLSRegression(n_components=2),
+        learner=RandomForestRegressor(n_estimators=8, max_depth=3, random_state=2),
+        lam=-0.5, gate=0.4, name="named_rf_learner",
+    )
+    pipeline = [KFold(2, shuffle=True, random_state=11), {"model": operator}]
+    with nirs4all.run(pipeline, source, engine="legacy", refit=False,
+                      workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0) as legacy:
+        assert np.isfinite(legacy.cv_best_score)
+        rows = [row for row in legacy.predictions.filter_predictions(model_name=operator.name, load_arrays=True)
+                if row["partition"] == "val" and np.asarray(row["y_pred"]).size]
+        assert rows and all(np.isfinite(row["val_score"]) for row in rows)
+
+    with nirs4all.run(pipeline, source, engine="dag-ml", allow_fallback=False, refit=True,
+                      workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0) as native:
+        assert np.isfinite(native.cv_best_score)
+        contract = native.per_dataset[next(iter(native.per_dataset))]["residual_replay"]
+        assert contract["lambda"] == pytest.approx(-0.5)
+        assert contract["gate"] == pytest.approx(0.4)
+        artifacts = {artifact["controller_id"]: artifact["estimator"] for artifact in native._dagml_refit_artifacts}
+        assert isinstance(artifacts["controller:nirs4all.residual_learner"], RandomForestRegressor)
+        dataset = DatasetConfigs(source).get_dataset_at(0)
+        features = dataset.x({"partition": "test"}, layout="2d")
+        base = np.asarray(artifacts["controller:nirs4all.model"].predict(features)).ravel()
+        learner = np.asarray(artifacts["controller:nirs4all.residual_learner"].predict(features)).ravel()
+        expected = base - 0.2 * learner
+        replay = nirs4all.predict(native.export(tmp_path / "named_rf_learner.n4a"), features)
+        np.testing.assert_allclose(np.asarray(replay.y_pred).ravel(), expected, atol=5e-5)

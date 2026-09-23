@@ -1457,14 +1457,16 @@ def _is_simple_predictions_merge_step(step: Any) -> bool:
     return isinstance(step, dict) and step.get("merge") == "predictions"
 
 
-def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False, allow_impute_mean: bool = False, allow_max_level: bool = False, allow_base_only: bool = False, allow_relation_profile: bool = False, allow_no_cv_with_split: bool = False) -> bool:
+def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False, allow_complete_imputation_policy: bool = False, allow_max_level: bool = False, allow_base_only: bool = False, allow_relation_profile: bool = False, allow_no_cv_with_split: bool = False) -> bool:
     """Check the fields honored by this lowering, optionally including native best-fold test features.
 
     A MetaModel may carry only the stacking options this slice actually HONORS. ``level`` may
     select AUTO / LEVEL_1 (the single base→meta level produced by the dag-ml lowering);
     other fields are rejected unless their semantics are explicitly enabled by the caller.
     Fold-based test aggregation and selected branch scopes are allowed only when the caller routes
-    the corresponding native feature/source path. An unsupported non-default value must reject
+    the corresponding native feature/source path. Imputation choices are accepted only with
+    native proof that the inner OOF matrix is complete, so no fill value is needed.
+    An unsupported non-default value must reject
     the stacking shape (fail loud) rather than run with the option dropped. Comparison is field-exhaustive
     by construction: clone the config with ``level`` reset to the default and compare to a fresh default,
     so any future ``StackingConfig`` field is covered without enumerating them here.
@@ -1485,7 +1487,9 @@ def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = Fals
     if allow_drop_incomplete and normalized.coverage_strategy == CoverageStrategy.DROP_INCOMPLETE:
         normalized = dataclasses.replace(normalized, coverage_strategy=StackingConfig().coverage_strategy,
                                          min_coverage_ratio=StackingConfig().min_coverage_ratio)
-    if allow_impute_mean and normalized.coverage_strategy == CoverageStrategy.IMPUTE_MEAN:
+    if allow_complete_imputation_policy and normalized.coverage_strategy in (
+        CoverageStrategy.IMPUTE_MEAN, CoverageStrategy.IMPUTE_ZERO, CoverageStrategy.IMPUTE_FOLD_MEAN,
+    ):
         normalized = dataclasses.replace(normalized, coverage_strategy=StackingConfig().coverage_strategy,
                                          min_coverage_ratio=StackingConfig().min_coverage_ratio)
     if allow_max_level:
@@ -1499,7 +1503,7 @@ def _is_default_except_level(config: Any, *, allow_fold_aggregation: bool = Fals
     return normalized == StackingConfig()
 
 
-def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False, allow_selector: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False, allow_impute_mean: bool = False, allow_max_level: bool = False, allow_base_only: bool = False, allow_relation_profile: bool = False, allow_no_cv_with_split: bool = False) -> Any | None:
+def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allow_source_models: bool = False, allow_fold_aggregation: bool = False, allow_selector: bool = False, allowed_branch_scope: Any = None, allow_drop_incomplete: bool = False, allow_complete_imputation_policy: bool = False, allow_max_level: bool = False, allow_base_only: bool = False, allow_relation_profile: bool = False, allow_no_cv_with_split: bool = False) -> Any | None:
     """The sklearn meta-learner estimator from a downstream ``{"model": …}`` stacking step, else ``None``.
 
     Two equivalent nirs4all spellings (per ``MergeController``'s own docstring): a ``MetaModel`` wrapper
@@ -1538,7 +1542,7 @@ def _meta_learner(model_step: dict[str, Any], *, allow_proba: bool = False, allo
             or config.max_level < 1
             or not _is_default_except_level(config, allow_fold_aggregation=allow_fold_aggregation,
                                              allowed_branch_scope=allowed_branch_scope, allow_drop_incomplete=allow_drop_incomplete,
-                                             allow_impute_mean=allow_impute_mean,
+                                             allow_complete_imputation_policy=allow_complete_imputation_policy,
                                              allow_max_level=allow_max_level, allow_base_only=allow_base_only,
                                              allow_relation_profile=allow_relation_profile,
                                              allow_no_cv_with_split=allow_no_cv_with_split)
@@ -1565,7 +1569,7 @@ def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[list[Any]], 
         return None
     learner = _meta_learner(steps[-1], allow_proba=True, allow_source_models=True, allow_fold_aggregation=True,
                             allow_selector=True, allowed_branch_scope=BranchScope.SPECIFIED,
-                            allow_drop_incomplete=True, allow_impute_mean=True, allow_max_level=True,
+                            allow_drop_incomplete=True, allow_complete_imputation_policy=True, allow_max_level=True,
                             allow_base_only=True, allow_relation_profile=True, allow_no_cv_with_split=True)
     if learner is None:
         return None
