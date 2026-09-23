@@ -13,7 +13,11 @@ def sequential_model_pipelines(pipeline: Any) -> list[list[Any]] | None:
 
     Models do not transform the input of the following checkpoint. In particular,
     a transform after a model must not be retroactively applied to that model.
-    Branches and merges have their own execution semantics and are not expanded.
+    A later splitter replaces the earlier checkpoint's splitter and receives its
+    own native FoldSet. Legacy duplicates that later model's four CV test rows
+    under the ``final`` label; DAG keeps those CV rows and a real full-train
+    REFIT artifact instead. Branches and merges have their own execution
+    semantics and are not expanded.
     """
     if not isinstance(pipeline, list):
         return None
@@ -67,6 +71,10 @@ def sequential_model_pipelines(pipeline: Any) -> list[list[Any]] | None:
         if isinstance(step, dict) and "model" in step:
             children.append([*prefix, step])
         else:
+            if _is_split_step(step):
+                # A later checkpoint's splitter supersedes the earlier one;
+                # each public child run owns its own native FoldSet.
+                prefix = [earlier for earlier in prefix if not _is_split_step(earlier)]
             prefix.append(step)
     # A final chart still describes the final checkpoint, not an earlier model.
     last_model = max(index for index, step in enumerate(steps) if isinstance(step, dict) and "model" in step)
