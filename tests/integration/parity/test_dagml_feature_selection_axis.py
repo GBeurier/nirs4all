@@ -98,3 +98,25 @@ def test_selection_then_resampling_without_cv_keeps_fitted_axis(tmp_path, monkey
     assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
     archive = native.export(tmp_path / "full_train_selected_axis.n4a")
     assert np.asarray(nirs4all.predict(archive, held_out).y_pred).shape == (6,)
+
+
+def test_selection_accepts_mixed_numeric_and_index_source_axes(tmp_path, monkeypatch):
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1")
+    rng = np.random.default_rng(44)
+    first = rng.normal(size=(30, 20))
+    second = rng.normal(size=(30, 16))
+    y = 3 * first[:, 2] - first[:, 9] + 0.5 * second[:, 3] + rng.normal(size=30) * 0.1
+    headers = [
+        [str(value) for value in np.linspace(1000, 1200, 20)],
+        [str(value) for value in range(16)],
+    ]
+    dataset = SpectroDataset("mixed_selected_axes")
+    dataset.add_samples([first[:24], second[:24]], {"partition": "train"}, headers=headers, header_unit=["cm-1", "index"])
+    dataset.add_samples([first[24:], second[24:]], {"partition": "test"}, headers=headers, header_unit=["cm-1", "index"])
+    dataset.add_targets(y)
+    pipeline = [CARS(n_components=2, n_sampling_runs=10, random_state=42), KFold(2), {"model": Ridge()}]
+    legacy = nirs4all.run(pipeline, dataset, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    archive = native.export(tmp_path / "mixed_selected_axes.n4a")
+    assert np.asarray(nirs4all.predict(archive, np.hstack([first[24:], second[24:]])).y_pred).shape == (6,)
