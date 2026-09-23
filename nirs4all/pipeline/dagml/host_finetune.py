@@ -10,6 +10,7 @@ import numpy as np
 
 _HOST_KEYS = {"n_trials", "sampler", "sample", "verbose", "seed", "storage", "phases", "pruner", "n_jobs"}
 TRIAL_TRAIN_PREFIX = "nirs4all_trial_fit__"
+_NATIVE_CHECKPOINT_ATTR = "nirs4all_dagml_host_hpo_checkpoint_v1"
 
 
 def split_trial_fit_overrides(params: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -67,11 +68,6 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
             raise ValueError("DAG host finetune_params.resume requires durable storage")
         if params.get("resume") and not params.get("study_name"):
             raise ValueError("DAG host finetune_params.resume requires study_name")
-        if params.get("resume"):
-            raise NotImplementedError(
-                "DAG host Optuna resume requires a paired native DAG trial checkpoint; "
-                "an optimizer study alone cannot supply candidate evidence"
-            )
     budget = params.get("n_trials", 50)
     if type(budget) is not int or not 0 < budget <= 2**32 - 1:
         raise ValueError("finetune_params.n_trials must be a positive u32 integer")
@@ -244,11 +240,19 @@ def run_scoped_finetune(
             scope_key = sha256(json.dumps(scope, sort_keys=True).encode()).hexdigest()[:16]
             study_params["study_name"] = f"{params['study_name']}:scope:{scope_key}"
         study = manager._create_study(study_params)  # noqa: SLF001 -- reuse optimizer-owned sampler grammar
+        saved_checkpoint = study.user_attrs.get(_NATIVE_CHECKPOINT_ATTR)
         if study.trials:
-            raise NotImplementedError(
-                "DAG host Optuna resume requires a paired native DAG trial checkpoint; "
-                "an existing optimizer study cannot be replayed as new candidate evidence"
-            )
+            if not params.get("resume") or not isinstance(saved_checkpoint, dict):
+                raise NotImplementedError(
+                    "DAG host Optuna resume requires a paired native DAG trial checkpoint; "
+                    "an existing optimizer study cannot be replayed as new candidate evidence"
+                )
+            terminal = saved_checkpoint.get("trials", [])
+            if len(terminal) != len(study.trials) or any(
+                observed.number != index or observed.state.name.lower() != {"failed": "fail"}.get(native.get("state"), native.get("state"))
+                for index, (observed, native) in enumerate(zip(study.trials, terminal, strict=True))
+            ):
+                raise RuntimeError("Optuna study and native DAG trial checkpoint terminal states disagree")
     pending: dict[int, Any] = {}
     stopped = False
 
@@ -284,6 +288,12 @@ def run_scoped_finetune(
                 from optuna.trial import TrialState
 
                 study.tell(trial, state=TrialState.PRUNED)
+            return None
+        if request["operation"] == "fail":
+            if optimizer is None:
+                from optuna.trial import TrialState
+
+                study.tell(pending.pop(index), state=TrialState.FAIL)
             return None
         if request["operation"] == "ask":
             if optimizer is None:
@@ -347,10 +357,21 @@ def run_scoped_finetune(
     if inner_cv is not None:
         request["fold_score_reduction"] = params.get("eval_mode", "best")
     try:
+        native_kwargs: dict[str, Any] = {}
+        if study is not None and params.get("storage"):
+            if saved_checkpoint is not None and params.get("resume"):
+                native_kwargs["resume_checkpoint"] = saved_checkpoint
+
+            def checkpoint_callback(event: dict[str, Any]) -> bool:
+                study.set_user_attr(_NATIVE_CHECKPOINT_ATTR, event["checkpoint"])
+                return True
+
+            native_kwargs["progress_callback"] = checkpoint_callback
         evidence: dict[str, Any] = native.run_host_hpo_search_in_process(
             dsl, envelope, controller_manifests(),
             request,
             op_callback, optimizer_callback,
+            **native_kwargs,
         )
         if optimizer is None:
             best_trial_number = study.best_trial.number
