@@ -9,7 +9,6 @@
     {"id": "tf_jax_cli_export", "reason": "Current public framework tests do not force the CLI process and archive replay for each backend."}
   ],
   "gaps": [
-    {"id": "refit_false", "priority": "P2", "legacy": "CV model pipeline runs with refit=False", "dagml": "public runner rejects the option", "evidence": "run_backend.py:run_via_dagml"},
     {"id": "stateful_concat_before_cv", "priority": "P1", "legacy": "PCA and SVD concat_transform before CV runs", "dagml": "typed preflight refusal despite a working fold-local native execution", "evidence": "cases_augmentation.py:concat_transform_pca_svd_plsr; migration_preflight.py:_raise_concat_migration"},
     {"id": "fitted_fit_on_all", "priority": "P1", "legacy": "StandardScaler with fit_on_all=True runs", "dagml": "explicit refusal; existing coverage uses only stateless SNV", "evidence": "run_backend.py:fit_on_all guard"},
     {"id": "exclude_then_metadata_branch", "priority": "P1", "legacy": "exclude then by_metadata branch and concat merge runs", "dagml": "raw branch/exclusion composition refused", "evidence": "detect.py:_detect_separation_branch"},
