@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "inventory_complete": false,
+  "unverified": [
+    {"id": "warm_start_refit", "reason": "Legacy controllers implement warm-start; DAG-ML declares it unsupported. Reproduce a public training/refit run before classifying parity."},
+    {"id": "tensorflow_custom_callbacks_cyclic_lr", "reason": "DAG-ML preflight rejects these controls; confirm the corresponding public legacy executions."},
+    {"id": "native_methods_tuning", "reason": "Check legacy n4m tuning against DAG-ML host tuning with the same model and search space."},
+    {"id": "optuna_pruner_parallel_phases_storage", "reason": "Legacy paths exist and DAG-ML rejects several controls; reproduce each public legacy contract and its native outcome."},
+    {"id": "tf_jax_cli_export", "reason": "Current public framework tests do not force the CLI process and archive replay for each backend."}
+  ],
+  "gaps": [
+    {"id": "model_force_layout_ignored", "priority": "P0", "legacy": "model force_layout='2d' controls neural-network input shape", "dagml": "override is silently dropped", "evidence": "dagml_bridge.py:_step_to_dsl; BaseModelController.get_effective_layout"},
+    {"id": "tensorflow_nested_training_controls", "priority": "P1", "legacy": "TensorFlow compile/fit dictionaries train the built-in customizable_decon", "dagml": "training-control preflight rejects the nested dictionaries", "evidence": "TensorFlowCompilationConfig.prepare; training_controls.py:validate_training_control_declarations"},
+    {"id": "refit_false", "priority": "P2", "legacy": "CV model pipeline runs with refit=False", "dagml": "public runner rejects the option", "evidence": "run_backend.py:run_via_dagml"},
+    {"id": "sample_augmentation_after_y_processing", "priority": "P0", "legacy": "y_processing then sample_augmentation runs", "dagml": "replay capture rejects the y_processing dictionary", "evidence": "run_paths.py:_materialize_augmentation_prefix"},
+    {"id": "sample_augmentation_after_feature_augmentation", "priority": "P0", "legacy": "feature_augmentation then sample_augmentation runs", "dagml": "replay capture rejects the feature_augmentation dictionary", "evidence": "run_paths.py:_materialize_augmentation_prefix"},
+    {"id": "stateful_concat_before_cv", "priority": "P1", "legacy": "PCA and SVD concat_transform before CV runs", "dagml": "typed preflight refusal despite a working fold-local native execution", "evidence": "cases_augmentation.py:concat_transform_pca_svd_plsr; migration_preflight.py:_raise_concat_migration"},
+    {"id": "feature_augmentation_then_concat", "priority": "P1", "legacy": "add, replace and extend followed by concat_transform run", "dagml": "processing-axis lowering refuses the composition", "evidence": "dagml_bridge.py:pipeline_to_dsl"},
+    {"id": "sample_augmentation_after_tag", "priority": "P1", "legacy": "tag then sample_augmentation runs", "dagml": "replay attempts to treat tag as a sklearn transform", "evidence": "run_paths.py:_materialize_augmentation_prefix"},
+    {"id": "sample_augmentation_after_splitter", "priority": "P1", "legacy": "KFold then sample_augmentation runs", "dagml": "splitter is treated as a non-serializable transform", "evidence": "run_paths.py:_run_augmentation"},
+    {"id": "fitted_fit_on_all", "priority": "P1", "legacy": "StandardScaler with fit_on_all=True runs", "dagml": "explicit refusal; existing coverage uses only stateless SNV", "evidence": "run_backend.py:fit_on_all guard"},
+    {"id": "repetitions_then_exclude", "priority": "P1", "legacy": "repetition dataset with YOutlierFilter exclusion runs", "dagml": "combination refused by guard #21", "evidence": "run_backend.py:repetition exclusion guard"},
+    {"id": "exclude_then_metadata_branch", "priority": "P1", "legacy": "exclude then by_metadata branch and concat merge runs", "dagml": "raw branch/exclusion composition refused", "evidence": "detect.py:_detect_separation_branch"},
+    {"id": "by_source_nested_generator", "priority": "P1", "legacy": "_or_ inside a by_source branch runs", "dagml": "KeyError 'class' while canonicalizing the generator DSL", "evidence": "test_separation_branch_generators.py:test_by_source_with_or_generator; run_paths.py:_canonical_branch_step"},
+    {"id": "branch_only_export", "priority": "P1", "legacy": "multiple model branches without merge export and predict", "dagml": "run succeeds but .n4a export refuses multiple artifacts", "evidence": "api/result.py:export; public dual-engine probe"},
+    {"id": "stacking_meta_model_params", "priority": "P2", "legacy": "stacking meta-model accepts sibling alpha parameter", "dagml": "shape detector refuses the model step", "evidence": "test_dagml_cli_runner.py:test_public_run_engine_dagml_stacking_unsupported_config_fails_loud"},
+    {"id": "by_metadata_without_merge", "priority": "P2", "legacy": "by_metadata model branch without merge runs", "dagml": "no native route, including with nested _or_", "evidence": "detect.py:_detect_separation_branch"},
+    {"id": "rep_to_sources_then_by_source", "priority": "P2", "legacy": "rep_to_sources followed by by_source branch runs", "dagml": "rep-fusion detector rejects any later branch", "evidence": "detect.py:_detect_rep_fusion"},
+    {"id": "cli_full_train", "priority": "P2", "legacy": "pipeline without splitter runs", "dagml": "forced CLI mechanism requires in-process phase API", "evidence": "test_dagml_cli_runner.py:test_no_splitter_uses_explicit_full_training_without_fabricated_cv"},
+    {"id": "cli_by_source_fusion", "priority": "P2", "legacy": "by_source fusion runs", "dagml": "forced CLI coordinator rejects CV+refit bundle", "evidence": "test_dagml_native_n4a_bundle.py:test_by_source_fusion_n4a_export_never_refits_on_legacy"}
+  ]
+}

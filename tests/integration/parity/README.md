@@ -106,6 +106,19 @@ Use the repository's `.venv/bin/python` and `.venv/bin/pytest` for local runs;
 the system interpreter can import an older DAG-ML wheel and produce unrelated
 API failures.
 
+`feature_gaps.json` records legacy-successful compositions reproduced by the
+audit, including gaps the case registry has not yet captured, and tracks
+plausible gaps that still need a public legacy reproduction under `unverified`.
+Run
+`.venv/bin/python -m tests.integration.parity.coverage_meter
+--require-feature-complete` before a release: it fails while the inventory is
+unfinished, any confirmed gap or unverified probe remains open, or a conformance case still
+refuses DAG-ML. Add a failing composition to the ledger immediately, then add
+its dual-engine regression test when fixing it; remove the gap only when that
+test passes through the relevant runtime mechanisms. `inventory_complete` may
+become true only after the legacy parser/controller inventory and ordered
+composition matrix above have been reviewed.
+
 ## Skip vs. xfail policy
 
 Each skipped case carries a `skip_kind` so the runner picks the right

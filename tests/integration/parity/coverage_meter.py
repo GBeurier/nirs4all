@@ -77,6 +77,7 @@ from .test_conformance_dual_engine import (
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPATIBILITY_JSON = REPO_ROOT / "docs" / "compatibility.json"
+FEATURE_GAPS_JSON = Path(__file__).with_name("feature_gaps.json")
 
 # ---------------------------------------------------------------------------
 # Bucket vocabulary.
@@ -304,6 +305,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--md", type=Path, default=None, help="write the markdown summary to this path")
     parser.add_argument("--check", action="store_true", help="compare the meter summary to the ledger; exit 1 on drift")
     parser.add_argument("--require-zero-refusals", action="store_true", help="fail if any registered case still refuses DAG-ML")
+    parser.add_argument("--require-feature-complete", action="store_true", help="fail until the feature inventory is complete and all registered gaps are closed")
     args = parser.parse_args(argv)
 
     report = build_report()
@@ -329,7 +331,15 @@ def main(argv: list[str] | None = None) -> int:
         print("DAG-ML parity gate failed; registered cases still refuse: " + ", ".join(refused))
         exit_code = 1
 
-    if args.json is None and args.md is None and not args.check and not args.require_zero_refusals:
+    if args.require_feature_complete:
+        ledger = json.loads(FEATURE_GAPS_JSON.read_text(encoding="utf-8"))
+        gaps = ledger["gaps"]
+        unverified = ledger["unverified"]
+        if not ledger["inventory_complete"] or gaps or unverified or report.summary()["refusal"]:
+            print(f"DAG-ML feature gate failed: inventory_complete={ledger['inventory_complete']}, open_gaps={len(gaps)}, unverified={len(unverified)}, registered_refusals={report.summary()['refusal']}")
+            exit_code = 1
+
+    if args.json is None and args.md is None and not args.check and not args.require_zero_refusals and not args.require_feature_complete:
         print(report.to_markdown())
     return exit_code
 
