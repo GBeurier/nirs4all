@@ -250,7 +250,7 @@ class _PartitionedXChain:
         keys = {key for selector, _ in self.branches for key in (selector.get("metadata") or {})}
         if len(keys) != 1 or any(set(selector.get("metadata") or {}) != keys for selector, _ in self.branches):
             raise ValueError("feature-join replay requires one shared metadata partition key")
-        return next(iter(keys))
+        return cast(str, next(iter(keys)))
 
     def transform_ids(
         self, X: np.ndarray, sample_ids: list[str], sample_metadata: dict[str, dict[str, Any]],
@@ -1027,7 +1027,7 @@ def _run_fitted_transform_node(
     if not ids:
         raise ValueError("fitted transform node received an empty fit cohort")
 
-    preceding = _fitted_input_chain(task, model_store)
+    preceding = cast(_FittedXChain | None, _fitted_input_chain(task, model_store))
     if preceding is None and any(key.startswith("transform:") for key in task.get("input_handles", {})):
         raise ValueError("fitted transform node is missing its predecessor data-edge artifact")
     target_ids = resolver.target_sample_ids(ids)
@@ -1253,6 +1253,7 @@ def run_model_node(
     # AND the dataset actually has >1 source — a single-source MB-PLS stays the early-fusion concat path
     # (the degenerate one-block list would be identical, so we keep the simpler concat for it). At PREDICT
     # the estimator is reloaded; its wrapper type tells us the persisted model was multi-block.
+    joined_chain: _PartitionedXChain | _DuplicatedXChain | _PredictionFeatureChain | None
     if phase == "PREDICT":
         bundle = model_store[artifact_handle]
         estimator, y_transform = bundle["estimator"], bundle["y_transform"]
@@ -1290,6 +1291,7 @@ def run_model_node(
             for upstream_id in _upstream_x_chain(node_id, edges)
         ):
             raise ValueError("model node is missing a fitted preprocessing data-edge artifact")
+        upstream: list[Any]
         if isinstance(fitted_chain, _FittedXChain) and fitted_chain.source_steps is not None and source_index is not None:
             upstream = [_FrozenTransform(fitted_chain.for_source(source_index))]
         else:
@@ -1420,7 +1422,7 @@ def run_model_node(
                 raise ValueError("joined prediction/feature data requires one feature source")
             if isinstance(joined_chain, _PartitionedXChain) and sample_metadata is None:
                 raise ValueError("partition feature join requires sample metadata")
-            x_train = joined_chain.transform_ids(x_train, fit_ids, sample_metadata)
+            x_train = joined_chain.transform_ids(x_train, fit_ids, cast(dict[str, dict[str, Any]], sample_metadata))
         target_block = resolver.resolve_targets(resolver.target_sample_ids(fit_ids))
         y_train = np.asarray(target_block["values"], dtype=float)
         if residual_mode:
@@ -1489,7 +1491,7 @@ def run_model_node(
         if joined_chain is not None:
             if isinstance(joined_chain, _PartitionedXChain) and sample_metadata is None:
                 raise ValueError("partition feature join requires sample metadata")
-            x = joined_chain.transform_ids(x, ids, sample_metadata)
+            x = joined_chain.transform_ids(x, ids, cast(dict[str, dict[str, Any]], sample_metadata))
         return x, options
 
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:

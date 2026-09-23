@@ -27,7 +27,7 @@ def predict_initial_refit_output(
     if not storage_ids:
         raise ValueError("initial full-refit replay requires prediction rows")
     current_envelope = build_envelope(spectro, identity)
-    envelope = dag_ml.attach_predict_cohort_to_envelope(package["training_envelope"], {
+    envelope = dag_ml.attach_predict_cohort_to_envelope(package["training_envelope"], {  # type: ignore[attr-defined]
         "role": "inference", "relations": current_envelope["coordinator_relations"],
         "target_names": target_names,
         "data_content_fingerprint": _prediction_content_fingerprint(spectro),

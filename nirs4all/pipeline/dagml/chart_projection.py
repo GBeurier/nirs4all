@@ -11,7 +11,7 @@ import html
 import json
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, cast
 from uuid import uuid4
 
 import numpy as np
@@ -196,7 +196,7 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
             continue
         materialized_stage = transform_snapshots.get((augmentation_count, prefix)) if augmentation_count else None
         snapshot_source = materialized_stage if materialized_stage is not None else (
-            augmentation_snapshots[augmentation_count - 1] if augmentation_count else (
+            cast(list[Any], augmentation_snapshots)[augmentation_count - 1] if augmentation_count else (
                 pre_holdout_spectro if pre_holdout_spectro is not None and not after_split else (original_spectro or spectro)
             )
         )

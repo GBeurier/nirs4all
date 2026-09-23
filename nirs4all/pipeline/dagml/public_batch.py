@@ -92,6 +92,9 @@ def _validate_leaf_export_selection(
 class DagMLBatchResult(RunResult):
     """A normal result view whose child runs retain their own artifact identities."""
 
+    _dagml_selection_decision: dict[str, Any]
+    _dagml_selected_run: RunResult
+
     def __init__(self, results: list[RunResult]) -> None:
         self._batch_results = tuple(results)
         predictions = Predictions()

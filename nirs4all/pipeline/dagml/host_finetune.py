@@ -59,7 +59,7 @@ def _recover_interrupted_optuna_study(study: Any, saved: dict[str, Any]) -> dict
         if not isinstance(values, dict):
             raise RuntimeError("Optuna native pending proposal is malformed")
         interrupted.append({"trial_index": index, "params": values})
-    recovered = dag_ml.recover_host_hpo_checkpoint(saved, prepared, interrupted)
+    recovered = cast(dict[str, Any], dag_ml.recover_host_hpo_checkpoint(saved, prepared, interrupted))  # type: ignore[attr-defined]
     if prepared is not None:
         index = len(terminal)
         trial = observed[index]

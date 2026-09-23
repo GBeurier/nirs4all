@@ -966,10 +966,10 @@ class _DagmlFoldStackingModel:
         if self.selected_fold is not None:
             return np.asarray(getattr(self.folds[self.selected_fold], method)(X), dtype=float)
         assert self.weights is not None
-        return sum(
+        return cast(np.ndarray, sum(
             float(weight) * np.asarray(getattr(self.folds[fold], method)(X), dtype=float)
             for fold, weight in self.weights.items()
-        )
+        ))
 
     def predict_numeric(self, X: Any) -> np.ndarray:
         return self._predict("predict_numeric", X)
@@ -2735,7 +2735,7 @@ class RunResult:
                     native_artifact_by_node[node_id] = record["artifact"]["id"]
                 if any(
                     artifact.get("producer_node") not in native_output_by_node
-                    or artifact.get("artifact_id") != native_artifact_by_node.get(artifact.get("producer_node"))
+                    or artifact.get("artifact_id") != native_artifact_by_node.get(cast(str, artifact.get("producer_node")))
                     for _index, artifact in indexed
                 ):
                     return None
@@ -2882,7 +2882,7 @@ class RunResult:
                 _DagmlExportedModel(base["estimator"], base["y_transform"]),
                 _DagmlExportedModel(learner["estimator"], learner["y_transform"]),
                 weight,
-                [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in feature_artifacts],
+                [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in cast(list[dict[str, Any]], feature_artifacts)],
             )
             return write_single_model_bundle(
                 residual_model,
