@@ -18,6 +18,11 @@ def test_runner_reports_crash_and_keeps_running(tmp_path):
     (tmp_path / "test_d.py").write_text("def test_last(): assert True\n")
     repo = Path(__file__).resolve().parents[3]
     report = tmp_path / "report"
+    (report / "junit-files").mkdir(parents=True)
+    (report / "0002-test_b.json").write_text('["test_b.py::test_native_crash"]')
+    (report / "junit-files" / "0002-test_b.xml").write_text(
+        '<testsuite><testcase name="stale_pass"/></testsuite>'
+    )
     process = subprocess.run(
         [
             sys.executable,
@@ -39,6 +44,7 @@ def test_runner_reports_crash_and_keeps_running(tmp_path):
     assert summary["files"] == 4
     assert summary["collected"] == 3
     assert [item["exit_code"] for item in summary["results"]] == [0, 139, 5, 0]
+    assert summary["results"][1]["errors"] >= 2  # no stale JUnit or manifest reused
     assert summary["results"][2]["errors"] == 0
     assert summary["results"][3]["reported"] == 1
     assert summary["errors"] >= 1
