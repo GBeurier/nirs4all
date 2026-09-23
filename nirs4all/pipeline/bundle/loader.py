@@ -32,6 +32,7 @@ import json
 import logging
 import tempfile
 import zipfile
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Optional, Union, cast
@@ -709,12 +710,14 @@ class BundleLoader:
         model = self._named_output_model()
         if name not in self._named_output_names:
             raise ValueError(f"unknown named output {name!r}; available outputs: {list(self._named_output_names)!r}")
-        return np.asarray(model.predict_output(name, self._prepare_prediction_input(X)))
+        features = X if isinstance(X, Mapping) else self._prepare_prediction_input(X)
+        return np.asarray(model.predict_output(name, features))
 
     def predict_outputs(self, X: Any) -> dict[str, np.ndarray]:
         """Replay all independent outputs as a name-to-prediction mapping."""
         model = self._named_output_model()
-        values = model.predict_outputs(self._prepare_prediction_input(X))
+        features = X if isinstance(X, Mapping) else self._prepare_prediction_input(X)
+        values = model.predict_outputs(features)
         if tuple(values) != self._named_output_names:
             raise ValueError("independent-source archive emitted outputs in an unexpected order")
         return {name: np.asarray(value) for name, value in values.items()}
