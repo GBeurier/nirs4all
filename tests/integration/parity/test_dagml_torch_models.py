@@ -10,12 +10,22 @@ pytest.importorskip("dag_ml")
 torch = pytest.importorskip("torch")
 
 
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.torch
 @pytest.mark.parity
-def test_builtin_customizable_decon_run_export_replay(tmp_path) -> None:
-    """A built-in factory trains per fold, refits, and replays its captured model."""
+def test_builtin_customizable_decon_run_export_replay(tmp_path, monkeypatch, mechanism: str) -> None:
+    """Both DAG runtimes refit and export the built-in PyTorch model."""
     import nirs4all
     from nirs4all.operators.models.pytorch.nicon import customizable_decon
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
 
     rng = np.random.default_rng(4)
     x = rng.uniform(0, 1, (12, 128)).astype(np.float32)

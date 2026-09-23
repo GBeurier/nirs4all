@@ -17,7 +17,6 @@ from nirs4all.operators.augmentation import GaussianAdditiveNoise
 from nirs4all.operators.filters import YOutlierFilter
 from nirs4all.operators.transforms.scalers import StandardNormalVariate
 from nirs4all.pipeline.dagml.full_train import NoSplitEvaluationWarning
-from nirs4all.pipeline.dagml.rt import RtError
 from nirs4all.pipeline.dagml.run_paths import _apply_sample_augmentation
 
 from ._datasets import PARSER_FIXTURES, dataset_path
@@ -440,8 +439,19 @@ def test_multisource_fold_local_interleaved_prefix_replays(tmp_path) -> None:
     assert replay_rmse == pytest.approx(result.best_rmse, abs=1e-9)
 
 
-def test_fold_local_exclusion_between_augmentations_requires_fold_views() -> None:
-    """An interleaved exclusion must not silently train on rows excluded in a fold."""
+@pytest.mark.parametrize("placement", ["between", "after_transform"])
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_fold_local_exclusion_uses_each_fold_and_replays(tmp_path, monkeypatch, placement: str, mechanism: str) -> None:
+    """Fold-local exclusion changes fit rows without removing validation or test predictions."""
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+
     path = dataset_path("regression")
     balanced = {"sample_augmentation": {
         "transformers": [GaussianAdditiveNoise(sigma=0.01)],
@@ -451,10 +461,20 @@ def test_fold_local_exclusion_between_augmentations_requires_fold_views() -> Non
         "transformers": [GaussianAdditiveNoise(sigma=0.02)],
         "count": 1, "selection": "all", "random_state": 42,
     }}
-    with pytest.raises(RtError, match="per-fold exclusion views"):
-        nirs4all.run(
-            [balanced, {"exclude": YOutlierFilter(method="iqr")}, standard,
-             KFold(n_splits=3, shuffle=True, random_state=42),
-             {"model": PLSRegression(n_components=3)}],
-            path, engine="dag-ml", save_artifacts=False,
-        )
+    exclusion = {"exclude": YOutlierFilter(method="iqr", threshold=1.0)}
+    prefix = [balanced, exclusion, standard] if placement == "between" else [balanced, StandardScaler(), exclusion]
+    pipeline = [*prefix, KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=3)}]
+    result = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False)
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False)
+    archive = tmp_path / "excluded_fold_local.n4a"
+    result.export(archive)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    prediction = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    replay_rmse = root_mean_squared_error(np.asarray(dataset.y({"partition": "test"})), np.asarray(prediction.y_pred))
+    assert result.execution_engine == "dag-ml"
+    assert np.isfinite(result.cv_best_score)
+    oof = [report for report in result._dagml_score_set["reports"] if report["partition"] == "validation" and report.get("fold_id") == "avg"]
+    assert len(oof) == 1
+    assert oof[0]["row_count"] == len(dataset.index_column("sample", {"partition": "train"}))
+    assert result.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-9)
+    assert replay_rmse == pytest.approx(result.best_rmse, abs=1e-9)

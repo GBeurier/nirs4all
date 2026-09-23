@@ -72,9 +72,8 @@ class _LegacyCvScoreDivergence(TypedDict):
 # removed (the suite goes RED until it is).
 #
 # Measured legacy↔dag-ml best_rmse deltas (regression sample_data) at scope time:
-# (concat_transform_pca_svd_plsr was here too — the dag-ml path now prematerializes top-level
-#  concat_transform at the legacy train+test batch boundary, and the case pins PCA/SVD random_state.
-#  It is a LIVE parity assertion now.)
+# (concat_transform_pca_svd_plsr is a legacy-successful expected refusal below;
+#  it must become a live parity assertion before feature-completeness can be claimed.)
 # (generator_or_models_pls_ridge was here too — it is NOT a divergence in score/winner/winner-y_pred
 #  (all equal: best_rmse Δ≈2e-15, winner PLSRegression, winner y_pred Δ=0.0); its ONLY delta is
 #  num_predictions 34-legacy vs 32-native, an INTENTIONAL native-vs-legacy refit-policy divergence —

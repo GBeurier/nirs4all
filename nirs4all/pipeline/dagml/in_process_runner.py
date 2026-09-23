@@ -20,6 +20,7 @@ ids) match — the only divergence is that the materialization happens in THIS p
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import pickle
@@ -73,7 +74,7 @@ def _dagml_extension_loads() -> bool:
     return True
 
 
-def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, dict[str, dict[int, list[int]]] | None, dict[str, tuple[Any, dict[int, int]]] | None]:
+def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, dict[str, dict[int, list[int]]] | None, dict[str, tuple[Any, dict[int, int], set[int]]] | None]:
     """Load the dataset and optional fold-local data, mirroring the subprocess adapter.
 
     A ``dataset_pickle`` (augmentation runs) is preferred over the reloadable path: a dict payload
@@ -103,7 +104,7 @@ def run_cv_refit_bundle(
     dataset_pickle: str | None = None,
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
-    fold_feature_views: dict[str, tuple[Any, dict[int, int]]] | None = None,
+    fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
 ) -> dict[str, Any]:
     """Run a CV+refit bundle IN-PROCESS; return ``{returncode, stdout, results, scores}``.
 
@@ -171,9 +172,8 @@ def run_cv_refit_bundle(
         # op_callback closed over (P3 Slice 2c-i, D1 — zero ABI change). The store STILL holds the REFIT
         # estimators keyed by the artifact-handle ints, and each REFIT NodeResult carries those same
         # handles in `artifact_handles`, so we read the fitted models back without any node_runner / bridge
-        # / Rust change. Captured ONLY for Mechanism B (in-process); the subprocess branch can't reach a
-        # child process's store and returns []. OFF-by-default downstream (the native-results writer fires
-        # solely when results are enabled), so a plain run never touches these.
+        # / Rust change. The subprocess adapter serializes the same capture shape to a run-local
+        # sidecar, which its parent loads after CLI completion.
         "refit_artifacts": _capture_refit_artifacts(node_results, store),
     }
 
@@ -225,6 +225,32 @@ def _capture_refit_artifacts(node_results: list[dict[str, Any]], store: dict[int
     return captured
 
 
+def _refit_artifact_path(directory: Path, artifact_id: str) -> Path:
+    """Use a stable, filename-safe key for a run-local fitted artifact."""
+    return directory / f"{hashlib.sha256(artifact_id.encode('utf-8')).hexdigest()}.joblib"
+
+
+def _load_subprocess_refit_artifacts(node_results: list[dict[str, Any]], directory: Path) -> list[dict[str, Any]]:
+    """Load only artifacts declared by this run's native REFIT result frames."""
+    import joblib
+
+    captured: list[dict[str, Any]] = []
+    for frame in node_results:
+        result = frame.get("result") if frame.get("type") == "result" else frame
+        if not isinstance(result, dict):
+            continue
+        for descriptor in result.get("artifacts", []) or []:
+            artifact_id = descriptor["id"]
+            path = _refit_artifact_path(directory, artifact_id)
+            if not path.exists():
+                raise RuntimeError(f"subprocess REFIT artifact {artifact_id!r} was not captured")
+            payload = joblib.load(path)  # noqa: S301 - run-local file written by the trusted adapter
+            if not isinstance(payload, dict) or payload.get("artifact_id") != artifact_id:
+                raise ValueError(f"subprocess REFIT artifact {artifact_id!r} does not match its descriptor")
+            captured.append(payload)
+    return captured
+
+
 def run_cv_refit_bundle_router(
     *,
     dsl: dict[str, Any],
@@ -239,7 +265,7 @@ def run_cv_refit_bundle_router(
     dataset_pickle: str | None = None,
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
-    fold_feature_views: dict[str, tuple[Any, dict[int, int]]] | None = None,
+    fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None,
     random_state: int | None = None,
 ) -> dict[str, Any]:
     """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
@@ -343,8 +369,7 @@ def run_cv_refit_bundle_router(
     # a non-zero returncode is handled by the caller's guard before scores are ever consumed.
     bundle_path = Path(workdir) / "bundle.json"
     outcome["scores"] = json.loads(bundle_path.read_text()).get("scores") if outcome["returncode"] == 0 and bundle_path.exists() else None
-    # Mechanism A (subprocess) fits the models in a CHILD process whose store this process cannot reach,
-    # so NO fitted estimators are capturable here (P3 Slice 2c-i): an empty list → the writer sets
-    # has_model_artifacts:false and emits no loadable artifacts[] entries (it never fakes a payload).
-    outcome["refit_artifacts"] = []
+    # The adapter serializes its fitted REFIT models to this run's private artifact directory.
+    # Only descriptors in the captured native results can select files for loading.
+    outcome["refit_artifacts"] = _load_subprocess_refit_artifacts(native_frames, Path(workdir) / "refit_artifacts") if outcome["returncode"] == 0 else []
     return outcome
