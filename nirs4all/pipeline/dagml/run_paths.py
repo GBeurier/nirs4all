@@ -680,17 +680,19 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
 
 def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
     """One concrete repetition variant: group-aware folds + a ``group_id``-carrying envelope."""
+    from .exclude import _resolve_exclude
+
     steps, splitter = _split_pipeline(pipeline)
     if splitter is None:
         raise DagMlUnsupported("engine='dag-ml' requires a cross-validator step (e.g. KFold) in the pipeline")
+    steps, pool, excluded = _resolve_exclude(steps, spectro)
     _assert_supported_operators(steps)
     steps = _apply_model_params(steps)
 
     identity = mint_identity(spectro)
-    pool = spectro.index_column("sample", {"partition": "train"})
     folds = _build_group_folds(splitter, spectro, pool)
     group_by_sample = _split_group_grain(splitter, spectro, pool) or _repetition_grain(spectro, pool)
-    envelope = build_envelope(spectro, identity, sample_ints=pool, group_by_sample=group_by_sample)
+    envelope = build_envelope(spectro, identity, sample_ints=pool, excluded_sample_ints=excluded, group_by_sample=group_by_sample)
     dsl = assemble_cv_refit_dsl(steps, identity, envelope, folds, dsl_id="nirs4all-pipeline", n_splits=len(folds))
 
     import dag_ml
