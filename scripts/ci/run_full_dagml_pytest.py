@@ -14,6 +14,7 @@ import subprocess
 import sys
 import time
 import xml.etree.ElementTree as ET
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 
@@ -64,13 +65,117 @@ def _report_failure(suites: list[ET.Element], name: str, message: str) -> None:
     suites.append(_error_suite(name, message))
 
 
+def _run_module(
+    index: int, file: Path, report_dir: Path, process_timeout: int
+) -> tuple[list[ET.Element], dict[str, object], str]:
+    name = file.as_posix()
+    stem = f"{index:04d}-{file.stem}"
+    junit = report_dir / "junit-files" / f"{stem}.xml"
+    manifest = report_dir / f"{stem}.json"
+    log = report_dir / "logs" / f"{stem}.log"
+    # A retry in the same report directory must never read a stale result
+    # when this subprocess crashes before writing its own files.
+    junit.unlink(missing_ok=True)
+    manifest.unlink(missing_ok=True)
+    env = os.environ.copy()
+    env["N4A_ENGINE"] = "dag-ml"
+    env["N4A_PYTEST_MANIFEST"] = str(manifest)
+    env["COVERAGE_FILE"] = str(
+        report_dir / "coverage-files" / f".coverage.{index:04d}"
+    )
+    env["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
+    env["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
+    env.pop("PYTEST_ADDOPTS", None)
+    command = [
+        sys.executable,
+        "-m",
+        "pytest",
+        "-q",
+        "-o",
+        "addopts=",
+        "-p",
+        "scripts.ci.pytest_collection_manifest",
+        "--timeout=300",
+        f"--junitxml={junit}",
+        "--cov=nirs4all",
+        "--cov-report=",
+        str(file),
+    ]
+    try:
+        with log.open("w", encoding="utf-8") as output:
+            process = subprocess.run(
+                command,
+                stdout=output,
+                stderr=subprocess.STDOUT,
+                env=env,
+                timeout=process_timeout,
+                check=False,
+            )
+        returncode = process.returncode
+    except subprocess.TimeoutExpired:
+        returncode = -1
+        with log.open("a", encoding="utf-8") as output:
+            output.write(f"\nProcess timed out after {process_timeout}s\n")
+
+    suites = _read_suites(junit, name)
+    actual = _counts(suites)["tests"]
+    expected = None
+    if manifest.exists():
+        try:
+            node_ids = json.loads(manifest.read_text(encoding="utf-8"))
+            expected = len(node_ids)
+            if not isinstance(node_ids, list) or not all(
+                isinstance(node_id, str) for node_id in node_ids
+            ):
+                raise ValueError("manifest is not a node ID list")
+        except (ValueError, json.JSONDecodeError) as exc:
+            _report_failure(suites, name, f"Invalid collection manifest: {exc}")
+    else:
+        _report_failure(suites, name, "pytest did not finish collection")
+
+    # Pytest records collection-time module skips as an extra skipped JUnit
+    # case; all genuinely collected node IDs must still appear in JUnit.
+    module_skipped = (
+        expected == 0
+        and actual > 0
+        and _counts(suites)["skipped"] == actual
+        and returncode == 5
+    )
+    if expected is not None and expected > 0 and actual != expected:
+        _report_failure(
+            suites, name, f"Collected {expected} tests but JUnit recorded {actual}"
+        )
+    if expected == 0 and not module_skipped and returncode == 0:
+        _report_failure(suites, name, "pytest reported success without collecting tests")
+    if returncode != 0 and not module_skipped:
+        _report_failure(suites, name, f"pytest exited with status {returncode}")
+
+    counts = _counts(suites)
+    result: dict[str, object] = {
+        "file": name,
+        "collected": expected,
+        "reported": actual,
+        "exit_code": returncode,
+        **counts,
+    }
+    tail = (
+        log.read_text(encoding="utf-8", errors="replace")[-4000:]
+        if counts["failures"] or counts["errors"]
+        else ""
+    )
+    return suites, result, tail
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("paths", nargs="*", type=Path, default=[Path("tests")])
     parser.add_argument("--report-dir", type=Path, default=Path("dagml-pytest-report"))
     parser.add_argument("--coverage-output", type=Path, default=Path("coverage.xml"))
     parser.add_argument("--process-timeout", type=int, default=1800)
+    parser.add_argument("--jobs", type=int, default=4, help="Concurrent isolated pytest processes")
     args = parser.parse_args(argv)
+    if args.jobs < 1:
+        parser.error("--jobs must be at least 1")
 
     try:
         files = _test_files(args.paths)
@@ -88,106 +193,43 @@ def main(argv: list[str] | None = None) -> int:
     for stale in coverage_dir.glob(".coverage.*"):
         stale.unlink()
 
-    all_suites: list[ET.Element] = []
-    results = []
     started = time.monotonic()
-    for index, file in enumerate(files, 1):
-        name = file.as_posix()
-        stem = f"{index:04d}-{file.stem}"
-        junit = junit_dir / f"{stem}.xml"
-        manifest = report_dir / f"{stem}.json"
-        log = log_dir / f"{stem}.log"
-        # A retry in the same report directory must never read a stale result
-        # when this subprocess crashes before writing its own files.
-        junit.unlink(missing_ok=True)
-        manifest.unlink(missing_ok=True)
-        env = os.environ.copy()
-        env["N4A_ENGINE"] = "dag-ml"
-        env["N4A_PYTEST_MANIFEST"] = str(manifest)
-        env["COVERAGE_FILE"] = str(coverage_dir / f".coverage.{index:04d}")
-        env["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-        env["TF_FORCE_GPU_ALLOW_GROWTH"] = "true"
-        env.pop("PYTEST_ADDOPTS", None)
-        command = [
-            sys.executable,
-            "-m",
-            "pytest",
-            "-q",
-            "-o",
-            "addopts=",
-            "-p",
-            "scripts.ci.pytest_collection_manifest",
-            "--timeout=300",
-            f"--junitxml={junit}",
-            "--cov=nirs4all",
-            "--cov-report=",
-            str(file),
-        ]
-        print(f"[{index}/{len(files)}] {name}", flush=True)
-        try:
-            with log.open("w", encoding="utf-8") as output:
-                process = subprocess.run(
-                    command,
-                    stdout=output,
-                    stderr=subprocess.STDOUT,
-                    env=env,
-                    timeout=args.process_timeout,
-                    check=False,
-                )
-            returncode = process.returncode
-        except subprocess.TimeoutExpired:
-            returncode = -1
-            with log.open("a", encoding="utf-8") as output:
-                output.write(f"\nProcess timed out after {args.process_timeout}s\n")
-
-        suites = _read_suites(junit, name)
-        actual = _counts(suites)["tests"]
-        expected = None
-        if manifest.exists():
+    completed: dict[int, tuple[list[ET.Element], dict[str, object], str]] = {}
+    print(f"Running {len(files)} DAG-ML test modules with {args.jobs} processes", flush=True)
+    with ThreadPoolExecutor(max_workers=args.jobs) as executor:
+        future_to_index = {
+            executor.submit(_run_module, index, file, report_dir, args.process_timeout): index
+            for index, file in enumerate(files, 1)
+        }
+        for future in as_completed(future_to_index):
+            index = future_to_index[future]
             try:
-                node_ids = json.loads(manifest.read_text(encoding="utf-8"))
-                expected = len(node_ids)
-                if not isinstance(node_ids, list) or not all(
-                    isinstance(node_id, str) for node_id in node_ids
-                ):
-                    raise ValueError("manifest is not a node ID list")
-            except (ValueError, json.JSONDecodeError) as exc:
-                _report_failure(suites, name, f"Invalid collection manifest: {exc}")
-        else:
-            _report_failure(suites, name, "pytest did not finish collection")
-
-        # Pytest records collection-time module skips as an extra skipped JUnit
-        # case; all genuinely collected node IDs must still appear in JUnit.
-        module_skipped = (
-            expected == 0
-            and actual > 0
-            and _counts(suites)["skipped"] == actual
-            and returncode == 5
-        )
-        if expected is not None and expected > 0 and actual != expected:
-            _report_failure(
-                suites, name, f"Collected {expected} tests but JUnit recorded {actual}"
+                suites, result, tail = future.result()
+            except Exception as exc:
+                name = files[index - 1].as_posix()
+                suites = [_error_suite(name, f"Runner could not execute module: {exc}")]
+                result = {
+                    "file": name,
+                    "collected": None,
+                    "reported": 0,
+                    "exit_code": None,
+                    **_counts(suites),
+                }
+                tail = str(exc)
+            completed[index] = (suites, result, tail)
+            status = "FAIL" if result["failures"] or result["errors"] else "PASS"
+            print(
+                f"[{len(completed)}/{len(files)}] {status} {result['file']}: "
+                f"collected={result['collected']}, junit={result['reported']}, "
+                f"exit={result['exit_code']}",
+                flush=True,
             )
-        if expected == 0 and not module_skipped and returncode == 0:
-            _report_failure(suites, name, "pytest reported success without collecting tests")
-        if returncode != 0 and not module_skipped:
-            _report_failure(suites, name, f"pytest exited with status {returncode}")
+            if tail:
+                print(tail, flush=True)
 
-        counts = _counts(suites)
-        all_suites.extend(suites)
-        results.append(
-            {
-                "file": name,
-                "collected": expected,
-                "reported": actual,
-                "exit_code": returncode,
-                **counts,
-            }
-        )
-        status = "FAIL" if counts["failures"] or counts["errors"] else "PASS"
-        print(f"  {status}: collected={expected}, junit={actual}, exit={returncode}", flush=True)
-        if status == "FAIL":
-            print(log.read_text(encoding="utf-8", errors="replace")[-4000:], flush=True)
+    # Completion order depends on runtime; reports always follow file order.
+    all_suites = [suite for index in sorted(completed) for suite in completed[index][0]]
+    results = [completed[index][1] for index in sorted(completed)]
 
     totals = _counts(all_suites)
     root = ET.Element("testsuites", {key: str(value) for key, value in totals.items()})

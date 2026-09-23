@@ -52,3 +52,46 @@ def test_runner_reports_crash_and_keeps_running(tmp_path):
         summary["tests"]
     )
     assert (tmp_path / "coverage.xml").exists()
+
+
+def test_runner_executes_modules_concurrently_with_ordered_report(tmp_path):
+    for name, other in (("a", "b"), ("b", "a")):
+        (tmp_path / f"test_{name}.py").write_text(
+            "from pathlib import Path\n"
+            "import time\n"
+            "def test_overlap():\n"
+            f"    Path({str(tmp_path / f'started_{name}')!r}).touch()\n"
+            "    deadline = time.monotonic() + 15\n"
+            f"    other = Path({str(tmp_path / f'started_{other}')!r})\n"
+            "    while not other.exists() and time.monotonic() < deadline:\n"
+            "        time.sleep(0.05)\n"
+            "    assert other.exists()\n"
+        )
+    repo = Path(__file__).resolve().parents[3]
+    report = tmp_path / "report"
+    process = subprocess.run(
+        [
+            sys.executable,
+            "scripts/ci/run_full_dagml_pytest.py",
+            str(tmp_path),
+            "--jobs",
+            "2",
+            "--report-dir",
+            str(report),
+            "--coverage-output",
+            str(tmp_path / "coverage.xml"),
+        ],
+        cwd=repo,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    summary = json.loads((report / "summary.json").read_text())
+    assert process.returncode == 0, process.stdout + process.stderr
+    assert summary["files"] == summary["collected"] == summary["tests"] == 2
+    assert [Path(item["file"]).name for item in summary["results"]] == [
+        "test_a.py",
+        "test_b.py",
+    ]
+    assert (tmp_path / "coverage.xml").exists()
