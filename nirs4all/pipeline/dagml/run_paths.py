@@ -2386,6 +2386,74 @@ def _canonical_branch(branch_body: list[Any], branch_index: int) -> dict[str, An
     }
 
 
+def _run_checkpoint_before_duplication_branch(
+    pipeline: list[Any], branches: list[list[Any]], first_model: dict[str, Any], last_model: dict[str, Any],
+    spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path,
+    metric: str, task_type: str, dataset_pickle: str | None, config_name: str,
+    random_state: int | None, refit: bool,
+) -> RunResult:
+    """Run the prior checkpoint and each branch model in one native DAG campaign."""
+    import dag_ml
+
+    from .cli_runner import data_bindings_for_nodes, split_invocation_for
+
+    splitter = pipeline[0]
+    identity = mint_identity(spectro)
+    pool = list(spectro.index_column("sample", {"partition": "train"}))
+    folds = _build_folds(splitter, spectro, pool, set())
+    envelope = build_envelope(spectro, identity, sample_ints=pool,
+                              group_by_sample=_split_group_grain(splitter, spectro, pool))
+    prior_id = "model:checkpoint_before_branch"
+    canonical_dsl: dict[str, Any] = {
+        "id": "nirs4all-checkpoint-duplication",
+        "steps": [
+            _canonical_branch_step(first_model, prior_id),
+            {"kind": "branch", "mode": "duplication", "branches": [
+                _canonical_branch([*body, last_model], index) for index, body in enumerate(branches)
+            ]},
+        ],
+    }
+    graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, controller_manifests()).graph.to_dict()
+    producer_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
+    if len(producer_ids) != len(branches) + 1 or producer_ids[0] != prior_id:
+        raise DagMlUnsupported("checkpoint branch compilation did not preserve every model producer")
+    canonical_dsl["data_bindings"] = data_bindings_for_nodes(producer_ids, envelope)
+    canonical_dsl["split_invocation"] = split_invocation_for(identity, folds, n_splits=len(folds))
+    outcome = run_cv_refit_bundle(
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg,
+        workdir=run_dir, dagml_cli=cli, venv_python=venv_python,
+        selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro,
+        random_state=random_state, refit=refit,
+    )
+    if outcome["returncode"] != 0:
+        _raise_run_failure(outcome, "dag-ml checkpoint branch run failed")
+
+    predictions = Predictions()
+    for index, producer in enumerate(producer_ids):
+        model_name = _model_name([first_model if index == 0 else last_model])
+        frames = [frame for frame in outcome["results"]
+                  if (frame.get("result") if frame.get("type") == "result" else frame).get("node_id") == producer]
+        projected = _scores_to_run_result(
+            outcome["scores"], spectro.name, model_name, metric, task_type,
+            producer=producer, config_name=config_name, results=frames,
+            identity=identity, refit_artifacts=outcome["refit_artifacts"],
+        )
+        for row in projected.predictions.filter_predictions(load_arrays=True):
+            if index:
+                row["branch_id"] = index - 1
+                row["branch_name"] = f"branch_{index - 1}"
+            predictions.extend_from_list([row])
+    predictions.flush()
+    result = RunResult(predictions=predictions, per_dataset={spectro.name: {
+        "engine": "dag-ml", "refit_enabled": refit,
+        "checkpoint_producers": producer_ids,
+    }})
+    result._dagml_score_set = outcome["scores"]  # noqa: SLF001 - preserve native multi-producer evidence
+    result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    result._dagml_node_results = outcome["results"]  # noqa: SLF001
+    return result
+
+
 def _branch_merge_transformer_step(branches: list[list[Any]], merge_mode: str) -> DuplicationBranchMergeTransformer:
     """Build the importable transformer step used for native duplication feature/all merges."""
     from nirs4all.pipeline.dagml_bridge import _json_safe_params, _qualname

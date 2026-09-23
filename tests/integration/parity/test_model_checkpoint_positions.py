@@ -106,7 +106,7 @@ def test_two_model_checkpoints_preserve_final_predictions_and_archive(tmp_path, 
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
-@pytest.mark.parametrize("stage", ["splitter", "branch", "merge"])
+@pytest.mark.parametrize("stage", ["splitter", "merge"])
 def test_two_model_checkpoints_open_native_composition_gaps(tmp_path, monkeypatch, mechanism: str, stage: str) -> None:
     """Legacy-successful positions retain explicit DAG refusal until their graph lowering exists."""
     _transport(mechanism, monkeypatch)
@@ -124,3 +124,49 @@ def test_two_model_checkpoints_open_native_composition_gaps(tmp_path, monkeypatc
     with pytest.raises(Exception, match=reason):
         nirs4all.run(_pipeline(stage), native_data, engine="dag-ml", allow_fallback=False,
                      workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0)
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
+def test_model_checkpoint_before_duplication_branch_replays_selected_native_producer(tmp_path, monkeypatch, mechanism: str) -> None:
+    """One DAG retains a pre-branch model and both branch models through REFIT and archive."""
+    _transport(mechanism, monkeypatch)
+    legacy_data, x_test, _ = _dataset()
+    legacy = nirs4all.run(_pipeline("branch"), legacy_data, engine="legacy", allow_fallback=False,
+                          workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0)
+    native_data, _, _ = _dataset()
+    native = nirs4all.run(_pipeline("branch"), native_data, engine="dag-ml", allow_fallback=False,
+                         workspace_path=tmp_path / "native", save_artifacts=True, save_charts=False, verbose=0)
+    try:
+        assert native.execution_engine == "dag-ml"
+        assert native.get_models() == legacy.get_models() == ["PLSRegression", "Ridge"]
+        assert native.per_dataset["checkpoint_positions"]["checkpoint_producers"] == [
+            "model:checkpoint_before_branch", "branch:0.node:1", "branch:1.node:1",
+        ]
+        native_rows = native.predictions.filter_predictions()
+        legacy_rows = legacy.predictions.filter_predictions()
+        # Legacy redundantly emits the pre-branch REFIT model once per branch;
+        # DAG keeps one attested producer/artifact for the same model.
+        assert len(native_rows) == 42 and len(legacy_rows) == 44
+        for model, branch in (("PLSRegression", None), ("Ridge", 0), ("Ridge", 1)):
+            native_final = next(row for row in native_rows if row["model_name"] == model
+                                and row["branch_id"] == branch and row["partition"] == "test"
+                                and row["fold_id"] == "final")
+            legacy_final_rows = [row for row in legacy_rows if row["model_name"] == model
+                                 and row["partition"] == "test" and row["fold_id"] == "final"]
+            # Legacy drops branch_id on REFIT rows, but emits them in branch order.
+            legacy_final = legacy_final_rows[branch or 0]
+            assert np.isfinite(native_final["test_score"])
+            assert native_final["test_score"] == pytest.approx(legacy_final["test_score"], abs=1e-5)
+            np.testing.assert_allclose(np.asarray(native_final["y_pred"]).ravel(),
+                                       np.asarray(legacy_final["y_pred"]).ravel(), atol=1e-5)
+        winner = native.cv_best
+        selected_final = next(row for row in native_rows if row["model_name"] == winner["model_name"]
+                              and row["branch_id"] == winner["branch_id"]
+                              and row["partition"] == "test" and row["fold_id"] == "final")
+        archive = native.export(tmp_path / "checkpoint_branch.n4a")
+        replay = np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel()
+        np.testing.assert_allclose(replay, np.asarray(selected_final["y_pred"]).ravel(), atol=1e-4)
+    finally:
+        native.close()
+        legacy.close()
