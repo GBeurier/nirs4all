@@ -1135,6 +1135,10 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
             ]
             continue
         node = _step_to_dsl(step)
+        if channels is not None and isinstance(step, dict) and "auto_transfer_preproc" in step:
+            # The selector sees the flattened feature matrix, but the chosen
+            # preprocessing is fitted/applied to each existing processing lane.
+            node.setdefault("metadata", {})["nirs4all_upstream_processing_channels"] = True
         lowered.append(node)
         if isinstance(step, dict) and "feature_augmentation" in step:
             channels = node

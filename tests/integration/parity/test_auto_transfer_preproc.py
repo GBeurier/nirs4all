@@ -8,6 +8,7 @@ from sklearn.model_selection import KFold
 import nirs4all
 from nirs4all.analysis import get_base_preprocessings
 from nirs4all.data.config import DatasetConfigs
+from nirs4all.operators.transforms.scalers import StandardNormalVariate
 from nirs4all.pipeline.dagml.full_train import NoSplitEvaluationWarning
 
 from ._dagml_cli import dagml_cli_path
@@ -136,3 +137,30 @@ def test_auto_transfer_multi_source_selects_jointly_and_replays_source_local_tra
     archive = native.export(tmp_path / "auto_transfer_multi_source.n4a")
     x_test = DatasetConfigs(path).get_dataset_at(0).x({"partition": "test"}, layout="2d")
     np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, x_test).y_pred).ravel(), _test_prediction(legacy), atol=1e-6)
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("top_k", [1, 2])
+def test_feature_augmentation_before_auto_transfer_preserves_processing_lanes(tmp_path, monkeypatch, top_k: int) -> None:
+    cli = dagml_cli_path()
+    if not cli.exists():
+        pytest.skip(f"dag-ml-cli binary not built at {cli}")
+    path = dataset_path("regression")
+    pipeline = [
+        {"feature_augmentation": [StandardNormalVariate()]},
+        {"auto_transfer_preproc": {
+            "preset": "fast", "apply_recommendation": True, "top_k": top_k,
+            "use_augmentation": top_k > 1, "verbose": 0,
+        }},
+        PLSRegression(3),
+    ]
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    test_x = DatasetConfigs(path).get_dataset_at(0).x({"partition": "test"}, layout="2d")
+    for mode in ("1", "0"):
+        monkeypatch.setenv("N4A_DAGML_INPROCESS", mode)
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+        with pytest.warns(NoSplitEvaluationWarning, match="No splitter"):
+            native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+        np.testing.assert_allclose(_test_prediction(native), _test_prediction(legacy), atol=1e-6)
+        archive = native.export(tmp_path / f"transfer_after_feature_augmentation_{top_k}_{mode}.n4a")
+        np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, test_x).y_pred).ravel(), _test_prediction(legacy), atol=1e-6)
