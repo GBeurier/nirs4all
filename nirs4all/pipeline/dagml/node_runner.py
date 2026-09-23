@@ -1333,15 +1333,18 @@ def run_model_node(
         # transforming residuals again would change the quantity being learned.
         y_transform = route_graph_node(y_transform_node) if y_transform_node is not None and not residual_mode else None
         # Fit views materialize TRAINING rows (FIT_CV fold_train, REFIT full_train): the view carries
-        # BASE ids (dag-ml keeps the FoldSet a clean base-grain OOF partition) + include_augmented_train,
-        # so the host expands each base id to base + its augmented children — those synthetic rows train.
+        # BASE ids (dag-ml keeps the FoldSet a clean base-grain OOF partition). The native view policy
+        # controls whether this model sees augmented children; an earlier model checkpoint can fit only
+        # base rows while a later model in the same graph fits base + synthetic rows.
         # A no-op when no augmentation ran. A child's target is its origin's y (resolve_targets keys by
-        # the origin's sample_id). include_augmented=True so the leakage guard permits the children here.
+        # the origin's sample_id). The core fit view decides whether the leakage guard permits children.
         # FOLD-LOCAL augmentation: a fold's own children only join THAT fold's fit-train — FIT_CV uses
         # the task's fold_id, REFIT the "refit" key (the full-train pass). A child fit inside fold K's
         # train is therefore never expanded into fold L's fit, so a stateful augmenter cannot leak.
         fold_label = task.get("fold_id") if phase == "FIT_CV" else "refit"
-        fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label)
+        fit_view = _view_by_partition(task, "fold_train" if phase == "FIT_CV" else "full_train")
+        include_augmented_fit = bool((fit_view or {}).get("include_augmented"))
+        fit_ids = resolver.expand_with_augmented_children(train_ids, fold_label) if include_augmented_fit else train_ids
         # MULTI-BLOCK (S5): materialize the per-source blocks as a LIST (concat_source=False); the
         # wrapper applies the X-chain per block and fits ``model.fit([X1,X2,…], y)``. BY_SOURCE (S4):
         # materialize ONLY the bound source's block (one 2D matrix — late fusion by source). Otherwise the
@@ -1355,7 +1358,7 @@ def run_model_node(
         fit_options: dict[str, Any] = {}
         if source_concat or multi_block:
             resolved = resolver.resolve_feature_blocks(
-                fit_ids, include_augmented=True, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
+                fit_ids, include_augmented=include_augmented_fit, source_names=getattr(estimator, "source_names", None), fold_label=fold_label,
             )
             x_train = [np.asarray(block) for block in resolved["blocks"]]
             if "source_masks" in resolved:
@@ -1363,9 +1366,9 @@ def run_model_node(
                     raise ValueError("partial modalities require a multimodal model with an explicit missing_source_policy")
                 fit_options["source_masks"] = resolved["source_masks"]
         elif source_index is not None:
-            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=True, fold_label=fold_label)["values"])
+            x_train = np.asarray(resolver.resolve_source_block(fit_ids, source_index, include_augmented=include_augmented_fit, fold_label=fold_label)["values"])
         else:
-            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=True, fold_label=fold_label)["values"])
+            x_train = np.asarray(resolver.resolve_features(fit_ids, include_augmented=include_augmented_fit, fold_label=fold_label)["values"])
         if joined_chain is not None:
             if source_concat or multi_block or source_index is not None:
                 raise ValueError("joined prediction/feature data requires one feature source")
