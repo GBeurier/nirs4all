@@ -187,6 +187,16 @@ uses its real hard predictions, never fabricated one-hot probabilities.
 In subprocess execution the same evidence travels in a host-only capture
 sidecar, separate from the coordinator's native result protocol.
 
+Directory-backed Python models such as AutoGluon use a host-only archive
+extension. Native result artifacts and general ``.n4a`` bundles keep a small
+joblib model reference and store each predictor file under ``host_artifacts/``.
+The manifest records every relative filename, byte length and SHA-256 digest.
+The reader verifies all declared files before deserializing the model and
+rejects missing, extra or changed archive sidecars. Files are copied and hashed
+in bounded chunks; the 512 MiB inline joblib limit does not apply to their
+combined size. Earlier archives with an inline predictor directory still load.
+These files remain trusted Python host artifacts, not portable Core packages.
+
 General `generate()` and its convenience methods select the installed
 `nirs4all.python.synthesis.v1` library adapter when no engine/plugin selector
 is supplied or `engine="dag-ml"` is requested. This reuses the scientific synthesis builder, without a legacy

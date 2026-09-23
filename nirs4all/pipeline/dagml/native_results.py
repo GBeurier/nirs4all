@@ -37,6 +37,8 @@ import hashlib
 import json
 import os
 import re
+import shutil
+import tempfile
 import unicodedata
 import uuid
 from datetime import UTC, datetime
@@ -176,11 +178,14 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
         return []
     (run_dir / _ARTIFACTS_DIR).mkdir(parents=True, exist_ok=True)
     refs: list[dict[str, Any]] = []
+    from .host_artifacts import file_fingerprint, stage_host_artifacts
+
     for index, artifact in enumerate(refit_artifacts):
         uri = _artifact_uri(str(artifact.get("artifact_id") or f"artifact_{index}"), index)
         payload = {"estimator": artifact["estimator"], "y_transform": artifact["y_transform"]}
-        joblib.dump(payload, run_dir / uri)
-        data = (run_dir / uri).read_bytes()
+        with stage_host_artifacts(payload, run_dir, f"host_artifacts/artifact_{index}") as host_artifacts:
+            joblib.dump(payload, run_dir / uri)
+        fingerprint, size = file_fingerprint(run_dir / uri)
         # ArtifactRef ``backend`` = the SERIALIZATION backend the node runner recorded for these artifacts
         # ("joblib"); fall back to "joblib" only if the capture somehow lacked it (we always joblib-dump).
         backend = artifact.get("backend") or _JOBLIB_BACKEND
@@ -188,11 +193,13 @@ def _write_model_artifacts(run_dir: Path, refit_artifacts: list[dict[str, Any]])
             "artifact_id": artifact.get("artifact_id"),
             "backend": backend,
             "uri": uri,
-            "content_fingerprint": _bytes_fingerprint(data),
-            "size_bytes": len(data),
+            "content_fingerprint": fingerprint.removeprefix("sha256:"),
+            "size_bytes": size,
             "kind": artifact.get("kind"),
             "controller_id": artifact.get("controller_id"),
         }
+        if host_artifacts:
+            ref["host_artifacts"] = host_artifacts
         branch_index = _branch_index_from_artifact_id(ref["artifact_id"])
         if branch_index is not None:
             # Neutral branch metadata. Export interprets this as source_index only when the native run
@@ -728,6 +735,8 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
     identity/metadata (``artifact_id`` / ``kind`` / ``controller_id`` / ``backend`` / ``uri``).
     """
     rehydrated: list[dict[str, Any]] = []
+    from .host_artifacts import _safe_uri, file_fingerprint, hydrate_host_artifacts, verify_host_artifacts
+
     for ref in artifact_refs:
         uri = _validate_portable_uri(ref.get("uri"))
         backend = ref.get("backend")
@@ -737,18 +746,37 @@ def _rehydrate_artifacts(run_dir: Path, artifact_refs: list[dict[str, Any]]) -> 
                 f"{_JOBLIB_BACKEND!r} artifacts are loadable here — refusing to joblib.load it."
             )
         path = run_dir / uri
-        data = path.read_bytes()
+        sidecar_refs = ref.get("host_artifacts")
+        sidecar_owner = tempfile.TemporaryDirectory(prefix="nirs4all_native_sidecars_") if sidecar_refs else None
         expected = ref.get("content_fingerprint")
-        actual = _bytes_fingerprint(data)
-        if expected != actual:
-            raise ValueError(
-                f"native results model artifact {uri!r} content_fingerprint mismatch in {run_dir}: manifest "
-                f"recorded {expected!r} but the bytes hash to {actual!r} (the artifact was edited or "
-                "corrupted) — refusing to joblib.load it."
-            )
-        from io import BytesIO
-
-        payload = joblib.load(BytesIO(data))  # Deserialize the exact verified bytes, not a second path read.
+        try:
+            if sidecar_owner is not None:
+                for directory_ref in sidecar_refs:
+                    for file_ref in directory_ref["files"]:
+                        safe_uri = _safe_uri(file_ref["uri"])
+                        target = Path(sidecar_owner.name) / safe_uri
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        with (run_dir / safe_uri).open("rb") as source_stream, target.open("wb") as target_stream:
+                            shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
+            directories = verify_host_artifacts(Path(sidecar_owner.name) if sidecar_owner else run_dir, sidecar_refs)
+            with tempfile.TemporaryDirectory(prefix="nirs4all_native_model_") as snapshot_dir:
+                snapshot = Path(snapshot_dir) / "model.joblib"
+                with path.open("rb") as source_stream, snapshot.open("wb") as target_stream:
+                    shutil.copyfileobj(source_stream, target_stream, 1024 * 1024)
+                actual, size = file_fingerprint(snapshot)
+                actual = actual.removeprefix("sha256:")
+                if expected != actual or size != ref.get("size_bytes"):
+                    raise ValueError(
+                        f"native results model artifact {uri!r} content_fingerprint mismatch in {run_dir}: manifest "
+                        f"recorded {expected!r} but the bytes hash to {actual!r} (the artifact was edited or "
+                        "corrupted) — refusing to joblib.load it."
+                    )
+                payload = joblib.load(snapshot)
+            hydrate_host_artifacts(payload, directories, owner=sidecar_owner)
+        except Exception:
+            if sidecar_owner is not None:
+                sidecar_owner.cleanup()
+            raise
         entry = {
             "artifact_id": ref.get("artifact_id"),
             "estimator": payload["estimator"],

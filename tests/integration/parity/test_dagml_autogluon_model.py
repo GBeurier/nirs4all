@@ -8,8 +8,13 @@ native AutoGluon training remains a separate optional-dependency check.
 from __future__ import annotations
 
 import importlib
+import io
+import json
 import os
 import sys
+import zipfile
+from hashlib import sha256
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -59,6 +64,7 @@ class TabularPredictor:
         directory.mkdir(parents=True, exist_ok=True)
         with (directory / 'predictor.pkl').open('wb') as handle:
             pickle.dump({k: v for k, v in self.__dict__.items() if k != 'path'}, handle)
+        (directory / 'large_model.bin').write_bytes(b'x' * 65536)
 
     @classmethod
     def load(cls, path):
@@ -115,14 +121,66 @@ class TabularPredictor:
     assert fitted.predictor_.fit_options["time_limit"] == 3
     assert fitted.predictor_.fit_options["ag_args_fit"]["random_seed"] == 9
     expected = np.asarray(fitted.predict(x[:3])).reshape(-1)
+    # A small synthetic file crosses a patched inline limit without allocating
+    # hundreds of MiB; the model payload itself must remain small.
+    from nirs4all.pipeline.dagml import general_archive
+
+    monkeypatch.setattr(general_archive, "_MAX_INLINE_MODEL_BYTES", 8192)
     archive = result.export(tmp_path / "autogluon.n4a")
     from nirs4all.pipeline.dagml.general_archive import load_general_archive
 
+    with zipfile.ZipFile(archive) as bundle:
+        manifest = json.loads(bundle.read("manifest.json"))
+        sidecar = manifest["host_artifacts"][0]["files"]
+        assert {entry["uri"].split("/")[-1] for entry in sidecar} == {"predictor.pkl", "large_model.bin"}
+        model_member = next(name for name in bundle.namelist() if name.endswith(".joblib"))
+        assert bundle.getinfo(model_member).file_size < 8192
+
     restored = load_general_archive(archive)["artifact"]["estimator"]
     np.testing.assert_allclose(np.asarray(restored.predict(x[:3])).reshape(-1), expected, rtol=1e-6, atol=1e-6)
+    from nirs4all.pipeline.bundle import BundleLoader
+
+    np.testing.assert_allclose(np.asarray(BundleLoader(archive).predict(x[:3])).reshape(-1), expected, rtol=1e-6, atol=1e-6)
     import dag_ml._dag_ml as dag_ml_ext
 
     if callable(getattr(dag_ml_ext, "execute_phase_in_process", None)):
         actual = np.asarray(nirs4all.predict(archive, x[:3]).y_pred).reshape(-1)
         np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-6)
+    if mechanism == "in_process":
+        # Older archives inlined the predictor directory in joblib; they still replay.
+        import joblib
+
+        payload = io.BytesIO()
+        joblib.dump(fitted, payload)
+        old_member = "artifacts/step_1_foldfinal_old.joblib"
+        old_archive = tmp_path / "old_inline.n4a"
+        with zipfile.ZipFile(old_archive, "w") as bundle:
+            bundle.writestr("manifest.json", json.dumps({
+                "source_type": "dagml_native",
+                "artifact_integrity": {old_member: "sha256:" + sha256(payload.getvalue()).hexdigest()},
+            }))
+            bundle.writestr(old_member, payload.getvalue())
+        monkeypatch.setattr(general_archive, "_MAX_INLINE_MODEL_BYTES", 512 * 1024 * 1024)
+        old_model = load_general_archive(old_archive)["artifact"]["estimator"]
+        np.testing.assert_allclose(np.asarray(old_model.predict(x[:3])).reshape(-1), expected)
+
+        # Tampering a sidecar is detected before pickle opcodes execute.
+        corrupt = tmp_path / "corrupt.n4a"
+        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(corrupt, "w") as altered:
+            for name in original.namelist():
+                data = original.read(name)
+                altered.writestr(name, b"changed" if name.endswith("large_model.bin") else data)
+        monkeypatch.setattr(joblib, "load", lambda *args, **kwargs: pytest.fail("unverified model deserialized"))
+        with pytest.raises(ValueError, match="sidecar integrity mismatch"):
+            load_general_archive(corrupt)
+        from nirs4all.pipeline.dagml.native_results import read_native_results
+
+        run_dir = result._dagml_results_dir  # noqa: SLF001 - inspect the actual native persistence contract
+        assert run_dir is not None
+        native_ref = json.loads((run_dir / "manifest.json").read_text())["artifacts"][0]
+        native_uri = next(file_ref["uri"] for item in native_ref["host_artifacts"]
+                          for file_ref in item["files"] if file_ref["uri"].endswith("large_model.bin"))
+        (run_dir / native_uri).write_bytes(b"changed")
+        with pytest.raises(ValueError, match="sidecar integrity mismatch"):
+            read_native_results(run_dir)
     result.close()

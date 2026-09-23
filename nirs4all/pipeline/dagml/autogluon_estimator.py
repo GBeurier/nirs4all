@@ -88,6 +88,9 @@ class DagMLAutoGluonEstimator(BaseEstimator):
     def __getstate__(self) -> dict[str, Any]:
         state = dict(self.__dict__)
         predictor = state.pop("predictor_", None)
+        state.pop("_external_directory_owner", None)
+        if state.get("_external_artifact_id") is not None:
+            return state
         if predictor is not None:
             directory = Path(predictor.path)
             payload = io.BytesIO()
@@ -113,3 +116,11 @@ class DagMLAutoGluonEstimator(BaseEstimator):
                         raise ValueError("AutoGluon artifact contains a path outside its model directory")
                     archive.extract(member, directory)
             self.predictor_ = TabularPredictor.load(str(directory))
+
+    def load_external_directory(self, directory: Path) -> None:
+        """Load a verified sidecar after the enclosing archive has been checked."""
+        require_backend("autogluon", feature="AutoGluon archive replay")
+        from autogluon.tabular import TabularPredictor
+
+        self.predictor_ = TabularPredictor.load(str(directory))
+        self.__dict__.pop("_external_artifact_id", None)
