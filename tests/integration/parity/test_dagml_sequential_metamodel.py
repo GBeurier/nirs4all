@@ -8,9 +8,19 @@ from sklearn.model_selection import StratifiedKFold
 from nirs4all.operators.models import MetaModel
 
 
+@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
 @pytest.mark.parametrize("use_proba", [False, True])
-def test_sequential_classification_metamodel_legacy_contract_is_not_yet_lowered(use_proba):
+def test_sequential_classification_metamodel_uses_native_oof_or_refuses_proba(use_proba, mechanism, monkeypatch):
     import nirs4all
+
+    if mechanism == "cli":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "pyo3" else "0")
 
     rng = np.random.default_rng(79)
     features = rng.normal(size=(30, 6))
@@ -24,6 +34,12 @@ def test_sequential_classification_metamodel_legacy_contract_is_not_yet_lowered(
                           save_artifacts=False, save_charts=False, verbose=0)
     assert legacy.cv_best_score == pytest.approx(0.9333333333333333)
 
-    with pytest.raises(Exception, match="MetaModel.*fit"):
-        nirs4all.run(pipeline, (features, targets), engine="dag-ml", refit=False,
-                     save_artifacts=False, save_charts=False, verbose=0)
+    if use_proba:
+        with pytest.raises(Exception, match="sequential MetaModel.*probability features"):
+            nirs4all.run(pipeline, (features, targets), engine="dag-ml", refit=False,
+                         save_artifacts=False, save_charts=False, verbose=0)
+    else:
+        native = nirs4all.run(pipeline, (features, targets), engine="dag-ml", refit=False,
+                             save_artifacts=False, save_charts=False, verbose=0)
+        assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-8)
+        assert native.cv_best["model_name"] == "MetaModel_LogisticRegression"
