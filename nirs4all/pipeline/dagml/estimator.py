@@ -358,6 +358,33 @@ class DagMLPipelineEstimator(BaseEstimator):
         replay = self._compile_replay(X, mode="predict", identity_frame=identity_frame)
         return self.execute_compiled_replay(replay)
 
+    def select_portable_output(self, binding_id: str) -> dict[str, Any]:
+        """Select one named output from the fitted portable predictor package.
+
+        DAG-ML validates the package fingerprint and resolves the binding.  The
+        retained package is not narrowed or mutated, so a later replay can
+        still request every independently captured output.
+
+        Args:
+            binding_id: Exact portable output binding identifier.
+
+        Returns:
+            DAG-ML's validated package/output selection view.
+        """
+
+        check_is_fitted(self, attributes=["training_result_", "predictor_package_"])
+        if self.predictor_package_ is None:
+            raise DagMLNativeCoverageError(
+                "DagMLPipelineEstimator has no portable predictor package to select"
+            )
+        client = self._client()
+        selector = getattr(client, "select_portable_output", None)
+        if not callable(selector):
+            raise DagMLNativeCoverageError(
+                "native DAG-ML client does not expose select_portable_output()"
+            )
+        return cast(dict[str, Any], selector(self.predictor_package_, binding_id))
+
     def execute_compiled_replay(self, replay: DagMLReplayExecution) -> Any:
         """Execute one already-compiled native replay exactly once.
 

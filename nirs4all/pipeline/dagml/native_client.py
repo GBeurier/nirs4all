@@ -116,6 +116,12 @@ class _DagMLFacade(Protocol):
         diagnostics: Any = None,
     ) -> Any: ...
 
+    def select_portable_output(
+        self,
+        package: Any,
+        binding_id: str,
+    ) -> dict[str, Any]: ...
+
     def execute_methods_portable_full_refit(
         self,
         source_package: Any,
@@ -191,6 +197,31 @@ class DagMLNativeClient:
             training=self._has_callable(facade, "execute_training"),
             loaded_predictor_replay=self._has_callable(facade, "replay_loaded_predictor_package"),
         )
+
+    def select_portable_output(
+        self,
+        package: Any,
+        binding_id: str,
+    ) -> dict[str, Any]:
+        """Resolve one explicit output through DAG-ML's validated package contract.
+
+        Typed ``PortablePredictorPackage`` instances own the most direct
+        ``select_output`` operation.  JSON-like packages use the equivalent
+        facade function.  Both paths retain the complete package for later
+        all-output replay; this method returns only the native selection view.
+        """
+
+        package_selector = getattr(package, "select_output", None)
+        if callable(package_selector):
+            selected = package_selector(binding_id)
+        else:
+            facade = self._require_callable("select_portable_output")
+            selected = facade.select_portable_output(package, binding_id)
+        if not isinstance(selected, dict):
+            raise DagMLNativeCoverageError(
+                "DAG-ML portable output selection must return a JSON object"
+            )
+        return selected
 
     def execute_training(
         self,
