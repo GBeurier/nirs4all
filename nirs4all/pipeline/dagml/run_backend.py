@@ -993,7 +993,12 @@ def _dispatch_run(
 
         if any(_is_augmentation_step(step) for step in pipeline):
             return _run_augmentation_full_train(pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name)
-        return run_full_train(pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name)
+        return run_full_train(
+            pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name,
+            cli=cli, venv_python=venv_python or sys.executable,
+            dataset_path=dataset_arg, dataset_pickle=host_pickle,
+            workdir=base_dir / "full_train", random_state=random_state,
+        )
 
     # Detect the special-composition steps UP FRONT so the repetition guard below can reject an
     # unsupported combination BEFORE any non-group dispatch path (branch/augmentation/exclude) runs.

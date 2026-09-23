@@ -39,6 +39,9 @@ class NoSplitEvaluationWarning(UserWarning):
 def run_full_train(
     pipeline: list[Any], spectro: Any, *, metric: str = "rmse",
     task_type: str = "regression", config_name: str = "", augmented_train: bool = False,
+    cli: str | None = None, venv_python: str | None = None,
+    dataset_path: str | None = None, dataset_pickle: str | None = None,
+    workdir: Any = None, random_state: int | None = None,
 ) -> RunResult:
     """Fit one concrete pipeline once on all train rows using the DAG scheduler.
 
@@ -73,12 +76,12 @@ def run_full_train(
         _reject_multi_model(steps)
         _assert_supported_operators(steps)
         steps = _apply_model_params(steps)
-    if not in_process_enabled():
-        raise DagMlUnavailable("full-training execution requires the in-process DAG phase API; no legacy retry is performed")
-    extension = importlib.import_module("dag_ml._dag_ml")
-    execute = getattr(extension, "execute_phase_in_process", None)
-    if not callable(execute):
-        raise DagMlUnavailable("the installed DAG-ML runtime lacks execute_phase_in_process; install the qualified V1 corrective runtime")
+    execute = None
+    if in_process_enabled():
+        extension = importlib.import_module("dag_ml._dag_ml")
+        execute = getattr(extension, "execute_phase_in_process", None)
+        if not callable(execute):
+            raise DagMlUnavailable("the installed DAG-ML runtime lacks execute_phase_in_process; install the qualified V1 corrective runtime")
 
     import dag_ml
 
@@ -127,6 +130,8 @@ def run_full_train(
             "target_content_fingerprint": _array_content_fingerprint("y", spectro.y({"partition": "test"})),
         }).to_dict())
     if separation is not None:
+        if execute is None:
+            raise DagMlUnsupported("by-metadata full training requires a CLI separation phase")
         assert sample_metadata is not None
         branch_step, branch_body = separation
         return _run_full_train_separation(
@@ -141,6 +146,40 @@ def run_full_train(
         raise DagMlUnsupported("full-training execution needs one concrete model; expand independent public model requests before dispatch")
     model_id = models[0]["id"]
     dsl["data_bindings"] = data_bindings_for_fitted_x_chain(graph, model_id, envelope)
+    message = (
+        "No splitter provided: fitting all training rows once; the test set is also used as validation. "
+        "There is no cross-validation or independent model-selection holdout."
+        if test else
+        "No splitter or test set provided: fitting all training rows once; scores are training resubstitution only, not independent validation."
+    )
+    if execute is None:
+        if cli is None or venv_python is None or dataset_path is None or workdir is None:
+            raise DagMlUnavailable("CLI full training requires a DAG-ML CLI, Python adapter, and reloadable dataset")
+        from pathlib import Path
+
+        from .cli_runner import run_refit_phase_cli
+        from .errors import _raise_run_failure
+        from .in_process_runner import _load_subprocess_refit_artifacts
+
+        cli_run = run_refit_phase_cli(
+            dsl=dsl, envelope=envelope, graph=graph,
+            training_sample_ids=[identity.to_wire(sample) for sample in train],
+            dataset_path=dataset_path, dataset_pickle=dataset_pickle,
+            workdir=Path(workdir), dagml_cli=cli, venv_python=venv_python,
+            random_state=random_state,
+        )
+        if cli_run["returncode"]:
+            _raise_run_failure(cli_run, "full-training CLI phase failed")
+        outcome = json.loads(cli_run["phase_output"].read_text())
+        if outcome["phase"] != "REFIT":
+            raise ValueError("full-training CLI returned an unexpected phase")
+        artifacts = _load_subprocess_refit_artifacts(outcome["node_results"], cli_run["artifact_dir"])
+        warnings.warn(message, NoSplitEvaluationWarning, stacklevel=2)
+        return _project_full_train(
+            outcome, identity, dataset_name=spectro.name, model_id=model_id,
+            model_name=_model_name(steps), metric=metric, task_type=task_type,
+            config_name=config_name, artifacts=artifacts,
+        )
     resolver = MaterializationResolver(spectro, identity)
     nodes = {node["id"]: node for node in graph["nodes"]}
     from nirs4all.api.general_transfer import bind_transfer_operators
@@ -152,12 +191,6 @@ def run_full_train(
     def callback(task: dict[str, Any]) -> dict[str, Any]:
         return run_node(task, resolver, nodes.__getitem__, store, graph.get("edges", []), target_transform)
 
-    message = (
-        "No splitter provided: fitting all training rows once; the test set is also used as validation. "
-        "There is no cross-validation or independent model-selection holdout."
-        if test else
-        "No splitter or test set provided: fitting all training rows once; scores are training resubstitution only, not independent validation."
-    )
     warnings.warn(message, NoSplitEvaluationWarning, stacklevel=2)
     outcome = json.loads(execute(
         json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()), callback, "REFIT",
