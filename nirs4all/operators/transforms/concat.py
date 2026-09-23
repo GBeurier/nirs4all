@@ -149,3 +149,12 @@ class FeatureConcat(BaseEstimator, TransformerMixin):
     def transform(self, X: Any) -> np.ndarray:
         values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
         return np.asarray(self.union_.transform(values))
+
+    def channel_widths(self, X: Any) -> tuple[int, ...]:
+        """Report fitted output widths so a following operator can preserve processing lanes."""
+        values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
+        widths = []
+        for _name, transform in self.union_.transformer_list:
+            output = values if transform == "passthrough" else np.asarray(transform.transform(values))
+            widths.append(int(output.shape[1]))
+        return tuple(widths)

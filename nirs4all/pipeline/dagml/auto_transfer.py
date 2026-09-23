@@ -25,6 +25,12 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
         """Reject an unpartitioned fit, which cannot preserve transfer semantics."""
         raise ValueError("auto_transfer_preproc requires partitioned source and target fit views")
 
+    def set_input_channels(self, widths: tuple[int, ...]) -> None:
+        """Preserve existing feature-augmentation processing lanes during replay."""
+        if not widths or any(width < 1 for width in widths):
+            raise ValueError("auto_transfer_preproc received invalid processing widths")
+        self.input_channel_widths_ = widths
+
     def fit_with_views(self, views: dict[str, tuple[np.ndarray, np.ndarray | None]]) -> DagMLAutoTransferPreprocessor:
         """Run the legacy selector on DAG-owned source and target cohorts."""
         self.select_with_views(views)
@@ -60,6 +66,7 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
         config = AutoTransferPreprocessingController()._parse_config(self.config)  # noqa: SLF001
         self.recommendation_ = recommendation
         self._chains: list[list[Any]] = []
+        self._channel_chains: list[list[list[Any]]] = []
         self._augment = False
         if config["apply_recommendation"]:
             from nirs4all.analysis import get_base_preprocessings
@@ -75,10 +82,10 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
                 self._augment = True
             else:
                 raise ValueError(f"unsupported transfer preprocessing recommendation {spec!r}")
-            current = np.asarray(train_x)
-            for name in names:
+
+            def fit_chain(name: str, X: np.ndarray) -> tuple[list[Any], np.ndarray]:
                 chain: list[Any] = []
-                branch = np.asarray(train_x) if self._augment else current
+                branch = X
                 for component in name.split(">"):
                     if component not in preprocessings:
                         raise ValueError(f"unknown transfer preprocessing {component!r}")
@@ -86,15 +93,60 @@ class DagMLAutoTransferPreprocessor(TransformerMixin, BaseEstimator):
                     transform.fit(branch)
                     branch = np.asarray(transform.transform(branch))
                     chain.append(transform)
-                self._chains.append(chain)
-                if not self._augment:
-                    current = branch
+                return chain, branch
+
+            raw = np.asarray(train_x)
+            widths = getattr(self, "input_channel_widths_", None)
+            if widths is not None:
+                if sum(widths) != raw.shape[1]:
+                    raise ValueError("auto_transfer_preproc processing widths do not match fitted features")
+                channels = np.split(raw, np.cumsum(widths)[:-1], axis=1)
+                if self._augment:
+                    for name in names:
+                        chain, _ = fit_chain(name, channels[0])
+                        self._chains.append(chain)
+                else:
+                    for channel in channels:
+                        current = channel
+                        channel_chains = []
+                        for name in names:
+                            chain, current = fit_chain(name, current)
+                            channel_chains.append(chain)
+                        self._channel_chains.append(channel_chains)
+            else:
+                current = raw
+                for name in names:
+                    chain, branch = fit_chain(name, raw if self._augment else current)
+                    self._chains.append(chain)
+                    if not self._augment:
+                        current = branch
         return self
 
     def transform(self, X: Any) -> np.ndarray:
         """Replay the selected transforms, or preserve X in analysis-only mode."""
         check_is_fitted(self, "recommendation_")
         raw = np.asarray(X)
+        widths = getattr(self, "input_channel_widths_", None)
+        if widths is not None and (self._channel_chains or self._augment):
+            if sum(widths) != raw.shape[1]:
+                raise ValueError("auto_transfer_preproc processing widths changed at prediction")
+            channels = np.split(raw, np.cumsum(widths)[:-1], axis=1)
+            if self._augment:
+                outputs = list(channels)
+                for chain in self._chains:
+                    current = channels[0]
+                    for transform in chain:
+                        current = np.asarray(transform.transform(current))
+                    outputs.append(current)
+                return np.hstack(outputs)
+            outputs = []
+            for channel, chains in zip(channels, self._channel_chains, strict=True):
+                current = channel
+                for chain in chains:
+                    for transform in chain:
+                        current = np.asarray(transform.transform(current))
+                outputs.append(current)
+            return np.hstack(outputs)
         if self._augment:
             outputs = [raw]
             for chain in self._chains:

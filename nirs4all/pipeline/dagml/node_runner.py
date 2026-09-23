@@ -758,9 +758,21 @@ def _run_fitted_transform_node(
     else:
         x_fit = np.asarray(resolver.resolve_features(ids, include_augmented=bool(view.get("include_augmented")))["values"])
         steps = list(preceding.steps) if preceding is not None else []
+        channel_widths = None
+        if (node_lookup(node_id).get("metadata") or {}).get("nirs4all_upstream_processing_channels"):
+            from nirs4all.operators.transforms.concat import FeatureConcat
+
+            if not steps or not isinstance(steps[-1], FeatureConcat):
+                raise ValueError("auto_transfer_preproc is missing its preceding feature-augmentation channels")
+            before_concat = x_fit
+            for prior in steps[:-1]:
+                before_concat = np.asarray(prior.transform(before_concat))
+            channel_widths = steps[-1].channel_widths(before_concat)
         for transformer in steps:
             x_fit = np.asarray(transformer.transform(x_fit))
         transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+        if channel_widths is not None:
+            cast(Any, transformer).set_input_channels(channel_widths)
         fit_transformer(transformer, x_fit)
         chain = _FittedXChain([*steps, transformer])
     variant_label = task.get("variant_id") or "base"
