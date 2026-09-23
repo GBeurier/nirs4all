@@ -1876,7 +1876,7 @@ def run_meta_model_node(
         target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids))
         fold_predictions.extend(prediction_blocks(fit_estimator, x_outer, outer_ids, "validation", task.get("fold_id"), target["target_names"]))
         fold_targets.append(target)
-        if probability_output:
+        if probability_output or dual_probability_output:
             fold_class_probabilities.append(_meta_probability_block(node_id, "validation", task.get("fold_id"), outer_ids, fit_estimator, x_outer))
         test_specs = ordered_specs("test")
         if test_specs:
@@ -1884,7 +1884,7 @@ def run_meta_model_node(
             test_target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
             fold_predictions.extend(prediction_blocks(fit_estimator, x_test, test_ids, "test", task.get("fold_id"), test_target["target_names"]))
             fold_targets.append(test_target)
-            if probability_output:
+            if probability_output or dual_probability_output:
                 fold_class_probabilities.append(_meta_probability_block(node_id, "test", task.get("fold_id"), test_ids, fit_estimator, x_test))
         if metadata.get("nirs4all_stack_fold_capture") and fold_label in metadata.get("nirs4all_stack_outer_fold_ids", []):
             model_store[("stacking_fold_estimator", node_id, variant_label, fold_label)] = fit_estimator
@@ -1912,7 +1912,7 @@ def run_meta_model_node(
             target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
             fold_predictions.extend(prediction_blocks(fit_estimator, x_test, test_ids, "test", None, target["target_names"]))
             fold_targets.append(target)
-            if probability_output:
+            if probability_output or dual_probability_output:
                 fold_class_probabilities.append(_meta_probability_block(node_id, "test", None, test_ids, fit_estimator, x_test))
 
     return _build_result(task, fold_predictions, artifacts, artifact_handles, fold_targets, fold_class_probabilities)
