@@ -73,6 +73,10 @@ class DagMLFrameworkEstimator(BaseEstimator):
         validation_split: float = 0.2,
         compile_params: dict[str, Any] | None = None,
         fit_params: dict[str, Any] | None = None,
+        early_stopping: dict[str, Any] | None = None,
+        reduce_lr_on_plateau: bool = False,
+        reduce_lr_on_plateau_params: dict[str, Any] | None = None,
+        best_model_memory: bool = True,
     ) -> None:
         self.framework = framework
         self.factory_path = factory_path
@@ -93,6 +97,10 @@ class DagMLFrameworkEstimator(BaseEstimator):
         self.validation_split = validation_split
         self.compile_params = compile_params
         self.fit_params = fit_params
+        self.early_stopping = early_stopping
+        self.reduce_lr_on_plateau = reduce_lr_on_plateau
+        self.reduce_lr_on_plateau_params = reduce_lr_on_plateau_params
+        self.best_model_memory = best_model_memory
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
         params: dict[str, Any] = dict(super().get_params(deep=deep))
@@ -184,6 +192,13 @@ class DagMLFrameworkEstimator(BaseEstimator):
                     controls.pop(key, None)
             else:
                 controls["validation_split"] = self.validation_split
+            if self.early_stopping is not None:
+                controls["early_stopping"] = dict(self.early_stopping)
+            if self.reduce_lr_on_plateau:
+                controls["reduce_lr_on_plateau"] = True
+            if self.reduce_lr_on_plateau_params is not None:
+                controls["reduce_lr_on_plateau_params"] = dict(self.reduce_lr_on_plateau_params)
+            controls["best_model_memory"] = self.best_model_memory
         elif self.framework == "jax":
             from nirs4all.controllers.models.jax_model import JaxModelController
 

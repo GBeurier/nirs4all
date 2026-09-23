@@ -174,7 +174,10 @@ class PipelineConfigs:
                 # Get the base key (remove '_params' suffix)
                 base_key = params_key[:-7]  # Remove '_params'
 
-                if base_key in result:
+                # A scalar switch plus its *_params mapping is a control
+                # policy (for example reduce_lr_on_plateau + its options),
+                # not a component constructor with a class to instantiate.
+                if base_key in result and not isinstance(result[base_key], (bool, int, float)):
                     # Merge base_key and params_key into standard format
                     base_value = result[base_key]
                     params_value = result[params_key]

@@ -130,6 +130,69 @@ def test_tensorflow_nested_compile_fit_controls_match_legacy_and_replay(tmp_path
     result.close()
 
 
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.tensorflow
+@pytest.mark.parity
+def test_tensorflow_json_callback_controls_match_legacy_and_replay(tmp_path, monkeypatch, mechanism: str) -> None:
+    """JSON callback policies reach the Keras fit in both DAG runtimes."""
+    monkeypatch.setenv("CUDA_VISIBLE_DEVICES", "-1")
+    tf = pytest.importorskip("tensorflow")
+    import nirs4all
+    from nirs4all.controllers.models.tensorflow.config import TensorFlowCallbackFactory
+    from nirs4all.operators.models.tensorflow.nicon import customizable_decon
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+
+    made: list[object] = []
+    original = TensorFlowCallbackFactory.create_callbacks
+
+    def record(*args, **kwargs):
+        callbacks = original(*args, **kwargs)
+        made.extend(callbacks)
+        return callbacks
+
+    monkeypatch.setattr(TensorFlowCallbackFactory, "create_callbacks", staticmethod(record))
+    rng = np.random.default_rng(241)
+    x = rng.uniform(0, 1, (8, 64)).astype(np.float32)
+    y = rng.uniform(0, 1, (8, 1)).astype(np.float32)
+    pipeline = [
+        KFold(2),
+        {"model": customizable_decon, "train_params": {
+            "epochs": 2, "batch_size": 4, "verbose": 0,
+            "early_stopping": {"monitor": "loss", "min_delta": 1e9, "patience": 0},
+            "reduce_lr_on_plateau": True,
+            "reduce_lr_on_plateau_params": {"monitor": "loss", "factor": 0.5, "min_delta": 1e9, "patience": 0},
+            "best_model_memory": False,
+        }},
+    ]
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", workspace_path=tmp_path / f"legacy-{mechanism}", save_charts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    assert [type(callback) for callback in made] == [tf.keras.callbacks.EarlyStopping, tf.keras.callbacks.ReduceLROnPlateau] * 3
+    assert float(made[-1].model.optimizer.learning_rate.numpy()) == pytest.approx(0.0005)
+    legacy.close()
+
+    made.clear()
+    result = nirs4all.run(pipeline, (x, y), engine="dag-ml", workspace_path=tmp_path / f"dagml-{mechanism}", save_charts=False, verbose=0)
+    assert np.isfinite(result.cv_best_score)
+    if mechanism == "in_process":
+        assert [type(callback) for callback in made] == [tf.keras.callbacks.EarlyStopping, tf.keras.callbacks.ReduceLROnPlateau] * 3
+    fitted = result._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001 - captured model control
+    assert fitted.early_stopping == {"monitor": "loss", "min_delta": 1e9, "patience": 0}
+    assert fitted.reduce_lr_on_plateau_params == {"monitor": "loss", "factor": 0.5, "min_delta": 1e9, "patience": 0}
+    assert float(fitted.model_.optimizer.learning_rate.numpy()) == pytest.approx(0.0005)
+    expected = np.asarray(fitted.predict(x[:2])).reshape(-1)
+    archive = result.export(tmp_path / f"tf_callback_controls_{mechanism}.n4a")
+    np.testing.assert_allclose(np.asarray(nirs4all.predict(archive, x[:2]).y_pred).reshape(-1), expected, rtol=1e-6, atol=1e-6)
+    result.close()
+
+
 @pytest.mark.tensorflow
 @pytest.mark.parity
 def test_tensorflow_custom_callbacks_are_not_a_working_legacy_run_contract(tmp_path, monkeypatch) -> None:
