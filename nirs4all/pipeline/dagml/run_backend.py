@@ -1129,12 +1129,13 @@ def _dispatch_run(
     # Separation branch (by_metadata/by_tag) + concat merge → ONE native fan-out run: dag-ml fans the
     # branch into one model node per partition value (discovered from the envelope metadata/tags),
     # runs per-partition FIT_CV, and the native concat-merge handler reassembles a full-universe OOF.
-    # Detected on the ORIGINAL pipeline (before exclude consumption) so an exclude step beside the
-    # branch is still visible — exclude+branch is rejected (out of scope) rather than silently dropped.
+    # Resolve leading exclusions before native fan-out. The default removes excluded samples from
+    # the CV universe; keep_in_oof instead marks them in the envelope and keeps validation coverage.
     if detected is not None:
         branch_step, branch_body = detected
+        branch_pipeline, cv_pool, excluded = _resolve_exclude(list(pipeline), spectro)
         return _run_separation_branch(
-            list(pipeline),
+            branch_pipeline,
             branch_step,
             branch_body,
             spectro,
@@ -1147,6 +1148,8 @@ def _dispatch_run(
             dataset_pickle=host_pickle,
             config_name=config_name,
             random_state=random_state,
+            cv_pool=cv_pool,
+            excluded_sample_ints=excluded,
         )
 
     # Duplication branch (`{"branch": [[A], [B], …]}`) + avg/mean fusion merge → ONE native run: each

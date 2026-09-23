@@ -1633,14 +1633,15 @@ def test_separation_branch_detection() -> None:
     assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}, {"merge": "predictions"}]) is None
     # a model placed AFTER the concat merge (a different shape).
     assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [StandardNormalVariate()]}}, {"merge": "concat"}, {"model": PLSRegression()}]) is None
-    # no merge at all.
-    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}]) is None
+    # A model branch without a merge retains its partition-local predictions.
+    assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "steps": [{"model": PLSRegression()}]}}]) is not None
     # a top-level transform beside the branch (only the branch body is lowered → would be dropped).
     assert _detect_separation_branch([StandardNormalVariate(), splitter, branch, {"merge": "concat"}]) is None
     # a top-level y_processing / tag step beside the branch.
     assert _detect_separation_branch([splitter, {"y_processing": StandardNormalVariate()}, branch, {"merge": "concat"}]) is None
-    # an exclude step beside the branch (the exclusion would be silently lost — out of scope).
-    assert _detect_separation_branch([{"exclude": StandardNormalVariate()}, splitter, branch, {"merge": "concat"}]) is None
+    # Leading exclusions are resolved into the native fold/envelope views; later ones change order.
+    assert _detect_separation_branch([{"exclude": StandardNormalVariate()}, splitter, branch, {"merge": "concat"}]) is not None
+    assert _detect_separation_branch([splitter, {"exclude": StandardNormalVariate()}, branch, {"merge": "concat"}]) is None
     # unhandled branch options: explicit `values` grouping / `min_samples` cardinality drop.
     assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "values": {"a": ["group_0"]}, "steps": [{"model": PLSRegression()}]}}, {"merge": "concat"}]) is None
     assert _detect_separation_branch([splitter, {"branch": {"by_metadata": "group", "min_samples": 5, "steps": [{"model": PLSRegression()}]}}, {"merge": "concat"}]) is None
@@ -1651,14 +1652,13 @@ def test_separation_branch_unsupported_shapes_fail_loud() -> None:
     """Out-of-scope branch shapes raise NotImplementedError end-to-end — never silently mishandled.
 
     The detector admits ONLY the exact handled shape; anything `_run_separation_branch` does not honor
-    (a top-level preprocessing step that would be dropped, an `exclude` whose exclusion would be lost,
+    (a top-level preprocessing step that would be dropped, an out-of-order `exclude`,
     a `values`/`min_samples` branch whose grouping is not applied) must fall through to the bridge's
     raw-branch NotImplementedError (the coverage-boundary fail-loud guarantee). These are known
-    limitations for follow-up slices (top-level preproc+branch, exclude+branch, values/min_samples).
+    limitations for follow-up slices (top-level preproc+branch, out-of-order exclude, values/min_samples).
 
-    Asserts on the dag-ml backend (`run_via_dagml`) directly: `nirs4all.run(engine="dag-ml")` now wraps
-    it in the cutover fallback (catches the catchable NotImplementedError → re-runs on legacy), so the
-    loud rejection is observable only at the backend, not through the fallback-wrapped public `run`."""
+    Asserts on the dag-ml backend (`run_via_dagml`) directly so the coverage boundary is observable
+    without the public API's structured error wrapper."""
     from nirs4all.operators.filters.y_outlier import YOutlierFilter
     from nirs4all.operators.transforms.scalers import StandardNormalVariate
     from nirs4all.pipeline.dagml.run_backend import run_via_dagml
@@ -1671,7 +1671,7 @@ def test_separation_branch_unsupported_shapes_fail_loud() -> None:
 
     rejected = {
         "top_level_transform": [StandardNormalVariate(), split(), branch(), {"merge": "concat"}],
-        "exclude_plus_branch": [{"exclude": YOutlierFilter(method="iqr", threshold=1.0)}, split(), branch(), {"merge": "concat"}],
+        "exclude_after_split": [split(), {"exclude": YOutlierFilter(method="iqr", threshold=1.0)}, branch(), {"merge": "concat"}],
         "values_branch": [split(), {"branch": {"by_metadata": "group", "values": {"a": ["group_0"]}, "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}],
         "min_samples_branch": [split(), {"branch": {"by_metadata": "group", "min_samples": 5, "steps": [{"model": PLSRegression(n_components=2)}]}}, {"merge": "concat"}],
     }
