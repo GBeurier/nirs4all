@@ -4465,8 +4465,12 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
 
         from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
 
+        previous_meta_learner = meta_learner
         for level, step in enumerate(downstream_meta_steps, start=2):
+            if step["model"].use_proba and callable(getattr(previous_meta_learner, "predict_proba", None)):
+                canonical_dsl["steps"][-1]["metadata"]["nirs4all_prediction_output"] = "proba"
             final_meta_learner = step["model"].model
+            previous_meta_learner = final_meta_learner
             final_meta_node_id = f"{_META_NODE_ID}.level{level}"
             canonical_dsl["steps"].append({
                 "kind": "merge_model",
@@ -4573,4 +4577,9 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                 metadata["stacking_evaluation"] = evidence
     for view in [result, *getattr(result, "runs", [])]:
         view._dagml_stacking_selectors = prediction_aggregations  # noqa: SLF001
+        view._dagml_stacking_probability_producers = {
+            step["id"] for step in canonical_dsl["steps"]
+            if step.get("kind") == "merge_model"
+            and step.get("metadata", {}).get("nirs4all_prediction_output") == "proba"
+        }  # noqa: SLF001
     return result

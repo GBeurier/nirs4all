@@ -181,8 +181,87 @@ def test_named_probability_sources_replay_from_archive(tmp_path, mechanism, test
 
 @pytest.mark.parity
 @pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
+@pytest.mark.parametrize("first_sources", ["all", ["RandomForestClassifier", "LogisticRegression"]])
+@pytest.mark.parametrize("n_classes", [2, 3])
+def test_named_classifier_meta_probability_chain_replays_selected_class(tmp_path, mechanism, first_sources, n_classes, monkeypatch):
+    """Downstream use_proba consumes legacy's selected upstream class column."""
+    import nirs4all
+    from nirs4all.pipeline.dagml.native_results import read_native_results
+
+    if mechanism == "cli":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if mechanism == "pyo3" else "0")
+    rng = np.random.default_rng(23)
+    features = rng.normal(size=(42 if n_classes == 2 else 66, 6))
+    targets = (
+        (features[:, 0] + features[:, 1] > 0).astype(int)
+        if n_classes == 2 else np.argmax(features[:, :3] + rng.normal(scale=0.15, size=(66, 3)), axis=1)
+    )
+    pipeline = [
+        StratifiedKFold(2, shuffle=True, random_state=1),
+        LogisticRegression(max_iter=300),
+        RandomForestClassifier(n_estimators=8, random_state=1),
+        {"model": MetaModel(LogisticRegression(max_iter=300), source_models=first_sources, use_proba=True, name="first")},
+        {"model": MetaModel(LogisticRegression(max_iter=300), source_models=["first"], use_proba=True, name="second")},
+    ]
+    legacy = nirs4all.run(
+        pipeline, (features, targets), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    try:
+        assert np.isfinite(legacy.cv_best_score)
+    finally:
+        legacy.close()
+    native = nirs4all.run(
+        pipeline, (features, targets), engine="dag-ml", allow_fallback=False, refit=True,
+        workspace_path=tmp_path / "native", save_artifacts=True, save_charts=False, verbose=0,
+    )
+    try:
+        assert np.isfinite(native.cv_best_score)
+        # DAG-ML builds fresh nested OOF features at each level; legacy reuses
+        # earlier CV predictions, so their CV scores are not equality oracles.
+        if mechanism == "pyo3":
+            upstream_oof = [
+                np.asarray(block["values"])
+                for node in native._dagml_node_results for block in node.get("predictions", [])
+                if block.get("producer_node") == "merge:stack" and block.get("partition") == "validation"
+            ]
+            assert upstream_oof and all(block.ndim == 2 and block.shape[1] == 1 for block in upstream_oof)
+            assert all(np.all((0 <= block) & (block <= 1)) for block in upstream_oof)
+        persisted = read_native_results(native._dagml_results_dir)
+        first_stage, second_stage = persisted["manifest"]["stacking_replay"]["stages"]
+        assert second_stage["base_producers"][0]["column_block"] == "probability_values"
+        assert second_stage["base_producers"][0]["artifact_id"] == first_stage["meta_artifact_id"]
+        by_id = {artifact["artifact_id"]: artifact for artifact in persisted["artifacts"]}
+        base_probabilities = [
+            np.asarray(by_id[producer["artifact_id"]]["estimator"].predict_proba(features[:7]))
+            for producer in first_stage["base_producers"]
+        ]
+        groups = first_stage["reduction_groups"]
+        assert all(group["proba"] and len(group["members"]) == 1 for group in groups)
+        first_features = np.column_stack([base_probabilities[group["members"][0]] for group in groups])
+        class_column = 1 if n_classes == 2 else 0
+        first_probability = np.asarray(by_id[first_stage["meta_artifact_id"]]["estimator"].predict_proba(first_features))[:, class_column:class_column + 1]
+        second_estimator = by_id[second_stage["meta_artifact_id"]]["estimator"]
+        assert second_estimator.n_features_in_ == 1
+        expected = np.asarray(second_estimator.predict(first_probability)).reshape(-1)
+        archive = native.export(tmp_path / "probability_chain.n4a")
+        replay = np.asarray(nirs4all.predict(archive, features[:7]).y_pred).reshape(-1)
+        np.testing.assert_allclose(replay, expected)
+    finally:
+        native.close()
+
+
+@pytest.mark.parity
+@pytest.mark.parametrize("mechanism", ["pyo3", "cli"])
 @pytest.mark.parametrize("level_count", [2, 3])
-def test_named_metamodel_chain_uses_native_nested_oof_and_archive(tmp_path, mechanism, level_count, monkeypatch):
+@pytest.mark.parametrize("regression_probability_flag", [False, True])
+def test_named_metamodel_chain_uses_native_nested_oof_and_archive(tmp_path, mechanism, level_count, regression_probability_flag, monkeypatch):
     """Both DAG transports retain each legacy named source and nested OOF scope."""
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.datasets import make_regression
@@ -208,7 +287,7 @@ def test_named_metamodel_chain_uses_native_nested_oof_and_archive(tmp_path, mech
         PLSRegression(n_components=2),
         Ridge(alpha=100),
         {"model": MetaModel(Ridge(), source_models=["PLSRegression", "Ridge"], name="first")},
-        {"model": MetaModel(Lasso(alpha=0.1), source_models=["first"], name="second")},
+        {"model": MetaModel(Lasso(alpha=0.1), source_models=["first"], use_proba=regression_probability_flag, name="second")},
     ]
     if level_count == 3:
         pipeline.append({"model": MetaModel(Ridge(alpha=2), source_models=["second"], name="third")})
@@ -235,6 +314,7 @@ def test_named_metamodel_chain_uses_native_nested_oof_and_archive(tmp_path, mech
         assert replay_manifest["schema_version"] == 2
         stages = replay_manifest["stages"]
         assert len(stages) == level_count
+        assert stages[1]["base_producers"][0]["column_block"] == "prediction_values"
         first_stage = stages[0]
         by_id = {artifact["artifact_id"]: artifact for artifact in persisted["artifacts"]}
         assert set(by_id) == {
