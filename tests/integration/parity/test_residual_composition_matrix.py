@@ -80,10 +80,9 @@ def test_residual_choices_after_prefix_refit_and_replay(tmp_path, monkeypatch, m
 
 
 @pytest.mark.parity
-@pytest.mark.xfail(strict=True, reason="DAG nested OOF can collapse PLS fit scope after prediction-feature joins")
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 def test_residual_after_target_and_prediction_feature_join_keeps_pls_fit_scope(tmp_path, monkeypatch, mechanism: str) -> None:
-    """Legacy executes this combination; DAG nested OOF currently fails."""
+    """Both engines fit and replay a residual model after prediction features."""
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
