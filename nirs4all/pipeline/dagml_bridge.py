@@ -1141,6 +1141,13 @@ def pipeline_to_dsl(pipeline: list[Any], dsl_id: str = "nirs4all-pipeline") -> d
                 active_channels = [index for index in range(len(layers)) if action != "replace" or index not in active_channels]
                 continue
             operation = _concat_operation_spec(step)
+            from nirs4all.operators.transforms.feature_selection import CARS, MCUVE
+
+            if isinstance(step, (CARS, MCUVE)):
+                # Legacy fits one selector on the first active processing lane
+                # and applies that same selected-index mask to every lane.
+                # Independent FeatureUnion fits can choose different masks.
+                operation["shared_fit_id"] = f"selector_{len(lowered)}_{sum(len(layer if isinstance(layer, list) else [layer]) for layer in channels['params']['operations'])}"
             channels["params"]["operations"] = [
                 [*(layer if isinstance(layer, list) else [] if layer is None else [layer]), operation] if index in active_channels else layer
                 for index, layer in enumerate(channels["params"]["operations"])

@@ -145,7 +145,8 @@ class FeatureConcat(BaseEstimator, TransformerMixin):
             (``{"class": "<FQN>", "params": {...}}``), a *chain* (a list of such specs applied
             sequentially), or ``None`` for a pass-through "raw" channel (the un-transformed base
             layer — the feature_augmentation extend/add raw layer). The raw channel emits its columns
-            first, in spec order.
+            first, in spec order. A ``shared_fit_id`` on selector specs fits the first
+            processing lane once and applies its selected columns to later lanes.
     """
 
     _stateless = False
@@ -171,8 +172,49 @@ class FeatureConcat(BaseEstimator, TransformerMixin):
         self._promote_input_ = any(_has_learned_operation(op) for op in self.operations or [])
         values = np.asarray(X, dtype=np.float64) if self._promote_input_ else np.asarray(X)
         coordinates = tuple(str(value) for value in wavelengths) if wavelengths is not None else None
-        self.union_ = self._make_union(coordinates)
-        self.union_.fit(values, y)
+        if any(
+            isinstance(item, dict) and item.get("shared_fit_id")
+            for operation in self.operations or []
+            for item in (operation if isinstance(operation, list) else [operation])
+        ):
+            # sklearn FeatureUnion fits its channels independently. Legacy's
+            # FeatureSelectionController instead fits CARS/MCUVE once on the
+            # first processing and reuses the fitted mask on later channels.
+            shared: dict[str, Any] = {}
+            fitted_channels: list[tuple[str, Any]] = []
+            from nirs4all.pipeline.dagml.node_runner import _axis_after_step, _CoordinateTransform
+
+            for index, operation in enumerate(self.operations or []):
+                if operation is None:
+                    fitted_channels.append((f"op{index}", "passthrough"))
+                    continue
+                specs = operation if isinstance(operation, list) else [operation]
+                current = values
+                current_coordinates = coordinates
+                fitted_steps = []
+                for spec in specs:
+                    shared_id = spec.get("shared_fit_id") if isinstance(spec, dict) else None
+                    if shared_id is not None and shared_id in shared:
+                        fitted = shared[shared_id]
+                        current = fitted.transform(current)
+                    else:
+                        fitted = _build_operation(spec, current_coordinates)
+                        current = fitted.fit_transform(current, y)
+                        if shared_id is not None:
+                            shared[shared_id] = fitted
+                    fitted_steps.append(fitted)
+                    current_coordinates = _axis_after_step(
+                        fitted.transformer if isinstance(fitted, _CoordinateTransform) else fitted,
+                        current_coordinates,
+                        0,
+                    )
+                chain = _Chain([])
+                chain.fitted_ = fitted_steps
+                fitted_channels.append((f"op{index}", chain))
+            self.union_ = FeatureUnion(fitted_channels)
+        else:
+            self.union_ = self._make_union(coordinates)
+            self.union_.fit(values, y)
         return self
 
     def transform(self, X: Any) -> np.ndarray:

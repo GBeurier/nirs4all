@@ -8,6 +8,7 @@ from sklearn.model_selection import KFold
 import nirs4all
 from nirs4all.data import SpectroDataset
 from nirs4all.operators.transforms import CARS, MCUVE, Resampler
+from nirs4all.operators.transforms.scalers import StandardNormalVariate
 
 from ._dagml_cli import dagml_cli_path
 
@@ -162,3 +163,58 @@ def test_multisource_selector_chains_preserve_refit_axis(tmp_path, monkeypatch, 
     assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
     archive = native.export(tmp_path / f"{sequence}_{in_process}.n4a")
     assert np.asarray(nirs4all.predict(archive, held_out).y_pred).shape == (6,)
+
+
+@pytest.mark.parametrize("selector", ["cars", "mcuve"])
+@pytest.mark.parametrize("in_process", [True, False], ids=["pyo3", "cli"])
+def test_selector_after_feature_augmentation_handles_all_processings(tmp_path, monkeypatch, selector, in_process):
+    if not in_process:
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if in_process else "0")
+    dataset, held_out, _ = _dataset(False)
+    selection = (
+        CARS(n_components=2, n_sampling_runs=10, random_state=42)
+        if selector == "cars" else MCUVE(n_components=2, n_iterations=20, random_state=42)
+    )
+    pipeline = [
+        {"feature_augmentation": [StandardNormalVariate()], "action": "add"},
+        selection,
+        KFold(2),
+        {"model": Ridge()},
+    ]
+    legacy = nirs4all.run(pipeline, dataset, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    replay = nirs4all.predict(native.export(tmp_path / f"augmented_{selector}.n4a"), held_out)
+    assert np.asarray(replay.y_pred).shape == (6,)
+
+
+@pytest.mark.parametrize("selector", ["cars", "mcuve"])
+@pytest.mark.parametrize("in_process", [True, False], ids=["pyo3", "cli"])
+def test_resampler_after_augmented_selector_uses_selected_axis(tmp_path, monkeypatch, selector, in_process):
+    if not in_process:
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if in_process else "0")
+    dataset, held_out, targets = _dataset(False)
+    selection = (
+        CARS(n_components=2, n_sampling_runs=10, random_state=42)
+        if selector == "cars" else MCUVE(n_components=2, n_iterations=20, random_state=42)
+    )
+    pipeline = [
+        {"feature_augmentation": [StandardNormalVariate()], "action": "add"},
+        selection,
+        Resampler(target_wavelengths=targets),
+        KFold(2),
+        {"model": Ridge()},
+    ]
+    legacy = nirs4all.run(pipeline, dataset, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, dataset, engine="dag-ml", save_artifacts=False, verbose=0)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-5)
+    replay = nirs4all.predict(native.export(tmp_path / f"augmented_selected_{selector}.n4a"), held_out)
+    assert np.asarray(replay.y_pred).shape == (6,)
