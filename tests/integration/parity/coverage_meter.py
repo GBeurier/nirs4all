@@ -78,6 +78,7 @@ from .test_conformance_dual_engine import (
 REPO_ROOT = Path(__file__).resolve().parents[3]
 COMPATIBILITY_JSON = REPO_ROOT / "docs" / "compatibility.json"
 FEATURE_GAPS_JSON = Path(__file__).with_name("feature_gaps.json")
+CONTROLLER_COVERAGE_JSON = Path(__file__).with_name("controller_coverage.json")
 
 # ---------------------------------------------------------------------------
 # Bucket vocabulary.
@@ -335,8 +336,13 @@ def main(argv: list[str] | None = None) -> int:
         ledger = json.loads(FEATURE_GAPS_JSON.read_text(encoding="utf-8"))
         gaps = ledger["gaps"]
         unverified = ledger["unverified"]
-        if not ledger["inventory_complete"] or gaps or unverified or report.summary()["refusal"]:
-            print(f"DAG-ML feature gate failed: inventory_complete={ledger['inventory_complete']}, open_gaps={len(gaps)}, unverified={len(unverified)}, registered_refusals={report.summary()['refusal']}")
+        controllers = json.loads(CONTROLLER_COVERAGE_JSON.read_text(encoding="utf-8"))["controllers"]
+        uncovered_controllers = sorted(
+            name for name, entry in controllers.items()
+            if entry["coverage"] not in {"public", "not_pipeline"}
+        )
+        if not ledger["inventory_complete"] or gaps or unverified or report.summary()["refusal"] or uncovered_controllers:
+            print(f"DAG-ML feature gate failed: inventory_complete={ledger['inventory_complete']}, open_gaps={len(gaps)}, unverified={len(unverified)}, registered_refusals={report.summary()['refusal']}, uncovered_controllers={uncovered_controllers}")
             exit_code = 1
 
     if args.json is None and args.md is None and not args.check and not args.require_zero_refusals and not args.require_feature_complete:
