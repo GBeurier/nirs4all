@@ -6,6 +6,8 @@ IKPLS is significantly faster than sklearn's PLSRegression, especially
 for cross-validation.
 """
 
+import importlib.util
+
 import numpy as np
 from sklearn.base import BaseEstimator, RegressorMixin
 
@@ -177,8 +179,12 @@ class IKPLS(BaseEstimator, RegressorMixin):
             import jax
             jax.config.update("jax_enable_x64", True)
 
-            # Import JAX backend based on algorithm
-            if self.algorithm == 1:
+            # IKPLS 6 dispatches both algorithms through one public class.
+            # Older releases expose separate algorithm modules.
+            modern_jax = importlib.util.find_spec('ikpls.jax') is not None
+            if modern_jax:
+                from ikpls.jax import PLS as JaxPLS
+            elif self.algorithm == 1:
                 from ikpls.jax_ikpls_alg_1 import PLS as JaxPLS
             else:
                 from ikpls.jax_ikpls_alg_2 import PLS as JaxPLS
@@ -189,14 +195,23 @@ class IKPLS(BaseEstimator, RegressorMixin):
             y_jax = jnp.asarray(y)
 
             # Create and fit JAX model
-            self._model = JaxPLS()
+            self._model = JaxPLS(
+                algorithm=self.algorithm,
+                center_X=self.center,
+                center_Y=self.center,
+                scale_X=self.scale,
+                scale_Y=self.scale,
+            ) if modern_jax else JaxPLS()
             self._model.fit(X_jax, y_jax, A=self.n_components_)
 
             # Store coefficient for compatibility - convert back to numpy
             self.coef_ = np.asarray(self._model.B[-1])
         else:
             # NumPy backend
-            from ikpls.numpy_ikpls import PLS as NumpyPLS
+            if importlib.util.find_spec('ikpls.numpy') is not None:
+                from ikpls.numpy import PLS as NumpyPLS
+            else:
+                from ikpls.numpy_ikpls import PLS as NumpyPLS
 
             # Create and fit ikpls model
             self._model = NumpyPLS(
