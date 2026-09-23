@@ -1689,7 +1689,99 @@ def _run_augmentation_full_train(
     return result
 
 
-def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None, capture: dict[str, Any] | None = None, refit: bool = True) -> RunResult:
+def _run_interleaved_augmentation_checkpoints(
+    pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str,
+    venv_python: str, run_dir: Path, metric: str, task_type: str,
+    config_name: str, random_state: int | None, refit: bool,
+) -> RunResult:
+    """Run independent legacy checkpoints as separate native campaigns.
+
+    A transform or exclusion between checkpoints changes the data seen by the
+    later model. In particular an exclusion can change its validation FoldSet.
+    The native campaign has one FoldSet, so each prefix gets its own native
+    graph and envelope; core SELECT chooses the exported checkpoint.
+    """
+    import pickle
+
+    import dag_ml
+
+    from .detect import _is_exclude_step
+    from .result import _variant_cv_score
+
+    model_indices = [index for index, step in enumerate(pipeline) if isinstance(step, dict) and "model" in step]
+    if len(model_indices) < 2:
+        raise DagMlUnsupported("interleaved augmentation checkpoints require at least two models")
+    campaigns: list[tuple[dict[str, Any], str, list[dict[str, Any]], Any, list[dict[str, Any]]]] = []
+    chart_source: RunResult | None = None
+    for candidate_index, model_index in enumerate(model_indices):
+        # Legacy's ordinary model steps are independent checkpoints. Preserve
+        # every data-changing predecessor, omitting only earlier model steps.
+        candidate = [
+            step for index, step in enumerate(pipeline[:model_index + 1])
+            if index == model_index or not (isinstance(step, dict) and "model" in step)
+        ]
+        splitter_steps = [step for step in candidate if _is_split_step(step)]
+        if len(splitter_steps) != 1:
+            raise DagMlUnsupported("interleaved checkpoints require one shared public splitter")
+        original_folds = None
+        # An exclusion after augmentation must finish before the later model's
+        # splitter. Keep the public splitter's ORIGINAL fold assignment and
+        # filter excluded ids within each side, as legacy does when its splitter
+        # ran before the exclusion step.
+        if any(_is_exclude_step(step) for step in candidate):
+            original_folds = _build_folds(
+                splitter_steps[0], spectro, _split_base_samples(spectro), set(),
+            )
+            candidate = [step for step in candidate if not _is_split_step(step)]
+            candidate.insert(-1, splitter_steps[0])
+        candidate_spectro = copy.deepcopy(spectro)
+        candidate_dir = run_dir / f"checkpoint{candidate_index}"
+        candidate_dir.mkdir(parents=True, exist_ok=True)
+        if any(_is_augmentation_step(step) for step in candidate):
+            capture: dict[str, Any] = {}
+            candidate_result = _run_augmentation(
+                candidate, candidate_spectro, dataset_arg, cli, venv_python,
+                candidate_dir, metric, task_type, config_name=config_name,
+                random_state=random_state, capture=capture, refit=refit,
+                base_folds_override=original_folds,
+            )
+            campaigns.append((
+                capture["scores"], capture["model_name"], capture["results"],
+                capture["identity"], capture["refit_artifacts"],
+            ))
+            chart_source = candidate_result
+        else:
+            pickle_path = candidate_dir / "checkpoint_dataset.pkl"
+            pickle_path.write_bytes(pickle.dumps(candidate_spectro))
+            campaigns.append(_run_concrete_scores(
+                candidate, candidate_spectro, dataset_arg, cli, venv_python,
+                candidate_dir, dataset_pickle=str(pickle_path),
+                random_state=random_state, refit=refit, metric=metric,
+            ))
+
+    decision = dag_ml.select_candidate(
+        {"id": "select:interleaved_augmentation_checkpoints", "metric": {
+            "name": metric, "objective": "maximize" if is_higher_better(metric) else "minimize",
+        }},
+        [{"candidate_id": str(index), "metrics": {metric: _variant_cv_score(scores, metric)}}
+         for index, (scores, *_rest) in enumerate(campaigns)],
+    )
+    result = _project_operator_sweep(
+        [(scores, model_name) for scores, model_name, *_rest in campaigns],
+        spectro.name, metric, task_type, task_type != "regression",
+        [config_name] * len(campaigns),
+        results_by_index=[results for _scores, _name, results, _identity, _artifacts in campaigns],
+        identities_by_index=[identity for _scores, _name, _results, identity, _artifacts in campaigns],
+        refit_artifacts_by_index=[artifacts for _scores, _name, _results, _identity, artifacts in campaigns],
+        selected_index=int(decision["selected_candidate_id"]), emit_all_refits=True,
+    )
+    if chart_source is not None:
+        result._dagml_chart_aug_snapshots = chart_source._dagml_chart_aug_snapshots
+        result._dagml_chart_transform_snapshots = chart_source._dagml_chart_transform_snapshots
+    return result
+
+
+def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, config_name: str = "", random_state: int | None = None, capture: dict[str, Any] | None = None, refit: bool = True, base_folds_override: list[tuple[list[int], list[int]]] | None = None) -> RunResult:
     """Run a ``sample_augmentation`` pipeline as ONE native dag-ml CV+refit on augmented train.
 
     Adds the synthetic train rows (real augmentation machinery), builds BASE-grain folds (each base
@@ -1717,6 +1809,21 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     import pickle
     chart_snapshots = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
     chart_transform_snapshots = {} if chart_snapshots is not None else None
+
+    from .detect import _is_exclude_step
+
+    aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
+    pre_aug_steps = pipeline[:aug_indices[0]]
+    early_models = [step for step in pre_aug_steps if isinstance(step, dict) and "model" in step]
+    if early_models and (
+        pre_aug_steps[-len(early_models):] != early_models
+        or aug_indices != list(range(aug_indices[0], aug_indices[-1] + 1))
+        or any(_is_exclude_step(step) for step in pipeline[aug_indices[-1] + 1:])
+    ):
+        return _run_interleaved_augmentation_checkpoints(
+            pipeline, spectro, dataset_arg, cli, venv_python, run_dir,
+            metric, task_type, config_name, random_state, refit,
+        )
 
     # Legacy accepts the splitter before augmentation. Native folds are built on
     # base sample ids independently of its position, so route it after the last
@@ -1810,7 +1917,14 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     # are NEVER listed in a fold (the FoldSet stays a clean base-grain OOF partition); they are pulled
     # into fit-train by the host expansion keyed on the origin's fold side. The split runs over the BASE
     # rows only (before any child exists), so the fold partition is identical for both augmentation paths.
-    if _is_repetition_dataset(spectro):
+    if base_folds_override is not None:
+        remaining = set(base_train)
+        base_folds = [
+            ([sample for sample in train if sample in remaining],
+             [sample for sample in validation if sample in remaining])
+            for train, validation in base_folds_override
+        ]
+    elif _is_repetition_dataset(spectro):
         base_folds = _build_group_folds(splitter, spectro, base_train)
     else:
         base_folds = _build_folds(splitter, spectro, base_train, set())
