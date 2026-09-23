@@ -49,6 +49,7 @@ from .detect import (
     _detect_rep_to_sources_by_source,
     _detect_separation_branch,
     _detect_separation_preproc_concat,
+    _detect_sequential_metamodel,
     _detect_source_concat_merge,
     _detect_stacking_branch,
     _fusion_merge_aggregate,
@@ -1083,6 +1084,18 @@ def _dispatch_run(
     detected_separation_preproc_concat = _detect_separation_preproc_concat(list(pipeline))
     detected_duplication = _detect_duplication_branch(list(pipeline))
     detected_stacking = _detect_stacking_branch(list(pipeline))
+    detected_sequential_metamodel = _detect_sequential_metamodel(list(pipeline))
+    if detected_sequential_metamodel is None and not any(
+        isinstance(step, dict) and ("branch" in step or "merge" in step) for step in pipeline
+    ):
+        from nirs4all.operators.models.meta import MetaModel
+
+        models = [step["model"] for step in pipeline if isinstance(step, dict) and "model" in step]
+        if len(models) >= 2 and isinstance(models[-1], MetaModel):
+            raise DagMlUnsupported(
+                "sequential MetaModel requires a supported native OOF feature contract; "
+                "probability features and non-default stacking options are not yet lowered"
+            )
     detected_named_metamodel_stack = _detect_named_metamodel_feature_stack(list(pipeline))
     detected_by_source = _detect_by_source_branch(list(pipeline), spectro.features_sources())
     detected_by_source_auto = _detect_by_source_auto_models(list(pipeline), spectro.features_sources())
@@ -1390,6 +1403,14 @@ def _dispatch_run(
     # fold-validation (held-out Validation OOF); the meta-node consumes those branches' Validation OOF
     # (via requires_oof+requires_fold_alignment edges, leakage-safe — train predictions are refused), fits
     # the meta-learner on the per-fold OOF meta-feature matrix and emits its own scored OOF.
+    if detected_sequential_metamodel is not None:
+        base_steps, meta_learner = detected_sequential_metamodel
+        return _run_stacking_branch(
+            list(pipeline), [base_steps], meta_learner, spectro, dataset_arg, cli,
+            venv_python or sys.executable, base_dir / "sequential_metamodel",
+            metric, task_type, dataset_pickle=host_pickle, config_name=config_name,
+            random_state=random_state, refit=refit,
+        )
     if detected_stacking is not None:
         branches, meta_learner = detected_stacking
         return _run_stacking_branch(

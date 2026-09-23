@@ -4100,9 +4100,9 @@ def _stacking_model_metadata(pipeline: list[Any]) -> dict[str, Any]:
     from nirs4all.pipeline.dagml_bridge import _step_to_dsl
 
     model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
-    if len(model_steps) != 1:
-        raise DagMlUnsupported("stacking needs exactly one downstream meta-model step")
-    return dict(_step_to_dsl(model_steps[0]).get("metadata") or {})
+    if not model_steps:
+        raise DagMlUnsupported("stacking needs a downstream meta-model step")
+    return dict(_step_to_dsl(model_steps[-1]).get("metadata") or {})
 
 
 def _stacking_inner_cv(
@@ -4216,8 +4216,8 @@ def _assemble_stacking_dsl(
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(canonical_dsl, manifests).graph.to_dict()
     model_ids = [node["id"] for node in graph["nodes"] if node["kind"] == "model"]
     base_model_ids = [model_id for model_id in model_ids if model_id != _META_NODE_ID]
-    if len(base_model_ids) < 2:
-        raise DagMlUnsupported("stacking compile produced fewer than two base model nodes")
+    if not base_model_ids:
+        raise DagMlUnsupported("stacking compile produced no base model node")
     if _META_NODE_ID not in model_ids:
         raise DagMlUnsupported("stacking compile produced no meta-model node")
 
@@ -4233,7 +4233,7 @@ def _assemble_stacking_dsl(
     return canonical_dsl, graph, base_model_ids
 
 
-def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None) -> RunResult:
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None, refit: bool = True) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
     Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
@@ -4285,7 +4285,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     )
 
     outcome = run_cv_refit_bundle(
-        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=canonical_dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml stacking run failed")

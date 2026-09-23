@@ -18,6 +18,13 @@ def sequential_model_pipelines(pipeline: Any) -> list[list[Any]] | None:
     if not isinstance(pipeline, list):
         return None
     steps = normalize_model_steps(pipeline)
+    from nirs4all.operators.models.meta import MetaModel
+
+    if any(isinstance(step, dict) and isinstance(step.get("model"), MetaModel) for step in steps):
+        # A MetaModel depends on earlier model predictions. Keep the whole
+        # request intact so the native stacking router can lower it or give a
+        # precise refusal for an unsupported option such as use_proba.
+        return None
     if any(isinstance(step, dict) and any(key in step for key in ("branch", "merge", "exclude", "sample_augmentation")) for step in steps):
         return None
     if sum(isinstance(step, dict) and "model" in step for step in steps) < 2:

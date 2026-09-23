@@ -1485,6 +1485,38 @@ def _meta_learner(model_step: dict[str, Any]) -> Any | None:
     return None
 
 
+def _detect_sequential_metamodel(pipeline: list[Any]) -> tuple[list[Any], Any] | None:
+    """A single base estimator followed by a default MetaModel wrapper.
+
+    Legacy accepts this spelling without an explicit branch/merge. Keep the
+    recognizer narrow: other operators, multiple bases, probability features,
+    and non-default MetaModel options need separately proven graph contracts.
+    """
+    from nirs4all.operators.models.meta import MetaModel
+
+    if len([step for step in pipeline if _is_split_step(step)]) != 1:
+        return None
+    steps = [step for step in pipeline if not _is_split_step(step)]
+    if len(steps) != 2 or not isinstance(steps[-1], dict):
+        return None
+    wrapper = steps[-1].get("model")
+    if not isinstance(wrapper, MetaModel):
+        return None
+    learner = _meta_learner(steps[-1])
+    if learner is None:
+        return None
+    base = steps[0]
+    if isinstance(base, dict):
+        if set(base) != {"model"}:
+            return None
+        operator = base["model"]
+    else:
+        operator = base
+    if not (hasattr(operator, "fit") and hasattr(operator, "predict")):
+        return None
+    return [{"model": operator}], learner
+
+
 def _branch_local_meta_model_step(model_step: dict[str, Any]) -> dict[str, Any] | None:
     """Return a handled branch-local ``MetaModel`` step for named prediction-feature stacking.
 
