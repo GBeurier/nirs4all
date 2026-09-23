@@ -692,6 +692,38 @@ class _DagmlNativeIndependentSourceModels(_DagmlNativeBySourceFusionModel):
     def predict(self, X: Any) -> np.ndarray:
         raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict or call BundleLoader.predict_output(s)")
 
+    def _source_blocks(self, X: Any) -> list[np.ndarray]:
+        if not isinstance(X, Mapping):
+            return super()._source_blocks(X)
+        if set(X) != {"sample_ids", "sources"} or not isinstance(X["sources"], Mapping):
+            raise ValueError("named-source replay requires sample_ids and a sources mapping")
+        sources = X["sources"]
+        request_sources = []
+        for source_id, payload in sources.items():
+            if not isinstance(source_id, str) or not isinstance(payload, Mapping) or set(payload) != {"sample_ids", "values"}:
+                raise ValueError("each named source requires a source ID, sample_ids and values")
+            request_sources.append({"source_id": source_id, "sample_ids": payload["sample_ids"]})
+
+        import dag_ml
+
+        alignment = dag_ml.align_named_source_rows({
+            "sample_ids": X["sample_ids"],
+            "required_source_ids": list(self.source_ids),
+            "sources": request_sources,
+        })
+        blocks = []
+        for index, selection in enumerate(alignment["sources"]):
+            source_id = selection["source_id"]
+            payload = sources[source_id]
+            values = np.asarray(payload["values"])
+            width = self.source_widths[index]
+            if values.ndim != 2 or width is None or values.shape != (len(payload["sample_ids"]), width):
+                raise ValueError(f"named source {source_id!r} has incompatible feature rows or width")
+            if not np.issubdtype(values.dtype, np.number) or not np.all(np.isfinite(values)):
+                raise ValueError(f"named source {source_id!r} requires finite numeric features")
+            blocks.append(values[np.asarray(selection["row_indices"], dtype=int)])
+        return blocks
+
     def predict_output(self, binding_id: str, X: Any) -> np.ndarray:
         if binding_id not in self.output_binding_ids:
             raise ValueError(f"unknown named output {binding_id!r}; available outputs: {list(self.output_binding_ids)!r}")

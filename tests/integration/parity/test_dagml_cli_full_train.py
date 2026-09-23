@@ -142,11 +142,26 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
             loader.predict(full_x)
         all_outputs = loader.predict_outputs(full_x)
         assert set(all_outputs) == set(output_ids)
+        named_sources = {
+            "sample_ids": [f"sample_{row}" for row in range(len(full_x))],
+            "sources": {},
+        }
+        for index, name in enumerate(source_names):
+            block = np.asarray(test_blocks[index]).reshape(len(test_blocks[index]), -1)
+            order = np.arange(len(block))[::-1] if index % 2 == 0 else np.arange(len(block))
+            named_sources["sources"][name] = {
+                "sample_ids": [named_sources["sample_ids"][row] for row in order],
+                "values": block[order],
+            }
+        named_outputs = loader.predict_outputs(named_sources)
+        assert set(named_outputs) == set(output_ids)
         for index, name in enumerate(source_names):
             expected = Ridge(alpha=1.0).fit(
                 np.asarray(train_blocks[index]).reshape(len(y_train), -1), y_train,
             ).predict(np.asarray(test_blocks[index]).reshape(len(test_blocks[index]), -1))
             np.testing.assert_allclose(np.asarray(all_outputs[output_ids[index]]).ravel(), np.asarray(expected).ravel(), atol=1e-6)
+            np.testing.assert_allclose(np.asarray(named_outputs[output_ids[index]]).ravel(), np.asarray(expected).ravel(), atol=1e-6)
+            np.testing.assert_allclose(np.asarray(loader.predict_output(output_ids[index], named_sources)).ravel(), np.asarray(expected).ravel(), atol=1e-6)
             np.testing.assert_allclose(np.asarray(loader.predict_output(output_ids[index], full_x)).ravel(), np.asarray(expected).ravel(), atol=1e-6)
         with pytest.raises(ValueError, match="unknown named output"):
             loader.predict_output("unknown", full_x)
