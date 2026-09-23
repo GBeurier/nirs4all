@@ -1014,6 +1014,22 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                 "metadata": {"nirs4all_fit_on_all": True},
                 "shape": {"fit_rows": "all_observations"},
             }
+        if "auto_transfer_preproc" in step:
+            if set(step) != {"auto_transfer_preproc"}:
+                raise NotImplementedError("auto_transfer_preproc does not support sibling step keywords in DAG-ML")
+            config = step["auto_transfer_preproc"] or {}
+            if not isinstance(config, dict):
+                raise TypeError("auto_transfer_preproc configuration must be a mapping")
+            if config.get("source_partition", "train") not in {"train", "test"} or config.get("target_partition", "test") not in {"train", "test"}:
+                raise NotImplementedError("DAG-ML auto_transfer_preproc currently supports train/test source and target partitions")
+            return {
+                "preprocessing": {
+                    "class": "nirs4all.pipeline.dagml.auto_transfer.DagMLAutoTransferPreprocessor",
+                    "params": {"config": config},
+                },
+                "metadata": {"nirs4all_fit_on_all": True, "nirs4all_auto_transfer_preproc": True},
+                "shape": {"fit_rows": "all_observations"},
+            }
         if "y_processing" in step:
             op = step["y_processing"]
             return {"y_processing": {"class": _qualname(op), "params": _json_safe_params(op)}}
