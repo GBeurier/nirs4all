@@ -4346,4 +4346,6 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         for view in [result, *getattr(result, "runs", [])]:
             for metadata in view.per_dataset.values():
                 metadata["stacking_evaluation"] = evidence
+    for view in [result, *getattr(result, "runs", [])]:
+        view._dagml_stacking_selectors = prediction_aggregations  # noqa: SLF001
     return result
