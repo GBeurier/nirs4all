@@ -205,10 +205,22 @@ def test_real_native_vote_preserves_all_fold_and_final_arrays_without_extra_fits
             ("final_agg", "train"), ("final_agg", "test"),
         )
     }
-    assert set(observed) == expected_native_keys
+    # The native CV training surface now includes fold-train and both train
+    # ensembles. Legacy omits these for this repetition pipeline, but every
+    # legacy row must retain the same classification presentation.
+    native_train_keys = {
+        (fold_id, "train")
+        for fold_id in ("0", "1", "2", "avg", "w_avg", "0_agg", "1_agg", "2_agg", "avg_agg", "w_avg_agg")
+    }
+    native_weighted_oof_keys = {("w_avg", "val"), ("w_avg_agg", "val")}
+    assert set(observed) == expected_native_keys | native_train_keys | native_weighted_oof_keys
     for fold_id, score in native_test_ensembles.items():
         assert observed[(fold_id, "test")]["test_score"] == pytest.approx(score)
     for key, row in observed.items():
+        if key not in expected:
+            assert row["n_samples"] > 0
+            assert len(row["y_pred"]) == row["n_samples"]
+            continue
         reference = expected[key]
         assert row["n_samples"] == reference["n_samples"]
         reference_indices = reference.get("sample_indices")

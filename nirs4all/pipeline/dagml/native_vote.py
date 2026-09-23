@@ -153,9 +153,12 @@ def project_vote_evidence(result: Any, records: list[dict[str, Any]], identity: 
         sample_ids = record["sample_ids"]
         sample_indices = [identity.to_int(sample) for sample in sample_ids]
         y_true, y_pred = np.asarray(record["y_true"]), np.asarray(record["y_pred"])
-        # Existing native blocks provide an independent, identity-aligned witness.
+        # Direct blocks provide an independent, identity-aligned witness. Native
+        # train ensembles vote on labels; the public classifier presentation
+        # averages captured fold probabilities, so an ensemble label can differ
+        # on a tied sample without either direct fold prediction disagreeing.
         prior_indices = entry.get("sample_indices") or []
-        if prior_indices:
+        if prior_indices and key[0] not in {"avg", "w_avg"}:
             positions = {sample: index for index, sample in enumerate(sample_indices)}
             order = [positions[sample] for sample in prior_indices]
             if not np.array_equal(np.asarray(entry["y_pred"]).ravel(), y_pred[order]) or not np.array_equal(np.asarray(entry["y_true"]).ravel(), y_true[order]):
