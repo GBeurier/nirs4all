@@ -1592,7 +1592,7 @@ def _detect_named_multi_level_metamodel(
         if (
             current.selector is not None or current.finetune_space is not None
             or current.stacking_config.level not in allowed_levels
-            or not _is_default_except_level(current.stacking_config, allow_fold_aggregation=level == 2)
+            or not _is_default_except_level(current.stacking_config, allow_fold_aggregation=True)
         ):
             return None
     first_stage = _detect_sequential_metamodel(pipeline[:-(len(trailing) - 1)])
