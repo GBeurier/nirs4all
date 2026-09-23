@@ -126,6 +126,11 @@ instances as strings, so Keras rejects them before fitting. With current Keras
 3, the legacy cyclic-rate callback runs but cannot assign its learning rate;
 the optimizer keeps its initial rate. DAG-ML rejects both controls explicitly.
 
+JSON callback settings such as `early_stopping`, `reduce_lr_on_plateau`,
+`reduce_lr_on_plateau_params`, and `best_model_memory` work in both the legacy
+and DAG-ML TensorFlow training paths. They apply to each CV fit and the final
+refit.
+
 ### model_params
 
 Customize the architecture:
