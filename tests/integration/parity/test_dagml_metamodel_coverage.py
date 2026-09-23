@@ -122,7 +122,8 @@ def test_partial_oof_coverage_ratio_matches_legacy_gate_and_replays_archive(tmp_
 
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
-@pytest.mark.parametrize("coverage_strategy", [CoverageStrategy.DROP_INCOMPLETE, CoverageStrategy.IMPUTE_MEAN])
+@pytest.mark.parametrize("coverage_strategy", [CoverageStrategy.DROP_INCOMPLETE, CoverageStrategy.IMPUTE_MEAN,
+                                               CoverageStrategy.IMPUTE_ZERO, CoverageStrategy.IMPUTE_FOLD_MEAN])
 def test_no_split_opt_in_uses_training_only_native_oof_and_replays(tmp_path, monkeypatch, mechanism, coverage_strategy):
     """Legacy's no-CV stack runs; DAG-ML evaluates through implicit train-only folds."""
     if mechanism == "subprocess":
