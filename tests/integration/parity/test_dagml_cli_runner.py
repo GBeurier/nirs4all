@@ -3290,9 +3290,10 @@ def test_stacking_branch_detection() -> None:
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(test_aggregation=TestAggregation.WEIGHTED_MEAN))}]) is None
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(coverage_strategy=CoverageStrategy.DROP_INCOMPLETE))}]) is None
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": MetaModel(model=Ridge(), stacking_config=StackingConfig(min_coverage_ratio=0.5))}]) is None
-    # A sibling param or a generator on the meta-model step is silently dropped by the bare-estimator
-    # lowering (no _apply_model_params / native generation runs for it) → fail loud, not a silent mis-run.
-    assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": 0.2}]) is None
+    # Concrete sibling parameters are applied to the meta-estimator; sweeps
+    # still need a separate variant-selection path.
+    concrete = _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": 0.2}])
+    assert concrete is not None and concrete[1].alpha == 0.2
     assert _detect_stacking_branch([splitter, branch, {"merge": "predictions"}, {"model": Ridge(), "alpha": {"_range_": [0.1, 1.0, 3]}}]) is None
     # Shared transforms are lowered into each base's fold-local fitted chain.
     shared = _detect_stacking_branch([StandardNormalVariate(), splitter, branch, {"merge": "predictions"}, {"model": Ridge()}])
@@ -3453,13 +3454,11 @@ def test_public_run_engine_dagml_stacking_branch() -> None:
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
 def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> None:
-    """Stacking with an IGNORED MetaModel option or a sibling-param/generator meta step fails LOUD (#10).
+    """Stacking applies concrete meta parameters and rejects unsupported controls.
 
-    Both are silently-dropped-config gaps the dag-ml stacking lowering would otherwise ignore: a non-default
-    `StackingConfig` field (e.g. `test_aggregation`, which this slice cannot honor at all — best_rmse is NaN)
-    and a sibling param / generator on the bare meta-model step (the bare-estimator lowering never runs
-    `_apply_model_params` / native generation for it). Each must raise `NotImplementedError` naming #10
-    rather than run with the option silently dropped — the project's never-silently-drop-config discipline.
+    A non-default `StackingConfig` field and a meta-parameter generator still
+    fail loudly. A concrete sibling parameter is applied to the fitted native
+    meta-estimator instead of being silently dropped.
 
     Asserts on the dag-ml backend (`run_via_dagml`) directly: the public `nirs4all.run(engine="dag-ml")`
     now wraps it in the cutover fallback (catchable NotImplementedError → legacy), so the loud rejection
@@ -3486,8 +3485,14 @@ def test_public_run_engine_dagml_stacking_unsupported_config_fails_loud() -> Non
         {"merge": "predictions"},
         {"model": Ridge(), "alpha": 0.2},
     ]
-    with pytest.raises(NotImplementedError, match="#10"):
-        run_via_dagml(sibling_param, dataset_path("regression"))
+    native = run_via_dagml(sibling_param, dataset_path("regression"))
+    assert np.isfinite(native.cv_best_score)
+    meta_artifacts = [
+        artifact for artifact in native._dagml_refit_artifacts
+        if artifact["artifact_id"].startswith("artifact:merge:stack:")
+    ]
+    assert len(meta_artifacts) == 1 and meta_artifacts[0]["estimator"].alpha == 0.2
+    native.close()
 
     swept_meta = [
         KFold(n_splits=_N_SPLITS, shuffle=True, random_state=42),
