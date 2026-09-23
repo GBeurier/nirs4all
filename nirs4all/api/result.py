@@ -776,6 +776,8 @@ class _DagmlNativeResidualModel:
     def predict_numeric(self, X: Any) -> np.ndarray:
         base = np.asarray(self.base.predict_numeric(X), dtype=float)
         learner = np.asarray(self.learner.predict_numeric(X), dtype=float)
+        base = base.reshape(len(base), -1)
+        learner = learner.reshape(len(learner), -1)
         if base.shape != learner.shape:
             raise ValueError("residual replay stages produced different prediction shapes")
         result = base + self.weight * learner
