@@ -318,10 +318,10 @@ def _is_flat_single_operator_generator(pipeline: list[Any]) -> bool:
       pick/arrange recombination); a ``{"model": …}`` multi-model choice, a NESTED-generator dict choice, a
       ``None`` no-op, or a list nesting a list/dict element forces the Python path; AND
     * every leaf operator (the single op, or EACH operator of a multi-step choice) is a genuinely ROUTABLE
-      X-transform — the SAME routability / FQN-importability / wavelength gate
+      X-transform — the SAME routability / FQN-importability gate
       :func:`~nirs4all.pipeline.dagml.steps._assert_supported_operators` applies to every other native path
       (:func:`~nirs4all.pipeline.dagml.steps._check_x_operator`). A non-routable / non-reconstructible /
-      wavelength-requiring choice would slip into native operator-SELECT and fail at fit (the native run
+      non-reconstructible choice would slip into native operator-SELECT and fail at fit (the native run
       SKIPS the ``_or_`` step in its own support check), so it forces the Python path; AND
     * the only sibling keys on the ``_or_`` step are inert annotations (``_tags_``/``_metadata_``/``name``) —
       any modifier/constraint (``pick``/``arrange``/``count``/``_mutex_``/``_requires_``/``_exclude_``/
@@ -365,7 +365,7 @@ def _is_flat_single_operator_generator(pipeline: list[Any]) -> bool:
     if not (isinstance(choices, list) and bool(choices) and all((choice is not None and _is_bare_operator_choice(choice)) or _is_multistep_operator_choice(choice) for choice in choices)):
         return False
     # Every LEAF operator must be a genuinely routable X-transform (same gate as the other native paths) — a
-    # non-routable / wavelength-requiring / non-reconstructible choice would otherwise slip into native
+    # non-routable / non-reconstructible choice would otherwise slip into native
     # operator-SELECT (which skips the `_or_` in its own support check) and crash at fit. For a multi-step
     # choice, each of its operators is checked.
     return all(all(_choice_is_native_routable(operator) for operator in _operator_choice_operators(choice)) for choice in choices)
@@ -412,7 +412,7 @@ def _is_constrained_operator_generator(pipeline: list[Any]) -> bool:
       ``{"model": {"_or_": …}}``), and no ``finetune_params`` / ``train_params``; AND
     * every leaf operator choice is a genuinely ROUTABLE bare X-transform (the SAME
       :func:`_choice_is_native_routable` gate the flat-single predicate enforces) — a ``None`` choice, a
-      ``{"model": …}`` choice, a nested generator choice, or a non-routable / wavelength-requiring choice
+      ``{"model": …}`` choice, a nested generator choice, or a non-routable choice
       forces the Python path; AND
     * the pipeline carries exactly one downstream concrete model (the survivor sequence terminates in it).
 
@@ -506,7 +506,7 @@ def _is_constrained_operator_generator(pipeline: list[Any]) -> bool:
         return False
 
     # (D) Every leaf operator choice is a ROUTABLE bare X-transform (no None / model / nested-generator /
-    #     non-routable / wavelength-requiring choice). Walk the `_or_` / `_cartesian_`→`_or_` stage choices.
+    #     non-routable choice). Walk the `_or_` / `_cartesian_`→`_or_` stage choices.
     if not _constrained_choices_native_routable(generator):
         return False
 
@@ -732,7 +732,7 @@ def _is_unconstrained_operator_generator(pipeline: list[Any]) -> bool:
     * every leaf operator choice is a genuinely ROUTABLE bare X-transform (the SAME
       :func:`_constrained_choices_native_routable` gate) — a ``None`` choice, a multi-step list choice (the
       ``generator_or_multistep_branch`` shape), a ``{"model": …}`` choice, a nested-generator choice, or a
-      non-routable / wavelength-requiring choice forces the Python path; AND
+      non-routable choice forces the Python path; AND
     * no DUPLICATE operator option across the whole generator (an equal-content option would make two
       survivors fingerprint-collide, mis-zipping the content-keyed ``{variant_label → config_name}`` map);
       AND
@@ -815,7 +815,7 @@ def _is_unconstrained_operator_generator(pipeline: list[Any]) -> bool:
         return False
 
     # (D) Every leaf operator choice is a ROUTABLE bare X-transform (no None / model / nested-generator /
-    #     multi-step / non-routable / wavelength-requiring choice). Same walk as the constrained path.
+    #     multi-step / non-routable choice). Same walk as the constrained path.
     if not _constrained_choices_native_routable(generator):
         return False
 

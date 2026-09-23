@@ -249,6 +249,9 @@ def test_ambient_persistence_and_external_runtime_overrides_are_refused(monkeypa
     ],
 )
 def test_ambient_dagml_side_channels_are_refused(monkeypatch: pytest.MonkeyPatch, variable: str) -> None:
+    # The full DAG backend test gate may supply a CLI for other callers; keep
+    # this case focused on the side channel named by the parameter.
+    monkeypatch.delenv("N4A_DAGML_CLI", raising=False)
     monkeypatch.setenv(variable, "/caller/owned/value")
     _assert_code(_request(), "ambient_runtime_forbidden")
 

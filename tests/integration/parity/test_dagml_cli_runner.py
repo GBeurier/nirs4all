@@ -4461,22 +4461,13 @@ def test_or_none_variant_is_handled_as_passthrough() -> None:
     assert swept.cv_best_score == swept.cv_best_score  # not NaN
 
 
-def test_wavelength_and_custom_operators_fail_loud_catchably() -> None:
-    """P0: a wavelength-requiring op and a non-sklearn custom op raise a CATCHABLE ``DagMlUnsupported``.
-
-    The dag-ml X-chain fits transforms with ``(X, y)`` only (a plain sklearn ``make_pipeline``); two
-    recognizable unsupported shapes are rejected UP FRONT (so :func:`run`'s fallback redirects them to
-    legacy instead of crashing mid-run with a ``DagMlRuntimeError``):
-
-    * a configured :class:`Resampler` (needs ``wavelengths=`` injected into ``fit``); and
-    * a custom NON-sklearn operator (no ``fit``/``transform`` — unroutable by the X-chain).
-    """
+def test_wavelength_operator_is_routable_and_custom_operator_refuses() -> None:
+    """Feature-axis injection admits Resampler; an unroutable custom op refuses."""
     from nirs4all.operators.transforms.resampler import Resampler
     from nirs4all.pipeline.dagml.run_backend import DagMlUnsupported, run_via_dagml
+    from nirs4all.pipeline.dagml.steps import _assert_supported_operators
 
-    wavelength_pipeline = [Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0])), KFold(n_splits=3, shuffle=True, random_state=42), {"model": PLSRegression(n_components=2)}]
-    with pytest.raises(DagMlUnsupported, match="wavelength"):
-        run_via_dagml(wavelength_pipeline, dataset_path("regression"))
+    _assert_supported_operators([Resampler(target_wavelengths=np.asarray([1.0, 2.0, 3.0]))])
 
     class _CustomOp:  # non-sklearn: no fit/transform — only a dedicated controller could run it
         pass
