@@ -95,7 +95,7 @@ def _assert_masked_metrics(result: Any, cohort: MultimodalDataset) -> None:
             if report["partition"] == "validation":
                 validation_ids.extend(ids)
             checked += 1
-    assert checked == 5  # Three native OOF folds, full-train refit, held-out test.
+    assert checked == 8  # Three OOF folds, three CV test views, refit and final test.
     assert Counter(validation_ids) == Counter(cohort.sample_ids[:12])
 
 

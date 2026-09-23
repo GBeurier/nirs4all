@@ -83,7 +83,7 @@ def _assert_native_metrics(result: Any, classification: bool = False) -> None:
             if not classification:
                 assert report["metrics"]["rmse"] == pytest.approx(root_mean_squared_error(observed, predicted))
             checked += 1
-    assert checked == 5  # Three OOF folds, full-train refit, held-out test.
+    assert checked == 8  # Three OOF folds, three CV test views, refit and final test.
 
 
 @pytest.mark.parametrize("labels", ["string", "numeric", "int64"])
