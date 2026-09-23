@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import contextlib
 import copy
+import hashlib
 import json
 import math
 import threading
@@ -1440,6 +1441,7 @@ class RunResult:
     # Signed evidence from an in-process by_source CV execute_training run.
     _dagml_training_outcome: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_portable_predictor_package: dict[str, Any] | None = field(default=None, repr=False)
+    _dagml_initial_full_refit_package: dict[str, Any] | None = field(default=None, repr=False)
     _dagml_source_feature_axes: tuple[list[str] | None, ...] | None = field(default=None, repr=False)
 
     # The on-disk native results directory the 2b-i writer produced for this dag-ml run (recorded by
@@ -2588,11 +2590,30 @@ class RunResult:
             if any(width is None for width in independent_model.source_widths):
                 return None
             native_manifest = cast(Mapping[str, Any], native["manifest"])
+            initial_package = native.get("initial_full_refit_package")
+            native_output_by_node: dict[str, str] = {}
+            if initial_package is not None:
+                for binding in initial_package["outputs"]:
+                    node_id, output_id = binding["node_id"], binding["output_id"]
+                    if node_id in native_output_by_node:
+                        return None
+                    native_output_by_node[node_id] = output_id
+                if any(artifact.get("producer_node") not in native_output_by_node for _index, artifact in indexed):
+                    return None
             provenance = _dagml_native_bundle_provenance(
                 native_manifest, export_path="dagml_native_independent_sources",
                 artifact_count=len(independent_members), export_shape="independent_by_source_multi",
                 retrain_lineage=getattr(self, "_retrain_lineage", None),
             )
+            extra_members: dict[str, bytes] = {}
+            if initial_package is not None:
+                package_member = "dagml_initial_full_refit_package.json"
+                package_bytes = json.dumps(initial_package, sort_keys=True, separators=(",", ":")).encode()
+                provenance["dagml_initial_full_refit_package_ref"] = {
+                    "path": package_member,
+                    "sha256": hashlib.sha256(package_bytes).hexdigest(),
+                }
+                extra_members[package_member] = package_bytes
             provenance["dagml_independent_output_topology"] = {
                 "schema_id": "dag-ml.host_independent_outputs.v1",
                 "kind": "independent_by_source",
@@ -2600,6 +2621,7 @@ class RunResult:
                 "outputs": [
                     {"source_id": source_id, "source_index": index, "output_binding_id": binding_id,
                      "producer_node": artifact.get("producer_node"), "feature_width": independent_model.source_widths[index],
+                     **({"dagml_output_id": native_output_by_node[artifact["producer_node"]]} if initial_package is not None else {}),
                      **({"feature_axis_cm1": list(independent_model.feature_axes_cm1[index] or ())}
                         if independent_model.feature_axes_cm1[index] is not None else {})}
                     for (index, artifact), source_id, binding_id in zip(
@@ -2612,7 +2634,7 @@ class RunResult:
             return write_single_model_bundle(
                 independent_model, output_path, model_label="dagml_independent_sources",
                 pipeline_uid=str(native_manifest.get("run_id") or ""),
-                provenance=provenance, train_steps=None,
+                provenance=provenance, extra_members=extra_members, train_steps=None,
             )
         if selected_source is not None:
             indexed = _indexed_branch_artifacts(artifacts)

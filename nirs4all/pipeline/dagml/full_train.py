@@ -440,6 +440,12 @@ def run_by_source_auto_full_train(
         train = list(train_sample_ids)
     test = spectro.index_column("sample", {"partition": "test"})
     envelope = build_envelope(spectro, identity, sample_ints=train)
+    envelope["data_content_fingerprint"] = _array_content_fingerprint(
+        "X", spectro.x({"sample": train}, layout="2d"),
+    )
+    envelope["target_content_fingerprint"] = _array_content_fingerprint(
+        "y", spectro.y({"sample": train}),
+    )
     if test:
         cohort_builder = getattr(dag_ml, "attach_predict_cohort_to_envelope", None)
         if not callable(cohort_builder):
@@ -481,7 +487,7 @@ def run_by_source_auto_full_train(
             dsl=dsl, envelope=envelope, graph=graph, training_sample_ids=training_ids,
             dataset_path=dataset_path, dataset_pickle=dataset_pickle,
             workdir=Path(workdir), dagml_cli=cli, venv_python=venv_python,
-            random_state=random_state,
+            random_state=random_state, package_id="package:nirs4all.by_source.initial.refit",
         )
         if cli_run["returncode"]:
             _raise_run_failure(cli_run, "full-training by_source CLI phase failed")
@@ -490,7 +496,7 @@ def run_by_source_auto_full_train(
     else:
         outcome = json.loads(execute(
             json.dumps(dsl), json.dumps(envelope), json.dumps(controller_manifests()), callback, "REFIT",
-            training_sample_ids=training_ids,
+            training_sample_ids=training_ids, package_id="package:nirs4all.by_source.initial.refit",
         ))
         artifacts = _capture_refit_artifacts(outcome["node_results"], store)
     if outcome["phase"] != "REFIT":
@@ -516,6 +522,7 @@ def run_by_source_auto_full_train(
     result._dagml_score_set = outcome["scores"]  # noqa: SLF001
     result._dagml_node_results = outcome["node_results"]  # noqa: SLF001
     result._dagml_refit_artifacts = artifacts  # noqa: SLF001
+    result._dagml_initial_full_refit_package = outcome["initial_full_refit_package"]  # noqa: SLF001
     from .envelope import _numeric_feature_axis
 
     result._dagml_source_feature_axes = tuple(_numeric_feature_axis(spectro, index) for index in range(n_sources))  # noqa: SLF001

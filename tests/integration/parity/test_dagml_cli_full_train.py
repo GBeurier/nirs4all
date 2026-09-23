@@ -134,7 +134,15 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
         output_ids = tuple(f"output:source_{index}" for index in range(len(source_names)))
         assert loader.named_outputs == output_ids
         with zipfile.ZipFile(archive) as archive_file:
-            topology = json.loads(archive_file.read("manifest.json"))["dagml_independent_output_topology"]
+            archive_manifest = json.loads(archive_file.read("manifest.json"))
+            topology = archive_manifest["dagml_independent_output_topology"]
+            package_ref = archive_manifest["dagml_initial_full_refit_package_ref"]
+            package = json.loads(archive_file.read(package_ref["path"]))
+        assert package["schema_version"] == 1
+        assert len(package["outputs"]) == len(source_names)
+        assert {entry["dagml_output_id"] for entry in topology["outputs"]} == {
+            binding["output_id"] for binding in package["outputs"]
+        }
         assert topology["schema_id"] == "dag-ml.host_independent_outputs.v1"
         assert [(entry["source_id"], entry["output_binding_id"]) for entry in topology["outputs"]] == list(zip(source_names, output_ids, strict=True))
         assert all(len(entry["feature_axis_cm1"]) == entry["feature_width"] for entry in topology["outputs"])
@@ -190,6 +198,17 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
                 corrupt.writestr(member, payload)
         with pytest.raises(ValueError, match="disagrees with its named-output manifest"):
             BundleLoader(corrupt_archive).predict_outputs(full_x)
+        corrupt_package_archive = tmp_path / f"by_source_package_corrupt_{mode}.n4a"
+        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(corrupt_package_archive, "w") as corrupt:
+            for member in original.namelist():
+                payload = original.read(member)
+                if member == package_ref["path"]:
+                    payload += b" "
+                corrupt.writestr(member, payload)
+        from nirs4all.pipeline.dagml.general_archive import load_general_archive
+
+        with pytest.raises(ValueError, match="package fingerprint mismatch"):
+            load_general_archive(corrupt_package_archive)
         with pytest.raises(ValueError, match="multiple named outputs"):
             nirs4all.predict(archive, full_x)
         public_selected = nirs4all.predict(archive, full_x, output=output_ids[1])
