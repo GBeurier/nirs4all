@@ -26,7 +26,7 @@ def test_resampler_before_sample_augmentation_replays_with_source_axis(
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
 
     rng = np.random.default_rng(56)
@@ -67,7 +67,7 @@ def test_feature_augmentation_resampler_receives_axis_and_replays(
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
 
     rng = np.random.default_rng(56)
@@ -110,7 +110,7 @@ def test_width_change_before_optional_selector_uses_legacy_index_axis(
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
 
     x = np.random.default_rng(2).normal(size=(18, 12))
@@ -148,7 +148,7 @@ def test_resampler_crop_range_keeps_target_grid_for_legacy_and_dag(
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
     rng = np.random.default_rng(54)
     x = rng.normal(size=(18, 12))
@@ -185,7 +185,7 @@ def test_each_source_drops_invalidated_wavelengths_independently(tmp_path, monke
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
     rng = np.random.default_rng(53)
     left = rng.normal(size=(18, 20))

@@ -44,7 +44,7 @@ def test_cv_train_predictions_match_legacy_fold_and_ensemble_surface(monkeypatch
             left_by_id = dict(zip(left["sample_indices"], np.asarray(left["y_pred"]).reshape(-1), strict=True))
             right_by_id = dict(zip(right["sample_indices"], np.asarray(right["y_pred"]).reshape(-1), strict=True))
             assert np.asarray([right_by_id[index] for index in left_by_id]) == pytest.approx(
-                np.asarray(list(left_by_id.values())), abs=2e-5
+                np.asarray(list(left_by_id.values())), abs=1e-5, rel=1e-7
             )
             for partition in ("train", "val"):
                 if left[f"{partition}_score"] is not None:

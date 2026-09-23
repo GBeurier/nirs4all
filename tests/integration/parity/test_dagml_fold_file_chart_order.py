@@ -28,7 +28,7 @@ def test_fold_charts_on_both_sides_of_file_holdout_keep_legacy_partitions(
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
 
     rng = np.random.default_rng(32)
@@ -76,7 +76,7 @@ def test_augmented_chart_discloses_early_holdout_training_scope(
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
     rng = np.random.default_rng(34)
     x = rng.normal(size=(20, 6))
@@ -123,7 +123,7 @@ def test_augmentation_and_two_file_folds_keep_ordered_chart_stages(
     if mechanism == "subprocess":
         cli = dagml_cli_path()
         if not cli.exists():
-            pytest.skip(f"dag-ml CLI binary not built at {cli}")
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
         monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
 
     rng = np.random.default_rng(33)
