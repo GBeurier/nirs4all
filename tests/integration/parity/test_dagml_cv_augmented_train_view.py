@@ -44,7 +44,9 @@ def test_cv_train_predictions_include_only_fitted_augmentation_children(mechanis
 
     legacy_rows = legacy.predictions.filter_predictions()
     native_rows = native.predictions.filter_predictions()
-    base_pool_count = sum(len(row["y_pred"]) for row in native_rows if row["partition"] == "val")
+    base_pool_count = sum(len(next(row for row in native_rows if row["partition"] == "val"
+                                   and str(row["fold_id"]) == str(fold_id))["y_pred"])
+                          for fold_id in range(3))
     for fold_id in range(3):
         native_train = next(row for row in native_rows if row["partition"] == "train"
                             and str(row["fold_id"]) == str(fold_id))
