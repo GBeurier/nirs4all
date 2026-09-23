@@ -1677,6 +1677,22 @@ def run_meta_model_node(
     phase = task["phase"]
     variant_label = task.get("variant_id") or "base"
     fold_label = task.get("fold_id") or "nofold"
+    metadata = node_lookup(node_id).get("metadata") or {}
+    probability_output = metadata.get("nirs4all_prediction_output") == "proba"
+
+    def predict_values(estimator: Any, features: np.ndarray) -> np.ndarray:
+        if not probability_output:
+            return np.asarray(estimator.predict(features), dtype=float).reshape(len(features), -1)
+        predict_proba = getattr(estimator, "predict_proba", None)
+        if not callable(predict_proba):
+            raise ValueError(f"meta-model node {node_id!r} cannot provide class probabilities")
+        probabilities = np.asarray(predict_proba(features), dtype=float).reshape(len(features), -1)
+        if probabilities.shape[1] < 2:
+            raise ValueError(f"meta-model node {node_id!r} produced fewer than two class probabilities")
+        # Legacy's MetaModel(use_proba=True) uses the positive-class column for
+        # binary classification and the first column for multiclass sources.
+        column = 1 if probabilities.shape[1] == 2 else 0
+        return probabilities[:, column:column + 1]
 
     prediction_inputs = task.get("prediction_inputs") or {}
     if not prediction_inputs:
@@ -1693,7 +1709,7 @@ def run_meta_model_node(
         if not predict_specs:
             raise ValueError(f"meta-model node {node_id!r} REFIT/PREDICT received no `:predict` off-fold inputs (no base predict-set predictions)")
         sample_ids, x_meta = _meta_feature_matrix(predict_specs, node_id)
-        pred = np.asarray(estimator.predict(x_meta), dtype=float).reshape(len(sample_ids), -1)
+        pred = predict_values(estimator, x_meta)
         target = _meta_target_block(sample_ids, resolver.resolve_targets(sample_ids))
         predictions = [_meta_prediction_block(node_id, phase, variant_label, fold_label, "final", None, sample_ids, pred, target["target_names"])]
         regression_targets = [target]
@@ -1715,7 +1731,6 @@ def run_meta_model_node(
     fit_estimator: Any = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
     from .training_controls import apply_model_training_controls, report_model_training_controls
 
-    metadata = node_lookup(node_id).get("metadata") or {}
     training_controls = (
         apply_model_training_controls(fit_estimator, metadata, phase)
         if any(key in metadata for key in ("nirs4all_train_params", "nirs4all_refit_params")) else None
@@ -1738,7 +1753,7 @@ def run_meta_model_node(
                 "nested scheduler evidence is required"
             )
         outer_ids, x_outer = _meta_feature_matrix(outer_specs, node_id)
-        pred = np.asarray(fit_estimator.predict(x_outer), dtype=float).reshape(len(outer_ids), -1)
+        pred = predict_values(fit_estimator, x_outer)
         target = _meta_target_block(outer_ids, resolver.resolve_targets(outer_ids))
         fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "validation", task.get("fold_id"), outer_ids, pred, target["target_names"]))
         fold_targets.append(target)
@@ -1757,7 +1772,7 @@ def run_meta_model_node(
         test_specs = _ordered_oof_specs(prediction_inputs, suffix="refit")
         if test_specs:
             test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
-            test_pred = np.asarray(fit_estimator.predict(x_test), dtype=float).reshape(len(test_ids), -1)
+            test_pred = predict_values(fit_estimator, x_test)
             target = _meta_target_block(test_ids, resolver.resolve_targets(test_ids))
             fold_predictions.append(_meta_prediction_block(node_id, phase, variant_label, fold_label, "test", None, test_ids, test_pred, target["target_names"]))
             fold_targets.append(target)

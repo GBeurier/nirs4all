@@ -335,7 +335,7 @@ def _score_set_producer_nodes(score_set: dict[str, Any] | None, *, final_only: b
 def _stacking_replay_manifest(
     score_set: dict[str, Any] | None, artifact_refs: list[dict[str, Any]],
     selectors: list[dict[str, Any]] | None = None,
-    *, _allow_multi: bool = True,
+    *, probability_producers: set[str] | None = None, _allow_multi: bool = True,
 ) -> dict[str, Any] | None:
     """Build the native stacking replay manifest when base + meta artifacts are unambiguous.
 
@@ -368,7 +368,10 @@ def _stacking_replay_manifest(
         if any(ref.get("controller_id") == _META_MODEL_CONTROLLER_ID and all(ref is not meta for meta in meta_refs) for ref in artifact_refs):
             return None
         first_refs = [ref for ref in artifact_refs if all(ref is not meta for meta in meta_refs[1:])]
-        first_stage = _stacking_replay_manifest(score_set, first_refs, selectors, _allow_multi=False)
+        first_stage = _stacking_replay_manifest(
+            score_set, first_refs, selectors,
+            probability_producers=probability_producers, _allow_multi=False,
+        )
         if first_stage is None:
             return None
         stages = [first_stage]
@@ -381,12 +384,12 @@ def _stacking_replay_manifest(
                     "artifact_id": previous_ref.get("artifact_id"),
                     "producer_node": previous_node,
                     "meta_feature_key": f"{previous_node}.oof",
-                    "column_block": "prediction_values",
+                    "column_block": "probability_values" if previous_node in (probability_producers or set()) else "prediction_values",
                 }],
                 "meta_feature_construction": {
                     "kind": "base_prediction_column_stack",
                     "producer_order": "sorted_prediction_input_base_key",
-                    "prediction_space": "original_target",
+                    "prediction_space": "selected_class_probability" if previous_node in (probability_producers or set()) else "original_target",
                     "column_blocks": "one block per base producer, preserving target column order",
                 },
             })
@@ -568,7 +571,8 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
         },
     }
     stacking_replay = _stacking_replay_manifest(
-        score_set, artifact_refs, getattr(result, "_dagml_stacking_selectors", None)
+        score_set, artifact_refs, getattr(result, "_dagml_stacking_selectors", None),
+        probability_producers=getattr(result, "_dagml_stacking_probability_producers", None),
     )
     if host_searches:
         manifest["host_hpo"] = {"profile": "host_optimizer_search_v1", "portable": False, "searches": host_searches}

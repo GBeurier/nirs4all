@@ -1573,7 +1573,7 @@ def _detect_named_multi_level_metamodel(
         if level <= StackingLevel.LEVEL_3.value:
             allowed_levels.add(StackingLevel(level))
         if (
-            current.use_proba or current.selector is not None or current.finetune_space is not None
+            current.selector is not None or current.finetune_space is not None
             or current.stacking_config.level not in allowed_levels
             or not _is_default_except_level(current.stacking_config)
         ):

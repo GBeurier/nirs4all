@@ -838,6 +838,7 @@ class _DagmlNativeStackingModel:
         self, base_members: Sequence[_DagmlExportedModel | _DagmlNativeStackingModel], meta_member: _DagmlExportedModel,
         source_names: Sequence[str] | None = None,
         reduction_groups: Sequence[Mapping[str, Any]] | None = None,
+        probability_base: bool = False,
     ) -> None:
         if not base_members:
             raise ValueError("native stacking export requires at least one base member model")
@@ -845,6 +846,9 @@ class _DagmlNativeStackingModel:
         self.meta_member = meta_member
         self.source_names = tuple(source_names) if source_names is not None else None
         self.reduction_groups = [dict(group) for group in reduction_groups] if reduction_groups is not None else None
+        if probability_base and (len(base_members) != 1 or not isinstance(base_members[0], _DagmlNativeStackingModel)):
+            raise ValueError("nested probability stacking requires one preceding native stacking model")
+        self.probability_base = probability_base
         if self.source_names is not None and (len(self.source_names) != len(base_members) or len(set(self.source_names)) != len(self.source_names)):
             raise ValueError("native raw stacking requires one distinct named source per base model")
 
@@ -854,7 +858,13 @@ class _DagmlNativeStackingModel:
         if self.source_names is not None and (not isinstance(X, list | tuple) or len(X) != len(self.source_names)):
             raise ValueError("native raw stacking requires its ordered raw source blocks")
         for index, member in enumerate(self.base_members):
-            pred = member.predict_numeric(X[index] if self.source_names is not None else X)
+            source = X[index] if self.source_names is not None else X
+            if self.probability_base:
+                if not isinstance(member, _DagmlNativeStackingModel):
+                    raise ValueError("nested probability stacking requires a native stacking predecessor")
+                pred = member.predict_proba_numeric(source)
+            else:
+                pred = member.predict_numeric(source)
             rows = len(pred)
             if expected_rows is None:
                 expected_rows = rows
@@ -916,6 +926,18 @@ class _DagmlNativeStackingModel:
     def predict_numeric(self, X: Any) -> np.ndarray:
         """Keep final class labels encoded until native replay has validated them."""
         return np.asarray(self.meta_member.predict_numeric(self._meta_features(X)), dtype=float)
+
+    def predict_proba_numeric(self, X: Any) -> np.ndarray:
+        """Replay the upstream meta-classifier's probability columns."""
+        estimator = self.meta_member.estimator
+        predict_proba = getattr(estimator, "predict_proba", None)
+        if self.meta_member.y_transform is not None or not callable(predict_proba):
+            raise ValueError("nested probability stacking requires a fitted classifier without target transform")
+        probabilities = np.asarray(predict_proba(self._meta_features(X)), dtype=float)
+        if probabilities.ndim != 2 or probabilities.shape[1] < 2:
+            raise ValueError("nested probability stacking requires at least two probability columns")
+        column = 1 if probabilities.shape[1] == 2 else 0
+        return probabilities[:, column:column + 1]
 
 
 class _DagmlNativeResidualModel:
@@ -1170,7 +1192,7 @@ def _native_stacking_artifacts(native_manifest: Mapping[str, Any], artifacts: Se
 
 def _native_multi_stacking_artifacts(
     native_manifest: Mapping[str, Any], artifacts: Sequence[Mapping[str, Any]],
-) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]], Mapping[str, Any]] | None:
+) -> tuple[list[Mapping[str, Any]], list[Mapping[str, Any]], list[Mapping[str, Any]]] | None:
     """Resolve a linear chain of attested REFIT stages in exact dependency order."""
     replay = native_manifest.get("stacking_replay")
     if not isinstance(replay, Mapping) or replay.get("schema_version") != 2:
@@ -1200,13 +1222,17 @@ def _native_multi_stacking_artifacts(
                 or not isinstance(construction, Mapping) or construction.get("kind") != "base_prediction_column_stack"
                 or not isinstance(producers, list) or len(producers) != 1 or not isinstance(producers[0], Mapping)
                 or producers[0].get("producer_node") != previous_node
+                or producers[0].get("column_block") not in {"prediction_values", "probability_values"}
+                or construction.get("prediction_space") != (
+                    "selected_class_probability" if producers[0].get("column_block") == "probability_values" else "original_target"
+                )
                 or producers[0].get("artifact_id") != meta_artifacts[-1].get("artifact_id")):
             return None
         meta_artifacts.append(meta)
         previous_node = f"merge:stack.level{level}"
     if {id(artifact) for artifact in [*base_artifacts, *meta_artifacts]} != {id(artifact) for artifact in artifacts}:
         return None
-    return base_artifacts, meta_artifacts, first_stage
+    return base_artifacts, meta_artifacts, stages
 
 
 @dataclass
@@ -2809,18 +2835,19 @@ class RunResult:
 
         multi_stacking = _native_multi_stacking_artifacts(native_manifest, artifacts)
         if multi_stacking is not None:
-            base_artifacts, meta_artifacts, first_stage = multi_stacking
+            base_artifacts, meta_artifacts, stages = multi_stacking
             base_members = [_DagmlExportedModel(artifact["estimator"], artifact["y_transform"]) for artifact in base_artifacts]
             if any(getattr(member.estimator, "multimodal_source_name", None) is not None for member in base_members):
                 return None
             stacked_model = _DagmlNativeStackingModel(
                 base_members,
                 _DagmlExportedModel(meta_artifacts[0]["estimator"], meta_artifacts[0]["y_transform"]),
-                reduction_groups=cast(list[dict[str, Any]] | None, first_stage.get("reduction_groups")),
+                reduction_groups=cast(list[dict[str, Any]] | None, stages[0].get("reduction_groups")),
             )
-            for artifact in meta_artifacts[1:]:
+            for artifact, stage in zip(meta_artifacts[1:], stages[1:], strict=True):
                 stacked_model = _DagmlNativeStackingModel(
                     [stacked_model], _DagmlExportedModel(artifact["estimator"], artifact["y_transform"]),
+                    probability_base=stage["base_producers"][0]["column_block"] == "probability_values",
                 )
             provenance = _dagml_native_bundle_provenance(
                 native_manifest,
