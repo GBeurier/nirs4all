@@ -1,10 +1,11 @@
-"""Actual estimator controls inside native CV/REFIT scopes, without a legacy run."""
+"""Model training controls in native scopes and a focused legacy oracle."""
 
 import copy
 import json
 
 import numpy as np
 import pytest
+from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold, ShuffleSplit
 from sklearn.pipeline import make_pipeline
@@ -79,6 +80,46 @@ def test_materialized_pipeline_folds_are_restricted_to_the_current_aom_scope():
 def test_refit_warm_start_is_not_faked_with_fresh_estimator():
     with pytest.raises(NotImplementedError, match="CV-weight transfer"):
         controls.apply_model_training_controls(Ridge(), {"nirs4all_refit_params": {"warm_start": True}}, "REFIT")
+
+
+def test_legacy_public_refit_warm_start_has_no_cv_artifact_to_transfer(tmp_path, monkeypatch):
+    """Legacy's public refit currently cold-fits even when warm_start is requested.
+
+    This is an oracle for the existing behavior, not a warm-start contract: the
+    legacy training context has no artifact provider during CV or refit.
+    """
+    import nirs4all
+
+    rng = np.random.default_rng(42)
+    X = rng.normal(size=(30, 4))
+    y = X[:, 0] ** 2 + 0.3 * X[:, 1]
+    fits = []
+    fitted_models = []
+    original = GradientBoostingRegressor.fit
+
+    def record(self, features, targets, **kwargs):
+        fits.append((len(features), self.n_estimators, hasattr(self, "estimators_")))
+        fitted = original(self, features, targets, **kwargs)
+        fitted_models.append(fitted)
+        return fitted
+
+    monkeypatch.setattr(GradientBoostingRegressor, "fit", record)
+    pipeline = [
+        KFold(3, shuffle=True, random_state=4),
+        {
+            "model": GradientBoostingRegressor(n_estimators=3, random_state=3),
+            "refit_params": {"warm_start": True, "warm_start_fold": "fold_1", "n_estimators": 6},
+        },
+    ]
+    result = nirs4all.run(
+        pipeline, (X, y), engine="legacy", workspace_path=tmp_path,
+        save_artifacts=True, save_charts=False, verbose=0,
+    )
+    assert fits == [(20, 3, False)] * 3 + [(30, 6, False)]
+    assert np.isfinite(result.cv_best_score)
+    cold = GradientBoostingRegressor(n_estimators=6, random_state=3, warm_start=True)
+    original(cold, X, y)
+    np.testing.assert_allclose(fitted_models[-1].predict(X), cold.predict(X), rtol=0, atol=1e-6)
 
 
 def test_verbose_is_observable_controller_output_not_estimator_parameter(monkeypatch):
