@@ -70,3 +70,33 @@ def test_fold_file_loader_imports_sample_ids_into_native_foldset(tmp_path, monke
     assert native.execution_engine == "dag-ml"
     assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-6)
     native.close()
+
+
+@pytest.mark.parity
+def test_residual_model_is_legacy_success_and_native_graph_gap(tmp_path) -> None:
+    """Residual learning needs an OOF-derived target node, not a plain model call."""
+    import nirs4all
+    from sklearn.cross_decomposition import PLSRegression
+    from sklearn.model_selection import KFold
+
+    from nirs4all.operators.models.residual import ResidualModel
+
+    from ._datasets import dataset_path
+
+    pipeline = [
+        KFold(2, shuffle=True, random_state=1),
+        {"model": ResidualModel(base=PLSRegression(n_components=2), learner=Ridge(alpha=1.0), gate=False)},
+    ]
+    legacy = nirs4all.run(
+        pipeline, dataset_path("regression"), engine="legacy", refit=False,
+        workspace_path=tmp_path / "legacy-residual", save_artifacts=False, save_charts=False, verbose=0,
+    )
+    assert np.isfinite(legacy.cv_best_score)
+    assert np.isfinite(legacy.best_rmse)
+    legacy.close()
+
+    with pytest.raises(Exception, match="ResidualModel requires both.*base.*learner"):
+        nirs4all.run(
+            pipeline, dataset_path("regression"), engine="dag-ml", refit=False,
+            workspace_path=tmp_path / "native-residual", save_artifacts=False, save_charts=False, verbose=0,
+        )
