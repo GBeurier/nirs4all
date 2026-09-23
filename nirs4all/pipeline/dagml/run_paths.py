@@ -3711,6 +3711,9 @@ def _run_by_source_auto_models(
     result._dagml_score_set = outcome["scores"]  # noqa: SLF001
     result._dagml_node_results = outcome["results"]  # noqa: SLF001
     result._dagml_refit_artifacts = outcome["refit_artifacts"]  # noqa: SLF001
+    from .envelope import _numeric_feature_axis
+
+    result._dagml_source_feature_axes = tuple(_numeric_feature_axis(spectro, index) for index in range(n_sources))  # noqa: SLF001
     if attested is not None:
         result._dagml_training_outcome = attested["training_result"].outcome.to_dict()  # noqa: SLF001
         result._dagml_portable_predictor_package = attested["portable_package"].to_dict()  # noqa: SLF001

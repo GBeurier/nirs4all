@@ -459,6 +459,7 @@ class BundleLoader:
         self._named_output_names: tuple[str, ...] = ()
         self._named_source_ids: tuple[str, ...] = ()
         self._named_output_widths: tuple[int, ...] = ()
+        self._named_feature_axes: tuple[tuple[str, ...] | None, ...] = ()
         self.artifact_provider: BundleArtifactProvider | None = None
 
         self._load_bundle()
@@ -494,9 +495,23 @@ class BundleLoader:
                         source_ids = tuple(entry["source_id"] for entry in outputs)
                         if len(set(source_ids)) != len(source_ids):
                             raise ValueError("independent-source archive has duplicate source IDs")
+                        feature_axes = []
+                        for entry in outputs:
+                            axis = entry.get("feature_axis_cm1")
+                            if axis is not None:
+                                if (not isinstance(axis, list) or len(axis) != entry["feature_width"]
+                                        or not all(isinstance(value, str) for value in axis)):
+                                    raise ValueError("independent-source archive has an invalid spectral axis")
+                                try:
+                                    if not np.all(np.isfinite(np.asarray(axis, dtype=float))):
+                                        raise ValueError("independent-source archive has a non-finite spectral axis")
+                                except (TypeError, ValueError) as exc:
+                                    raise ValueError("independent-source archive has an invalid spectral axis") from exc
+                            feature_axes.append(tuple(axis) if axis is not None else None)
                         self._named_source_ids = source_ids
                         self._named_output_names = tuple(entry["output_binding_id"] for entry in outputs)
                         self._named_output_widths = tuple(entry["feature_width"] for entry in outputs)
+                        self._named_feature_axes = tuple(feature_axes)
             else:
                 raise ValueError("Bundle missing manifest.json")
 
@@ -701,7 +716,8 @@ class BundleLoader:
         if (model is None
                 or tuple(getattr(model, "output_binding_ids", ())) != self._named_output_names
                 or tuple(getattr(model, "source_ids", ())) != self._named_source_ids
-                or tuple(getattr(model, "source_widths", ())) != self._named_output_widths):
+                or tuple(getattr(model, "source_widths", ())) != self._named_output_widths
+                or tuple(getattr(model, "feature_axes_cm1", (None,) * len(self._named_source_ids))) != self._named_feature_axes):
             raise ValueError("independent-source archive model disagrees with its named-output manifest")
         return model
 

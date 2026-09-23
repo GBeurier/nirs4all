@@ -9,6 +9,7 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
 import warnings
 import zipfile
 from collections.abc import Mapping
@@ -132,10 +133,27 @@ def predict_general_archive(
         ids = tuple(item.get("output_binding_id") for item in named_outputs if isinstance(item, dict))
         if len(ids) != len(named_outputs) or ids != tuple(f"output:source_{index}" for index in range(len(ids))):
             raise ValueError("archive has invalid output binding IDs")
+        for item in named_outputs:
+            if "feature_axis_cm1" not in item:
+                continue
+            axis = item["feature_axis_cm1"]
+            if (not isinstance(axis, list) or len(axis) != item.get("feature_width")
+                    or not all(isinstance(value, str) for value in axis)):
+                raise ValueError("archive has an invalid independent-source spectral axis")
+            try:
+                if not all(math.isfinite(float(value)) for value in axis):
+                    raise ValueError("archive has a non-finite independent-source spectral axis")
+            except (TypeError, ValueError) as exc:
+                raise ValueError("archive has an invalid independent-source spectral axis") from exc
         model = loaded["artifact"]["estimator"]
+        manifest_axes = tuple(
+            tuple(item["feature_axis_cm1"]) if isinstance(item.get("feature_axis_cm1"), list) else None
+            for item in named_outputs
+        )
         if (tuple(getattr(model, "output_binding_ids", ())) != ids
                 or tuple(getattr(model, "source_ids", ())) != tuple(item.get("source_id") for item in named_outputs)
-                or tuple(getattr(model, "source_widths", ())) != tuple(item.get("feature_width") for item in named_outputs)):
+                or tuple(getattr(model, "source_widths", ())) != tuple(item.get("feature_width") for item in named_outputs)
+                or tuple(getattr(model, "feature_axes_cm1", (None,) * len(ids))) != manifest_axes):
             raise ValueError("archive model disagrees with its independent-output topology")
     if isinstance(named_outputs, list) and output is None:
         raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict")
