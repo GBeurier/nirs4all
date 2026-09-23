@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 from sklearn.cross_decomposition import PLSRegression
+from sklearn.decomposition import PCA
 from sklearn.linear_model import Ridge
 from sklearn.metrics import root_mean_squared_error
 from sklearn.model_selection import KFold
@@ -385,8 +386,9 @@ def test_augmentation_with_by_metadata_separation_matches_group_oracle(tmp_path,
         nirs4all.predict(archive, test_features, engine="legacy")
 
 
-def test_fold_local_augmentation_interleaved_with_transform_fails_loud() -> None:
-    """A fold-local transform needs per-fold base/validation features before it can run."""
+@pytest.mark.parametrize("transform", [StandardNormalVariate(), StandardScaler(), PCA(n_components=8)])
+def test_fold_local_augmentation_interleaved_with_transform_replays(tmp_path, transform) -> None:
+    """Each fold fits its own ordered prefix and refit replay predicts from raw spectra."""
     configs = DatasetConfigs(str(PARSER_FIXTURES["with_metadata"]))
     balanced = {"sample_augmentation": {
         "transformers": [GaussianAdditiveNoise(sigma=0.01)],
@@ -396,10 +398,63 @@ def test_fold_local_augmentation_interleaved_with_transform_fails_loud() -> None
         "transformers": [GaussianAdditiveNoise(sigma=0.02)],
         "count": 1, "selection": "all", "random_state": 42,
     }}
-    with pytest.raises(RtError, match="per-fold transform materialization"):
+    pipeline = [balanced, transform, standard,
+                KFold(n_splits=3, shuffle=True, random_state=42),
+                {"model": PLSRegression(n_components=3)}]
+    result = nirs4all.run(pipeline, configs, engine="dag-ml", save_artifacts=False)
+    legacy = nirs4all.run(pipeline, configs, engine="legacy", save_artifacts=False)
+    archive = tmp_path / "fold_local_interleaved.n4a"
+    result.export(archive)
+    dataset = configs.get_dataset_at(0)
+    prediction = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    replay_rmse = root_mean_squared_error(np.asarray(dataset.y({"partition": "test"})), np.asarray(prediction.y_pred))
+    assert result.execution_engine == "dag-ml"
+    assert np.isfinite(result.cv_best_score)
+    # Refit sees the full train in both engines. CV intentionally differs: the legacy controller
+    # balances before splitting, while DAG-ML fits balancing within each training fold.
+    assert result.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-9)
+    assert replay_rmse == pytest.approx(result.best_rmse, abs=1e-9)
+
+
+def test_multisource_fold_local_interleaved_prefix_replays(tmp_path) -> None:
+    """Each source keeps its fold-local preprocessing and the refit export uses raw blocks."""
+    path = dataset_path("multi")
+    balanced = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "balance": "y", "max_factor": 1.2, "random_state": 42,
+    }}
+    standard = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.02)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    pipeline = [StandardNormalVariate(), balanced, StandardScaler(), standard,
+                KFold(n_splits=3, shuffle=True, random_state=42),
+                {"model": PLSRegression(n_components=3)}]
+    result = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False)
+    archive = tmp_path / "multisource_interleaved.n4a"
+    result.export(archive)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    prediction = nirs4all.predict(archive, dataset.x({"partition": "test"}, layout="2d"))
+    replay_rmse = root_mean_squared_error(np.asarray(dataset.y({"partition": "test"})), np.asarray(prediction.y_pred))
+    assert np.isfinite(result.cv_best_score)
+    assert replay_rmse == pytest.approx(result.best_rmse, abs=1e-9)
+
+
+def test_fold_local_exclusion_between_augmentations_requires_fold_views() -> None:
+    """An interleaved exclusion must not silently train on rows excluded in a fold."""
+    path = dataset_path("regression")
+    balanced = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "balance": "y", "max_factor": 1.2, "random_state": 42,
+    }}
+    standard = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.02)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    with pytest.raises(RtError, match="per-fold exclusion views"):
         nirs4all.run(
-            [balanced, StandardNormalVariate(), standard,
+            [balanced, {"exclude": YOutlierFilter(method="iqr")}, standard,
              KFold(n_splits=3, shuffle=True, random_state=42),
              {"model": PLSRegression(n_components=3)}],
-            configs, engine="dag-ml", save_artifacts=False,
+            path, engine="dag-ml", save_artifacts=False,
         )

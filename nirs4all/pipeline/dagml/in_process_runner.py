@@ -73,11 +73,11 @@ def _dagml_extension_loads() -> bool:
     return True
 
 
-def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, dict[str, dict[int, list[int]]] | None]:
-    """Load the dataset + optional fold-local children, mirroring :func:`process_adapter._build_handler`.
+def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, dict[str, dict[int, list[int]]] | None, dict[str, tuple[Any, dict[int, int]]] | None]:
+    """Load the dataset and optional fold-local data, mirroring the subprocess adapter.
 
     A ``dataset_pickle`` (augmentation runs) is preferred over the reloadable path: a dict payload
-    carries ``{"dataset": ..., "fold_children": ...}`` (fold-local augmentation), a bare pickle is the
+    carries ``{"dataset": ..., "fold_children": ..., "fold_feature_views": ...}``, a bare pickle is the
     dataset alone; without a pickle the dataset is reloaded from the path. Identical to the subprocess
     child's load, so ``mint_identity`` yields the same wire ids the DSL / envelope / fold-set use.
     """
@@ -85,11 +85,11 @@ def _load_dataset(dataset_path: str, dataset_pickle: str | None) -> tuple[Any, d
         with open(dataset_pickle, "rb") as handle:
             payload = pickle.load(handle)  # noqa: S301 - host-written dataset for this run
         if isinstance(payload, dict):
-            return payload["dataset"], payload.get("fold_children")
-        return payload, None
+            return payload["dataset"], payload.get("fold_children"), payload.get("fold_feature_views")
+        return payload, None, None
     from nirs4all.data.config import DatasetConfigs
 
-    return DatasetConfigs(dataset_path).get_dataset_at(0), None
+    return DatasetConfigs(dataset_path).get_dataset_at(0), None, None
 
 
 def run_cv_refit_bundle(
@@ -103,6 +103,7 @@ def run_cv_refit_bundle(
     dataset_pickle: str | None = None,
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
+    fold_feature_views: dict[str, tuple[Any, dict[int, int]]] | None = None,
 ) -> dict[str, Any]:
     """Run a CV+refit bundle IN-PROCESS; return ``{returncode, stdout, results, scores}``.
 
@@ -117,7 +118,8 @@ def run_cv_refit_bundle(
       (``DagMlError``) instead of returning a non-zero code, so the caller's ``returncode != 0`` guard
       is a no-op here (success-path parity).
 
-    ``dataset`` is the host's ALREADY-MATERIALIZED ``SpectroDataset`` (with ``fold_children`` for a
+    ``dataset`` is the host's ALREADY-MATERIALIZED ``SpectroDataset`` (with ``fold_children`` and
+    optional ``fold_feature_views`` for a
     fold-local augmentation run): when given, the resolver is built from it directly — no disk reload.
     ``run_via_dagml`` already materialized this exact dataset (its identity fingerprint equals the
     reloadable path's, verified in :func:`dataset._dataset_inputs`) and, for augmentation / rep-fusion,
@@ -131,7 +133,7 @@ def run_cv_refit_bundle(
     dag_ml_ext = importlib.import_module("dag_ml._dag_ml")
 
     if dataset is None:
-        dataset, fold_children = _load_dataset(dataset_path, dataset_pickle)
+        dataset, fold_children, fold_feature_views = _load_dataset(dataset_path, dataset_pickle)
     if sample_metadata is None:
         meta_path = os.environ.get("N4A_DAGML_SAMPLE_META_PATH")
         if meta_path and Path(meta_path).exists():
@@ -139,7 +141,7 @@ def run_cv_refit_bundle(
 
     # The op_callback IS process_adapter._build_handler's lambda — the SAME run_node over the SAME
     # resolver/nodes/edges/y_transform/store, so operators execute identically to the subprocess.
-    resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children)
+    resolver = MaterializationResolver(dataset, mint_identity(dataset), fold_children, fold_feature_views)
     nodes = {node["id"]: node for node in graph["nodes"]}
     edges = graph.get("edges", [])
     y_transform_node = next((node for node in graph["nodes"] if node["kind"] == "y_transform"), None)
@@ -237,6 +239,7 @@ def run_cv_refit_bundle_router(
     dataset_pickle: str | None = None,
     dataset: Any | None = None,
     fold_children: dict[str, dict[int, list[int]]] | None = None,
+    fold_feature_views: dict[str, tuple[Any, dict[int, int]]] | None = None,
     random_state: int | None = None,
 ) -> dict[str, Any]:
     """Route a CV+refit bundle run to the in-process (Mechanism B) or subprocess (Mechanism A) runner.
@@ -290,6 +293,7 @@ def run_cv_refit_bundle_router(
             dataset_pickle=dataset_pickle,
             dataset=dataset,
             fold_children=fold_children,
+            fold_feature_views=fold_feature_views,
         )
 
     # Subprocess branch (Mechanism A): either in-process was disabled or its extension did not load.
