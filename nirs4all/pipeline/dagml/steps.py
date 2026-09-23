@@ -40,6 +40,13 @@ class FrozenDagMlSplitStep(DagMlSplitStep):
         return [([sample for sample in train if sample not in excluded], list(validation)) for train, validation in self.folds]
 
 
+@dataclass(frozen=True)
+class FoldFileDagMlSplitStep(DagMlSplitStep):
+    """A legacy fold file whose entries are dataset sample IDs, not row offsets."""
+
+    fold_file: str = ""
+
+
 def _needs_wavelength_injection(operator: Any) -> bool:
     """True when ``operator`` *requires* a ``wavelengths=`` injection the dag-ml X-chain cannot provide.
 
@@ -283,6 +290,13 @@ def _dict_split_step(step: Any) -> DagMlSplitStep | None:
     if not isinstance(step, dict) or "split" not in step:
         return None
     splitter = step.get("split")
+    if isinstance(splitter, str):
+        from pathlib import Path
+
+        from nirs4all.controllers.splitters.fold_file_loader import FoldFileParser
+
+        if Path(splitter).suffix.lower() in FoldFileParser.SUPPORTED_EXTENSIONS:
+            return FoldFileDagMlSplitStep(splitter=splitter, fold_file=splitter)
     if not _has_split_method(splitter):
         return None
     return DagMlSplitStep(
