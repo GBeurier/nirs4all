@@ -127,19 +127,43 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
             row = next(row for row in rows if row["branch_name"] == name)
             np.testing.assert_allclose(np.asarray(row["y_pred"]).ravel(), np.asarray(expected).ravel(), atol=1e-6)
         archive = tmp_path / f"by_source_auto_{mode}.n4a"
-        with pytest.raises(RtError, match="independent source predictions") as refused:
-            result.export(archive)
-        assert refused.value.unsupported_capability == "dagml_native_export"
-        assert "merge:mean" in refused.value.mitigation
-        assert not archive.exists()
+        result.export(archive)
+        from nirs4all.pipeline.bundle.loader import BundleLoader
+
+        loader = BundleLoader(archive)
+        assert loader.named_outputs == tuple(source_names)
+        full_x = np.asarray(dataset.x({"partition": "test"}, "2d"))
+        with pytest.raises(ValueError, match="multiple named outputs"):
+            loader.predict(full_x)
+        all_outputs = loader.predict_outputs(full_x)
+        assert set(all_outputs) == set(source_names)
+        for index, name in enumerate(source_names):
+            expected = Ridge(alpha=1.0).fit(
+                np.asarray(train_blocks[index]).reshape(len(y_train), -1), y_train,
+            ).predict(np.asarray(test_blocks[index]).reshape(len(test_blocks[index]), -1))
+            np.testing.assert_allclose(np.asarray(all_outputs[name]).ravel(), np.asarray(expected).ravel(), atol=1e-6)
+            np.testing.assert_allclose(np.asarray(loader.predict_output(name, full_x)).ravel(), np.asarray(expected).ravel(), atol=1e-6)
+        with pytest.raises(ValueError, match="unknown named output"):
+            loader.predict_output("unknown", full_x)
+        with pytest.raises(ValueError, match="multiple named outputs"):
+            nirs4all.predict(archive, full_x)
+        public_selected = nirs4all.predict(archive, full_x, output=source_names[1])
+        from nirs4all.pipeline.dagml.dataset import _materialize_dataset
+
+        # The public array path materializes a SpectroDataset before DAG replay;
+        # compare against the same materialized features, not the raw float64 input.
+        public_x = np.asarray(_materialize_dataset(full_x).x({}, layout="2d"))
+        np.testing.assert_allclose(
+            np.asarray(public_selected.y_pred).ravel(),
+            np.asarray(loader.predict_output(source_names[1], public_x)).ravel(),
+            atol=1e-4,
+        )
+        assert public_selected.metadata["selected_output"] == source_names[1]
         with pytest.raises(RtError, match="independent source predictions"):
-            result.export(archive, compatibility="legacy-refit")
-        assert not archive.exists()
+            result.export(tmp_path / f"legacy_refit_{mode}.n4a", compatibility="legacy-refit")
         selected = next(row for row in rows if row["branch_name"] == source_names[1])
         selected_archive = tmp_path / f"by_source_selected_{mode}.n4a"
         result.export(selected_archive, source=selected)
-        from nirs4all.pipeline.bundle.loader import BundleLoader
-
         with zipfile.ZipFile(selected_archive) as archive_file:
             manifest = json.loads(archive_file.read("manifest.json"))
         assert manifest["dagml_native_export_shape"] == "independent_by_source_selected"

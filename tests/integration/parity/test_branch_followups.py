@@ -27,9 +27,8 @@ from .test_dagml_cli_runner import _equal_rep_dataset, _two_source_distinct_data
 
 @pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 def test_by_source_auto_cv_exports_only_explicit_source(tmp_path, monkeypatch, mechanism: str) -> None:
-    """An independent CV output replays only when its source row is named."""
+    """A CV archive retains all named sources and can export one explicitly."""
     from nirs4all.pipeline.bundle.loader import BundleLoader
-    from nirs4all.pipeline.dagml.rt import RtError
 
     if mechanism == "subprocess":
         from ._dagml_cli import dagml_cli_path
@@ -57,17 +56,23 @@ def test_by_source_auto_cv_exports_only_explicit_source(tmp_path, monkeypatch, m
         workspace_path=tmp_path / "native", save_artifacts=False, save_charts=False, verbose=0,
     )
     assert result.per_dataset[next(iter(result.per_dataset))]["output_topology"] == "independent_by_source"
-    with pytest.raises(RtError, match="independent source predictions"):
-        result.export(tmp_path / "ambiguous.n4a")
+    multi_archive = result.export(tmp_path / "all_sources.n4a")
+    multi_loader = BundleLoader(multi_archive)
+    assert multi_loader.named_outputs == tuple(names)
+    full_x = np.asarray(dataset.x({"partition": "test"}, "2d"))
+    with pytest.raises(ValueError, match="multiple named outputs"):
+        multi_loader.predict(full_x)
+    outputs = multi_loader.predict_outputs(full_x)
+    assert set(outputs) == set(names)
     rows = [row for row in result.predictions.filter_predictions(load_arrays=True)
             if row.get("fold_id") == "final" and row.get("partition") == "test"
             and row.get("branch_name") == names[1]]
     assert len(rows) == 1
+    np.testing.assert_allclose(np.asarray(outputs[names[1]]).ravel(), np.asarray(rows[0]["y_pred"]).ravel(), atol=1e-6)
     archive = result.export(tmp_path / "selected.n4a", source=rows[0])
     x = np.asarray(dataset.x({"partition": "test"}, "3d", concat_source=False)[1])
     replay = BundleLoader(archive).predict(x.reshape(len(x), -1))
     np.testing.assert_allclose(np.asarray(replay).ravel(), np.asarray(rows[0]["y_pred"]).ravel(), atol=1e-6)
-    full_x = np.asarray(dataset.x({"partition": "test"}, "2d"))
     full_replay = BundleLoader(archive).predict(full_x)
     np.testing.assert_allclose(np.asarray(full_replay).ravel(), np.asarray(rows[0]["y_pred"]).ravel(), atol=1e-6)
     result.close()

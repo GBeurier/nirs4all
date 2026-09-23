@@ -18,6 +18,17 @@ if TYPE_CHECKING:
     from nirs4all.api.result import PredictResult
 
 
+class _NamedOutputAdapter:
+    """Expose one explicitly selected archive output to the DAG PREDICT phase."""
+
+    def __init__(self, model: Any, output: str) -> None:
+        self.model = model
+        self.output = output
+
+    def predict(self, X: Any) -> Any:
+        return self.model.predict_output(self.output, X)
+
+
 def general_archive_manifest(path: str | Path) -> dict[str, Any] | None:
     """Inspect the provenance marker without importing/deserializing operators."""
     source = Path(path)
@@ -86,6 +97,7 @@ def predict_general_archive(
     *,
     expected_archive_fingerprint: str | None = None,
     loaded_archive: dict[str, Any] | None = None,
+    output: str | None = None,
 ) -> PredictResult:
     """Replay a captured aggregate model; no old executor or retraining is used."""
     from nirs4all.api.result import PredictResult
@@ -107,6 +119,15 @@ def predict_general_archive(
             fingerprint = "sha256:" + hashlib.file_digest(stream, "sha256").hexdigest()
         if fingerprint != loaded["archive_fingerprint"]:
             raise ValueError("general Session source archive changed after loading")
+    named_outputs = loaded["manifest"].get("dagml_named_outputs")
+    if isinstance(named_outputs, list) and output is None:
+        raise ValueError("archive has multiple named outputs; pass output= to nirs4all.predict")
+    if output is not None:
+        if not isinstance(named_outputs, list) or output not in [item.get("name") for item in named_outputs if isinstance(item, dict)]:
+            raise ValueError(f"archive has no named output {output!r}")
+        adapter = _NamedOutputAdapter(loaded["artifact"]["estimator"], output)
+        loaded = {**loaded, "artifact": {**loaded["artifact"], "estimator": adapter},
+                  "pipeline": [{"model": adapter}]}
     values, metadata = predict_captured_artifact(
         loaded["artifact"], _materialize_dataset(data), pipeline=loaded["pipeline"],
         target_names=loaded["manifest"].get("target_names", ["y"]),
@@ -116,6 +137,8 @@ def predict_general_archive(
         "artifact_integrity_verified": loaded["artifact_integrity_verified"],
         "training_provenance": loaded["manifest"], "portable": False,
     })
+    if output is not None:
+        metadata["selected_output"] = output
     return PredictResult(y_pred=values, metadata=metadata, model_name=loaded["model_name"])
 
 
