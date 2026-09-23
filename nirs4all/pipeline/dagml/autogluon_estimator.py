@@ -54,6 +54,8 @@ class DagMLAutoGluonEstimator(BaseEstimator):
         labels = values.reshape(-1)
         target_kind = type_of_target(labels)
         problem_type = {"binary": "binary", "multiclass": "multiclass"}.get(target_kind, "regression")
+        if problem_type != "regression":
+            self.classes_ = np.unique(labels)
         options = dict(self.params or {})
         random_state = options.pop("random_state", None)
         predictor_options = {
