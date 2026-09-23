@@ -231,9 +231,20 @@ def test_public_fit_on_all_after_fold_local_augmentation_refits_original_pool(tm
 
 
 @pytest.mark.parametrize("augmentation_count", [1, 2])
-def test_augmentation_without_splitter_trains_on_children_and_scores_base_only(augmentation_count: int) -> None:
+@pytest.mark.parametrize("in_process", [True, False], ids=["in_process", "cli"])
+def test_augmentation_without_splitter_trains_on_children_and_scores_base_only(
+    augmentation_count: int, in_process: bool, monkeypatch: pytest.MonkeyPatch,
+) -> None:
     """The real controller augments train; native REFIT fits children but scores base/test."""
     path = dataset_path("regression")
+    if not in_process:
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "1" if in_process else "0")
     augmentation = {
         "sample_augmentation": {
             "transformers": [GaussianAdditiveNoise(sigma=0.01)],

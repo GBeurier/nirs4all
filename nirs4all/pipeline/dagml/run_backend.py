@@ -992,7 +992,11 @@ def _dispatch_run(
         from .full_train import run_full_train
 
         if any(_is_augmentation_step(step) for step in pipeline):
-            return _run_augmentation_full_train(pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name)
+            return _run_augmentation_full_train(
+                pipeline, spectro, dataset_arg, cli, venv_python or sys.executable,
+                base_dir / "augmentation_full_train", metric=metric,
+                task_type=task_type, config_name=config_name, random_state=random_state,
+            )
         return run_full_train(
             pipeline, spectro, metric=metric, task_type=task_type, config_name=config_name,
             cli=cli, venv_python=venv_python or sys.executable,
