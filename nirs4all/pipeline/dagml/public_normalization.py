@@ -49,7 +49,7 @@ def _is_linear_subpipeline(steps: list[Any]) -> bool:
         return True
     seen_model = False
     for step in steps:
-        if isinstance(step, dict) and set(step) == {"model"}:
+        if isinstance(step, dict) and "model" in step and set(step) <= {"model", "train_params", "refit_params"}:
             model = step["model"]
             if not callable(getattr(model, "fit", None)) or not callable(getattr(model, "predict", None)):
                 return False
