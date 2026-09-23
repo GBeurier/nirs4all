@@ -46,6 +46,7 @@ from .detect import (
     _detect_duplication_branch,
     _detect_named_metamodel_feature_stack,
     _detect_rep_fusion,
+    _detect_rep_to_sources_by_source,
     _detect_separation_branch,
     _detect_separation_preproc_concat,
     _detect_source_concat_merge,
@@ -89,6 +90,7 @@ from .run_paths import (
     _run_native_generation,
     _run_native_operator_generation,
     _run_rep_fusion,
+    _run_rep_to_sources_by_source,
     _run_repetition,
     _run_separation_branch,
     _run_separation_preproc_concat,
@@ -919,12 +921,21 @@ def _dispatch_run(
         )
         result.per_dataset[spectro.name]["refit_enabled"] = False
         return result
+    rep_source_branch = _detect_rep_to_sources_by_source(pipeline)
+    if rep_source_branch is not None:
+        rep_step, branch_body = rep_source_branch
+        return _run_rep_to_sources_by_source(
+            pipeline, rep_step, branch_body, spectro, dataset_arg, cli,
+            venv_python or sys.executable, base_dir / "rep_source_branch", metric,
+            task_type, config_name=config_name, random_state=random_state,
+        )
     comparison = _detect_branch_only_model_comparison(pipeline)
     if comparison is not None:
         if _is_repetition_dataset(spectro):
             raise DagMlUnsupported("branch-only model comparison on repetition datasets requires grouped folds")
         prefix, branches, branch_names = comparison
         predictions = Predictions()
+        branch_results: dict[str, RunResult] = {}
         for index, (body, branch_name) in enumerate(zip(branches, branch_names, strict=True)):
             branch_result = _dispatch_run(
                 [*prefix, *body], spectro, base_dir / f"branch_{index}", dataset_arg,
@@ -932,12 +943,32 @@ def _dispatch_run(
                 save_charts=save_charts, plots_visible=plots_visible,
                 resolved_config_name=config_name,
             )
+            branch_results[branch_name] = branch_result
             for row in branch_result.predictions.filter_predictions(load_arrays=True):
                 row["branch_id"] = index
                 row["branch_name"] = branch_name
                 predictions.extend_from_list([row])
         predictions.flush()
-        return RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+        result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+        import dag_ml
+
+        candidates = []
+        for branch_name, branch_result in branch_results.items():
+            score_row = branch_result.cv_best
+            score = score_row.get("val_score") if score_row else None
+            if score is not None:
+                candidates.append({"candidate_id": branch_name, "metrics": {metric: float(score)}})
+        decision = dag_ml.select_candidate(
+            {"id": "select:branch_export", "metric": {"name": metric, "objective": _metric_objective(metric)}},
+            candidates,
+        ) if len(candidates) == len(branch_results) else None
+        selected_branch = decision["selected_candidate_id"] if decision is not None else None
+        replay_source = branch_results.get(selected_branch) if isinstance(selected_branch, str) else None
+        if replay_source is not None:
+            result._dagml_score_set = replay_source._dagml_score_set  # noqa: SLF001 - native result persistence contract
+            result._dagml_refit_artifacts = replay_source._dagml_refit_artifacts  # noqa: SLF001
+            result.per_dataset[spectro.name]["selected_branch"] = selected_branch
+        return result
     source_auto = _detect_by_source_auto_models(pipeline, spectro.features_sources())
     if source_auto is not None and not any(_is_split_step(step) for step in pipeline):
         if _is_repetition_dataset(spectro):

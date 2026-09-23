@@ -462,30 +462,34 @@ def _manifest_header(result: RunResult, predictions: Predictions, score_set: dic
 
 
 def separation_replay_manifest(graph: dict[str, Any], metadata_key: str, artifacts: list[dict[str, Any]]) -> dict[str, Any] | None:
-    """Record the exact native artifact for every metadata-fanned model."""
+    """Record the selected native artifact for every metadata-fanned model.
+
+    Operator SELECT leaves inactive choice nodes in the compiled union graph but
+    refits only the winning choice of each metadata branch. Match graph nodes
+    from the captured artifacts, never require artifacts from inactive choices.
+    """
     if not artifacts:
         return None
     model_nodes = [node for node in graph.get("nodes", []) if node.get("kind") == "model"]
-    if len(model_nodes) < 2:
+    if len(model_nodes) < 2 or len(artifacts) < 2:
         return None
     members: list[dict[str, str]] = []
     seen_values: set[str] = set()
-    seen_artifacts: set[str] = set()
-    for node in model_nodes:
-        node_id = str(node["id"])
+    for artifact in artifacts:
+        artifact_id = str(artifact.get("artifact_id", ""))
+        matches = [node for node in model_nodes if artifact_id.startswith(f"artifact:{node['id']}:")]
+        if len(matches) != 1:
+            return None
+        node = matches[0]
         selector = ((node.get("metadata") or {}).get("dsl_branch_selector") or {}).get("metadata") or {}
         value = selector.get(metadata_key)
-        matches = [str(artifact["artifact_id"]) for artifact in artifacts if str(artifact.get("artifact_id", "")).startswith(f"artifact:{node_id}:")]
-        if value is None or len(matches) != 1:
+        if value is None:
             return None
-        value, artifact_id = str(value), matches[0]
-        if value in seen_values or artifact_id in seen_artifacts:
-            raise ValueError("metadata separation replay has duplicate values or artifacts")
+        value = str(value)
+        if value in seen_values:
+            raise ValueError("metadata separation replay has duplicate selected values")
         seen_values.add(value)
-        seen_artifacts.add(artifact_id)
         members.append({"value": value, "artifact_id": artifact_id})
-    if len(seen_artifacts) != len(artifacts):
-        return None
     return {
         "kind": "by_metadata_concat", "producer_node": "merge:concat",
         "metadata_key": metadata_key, "members": members,
