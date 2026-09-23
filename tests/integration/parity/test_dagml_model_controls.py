@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 from sklearn.linear_model import Ridge
 from sklearn.model_selection import KFold
+from sklearn.pipeline import make_pipeline
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 pytest.importorskip("dag_ml")
 try:
@@ -157,4 +159,105 @@ def test_cv_without_refit_uses_native_scores_and_no_refit_artifact(monkeypatch, 
     assert result._dagml_refit_artifacts == []  # noqa: SLF001 - no fitted REFIT identity
     assert {row["partition"] for row in result.predictions.filter_predictions(load_arrays=False)} == {"val"}
     assert all((frame.get("result") or frame).get("lineage", {}).get("phase") != "REFIT" for frame in result._dagml_node_results)  # noqa: SLF001
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parity
+def test_model_parameter_sweep_without_refit_keeps_all_cv_variants(monkeypatch, mechanism: str) -> None:
+    import nirs4all
+
+    rng = np.random.default_rng(29)
+    x = rng.normal(size=(16, 8))
+    y = rng.normal(size=16)
+    pipeline = [KFold(2), {"model": Ridge, "_grid_": {"alpha": [0.01, 1000.0]}}]
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", refit=False, save_charts=False)
+    legacy_cv = {
+        row["config_name"]: row["val_score"]
+        for row in legacy.predictions.filter_predictions()
+        if row["fold_id"] == "avg" and row["partition"] == "val"
+    }
+    assert len(legacy_cv) == 2
+    legacy_best = legacy.cv_best_score
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    result = nirs4all.run(pipeline, (x, y), engine="dag-ml", refit=False, save_charts=False)
+    assert result._dagml_refit_artifacts == []  # noqa: SLF001
+    native_cv = {
+        row["config_name"]: row["val_score"]
+        for row in result.predictions.filter_predictions()
+        if row["fold_id"] == "avg" and row["partition"] == "val"
+    }
+    assert native_cv.keys() == legacy_cv.keys()
+    for name, score in native_cv.items():
+        np.testing.assert_allclose(score, legacy_cv[name], rtol=1e-6)
+    np.testing.assert_allclose(result.cv_best_score, legacy_best, rtol=1e-6)
+    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"val"}
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parity
+def test_repetition_cv_without_refit_keeps_grouped_validation(monkeypatch, mechanism: str) -> None:
+    import nirs4all
+    from nirs4all.data.config import DatasetConfigs
+
+    from ._datasets import PARSER_FIXTURES
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    dataset = DatasetConfigs(str(PARSER_FIXTURES["aggregate_mean"]), repetition="sample_id")
+    result = nirs4all.run([KFold(2), Ridge(alpha=1.0)], dataset, engine="dag-ml", refit=False, save_charts=False)
+    assert np.isfinite(result.cv_best_score)
+    assert result._dagml_refit_artifacts == []  # noqa: SLF001
+    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"val"}
+    assert result.per_dataset and all(metadata["refit_enabled"] is False for metadata in result.per_dataset.values())
+    result.close()
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parity
+def test_operator_sweep_without_refit_keeps_all_cv_variants(monkeypatch, mechanism: str) -> None:
+    import nirs4all
+
+    rng = np.random.default_rng(31)
+    x = rng.normal(size=(16, 8))
+    y = 0.3 * x[:, 0] - 0.5 * x[:, 2] + rng.normal(size=16) * 0.1
+    pipeline = [{"_or_": [StandardScaler(), MinMaxScaler()]}, KFold(2), Ridge(alpha=0.5)]
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", refit=False, save_charts=False)
+    legacy_names = {row["config_name"] for row in legacy.predictions.filter_predictions()}
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    result = nirs4all.run(pipeline, (x, y), engine="dag-ml", refit=False, save_charts=False)
+    assert result._dagml_refit_artifacts == []  # noqa: SLF001
+    assert {row["config_name"] for row in result.predictions.filter_predictions()} == legacy_names
+    assert {row["partition"] for row in result.predictions.filter_predictions()} == {"val"}
+    # Legacy fits this preprocessing sweep with different fold-local scaling;
+    # compare the native result to an independent, leakage-safe sklearn CV.
+    direct = np.empty_like(y)
+    for train, val in KFold(2).split(x):
+        direct[val] = make_pipeline(StandardScaler(), Ridge(alpha=0.5)).fit(x[train], y[train]).predict(x[val])
+    np.testing.assert_allclose(result.cv_best_score, np.sqrt(np.mean((direct - y) ** 2)), rtol=1e-5)
     result.close()

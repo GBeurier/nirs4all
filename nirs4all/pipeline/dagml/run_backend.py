@@ -445,6 +445,9 @@ def run_via_dagml(
             resolved_config_name=resolved_config_name,
             refit=cast(bool, refit),
         )
+        if refit is False:
+            for metadata in result.per_dataset.values():
+                metadata["refit_enabled"] = False
         from .envelope import target_names
 
         result._dagml_target_names = target_names(spectro)
@@ -907,26 +910,10 @@ def _dispatch_run(
 
     pipeline = normalize_model_steps(pipeline)
     pipeline = _unwrap_preprocessing_steps(list(pipeline))
-    if refit is False and any(_is_split_step(step) for step in pipeline):
-        if _is_repetition_dataset(spectro):
-            raise DagMlUnsupported("refit=False with repetition data requires grouped CV lowering")
-        if _generation_kind(list(pipeline)) != "none":
-            raise DagMlUnsupported("refit=False with a model or operator sweep requires CV-only variant projection")
-
-        scores, model_name, results, identity, artifacts = _run_concrete_scores(
-            pipeline, spectro, dataset_arg, cli, venv_python or sys.executable,
-            base_dir / "cv_only", dataset_pickle=host_pickle, random_state=random_state,
-            refit=False,
-        )
-        result = _scores_to_run_result(
-            scores, spectro.name, model_name, metric, task_type,
-            config_name=config_name, results=results, identity=identity,
-            refit_artifacts=artifacts,
-        )
-        result.per_dataset[spectro.name]["refit_enabled"] = False
-        return result
     rep_source_branch = _detect_rep_to_sources_by_source(pipeline)
     if rep_source_branch is not None:
+        if refit is False:
+            raise DagMlUnsupported("refit=False with rep_to_sources and by_source requires CV-only branch lowering")
         rep_step, branch_body = rep_source_branch
         return _run_rep_to_sources_by_source(
             pipeline, rep_step, branch_body, spectro, dataset_arg, cli,
@@ -946,6 +933,7 @@ def _dispatch_run(
                 host_pickle, cli, venv_python, name=name, random_state=random_state,
                 save_charts=save_charts, plots_visible=plots_visible,
                 resolved_config_name=config_name,
+                refit=refit,
             )
             branch_results[branch_name] = branch_result
             for row in branch_result.predictions.filter_predictions(load_arrays=True):
@@ -953,7 +941,7 @@ def _dispatch_run(
                 row["branch_name"] = branch_name
                 predictions.extend_from_list([row])
         predictions.flush()
-        result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml"}})
+        result = RunResult(predictions=predictions, per_dataset={spectro.name: {"engine": "dag-ml", "refit_enabled": refit}})
         import dag_ml
 
         candidates = []
@@ -1006,6 +994,23 @@ def _dispatch_run(
     detected_rep_fusion = _detect_rep_fusion(list(pipeline))
     detected_source_concat = _detect_source_concat_merge(list(pipeline), spectro.features_sources())
     augmentation_steps = [step for step in pipeline if _is_augmentation_step(step)]
+
+    if refit is False and (
+        detected is not None
+        or detected_separation_preproc_concat is not None
+        or detected_duplication is not None
+        or detected_stacking is not None
+        or detected_named_metamodel_stack is not None
+        or detected_by_source is not None
+        or detected_by_source_auto is not None
+        or detected_by_source_concat is not None
+        or detected_by_source_distinct_concat is not None
+        or detected_by_source_stacking is not None
+        or detected_rep_fusion is not None
+        or detected_source_concat is not None
+        or augmentation_steps
+    ):
+        raise DagMlUnsupported("refit=False with branch, source fusion, stacking, or augmentation requires CV-only lowering for that composition")
 
     # Remaining finetune declarations were preflighted as scoped host proposals;
     # the native model task owns their outer-training boundary.
@@ -1071,7 +1076,7 @@ def _dispatch_run(
                 base_dir / "augment", metric, task_type, config_name=config_name, random_state=random_state,
             )
         return _run_repetition(
-            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state
+            list(pipeline), spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / "repetition", metric, task_type, dataset_pickle=host_pickle, config_name=config_name, random_state=random_state, refit=refit
         )
 
     # by_metadata stateless preprocessing + concat feature reassembly + downstream model.
@@ -1333,6 +1338,7 @@ def _dispatch_run(
             variant_config_names=variant_config_names,
             variant_model_params=variant_model_params,
             random_state=random_state,
+            refit=refit,
         )
 
     # FLAT-SINGLE operator `_or_` (a bare-operator preprocessing sweep) → ONE native dag-ml operator-SELECT
@@ -1386,6 +1392,7 @@ def _dispatch_run(
                 config_name=config_name,
                 variant_config_names=variant_config_names,
                 random_state=random_state,
+                refit=refit,
             )
         except _OperatorLoweringUnsupported:
             pass  # lowering-unsupported generator → fall through to the Python expand path (stays on dag-ml)
@@ -1398,7 +1405,7 @@ def _dispatch_run(
     # nirs4all) and emitting the winner's refit rows only.
     variants = _expand_operator_generators(list(pipeline))
     variant_runs = [
-        _run_concrete_scores(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, random_state=random_state)
+        _run_concrete_scores(variant, spectro, dataset_arg, cli, venv_python or sys.executable, base_dir / f"variant{index}", cv_pool, excluded, tags_by_sample, dataset_pickle=host_pickle, random_state=random_state, refit=refit)
         for index, variant in enumerate(variants)
     ]
     if len(variant_runs) == 1:

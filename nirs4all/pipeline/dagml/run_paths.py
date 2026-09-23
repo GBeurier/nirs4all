@@ -180,6 +180,39 @@ def _native_param_winner_config_name(
     return next(iter(matches)) if len(matches) == 1 else None
 
 
+def _native_param_config_map_from_catalog(
+    catalog: list[dict[str, Any]],
+    config_names: list[str] | None,
+    model_params: list[dict[str, Any]] | None,
+) -> dict[str, str]:
+    """Match native param variants to legacy config names by their Rust-planned overrides."""
+    if not config_names or not model_params or len(config_names) != len(model_params):
+        return {}
+    matched: dict[str, str] = {}
+    for variant in catalog:
+        variant_id = variant.get("variant_id")
+        choices = variant.get("choices")
+        if not isinstance(variant_id, str) or not isinstance(choices, dict):
+            continue
+        overrides: dict[str, Any] = {}
+        for choice in choices.values():
+            if not isinstance(choice, dict):
+                continue
+            for override in choice.get("param_overrides", []):
+                if isinstance(override, dict) and isinstance(override.get("params"), dict):
+                    overrides.update(override["params"])
+        if not overrides:
+            continue
+        names = {
+            name
+            for name, params in zip(config_names, model_params, strict=True)
+            if all(params.get(key) == value for key, value in overrides.items())
+        }
+        if len(names) == 1:
+            matched[variant_id] = names.pop()
+    return matched
+
+
 def _run_native_generation(
     pipeline: list[Any],
     spectro: Any,
@@ -197,6 +230,7 @@ def _run_native_generation(
     variant_config_names: list[str] | None = None,
     variant_model_params: list[dict[str, Any]] | None = None,
     random_state: int | None = None,
+    refit: bool = True,
 ) -> RunResult:
     """Run a param-level model sweep as ONE native dag-ml generation + SELECT + refit run.
 
@@ -227,7 +261,7 @@ def _run_native_generation(
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml engine run failed")
@@ -238,8 +272,16 @@ def _run_native_generation(
     # sweep (`_grid_`) selects the true CV-best, whose config_name is the WINNING variant's name (NOT
     # index 0): recover it by matching the winner's refit model params against the per-variant model params
     # (aligned with `variant_config_names`), so the winner is content-paired exactly like the operator path.
+    catalog_map = _native_param_config_map_from_catalog(
+        outcome.get("variant_catalog", []), variant_config_names, variant_model_params,
+    )
+    if not refit and variant_config_names and len(catalog_map) != len(variant_config_names):
+        raise DagMlUnsupported("native CV-only parameter sweep did not expose an unambiguous variant-to-parameter mapping")
     winner_config_name = _native_param_winner_config_name(outcome["refit_artifacts"], variant_config_names, variant_model_params)
-    variant_config_map = _native_variant_config_map(outcome["scores"], variant_config_names, winner_config_name) if variant_config_names else None
+    variant_config_map = (
+        catalog_map or _native_variant_config_map(outcome["scores"], variant_config_names, winner_config_name)
+        if variant_config_names else None
+    )
 
     # FILL the strict direct-block rows with this run's per-sample y_pred/y_true/sample_indices (the
     # winner's refit `(final, train)` + `(final, test)` + per-fold OOF; each loser's per-fold OOF). dag-ml
@@ -252,6 +294,11 @@ def _run_native_generation(
         (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", []) if report["partition"] == "final" and report.get("fold_id") is None),
         None,
     )
+    if winner_variant_id is None and not refit:
+        winner_variant_id = next(
+            (report.get("variant_id") for report in (outcome["scores"] or {}).get("reports", []) if report["partition"] == "validation" and report.get("fold_id") != "avg"),
+            None,
+        )
     results_by_variant = _frames_by_variant(outcome["results"], winner_variant_id)
     return _scores_to_run_result(
         outcome["scores"], spectro.name, _model_name(steps), metric, task_type, config_name=config_name, variant_config_names=variant_config_map, results_by_variant=results_by_variant, identity=identity, refit_artifacts=outcome["refit_artifacts"]
@@ -274,6 +321,7 @@ def _run_native_operator_generation(
     config_name: str = "",
     variant_config_names: list[str] | None = None,
     random_state: int | None = None,
+    refit: bool = True,
 ) -> RunResult:
     """Run a FLAT-SINGLE operator ``_or_`` as ONE native dag-ml operator-SELECT + refit run (#23 Phase 7).
 
@@ -359,7 +407,7 @@ def _run_native_operator_generation(
     dsl["data_bindings"] = data_bindings_for_nodes(model_ids, envelope)
 
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml operator-generation run failed")
@@ -374,6 +422,11 @@ def _run_native_operator_generation(
         (report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "final" and report.get("fold_id") is None),
         None,
     )
+    if winner_variant_id is None and not refit:
+        winner_variant_id = next(
+            (report.get("variant_id") for report in (scores or {}).get("reports", []) if report["partition"] == "validation" and report.get("fold_id") != "avg"),
+            None,
+        )
     # Split the surfaced frames PER VARIANT so a LOSER variant's per-fold val rows fill from ITS OWN
     # validation (OOF) predictions, not just the winner's. dag-ml surfaces each loser's per-fold val
     # blocks re-tagged with the loser's variant_id (top-level in-process / `lineage.variant_id`
@@ -638,7 +691,7 @@ def _run_source_concat_merge(
     )
 
 
-def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, refit: bool = True) -> RunResult:
     """Run a REPETITION (sample-grain grouped) pipeline as ONE native dag-ml CV+refit run.
 
     The CV universe is the repetition ROWS of the train partition (each stored row is its own
@@ -660,7 +713,7 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
 
     variants = expand_spec(pipeline)
     results = [
-        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state)
+        _run_repetition_concrete(variant, spectro, dataset_arg, cli, venv_python, run_dir / f"variant{index}", metric, task_type, dataset_pickle=dataset_pickle, config_name=config_name, random_state=random_state, refit=refit)
         for index, variant in enumerate(variants)
     ]
     if len(results) == 1:
@@ -679,7 +732,7 @@ def _run_repetition(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: st
     return min(results, key=_cv_rank)
 
 
-def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None) -> RunResult:
+def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, refit: bool = True) -> RunResult:
     """One concrete repetition variant: group-aware folds + a ``group_id``-carrying envelope."""
     from .exclude import _resolve_exclude
 
@@ -700,7 +753,7 @@ def _run_repetition_concrete(pipeline: Any, spectro: Any, dataset_arg: str, cli:
 
     graph = dag_ml.compile_pipeline_dsl_artifact_with_controllers(dsl, controller_manifests()).graph.to_dict()
     outcome = run_cv_refit_bundle(
-        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state
+        dsl=dsl, envelope=envelope, graph=graph, dataset_path=dataset_arg, workdir=run_dir, dagml_cli=cli, venv_python=venv_python, selection_metric=metric, dataset_pickle=dataset_pickle, dataset=spectro, random_state=random_state, refit=refit
     )
     if outcome["returncode"] != 0:
         _raise_run_failure(outcome, "dag-ml repetition run failed")
