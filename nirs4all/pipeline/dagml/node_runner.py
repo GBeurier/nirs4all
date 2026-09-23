@@ -993,6 +993,7 @@ def run_model_node(
     # phase (incl. PREDICT, which reloads the estimator) selects the same source. ``None`` for any other
     # node (single-source / duplication / separation-by-metadata) → the unchanged concat/multi-block path.
     graph_node = node_lookup(node_id)
+    proba_output = (graph_node.get("metadata") or {}).get("nirs4all_prediction_output") == "proba"
     residual_mode = node_plan["controller_id"] == _RESIDUAL_LEARNER_CONTROLLER_ID
     source_index = _source_index(graph_node)
     # INTERMEDIATE FUSION (S5): a multi-block model (MB-PLS) consumes a LIST of per-source blocks, NOT
@@ -1223,7 +1224,12 @@ def run_model_node(
     def _predict(ids: list[str], include_augmented: bool) -> list[list[float]]:
         features, options = _features(ids, include_augmented)
         with _gpu_device_scope(task, estimator):
-            pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
+            if proba_output:
+                if y_transform is not None or not hasattr(estimator, "predict_proba"):
+                    raise ValueError(f"classifier model {node_id!r} cannot provide probabilities for proba_mean")
+                pred = np.asarray(estimator.predict_proba(features, **options), dtype=float).reshape(len(ids), -1)
+            else:
+                pred = np.asarray(estimator.predict(features, **options), dtype=float).reshape(len(ids), -1)
         scaled = np.asarray(y_transform.inverse_transform(pred), dtype=float).reshape(len(ids), -1) if y_transform is not None else pred
         return [[float(value) for value in row] for row in scaled]
 
@@ -1277,6 +1283,8 @@ def run_model_node(
         multi_target = bool(true_y) and isinstance(true_y[0], list)
         names = [f"y{i}" for i in range(len(true_y[0]))] if multi_target else ["y"]
         names = target_block.get("target_names", names)
+        if proba_output:
+            names = [str(label) for label in estimator.classes_]
         true_values = [[float(value) for value in row] for row in true_y] if multi_target else [[float(value)] for value in true_y]
         predictions.append(
             {
@@ -1289,7 +1297,7 @@ def run_model_node(
                 "target_names": names,
             }
         )
-        if not residual_mode:
+        if not residual_mode and not proba_output:
             regression_targets.append(
                 {
                     "level": "sample",

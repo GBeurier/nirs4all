@@ -1721,6 +1721,53 @@ def _detect_stacking_branch(pipeline: list[Any]) -> tuple[list[list[Any]], Any] 
     return branches, meta_learner
 
 
+def _detect_proba_mean_stacking_branch(
+    pipeline: list[Any],
+) -> tuple[list[list[Any]], Any, list[dict[str, Any]]] | None:
+    """Recognize legacy per-branch probability averaging before a meta-model.
+
+    Selection by model score, weighted aggregation, and mixed feature merges
+    have separate semantics and remain on the explicit unsupported path.
+    """
+    branch_steps = [step for step in pipeline if _is_duplication_branch_step(step)]
+    merge_steps = [step for step in pipeline if isinstance(step, dict) and "merge" in step]
+    model_steps = [step for step in pipeline if isinstance(step, dict) and "model" in step]
+    if len(branch_steps) != 1 or len(merge_steps) != 1 or len(model_steps) != 1:
+        return None
+    branch_step, merge_step, model_step = branch_steps[0], merge_steps[0], model_steps[0]
+    if [step for step in pipeline if step is branch_step or step is merge_step or step is model_step] != [branch_step, merge_step, model_step]:
+        return None
+    if any(step is not branch_step and step is not merge_step and step is not model_step and not _is_split_step(step) for step in pipeline):
+        return None
+    spec = merge_step["merge"]
+    if not isinstance(spec, dict) or set(spec) != {"predictions"}:
+        return None
+    configs = spec["predictions"]
+    branches = _duplication_branch_bodies(branch_step)
+    if not isinstance(configs, list) or not configs or branches is None:
+        return None
+    selectors: list[dict[str, Any]] = []
+    seen: set[int] = set()
+    for config in configs:
+        if not isinstance(config, dict) or set(config) - {"branch", "aggregate", "select", "proba", "sources"}:
+            return None
+        index = config.get("branch")
+        if not isinstance(index, int) or isinstance(index, bool) or not 0 <= index < len(branches) or index in seen:
+            return None
+        if config.get("aggregate") != "proba_mean" or config.get("select", "all") != "all":
+            return None
+        if config.get("proba", True) is not True or config.get("sources", "all") != "all":
+            return None
+        if not any(isinstance(step, dict) and "model" in step for step in branches[index]):
+            return None
+        seen.add(index)
+        selectors.append({"branch": f"branch_{index}", "select": "all", "aggregate": "proba_mean"})
+    learner = _meta_learner(model_step)
+    if learner is None:
+        return None
+    return branches, learner, selectors
+
+
 def _detect_by_source_stacking_branch(pipeline: list[Any], n_sources: int) -> tuple[list[Any] | dict[str, list[Any]], Any] | None:
     """Detect source-specific base models followed by native OOF stacking.
 

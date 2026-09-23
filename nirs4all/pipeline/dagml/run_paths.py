@@ -4156,6 +4156,7 @@ def _assemble_stacking_dsl(
     identity: Any, pool: list[int], folds: list[tuple[list[int], list[int]]], envelope: dict[str, Any], *,
     task_type: str, random_state: int | None, group_by_sample: dict[int, str] | None,
     source_layout: dict[str, Any] | None = None,
+    prediction_aggregations: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any], list[str]]:
     """Declare the same nested OOF graph for concrete runs and whole-stack HPO."""
     meta_metadata = _stacking_model_metadata(pipeline)
@@ -4194,9 +4195,18 @@ def _assemble_stacking_dsl(
                     "stacking_oof_refit_contract": {"policy": refit_policy},
                     **refit_oof,
                 },
+                **({"selectors": prediction_aggregations} if prediction_aggregations else {}),
             },
         ],
     }
+
+    if prediction_aggregations:
+        selected_branches = {selector["branch"] for selector in prediction_aggregations}
+        for branch in canonical_dsl["steps"][0]["branches"]:
+            if branch["id"] in selected_branches:
+                for step in branch["steps"]:
+                    if step["kind"] == "model":
+                        step["metadata"] = {**step.get("metadata", {}), "nirs4all_prediction_output": "proba"}
 
     if source_layout is not None:
         # Put source bindings in the DSL BEFORE compilation/fingerprinting,
@@ -4233,7 +4243,7 @@ def _assemble_stacking_dsl(
     return canonical_dsl, graph, base_model_ids
 
 
-def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None, refit: bool = True) -> RunResult:
+def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_learner: Any, spectro: Any, dataset_arg: str, cli: str, venv_python: str, run_dir: Path, metric: str, task_type: str, dataset_pickle: str | None = None, config_name: str = "", random_state: int | None = None, source_layout: dict[str, Any] | None = None, refit: bool = True, prediction_aggregations: list[dict[str, Any]] | None = None) -> RunResult:
     """Run a duplication branch + ``{"merge": "predictions"}`` + meta-model as ONE native dag-ml run (#10).
 
     Lowers each inner sub-pipeline to a canonical duplication branch (``mode: "duplication"`` — each base
@@ -4282,6 +4292,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     canonical_dsl, graph, base_model_ids = _assemble_stacking_dsl(
         pipeline, branches, meta_learner, spectro, identity, pool, folds, envelope,
         task_type=task_type, random_state=random_state, group_by_sample=group_by_sample, source_layout=source_layout,
+        prediction_aggregations=prediction_aggregations,
     )
 
     outcome = run_cv_refit_bundle(
