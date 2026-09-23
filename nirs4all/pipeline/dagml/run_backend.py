@@ -439,10 +439,21 @@ def run_via_dagml(
     # DatasetConfigs / live SpectroDataset / (X, y) tuple / array) — DatasetConfigs alone silently
     # skips the in-memory ones, so `_materialize_dataset` wraps them with the legacy normalization.
     spectro = _materialize_dataset(dataset)
+    requested_charts = isinstance(pipeline, list) and any(_is_chart_step(step) for step in pipeline)
+    chart_pre_holdout_spectro = None
+    if requested_charts and (save_charts or plots_visible):
+        from .steps import FoldFileDagMlSplitStep, _is_split_step, _split_pipeline
+
+        split_position = next((index for index, step in enumerate(pipeline) if _is_split_step(step)), None)
+        if split_position is not None and any(_is_chart_step(step) for step in pipeline[:split_position]):
+            _, chart_splitter = _split_pipeline(pipeline)
+            if isinstance(chart_splitter, FoldFileDagMlSplitStep):
+                chart_pre_holdout_spectro = copy.deepcopy(spectro)
     execution_pipeline, holdout_train_sample_ids = lower_fold_file_holdout(pipeline, spectro)
+    if holdout_train_sample_ids is None:
+        chart_pre_holdout_spectro = None
     if holdout_train_sample_ids is not None and resolved_config_name is None:
         resolved_config_name = _derive_config_name(pipeline, name)
-    requested_charts = isinstance(pipeline, list) and any(_is_chart_step(step) for step in pipeline)
     chart_original_spectro = None
     if requested_charts and (save_charts or plots_visible):
         from .chart_projection import validate_chart_projection
@@ -517,6 +528,8 @@ def run_via_dagml(
 
             chart_paths = render_run_charts(
                 result, pipeline, spectro, original_spectro=chart_original_spectro,
+                pre_holdout_spectro=chart_pre_holdout_spectro,
+                file_holdout_lowered=holdout_train_sample_ids is not None,
                 workspace_path=workspace_path, save_charts=save_charts,
                 plots_visible=plots_visible, verbose=verbose,
             )

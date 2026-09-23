@@ -83,6 +83,7 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
     arrays = arrays if isinstance(arrays, list) else [arrays]
     targets = np.asarray(snapshot.y(context, include_excluded=include_excluded)).reshape(len(sample_indices), -1)
     origins = [snapshot._indexer.get_origin_for_sample(int(sample_id)) for sample_id in sample_indices]
+    partitions = {int(row["sample"]): str(row["partition"]) for row in snapshot._indexer.df.select("sample", "partition").iter_rows(named=True)}
     colors = None
     if color_column is not None:
         colors = np.asarray(snapshot.metadata_column(color_column, context.selector, include_augmented=True)).reshape(len(sample_indices), -1)
@@ -93,7 +94,7 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
     }
     with (directory / data_name).open("w", newline="", encoding="utf-8") as stream:
         writer = csv.writer(stream)
-        writer.writerow(["sample_index", "origin_sample_index", "synthetic", "excluded", "exclusion_reason", "source", "processing", "feature_index", "value",
+        writer.writerow(["sample_index", "origin_sample_index", "partition", "synthetic", "excluded", "exclusion_reason", "source", "processing", "feature_index", "value",
                          *[f"target_{i}" for i in range(targets.shape[1])], *([f"color_{color_column}_{i}" for i in range(colors.shape[1])] if colors is not None else [])])
         for source, array in enumerate(arrays):
             if source_index is not None and source != source_index:
@@ -103,7 +104,7 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
                     for feature, value in enumerate(values):
                         sample_id = int(sample_indices[sample])
                         origin = origins[sample]
-                        writer.writerow([sample_id, origin, origin is not None and origin != sample_id,
+                        writer.writerow([sample_id, origin, partitions.get(sample_id, ""), origin is not None and origin != sample_id,
                                          sample_id in excluded, excluded.get(sample_id, ""), source, processing, feature,
                                          float(value), *targets[sample].tolist(), *(colors[sample].tolist() if colors is not None else [])])
     (directory / f"{stem}.json").write_text(json.dumps({"summary": summary, "folds": snapshot.folds}, indent=2), encoding="utf-8")
@@ -129,7 +130,8 @@ def _write_alternative(directory: Path, stem: str, snapshot: Any, context: Any, 
     )
 
 
-def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, original_spectro: Any | None = None, workspace_path: Path | None,
+def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, original_spectro: Any | None = None,
+                      pre_holdout_spectro: Any | None = None, file_holdout_lowered: bool = False, workspace_path: Path | None,
                       save_charts: bool, plots_visible: bool, verbose: int) -> list[str]:
     """Reuse library chart presenters on immutable snapshots of fitted DAG state."""
     from nirs4all.controllers.registry import CONTROLLER_REGISTRY
@@ -178,9 +180,12 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
                 prefix += 1
             continue
         materialized_stage = transform_snapshots.get((augmentation_count, prefix)) if augmentation_count else None
-        snapshot = copy.deepcopy(materialized_stage if materialized_stage is not None else (
-            augmentation_snapshots[augmentation_count - 1] if augmentation_count else (original_spectro or spectro)
-        ))
+        snapshot_source = materialized_stage if materialized_stage is not None else (
+            augmentation_snapshots[augmentation_count - 1] if augmentation_count else (
+                pre_holdout_spectro if pre_holdout_spectro is not None and not after_split else (original_spectro or spectro)
+            )
+        )
+        snapshot = copy.deepcopy(snapshot_source)
         if exclusion_count:
             if len(exclusion_stages) < exclusion_count:
                 raise RuntimeError("Chart exclusion stages are missing from the scored training pass.")
@@ -212,6 +217,8 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
         color_column = parsed.keyword[5:] if parsed.keyword.startswith("fold_") and parsed.keyword != "fold_chart" else None
         scope = ("full-training REFIT augmentation view; not out-of-fold features; observed and synthetic augmentation features"
                  if augmentation_count else ("captured full-training REFIT transforms; not out-of-fold features" if prefix else "original observed features"))
+        if file_holdout_lowered and augmentation_count:
+            scope += "; the single-file test holdout was applied before augmentation, so its rows and synthetic children were excluded from fitting"
         target_scope = "captured REFIT target transform" if processed_target else "original numeric targets"
         plotted_count = len(snapshot._indexer.x_indices(context.selector, include_augmented=True, include_excluded=exclusion_chart))
         if exclusion_chart:
