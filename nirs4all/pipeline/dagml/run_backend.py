@@ -694,8 +694,8 @@ def _can_unwrap_preprocessing_step(step: Any) -> bool:
     * ``force_layout='2d'`` on a preprocessing step is not consumed by legacy preprocessing controllers
       (only model controllers read ``ParsedStep.force_layout``), and the native sklearn path already
       materializes the model input as 2D.
-    * ``fit_on_all=True`` is equivalent only for stateless transforms: fitting on all rows vs fold-train
-      rows cannot change learned state when the existing leakage gate proves the operator is stateless.
+    * ``fit_on_all=False`` is the default fold-train fit; ``True`` is equivalent only for stateless
+      transforms, whose fit does not learn from the additional rows.
 
     Anything else remains wrapped, then fails loud in :func:`_unsupported_fallback_reason`; this prevents
     silent native runs for stateful fit-scope changes, non-2D layouts, NA modifiers, names, or any unproven
@@ -710,7 +710,9 @@ def _can_unwrap_preprocessing_step(step: Any) -> bool:
     if modifiers == {"force_layout"}:
         return step.get("force_layout") == "2d"
     if modifiers == {"fit_on_all"}:
-        return step.get("fit_on_all") is True and _operator_is_stateless(step["preprocessing"])
+        return step.get("fit_on_all") is False or (
+            step.get("fit_on_all") is True and _operator_is_stateless(step["preprocessing"])
+        )
     return False
 
 
@@ -770,6 +772,8 @@ def _unsupported_fallback_reason(pipeline: list[Any]) -> str | None:
     """
     for step in pipeline:
         if isinstance(step, dict) and "preprocessing" in step and set(step) != {"preprocessing"}:
+            if set(step) == {"preprocessing", "fit_on_all"} and step["fit_on_all"] is True:
+                continue
             modifiers = sorted(set(step) - {"preprocessing"})
             return (
                 "engine='dag-ml' cannot yet honor this modifier-bearing {'preprocessing': ...} step "

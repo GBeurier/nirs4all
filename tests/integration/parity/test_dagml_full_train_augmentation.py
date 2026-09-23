@@ -9,7 +9,7 @@ from sklearn.decomposition import PCA
 from sklearn.linear_model import Ridge
 from sklearn.metrics import root_mean_squared_error
 from sklearn.model_selection import KFold
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 
 import nirs4all
 from nirs4all.data.config import DatasetConfigs
@@ -22,6 +22,86 @@ from nirs4all.pipeline.dagml.run_paths import _apply_sample_augmentation
 from ._datasets import PARSER_FIXTURES, dataset_path
 
 pytestmark = pytest.mark.parity
+
+
+@pytest.mark.parametrize("fit_on_all", [None, False, True])
+@pytest.mark.parametrize("with_splitter", [False, True])
+def test_public_preprocessing_fit_scope_matches_legacy_and_replays(tmp_path, fit_on_all: bool | None, with_splitter: bool) -> None:
+    """Only the explicit opt-in fits on train and test, and the archive keeps that fit."""
+    path = dataset_path("regression")
+    preprocessing = StandardScaler() if fit_on_all is None else {"preprocessing": StandardScaler(), "fit_on_all": fit_on_all}
+    pipeline = [preprocessing]
+    if with_splitter:
+        pipeline.append(KFold(n_splits=2, shuffle=True, random_state=42))
+    pipeline.append({"model": Ridge(alpha=1.0)})
+
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    if with_splitter:
+        native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    else:
+        with pytest.warns(NoSplitEvaluationWarning):
+            native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d"))
+    x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+    y_train = np.asarray(dataset.y({"partition": "train"}))
+    y_test = np.asarray(dataset.y({"partition": "test"}))
+    scaler = StandardScaler().fit(np.vstack([x_train, x_test]) if fit_on_all else x_train)
+    direct = Ridge(alpha=1.0).fit(scaler.transform(x_train), y_train)
+    expected = root_mean_squared_error(y_test, direct.predict(scaler.transform(x_test)))
+    other_scaler = StandardScaler().fit(x_train if fit_on_all else np.vstack([x_train, x_test]))
+    other_model = Ridge(alpha=1.0).fit(other_scaler.transform(x_train), y_train)
+    other_score = root_mean_squared_error(y_test, other_model.predict(other_scaler.transform(x_test)))
+    assert abs(expected - other_score) > 0.01
+
+    assert native.execution_engine == "dag-ml"
+    assert legacy.best_rmse == pytest.approx(expected, abs=1e-5)
+    assert native.best_rmse == pytest.approx(expected, abs=1e-5)
+    node_results = [frame.get("result", frame) for frame in native._dagml_node_results]
+    if fit_on_all is True:
+        assert any(
+            "allow_fit_cv_all_observations_view" in frame["lineage"]["unsafe_flags"]
+            for frame in node_results if "lineage" in frame
+        )
+    else:
+        assert all(not frame["lineage"]["unsafe_flags"] for frame in node_results if "lineage" in frame)
+
+    archive = tmp_path / f"fit_scope_{fit_on_all}_{with_splitter}.n4a"
+    native.export(archive)
+    replay = nirs4all.predict(archive, x_test)
+    assert root_mean_squared_error(y_test, np.asarray(replay.y_pred)) == pytest.approx(expected, abs=1e-5)
+
+
+@pytest.mark.parametrize("all_first", [False, True])
+def test_public_mixed_preprocessing_fit_scopes_preserve_each_node(tmp_path, all_first: bool) -> None:
+    """Each transform consumes its predecessor's fitted output and keeps its own fit cohort."""
+    path = dataset_path("regression")
+    all_step = {"preprocessing": StandardScaler(), "fit_on_all": True}
+    local_step = MinMaxScaler()
+    pipeline = [all_step, local_step] if all_first else [local_step, all_step]
+    pipeline += [KFold(n_splits=2, shuffle=True, random_state=42), {"model": Ridge(alpha=1.0)}]
+
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    x_train = np.asarray(dataset.x({"partition": "train"}, layout="2d"))
+    x_test = np.asarray(dataset.x({"partition": "test"}, layout="2d"))
+    y_train = np.asarray(dataset.y({"partition": "train"}))
+    y_test = np.asarray(dataset.y({"partition": "test"}))
+    if all_first:
+        first = StandardScaler().fit(np.vstack([x_train, x_test]))
+        second = MinMaxScaler().fit(first.transform(x_train))
+    else:
+        first = MinMaxScaler().fit(x_train)
+        second = StandardScaler().fit(first.transform(np.vstack([x_train, x_test])))
+    direct = Ridge(alpha=1.0).fit(second.transform(first.transform(x_train)), y_train)
+    expected = root_mean_squared_error(y_test, direct.predict(second.transform(first.transform(x_test))))
+
+    assert legacy.best_rmse == pytest.approx(expected, abs=1e-5)
+    assert native.best_rmse == pytest.approx(expected, abs=1e-5)
+    native.export(tmp_path / "mixed_fit_scopes.n4a")
+    replay = nirs4all.predict(tmp_path / "mixed_fit_scopes.n4a", x_test)
+    assert root_mean_squared_error(y_test, np.asarray(replay.y_pred)) == pytest.approx(expected, abs=1e-5)
 
 
 @pytest.mark.parametrize("augmentation_count", [1, 2])

@@ -15,23 +15,24 @@ reloads the artifact and predicts the ``predict`` view. The ``NodeTask`` carries
 ``node_id`` → the compiled graph node (which carries the operator) — both produced nirs4all
 side by ``build_dagml_plan``.
 
-**Scope (honest):** only ``model``/``tuner`` nodes produce predictions (matching dag-ml);
-``transform``/``y_transform`` nodes are passthrough output-handles here. Real cross-node
-feature chaining (e.g. SNV→PLS, where the model must see *transformed* features) is the
-unresolved A3 gap — the process-adapter delivers only ``sample_ids`` per node, so a model
-after a transform would re-fetch raw features. Until that is designed, this runner is
-numerically correct for **model-on-raw-features** graphs.
+Only ``model``/``tuner`` nodes produce predictions. Bound ``transform`` nodes fit their
+operators on the native data view and pass fitted chains through data-edge handles;
+unbound transforms use the legacy reconstructed chain at the model node.
+``y_transform`` nodes remain floating target transforms applied by the model callback.
 """
 
 from __future__ import annotations
 
 import hashlib
+import os
+import tempfile
 from collections.abc import Callable, MutableMapping
 from contextlib import contextmanager
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
-from sklearn.base import clone
+from sklearn.base import BaseEstimator, TransformerMixin, clone
 from sklearn.pipeline import make_pipeline
 from sklearn.utils.metaestimators import available_if
 
@@ -43,6 +44,53 @@ if TYPE_CHECKING:
     from .resolver import MaterializationResolver
 
 _PREDICTION_PARTITION = {"FIT_CV": "validation", "REFIT": "final", "PREDICT": "final", "EXPLAIN": "final"}
+
+
+class _FrozenTransform(TransformerMixin, BaseEstimator):
+    """Keep a transform fitted by its own native task when the model fits."""
+
+    def __init__(self, transformer: Any) -> None:
+        self.transformer = transformer
+        self.fitted_ = True
+
+    def fit(self, X: Any, y: Any = None) -> _FrozenTransform:  # noqa: ARG002 - fitted upstream
+        return self
+
+    def transform(self, X: Any) -> Any:
+        return self.transformer.transform(X)
+
+
+class _FittedXChain:
+    """Host-owned state behind the transform node's native data output handle."""
+
+    def __init__(self, steps: list[Any]) -> None:
+        self.steps = steps
+
+    def transform(self, X: Any) -> Any:
+        for transformer in self.steps:
+            X = transformer.transform(X)
+        return X
+
+
+def _fitted_x_path(handle: int) -> Path | None:
+    directory = os.environ.get("N4A_DAGML_FITTED_X_DIR")
+    return Path(directory) / f"{handle}.joblib" if directory else None
+
+
+def _persist_fitted_x(handle: int, chain: _FittedXChain) -> None:
+    """Transfer a fitted data-edge payload between controller-specific CLI workers."""
+    path = _fitted_x_path(handle)
+    if path is None:
+        return
+    import joblib
+
+    with tempfile.NamedTemporaryFile(dir=path.parent, prefix=f"{handle}.", suffix=".joblib", delete=False) as temporary:
+        temporary_path = Path(temporary.name)
+    try:
+        joblib.dump(chain, temporary_path, compress=3)
+        os.replace(temporary_path, path)
+    finally:
+        temporary_path.unlink(missing_ok=True)
 
 
 def _framework_name(estimator: Any) -> str | None:
@@ -504,6 +552,11 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
     if predictions and predictions[0]["values"]:
         flat = [row[0] for row in predictions[0]["values"]]
         metrics["prediction_mean"] = float(sum(flat) / len(flat))
+    unsafe_flags = sorted({
+        flag
+        for view in task.get("data_views", {}).values()
+        for flag in (view.get("extra", {}).get("unsafe_flags") or [])
+    })
     return {
         "node_id": node_id,
         "outputs": _output_handles(task, _stable_handle(f"{node_id}:{phase}:{variant_label}:{fold_label}")),
@@ -528,10 +581,85 @@ def _build_result(task: dict[str, Any], predictions: list[dict[str, Any]], artif
             "data_model_shape_fingerprint": None,
             "aggregation_policy_fingerprint": None,
             "seed": task.get("seed"),
-            "unsafe_flags": [],
+            "unsafe_flags": unsafe_flags,
             "metrics": metrics,
         },
     }
+
+
+def _fitted_input_chain(task: dict[str, Any], model_store: MutableMapping[Any, Any]) -> _FittedXChain | None:
+    """Resolve a predecessor transform through the native data-edge handle."""
+    chains = []
+    for reference in task.get("input_handles", {}).values():
+        if not isinstance(reference, dict) or reference.get("kind") != "data":
+            continue
+        handle = reference.get("handle")
+        chain = model_store.get(handle)
+        if chain is None and isinstance(handle, int):
+            path = _fitted_x_path(handle)
+            if path is not None and path.is_file():
+                import joblib
+
+                chain = joblib.load(path)  # noqa: S301 - written by this run's own transform worker
+                model_store[handle] = chain
+        if isinstance(chain, _FittedXChain):
+            chains.append(chain)
+    if len(chains) > 1:
+        raise ValueError("fitted transform node has multiple predecessor X chains")
+    return chains[0] if chains else None
+
+
+def _run_fitted_transform_node(
+    task: dict[str, Any], resolver: MaterializationResolver,
+    node_lookup: Callable[[str], dict[str, Any]], model_store: MutableMapping[Any, Any],
+) -> dict[str, Any]:
+    """Fit one X operator on the scope chosen by its native data view."""
+    if task["phase"] not in ("FIT_CV", "REFIT"):
+        return _build_result(task, [], [], {})
+    if resolver.is_multi_source():
+        raise ValueError("fit_on_all with multiple feature sources needs source-scoped transform artifacts")
+    view = next(
+        (view for view in task.get("data_views", {}).values()
+         if view.get("partition") in ("fold_train", "full_train", "all_observations")),
+        None,
+    )
+    if view is None:
+        raise ValueError("fitted transform node has no native fit data view")
+    if view["partition"] == "all_observations":
+        dataset = resolver._dataset  # noqa: SLF001 - host data provider owns the all-observation cohort
+        samples = [int(sample) for sample in dataset.index_column("sample", {})]
+        origins = [int(origin) for origin in dataset.index_column("origin", {})]
+        excluded = {int(sample) for sample in dataset.index_column("sample", {"excluded": True})}
+        ids = [resolver._identity.to_wire(sample) for sample, origin in zip(samples, origins, strict=True)  # noqa: SLF001 - wire identity
+               if sample == origin and sample not in excluded]
+    else:
+        ids = _sample_ids(view)
+        if view.get("include_augmented"):
+            ids = resolver.expand_with_augmented_children(ids, task.get("fold_id") or "refit")
+    if not ids:
+        raise ValueError("fitted transform node received an empty fit cohort")
+
+    x_fit = np.asarray(resolver.resolve_features(ids, include_augmented=bool(view.get("include_augmented")))["values"])
+    preceding = _fitted_input_chain(task, model_store)
+    if preceding is None and any(key.startswith("transform:") for key in task.get("input_handles", {})):
+        raise ValueError("fitted transform node is missing its predecessor data-edge artifact")
+    steps = list(preceding.steps) if preceding is not None else []
+    for transformer in steps:
+        x_fit = np.asarray(transformer.transform(x_fit))
+    target_ids = resolver.target_sample_ids(ids)
+    y_fit = np.asarray(resolver.resolve_targets(target_ids)["values"])
+    if y_fit.ndim > 1:
+        y_fit = y_fit[:, 0]
+    node_id = task["node_plan"]["node_id"]
+    transformer = route_graph_node(node_lookup(node_id), variant_overrides=_variant_overrides(task, node_id))
+    transformer.fit(x_fit, y_fit)
+    variant_label = task.get("variant_id") or "base"
+    fold_label = task.get("fold_id") or "nofold"
+    handle = _stable_handle(f"{node_id}:{task['phase']}:{variant_label}:{fold_label}")
+    chain = _FittedXChain([*steps, transformer])
+    model_store[handle] = chain
+    _persist_fitted_x(handle, chain)
+    return _build_result(task, [], [], {})
 
 
 def _ordered_finetune_params(metadata: dict[str, Any]) -> dict[str, Any]:
@@ -602,9 +730,9 @@ def run_model_node(
 ) -> dict[str, Any]:
     """Execute a model-kind ``NodeTask`` with the real operator + real data; return a ``NodeResult``.
 
-    When ``edges`` are supplied, the model node reconstructs its upstream X-transform chain
-    (e.g. SNV→PLS) into a leakage-safe sklearn ``Pipeline`` fit on fold-train only — the
-    process-adapter delivers only sample_ids per node, so the chain is applied here. A
+    When X transforms have native data bindings, the model consumes their fitted chain
+    through a data-edge handle. Otherwise it reconstructs the upstream X-transform chain
+    (e.g. SNV→PLS) into a sklearn ``Pipeline`` fitted on the model's fold-train rows. A
     ``y_transform_node`` (a nirs4all ``y_processing`` step — a floating graph node with no edge
     to the model) is fit on fold-train ``y``, applied before fitting, and **inverse-transformed**
     over the predictions, exactly reproducing nirs4all target scaling.
@@ -672,10 +800,18 @@ def run_model_node(
             # Reject invalid controls before an HPO trial or upstream fit. The
             # real estimator receives the same overrides after HPO selection.
             apply_model_training_controls(clone(model), training_metadata, phase)
-        upstream = [
-            route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
+        fitted_chain = _fitted_input_chain(task, model_store)
+        if fitted_chain is None and any(
+            (node_lookup(upstream_id).get("metadata") or {}).get("nirs4all_fit_on_all") is True
             for upstream_id in _upstream_x_chain(node_id, edges)
-        ]
+        ):
+            raise ValueError("model node is missing a fitted preprocessing data-edge artifact")
+        upstream = (
+            [_FrozenTransform(fitted_chain)] if fitted_chain is not None else [
+                route_graph_node(node_lookup(upstream_id), variant_overrides=_variant_overrides(task, upstream_id))
+                for upstream_id in _upstream_x_chain(node_id, edges)
+            ]
+        )
         best_params = _resolve_finetune_best_params(
             graph_node=graph_node,
             node_id=node_id,
@@ -1131,9 +1267,10 @@ def run_node(
     A STACKING meta-model node (a ``model``-kind node bound to ``controller:nirs4all.meta_model``,
     recognised by its ``prediction_inputs`` of base-branch OOF) runs the meta-model over those OOF
     meta-features. Other ``model``/``tuner`` nodes execute and (with ``edges``/``y_transform_node``)
-    apply their upstream X-transform chain + target scaling; ``transform``/``y_transform`` are
-    passthrough output-handles (the model node reconstructs the chain), so each preprocessing step is
-    applied exactly once, at the model node. A ``prediction_join`` (concat-merge) node is also a
+    apply their upstream X-transform chain + target scaling. Bound ``transform`` nodes fit
+    their own operator and pass the fitted chain by data-edge handle; unbound transforms are
+    reconstructed at the model. ``y_transform`` remains a floating target transform.
+    A ``prediction_join`` (concat-merge) node is also a
     passthrough here — the dag-ml runtime reassembles it natively before any controller runs.
 
     ``sample_metadata`` (``{wire_id: {col: value}}``) honors separation-branch ``branch_view``
@@ -1144,6 +1281,8 @@ def run_node(
     check_cancellation()
     node_plan = task["node_plan"]
     kind = node_plan["kind"]
+    if kind == "transform" and task.get("data_views"):
+        return _run_fitted_transform_node(task, resolver, node_lookup, model_store)
     if kind in ("model", "tuner"):
         if node_plan["controller_id"] == _META_MODEL_CONTROLLER_ID:
             return run_meta_model_node(task, resolver, node_lookup, model_store)
