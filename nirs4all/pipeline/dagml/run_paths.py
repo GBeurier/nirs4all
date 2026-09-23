@@ -5073,6 +5073,11 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             step["id"] for step in canonical_dsl["steps"]
             if step.get("kind") == "merge_model"
             and step.get("metadata", {}).get("nirs4all_prediction_output") == "proba"
+        } | {
+            step["id"] for branch in canonical_dsl["steps"][0]["branches"]
+            for step in branch["steps"]
+            if step.get("kind") == "model"
+            and step.get("metadata", {}).get("nirs4all_prediction_output") == "proba"
         }  # noqa: SLF001
         view._dagml_stacking_source_orders = stacking_source_orders  # noqa: SLF001
     return result
