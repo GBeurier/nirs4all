@@ -1250,6 +1250,8 @@ def _build_fold_local_children(aug_steps: list[dict[str, Any]], spectro: Any, ba
 def _build_fold_local_prefix_views(
     prefix: list[Any], spectro: Any, base_folds: list[tuple[list[int], list[int]]],
     base_train: list[int], context: Any | None = None, chart_snapshots: list[Any] | None = None,
+    chart_transform_snapshots: dict[tuple[int, int], Any] | None = None,
+    chart_transform_offset: int = 0,
 ) -> tuple[dict[str, dict[int, list[int]]], dict[int, str], dict[str, tuple[Any, dict[int, int], set[int]]], list[Any]]:
     """Run the ordered augmentation prefix in every train fold and in the refit pool.
 
@@ -1272,7 +1274,12 @@ def _build_fold_local_prefix_views(
         fold_ds._indexer.update_by_indices(list(fold_train), {"partition": "train"})  # noqa: SLF001
         fold_ds._invalidate_content_hash()  # noqa: SLF001
         before = {int(sample) for sample in fold_ds.index_column("sample", {})}
-        stages = _materialize_augmentation_prefix(prefix, fold_ds, copy.deepcopy(context), chart_snapshots if fold_label == "refit" else None)
+        stages = _materialize_augmentation_prefix(
+            prefix, fold_ds, copy.deepcopy(context),
+            chart_snapshots if fold_label == "refit" else None,
+            chart_transform_snapshots if fold_label == "refit" else None,
+            transform_offset=chart_transform_offset,
+        )
         if fold_label == "refit":
             replay_stages = stages
         samples = [int(sample) for sample in fold_ds.index_column("sample", {})]
@@ -1315,7 +1322,7 @@ def _build_fold_local_prefix_views(
     return fold_children, augmentation_by_sample, feature_views, replay_stages
 
 
-def _apply_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any, context: Any | None = None) -> tuple[Any, list[Any]]:
+def _apply_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any, context: Any | None = None, chart_capture: Callable[[Any, Any], None] | None = None) -> tuple[Any, list[Any]]:
     """Materialize preceding transforms/exclusions and capture transform replay in order."""
     from nirs4all.pipeline.config.context import DataSelector, ExecutionContext, PipelineState, RuntimeContext, StepMetadata
     from nirs4all.pipeline.steps.step_runner import StepRunner
@@ -1345,6 +1352,8 @@ def _apply_pre_augmentation_steps(pre_aug_steps: list[Any], spectro: Any, contex
         _verify_pre_augmentation_replay(replay_stage, spectro, raw_train)
         if replay_stage is not None:
             replay_stages.append(replay_stage)
+        if changes_x and chart_capture is not None:
+            chart_capture(step, spectro)
         runtime_context.step_number += 1
     return context, replay_stages
 
@@ -1542,22 +1551,37 @@ def _augmentation_is_leakage_free(aug_step: dict[str, Any]) -> bool:
     return bool(transformers) and all(_operator_is_stateless(transformer) for transformer in transformers)
 
 
-def _materialize_augmentation_prefix(prefix: list[Any], spectro: Any, context: Any | None = None, chart_snapshots: list[Any] | None = None) -> list[Any]:
+def _materialize_augmentation_prefix(
+    prefix: list[Any], spectro: Any, context: Any | None = None,
+    chart_snapshots: list[Any] | None = None,
+    chart_transform_snapshots: dict[tuple[int, int], Any] | None = None,
+    *, transform_offset: int = 0,
+) -> list[Any]:
     """Execute transforms and augmentation in public order, capturing prediction replay."""
     replay_stages: list[Any] = []
     pending: list[Any] = []
+    augmentation_index = 0
+    transform_index = transform_offset
+
+    def capture_transform(_step: Any, dataset: Any) -> None:
+        nonlocal transform_index
+        transform_index += 1
+        if chart_transform_snapshots is not None:
+            chart_transform_snapshots[(augmentation_index, transform_index)] = copy.deepcopy(dataset)
+
     for step in prefix:
         if _is_augmentation_step(step):
-            context, stages = _apply_pre_augmentation_steps(pending, spectro, context)
+            context, stages = _apply_pre_augmentation_steps(pending, spectro, context, capture_transform)
             replay_stages.extend(stages)
             pending = []
             _apply_sample_augmentation(step, spectro, context)
+            augmentation_index += 1
             if chart_snapshots is not None:
                 chart_snapshots.append(copy.deepcopy(spectro))
         else:
             pending.append(step)
     if pending:
-        _context, stages = _apply_pre_augmentation_steps(pending, spectro, context)
+        _context, stages = _apply_pre_augmentation_steps(pending, spectro, context, capture_transform)
         replay_stages.extend(stages)
     return replay_stages
 
@@ -1585,9 +1609,13 @@ def _run_augmentation_full_train(
 
     aug_indices = [index for index, step in enumerate(pipeline) if _is_augmentation_step(step)]
     chart_snapshots = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
+    chart_transform_snapshots = {} if chart_snapshots is not None else None
     after_aug = aug_indices[-1] + 1
     materialize_end = after_aug + _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
-    replay_stages = _materialize_augmentation_prefix(pipeline[:materialize_end], spectro, chart_snapshots=chart_snapshots)
+    replay_stages = _materialize_augmentation_prefix(
+        pipeline[:materialize_end], spectro,
+        chart_snapshots=chart_snapshots, chart_transform_snapshots=chart_transform_snapshots,
+    )
     # The host model still needs the Y transform: materializing the prefix for the
     # augmentation controller does not add a Y node to the native model graph.
     y_prefix_steps = [step for step in pipeline[:aug_indices[0]] if isinstance(step, dict) and "y_processing" in step]
@@ -1611,6 +1639,7 @@ def _run_augmentation_full_train(
     )
     result = _attach_pre_augmentation_replay(result, replay_stages)
     result._dagml_chart_aug_snapshots = chart_snapshots
+    result._dagml_chart_transform_snapshots = chart_transform_snapshots
     return result
 
 
@@ -1641,6 +1670,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     """
     import pickle
     chart_snapshots = [] if getattr(spectro, "_dagml_capture_aug_charts", False) else None
+    chart_transform_snapshots = {} if chart_snapshots is not None else None
 
     # Legacy accepts the splitter before augmentation. Native folds are built on
     # base sample ids independently of its position, so route it after the last
@@ -1663,12 +1693,20 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     from .detect import _is_exclude_step
 
     pre_aug_steps = pipeline[:aug_index]
+    chart_transform_offset = sum(
+        (isinstance(step, dict) and set(step) == {"preprocessing"})
+        or (not isinstance(step, dict) and hasattr(step, "transform") and not hasattr(step, "predict"))
+        for step in pre_aug_steps
+    )
     y_prefix_steps = [step for step in pre_aug_steps if isinstance(step, dict) and "y_processing" in step]
     late_exclusion_length = _post_augmentation_exclusion_prefix_length(pipeline[after_aug:])
     post_aug_steps = pipeline[after_aug + late_exclusion_length:]
     materialized_early = bool((interleaved or late_exclusion_length) and not fold_local)
     if materialized_early:
-        replay_stages = _materialize_augmentation_prefix(pipeline[:after_aug + late_exclusion_length], spectro, chart_snapshots=chart_snapshots)
+        replay_stages = _materialize_augmentation_prefix(
+            pipeline[:after_aug + late_exclusion_length], spectro,
+            chart_snapshots=chart_snapshots, chart_transform_snapshots=chart_transform_snapshots,
+        )
         prefix_context = None
     else:
         prefix_context, replay_stages = _apply_pre_augmentation_steps(pre_aug_steps, spectro)
@@ -1731,13 +1769,17 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     fold_feature_views: dict[str, tuple[Any, dict[int, int], set[int]]] | None = None
     if fold_local and (interleaved or late_exclusion_length):
         fold_children, augmentation_by_sample_int, fold_feature_views, fold_replay = _build_fold_local_prefix_views(
-            pipeline[aug_index:after_aug + late_exclusion_length], spectro, base_folds, base_train, prefix_context, chart_snapshots,
+            pipeline[aug_index:after_aug + late_exclusion_length], spectro, base_folds, base_train,
+            prefix_context, chart_snapshots, chart_transform_snapshots, chart_transform_offset,
         )
         replay_stages.extend(fold_replay)
     elif fold_local:
         fold_children, augmentation_by_sample_int = _build_fold_local_children(aug_steps, spectro, base_folds, base_train, prefix_context, chart_snapshots)
     elif interleaved and not materialized_early:
-        replay_stages = _materialize_augmentation_prefix(pipeline[:after_aug], spectro, chart_snapshots=chart_snapshots)
+        replay_stages = _materialize_augmentation_prefix(
+            pipeline[:after_aug], spectro,
+            chart_snapshots=chart_snapshots, chart_transform_snapshots=chart_transform_snapshots,
+        )
     elif not materialized_early:
         for aug_step in aug_steps:
             _apply_sample_augmentation(aug_step, spectro, prefix_context)
@@ -1761,6 +1803,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
         )
         result = _attach_pre_augmentation_replay(result, replay_stages)
         result._dagml_chart_aug_snapshots = chart_snapshots
+        result._dagml_chart_transform_snapshots = chart_transform_snapshots
         return result
 
     # Identity is minted on the AUGMENTED dataset so children get their own observation_id + the origin's
@@ -1819,6 +1862,7 @@ def _run_augmentation(pipeline: list[Any], spectro: Any, dataset_arg: str, cli: 
     )
     result = _attach_pre_augmentation_replay(result, replay_stages)
     result._dagml_chart_aug_snapshots = chart_snapshots
+    result._dagml_chart_transform_snapshots = chart_transform_snapshots
     if capture is not None:
         capture.update(
             scores=outcome["scores"], results=outcome["results"], identity=identity,

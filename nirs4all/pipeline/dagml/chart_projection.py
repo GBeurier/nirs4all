@@ -29,9 +29,11 @@ def validate_chart_projection(pipeline: list[Any], spectro: Any) -> None:
     has_augmentation = any(_is_augmentation_step(step) for step in pipeline)
     for index, step in enumerate(pipeline):
         if _is_chart_step(step):
-            if (uncertain_stage or (transformed and spectro.is_multi_source())
-                    or (has_augmentation and transformed and not augmentation_seen)
-                    or (augmentation_seen and transformed and any(_is_augmentation_step(later) for later in pipeline[index + 1:]))):
+            materialized_between_augmentations = augmentation_seen and any(
+                _is_augmentation_step(later) for later in pipeline[index + 1:]
+            )
+            if (uncertain_stage or (transformed and spectro.is_multi_source() and not materialized_between_augmentations)
+                    or (has_augmentation and transformed and not augmentation_seen)):
                 raise NotImplementedError("This chart stage needs a captured branch/source snapshot; a raw-data substitute would be misleading.")
         elif _is_split_step(step) or step is None:
             continue
@@ -122,6 +124,7 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
     augmentation_count = 0
     prefix_at_last_augmentation = 0
     augmentation_snapshots = getattr(result, "_dagml_chart_aug_snapshots", None)
+    transform_snapshots = getattr(result, "_dagml_chart_transform_snapshots", None) or {}
     expected_augmentations = sum(_is_augmentation_step(step) for step in pipeline)
     if expected_augmentations and (augmentation_snapshots is None or len(augmentation_snapshots) != expected_augmentations):
         raise RuntimeError("Chart augmentation stages are missing from the scored full-training pass.")
@@ -138,9 +141,12 @@ def render_run_charts(result: Any, pipeline: list[Any], spectro: Any, *, origina
             elif (isinstance(step, dict) and set(step) == {"preprocessing"}) or (not isinstance(step, dict) and hasattr(step, "transform") and not hasattr(step, "predict")):
                 prefix += 1
             continue
-        snapshot = copy.deepcopy(augmentation_snapshots[augmentation_count - 1] if augmentation_count else (original_spectro or spectro))
+        materialized_stage = transform_snapshots.get((augmentation_count, prefix)) if augmentation_count else None
+        snapshot = copy.deepcopy(materialized_stage if materialized_stage is not None else (
+            augmentation_snapshots[augmentation_count - 1] if augmentation_count else (original_spectro or spectro)
+        ))
         snapshot.set_folds(_folds_from_scores(result) if after_split else [])
-        pending_prefix = prefix - prefix_at_last_augmentation if augmentation_count else prefix
+        pending_prefix = 0 if materialized_stage is not None else (prefix - prefix_at_last_augmentation if augmentation_count else prefix)
         if pending_prefix:
             if pending_prefix > len(fitted_steps):
                 raise RuntimeError("Chart transform prefix is missing from the scored refit artifact.")

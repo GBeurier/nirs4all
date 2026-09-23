@@ -157,6 +157,34 @@ def test_repeated_global_augmentation_charts_use_stage_scoped_samples(tmp_path):
         assert len(samples) == expected_count
 
 
+def test_chart_between_augmentations_uses_materialized_transform_stage(tmp_path):
+    import matplotlib
+
+    matplotlib.use("Agg")
+    import nirs4all
+
+    rng = np.random.default_rng(214)
+    X = rng.normal(size=(24, 5))
+    y = X @ np.arange(1.0, 6.0)
+    augmentation = {"sample_augmentation": {
+        "transformers": [GaussianAdditiveNoise(sigma=0.01)],
+        "count": 1, "selection": "all", "random_state": 42,
+    }}
+    pipeline = [augmentation, StandardScaler(), "chart_2d", augmentation, KFold(2), Ridge()]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
+    native = nirs4all.run(pipeline, (X, y), engine="dag-ml", workspace_path=tmp_path / "dag", save_artifacts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    assert np.isfinite(native.cv_best_score)
+    stage = native._dagml_chart_transform_snapshots[(1, 1)]
+    report = Path(next(iter(native.per_dataset.values()))["chart_reports"][0])
+    with report.with_suffix(".csv").open() as stream:
+        rows = list(csv.DictReader(stream))
+    assert len({int(row["sample_index"]) for row in rows}) == 48
+    values = [float(row["value"]) for row in rows]
+    np.testing.assert_array_equal(np.asarray(values).reshape(48, -1), np.asarray(stage.x({"partition": "train"}, layout="2d")))
+    assert "full-training REFIT augmentation view" in report.read_text()
+
+
 def test_fold_local_augmentation_chart_uses_only_full_train_refit_children(tmp_path):
     import nirs4all
 
@@ -202,16 +230,17 @@ def test_interleaved_fold_local_augmentation_charts_capture_each_refit_stage(tmp
         "transformers": [GaussianAdditiveNoise(sigma=0.02)],
         "count": 1, "selection": "all", "random_state": 42,
     }}
-    pipeline = [balanced, "chart_2d", StandardScaler(), standard, "chart_2d", KFold(3), PLSRegression(n_components=3)]
+    pipeline = [balanced, "chart_2d", StandardScaler(), "chart_2d", standard, "chart_2d", KFold(3), PLSRegression(n_components=3)]
     legacy = nirs4all.run(pipeline, configs, engine="legacy", workspace_path=tmp_path / "legacy", save_artifacts=False, verbose=0)
     native = nirs4all.run(pipeline, configs, engine="dag-ml", workspace_path=tmp_path / "dag", save_artifacts=False, verbose=0)
     assert np.isfinite(legacy.cv_best_score)
     assert np.isfinite(native.cv_best_score)
     snapshots = native._dagml_chart_aug_snapshots
     assert len(snapshots) == 2
+    transformed_stage = native._dagml_chart_transform_snapshots[(1, 1)]
     reports = [Path(path) for item in native.per_dataset.values() for path in item["chart_reports"]]
-    assert len(reports) == 2
-    for report, snapshot, expected_count in zip(reports, snapshots, (78, 126), strict=True):
+    assert len(reports) == 3
+    for report, snapshot, expected_count in zip(reports, (snapshots[0], transformed_stage, snapshots[1]), (78, 78, 126), strict=True):
         with report.with_suffix(".csv").open() as stream:
             samples = {int(row["sample_index"]) for row in csv.DictReader(stream)}
         assert samples == set(snapshot.index_column("sample", {"partition": "train"}))
