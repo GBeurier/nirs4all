@@ -120,6 +120,12 @@ Control the training process:
 }
 ```
 
+For TensorFlow pipelines, `custom_callbacks` and `cyclic_lr` are not currently
+portable training controls. A public legacy run serializes custom callback
+instances as strings, so Keras rejects them before fitting. With current Keras
+3, the legacy cyclic-rate callback runs but cannot assign its learning rate;
+the optimizer keeps its initial rate. DAG-ML rejects both controls explicitly.
+
 ### model_params
 
 Customize the architecture:
