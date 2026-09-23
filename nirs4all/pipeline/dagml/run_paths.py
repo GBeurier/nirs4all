@@ -1427,8 +1427,14 @@ def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> 
         if branches is None:
             raise DagMlUnsupported("pre-augmentation branch replay has an invalid feature selection")
     try:
-        y = np.asarray(spectro.y({"partition": "train"}, include_augmented=True))
-        raw_blocks = spectro.x({"partition": "train"}, layout="2d", concat_source=False, include_augmented=True)
+        # A wrapped preprocessing step carries fit-scope metadata, not estimator
+        # parameters. Mirror the legacy controller's fit cohort while keeping the
+        # full feature chain available for prediction replay.
+        fit_on_all = any(isinstance(step, dict) and step.get("fit_on_all") is True
+                         for step in pre_aug_steps)
+        fit_selector = {} if fit_on_all else {"partition": "train"}
+        y = np.asarray(spectro.y(fit_selector, include_augmented=True))
+        raw_blocks = spectro.x(fit_selector, layout="2d", concat_source=False, include_augmented=True)
         blocks = raw_blocks if isinstance(raw_blocks, list) else [raw_blocks]
         chains = []
         for source_index, block in enumerate(blocks):
@@ -1436,7 +1442,8 @@ def _capture_pre_augmentation_replay(pre_aug_steps: list[Any], spectro: Any) -> 
                 [_branch_merge_transformer_step(cast(list[list[Any]], branches), "features")]
                 if branch_merge else [
                     FeatureConcat(**_lower_feature_augmentation(step)["params"])
-                    if isinstance(step, dict) and "feature_augmentation" in step else clone(step)
+                    if isinstance(step, dict) and "feature_augmentation" in step else
+                    clone(step["preprocessing"] if isinstance(step, dict) and "preprocessing" in step else step)
                     for step in pre_aug_steps
                 ]
             )

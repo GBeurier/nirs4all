@@ -616,7 +616,7 @@ def test_multisource_balanced_augmentation_is_fold_local_and_exportable(tmp_path
 @pytest.mark.parametrize("exclude_first", [False, True])
 @pytest.mark.parametrize("with_splitter", [False, True])
 def test_public_exclusion_and_augmentation_compose(exclude_first: bool, with_splitter: bool) -> None:
-    """Filter tags and augmented lineage coexist in native train/CV pools."""
+    """Excluded physical rows leave the augmented fit pool without changing legacy predictions."""
     path = dataset_path("regression")
     augmentation = {"sample_augmentation": {
         "transformers": [GaussianAdditiveNoise(sigma=0.01)],
@@ -628,16 +628,47 @@ def test_public_exclusion_and_augmentation_compose(exclude_first: bool, with_spl
         pipeline.append(KFold(n_splits=3, shuffle=True, random_state=42))
     pipeline.append({"model": PLSRegression(n_components=3)})
 
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
     if with_splitter:
         result = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False)
     else:
         with pytest.warns(NoSplitEvaluationWarning):
             result = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False)
     assert result.execution_engine == "dag-ml"
-    assert np.isfinite(result.best_rmse)
-    base_count = len(DatasetConfigs(path).get_dataset_at(0).index_column("sample", {"partition": "train"}))
-    reports = [report for report in result._dagml_score_set["reports"] if report["partition"] == ("validation" if with_splitter else "final")]
-    assert any(report["row_count"] < base_count for report in reports)
+    assert result.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-8)
+    if with_splitter:
+        assert result.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-8)
+    augmented = DatasetConfigs(path).get_dataset_at(0)
+    _apply_sample_augmentation(augmentation, augmented)
+    full_augmented_count = len(augmented.index_column("sample", {"partition": "train"}))
+    final_fit = next(report for report in result._dagml_score_set["reports"] if report["partition"] == "final")
+    # The excluded cohort can still exceed the original base count after child
+    # generation. Compare against the actual unfiltered augmented universe.
+    assert 0 < final_fit["row_count"] < full_augmented_count
+    native_rows = result.predictions.filter_predictions()
+    legacy_rows = legacy.predictions.filter_predictions()
+    for native in (row for row in native_rows if row["partition"] == "test"):
+        matching = [row for row in legacy_rows if row["partition"] == "test"
+                    and (not with_splitter or str(row["fold_id"]) == str(native["fold_id"]))]
+        assert matching
+        assert list(native["sample_indices"]) == list(matching[0]["sample_indices"])
+        np.testing.assert_allclose(np.asarray(native["y_pred"]).ravel(),
+                                   np.asarray(matching[0]["y_pred"]).ravel(), atol=1e-8)
+    if with_splitter:
+        original_targets = np.asarray(DatasetConfigs(path).get_dataset_at(0).y({})).ravel()
+        for fold_id in range(3):
+            native_val = next(row for row in native_rows if row["partition"] == "val"
+                              and str(row["fold_id"]) == str(fold_id))
+            legacy_val = next(row for row in legacy_rows if row["partition"] == "val"
+                              and str(row["fold_id"]) == str(fold_id))
+            # Legacy stores compacted row positions after exclusion. DAG keeps
+            # physical dataset IDs, whose targets attest the actual fold cohort.
+            np.testing.assert_allclose(np.asarray(native_val["y_true"]).ravel(),
+                                       original_targets[np.asarray(native_val["sample_indices"], dtype=int)])
+            np.testing.assert_allclose(np.asarray(native_val["y_true"]).ravel(),
+                                       np.asarray(legacy_val["y_true"]).ravel())
+            np.testing.assert_allclose(np.asarray(native_val["y_pred"]).ravel(),
+                                       np.asarray(legacy_val["y_pred"]).ravel(), atol=1e-8)
 
 
 @pytest.mark.parametrize("with_exclusion", [False, True])
