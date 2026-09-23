@@ -4867,6 +4867,7 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
     )
     final_meta_node_id = _META_NODE_ID
     final_meta_learner = meta_learner
+    stacking_source_orders: dict[str, list[str]] = {}
     if downstream_meta_steps:
         import dag_ml
 
@@ -4874,6 +4875,16 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
         from nirs4all.pipeline.dagml_bridge import _META_MODEL_CONTROLLER_ID, _META_MODEL_REF, _json_safe_params, _qualname
 
         previous_meta_learner = meta_learner
+        source_nodes: dict[str, list[str]] = {}
+        for branch in canonical_dsl["steps"][0]["branches"]:
+            for source_step in branch["steps"]:
+                if source_step["kind"] == "model":
+                    source_name = source_step["operator"]["class"].rsplit(".", 1)[-1]
+                    source_nodes.setdefault(source_name, []).append(source_step["id"])
+        first_meta_step = pipeline[-len(downstream_meta_steps) - 1]
+        first_meta_name = first_meta_step.get("name") or first_meta_step["model"].name
+        source_nodes[first_meta_name] = [_META_NODE_ID]
+        previous_meta_name = first_meta_name
         for level, step in enumerate(downstream_meta_steps, start=2):
             if step["model"].use_proba and callable(getattr(previous_meta_learner, "predict_proba", None)):
                 canonical_dsl["steps"][-1]["metadata"]["nirs4all_prediction_output"] = "proba"
@@ -4887,11 +4898,17 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             final_meta_learner = step["model"].model
             previous_meta_learner = final_meta_learner
             final_meta_node_id = f"{_META_NODE_ID}.level{level}"
+            requested_names = list(dict.fromkeys(step["model"].source_models))
+            explicit_sources = requested_names != [previous_meta_name]
+            sources = [node_id for name in requested_names for node_id in source_nodes[name]] if explicit_sources else []
+            if sources:
+                stacking_source_orders[final_meta_node_id] = sources
             canonical_dsl["steps"].append({
                 "kind": "merge_model",
                 "id": final_meta_node_id,
                 "operator": {"class": _qualname(final_meta_learner), "ref": _META_MODEL_REF},
                 "params": _json_safe_params(final_meta_learner),
+                **({"sources": sources} if sources else {}),
                 "metadata": {
                     **_stacking_model_metadata([step]),
                     "controller_id": _META_MODEL_CONTROLLER_ID,
@@ -4904,6 +4921,9 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
                     } if next_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN) else {}),
                 },
             })
+            current_name = step.get("name") or step["model"].name
+            source_nodes[current_name] = [final_meta_node_id]
+            previous_meta_name = current_name
         if any(step["model"].stacking_config.test_aggregation in (TestAggregation.BEST_FOLD, TestAggregation.WEIGHTED_MEAN)
                for step in downstream_meta_steps):
             outer_fold_ids = [fold["fold_id"] for fold in build_fold_set(identity, folds, set_id="folds.stacking.outer")["folds"]]
@@ -5054,4 +5074,5 @@ def _run_stacking_branch(pipeline: list[Any], branches: list[list[Any]], meta_le
             if step.get("kind") == "merge_model"
             and step.get("metadata", {}).get("nirs4all_prediction_output") == "proba"
         }  # noqa: SLF001
+        view._dagml_stacking_source_orders = stacking_source_orders  # noqa: SLF001
     return result

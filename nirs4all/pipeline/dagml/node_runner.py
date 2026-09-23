@@ -1668,7 +1668,8 @@ def _meta_feature_matrix(specs: list[dict[str, Any]], node_id: str) -> tuple[lis
     return sample_ids, np.asarray([rows_by_sample[sample_id] for sample_id in sample_ids], dtype=float)
 
 
-def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None) -> list[dict[str, Any]]:
+def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None,
+                       source_order: list[str] | None = None) -> list[dict[str, Any]]:
     """The meta-node's base specs in canonical producer order, selecting one delivery kind.
 
     dag-ml keys each base producer's Validation OOF under ``"{producer}.{port}"`` and its off-fold
@@ -1694,6 +1695,12 @@ def _ordered_oof_specs(prediction_inputs: dict[str, Any], *, suffix: str | None)
                 selected[key] = spec
         elif key.endswith(tag):
             selected[key[: -len(tag)]] = spec
+    if source_order and selected:
+        by_producer = {str(spec["producer_node"]): spec for spec in selected.values()}
+        missing = [source for source in source_order if source not in by_producer]
+        if missing:
+            raise ValueError(f"meta-model is missing declared prediction sources for {suffix}: {missing}; received: {list(by_producer)}; keys: {list(prediction_inputs)}")
+        return [by_producer[source] for source in source_order]
     return [selected[base_key] for base_key in sorted(selected)]
 
 
@@ -1759,6 +1766,8 @@ def run_meta_model_node(
     prediction_inputs = task.get("prediction_inputs") or {}
     if not prediction_inputs:
         raise ValueError(f"meta-model node {node_id!r} received no prediction_inputs (no base branch OOF)")
+    metadata = node_lookup(node_id).get("metadata") or {}
+    source_order = metadata.get("prediction_source_order")
 
     if phase == "PREDICT":
         # PREDICT replays the persisted meta-learner over the base producers' PREDICT-set predictions
@@ -1767,7 +1776,7 @@ def run_meta_model_node(
         # one is a real wiring error.
         artifact_handle = _stable_handle(_artifact_id(node_id, variant_label))
         estimator = model_store[artifact_handle]["estimator"]
-        predict_specs = _ordered_oof_specs(prediction_inputs, suffix="predict")
+        predict_specs = _ordered_oof_specs(prediction_inputs, suffix="predict", source_order=source_order)
         if not predict_specs:
             raise ValueError(f"meta-model node {node_id!r} REFIT/PREDICT received no `:predict` off-fold inputs (no base predict-set predictions)")
         sample_ids, x_meta = _meta_feature_matrix(predict_specs, node_id)
@@ -1779,7 +1788,7 @@ def run_meta_model_node(
 
     # FIT_CV + REFIT both fit on Validation OOF. The unsuffixed OOF specs are the
     # meta-learner's training features; in FIT_CV they are inner OOF, in REFIT the full OOF.
-    oof_specs = _ordered_oof_specs(prediction_inputs, suffix=None)
+    oof_specs = _ordered_oof_specs(prediction_inputs, suffix=None, source_order=source_order)
     if not oof_specs:
         raise ValueError(f"meta-model node {node_id!r} received no Validation OOF inputs to fit on")
     sample_ids, x_meta = _meta_feature_matrix(oof_specs, node_id)
@@ -1809,7 +1818,7 @@ def run_meta_model_node(
         # The outer rows must be distinct from the inner rows just used to fit.
         # Refuse a direct/old lowering rather than silently emitting optimistic
         # same-fold predictions.
-        outer_specs = _ordered_oof_specs(prediction_inputs, suffix="outer")
+        outer_specs = _ordered_oof_specs(prediction_inputs, suffix="outer", source_order=source_order)
         if not outer_specs:
             raise ValueError(
                 f"meta-model node {node_id!r} FIT_CV received no `:outer` OOF evaluation inputs; "
@@ -1851,7 +1860,7 @@ def run_meta_model_node(
         # held-out Test predictions). The meta-model was fit on Validation OOF ONLY (above), so this is
         # leakage-safe: the Test meta-features come from base Test predictions, never OOF/train. Emit a
         # `(test, fold_id=None)` block so dag-ml scores best_rmse (off-fold convention, like a base model).
-        test_specs = _ordered_oof_specs(prediction_inputs, suffix="refit")
+        test_specs = _ordered_oof_specs(prediction_inputs, suffix="refit", source_order=source_order)
         if test_specs:
             test_ids, x_test = _meta_feature_matrix(test_specs, node_id)
             test_pred = predict_values(fit_estimator, x_test)
