@@ -70,6 +70,7 @@ class NativeMethodsArchiveRunResult(RunResult):
         package_json: str,
         archive_id: str,
         methods_library_path: str,
+        pipeline: list[Any],
     ) -> None:
         super().__init__(
             predictions=projected.predictions,
@@ -86,6 +87,7 @@ class NativeMethodsArchiveRunResult(RunResult):
         self._native_package_json = package_json
         self._native_archive_id = archive_id
         self._methods_library_path = methods_library_path
+        self._native_pipeline = list(pipeline)
         self._native_archive_reference: dict[str, str] | None = None
         self._native_export_validation: tuple[Path, Any, str] | None = None
 
@@ -389,6 +391,7 @@ def run_native_methods_archive(
             package_json=package_json,
             archive_id=f"archive:{fingerprint}",
             methods_library_path=methods_library_path,
+            pipeline=pipeline,
         )
         if native_session is not None:
             native_session._adopt_native_result(result, dataset)

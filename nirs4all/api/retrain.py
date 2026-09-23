@@ -17,12 +17,14 @@ Example:
     >>> print(f"New RMSE: {result.best_rmse:.4f}")
 """
 
+from __future__ import annotations
+
 import hashlib
 import json
 import zipfile
 from collections.abc import Mapping
 from pathlib import Path
-from typing import Any, TypeAlias, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, cast
 
 import numpy as np
 
@@ -31,6 +33,9 @@ from nirs4all.data.dataset import SpectroDataset
 from nirs4all.pipeline.dagml.rt import RtError
 
 from .result import RunResult
+
+if TYPE_CHECKING:
+    from .native_refit_result import NativeMethodsRefitResult
 from .retrain_capabilities import (
     PYTHON_LIBRARY_RETRAIN_PLUGIN,
     RetrainCapabilityDecision,
@@ -284,7 +289,7 @@ def retrain(
     verbose: int = 1,
     save_artifacts: bool = True,
     **kwargs: Any
-) -> RunResult:
+) -> RunResult | NativeMethodsRefitResult:
     """Retrain a pipeline on new data.
 
     This function enables retraining trained pipelines with various modes,
@@ -427,6 +432,36 @@ def retrain(
             mode=mode,
             new_model=new_model,
         )
+
+    if decision.lane == "native":
+        from .native_archive_training import NativeMethodsArchiveRunResult
+        from .native_refit_result import NativeMethodsRefitResult
+        from .native_result import NativeMethodsRunResult
+        from .native_training import refit_native_methods
+
+        if mode != "full" or new_model is not None or epochs is not None or options:
+            raise _native_retrain_request_error(
+                "native Methods V3 full refit accepts only the parent result and new dataset",
+                capability="core_archive_v3_retrain_option",
+            )
+        if not save_artifacts:
+            raise _native_retrain_request_error(
+                "native Methods V3 full refit requires save_artifacts=True",
+                capability="core_archive_v3_retrain_option",
+            )
+        if not isinstance(source, (NativeMethodsRunResult, NativeMethodsArchiveRunResult)):
+            raise _native_retrain_request_error(
+                "native Methods V3 full refit requires a native Methods run result parent",
+                capability="core_archive_v3_retrain_source",
+            )
+        if not isinstance(data, dict):
+            raise _native_retrain_request_error(
+                "native Methods V3 full refit requires a dataset mapping with X, y, and sample_ids",
+                capability="core_archive_v3_retrain_data",
+            )
+        _ = verbose
+        result: NativeMethodsRefitResult = refit_native_methods(source, data, name=name)
+        return result
 
     # PipelineRunner is reachable only through the explicit Python-library
     # transfer plugin or the explicitly selected ADR-24 rollback lane.
