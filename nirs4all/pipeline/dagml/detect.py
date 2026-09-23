@@ -1975,7 +1975,7 @@ def _detect_proba_mean_stacking_branch(
         metric = config.get("metric") or "rmse"
         if not isinstance(metric, str) or not metric.strip():
             return None
-        if select != "all" and metric not in {"rmse", "mse", "mae", "r2", "accuracy"}:
+        if select != "all" and metric not in {"rmse", "mse", "mae", "r2", "accuracy", "f1", "auc", "log_loss"}:
             return None
         use_proba = config.get("proba", aggregate == "proba_mean")
         if not isinstance(use_proba, bool) or (aggregate == "proba_mean" and not use_proba) or config.get("sources", "all") != "all":

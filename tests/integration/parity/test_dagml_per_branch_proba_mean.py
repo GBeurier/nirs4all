@@ -80,4 +80,45 @@ def test_score_selection_is_lowered_or_rejected_explicitly() -> None:
     assert detected[2][0]["select"] == "best"
     assert detected[2][0]["metric"] == "accuracy"
     pipeline[2]["merge"]["predictions"][0]["metric"] = "f1"
-    assert _detect_proba_mean_stacking_branch(pipeline) is None
+    assert _detect_proba_mean_stacking_branch(pipeline)[2][0]["metric"] == "f1"
+    for unavailable_legacy_score in ("auc", "log_loss"):
+        pipeline[2]["merge"]["predictions"][0]["metric"] = unavailable_legacy_score
+        assert _detect_proba_mean_stacking_branch(pipeline)[2][0]["metric"] == unavailable_legacy_score
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+@pytest.mark.parametrize("metric", ["f1", "auc", "log_loss"])
+def test_legacy_merge_selection_metrics_complete_native_stacking(tmp_path, monkeypatch, mechanism, metric):
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    rng = np.random.default_rng(731)
+    features = rng.normal(size=(60, 6))
+    labels = (features[:, 0] + 0.5 * features[:, 1] > 0).astype(int)
+    pipeline = _pipeline()
+    pipeline[2]["merge"]["predictions"][0].update({"select": "best", "metric": metric})
+    legacy = nirs4all.run(pipeline, (features, labels), engine="legacy", refit=False,
+                          save_artifacts=False, save_charts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    native = nirs4all.run(pipeline, (features, labels), engine="dag-ml", refit=False,
+                         allow_fallback=False, workspace_path=tmp_path / metric,
+                         save_artifacts=False, save_charts=False, verbose=0)
+    try:
+        assert np.isfinite(native.cv_best_score)
+        reports = native._dagml_score_set["reports"]
+        base_reports = [report for report in reports if str(report["producer_node"]).startswith("branch:")
+                        and report["partition"] == "validation"]
+        assert base_reports
+        if metric == "f1":
+            assert all(np.isfinite(report["metrics"]["f1"]) for report in base_reports)
+        else:
+            # Legacy has no ranked validation evidence for these two names in
+            # this pipeline; both engines retain first-model fallback.
+            assert all(metric not in report["metrics"] for report in base_reports)
+    finally:
+        native.close()
