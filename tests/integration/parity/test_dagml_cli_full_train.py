@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import zipfile
 
@@ -209,10 +210,29 @@ def test_no_splitter_cli_by_source_auto_matches_independent_source_models(tmp_pa
 
         with pytest.raises(ValueError, match="package fingerprint mismatch"):
             load_general_archive(corrupt_package_archive)
+        forged_package_archive = tmp_path / f"by_source_package_forged_{mode}.n4a"
+        with zipfile.ZipFile(archive) as original, zipfile.ZipFile(forged_package_archive, "w") as forged:
+            forged_package = json.loads(original.read(package_ref["path"]))
+            forged_package["outputs"][0]["output_id"] = "output:forged"
+            forged_bytes = json.dumps(forged_package, sort_keys=True, separators=(",", ":")).encode()
+            for member in original.namelist():
+                payload = original.read(member)
+                if member == package_ref["path"]:
+                    payload = forged_bytes
+                elif member == "manifest.json":
+                    forged_manifest = json.loads(payload)
+                    forged_manifest["dagml_initial_full_refit_package_ref"]["sha256"] = hashlib.sha256(forged_bytes).hexdigest()
+                    payload = json.dumps(forged_manifest).encode()
+                forged.writestr(member, payload)
+        with pytest.raises(ValueError, match="fingerprint"):
+            load_general_archive(forged_package_archive)
         with pytest.raises(ValueError, match="multiple named outputs"):
             nirs4all.predict(archive, full_x)
         public_selected = nirs4all.predict(archive, full_x, output=output_ids[1])
         public_named = nirs4all.predict(archive, named_sources, output=output_ids[1])
+        assert public_selected.metadata["execution_profile"] == "initial_full_refit_package_replay"
+        assert public_named.metadata["execution_profile"] == "initial_full_refit_package_replay"
+        assert public_named.metadata["package_fingerprint"] == package["package_fingerprint"]
         np.testing.assert_allclose(
             np.asarray(public_named.y_pred).ravel(),
             np.asarray(named_outputs[output_ids[1]]).ravel(), atol=1e-4,

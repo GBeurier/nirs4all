@@ -2592,13 +2592,24 @@ class RunResult:
             native_manifest = cast(Mapping[str, Any], native["manifest"])
             initial_package = native.get("initial_full_refit_package")
             native_output_by_node: dict[str, str] = {}
+            native_artifact_by_node: dict[str, str] = {}
             if initial_package is not None:
                 for binding in initial_package["outputs"]:
                     node_id, output_id = binding["node_id"], binding["output_id"]
                     if node_id in native_output_by_node:
                         return None
                     native_output_by_node[node_id] = output_id
-                if any(artifact.get("producer_node") not in native_output_by_node for _index, artifact in indexed):
+                for item in initial_package["artifacts"]:
+                    record = item["record"]
+                    node_id = record["node_id"]
+                    if node_id in native_artifact_by_node:
+                        return None
+                    native_artifact_by_node[node_id] = record["artifact"]["id"]
+                if any(
+                    artifact.get("producer_node") not in native_output_by_node
+                    or artifact.get("artifact_id") != native_artifact_by_node.get(artifact.get("producer_node"))
+                    for _index, artifact in indexed
+                ):
                     return None
             provenance = _dagml_native_bundle_provenance(
                 native_manifest, export_path="dagml_native_independent_sources",
@@ -2622,6 +2633,7 @@ class RunResult:
                     {"source_id": source_id, "source_index": index, "output_binding_id": binding_id,
                      "producer_node": artifact.get("producer_node"), "feature_width": independent_model.source_widths[index],
                      **({"dagml_output_id": native_output_by_node[artifact["producer_node"]]} if initial_package is not None else {}),
+                     **({"dagml_artifact_id": artifact["artifact_id"]} if initial_package is not None else {}),
                      **({"feature_axis_cm1": list(independent_model.feature_axes_cm1[index] or ())}
                         if independent_model.feature_axes_cm1[index] is not None else {})}
                     for (index, artifact), source_id, binding_id in zip(
