@@ -300,3 +300,49 @@ def test_optuna_storage_keeps_outer_training_scopes_separate(tmp_path, monkeypat
             [KFold(2), {"model": PLSRegression(), "finetune_params": {**base, "study_name": "dag", "resume": True}}],
             (X, y), engine="dag-ml", save_charts=False,
         )
+
+
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
+def test_optuna_phases_follow_native_budgets_and_replay(tmp_path, monkeypatch, mechanism):
+    pytest.importorskip("optuna")
+    import nirs4all
+    from nirs4all.optimization.optuna import OptunaManager
+
+    X, y = _data()
+    settings = {"engine": "optuna", "approach": "grouped", "sampler": "grid", "seed": 7,
+                "n_trials": 1, "phases": [{"n_trials": 1, "sampler": "random"},
+                                          {"n_trials": 2, "sampler": "tpe"}],
+                "model_params": {"n_components": ["int", 1, 3]}}
+    pipeline = [KFold(2), {"model": PLSRegression(), "finetune_params": settings}]
+    legacy = nirs4all.run(pipeline, (X, y), engine="legacy", save_charts=False)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
+    if mechanism == "subprocess":
+        from tests.integration.parity._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
+    original_sampler = OptunaManager._create_sampler  # noqa: SLF001
+    sampler_calls = []
+
+    def record_sampler(self, sampler_type, params, seed=None):
+        sampler_calls.append(sampler_type)
+        return original_sampler(self, sampler_type, params, seed)
+
+    monkeypatch.setattr(OptunaManager, "_create_sampler", record_sampler)
+    result = nirs4all.run(pipeline, (X, y), engine="dag-ml", save_charts=False)
+    history = result._dagml_refit_artifacts[0]["estimator"]._nirs4all_host_hpo_history  # noqa: SLF001
+    assert len(history) == 3
+    assert all(len(search["trials"]) == 3 for search in history)
+    assert all(search["optimizer"]["phase_trial_budgets"] == [1, 2] for search in history)
+    if mechanism == "in_process":
+        assert sampler_calls.count("random") == sampler_calls.count("tpe") == 3
+    fitted = result._dagml_refit_artifacts[0]["estimator"]  # noqa: SLF001
+    expected = fitted.predict(X[:4]).ravel()
+    archive = result.export(tmp_path / "phased.n4a")
+    np.testing.assert_allclose(nirs4all.predict(archive, X[:4]).y_pred, expected)
+    result.close()

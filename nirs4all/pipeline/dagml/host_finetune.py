@@ -50,7 +50,7 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
     if engine == "n4m":
         allowed.update({"force_params", "n_startup_trials", "reduction_factor"})
     else:
-        allowed.update({"storage", "study_name", "resume", "force_params"})
+        allowed.update({"storage", "study_name", "resume", "force_params", "phases"})
     unknown = params.keys() - allowed
     if unknown:
         raise NotImplementedError(f"DAG host finetuning controls not wired yet: {sorted(unknown)}")
@@ -75,6 +75,10 @@ def validate_host_finetune(config: dict[str, Any], *, internal: bool = False) ->
     budget = params.get("n_trials", 50)
     if type(budget) is not int or not 0 < budget <= 2**32 - 1:
         raise ValueError("finetune_params.n_trials must be a positive u32 integer")
+    if engine == "optuna" and "phases" in params:
+        phase_budgets = [phase["n_trials"] for phase in params["phases"]]
+        if any(type(value) is not int or value <= 0 for value in phase_budgets) or sum(phase_budgets) > 2**32 - 1:
+            raise ValueError("finetune_params.phases require positive u32 trial budgets")
     if not isinstance(params.get("model_params"), dict) or not params["model_params"]:
         raise ValueError("finetune_params.model_params must be a nonempty mapping")
     if "train_params" in params and not isinstance(params["train_params"], dict):
@@ -257,10 +261,22 @@ def run_scoped_finetune(
     if study is not None:
         study.stop = stop_search
 
+    phases = params.get("phases", [])
+    active_phase: int | None = None
+
     def optimizer_callback(request: dict[str, Any]) -> Any:
+        nonlocal active_phase
         index = request["trial_index"]
         if request["operation"] == "ask":
             if optimizer is None:
+                phase_index = request.get("phase_index")
+                if phases:
+                    if type(phase_index) is not int or not 0 <= phase_index < len(phases):
+                        raise ValueError("Native DAG optimizer phase index is missing or invalid")
+                    if phase_index != active_phase:
+                        phase_sampler = phases[phase_index].get("sampler", "tpe")
+                        study.sampler = manager._create_sampler(phase_sampler, params, seed)  # noqa: SLF001
+                        active_phase = phase_index
                 if stopped or (hasattr(study.sampler, "is_exhausted") and study.sampler.is_exhausted(study)):
                     return None
                 trial = study.ask()
@@ -302,8 +318,10 @@ def run_scoped_finetune(
 
     # The source facade is additive; installed dependency stubs may predate it.
     native = importlib.import_module("dag_ml")
-    request = {"target_node": target, "trial_budget": params["n_trials"], "metric": metric,
+    request = {"target_node": target, "trial_budget": sum(phase["n_trials"] for phase in phases) if phases else params["n_trials"], "metric": metric,
                "direction": direction, "optimizer_descriptor": json.loads(json.dumps(params))}
+    if phases:
+        request["phase_trial_budgets"] = [phase["n_trials"] for phase in phases]
     if inner_cv is not None:
         request["fold_score_reduction"] = params.get("eval_mode", "best")
     try:
@@ -342,6 +360,8 @@ def run_scoped_finetune(
     if inner_cv is not None:
         evidence["inner_cv"] = inner_cv
     evidence["optimizer"] = {"name": engine, "sampler_class": sampler_class, "best_trial_number": best_trial_number}
+    if phases:
+        evidence["optimizer"]["phase_trial_budgets"] = request["phase_trial_budgets"]
     if study is not None and params.get("storage"):
         evidence["optimizer"]["study_name"] = study.study_name
     if evidence["selected_trial_index"] != best_trial_number:
