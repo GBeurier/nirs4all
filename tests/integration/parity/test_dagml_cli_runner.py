@@ -2473,8 +2473,9 @@ def test_concat_transform_model_param_sweeps_preserve_stateful_refusal() -> None
 #   * replace    → `[raw, op1(raw), …]` = FeatureConcat([None, op1, …]) (legacy 2D materialization).
 # The processing axis is a FEATURE axis (no new SAMPLE rows — distinct from sample_augmentation), so
 # sample-keying is preserved. Parity uses ROW-INDEPENDENT transforms (SNV / SavitzkyGolay derivative)
-# for exact, order-insensitive agreement. The 3D shapes that must deliver parallel processing CHANNELS
-# to a DL model (stacked feature_augmentation / a per-layer step after it) stay fail-loud (#29/#31).
+# for exact, order-insensitive agreement. A later concat_transform is applied to
+# each stored processing layer before the model flattens them. Shapes that need
+# true 3D processing channels at a DL model still require the data-plane (#29/#31).
 # ---------------------------------------------------------------------------
 
 
@@ -2556,9 +2557,9 @@ def test_feature_augmentation_bridge_lowers_to_feature_concat() -> None:
 def test_feature_augmentation_3d_shapes_fail_loud() -> None:
     """The shapes that need the 3D data-plane (parallel processing channels) fail loud naming #29/#31.
 
-    Ordinary downstream X transforms and repeated augmentation run in each
-    channel before flattening (independent proofs in test_repeated_feature_augmentation).
-    Nested concat and unexpanded generators still require explicit lowering.
+    Ordinary downstream X transforms, concat and repeated augmentation run in
+    each channel before flattening. Nested concat operations inside the initial
+    augmentation and unexpanded generators still require explicit lowering.
     """
     from sklearn.cross_decomposition import PLSRegression
     from sklearn.decomposition import PCA
@@ -2578,9 +2579,38 @@ def test_feature_augmentation_3d_shapes_fail_loud() -> None:
     # Repeated augmentation has a qualified channel lowering, not an implicit fallback.
     lowered = pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"feature_augmentation": [MinMaxScaler()]}, model], "boundary")
     assert lowered["pipeline"], "repeated augmentation must retain an executable model path"
-    # A nested concat still changes the processing-axis contract.
-    with pytest.raises(NotImplementedError, match="concat_transform.*processing-axis"):
-        pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"concat_transform": [MinMaxScaler()]}, model], "boundary")
+    # A following concat replaces each stored processing separately before flattening.
+    lowered = pipeline_to_dsl([{"feature_augmentation": [StandardNormalVariate()]}, {"concat_transform": [MinMaxScaler()]}, model], "boundary")
+    layers = lowered["pipeline"][0]["params"]["operations"]
+    assert len(layers) == 2
+    assert all(layer[-1]["class"] == "nirs4all.operators.transforms.concat.FeatureConcat" for layer in layers)
+
+
+@pytest.mark.parametrize("action", ["add", "replace", "extend"])
+def test_feature_augmentation_then_concat_transform_matches_legacy_and_replays(tmp_path, action: str) -> None:
+    """Concat operates on each processing layer produced by feature augmentation."""
+    import nirs4all
+    from nirs4all.operators.transforms.nirs import SavitzkyGolay
+    from nirs4all.operators.transforms.scalers import StandardNormalVariate
+
+    pipeline = [
+        {"feature_augmentation": [StandardNormalVariate()], "action": action},
+        {"concat_transform": [StandardNormalVariate(), SavitzkyGolay(window_length=11, polyorder=2, deriv=1)]},
+        KFold(n_splits=3, shuffle=True, random_state=42),
+        {"model": PLSRegression(n_components=3)},
+    ]
+    path = dataset_path("regression")
+    native = nirs4all.run(pipeline, path, engine="dag-ml", save_artifacts=False, verbose=0)
+    legacy = nirs4all.run(pipeline, path, engine="legacy", save_artifacts=False, verbose=0)
+    assert native.execution_engine == "dag-ml"
+    assert native.cv_best_score == pytest.approx(legacy.cv_best_score, abs=1e-8)
+    assert native.best_rmse == pytest.approx(legacy.best_rmse, abs=1e-8)
+
+    archive = native.export(tmp_path / f"feature_concat_{action}.n4a")
+    dataset = DatasetConfigs(path).get_dataset_at(0)
+    test_x = dataset.x({"partition": "test"}, layout="2d")
+    replay = nirs4all.predict(archive, test_x)
+    assert np.sqrt(np.mean((np.asarray(dataset.y({"partition": "test"})).ravel() - np.asarray(replay.y_pred).ravel()) ** 2)) == pytest.approx(native.best_rmse, abs=1e-8)
 
 
 @pytest.mark.skipif(not _DAGML_CLI.exists(), reason=f"dag-ml-cli binary not built at {_DAGML_CLI}")
