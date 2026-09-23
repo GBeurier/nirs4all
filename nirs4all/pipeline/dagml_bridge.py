@@ -943,7 +943,14 @@ def _step_to_dsl(step: Any) -> dict[str, Any]:
                     **(dsl_step["params"].get("factory_params") or {}),
                     **configured_model_params,
                 }
+                if step.get("force_layout") is not None:
+                    layout = step["force_layout"]
+                    if layout not in {"2d", "2d_interleaved", "3d", "3d_transpose"}:
+                        raise ValueError(f"invalid model force_layout {layout!r}")
+                    dsl_step["params"]["force_layout"] = layout
             else:
+                if step.get("force_layout") not in (None, "2d"):
+                    raise NotImplementedError("non-2D force_layout on a sklearn model requires a shaped data-plane binding")
                 dsl_step["params"].update(configured_model_params)
             host_metadata: dict[str, Any] = {}
             if "finetune_params" in step:

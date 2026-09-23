@@ -67,6 +67,7 @@ class DagMLTorchEstimator(BaseEstimator):
         factory_path: str | None = None,
         template_blob: str | None = None,
         factory_params: dict[str, Any] | None = None,
+        force_layout: str | None = None,
         task_type: str | None = None,
         num_classes: int | None = None,
         epochs: int = 100,
@@ -80,6 +81,7 @@ class DagMLTorchEstimator(BaseEstimator):
         self.factory_path = factory_path
         self.template_blob = template_blob
         self.factory_params = factory_params
+        self.force_layout = force_layout
         self.task_type = task_type
         self.num_classes = num_classes
         self.epochs = epochs
@@ -140,10 +142,18 @@ class DagMLTorchEstimator(BaseEstimator):
 
     def _features(self, X: Any) -> np.ndarray:
         data = np.asarray(X, dtype=np.float32)
-        if data.ndim == 2 and self.input_layout_ == "channels_first":
-            return data[:, np.newaxis, :]
         if data.ndim not in (2, 3):
             raise ValueError(f"PyTorch model requires 2D or 3D features, got {data.shape}")
+        if self.force_layout == "2d_interleaved" and data.ndim == 3:
+            return np.transpose(data, (0, 2, 1)).reshape(data.shape[0], -1)
+        if self.force_layout in {"2d", "2d_interleaved"}:
+            return data.reshape(data.shape[0], -1)
+        if self.force_layout == "3d":
+            return data[:, np.newaxis, :] if data.ndim == 2 else data
+        if self.force_layout == "3d_transpose":
+            return data[:, :, np.newaxis] if data.ndim == 2 else np.transpose(data, (0, 2, 1))
+        if data.ndim == 2 and self.input_layout_ == "channels_first":
+            return data[:, np.newaxis, :]
         return data
 
     def fit(self, X: Any, y: Any) -> DagMLTorchEstimator:
@@ -156,7 +166,13 @@ class DagMLTorchEstimator(BaseEstimator):
         raw = np.asarray(X, dtype=np.float32)
         if raw.ndim not in (2, 3):
             raise ValueError(f"PyTorch model requires 2D or 3D features, got {raw.shape}")
-        factory_shape = tuple(raw.shape[1:]) if raw.ndim == 3 else (1, raw.shape[1])
+        factory_shape: tuple[int, ...]
+        if self.force_layout in {"2d", "2d_interleaved"}:
+            factory_shape = (int(np.prod(raw.shape[1:])),)
+        elif self.force_layout == "3d_transpose":
+            factory_shape = (raw.shape[1], 1) if raw.ndim == 2 else (raw.shape[2], raw.shape[1])
+        else:
+            factory_shape = tuple(raw.shape[1:]) if raw.ndim == 3 else (1, raw.shape[1])
         model = self._new_model(factory_shape)
         if not isinstance(model, torch.nn.Module):
             raise TypeError(f"PyTorch factory produced {type(model).__name__}, expected torch.nn.Module")

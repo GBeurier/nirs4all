@@ -59,6 +59,7 @@ class DagMLFrameworkEstimator(BaseEstimator):
         template_blob: str | None = None,
         factory_params: dict[str, Any] | None = None,
         input_layout: str = "channels_first",
+        force_layout: str | None = None,
         task_type: str | None = None,
         num_classes: int | None = None,
         epochs: int = 100,
@@ -70,12 +71,15 @@ class DagMLFrameworkEstimator(BaseEstimator):
         loss: Any = None,
         metrics: Any = None,
         validation_split: float = 0.2,
+        compile_params: dict[str, Any] | None = None,
+        fit_params: dict[str, Any] | None = None,
     ) -> None:
         self.framework = framework
         self.factory_path = factory_path
         self.template_blob = template_blob
         self.factory_params = factory_params
         self.input_layout = input_layout
+        self.force_layout = force_layout
         self.task_type = task_type
         self.num_classes = num_classes
         self.epochs = epochs
@@ -87,6 +91,8 @@ class DagMLFrameworkEstimator(BaseEstimator):
         self.loss = loss
         self.metrics = metrics
         self.validation_split = validation_split
+        self.compile_params = compile_params
+        self.fit_params = fit_params
 
     def get_params(self, deep: bool = True) -> dict[str, Any]:
         params: dict[str, Any] = dict(super().get_params(deep=deep))
@@ -126,10 +132,18 @@ class DagMLFrameworkEstimator(BaseEstimator):
 
     def _features(self, X: Any) -> np.ndarray:
         raw = np.asarray(X, dtype=np.float32)
+        if raw.ndim not in (2, 3):
+            raise ValueError(f"{self.framework} model requires 2D or 3D features, got {raw.shape}")
+        if self.force_layout == "2d_interleaved" and raw.ndim == 3:
+            return np.transpose(raw, (0, 2, 1)).reshape(raw.shape[0], -1)
+        if self.force_layout in {"2d", "2d_interleaved"}:
+            return raw.reshape(raw.shape[0], -1)
+        if self.force_layout == "3d":
+            return raw[:, np.newaxis, :] if raw.ndim == 2 else raw
+        if self.force_layout == "3d_transpose":
+            return raw[:, :, np.newaxis] if raw.ndim == 2 else np.transpose(raw, (0, 2, 1))
         if raw.ndim == 2:
             return raw[:, :, np.newaxis]
-        if raw.ndim != 3:
-            raise ValueError(f"{self.framework} model requires 2D or 3D features, got {raw.shape}")
         if self.input_layout == "channels_first":
             return np.transpose(raw, (0, 2, 1))
         if self.input_layout != "channels_last":
@@ -140,7 +154,6 @@ class DagMLFrameworkEstimator(BaseEstimator):
         from nirs4all.core.task_type import TaskType
 
         features = self._features(X)
-        model = self._new_model(tuple(features.shape[1:]))
         task_type = TaskType(self.task_type or "regression")
         controls: dict[str, Any] = {
             "epochs": self.epochs,
@@ -159,9 +172,18 @@ class DagMLFrameworkEstimator(BaseEstimator):
 
             controller = TensorFlowModelController()
             x_train, y_train = controller._prepare_data(features, np.asarray(y), {})
-            if self.metrics is not None:
+            if self.compile_params is not None:
+                controls["compile"] = dict(self.compile_params)
+                for key in ("optimizer", "lr", "loss"):
+                    controls.pop(key, None)
+            elif self.metrics is not None:
                 controls["metrics"] = self.metrics
-            controls["validation_split"] = self.validation_split
+            if self.fit_params is not None:
+                controls["fit"] = dict(self.fit_params)
+                for key in ("epochs", "batch_size", "verbose"):
+                    controls.pop(key, None)
+            else:
+                controls["validation_split"] = self.validation_split
         elif self.framework == "jax":
             from nirs4all.controllers.models.jax_model import JaxModelController
 
@@ -170,6 +192,7 @@ class DagMLFrameworkEstimator(BaseEstimator):
         else:
             raise ValueError(f"unsupported framework {self.framework!r}")
         assert y_train is not None
+        model = self._new_model(tuple(x_train.shape[1:]))
         self.model_ = controller._train_model(model, x_train, y_train, **controls)
         self.n_features_in_ = int(np.prod(np.asarray(X).shape[1:]))
         return self
@@ -195,6 +218,9 @@ class DagMLFrameworkEstimator(BaseEstimator):
             raise ValueError("DAG framework estimator is not fitted")
         features = self._features(X)
         if self.framework == "tensorflow":
+            from nirs4all.controllers.models.tensorflow.data_prep import TensorFlowDataPreparation
+
+            features = TensorFlowDataPreparation.prepare_features(features)
             predictions = np.asarray(self.model_.predict(features, verbose=0))
         else:
             from nirs4all.controllers.models.jax.data_prep import JaxDataPreparation

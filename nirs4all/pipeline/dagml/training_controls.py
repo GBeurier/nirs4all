@@ -80,9 +80,28 @@ def apply_model_training_controls(model: Any, metadata: Mapping[str, Any], phase
     from .operator_routing import _coerce_one
 
     controls = effective_training_controls(metadata, phase)
+    explicit_verbose = "verbose" in controls
     verbose = controls.pop("verbose", 0)
     if type(verbose) is not int or verbose < 0:
         raise ValueError("train/refit_params.verbose must be a non-negative integer")
+    from .framework_estimator import DagMLFrameworkEstimator
+
+    if isinstance(model, DagMLFrameworkEstimator) and model.framework == "tensorflow":
+        for nested_name, estimator_name, flat_keys in (
+            ("compile", "compile_params", {"optimizer", "loss", "metrics", "learning_rate", "lr"}),
+            ("fit", "fit_params", {"epochs", "batch_size", "validation_split"}),
+        ):
+            if nested_name not in controls:
+                continue
+            nested = controls.pop(nested_name)
+            if not isinstance(nested, Mapping) or any(not isinstance(key, str) for key in nested):
+                raise TypeError(f"train/refit_params.{nested_name} must be a mapping with string keys")
+            merged = dict(nested)
+            for key in flat_keys & controls.keys():
+                merged[key] = controls.pop(key)
+            if nested_name == "fit" and explicit_verbose:
+                merged["verbose"] = verbose
+            controls[estimator_name] = merged
     refit = metadata.get("nirs4all_refit_params") or {}
     if phase == "REFIT" and (refit.get("warm_start") or "warm_start_fold" in refit):
         raise NotImplementedError("refit warm-start requires captured CV-weight transfer; a fresh estimator is not equivalent")
