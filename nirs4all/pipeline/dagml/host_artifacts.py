@@ -39,7 +39,10 @@ def _estimators(value: Any, seen: set[int]) -> Iterator[DagMLAutoGluonEstimator]
         children = value
     elif hasattr(value, "__dict__"):
         state = vars(value)
-        children = [state[key] for key in ("estimator", "_model", "model", "steps", "estimators", "members") if key in state]
+        children = [state[key] for key in (
+            "estimator", "_model", "model", "steps", "estimators", "members", "member",
+            "base", "learner", "base_members", "meta_member", "branches",
+        ) if key in state]
     else:
         return
     for child in children:
