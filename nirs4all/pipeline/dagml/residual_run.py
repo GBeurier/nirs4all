@@ -40,12 +40,14 @@ def residual_operator(pipeline: list[Any]) -> ResidualModel | None:
         operator = step.get("model")
         if isinstance(operator, ResidualModel):
             residuals.append(operator)
+        elif isinstance(step.get("residual"), ResidualModel):
+            residuals.append(step["residual"])
         elif isinstance(step.get("residual"), dict):
             residuals.append(ResidualModel(**step["residual"]))
     if not residuals:
         return None
     if len(residuals) != 1 or not isinstance(pipeline[-1], dict) or not (
-        isinstance(pipeline[-1].get("model"), ResidualModel) or isinstance(pipeline[-1].get("residual"), dict)
+        isinstance(pipeline[-1].get("model"), ResidualModel) or isinstance(pipeline[-1].get("residual"), (ResidualModel, dict))
     ):
         raise DagMlUnsupported("residual model requires one terminal residual step")
     return residuals[0]

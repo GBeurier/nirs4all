@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from nirs4all.operators.models.base import BaseModelOperator
+
 
 def normalize_model_steps(steps: list[Any]) -> list[Any]:
     """Make bare fit/predict operators explicit without changing caller objects.
@@ -35,7 +37,11 @@ def normalize_model_steps(steps: list[Any]) -> list[Any]:
             normalized.append({**step, "branch": _normalize_branch(step["branch"])})
         elif isinstance(step, dict) and step.get("framework") == "autogluon" and "model" not in step:
             normalized.append({**step, "model": {"framework": "autogluon"}})
-        elif not isinstance(step, dict) and callable(getattr(step, "fit", None)) and callable(getattr(step, "predict", None)):
+        elif isinstance(step, BaseModelOperator) or (
+            not isinstance(step, dict)
+            and callable(getattr(step, "fit", None))
+            and callable(getattr(step, "predict", None))
+        ):
             normalized.append({"model": step})
         else:
             normalized.append(step)
