@@ -35,6 +35,10 @@ def test_builtin_customizable_decon_run_export_replay(tmp_path, monkeypatch, mec
         {"model": customizable_decon, "model_params": {"output_units": 2}, "train_params": {"epochs": 1, "batch_size": 4}},
     ]
 
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", workspace_path=tmp_path / f"legacy-{mechanism}", save_charts=False, save_artifacts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
+
     result = nirs4all.run(pipeline, (x, y), engine="dag-ml", save_charts=False)
     assert result.execution_engine == "dag-ml"
     assert np.isfinite(result.cv_best_score)
@@ -48,12 +52,22 @@ def test_builtin_customizable_decon_run_export_replay(tmp_path, monkeypatch, mec
     result.close()
 
 
+@pytest.mark.parametrize("mechanism", ["in_process", "subprocess"])
 @pytest.mark.torch
 @pytest.mark.parity
-def test_builtin_customizable_decon_multiclass_logits_replay(tmp_path) -> None:
+def test_builtin_customizable_decon_multiclass_logits_replay(tmp_path, monkeypatch, mechanism: str) -> None:
     """Class-index training and archived predictions retain the task contract."""
     import nirs4all
     from nirs4all.operators.models.pytorch.nicon import customizable_decon_classification
+
+    if mechanism == "subprocess":
+        from ._dagml_cli import dagml_cli_path
+
+        cli = dagml_cli_path()
+        if not cli.exists():
+            pytest.skip(f"dag-ml-cli binary not built at {cli}")
+        monkeypatch.setenv("N4A_DAGML_CLI", str(cli))
+    monkeypatch.setenv("N4A_DAGML_INPROCESS", "0" if mechanism == "subprocess" else "1")
 
     rng = np.random.default_rng(16)
     x = rng.uniform(0, 1, (12, 64)).astype(np.float32)
@@ -66,6 +80,10 @@ def test_builtin_customizable_decon_multiclass_logits_replay(tmp_path) -> None:
             "train_params": {"epochs": 1, "batch_size": 4, "loss": "CrossEntropyLoss"},
         },
     ]
+
+    legacy = nirs4all.run(pipeline, (x, y), engine="legacy", workspace_path=tmp_path / f"legacy-class-{mechanism}", save_charts=False, save_artifacts=False, verbose=0)
+    assert np.isfinite(legacy.cv_best_score)
+    legacy.close()
 
     result = nirs4all.run(pipeline, (x, y), engine="dag-ml", save_charts=False)
     assert result.execution_engine == "dag-ml"

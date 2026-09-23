@@ -223,6 +223,13 @@ class PyTorchModelController(BaseModelController):
 
         # Setup loss function
         loss_fn = _resolve_loss_function(train_params.get('loss', 'MSELoss'), nn)
+        if isinstance(loss_fn, nn.CrossEntropyLoss):
+            # The shared data preparer emits float column targets. PyTorch's
+            # multiclass cross-entropy expects integer class indices (N,).
+            if y_train.ndim == 2 and y_train.shape[1] == 1:
+                y_train = y_train.reshape(-1).long()
+            if y_val is not None and y_val.ndim == 2 and y_val.shape[1] == 1:
+                y_val = y_val.reshape(-1).long()
 
         # Training parameters
         epochs = train_params.get('epochs', 100)

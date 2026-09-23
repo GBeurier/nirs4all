@@ -179,11 +179,20 @@ class PipelineConfigs:
                     base_value = result[base_key]
                     params_value = result[params_key]
 
-                    # Convert to standard {"class": ..., "params": ...} format
-                    result[base_key] = {
-                        "class": base_value,
-                        "params": params_value
-                    }
+                    # Decorated framework factories are functions, not classes.
+                    # Keep their serialized function form so deserialization can
+                    # defer construction until the dataset supplies input_shape.
+                    import inspect
+
+                    if inspect.isfunction(base_value) and hasattr(base_value, "framework"):
+                        function_spec = serialize_component(base_value)
+                        result[base_key] = {**function_spec, "params": params_value}
+                    else:
+                        # Convert ordinary components to the standard class form.
+                        result[base_key] = {
+                            "class": base_value,
+                            "params": params_value
+                        }
 
                     # Remove the params key
                     del result[params_key]
